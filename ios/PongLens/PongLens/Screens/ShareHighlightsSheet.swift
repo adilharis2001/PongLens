@@ -27,6 +27,7 @@ struct ShareHighlightsSheet: View {
     @State private var sharingOn = true
     @AppStorage("shareShowNames") private var showNames = true
     @AppStorage("shareShowScore") private var showScore = true
+    @AppStorage("shareShowLogo") private var showLogo = true
 
     var body: some View {
         PLChooserSheet(title: "Share your highlights") {
@@ -66,6 +67,10 @@ struct ShareHighlightsSheet: View {
                 .font(.plBody)
                 .foregroundStyle(PL.text200)
                 .tint(PL.cyan.opacity(0.5))
+            Toggle("Include logo", isOn: $showLogo)
+                .font(.plBody)
+                .foregroundStyle(PL.text200)
+                .tint(PL.cyan.opacity(0.5))
 
             if let message = model.errorMessage {
                 Text(message)
@@ -86,7 +91,8 @@ struct ShareHighlightsSheet: View {
     /// instead of to Instagram — the same shape SharePointSheet uses.
     private func run(to destination: InstagramShare.Destination?) async {
         guard let url = await model.prepareHighlights(
-            match: match, showNames: showNames, showScore: showScore)
+            match: match, showNames: showNames, showScore: showScore,
+            showLogo: showLogo)
         else { return }
         if let destination {
             do {

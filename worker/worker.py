@@ -5004,7 +5004,8 @@ def _story_background(path: str, you: str, them: str, video_box, *,
                       score_you: int = 0, score_them: int = 0,
                       games_detail: list | None = None,
                       show_score: bool = False,
-                      show_names: bool = True):
+                      show_names: bool = True,
+                      show_logo: bool = True):
     """The full 1080x1920 story canvas the rally is overlaid onto.
 
     Everything except the video: the ink ground with the site's bloom, the
@@ -5078,18 +5079,20 @@ def _story_background(path: str, you: str, them: str, video_box, *,
                    font=_load_font(28 * s, "medium"),
                    fill=(*REEL_MUTED, 255), anchor="ra")
 
-    # The mark, below the picture and above Instagram's reply bar.
-    mark_y = min((STORY_H - STORY_SAFE_BOTTOM) * s, vy + vh + 130 * s)
-    f_wm = _load_font(38 * s, "bold")
-    label = "PongLens"
-    label_w = d.textlength(label, font=f_wm)
-    box = 46 * s
-    gap = 16 * s
-    total = box + gap + label_w
-    x0 = W - margin - total
-    _draw_lens_mark(layer, x0 + box / 2, mark_y, box)
-    d.text((x0 + box + gap, mark_y), label, font=f_wm,
-           fill=(*REEL_WHITE, 235), anchor="lm")
+    # The mark, below the picture and above Instagram's reply bar —
+    # unless the owner switched it off in the share sheet (show_logo).
+    if show_logo:
+        mark_y = min((STORY_H - STORY_SAFE_BOTTOM) * s, vy + vh + 130 * s)
+        f_wm = _load_font(38 * s, "bold")
+        label = "PongLens"
+        label_w = d.textlength(label, font=f_wm)
+        box = 46 * s
+        gap = 16 * s
+        total = box + gap + label_w
+        x0 = W - margin - total
+        _draw_lens_mark(layer, x0 + box / 2, mark_y, box)
+        d.text((x0 + box + gap, mark_y), label, font=f_wm,
+               fill=(*REEL_WHITE, 235), anchor="lm")
 
     Image.alpha_composite(img, layer).convert("RGB") \
         .resize((STORY_W, STORY_H), Image.LANCZOS).save(path)
@@ -5477,8 +5480,10 @@ def render_story(manifest: dict, show_score: bool, workdir: str,
     you = (manifest.get("you_name") or "Player").strip() or "Player"
     them = (manifest.get("them_name") or "Opponent").strip() or "Opponent"
     # Absent on every manifest written before the toggle existed, and
-    # absence must mean what those renders did: names on.
+    # absence must mean what those renders did: names on. Same for the
+    # mark (show_logo, 2026-08-25).
     show_names = manifest.get("show_names") is not False
+    show_logo = manifest.get("show_logo") is not False
 
     # cut_local may be a local path OR a presigned URL. A single rally is a
     # few seconds out of a video that can run to hundreds of megabytes, and
@@ -5589,7 +5594,8 @@ def render_story(manifest: dict, show_score: bool, workdir: str,
             score_you=int(p.get("score_you") or 0),
             score_them=int(p.get("score_them") or 0),
             games_detail=p.get("games_detail") or [],
-            show_score=show_score, show_names=show_names)
+            show_score=show_score, show_names=show_names,
+            show_logo=show_logo)
 
         if from_cut:
             inputs = ["-ss", f"{src[1]:.3f}", "-t", f"{src[2]:.3f}",

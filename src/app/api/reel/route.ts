@@ -96,6 +96,9 @@ interface Manifest {
    *  rather than a column so the freshness check re-renders on a change of
    *  mind for free. Absent = true, matching every render before it. */
   show_names?: boolean;
+  /** Vertical only: whether the PongLens mark is drawn under the picture.
+   *  Same contract as show_names — absent = true. */
+  show_logo?: boolean;
   you_name: string;
   them_name: string;
   played_at: string | null;
@@ -129,6 +132,7 @@ export async function POST(req: Request) {
   let matchId: string;
   let showScore: boolean;
   let showNames: boolean;
+  let showLogo: boolean;
   let scope: string;
   let tagId: string;
   let pointId: string;
@@ -138,6 +142,7 @@ export async function POST(req: Request) {
     matchId = String(body.matchId ?? "");
     showScore = body.showScore !== false; // default on
     showNames = body.showNames !== false; // default on
+    showLogo = body.showLogo !== false; // default on
     tagId = String(body.tagId ?? "");
     // A pointId asks for the vertical single-rally render a Share to
     // Instagram hands over (135). It outranks the other selectors: there
@@ -429,7 +434,13 @@ export async function POST(req: Request) {
     // Only ever set for a vertical render, so a landscape export's stored
     // manifest keeps the exact shape it had before 135 and its freshness
     // check still passes.
-    ...(vertical ? { format: "story" as const, show_names: showNames } : {}),
+    ...(vertical
+      ? {
+          format: "story" as const,
+          show_names: showNames,
+          show_logo: showLogo,
+        }
+      : {}),
     you_name: youName,
     them_name: themName,
     played_at: match.played_at ?? null,

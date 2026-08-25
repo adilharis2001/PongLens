@@ -41,6 +41,7 @@ struct SharePointSheet: View {
     @State private var sharingOn = true
     @AppStorage("shareShowNames") private var showNames = true
     @AppStorage("shareShowScore") private var showScore = true
+    @AppStorage("shareShowLogo") private var showLogo = true
     /// Whatever is being handed to the system share sheet: the rendered
     /// video, or a public link. One presentation for both, so the two
     /// entry points into this sheet cannot drift apart.
@@ -128,6 +129,10 @@ struct SharePointSheet: View {
                 .font(.plBody)
                 .foregroundStyle(PL.text200)
                 .tint(PL.cyan.opacity(0.5))
+            Toggle("Include logo", isOn: $showLogo)
+                .font(.plBody)
+                .foregroundStyle(PL.text200)
+                .tint(PL.cyan.opacity(0.5))
 
             if let message = model.errorMessage {
                 Text(message)
@@ -165,7 +170,8 @@ struct SharePointSheet: View {
         guard let url = await model.prepare(
             match: match, point: point, points: points, pad: pad,
             tapEnd: app.tapEndPlayback,
-            showNames: showNames, showScore: showScore)
+            showNames: showNames, showScore: showScore,
+            showLogo: showLogo)
         else { return }
         if let destination {
             do {
@@ -242,7 +248,8 @@ final class StoryShareModel {
 
     func prepare(match: MatchRow, point: MatchPoint,
                  points: [MatchPoint], pad: ClipPad, tapEnd: Bool,
-                 showNames: Bool = true, showScore: Bool = true) async -> URL? {
+                 showNames: Bool = true, showScore: Bool = true,
+                 showLogo: Bool = true) async -> URL? {
         guard !busy else { return nil }
         busy = true
         errorMessage = nil
@@ -259,7 +266,8 @@ final class StoryShareModel {
             if let local = await prepareOnDevice(
                 match: match, point: point, points: points, pad: pad,
                 tapEnd: tapEnd,
-                showNames: showNames, showScore: showScore) {
+                showNames: showNames, showScore: showScore,
+                showLogo: showLogo) {
                 return local
             }
             errorMessage = nil
@@ -327,7 +335,8 @@ final class StoryShareModel {
                                  points: [MatchPoint], pad: ClipPad,
                                  tapEnd: Bool,
                                  showNames: Bool,
-                                 showScore: Bool) async -> URL? {
+                                 showScore: Bool,
+                                 showLogo: Bool) async -> URL? {
         let matchId = match.id.uuidString.lowercased()
         progressLine = "Building it here."
 
@@ -418,7 +427,8 @@ final class StoryShareModel {
                 try await StoryRenderer.render(
                     cutURL: cutURL, segStart: segStart, segEnd: segEnd,
                     crop: cropRows?.first?.story_crop, you: you, them: them,
-                    score: score, games: games, showNames: showNames)
+                    score: score, games: games, showNames: showNames,
+                    showLogo: showLogo)
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -431,7 +441,8 @@ final class StoryShareModel {
     /// with crossfades is exactly the machinery render_story already has,
     /// and a phone rebuilding it would be a third copy of the frame.
     func prepareHighlights(match: MatchRow, showNames: Bool,
-                           showScore: Bool) async -> URL? {
+                           showScore: Bool,
+                           showLogo: Bool = true) async -> URL? {
         guard !busy else { return nil }
         busy = true
         errorMessage = nil
@@ -443,13 +454,15 @@ final class StoryShareModel {
             let vertical: Bool
             let showScore: Bool
             let showNames: Bool
+            let showLogo: Bool
         }
         struct Res: Decodable { let status: String? }
         do {
             let _: Res = try await API.post(
                 "api/reel",
                 Req(matchId: matchId, vertical: true,
-                    showScore: showScore, showNames: showNames))
+                    showScore: showScore, showNames: showNames,
+                    showLogo: showLogo))
         } catch {
             errorMessage = friendly(error)
             return nil
@@ -484,7 +497,8 @@ final class StoryShareModel {
     /// previews (Core/Highlights.swift, parity-tested); the phone only
     /// names the budget. Renders on the worker like every stitched cut.
     func prepareAuto(match: MatchRow, kind: String,
-                     showNames: Bool, showScore: Bool) async -> URL? {
+                     showNames: Bool, showScore: Bool,
+                     showLogo: Bool = true) async -> URL? {
         guard !busy else { return nil }
         busy = true
         errorMessage = nil
@@ -496,13 +510,15 @@ final class StoryShareModel {
             let highlight: String
             let showScore: Bool
             let showNames: Bool
+            let showLogo: Bool
         }
         struct Res: Decodable { let status: String? }
         do {
             let _: Res = try await API.post(
                 "api/reel",
                 Req(matchId: matchId, highlight: kind,
-                    showScore: showScore, showNames: showNames))
+                    showScore: showScore, showNames: showNames,
+                    showLogo: showLogo))
         } catch {
             errorMessage = friendly(error)
             return nil

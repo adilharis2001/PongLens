@@ -61,7 +61,8 @@ enum StoryRenderer {
         them: String,
         score: (you: Int, them: Int)?,
         games: [(Int, Int)],
-        showNames: Bool = true
+        showNames: Bool = true,
+        showLogo: Bool = true
     ) async throws -> URL {
         let asset = AVURLAsset(url: cutURL)
         guard let vTrack = try await asset.loadTracks(withMediaType: .video).first
@@ -130,7 +131,7 @@ enum StoryRenderer {
         guard let artwork = bandArtwork(
             videoY: vy, videoH: shownH, videoX: vx, videoW: shownW,
             you: you, them: them, score: score, games: games,
-            showNames: showNames)
+            showNames: showNames, showLogo: showLogo)
         else { throw RenderError.exportFailed("Couldn't draw the frame.") }
 
         let band = CIImage(cgImage: artwork)
@@ -198,7 +199,7 @@ enum StoryRenderer {
     private static func bandArtwork(
         videoY vy: CGFloat, videoH: CGFloat, videoX vx: CGFloat, videoW: CGFloat,
         you: String, them: String, score: (you: Int, them: Int)?,
-        games: [(Int, Int)], showNames: Bool
+        games: [(Int, Int)], showNames: Bool, showLogo: Bool
     ) -> CGImage? {
         let W = Int(canvas.width), H = Int(canvas.height)
         guard let ctx = CGContext(
@@ -254,8 +255,12 @@ enum StoryRenderer {
             }
         }
 
-        let markY = min(canvas.height - safeBottom, vy + videoH + 130)
-        drawMark(ctx, centreY: markY, cyan: cyan, white: white)
+        // The mark stays unless the owner switched it off in the share
+        // sheet — mirrors _story_background's show_logo.
+        if showLogo {
+            let markY = min(canvas.height - safeBottom, vy + videoH + 130)
+            drawMark(ctx, centreY: markY, cyan: cyan, white: white)
+        }
         return ctx.makeImage()
     }
 

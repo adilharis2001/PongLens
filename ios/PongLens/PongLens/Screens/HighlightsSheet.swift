@@ -141,6 +141,7 @@ struct HighlightsShareSheet: View {
     @State private var busyAction: String?
     @AppStorage("shareShowNames") private var showNames = true
     @AppStorage("shareShowScore") private var showScore = true
+    @AppStorage("shareShowLogo") private var showLogo = true
 
     private var story: Highlights.Picks {
         Highlights.pick(points,
@@ -203,6 +204,10 @@ struct HighlightsShareSheet: View {
                 .font(.plBody)
                 .foregroundStyle(PL.text200)
                 .tint(PL.cyan.opacity(0.5))
+            Toggle("Include logo", isOn: $showLogo)
+                .font(.plBody)
+                .foregroundStyle(PL.text200)
+                .tint(PL.cyan.opacity(0.5))
 
             if let message = model.errorMessage {
                 Text(message)
@@ -239,7 +244,8 @@ struct HighlightsShareSheet: View {
         }
         guard let url = await model.prepareAuto(
             match: match, kind: apiKind,
-            showNames: showNames, showScore: showScore)
+            showNames: showNames, showScore: showScore,
+            showLogo: showLogo)
         else { return }
         if let destination {
             do {

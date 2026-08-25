@@ -194,11 +194,20 @@ function DownloadSheet({
   const [showScore, setShowScore] = useState(
     () => localStorage.getItem("shareShowScore") !== "false"
   );
+  const [showLogo, setShowLogo] = useState(
+    () => localStorage.getItem("shareShowLogo") !== "false"
+  );
   const [state, setState] = useState<CutState>({ step: "idle" });
 
   const download = useCallback(async () => {
     setState({ step: "rendering" });
-    const body = JSON.stringify({ matchId, highlight: kind, showScore, showNames });
+    const body = JSON.stringify({
+      matchId,
+      highlight: kind,
+      showScore,
+      showNames,
+      showLogo,
+    });
     const deadline = Date.now() + (kind === "long" ? 240 : 180) * 1000;
     try {
       for (;;) {
@@ -238,7 +247,7 @@ function DownloadSheet({
           e instanceof Error ? e.message : "Couldn't prepare the video.",
       });
     }
-  }, [kind, matchId, showNames, showScore]);
+  }, [kind, matchId, showNames, showScore, showLogo]);
 
   return (
     <div
@@ -263,7 +272,7 @@ function DownloadSheet({
               ? "Rendering…"
               : `Download (${clock(seconds)})`}
           </button>
-          <div className="flex items-center justify-center gap-5 text-sm text-zinc-400">
+          <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-zinc-400">
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -293,6 +302,21 @@ function DownloadSheet({
                 className="accent-cyan-400"
               />
               Include score
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showLogo}
+                onChange={(e) => {
+                  setShowLogo(e.target.checked);
+                  localStorage.setItem(
+                    "shareShowLogo",
+                    String(e.target.checked)
+                  );
+                }}
+                className="accent-cyan-400"
+              />
+              Include logo
             </label>
           </div>
           {state.step === "failed" && (
