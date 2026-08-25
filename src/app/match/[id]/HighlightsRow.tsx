@@ -1,8 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { clipUrlFor } from "@/app/starred/clipUrls";
+import { useCallback, useState } from "react";
 import type { Point } from "@/lib/types";
 import {
   HIGHLIGHT_BUDGETS_S,
@@ -13,21 +11,20 @@ import {
 import { TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 
 /**
- * The Tools row for the automatic highlights, and the overlay it opens.
+ * The Tools row for the automatic highlights: a chooser with the two
+ * cuts, played in the REAL watch player.
  *
- * Two cuts, each named with its own rally count (the hierarchy Adil set,
- * 2026-08-25): the SHORT highlight, sized for Instagram's minute, and the
- * LONG one, up to two. The overlay plays whichever is selected using the
- * rallies' existing preview clips — no render, no waiting — and offers
- * the watched cut as a download, rendered through the same pipeline as
- * every vertical share.
+ * The row opens a small chooser — Short highlight, Long highlight, each
+ * named with its own rally count (the hierarchy Adil set, 2026-08-25).
+ * Picking one hands the point ids to Player.openHighlights, which plays
+ * only those rallies full screen with the watch player's own transport;
+ * its Download pill comes back here, to the sheet that renders the
+ * watched cut through the same pipeline as every vertical share.
  *
  * Which rallies is decided by highlights.ts — the same picker the API
  * renders with and the phone previews with, so all three surfaces name
  * the same rallies.
  */
-
-type Cut = "short" | "long";
 
 type CutState =
   | { step: "idle" }
@@ -38,43 +35,46 @@ export function HighlightsRow({
   matchId,
   points,
   pad,
+  onPlay,
 }: {
   matchId: string;
   points: Point[];
   pad: ClipPad;
+  onPlay: (pointIds: string[], onDownload: () => void) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [sharingOn, setSharingOn] = useState(true);
+  const [chooserOpen, setChooserOpen] = useState(false);
+  const [downloadCut, setDownloadCut] = useState<"short" | "long" | null>(
+    null
+  );
 
   const short = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.reel);
   const long = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.long);
   const longWorthIt = long.totalS > short.totalS + 1;
-
-  useEffect(() => {
-    // The emergency switch (136). Fails open: only a stored 'off' hides
-    // the rendered downloads — and never the playback, which needs none.
-    const supabase = createClient();
-    supabase
-      .from("app_config")
-      .select("value")
-      .eq("key", "instagram_sharing")
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.value === "off") setSharingOn(false);
-      });
-  }, []);
 
   const summary =
     short.picks.length > 0
       ? `${short.picks.length} ${short.picks.length === 1 ? "rally" : "rallies"} · ${clock(short.totalS)}`
       : "No rallies yet";
 
+  const play = useCallback(
+    (cut: "short" | "long") => {
+      const picks = cut === "short" ? short.picks : long.picks;
+      setChooserOpen(false);
+      onPlay(
+        picks.map((p) => p.id),
+        () => setDownloadCut(cut)
+      );
+    },
+    [short.picks, long.picks, onPlay]
+  );
+
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => setChooserOpen(true)}
         className={TOOL_ROW_CLASS}
+        disabled={short.picks.length === 0}
       >
         <span className="shrink-0 text-sm font-semibold">Highlights</span>
         <span className="flex min-w-0 items-center gap-2">
@@ -84,16 +84,41 @@ export function HighlightsRow({
           <ToolRowChevron />
         </span>
       </button>
-      {open && short.picks.length > 0 && (
-        <HighlightsOverlay
+
+      {chooserOpen && short.picks.length > 0 && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-ink/80 backdrop-blur-sm sm:items-center"
+          onClick={() => setChooserOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-t-2xl border border-edge bg-surface p-5 sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-semibold text-zinc-100">Highlights</h2>
+            <div className="mt-4 space-y-2">
+              <CutRow
+                title="Short highlight"
+                detail={`${short.picks.length} ${short.picks.length === 1 ? "rally" : "rallies"} · ${clock(short.totalS)}`}
+                onClick={() => play("short")}
+              />
+              {longWorthIt && (
+                <CutRow
+                  title="Long highlight"
+                  detail={`${long.picks.length} rallies · ${clock(long.totalS)}`}
+                  onClick={() => play("long")}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {downloadCut && (
+        <DownloadSheet
           matchId={matchId}
-          cuts={{
-            short: { picks: short.picks, totalS: short.totalS },
-            long: { picks: long.picks, totalS: long.totalS },
-          }}
-          longWorthIt={longWorthIt}
-          sharingOn={sharingOn}
-          onClose={() => setOpen(false)}
+          kind={downloadCut === "short" ? "reel" : "long"}
+          seconds={downloadCut === "short" ? short.totalS : long.totalS}
+          onClose={() => setDownloadCut(null)}
         />
       )}
     </>
@@ -105,22 +130,60 @@ function clock(seconds: number) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function HighlightsOverlay({
+function CutRow({
+  title,
+  detail,
+  onClick,
+}: {
+  title: string;
+  detail: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full items-center gap-3 rounded-xl border border-edge bg-ink/40 px-4 py-3 text-left transition-colors hover:border-zinc-600"
+    >
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-cyan-glow/10 text-cyan-glow">
+        <svg
+          viewBox="0 0 24 24"
+          className="h-4 w-4"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path d="M8 5.5v13l11-6.5-11-6.5Z" />
+        </svg>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-zinc-100">
+          {title}
+        </span>
+        <span className="block text-xs tabular-nums text-zinc-400">
+          {detail}
+        </span>
+      </span>
+      <ToolRowChevron />
+    </button>
+  );
+}
+
+/**
+ * Rendering the watched cut and handing the file over. Sits ABOVE the
+ * player takeover (z-60): the Download pill in the player opens it. The
+ * kill switch is enforced by the API — its refusal shows here verbatim.
+ */
+function DownloadSheet({
   matchId,
-  cuts,
-  longWorthIt,
-  sharingOn,
+  kind,
+  seconds,
   onClose,
 }: {
   matchId: string;
-  cuts: Record<Cut, { picks: Point[]; totalS: number }>;
-  longWorthIt: boolean;
-  sharingOn: boolean;
+  kind: HighlightKind;
+  seconds: number;
   onClose: () => void;
 }) {
-  const [cut, setCut] = useState<Cut>("short");
-  const [index, setIndex] = useState(0);
-  const [src, setSrc] = useState<string | null>(null);
   const [showNames, setShowNames] = useState(
     () => localStorage.getItem("shareShowNames") !== "false"
   );
@@ -128,42 +191,10 @@ function HighlightsOverlay({
     () => localStorage.getItem("shareShowScore") !== "false"
   );
   const [state, setState] = useState<CutState>({ step: "idle" });
-  const seq = useRef(0);
-
-  const picks = cuts[cut].picks;
-  const point = picks[index];
-
-  useEffect(() => {
-    if (!point) return;
-    const mine = ++seq.current;
-    setSrc(null);
-    clipUrlFor(matchId, point.id).then((url) => {
-      if (seq.current !== mine) return;
-      setSrc(url);
-    });
-    // Read one ahead so the gap between rallies is not a round trip.
-    const next = picks[index + 1];
-    if (next) void clipUrlFor(matchId, next.id);
-  }, [matchId, point, picks, index]);
-
-  const advance = useCallback(() => {
-    setIndex((i) => Math.min(i + 1, picks.length - 1));
-  }, [picks.length]);
-
-  const switchCut = useCallback((next: Cut) => {
-    setCut(next);
-    setIndex(0);
-  }, []);
 
   const download = useCallback(async () => {
-    const kind: HighlightKind = cut === "short" ? "reel" : "long";
     setState({ step: "rendering" });
-    const body = JSON.stringify({
-      matchId,
-      highlight: kind,
-      showScore,
-      showNames,
-    });
+    const body = JSON.stringify({ matchId, highlight: kind, showScore, showNames });
     const deadline = Date.now() + (kind === "long" ? 240 : 180) * 1000;
     try {
       for (;;) {
@@ -203,107 +234,32 @@ function HighlightsOverlay({
           e instanceof Error ? e.message : "Couldn't prepare the video.",
       });
     }
-  }, [cut, matchId, showNames, showScore]);
-
-  if (!point) return null;
+  }, [kind, matchId, showNames, showScore]);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-ink/95 backdrop-blur-sm">
-      <div className="flex items-start justify-between px-5 pb-3 pt-5">
-        <div>
-          <div className="text-sm font-semibold text-zinc-100">
-            {cut === "short" ? "Short highlight" : "Long highlight"}
-          </div>
-          <div className="text-xs tabular-nums text-zinc-500">
-            {index + 1} of {picks.length}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {longWorthIt && (
-            <div className="flex overflow-hidden rounded-full border border-edge bg-surface text-xs">
-              {(["short", "long"] as Cut[]).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => switchCut(c)}
-                  className={`px-3 py-1.5 tabular-nums ${
-                    cut === c
-                      ? "bg-cyan-400/15 text-cyan-200"
-                      : "text-zinc-400 hover:text-zinc-200"
-                  }`}
-                >
-                  {c === "short" ? "Short" : "Long"} · {clock(cuts[c].totalS)}
-                </button>
-              ))}
-            </div>
-          )}
+    <div
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-ink/80 backdrop-blur-sm sm:items-center"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-t-2xl border border-edge bg-surface p-5 sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-lg font-semibold text-zinc-100">
+          Download this highlight
+        </h2>
+        <div className="mt-4 flex flex-col gap-3">
           <button
             type="button"
-            onClick={onClose}
-            className="rounded-full border border-edge bg-surface px-4 py-1.5 text-sm text-zinc-300 hover:text-zinc-100"
+            onClick={download}
+            disabled={state.step === "rendering"}
+            className="rounded-full border border-cyan-glow/50 px-4 py-2 text-sm font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/10 disabled:opacity-40"
           >
-            Close
+            {state.step === "rendering"
+              ? "Rendering…"
+              : `Download (${clock(seconds)})`}
           </button>
-        </div>
-      </div>
-
-      <div className="flex min-h-0 flex-1 items-center justify-center px-3">
-        {/* Sized on the div, never the video: a media element has no
-            intrinsic size until its metadata arrives. */}
-        <div className="w-full max-w-4xl">
-          <div className="overflow-hidden rounded-2xl border border-edge bg-black">
-            {src ? (
-              <video
-                key={src}
-                src={src}
-                className="aspect-video w-full"
-                controls
-                autoPlay
-                playsInline
-                onEnded={advance}
-              />
-            ) : (
-              <div className="flex aspect-video w-full items-center justify-center text-sm text-zinc-500">
-                Loading…
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="mx-auto w-full max-w-4xl px-5 pb-6 pt-4">
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <button
-            type="button"
-            onClick={() => setIndex((i) => Math.max(0, i - 1))}
-            disabled={index === 0}
-            className="rounded-full border border-edge bg-surface px-4 py-1.5 text-sm text-zinc-300 disabled:opacity-40"
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            onClick={advance}
-            disabled={index >= picks.length - 1}
-            className="rounded-full border border-edge bg-surface px-4 py-1.5 text-sm text-zinc-300 disabled:opacity-40"
-          >
-            Next
-          </button>
-          {sharingOn && (
-            <button
-              type="button"
-              onClick={download}
-              disabled={state.step === "rendering"}
-              className="rounded-full border border-edge bg-surface px-4 py-1.5 text-sm text-zinc-200 hover:border-zinc-500 disabled:opacity-40"
-            >
-              {state.step === "rendering"
-                ? "Rendering…"
-                : `Download this cut (${clock(cuts[cut].totalS)})`}
-            </button>
-          )}
-        </div>
-        {sharingOn && (
-          <div className="mt-3 flex items-center justify-center gap-5 text-sm text-zinc-400">
+          <div className="flex items-center justify-center gap-5 text-sm text-zinc-400">
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -335,12 +291,19 @@ function HighlightsOverlay({
               Include score
             </label>
           </div>
-        )}
-        {state.step === "failed" && (
-          <p className="mt-3 text-center text-sm text-amber-300/90">
-            {state.message}
-          </p>
-        )}
+          {state.step === "failed" && (
+            <p className="text-center text-sm text-amber-300/90">
+              {state.message}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-zinc-100"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
   );

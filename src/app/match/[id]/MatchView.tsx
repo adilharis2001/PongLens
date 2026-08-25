@@ -2784,6 +2784,9 @@ export function MatchView({
                 matchId={match.id}
                 points={visiblePoints}
                 pad={pad}
+                onPlay={(ids, onDownload) =>
+                  playerRef.current?.openHighlights(ids, onDownload)
+                }
               />
             )}
             <button

@@ -526,6 +526,12 @@ export interface PlayerHandle {
    * point you were just looking at, coming back from its detail view.
    */
   openScore: (atPointId?: string) => void;
+  /**
+   * Open the takeover playing ONLY these points — the highlights tape.
+   * Footage between them is jumped, the working chrome stands down, and
+   * the Download pill in the corner runs `onDownload`.
+   */
+  openHighlights: (pointIds: string[], onDownload: () => void) => void;
 }
 
 /**
@@ -1522,6 +1528,29 @@ export const Player = forwardRef<
   }, [points, pad]);
   const letSpansRef = useRef(letSpans);
   letSpansRef.current = letSpans;
+
+  /**
+   * Highlights mode (2026-08-25): when set, watch playback shows ONLY
+   * these points — everything between them is dead footage, the same
+   * shape as letSpans but without the crossing courtesy: the tape only
+   * ever shows its rallies, so even a deliberate landing outside snaps
+   * forward. Cleared when the takeover closes.
+   */
+  const [highlightIds, setHighlightIds] = useState<Set<string> | null>(null);
+  const highlightDownloadRef = useRef<(() => void) | null>(null);
+  const highlightSpans = useMemo(() => {
+    if (!highlightIds) return null;
+    const out: { start: number; end: number }[] = [];
+    for (const p of points) {
+      if (!highlightIds.has(p.id) || p.cut_t0 === null) continue;
+      const end = paddedEnd(p, pad);
+      if (end === null) continue;
+      out.push({ start: Number(p.cut_t0), end });
+    }
+    return out.sort((a, b) => a.start - b.start);
+  }, [highlightIds, points, pad]);
+  const highlightSpansRef = useRef(highlightSpans);
+  highlightSpansRef.current = highlightSpans;
   /** Previous watch-mode tick, so we only skip a let we ran INTO. Nulled
    *  on any pause/seek: landing inside a let on purpose stays put. */
   const watchTickRef = useRef<number | null>(null);
@@ -1706,6 +1735,25 @@ export const Player = forwardRef<
         }
       } else {
         watchTickRef.current = null;
+      }
+      // Highlights tape: outside every picked span is dead footage. Snap
+      // forward to the next pick; past the last one the tape ends —
+      // pause, chrome up.
+      const hs = highlightSpansRef.current;
+      if (hs && !scrubbing.current && !v.paused) {
+        const t = v.currentTime;
+        if (!hs.some((s) => t >= s.start - 0.05 && t < s.end)) {
+          const next = hs.find((s) => s.start > t);
+          if (next) {
+            v.currentTime = next.start;
+            setPlayheadT(next.start);
+            watchTickRef.current = next.start;
+          } else {
+            v.pause();
+            setControlsVisible(true);
+          }
+          return;
+        }
       }
       setPlayheadT(v.currentTime);
       // Pause-at-point-end: every rally stops the video ONCE, at its own
@@ -2134,6 +2182,8 @@ export const Player = forwardRef<
       zoomRef.current = { s: 1, x: 0, y: 0 };
       setZoomT({ s: 1, x: 0, y: 0 });
       setMode(null);
+      setHighlightIds(null);
+      highlightDownloadRef.current = null;
       setServeSheet(false);
       setNamesSheet(false);
       namesPromptedRef.current = false; // fresh entry re-asks if still missing
@@ -2199,6 +2249,19 @@ export const Player = forwardRef<
       }
     },
     [seekTo, snapLanding, playheadT, openTakeover, playNow]
+  );
+
+  const openHighlights = useCallback(
+    (pointIds: string[], onDownload: () => void) => {
+      const ids = new Set(pointIds);
+      setHighlightIds(ids);
+      highlightDownloadRef.current = onDownload;
+      const first = points.find((p) => ids.has(p.id) && p.cut_t0 !== null);
+      if (first && first.cut_t0 !== null) seekTo(Number(first.cut_t0));
+      openTakeover("watch");
+      playNow();
+    },
+    [points, seekTo, openTakeover, playNow]
   );
 
   const askBeforeOpening = canScore && unscored.length > 0;
@@ -2287,9 +2350,10 @@ export const Player = forwardRef<
     pinEndPause,
   ]);
 
-  useImperativeHandle(ref, () => ({ openWatch, openScore }), [
+  useImperativeHandle(ref, () => ({ openWatch, openScore, openHighlights }), [
     openWatch,
     openScore,
+    openHighlights,
   ]);
 
   // Commit the names drafts (no-op unless the names sheet is up and
@@ -4843,7 +4907,7 @@ export const Player = forwardRef<
                 share read the same. Bottom-left, clear of the transport
                 row, and it stays put when the chrome fades — it is
                 information, not a control. Coaches get it too. */}
-            {mode === "watch" && score.confirmedCount > 0 && (
+            {mode === "watch" && !highlightIds && score.confirmedCount > 0 && (
               <ScoreBug
                 score={enteringScore}
                 you={youLabel}
@@ -4995,11 +5059,25 @@ export const Player = forwardRef<
                   "linear-gradient(to bottom, rgba(10,10,15,.7), transparent)",
               }}
             >
-              {/* Left: the gestures sheet, same corner in both modes. */}
-              <GesturesButton
-                mode={mode === "score" ? "score" : "watch"}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/70 text-sm font-semibold text-zinc-300 backdrop-blur transition-colors hover:text-white"
-              />
+              {/* Left: the gestures sheet — or, on the highlights tape,
+                  the Download pill, which is that tape's one action. */}
+              {highlightIds ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    videoRef.current?.pause();
+                    highlightDownloadRef.current?.();
+                  }}
+                  className="whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/70 px-3.5 py-1.5 text-xs font-semibold text-cyan-glow backdrop-blur transition-colors hover:bg-cyan-glow/10"
+                >
+                  Download
+                </button>
+              ) : (
+                <GesturesButton
+                  mode={mode === "score" ? "score" : "watch"}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/70 text-sm font-semibold text-zinc-300 backdrop-blur transition-colors hover:text-white"
+                />
+              )}
               {/* Watch-mode review controls. Reviewing footage is a
                   different job from scoring it: you want the point again,
                   slower, and somewhere to put what you noticed. Score mode
@@ -5010,7 +5088,7 @@ export const Player = forwardRef<
               {/* Tighter gaps on a phone: the row now ends with the close ✕,
                   and at 390px the Keep score pill wrapped to two lines. */}
               <div className="flex items-center gap-1.5 sm:gap-2">
-              {mode === "watch" && (
+              {mode === "watch" && !highlightIds && (
                 <>
                   <button
                     type="button"
