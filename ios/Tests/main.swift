@@ -7,6 +7,7 @@ runAllChecks()
 runServePlacementParityChecks()
 runPlacementHeatMapChecks()
 runStarredTests()
+runHighlightsParityChecks()
 
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {

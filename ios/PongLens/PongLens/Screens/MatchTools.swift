@@ -14,6 +14,7 @@ struct ToolsSection: View {
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
     @State private var shareOpen = false
+    @State private var highlightsOpen = false
     @State private var coachOpen = false
     @State private var exportOpen = false
     @State private var analysisOpen = false
@@ -26,6 +27,10 @@ struct ToolsSection: View {
             SectionHeading("Tools")
             VStack(spacing: 0) {
                 toolRow("Score Keeper", trailing: gamesTrailing) { onOpenPlayer() }
+                divider
+                toolRow("Highlights", trailing: .text(highlightsTrailing)) {
+                    highlightsOpen = true
+                }
                 divider
                 toolRow("Share", trailing: .text("Not shared")) { shareOpen = true }
                 divider
@@ -88,6 +93,12 @@ struct ToolsSection: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $highlightsOpen) {
+            HighlightsSheet(match: match, points: model.visible)
+                .presentationDetents([.large])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $coachOpen) {
             CoachInviteSheet(match: match)
                 .presentationDetents([.medium, .large])
@@ -127,6 +138,15 @@ struct ToolsSection: View {
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
+    }
+
+    /// The trailing summary is the reel cut — the flagship of the three.
+    private var highlightsTrailing: String {
+        let picks = Highlights.pick(
+            model.visible,
+            pad: clipPad(strictness: nil, stored: match.clipPads),
+            budgetS: Highlights.reelBudgetS)
+        return Highlights.summary(picks) ?? "No rallies yet"
     }
 
     private var starredCount: Int {

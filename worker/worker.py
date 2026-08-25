@@ -5874,7 +5874,8 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     # manifest; only the canvas differs.
     scope = options.get("scope") or "starred"
     _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-    if (scope not in ("starred", "full", "v:starred")
+    if (scope not in ("starred", "full", "v:starred",
+                      "v:hl:story", "v:hl:reel", "v:hl:long")
             and not re.fullmatch(rf"tag:{_UUID}", scope)
             and not re.fullmatch(rf"v:point:{_UUID}", scope)):
         raise RuntimeError(f"reel: invalid scope {scope!r}")

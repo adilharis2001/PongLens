@@ -462,6 +462,61 @@ final class StoryShareModel {
         }
     }
 
+    /// One of the automatic cuts — highlight 'story' | 'reel' | 'long'.
+    /// The PICKER runs on the server with the same rule the phone
+    /// previews (Core/Highlights.swift, parity-tested); the phone only
+    /// names the budget. Renders on the worker like every stitched cut.
+    func prepareAuto(match: MatchRow, kind: String,
+                     showNames: Bool, showScore: Bool) async -> URL? {
+        guard !busy else { return nil }
+        busy = true
+        errorMessage = nil
+        progressLine = "This takes a little while."
+        defer { busy = false }
+        let matchId = match.id.uuidString.lowercased()
+        struct Req: Encodable {
+            let matchId: String
+            let highlight: String
+            let showScore: Bool
+            let showNames: Bool
+        }
+        struct Res: Decodable { let status: String? }
+        do {
+            let _: Res = try await API.post(
+                "api/reel",
+                Req(matchId: matchId, highlight: kind,
+                    showScore: showScore, showNames: showNames))
+        } catch {
+            errorMessage = friendly(error)
+            return nil
+        }
+        // The long cut is two minutes of output; give the worker room.
+        guard await waitForRender(
+            matchId: matchId, scope: "v:hl:\(kind)",
+            deadline: .seconds(kind == "long" ? 240 : 180))
+        else { return nil }
+        struct MediaReq: Encodable {
+            let matchId: String
+            let reel: Bool
+            let scope: String
+        }
+        struct MediaRes: Decodable { let url: String? }
+        do {
+            let res: MediaRes = try await API.post(
+                "api/media-url",
+                MediaReq(matchId: matchId, reel: true,
+                         scope: "v:hl:\(kind)"))
+            guard let link = res.url.flatMap(URL.init) else {
+                errorMessage = "Couldn't prepare the video. Try again."
+                return nil
+            }
+            return try await download(link, named: "PongLens-highlights.mp4")
+        } catch {
+            errorMessage = friendly(error)
+            return nil
+        }
+    }
+
     /// app_config.instagram_sharing (136), the emergency switch. An
     /// unreadable row answers "on": a config outage must not take the
     /// feature away — only the stored value 'off' does.

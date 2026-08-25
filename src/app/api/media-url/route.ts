@@ -64,6 +64,7 @@ export async function POST(req: Request) {
   let image: boolean;
   let preview: boolean;
   let reel: boolean;
+  let download: boolean;
   let raw: boolean;
   let rawPreview: boolean;
   let scope: string;
@@ -79,6 +80,7 @@ export async function POST(req: Request) {
     image = Boolean(body.image);
     preview = Boolean(body.preview);
     reel = Boolean(body.reel);
+    download = Boolean(body.download);
     raw = Boolean(body.raw);
     rawPreview = Boolean(body.rawPreview);
     // 'starred' | 'full' | 'tag:<uuid>' (036) | 'v:point:<uuid>' | 'v:starred'
@@ -88,6 +90,7 @@ export async function POST(req: Request) {
     scope =
       rawScope === "full" ||
       rawScope === "v:starred" ||
+      /^v:hl:(story|reel|long)$/.test(rawScope) ||
       new RegExp(`^tag:${UUID}$`).test(rawScope) ||
       new RegExp(`^v:point:${UUID}$`).test(rawScope)
         ? rawScope
@@ -276,13 +279,17 @@ export async function POST(req: Request) {
       }
       // A share render is fetched by the app, not saved by a person: it
       // goes on the pasteboard and is handed to Instagram. Inline, so
-      // nothing downstream treats it as a download.
+      // nothing downstream treats it as a download — unless the caller
+      // says download, which is the web's highlight buttons saving the
+      // same file to disk.
       const share = scope.startsWith("v:");
-      if (share) suffix = scope === "v:starred" ? "highlights" : "rally";
+      if (share) {
+        suffix = scope.startsWith("v:point:") ? "rally" : "highlights";
+      }
       const url = await presignGet(MEDIA_BUCKET, reelRow.r2_key, {
         expiresSeconds: 3600,
         filename: `PongLens - ${base} (${suffix}).mp4`,
-        disposition: share ? "inline" : "attachment",
+        disposition: share && !download ? "inline" : "attachment",
       });
       return NextResponse.json({ url });
     }

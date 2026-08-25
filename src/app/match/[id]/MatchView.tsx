@@ -27,6 +27,7 @@ import {
 } from "./gameScore";
 import { GamesPair, GamesToggle, ScoreLine } from "./ScoreLine";
 import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
+import { HighlightsRow } from "./HighlightsRow";
 import { NoteComposer, NoteItem } from "./Notes";
 import { hasPlacementBounces, type MapLabels } from "./PlacementMap";
 import {
@@ -2770,6 +2771,13 @@ export function MatchView({
                   <ToolRowChevron />
                 </span>
               </button>
+            )}
+            {hasCutOffsets && (
+              <HighlightsRow
+                matchId={match.id}
+                points={visiblePoints}
+                pad={pad}
+              />
             )}
             <button
               type="button"

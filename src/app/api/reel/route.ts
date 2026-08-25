@@ -7,6 +7,11 @@ import {
   stepBoundaryWalk,
 } from "@/app/match/[id]/gameScore";
 import { clipPad, effectivePad } from "@/app/match/[id]/clipEdit";
+import {
+  HIGHLIGHT_BUDGETS_S,
+  pickHighlights,
+  type HighlightKind,
+} from "@/app/match/[id]/highlights";
 import type { Point } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -125,6 +130,7 @@ export async function POST(req: Request) {
   let scope: string;
   let tagId: string;
   let pointId: string;
+  let highlight: string;
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
@@ -135,6 +141,10 @@ export async function POST(req: Request) {
     // Instagram hands over (135). It outranks the other selectors: there
     // is exactly one point in the manifest and the canvas is 9:16.
     pointId = String(body.pointId ?? "");
+    // highlight 'story' | 'reel' | 'long' asks for the AUTOMATIC picks —
+    // the picker in highlights.ts chooses the rallies, the caller only
+    // names the time budget. Same canvas and pipeline as every vertical.
+    highlight = String(body.highlight ?? "");
     // scope 'tag:<uuid>' (036) selects the points carrying that tag; the
     // rest of the pipeline is scope-agnostic (the manifest lists the
     // points, the worker renders the manifest).
@@ -143,24 +153,29 @@ export async function POST(req: Request) {
     // canvas as a single-point story, one segment per starred rally.
     scope = pointId
       ? `v:point:${pointId}`
-      : tagId
-        ? `tag:${tagId}`
-        : body.scope === "full"
-          ? "full"
-          : body.vertical === true
-            ? "v:starred"
-            : "starred"; // default starred
+      : highlight
+        ? `v:hl:${highlight}`
+        : tagId
+          ? `tag:${tagId}`
+          : body.scope === "full"
+            ? "full"
+            : body.vertical === true
+              ? "v:starred"
+              : "starred"; // default starred
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
   if (
     !UUID_RE.test(matchId) ||
     (tagId && !UUID_RE.test(tagId)) ||
-    (pointId && !UUID_RE.test(pointId))
+    (pointId && !UUID_RE.test(pointId)) ||
+    (highlight && !(highlight in HIGHLIGHT_BUDGETS_S))
   ) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
-  const vertical = Boolean(pointId) || scope === "v:starred";
+  const hlKind = (highlight || null) as HighlightKind | null;
+  const vertical =
+    Boolean(pointId) || scope === "v:starred" || hlKind !== null;
 
   // The switch shipped in 136. Reading it here covers every caller —
   // including a phone whose own config read failed open — and failing OPEN
@@ -216,6 +231,16 @@ export async function POST(req: Request) {
     .eq("deleted", false);
   const ordered = sortPoints((points ?? []) as Point[]);
 
+  // Automatic highlights: the picker decides membership, everything after
+  // this treats the picks like any other included set.
+  const hlIds = new Set<string>();
+  if (hlKind) {
+    for (const p of pickHighlights(ordered, pad, HIGHLIGHT_BUDGETS_S[hlKind])
+      .picks) {
+      hlIds.add(p.id);
+    }
+  }
+
   // Tag scope: the tag must be the owner's (tags are owner-keyed), and the
   // included set is the points currently carrying it. enqueue_reel()
   // re-checks tag ownership server-side.
@@ -258,11 +283,13 @@ export async function POST(req: Request) {
       clipPath &&
       (pointId
         ? p.id === pointId
-        : scope === "full"
-          ? true
-          : tagId
-            ? taggedIds.has(p.id)
-            : p.starred);
+        : hlKind
+          ? hlIds.has(p.id)
+          : scope === "full"
+            ? true
+            : tagId
+              ? taggedIds.has(p.id)
+              : p.starred);
     if (included) {
       // Cut-timeline segment covering the same content as the preview
       // clip: cut_t0 is the padded clip start, so the span is the rally
@@ -325,11 +352,15 @@ export async function POST(req: Request) {
       {
         error: pointId
           ? "This rally has no video to share."
-          : scope === "full"
-            ? "This match has no playable clips yet."
-            : tagId
-              ? "Tag at least one point first."
-              : "Star at least one point first.",
+          : hlKind === "story"
+            ? "Every rally here runs past Instagram's 20-second Story cap."
+            : hlKind
+              ? "This match has no playable clips yet."
+              : scope === "full"
+                ? "This match has no playable clips yet."
+                : tagId
+                  ? "Tag at least one point first."
+                  : "Star at least one point first.",
       },
       { status: 400 }
     );
@@ -338,6 +369,9 @@ export async function POST(req: Request) {
   // handover, so refuse here rather than spend a render on a file the
   // phone would have to throw away.
   if (vertical) {
+    // Highlight scopes carry their own ceiling (the picker already fills
+    // to it; this is the backstop). Everything else keeps the Reel cap.
+    const capS = hlKind ? HIGHLIGHT_BUDGETS_S[hlKind] : VERTICAL_MAX_S;
     const seconds = manifestPoints.reduce(
       (total, p) =>
         total +
@@ -346,12 +380,14 @@ export async function POST(req: Request) {
           : 0),
       0
     );
-    if (seconds > VERTICAL_MAX_S) {
+    if (seconds > capS + 0.5) {
       return NextResponse.json(
         {
           error: pointId
             ? `That rally runs ${Math.round(seconds)} seconds. Instagram takes up to ${VERTICAL_MAX_S}.`
-            : `Your starred rallies run ${Math.round(seconds)} seconds together. Instagram takes up to ${VERTICAL_MAX_S}.`,
+            : hlKind
+              ? "Couldn't fit the highlights. Try again."
+              : `Your starred rallies run ${Math.round(seconds)} seconds together. Instagram takes up to ${VERTICAL_MAX_S}.`,
           code: "too_long",
         },
         { status: 400 }
