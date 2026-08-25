@@ -183,11 +183,30 @@ enum TableFinderCore {
 
     /// The envelope verdict, worded for the ghost's caption. One cue at a
     /// time, most impactful first.
-    static func verdict(for stance: Stance) -> Verdict {
+    ///
+    /// `expectedSide` is "right" or "left" in the player's own terms, or
+    /// nil to say nothing about sides. It comes from the profile's
+    /// handedness: a right-hander serving pendulum stands near their
+    /// backhand corner, so the camera belongs on the forehand side — the
+    /// side their own body cannot swing across. Same sentence the upload
+    /// page's camera guide has carried all along; this is it said live.
+    static func verdict(for stance: Stance,
+                        expectedSide: String? = nil) -> Verdict {
         guard stance.residual < 0.35,
               stance.behind > 0.2, stance.behind < 9,
               stance.height > 0.15, stance.height < 3,
               abs(stance.lateral) < 8 else { return .implausible }
+        // First, before everything: walking round to the correct side and
+        // THEN fixing angle and distance is the only order that does not
+        // waste the user's steps. Negative lateral is the player's right
+        // side — the camera looks the same way the near player faces, so
+        // camera-left is the player's left.
+        if let expectedSide {
+            let onRight = stance.lateral < 0
+            if onRight != (expectedSide == "right") {
+                return .adjust("Put the camera on your forehand side")
+            }
+        }
         // Before the distance cues, deliberately. Told to step back from a
         // shallow angle, a user walks further round the END of the table
         // and makes the angle worse — the two cues fight, and the one that

@@ -76,6 +76,12 @@ final class TableFinderEngine {
     /// through a corner is the normal case, and an overlay that strobes
     /// off every time one does reads as broken.
     private(set) var sighting: [SIMD2<Double>]?
+    /// Degrees round from the end of the table, for the meter under the
+    /// caption. Only ever set from frames that cleared the plausibility
+    /// gate — an angle from an untrusted stance is fiction — and held
+    /// alongside the sighting so the needle does not flicker on frames
+    /// the gate turns down.
+    private(set) var liveAngle: Double?
 
     /// Set true once recording starts: cadence drops, verdicts freeze,
     /// and the engine only watches for drift against the locked corners.
@@ -86,7 +92,7 @@ final class TableFinderEngine {
             }
             if !recording { drifted = false; lockedCorners = nil }
             sighting = nil
-            blankFrames = 0
+            liveAngle = nil
             quietSince = nil
             recordingMirror = recording
         }
@@ -98,20 +104,31 @@ final class TableFinderEngine {
         didSet { fovMirror = fovDegrees }
     }
 
+    /// Which side the camera OUGHT to be on, "right" or "left" in the
+    /// player's own terms, or nil to say nothing. The screen sets it from
+    /// the profile's handedness — and clears it when the user has
+    /// deliberately flipped the ghost the other way, because a person who
+    /// has chosen a side (filming a left-handed friend, a wall in the
+    /// way) should not be nagged about it.
+    var expectedSide: String? {
+        didSet { expectedSideMirror = expectedSide }
+    }
+
     // Tap-queue state (serial access only; see the threading note).
     private nonisolated(unsafe) var recordingMirror = false
     private nonisolated(unsafe) var fovMirror: Double = 66
+    private nonisolated(unsafe) var expectedSideMirror: String?
     private nonisolated(unsafe) var lastRun: TimeInterval = 0
     private nonisolated(unsafe) var recent: [[SIMD2<Double>]] = []
     private nonisolated(unsafe) var framesSeen = 0
-    private nonisolated(unsafe) var darkFrames = 0
+    private nonisolated(unsafe) var darkSince: TimeInterval?
     private let model: MLModel
     private let context = CIContext(options: [.cacheIntermediates: false])
 
     // Main-actor state.
     private var lockedCorners: [SIMD2<Double>]?
     private var driftStrikes = 0
-    private var blankFrames = 0
+    private var lastSightedAt = Date.distantPast
     /// When the last sighting was lost, so a long silence can say so.
     private var quietSince: Date?
     /// When the caption last moved, for the minimum-dwell rule.
@@ -124,7 +141,7 @@ final class TableFinderEngine {
         // simulator's Metal path is the known-flaky one, but a silent
         // zero is the worst possible failure for a feature whose whole
         // job is to refuse rather than guess). The model is ~13 ms on
-        // CPU at a 0.4 s cadence, so there is nothing to win by risking
+        // CPU at a 0.15 s cadence, so there is nothing to win by risking
         // a backend that can disagree with the one we validated against.
         let configuration = MLModelConfiguration()
         configuration.computeUnits = .cpuOnly
@@ -164,7 +181,12 @@ final class TableFinderEngine {
     /// throttle for the gallery bench.
     nonisolated func ingest(_ pixelBuffer: CVPixelBuffer, force: Bool = false) {
         let now = ProcessInfo.processInfo.systemUptime
-        let interval: TimeInterval = recordingMirror ? 2.0 : 0.4
+        // Idle cadence 0.15 s, not the original 0.4. The model answers in
+        // 13 ms on CPU, so the old rate was caution left over from before
+        // that was measured — and it made the whole feature feel slow:
+        // three agreeing frames took 1.2 s at 0.4 s a frame. At 0.15 s the
+        // vote fills in ~0.45 s for about 9% of one core, setup only.
+        let interval: TimeInterval = recordingMirror ? 2.0 : 0.15
         guard force || now - lastRun >= interval else { return }
         lastRun = now
         framesSeen += 1
@@ -202,18 +224,25 @@ final class TableFinderEngine {
             // frame with almost nothing in it — a covered lens, a phone
             // face down, a hall with the lights off — chosen to fire
             // only when it is obvious rather than tuned on a corpus.
-            // Three in a row so the first frames after launch, before
-            // the camera has settled on an exposure, say nothing.
-            darkFrames = stats.mean < 0.10 ? darkFrames + 1 : 0
+            // A full second of dark before saying so, measured in time
+            // rather than frames so the cadence can change without
+            // re-tuning this: the first moments after launch, before the
+            // camera settles on an exposure, must stay quiet.
+            if stats.mean < 0.10 {
+                if darkSince == nil { darkSince = now }
+            } else {
+                darkSince = nil
+            }
+            let dark = darkSince.map { now - $0 >= 1.0 } ?? false
             // The corners still ride along for the readout: a faint find
             // is worth seeing while debugging, even though it is not
             // worth acting on.
-            report(nil, note: darkFrames >= 3 ? Self.darkNote : nil,
+            report(nil, note: dark ? Self.darkNote : nil,
                    raw: corners,
                    diag: "\(frameTag) \(peakText) — too faint")
             return
         }
-        darkFrames = 0
+        darkSince = nil
 
         let focal = Double(TableFinderCore.inputWidth) / 2
             / tan(fovMirror * .pi / 360)
@@ -231,7 +260,8 @@ final class TableFinderEngine {
             frameTag, peakText, stance.residual, stance.behind,
             stance.lateral, stance.height)
 
-        let verdict = TableFinderCore.verdict(for: stance)
+        let verdict = TableFinderCore.verdict(for: stance,
+                                              expectedSide: expectedSideMirror)
         if verdict == .implausible {
             report(nil, sighted: corners, note: Self.framingCue(corners),
                    raw: corners,
@@ -264,7 +294,8 @@ final class TableFinderEngine {
         } else {
             settled = nil
         }
-        report(settled, detection: corners, sighted: corners, raw: corners,
+        report(settled, detection: corners, sighted: corners,
+               angle: TableFinderCore.axisDegrees(for: stance), raw: corners,
                diag: "\(stanceText) \(vote) → \(label(for: verdict))")
     }
 
@@ -333,6 +364,7 @@ final class TableFinderEngine {
                                     detection: [SIMD2<Double>]? = nil,
                                     sighted: [SIMD2<Double>]? = nil,
                                     note: String? = nil,
+                                    angle: Double? = nil,
                                     raw: [SIMD2<Double>]? = nil,
                                     diag line: String) {
         if settled == nil, detection == nil {
@@ -343,19 +375,23 @@ final class TableFinderEngine {
         Task { @MainActor in
             self.diag = line
             self.debugCorners = raw
+            if let angle { self.liveAngle = angle }
             if let sighted {
                 self.sighting = sighted
-                self.blankFrames = 0
+                self.lastSightedAt = Date()
                 self.quietSince = nil
-            } else {
-                self.blankFrames += 1
-                // Three blank frames at the idle cadence is 1.2 s — long
-                // enough to ride out a rally crossing the corner, short
-                // enough that a phone turned away goes quiet promptly.
-                if self.blankFrames >= 3 {
-                    self.sighting = nil
-                    if self.quietSince == nil { self.quietSince = Date() }
-                }
+            } else if self.sighting != nil,
+                      Date().timeIntervalSince(self.lastSightedAt) > 1.2 {
+                // 1.2 s of blank before letting go — in time, not frames,
+                // so the cadence can change without re-tuning. Long enough
+                // to ride out a rally crossing the corner, short enough
+                // that a phone turned away goes quiet promptly.
+                self.sighting = nil
+                self.liveAngle = nil
+                if self.quietSince == nil { self.quietSince = Date() }
+            } else if self.sighting == nil, self.quietSince == nil,
+                      detection == nil {
+                self.quietSince = Date()
             }
             if self.recording {
                 self.watchDrift(detection)

@@ -73,6 +73,9 @@ struct TableGhost: View {
     var showTarget = true
 
     @AppStorage("pl-ghost-side") private var rightSide = true
+    /// True once the user has flipped the side by hand. From then on the
+    /// handedness default keeps its opinion to itself.
+    @AppStorage("pl-ghost-side-chosen") private var sideChosen = false
     @AppStorage("pl-ghost-behind") private var behind = GhostPose.behind
     @State private var dragStart: Double?
     @State private var distanceShown = false
@@ -93,6 +96,12 @@ struct TableGhost: View {
     /// The gallery's way of showing a worded state: beside a sighting it
     /// is a framing cue, on its own it is the reason nothing was found.
     var previewNote: String? = nil
+    /// The gallery's way of showing the angle meter without a camera.
+    var previewAngle: Double? = nil
+    /// Which side the profile's handedness says to start on, or nil when
+    /// the profile does not say. Only a DEFAULT: it applies while the
+    /// user has never touched the flip, and the flip wins forever after.
+    var preferredRightSide: Bool? = nil
 
     /// The engine's word, unless the user recently took the wheel.
     private var liveState: TableFinderEngine.State? {
@@ -157,7 +166,12 @@ struct TableGhost: View {
             // otherwise, and a stray touch would silence the live check
             // for four seconds for no reason.
             .gesture(showTarget ? ghostDrag(height: geo.size.height) : nil)
-            .onAppear { pulse = true }
+            .onAppear {
+                pulse = true
+                if !sideChosen, let preferred = preferredRightSide {
+                    rightSide = preferred
+                }
+            }
             .onChange(of: finder?.sighting == nil) { _, lost in
                 // A light tick the moment the table is picked up. At
                 // exactly that point the user is looking at the tripod
@@ -346,6 +360,36 @@ struct TableGhost: View {
         }
     }
 
+    /// The check's one number made visible: how far round the side the
+    /// camera stands, as a dot travelling toward the green zone. The cue
+    /// above says which way to walk; this shows the walk working, which
+    /// is the difference between an instruction and feedback. 33 degrees
+    /// is where the cue stops (TableFinderCore.verdict), 38 is the arc
+    /// the ghost teaches, so the zone's left edge is the moment the
+    /// nagging ends.
+    private func angleMeter(_ angle: Double) -> some View {
+        let lo = 15.0, hi = 48.0, zone = 33.0
+        let frac = min(max((angle - lo) / (hi - lo), 0), 1)
+        let zoneFrac = (zone - lo) / (hi - lo)
+        let inZone = angle >= zone
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.white.opacity(0.22))
+                Capsule()
+                    .fill(Color(hex: 0x34D399).opacity(0.45))
+                    .frame(width: geo.size.width * (1 - zoneFrac))
+                    .offset(x: geo.size.width * zoneFrac)
+                Circle()
+                    .fill(inZone ? Color(hex: 0x34D399) : Color(hex: 0xFBBF24))
+                    .frame(width: 8, height: 8)
+                    .offset(x: geo.size.width * frac - 4, y: -2.5)
+                    .animation(.easeOut(duration: 0.25), value: frac)
+            }
+        }
+        .frame(width: 128, height: 3)
+        .padding(.top, 2)
+    }
+
     private var isSearching: Bool {
         if case .searching = liveState { return true }
         return false
@@ -376,6 +420,11 @@ struct TableGhost: View {
             .padding(.top, height * 0.18)
             .animation(.easeInOut(duration: 0.2), value: captionText)
 
+            if let angle = previewAngle ?? finder?.liveAngle,
+               liveState != nil {
+                angleMeter(angle)
+            }
+
             if distanceShown {
                 Text(String(format: "%.1f m behind the end line", clampedBehind))
                     .font(.system(size: 11, weight: .semibold))
@@ -391,6 +440,7 @@ struct TableGhost: View {
 
             HStack {
                 Button {
+                    sideChosen = true
                     manualUntil = Date().addingTimeInterval(4)
                     withAnimation(.easeInOut(duration: 0.25)) { rightSide.toggle() }
                 } label: {

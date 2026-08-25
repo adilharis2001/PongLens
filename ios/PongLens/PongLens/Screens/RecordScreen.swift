@@ -253,6 +253,13 @@ struct RecordScreen: View {
     @State private var revealed = false
     /// The zoom a pinch started from, so the gesture is relative.
     @State private var zoomStart: Double?
+    /// "right" or "left" from the profile, nil until it answers (or if it
+    /// never does — everything here degrades to the old behaviour).
+    @State private var handedness: String?
+    /// Mirrors of the ghost's own storage, so the wrong-side cue can stay
+    /// quiet when the user has deliberately flipped against handedness.
+    @AppStorage("pl-ghost-side") private var ghostRightSide = true
+    @AppStorage("pl-ghost-side-chosen") private var ghostSideChosen = false
 
     private var queue: RecordingQueue { RecordingQueue.shared }
 
@@ -280,7 +287,8 @@ struct RecordScreen: View {
                         TableGhost(level: level.rollDegrees,
                                    session: recorder.session,
                                    finder: overlay == .check ? finder : nil,
-                                   showTarget: overlay == .ghost)
+                                   showTarget: overlay == .ghost,
+                                   preferredRightSide: handedness.map { $0 == "right" })
                             .ignoresSafeArea()
                     }
                 case .denied:
@@ -389,7 +397,10 @@ struct RecordScreen: View {
             syncPreviewTap(settings.overlay)
             await recorder.configure(fps: settings.fps)
             finder?.fovDegrees = recorder.horizontalFOV
+            await loadHandedness()
         }
+        .onChange(of: ghostRightSide) { _, _ in syncExpectedSide() }
+        .onChange(of: ghostSideChosen) { _, _ in syncExpectedSide() }
         .onChange(of: recorder.state) { _, newState in
             finder?.recording = (newState == .recording)
         }
@@ -797,6 +808,32 @@ struct RecordScreen: View {
         #else
         return level.motionAvailable ? level.sideways : !screenIsPortrait
         #endif
+    }
+
+    /// The profile's handedness, fetched once per open. RLS scopes the
+    /// select to the signed-in user, same as the Account screen.
+    private func loadHandedness() async {
+        struct Row: Decodable { var handedness: String? }
+        let rows: [Row]? = try? await supa
+            .from("player_profiles")
+            .select("handedness")
+            .execute().value
+        handedness = rows?.first?.handedness
+        syncExpectedSide()
+    }
+
+    /// The wrong-side cue's authority. Handedness names the side, and a
+    /// user who has flipped the ghost AGAINST their handedness has made a
+    /// choice — filming a left-handed friend, a wall in the way — so the
+    /// cue says nothing rather than nagging them about it.
+    private func syncExpectedSide() {
+        guard let handedness else { finder?.expectedSide = nil; return }
+        let wantRight = handedness == "right"
+        if ghostSideChosen, ghostRightSide != wantRight {
+            finder?.expectedSide = nil
+        } else {
+            finder?.expectedSide = handedness
+        }
     }
 
     /// The model reads preview frames only while the check is the chosen

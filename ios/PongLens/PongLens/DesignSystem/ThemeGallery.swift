@@ -55,7 +55,7 @@ struct ThemeGallery: View {
                         TableGhost(level: 0, previewDetection: [
                             SIMD2(127.9, 90.6), SIMD2(172.7, 114.0),
                             SIMD2(244.2, 95.1), SIMD2(199.1, 83.2),
-                        ])
+                        ], previewAngle: 39)
                         .frame(height: 200)
                         .frame(maxWidth: .infinity)
                         .background(Color.black)
@@ -70,10 +70,13 @@ struct ThemeGallery: View {
                         // instruction: walk until they sit on top of
                         // each other. Previously this state drew nothing
                         // at all and read as a dead feature.
+                        // The 27 under it is the angle meter mid-walk:
+                        // amber dot short of the green zone that starts
+                        // at the cue's own 33 degree line.
                         TableGhost(level: 0, previewDebug: [
                             SIMD2(127.9, 90.6), SIMD2(172.7, 114.0),
                             SIMD2(244.2, 95.1), SIMD2(199.1, 83.2),
-                        ])
+                        ], previewAngle: 27)
                         .frame(height: 200)
                         .frame(maxWidth: .infinity)
                         .background(Color.black)
