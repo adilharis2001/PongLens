@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function PrivacyPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Privacy Policy" updated="August 11, 2026">
+    <LegalPage title="Privacy Policy" updated="August 25, 2026">
       <section>
         <h2>The short version</h2>
         <p>
@@ -101,13 +101,18 @@ export default async function PrivacyPage() {
           on operator-controlled hardware: a private workstation run by the
           person who operates PongLens. The video is downloaded to that
           machine, processed, and the results are uploaded back to private
-          storage. Voice-note audio is sent to Deepgram to produce a
-          transcript. OpenAI receives the content needed for features such as
-          lesson summaries, Journal photo reading, and Recollect. For
-          Recollect, that means the relevant text from eligible lesson and
-          practice notes. Stripe processes payments and coach payouts. These
-          providers process content for PongLens to return the product
-          result.
+          storage. During processing, a small number of still frames from
+          the video are sent to OpenAI to confirm the footage is table
+          tennis we can work with and, when needed, to locate the table.
+          Voice-note audio is sent to Deepgram to produce a transcript, and
+          for nothing else. OpenAI also receives the content needed for
+          features you choose to use: lesson summaries, Journal photo
+          reading, Ask, Recollect, feedback assistance, and page drafting
+          for coaches. For Recollect, that means the relevant text from
+          eligible lesson and practice notes. Stripe processes payments and
+          coach payouts. These providers process content for PongLens to
+          return the product result, and they may not use your content to
+          train or improve their own models.
         </p>
       </section>
 
@@ -141,10 +146,11 @@ export default async function PrivacyPage() {
           </li>
         </ul>
         <p>
-          If you delete your account (email us to request this), we delete
-          everything in every tier above: videos, clips, match data, notes,
-          transcripts, and job history, within 30 days, except where
-          we&apos;re legally required to keep something.
+          You can delete your account yourself from the Account page, or
+          email us and we&apos;ll do it. Either way we delete everything in
+          every tier above: videos, clips, match data, notes, transcripts,
+          and job history, within 30 days, except where we&apos;re legally
+          required to keep something.
         </p>
       </section>
 
@@ -152,8 +158,9 @@ export default async function PrivacyPage() {
         <h2>4. Voice notes</h2>
         <p>
           When you record a voice note, the audio is uploaded to private
-          storage and sent to Deepgram to produce a transcript. The audio is
-          deleted after 90 days. The transcript stays with your account like
+          storage and sent to Deepgram to produce a transcript. Deepgram may
+          not use your recordings to improve its own models; it transcribes
+          them and nothing more. The audio is deleted after 90 days. The transcript stays with your account like
           any other note, and you can edit or delete it yourself at any time.
           If you want a specific recording or transcript deleted sooner,
           email us and we&apos;ll remove it.
@@ -220,12 +227,15 @@ export default async function PrivacyPage() {
           </li>
           <li>
             <strong>Deepgram</strong>: transcription of voice notes. It
-            receives the audio only to produce the transcript.
+            receives the audio only to produce the transcript, and may not
+            use it to improve its own models.
           </li>
           <li>
-            <strong>OpenAI</strong>: automated processing for lesson
-            summaries, Journal photo reading, feedback assistance, and
-            Recollect reminders.
+            <strong>OpenAI</strong>: automated checks during video
+            processing (a small number of still frames, to confirm the
+            footage is table tennis and to locate the table), plus lesson
+            summaries, Journal photo reading, Ask, Recollect reminders,
+            feedback assistance, and page drafting for coaches.
           </li>
           <li>
             <strong>Google</strong>: sign-in (OAuth). Google&apos;s own
@@ -273,12 +283,20 @@ export default async function PrivacyPage() {
       <section>
         <h2>10. Security</h2>
         <p>
-          Videos live in private buckets that only your account (and the
-          people you&apos;ve shared with, and the processing system) can
+          Videos live in private buckets that only your account, the people
+          you&apos;ve shared with, and the systems that run PongLens can
           access, enforced by row-level security and expiring signed links.
           Transfers use HTTPS. No system is perfectly secure, but we keep the
           attack surface deliberately small: no passwords stored, no card
           details touching our servers, minimal personal data held.
+        </p>
+        <p>
+          A small operations team (today, the person who runs PongLens) can
+          access stored videos and account records when needed to run the
+          service: debugging a failed upload, reviewing content that was
+          reported or refused, or answering a support request you sent. We
+          do not browse your library otherwise, and your notes are not read
+          for support unless you send them to us.
         </p>
       </section>
 

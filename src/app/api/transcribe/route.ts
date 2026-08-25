@@ -114,7 +114,10 @@ export async function POST(req: Request) {
     }
 
     const dgRes = await fetch(
-      "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true",
+      // mip_opt_out keeps recordings out of Deepgram's model-improvement
+      // program — the Privacy Policy promises audio is transcribed and
+      // nothing more, and this flag is what makes that promise true.
+      "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&mip_opt_out=true",
       {
         method: "POST",
         headers: {

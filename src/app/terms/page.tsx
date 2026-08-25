@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function TermsPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Terms of Service" updated="August 11, 2026">
+    <LegalPage title="Terms of Service" updated="August 25, 2026">
       <section>
         <h2>The short version</h2>
         <p>
@@ -63,13 +63,18 @@ export default async function TermsPage() {
           time. It is enabled by default, and you can turn it off in Account.
         </p>
         <p>
-          Processing happens on hardware we operate directly (a private
-          workstation controlled by the service operator), not on a
-          third-party analysis service. Your video files are stored with
-          Cloudflare R2. Your account, match data, and notes are stored with
-          Supabase. Voice notes are transcribed by Deepgram. Some product
-          features, including Recollect and lesson summaries, send the content
-          needed for that feature to OpenAI for automated processing.
+          Most video processing happens on hardware we operate directly (a
+          private workstation controlled by the service operator). As part of
+          processing, a small number of still frames from your video are
+          checked by an automated vision service to confirm the footage is
+          table tennis we can work with and, when needed, to locate the
+          table. Your video files are stored with Cloudflare R2. Your
+          account, match data, and notes are stored with Supabase. Voice
+          notes are transcribed by Deepgram, which may not use your
+          recordings to improve its own products. Some product features,
+          including Recollect, lesson summaries, and Ask, send the content
+          needed for that feature to OpenAI for automated processing. The
+          full list of providers, and what each one does, is in section 11.
         </p>
       </section>
 
@@ -359,11 +364,15 @@ export default async function TermsPage() {
             sign-in links and notifications when your match is ready.
           </li>
           <li>
-            <strong>Deepgram</strong>: transcription of voice notes.
+            <strong>Deepgram</strong>: transcription of voice notes. It may
+            not use your audio to improve its own products.
           </li>
           <li>
-            <strong>OpenAI</strong>: automated processing for Recollect,
-            lesson summaries, Journal photo reading, and feedback assistance.
+            <strong>OpenAI</strong>: automated checks during video
+            processing (confirming the footage is table tennis and locating
+            the table, from a small number of still frames), plus Recollect,
+            lesson summaries, Journal photo reading, Ask, feedback
+            assistance, and page drafting for coaches.
           </li>
           <li>
             <strong>Stripe</strong>: payment processing for purchases and
