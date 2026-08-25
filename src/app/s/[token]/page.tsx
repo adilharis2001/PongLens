@@ -133,7 +133,7 @@ const resolveShareSkips = cache(
     );
     const pad = clipPad(
       null,
-      (padsRes.data ?? null) as { pre?: number; post?: number } | null
+      (padsRes.data ?? null) as { pre: number; post: number } | null
     );
     const rows = [...visible, ...removed].sort(
       (a, b) =>

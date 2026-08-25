@@ -138,7 +138,7 @@ export default async function CoachOrderPage({
     sortPoints((points ?? []) as unknown as Point[]),
     clipPad(
       null,
-      (match as { clip_pads?: { pre?: number; post?: number } } | null)
+      (match as { clip_pads?: { pre: number; post: number } | null } | null)
         ?.clip_pads ?? null,
     ),
     await getTapEndPlayback(),
