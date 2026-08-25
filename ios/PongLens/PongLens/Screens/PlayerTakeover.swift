@@ -1870,7 +1870,24 @@ struct PlayerTakeover: View {
         }
     }
 
+    /// Does serve mean anything for this footage? Drills and practice are
+    /// not played to a score and nobody is following the rotation, so a
+    /// serve indicator there is at best noise and at worst a claim about
+    /// something that was never true. Keyed on the stored match_type, so
+    /// changing the type on the match page brings it back.
+    var tracksServe: Bool { MatchTitle.tracksServe(match.matchType) }
+
+    /// One gate for both orientations: the portrait pad and the landscape
+    /// top bar both draw their lights through here, so hiding it once
+    /// hides it everywhere rather than in the one place someone remembered.
+    @ViewBuilder
     func serveBall(active: Bool, them: Bool = false) -> some View {
+        if tracksServe {
+            serveBallButton(active: active, them: them)
+        }
+    }
+
+    func serveBallButton(active: Bool, them: Bool = false) -> some View {
         Button {
             flipServer(to: them ? .opponent : .user)
         } label: {
@@ -2740,7 +2757,7 @@ struct PlayerTakeover: View {
             if startAt == nil, let resumeTo, let i = points.firstIndex(of: resumeTo), i > 0 {
                 pendingResumeToast = "Resuming from point \(i + 1)"
             }
-            if firstServer == nil, !FirstServerPrompt.isSkipped(match.id) {
+            if tracksServe, firstServer == nil, !FirstServerPrompt.isSkipped(match.id) {
                 // Presenting a sheet while the takeover's own animation is
                 // still running leaves it half-alive with dead buttons —
                 // the picker race all over again. Let the cover land first.

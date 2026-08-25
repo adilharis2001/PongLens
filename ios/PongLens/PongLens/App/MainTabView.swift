@@ -153,7 +153,11 @@ struct MainTabView: View {
         // race is simply dropped — you tap Record and nothing happens.
         .sheet(isPresented: $router.newMatchOpen, onDismiss: {
             switch newMatchChoice {
-            case .record:
+            case .record(let kind):
+                // Which door was used has to be set before the recorder is
+                // presented, because the details sheet it raises on stop
+                // reads it for its processing defaults and its type list.
+                router.recordKind = kind
                 // Rotate BEFORE presenting, not after. The recorder is
                 // landscape-only, and a cover raised in portrait and
                 // rotated once it is up resizes with the camera preview
@@ -175,7 +179,10 @@ struct MainTabView: View {
                 newMatchChoice = choice
                 router.newMatchOpen = false
             }
-            .presentationDetents([.height(252)])
+            // Three rows now, not two. A detent left at the old height cuts
+            // the last row in half, which reads as a bug rather than as
+            // something to scroll.
+            .presentationDetents([.height(336)])
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
@@ -364,14 +371,20 @@ struct PLTabBar: View {
 // MARK: - New match
 
 enum NewMatchChoice {
-    case record
+    case record(MatchKind)
     case upload
 }
 
-/// The two ways a match gets in. They are not two spellings of one action:
-/// one is for standing at the table now, the other for footage already on
-/// the phone. Each row names its situation, so the choice never rests on
-/// telling two verbs apart.
+/// The ways footage gets in. They are not spellings of one action: two are
+/// for standing at the table now, the third for a file already on the
+/// phone. Each row names its situation, so the choice never rests on
+/// telling verbs apart.
+///
+/// Match and practice both open the same recorder. Asking here rather than
+/// afterwards is what lets the details sheet arrive already right: practice
+/// starts with processing off, because drills do not earn their minutes
+/// back, and without serve, because nobody in a drill is tracking who
+/// serves.
 struct NewMatchSheet: View {
     let onChoose: (NewMatchChoice) -> Void
 
@@ -380,8 +393,13 @@ struct NewMatchSheet: View {
             PLChooserRow(
                 icon: "record.circle",
                 title: "Record a match",
-                detail: "Film it now with your phone."
-            ) { onChoose(.record) }
+                detail: "Film a match you are about to play."
+            ) { onChoose(.record(.match)) }
+            PLChooserRow(
+                icon: "figure.table.tennis",
+                title: "Record a practice session",
+                detail: "Film drills or non-match play."
+            ) { onChoose(.record(.practice)) }
             PLChooserRow(
                 icon: "tray.and.arrow.up",
                 title: "Upload a match",

@@ -287,6 +287,21 @@ enum MatchTitle {
         "league": "League", "tournament": "Tournament",
     ]
 
+    /// The types where nobody is keeping score, so serve rotation is not
+    /// being followed and every serve affordance is noise.
+    static let nonMatchTypes: Set<String> = ["drills", "practice"]
+
+    /// Does serve mean anything for this footage?
+    ///
+    /// Keyed on the STORED match_type rather than on which button started
+    /// the recording, so changing the type on the match page changes the
+    /// behaviour with it, in both directions, with nothing to migrate.
+    /// An unset type reads as a match, which is what every row created
+    /// before this existed is.
+    static func tracksServe(_ matchType: String?) -> Bool {
+        guard let matchType, !matchType.isEmpty else { return true }
+        return !nonMatchTypes.contains(matchType)
+    }
     private static func untitledHead(_ playedAt: String) -> String {
         let t = PGDate.shortTime(playedAt)
         return t.isEmpty ? "Match" : "Match · \(t)"
@@ -318,4 +333,36 @@ enum MatchTitle {
             pointCount: match.pointCount
         )
     }
+}
+
+/// Which door was used to start a recording. It picks the starting
+/// match_type and the processing defaults, and then stops mattering:
+/// match_type is the stored truth from that point on.
+enum MatchKind {
+    case match
+    case practice
+
+    /// Offering all five types behind both doors is how you end up with a
+    /// drills session labelled "Tournament". Each door offers only what it
+    /// can honestly be.
+    var types: [String] {
+        switch self {
+        case .match: ["match", "league", "tournament"]
+        case .practice: ["practice", "drills"]
+        }
+    }
+
+    var defaultType: String {
+        switch self {
+        case .match: "match"
+        case .practice: "practice"
+        }
+    }
+
+    /// Practice footage does not earn its processing minutes back: there is
+    /// no score to keep and no serve to map. Both toggles start off and the
+    /// owner turns them on deliberately. A match keeps whatever they set in
+    /// Record settings, which is the setting doing its job rather than this
+    /// overriding it.
+    var forcesProcessingOff: Bool { self == .practice }
 }

@@ -5,6 +5,11 @@ final class Router {
     var tab: MainTab = .home
     var uploadOpen = false
     var recordOpen = false
+    /// Which door opened the recorder. The details sheet reads it on stop,
+    /// for its processing defaults and its type list. It is NOT the stored
+    /// truth — `matches.match_type` is — so nothing should read this once
+    /// the match row exists.
+    var recordKind: MatchKind = .match
     /// The chooser in front of both of those. Nothing opens the camera or
     /// the library directly any more except the chooser itself.
     var newMatchOpen = false

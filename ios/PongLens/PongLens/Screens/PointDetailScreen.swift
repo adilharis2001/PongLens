@@ -81,8 +81,14 @@ struct PointDetailScreen: View {
         )
     }
 
+    /// Does serve mean anything for this footage? Drills and practice are
+    /// not played to a score and nobody follows the rotation, so a server
+    /// is a number nobody has. Keyed on the stored match_type, so changing
+    /// the type on the match page brings it all back.
+    private var tracksServe: Bool { MatchTitle.tracksServe(match.matchType) }
+
     private var iServed: Bool? {
-        guard let point else { return nil }
+        guard tracksServe, let point else { return nil }
         guard let server = serving[point.id]?.server ?? point.displayServer else { return nil }
         return server == .user
     }
@@ -446,16 +452,18 @@ struct PointDetailScreen: View {
             ? .skip
             : point.confirmedWinner.map { $0 == .user ? .user : .opponent }
         VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Who served?")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(PL.text200)
-                HStack(spacing: 10) {
-                    bigChoice("Me", selected: iServed == true, tint: PL.cyan) {
-                        Task { await model.setServerOverride(point, .user); flashSaved() }
-                    }
-                    bigChoice("Them", selected: iServed == false, tint: PL.magentaSoft) {
-                        Task { await model.setServerOverride(point, .opponent); flashSaved() }
+            if tracksServe {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Who served?")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(PL.text200)
+                    HStack(spacing: 10) {
+                        bigChoice("Me", selected: iServed == true, tint: PL.cyan) {
+                            Task { await model.setServerOverride(point, .user); flashSaved() }
+                        }
+                        bigChoice("Them", selected: iServed == false, tint: PL.magentaSoft) {
+                            Task { await model.setServerOverride(point, .opponent); flashSaved() }
+                        }
                     }
                 }
             }

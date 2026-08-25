@@ -229,6 +229,10 @@ struct RecordScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(LibraryStore.self) private var library
     @Environment(Router.self) private var router
+    /// Match or practice, chosen at the New match sheet. Read once here and
+    /// handed down, so the recorder itself stays ignorant of the
+    /// distinction: it films the same way either way.
+    private var kind: MatchKind { router.recordKind }
     @State private var recorder = Recorder()
     @State private var level = LevelMonitor()
     /// The live table check; nil when the model is missing from the
@@ -347,6 +351,12 @@ struct RecordScreen: View {
             // where the screen would otherwise be visibly resizing.
             RecordOrientation.recorderAppeared()
             Task { await RecordOrientation.pinLandscape() }
+            // The door chosen at the New match sheet is an answer to the
+            // Type question, so record it instead of asking again. Only
+            // when nothing is set: a session reopened from the shelf
+            // already carries the owner's own answer and must not have it
+            // overwritten.
+            if draft.matchType == nil { draft.matchType = kind.defaultType }
         }
         .task {
             // The chooser has usually done this already, in which case the
@@ -367,8 +377,8 @@ struct RecordScreen: View {
                 queue.enqueue(
                     fileURL: url, durationS: duration, sessionId: sessionId,
                     metadata: draft,
-                    processOn: settings.processAfterUpload,
-                    placementOn: settings.placementMaps
+                    processOn: kind.forcesProcessingOff ? false : settings.processAfterUpload,
+                    placementOn: kind.forcesProcessingOff ? false : settings.placementMaps
                 )
             }
             recorder.onSessionEnd = {
@@ -431,8 +441,9 @@ struct RecordScreen: View {
                 draft: $draft,
                 recentOpponents: library.recentValues(\.opponentName),
                 recentVenues: library.recentValues(\.venue),
-                processOn: settings.processAfterUpload,
-                placementOn: settings.placementMaps
+                kind: kind,
+                processOn: kind.forcesProcessingOff ? false : settings.processAfterUpload,
+                placementOn: kind.forcesProcessingOff ? false : settings.placementMaps
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
@@ -1098,13 +1109,25 @@ struct MatchDetailsSheet: View {
 
     private var queue: RecordingQueue { RecordingQueue.shared }
 
-    private static let types = ["drills", "practice", "match", "league", "tournament"]
+    /// Which door this recording came through. Only the types that door
+    /// can honestly produce are offered, and serve is asked about only
+    /// when serve means something.
+    let kind: MatchKind
+
+    /// Serve rotation is not followed in drills, so asking who served
+    /// first is asking for a number nobody has. Keyed on the type in the
+    /// draft rather than on `kind`, so switching the picker to Match here
+    /// brings the question back without leaving the sheet.
+    private var tracksServe: Bool {
+        MatchTitle.tracksServe(draft.matchType)
+    }
 
     init(
         sessionId: UUID,
         draft: Binding<RecordingMetadata>,
         recentOpponents: [String],
         recentVenues: [String],
+        kind: MatchKind = .match,
         processOn: Bool,
         placementOn: Bool
     ) {
@@ -1112,6 +1135,7 @@ struct MatchDetailsSheet: View {
         self._draft = draft
         self.recentOpponents = recentOpponents
         self.recentVenues = recentVenues
+        self.kind = kind
         self._processOn = State(initialValue: processOn)
         self._placementOn = State(initialValue: placementOn)
     }
@@ -1138,7 +1162,7 @@ struct MatchDetailsSheet: View {
                     entryRow("Club or location", text: venueBinding, options: recentVenues)
                     Picker("Type", selection: typeBinding) {
                         Text("Not set").tag("")
-                        ForEach(Self.types, id: \.self) { value in
+                        ForEach(kind.types, id: \.self) { value in
                             Text(MatchTitle.typeLabel[value] ?? value).tag(value)
                         }
                     }
@@ -1155,12 +1179,14 @@ struct MatchDetailsSheet: View {
                     Text("Tap the side you played at the start of the video. Players swap ends between games, so this is about the first game only.")
                 }
 
-                Section {
-                    firstServerPicker
-                } header: {
-                    Text("Who served first")
-                } footer: {
-                    Text("Skip this if you don't remember. A wrong answer puts the serve on the wrong player for the whole match.")
+                if tracksServe {
+                    Section {
+                        firstServerPicker
+                    } header: {
+                        Text("Who served first")
+                    } footer: {
+                        Text("Skip this if you don't remember. A wrong answer puts the serve on the wrong player for the whole match.")
+                    }
                 }
 
                 Section {
