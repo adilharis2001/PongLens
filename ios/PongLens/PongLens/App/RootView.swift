@@ -96,7 +96,7 @@ struct RootView: View {
             // Not user-scoped and not behind auth (107 allow-lists the
             // key for anon), so this does not wait on the session the way
             // refreshAdmin does.
-            await app.refreshPlacementMode()
+            await app.refreshConfigFlags()
         }
         .task {
             // A breath of brand on cold start, then out of the way. Auth

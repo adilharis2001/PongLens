@@ -22,6 +22,9 @@ private struct HLFixture: Decodable {
         let has_clip: Bool
         let contacts: Int?
         let n_hits: Int?
+        // Winner-tap fields (2026-08-25); absent on the legacy block.
+        let cut_t0: Double?
+        let scored_at_cut_s: Double?
     }
     struct Pad: Decodable {
         let pre: Double
@@ -31,15 +34,25 @@ private struct HLFixture: Decodable {
         let ids: [UUID]
         let totalS: Double
     }
+    /// Julian 08-23 — 76 winner taps. `expected` pins the picks with
+    /// tap-trimmed lengths (the shipping config), `expected_off` the
+    /// same match with the flag off.
+    struct Tapped: Decodable {
+        let pad: Pad
+        let points: [Pt]
+        let expected: [String: Expected]
+        let expected_off: [String: Expected]
+    }
     let pad: Pad
     let points: [Pt]
     let expected: [String: Expected]
+    let tapped: Tapped?
 }
 
 private func hlPoint(_ r: HLFixture.Pt, matchId: UUID) -> MatchPoint {
     MatchPoint(
         id: r.id, matchId: matchId, idx: r.idx,
-        t0: r.t0, t1: r.t1, cutT0: nil,
+        t0: r.t0, t1: r.t1, cutT0: r.cut_t0,
         server: nil, serverOverride: nil, isLet: r.is_let,
         confirmedWinner: r.confirmed_winner.flatMap { Winner(rawValue: $0) },
         confirmedHow: nil, starred: r.starred,
@@ -47,7 +60,7 @@ private func hlPoint(_ r: HLFixture.Pt, matchId: UUID) -> MatchPoint {
         tightStart: r.tight_start, tightEnd: r.tight_end,
         gameEndOverride: r.game_end_override.flatMap { GameEndOverride(rawValue: $0) },
         gameWinnerOverride: nil,
-        scoredAtCutS: nil, serveStartAtCutS: nil,
+        scoredAtCutS: r.scored_at_cut_s, serveStartAtCutS: nil,
         lossReasons: nil, direction: nil, misreadKind: nil,
         serveSpin: nil, serveSidespin: nil, serveLength: nil,
         placementFlagged: nil,
@@ -82,13 +95,49 @@ func runHighlightsParityChecks() {
             check(false, "\(kind): fixture has expectations")
             continue
         }
-        let got = Highlights.pick(ordered, pad: pad, budgetS: budget)
-        check(got.points.map(\.id) == want.ids,
-              "\(kind): same rallies, same order as the web picker")
-        check(abs(got.totalS - want.totalS) < 0.01,
-              "\(kind): same total seconds (\(got.totalS) vs \(want.totalS))")
-        check(got.totalS <= budget + 1e-9,
-              "\(kind): total stays inside the \(Int(budget))s budget")
+        // The legacy match carries no taps, so BOTH flag states must
+        // reproduce the pinned picks — the flag is a no-op without data.
+        for tapEnd in [false, true] {
+            let got = Highlights.pick(ordered, pad: pad, budgetS: budget,
+                                      tapEnd: tapEnd)
+            check(got.points.map(\.id) == want.ids,
+                  "\(kind) tapEnd=\(tapEnd): same rallies as the web picker")
+            check(abs(got.totalS - want.totalS) < 0.01,
+                  "\(kind) tapEnd=\(tapEnd): same total seconds")
+            check(got.totalS <= budget + 1e-9,
+                  "\(kind) tapEnd=\(tapEnd): total inside the budget")
+        }
+    }
+
+    // The tapped block: Julian 08-23, 76 winner taps. Trimmed lengths
+    // change the picks (more rallies fit), and the off state must match
+    // the old rule exactly.
+    if let tapped = fx.tapped {
+        check(tapped.points.contains { $0.scored_at_cut_s != nil },
+              "tapped block really carries winner taps")
+        let tpad = ClipPad(pre: tapped.pad.pre, post: tapped.pad.post)
+        let tOrdered = tapped.points.map { hlPoint($0, matchId: matchId) }
+        for (kind, budget) in budgets {
+            guard let on = tapped.expected[kind],
+                  let off = tapped.expected_off[kind] else {
+                check(false, "tapped \(kind): fixture has expectations")
+                continue
+            }
+            let gotOn = Highlights.pick(tOrdered, pad: tpad, budgetS: budget,
+                                        tapEnd: true)
+            check(gotOn.points.map(\.id) == on.ids,
+                  "tapped \(kind) on: same rallies as the web picker")
+            check(abs(gotOn.totalS - on.totalS) < 0.01,
+                  "tapped \(kind) on: same total seconds (\(gotOn.totalS) vs \(on.totalS))")
+            let gotOff = Highlights.pick(tOrdered, pad: tpad, budgetS: budget,
+                                         tapEnd: false)
+            check(gotOff.points.map(\.id) == off.ids,
+                  "tapped \(kind) off: same rallies as the web picker")
+            check(abs(gotOff.totalS - off.totalS) < 0.01,
+                  "tapped \(kind) off: same total seconds")
+        }
+    } else {
+        check(false, "fixture carries the tapped block")
     }
 
     // The summary line the Tools row shows.

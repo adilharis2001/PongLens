@@ -61,6 +61,7 @@ export function CoachOrder({
   attachments,
   match,
   points,
+  skipSpans = [],
   userId,
   sponsored = false,
 }: {
@@ -72,6 +73,8 @@ export function CoachOrder({
   attachments: ReviewAttachmentRow[];
   match: MatchRow | null;
   points: WorkspacePoint[];
+  /** Dead footage the workspace player jumps (playhead.skipSpans). */
+  skipSpans?: { start: number; end: number }[];
   userId: string;
   /** funding = 'sponsored' (096): the coach covers this one. */
   sponsored?: boolean;
@@ -691,6 +694,7 @@ function Workspace({
             matchId={matchId}
             tall={focus}
             points={points}
+            skipSpans={skipSpans}
             findings={findings}
             findingPoints={findingPoints}
             suggested={detail.suggested_patterns ?? []}

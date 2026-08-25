@@ -61,16 +61,18 @@ func mkPoint(
     tightStart: Bool = false,
     tightEnd: Bool = false,
     placement: PlacementData? = nil,
-    server: Winner? = nil
+    server: Winner? = nil,
+    scoredAtCutS: Double? = nil,
+    edited: Bool = false
 ) -> MatchPoint {
     MatchPoint(
         id: uuid(n), matchId: uuid(9999), idx: n,
         t0: t0 ?? Double(n), t1: t1 ?? Double(n) + 1, cutT0: cutT0,
         server: server, serverOverride: nil, isLet: isLet,
         confirmedWinner: winner, confirmedHow: nil, starred: starred,
-        deleted: deleted, edited: false, tightStart: tightStart, tightEnd: tightEnd,
+        deleted: deleted, edited: edited, tightStart: tightStart, tightEnd: tightEnd,
         gameEndOverride: override, gameWinnerOverride: winnerOverride,
-        scoredAtCutS: nil, lossReasons: nil, direction: nil, misreadKind: nil,
+        scoredAtCutS: scoredAtCutS, lossReasons: nil, direction: nil, misreadKind: nil,
         serveSpin: nil, serveSidespin: nil, serveLength: nil,
         placementFlagged: nil, clipPath: nil, placement: placement
     )
@@ -339,14 +341,81 @@ func runAllChecks() {
         let p = mkPoint(1, cutT0: 10, t0: 100, t1: 104)
         near(paddedEnd(p, NORMAL), 16.6, "padded end")
 
-        eq(advanceMove(from: p, now: 16.2, nextStart: 20, pad: NORMAL), .jump(to: 20),
+        eq(advanceMove(from: p, now: 16.2, nextStart: 20, pad: NORMAL, tapEnd: false), .jump(to: 20),
            "answering at the pause boundary jumps to the next rally")
-        eq(advanceMove(from: p, now: 12.0, nextStart: 20, pad: NORMAL), .playTail(end: 16.6),
+        eq(advanceMove(from: p, now: 12.0, nextStart: 20, pad: NORMAL, tapEnd: false), .playTail(end: 16.6),
            "answering early with more than 3.5s left plays the clip out")
-        eq(advanceMove(from: p, now: 13.2, nextStart: 20, pad: NORMAL), .jump(to: 20),
+        eq(advanceMove(from: p, now: 13.2, nextStart: 20, pad: NORMAL, tapEnd: false), .jump(to: 20),
            "just inside the threshold jumps")
-        eq(advanceMove(from: p, now: 16.5, nextStart: nil, pad: NORMAL), .stay,
+        eq(advanceMove(from: p, now: 16.5, nextStart: nil, pad: NORMAL, tapEnd: false), .stay,
            "the last rally has nowhere to go")
+    }
+
+    // MARK: - Effective end (the winner tap, 2026-08-25)
+
+    suite("effectiveEnd") {
+        // padded end = 10 + 1 + 4 + 1.6 = 16.6 at NORMAL
+        let tapped = mkPoint(1, winner: .user, cutT0: 10, t0: 100, t1: 104,
+                             scoredAtCutS: 14.8)
+        near(effectiveEnd(tapped, NORMAL, on: true), 15.3,
+             "the winner tap trims the padded end, plus its half-second guard")
+        near(effectiveEnd(tapped, NORMAL, on: false), 16.6,
+             "the kill switch restores the padded end exactly")
+
+        let late = mkPoint(2, winner: .user, cutT0: 10, t0: 100, t1: 104,
+                           scoredAtCutS: 16.4)
+        near(effectiveEnd(late, NORMAL, on: true), 16.6,
+             "a tap near the clip's end never pushes past it")
+
+        let untapped = mkPoint(3, winner: .user, cutT0: 10, t0: 100, t1: 104)
+        near(effectiveEnd(untapped, NORMAL, on: true), 16.6,
+             "an untapped point keeps its padded end")
+
+        let edited = mkPoint(4, winner: .user, cutT0: 10, t0: 100, t1: 104,
+                             scoredAtCutS: 14.8, edited: true)
+        near(effectiveEnd(edited, NORMAL, on: true), 16.6,
+             "a hand-edited point keeps its edited end, tap or no tap")
+
+        let slipped = mkPoint(5, winner: .user, cutT0: 10, t0: 100, t1: 104,
+                              scoredAtCutS: 9.0)
+        near(effectiveEnd(slipped, NORMAL, on: true), 16.6,
+             "a tap before its own clip start is a slip, not a boundary")
+
+        // The advance decision follows the trimmed end: 3.3s left to the
+        // tap is under the tail threshold, so an early answer jumps.
+        eq(advanceMove(from: tapped, now: 12.0, nextStart: 20, pad: NORMAL, tapEnd: true),
+           .jump(to: 20),
+           "with the flag on the tail measures to the tap, not the pad")
+        eq(advanceMove(from: tapped, now: 12.0, nextStart: 20, pad: NORMAL, tapEnd: false),
+           .playTail(end: 16.6),
+           "with the flag off the same answer plays the clip out")
+    }
+
+    // The same synthetic cases playhead.test.ts pins for the web
+    // skipSpans — the two spans builders must agree number for number.
+    suite("skipSpans") {
+        // PAD here mirrors the web test: pre 1.2, post 1.3.
+        let PADW = ClipPad(pre: 1.2, post: 1.3)
+        let a = mkPoint(1, winner: .user, cutT0: 50, t0: 100, t1: 104)
+        let aTap = mkPoint(1, winner: .user, cutT0: 50, t0: 100, t1: 104,
+                           scoredAtCutS: 54)
+        let junk = mkPoint(2, deleted: true, cutT0: 58, t0: 110, t1: 114)
+        let b = mkPoint(3, cutT0: 62, t0: 120, t1: 124)
+
+        eq(skipSpans(all: [a, junk, b], pad: PADW, tapEnd: false),
+           [TimeSpan(start: 58, end: 62)],
+           "a deleted card's footage is a span, clamped to the next rally")
+        eq(skipSpans(all: [aTap, junk, b], pad: PADW, tapEnd: true),
+           [TimeSpan(start: 54.5, end: 62)],
+           "a tap tail swallows the junk card behind it, one merged span")
+        eq(skipSpans(all: [aTap, junk, b], pad: PADW, tapEnd: false),
+           [TimeSpan(start: 58, end: 62)],
+           "flag off: only the junk card's footage is dead")
+        eq(skipSpans(all: [aTap], pad: PADW, tapEnd: true),
+           [TimeSpan(start: 54.5, end: 56.5)],
+           "the last rally's tail stops at its own padded end")
+        eq(skipSpans(all: [a, b], pad: PADW, tapEnd: true), [],
+           "an untapped rally leaves no span")
     }
 
     // MARK: - Footage extents
@@ -486,7 +555,7 @@ func runAllChecks() {
         near(pauseEnd(tight[0], NORMAL, nextStart: 19.5), 19.45, "the stop overhangs the next start")
 
         let hold = { (t: Double, runStart: Double?, fired: UUID?) in
-            targetAt(tight, at: t, pad: NORMAL, hold: true, runStart: runStart, firedId: fired)?.id
+            targetAt(tight, at: t, pad: NORMAL, tapEnd: false, hold: true, runStart: runStart, firedId: fired)?.id
         }
         eq(hold(19.4, 12, nil), tight[0].id,
            "inside the overlap the previous rally is still the target")
@@ -498,7 +567,7 @@ func runAllChecks() {
            "a run that started at the new rally is watching the new rally")
         eq(hold(19.4, nil, nil), tight[1].id,
            "no run in progress, no hold")
-        eq(targetAt(tight, at: 19.4, pad: NORMAL, hold: false, runStart: 12, firedId: nil)?.id,
+        eq(targetAt(tight, at: 19.4, pad: NORMAL, tapEnd: false, hold: false, runStart: 12, firedId: nil)?.id,
            tight[1].id, "watch mode follows the picture")
 
         // An ANSWERED previous rally holds to its clip end, not the beat.
@@ -506,10 +575,21 @@ func runAllChecks() {
             mkPoint(1, winner: .user, cutT0: 10, t0: 100, t1: 108), // padded end 20.6
             mkPoint(2, cutT0: 19.5, t0: 200, t1: 204),
         ]
-        eq(targetAt(answered, at: 20.4, pad: NORMAL, hold: true, runStart: 12, firedId: nil)?.id,
+        eq(targetAt(answered, at: 20.4, pad: NORMAL, tapEnd: false, hold: true, runStart: 12, firedId: nil)?.id,
            answered[0].id, "an answered rally holds to the end of its clip")
 
-        eq(targetAt(pts, at: 5, pad: NORMAL, hold: true, runStart: nil, firedId: nil)?.id, nil,
+        // The same moment with the flag on and a tap at 18.0: the hold
+        // window ends at 18.5, so 20.4 already belongs to the next rally.
+        let answeredTapped = [
+            mkPoint(1, winner: .user, cutT0: 10, t0: 100, t1: 108,
+                    scoredAtCutS: 18.0),
+            mkPoint(2, cutT0: 19.5, t0: 200, t1: 204),
+        ]
+        eq(targetAt(answeredTapped, at: 20.4, pad: NORMAL, tapEnd: true, hold: true, runStart: 12, firedId: nil)?.id,
+           answeredTapped[1].id,
+           "with the flag on the hold ends at the tap, not the pad")
+
+        eq(targetAt(pts, at: 5, pad: NORMAL, tapEnd: false, hold: true, runStart: nil, firedId: nil)?.id, nil,
            "before the first rally there is nothing to answer")
     }
 

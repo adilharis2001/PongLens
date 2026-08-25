@@ -120,7 +120,7 @@ func isUnscored(_ p: MatchPoint) -> Bool {
 /// (chevron, chip, answer-advance) never holds: you are watching the new
 /// one.
 func targetAt(
-    _ ps: [MatchPoint], at t: Double, pad: ClipPad,
+    _ ps: [MatchPoint], at t: Double, pad: ClipPad, tapEnd: Bool,
     hold: Bool, runStart: Double?, firedId: UUID?
 ) -> MatchPoint? {
     let cur = playingPointId(ps, at: t).flatMap { id in ps.first { $0.id == id } }
@@ -133,7 +133,7 @@ func targetAt(
     guard prev.id != firedId else { return cur }
     let stop = isUnscored(prev)
         ? pauseEnd(prev, pad, nextStart: nextCutStart(ps, after: prev))
-        : paddedEnd(prev, pad)
+        : effectiveEnd(prev, pad, on: tapEnd)
     guard let stop, let rEnd = rallyEnd(prev, pad), t < stop else { return cur }
     guard let runStart, runStart < rEnd else { return cur }
     return prev
@@ -180,9 +180,10 @@ enum AdvanceMove: Equatable {
 /// The web's advanceFrom, as a decision. `now` is the playhead at the
 /// moment of the answer.
 func advanceMove(
-    from p: MatchPoint, now: Double, nextStart: Double?, pad: ClipPad
+    from p: MatchPoint, now: Double, nextStart: Double?, pad: ClipPad,
+    tapEnd: Bool
 ) -> AdvanceMove {
-    if let own = paddedEnd(p, pad), own - now > TAIL_WATCH_S {
+    if let own = effectiveEnd(p, pad, on: tapEnd), own - now > TAIL_WATCH_S {
         return .playTail(end: own)
     }
     guard let next = nextStart else { return .stay }
@@ -190,6 +191,39 @@ func advanceMove(
 }
 
 // MARK: - Does this clip hold two rallies?
+
+/// Dead footage for players WITHOUT their own span builders (the coach
+/// workspace): every deleted card's footage plus, with the tap-end flag
+/// on (138), the tail after each winner tap — effectiveEnd to the next
+/// visible start, the last rally's tail only to its own padded end.
+/// The Swift twin of playhead.ts skipSpans; `all` is every point with
+/// offsets, deleted included, in timeline order. Overlaps merge.
+func skipSpans(all: [MatchPoint], pad: ClipPad, tapEnd: Bool) -> [TimeSpan] {
+    let visible = all.filter { !$0.deleted && $0.cutT0 != nil }
+    var spans = deletedSpans(all: all, visible: visible, pad: pad)
+    if tapEnd {
+        for (i, p) in visible.enumerated() {
+            guard let padded = paddedEnd(p, pad),
+                  let eff = effectiveEnd(p, pad, on: true), eff < padded
+            else { continue }
+            let next = i + 1 < visible.count
+                ? (visible[i + 1].cutT0 ?? padded) : padded
+            let end = max(next, eff)
+            if end > eff + 0.05 { spans.append(TimeSpan(start: eff, end: end)) }
+        }
+    }
+    spans.sort { $0.start < $1.start }
+    var merged: [TimeSpan] = []
+    for s in spans {
+        if var last = merged.last, s.start <= last.end + 0.01 {
+            last.end = max(last.end, s.end)
+            merged[merged.count - 1] = last
+        } else {
+            merged.append(s)
+        }
+    }
+    return merged
+}
 
 /// A quiet stretch has to be at least this long to read as "between points".
 let FUSED_MIN_GAP_S = 1.5

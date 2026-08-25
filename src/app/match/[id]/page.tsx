@@ -10,7 +10,11 @@ import type {
   PointTag,
   Tag,
 } from "@/lib/types";
-import { getCommerceEnabled, getPlacementServesOnly } from "@/lib/config";
+import {
+  getCommerceEnabled,
+  getPlacementServesOnly,
+  getTapEndPlayback,
+} from "@/lib/config";
 import { RAW_BUCKET, presignGet } from "@/lib/r2";
 import { MatchView } from "./MatchView";
 import { RawMatchView } from "./RawMatchView";
@@ -245,6 +249,7 @@ export default async function MatchPage({
             (lossReasonLabels ?? []) as { id: string; label: string }[]
           }
           placementServesOnly={await getPlacementServesOnly()}
+          tapEnd={await getTapEndPlayback()}
           initialPointTags={(pointTagsRes.data ?? []).map(
             (r) =>
               ({

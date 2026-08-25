@@ -35,11 +35,15 @@ export function HighlightsRow({
   matchId,
   points,
   pad,
+  tapEnd,
   onPlay,
 }: {
   matchId: string;
   points: Point[];
   pad: ClipPad;
+  /** app_config.tap_end_playback — must match what the player and the
+   *  reel route use, so the row, the tape and the render agree. */
+  tapEnd: boolean;
   onPlay: (pointIds: string[], onDownload: () => void) => void;
 }) {
   const [chooserOpen, setChooserOpen] = useState(false);
@@ -47,8 +51,8 @@ export function HighlightsRow({
     null
   );
 
-  const short = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.reel);
-  const long = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.long);
+  const short = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.reel, tapEnd);
+  const long = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.long, tapEnd);
   const longWorthIt = long.totalS > short.totalS + 1;
 
   const summary =

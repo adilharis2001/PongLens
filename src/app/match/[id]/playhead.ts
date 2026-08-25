@@ -55,6 +55,99 @@ export function paddedEnd(p: Point, pad: ClipPad): number | null {
   return end + effectivePad(pad, p.tight_start, p.tight_end).post;
 }
 
+/** Margin kept after the winner tap: the 2026-08-16 boundary study puts
+ *  the tap at the rally's true end at the median but up to ~0.7s early,
+ *  so half a second stays on before the cut. */
+const TAP_END_GUARD_S = 0.5;
+
+/**
+ * Where a point's footage EFFECTIVELY ends, for playback and renders.
+ *
+ * When the owner scored the point in Keep score's flowing session,
+ * scored_at_cut_s is the playhead at the winner tap — a human saying
+ * "decided by here" (067). Everything after tap + 0.5s is ball retrieval
+ * and walking: median 1.4s per point, ~25% of a scored match's cut
+ * (docs/research/2026-08-25-tap-end-shave.md).
+ *
+ * A CLAMP, never an extension: min(paddedEnd, tap + 0.5s). The tap is
+ * ignored — the padded end stands — when
+ *   - `on` is false (app_config.tap_end_playback, the kill switch),
+ *   - the point was hand-edited: the clip editor is explicit intent
+ *     about boundaries and the tap predates the edit,
+ *   - the tap lands before its own clip's start, which describes no
+ *     point that can happen (a stale or slipped tap).
+ */
+export function effectiveEnd(
+  p: Point,
+  pad: ClipPad,
+  on: boolean
+): number | null {
+  const padded = paddedEnd(p, pad);
+  if (padded === null || !on) return padded;
+  const tap = p.scored_at_cut_s;
+  if (tap === null || tap === undefined || p.edited) return padded;
+  if (p.cut_t0 === null || p.cut_t0 === undefined) return padded;
+  if (Number(tap) < Number(p.cut_t0)) return padded;
+  return Math.min(padded, Number(tap) + TAP_END_GUARD_S);
+}
+
+/**
+ * Dead footage spans for surfaces WITHOUT their own span builders (the
+ * coach review workspace, the public share page). The match page's
+ * Player/MatchView build these inline with per-mode nuances; this is the
+ * plain union for players that only ever watch:
+ *
+ *   - every deleted card's footage, clamped to the next visible start
+ *   - with tapEnd on, every tap-trimmed tail (effectiveEnd → next
+ *     visible start; the last rally's tail runs only to its padded end)
+ *
+ * `rows` is EVERY point with cut offsets, deleted included, in timeline
+ * order. Overlaps are merged. A player jumps a span's footage while
+ * playing (never mid-scrub): seek to `end` when currentTime lands inside.
+ */
+export function skipSpans(
+  rows: Point[],
+  pad: ClipPad,
+  tapEnd: boolean
+): { start: number; end: number }[] {
+  const withCut = rows.filter(
+    (p) => p.cut_t0 !== null && p.cut_t0 !== undefined
+  );
+  const visible = withCut.filter((p) => !p.deleted);
+  const spans: { start: number; end: number }[] = [];
+  for (const p of withCut) {
+    if (!p.deleted) continue;
+    const start = Number(p.cut_t0);
+    let end = paddedEnd(p, pad) ?? start;
+    const next = visible.find((q) => Number(q.cut_t0) > start);
+    if (next && end > Number(next.cut_t0)) end = Number(next.cut_t0);
+    if (end > start) spans.push({ start, end });
+  }
+  if (tapEnd) {
+    for (let i = 0; i < visible.length; i++) {
+      const p = visible[i];
+      const padded = paddedEnd(p, pad);
+      const eff = effectiveEnd(p, pad, true);
+      if (padded === null || eff === null || eff >= padded) continue;
+      const next =
+        i + 1 < visible.length ? Number(visible[i + 1].cut_t0) : padded;
+      const end = Math.max(next, eff);
+      if (end > eff + 0.05) spans.push({ start: eff, end });
+    }
+  }
+  spans.sort((a, b) => a.start - b.start);
+  const merged: { start: number; end: number }[] = [];
+  for (const sp of spans) {
+    const last = merged[merged.length - 1];
+    if (last && sp.start <= last.end + 0.01) {
+      last.end = Math.max(last.end, sp.end);
+    } else {
+      merged.push({ ...sp });
+    }
+  }
+  return merged;
+}
+
 /**
  * Inverse of the ANCHORING FACT: the SOURCE-video time for a cut-video
  * time T that lies inside point p's span. The cut preserves source

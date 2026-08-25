@@ -157,50 +157,147 @@ test("the committed parity fixture matches this module's output", () => {
       "utf8"
     )
   );
+  // The same row mapping the generator uses (scripts/highlights-fixture.ts)
+  // — the two MUST agree or parity fails for mapper reasons, not rule
+  // reasons.
+  const mapRows = (rows: Record<string, unknown>[]) =>
+    sortPoints(
+      rows.map((r) => ({
+        id: r.id,
+        idx: r.idx,
+        t0: r.t0,
+        t1: r.t1,
+        is_let: r.is_let,
+        starred: r.starred,
+        tight_start: r.tight_start,
+        tight_end: r.tight_end,
+        confirmed_winner: r.confirmed_winner,
+        game_end_override: r.game_end_override,
+        clip_path: r.has_clip ? "c" : null,
+        cut_t0: r.cut_t0 ?? null,
+        scored_at_cut_s: r.scored_at_cut_s ?? null,
+        edited: false,
+        suggestion:
+          r.n_hits == null
+            ? null
+            : { winner: "user", how: "", n_hits: r.n_hits },
+        placement:
+          r.contacts == null
+            ? null
+            : {
+                v: 3,
+                status: "ready",
+                candidates: Array.from(
+                  { length: r.contacts as number },
+                  (_, i) => ({ t: i })
+                ),
+                hypotheses: { near: {}, far: {} },
+              },
+      })) as unknown as Point[]
+    );
   const pad = clipPad(fx.strictness, fx.clip_pads);
-  const points = sortPoints(
-    fx.points.map((r: Record<string, unknown>) => ({
-      id: r.id,
-      idx: r.idx,
-      t0: r.t0,
-      t1: r.t1,
-      is_let: r.is_let,
-      starred: r.starred,
-      tight_start: r.tight_start,
-      tight_end: r.tight_end,
-      confirmed_winner: r.confirmed_winner,
-      game_end_override: r.game_end_override,
-      clip_path: r.has_clip ? "c" : null,
-      suggestion:
-        r.n_hits == null
-          ? null
-          : { winner: "user", how: "", n_hits: r.n_hits },
-      placement:
-        r.contacts == null
-          ? null
-          : {
-              v: 3,
-              status: "ready",
-              candidates: Array.from(
-                { length: r.contacts as number },
-                (_, i) => ({ t: i })
-              ),
-              hypotheses: { near: {}, far: {} },
-            },
-    })) as unknown as Point[]
+  const points = mapRows(fx.points);
+  for (const kind of Object.keys(HIGHLIGHT_BUDGETS_S) as
+    (keyof typeof HIGHLIGHT_BUDGETS_S)[]) {
+    // No taps in the legacy block: both flag states must reproduce it.
+    for (const tapEnd of [false, true]) {
+      const { picks, totalS } = pickHighlights(
+        points,
+        pad,
+        HIGHLIGHT_BUDGETS_S[kind],
+        tapEnd
+      );
+      assert.deepEqual(
+        picks.map((p) => p.id),
+        fx.expected[kind].ids,
+        `${kind}: fixture is stale — rerun scripts/highlights-fixture.ts`
+      );
+      assert.equal(totalS, fx.expected[kind].totalS);
+    }
+  }
+
+  // The tapped block (Julian 08-23, 76 winner taps): trimmed lengths on,
+  // the old rule off.
+  assert.ok(fx.tapped, "fixture carries the tapped block");
+  const tpad = clipPad(null, fx.tapped.clip_pads);
+  const tPoints = mapRows(fx.tapped.points);
+  assert.ok(
+    tPoints.some((p) => p.scored_at_cut_s !== null),
+    "tapped block really carries winner taps"
   );
   for (const kind of Object.keys(HIGHLIGHT_BUDGETS_S) as
     (keyof typeof HIGHLIGHT_BUDGETS_S)[]) {
-    const { picks, totalS } = pickHighlights(
-      points,
-      pad,
-      HIGHLIGHT_BUDGETS_S[kind]
-    );
+    const on = pickHighlights(tPoints, tpad, HIGHLIGHT_BUDGETS_S[kind], true);
     assert.deepEqual(
-      picks.map((p) => p.id),
-      fx.expected[kind].ids,
-      `${kind}: fixture is stale — rerun scripts/highlights-fixture.ts`
+      on.picks.map((p) => p.id),
+      fx.tapped.expected[kind].ids,
+      `tapped ${kind} on: fixture is stale — rerun scripts/highlights-fixture.ts`
     );
-    assert.equal(totalS, fx.expected[kind].totalS);
+    assert.equal(on.totalS, fx.tapped.expected[kind].totalS);
+    const off = pickHighlights(tPoints, tpad, HIGHLIGHT_BUDGETS_S[kind], false);
+    assert.deepEqual(
+      off.picks.map((p) => p.id),
+      fx.tapped.expected_off[kind].ids,
+      `tapped ${kind} off: fixture is stale — rerun scripts/highlights-fixture.ts`
+    );
+    assert.equal(off.totalS, fx.tapped.expected_off[kind].totalS);
   }
+});
+
+// The trim itself, on synthetic points where the arithmetic is legible.
+test("the winner tap trims a pick's cost, and the budget buys more rallies", () => {
+  const PAD = { pre: 1.0, post: 1.6 };
+  // Three 10s rallies (12.6s padded). Budget 30: only two fit untrimmed.
+  const mk = (n: number, tap: number | null) =>
+    ({
+      id: `p${n}`,
+      idx: n,
+      t0: n * 100,
+      t1: n * 100 + 10,
+      cut_t0: n * 50,
+      scored_at_cut_s: tap,
+      is_let: false,
+      starred: false,
+      edited: false,
+      tight_start: false,
+      tight_end: false,
+      confirmed_winner: "user",
+      game_end_override: null,
+      clip_path: "c",
+      suggestion: null,
+      placement: null,
+    }) as unknown as Point;
+  const untapped = [mk(1, null), mk(2, null), mk(3, null)];
+  assert.equal(pickHighlights(untapped, PAD, 30, true).picks.length, 2);
+  // Tapped 9s into each clip: 9.5s each, all three fit.
+  const tapped = [mk(1, 50 + 9), mk(2, 100 + 9), mk(3, 150 + 9)];
+  assert.equal(pickHighlights(tapped, PAD, 30, true).picks.length, 3);
+  assert.equal(pickHighlights(tapped, PAD, 30, true).totalS, 28.5);
+  // The flag off ignores the taps entirely.
+  assert.equal(pickHighlights(tapped, PAD, 30, false).picks.length, 2);
+});
+
+test("a tap never extends a pick past its padded length", () => {
+  const PAD = { pre: 1.0, post: 1.6 };
+  const p = {
+    id: "p1",
+    idx: 1,
+    t0: 100,
+    t1: 110,
+    cut_t0: 50,
+    // Tap at the very end of the clip: 62.6 + 0.5 pokes past the 62.6
+    // padded end, so the clamp keeps the padded length.
+    scored_at_cut_s: 62.4,
+    is_let: false,
+    starred: false,
+    edited: false,
+    tight_start: false,
+    tight_end: false,
+    confirmed_winner: "user",
+    game_end_override: null,
+    clip_path: "c",
+    suggestion: null,
+    placement: null,
+  } as unknown as Point;
+  assert.equal(pickHighlights([p], PAD, 60, true).totalS, 12.6);
 });

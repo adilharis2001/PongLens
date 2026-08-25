@@ -402,6 +402,7 @@ export function MatchView({
   initialPointTags,
   initialLossReasonLabels = [],
   placementServesOnly = false,
+  tapEnd = false,
 }: {
   match: Match;
   initialPoints: Point[];
@@ -432,6 +433,9 @@ export function MatchView({
    *  match page and the share link cannot disagree about what the maps
    *  show for the same match. */
   placementServesOnly?: boolean;
+  /** app_config tap_end_playback: scored points end at the winner tap
+   *  plus half a second (playhead.effectiveEnd). Read on the server. */
+  tapEnd?: boolean;
 }) {
   const [points, setPoints] = useState<Point[]>(initialPoints);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -2669,6 +2673,7 @@ export function MatchView({
               serving={serving}
               score={score}
               pad={pad}
+              tapEnd={tapEnd}
               deletedSpans={deletedSpans}
               onDeletePoint={(p) => void deletePointQuiet(p)}
               onUndoDelete={(id) => void undoDelete(id)}
@@ -2784,6 +2789,7 @@ export function MatchView({
                 matchId={match.id}
                 points={visiblePoints}
                 pad={pad}
+                tapEnd={tapEnd}
                 onPlay={(ids, onDownload) =>
                   playerRef.current?.openHighlights(ids, onDownload)
                 }

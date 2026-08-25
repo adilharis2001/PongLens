@@ -10,6 +10,11 @@ import type {
   ReviewSectionContent,
 } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/server";
+import { clipPad } from "@/app/match/[id]/clipEdit";
+import { skipSpans } from "@/app/match/[id]/playhead";
+import { sortPoints } from "@/app/match/[id]/gameScore";
+import { getTapEndPlayback } from "@/lib/config";
+import type { Point } from "@/lib/types";
 import { CoachOrder, type WorkspacePoint } from "./CoachOrder";
 
 export const metadata: Metadata = {
@@ -90,7 +95,9 @@ export default async function CoachOrderPage({
     detail.match_id
       ? supabase
           .from("matches")
-          .select("id, opponent_name, venue, played_at, status, user_side")
+          .select(
+            "id, opponent_name, venue, played_at, status, user_side, clip_pads",
+          )
           .eq("id", detail.match_id)
           .maybeSingle()
       : Promise.resolve({ data: null }),
@@ -98,7 +105,7 @@ export default async function CoachOrderPage({
       ? supabase
           .from("points")
           .select(
-            "id, idx, confirmed_winner, starred, is_let, deleted, cut_t0, t0, game_end_override, game_winner_override",
+            "id, idx, confirmed_winner, starred, is_let, deleted, cut_t0, t0, t1, tight_start, tight_end, edited, scored_at_cut_s, game_end_override, game_winner_override",
           )
           .eq("match_id", detail.match_id)
           .order("idx")
@@ -123,6 +130,20 @@ export default async function CoachOrderPage({
     (user.user_metadata?.picture as string | undefined) ??
     null;
 
+  // Dead footage the workspace player jumps: deleted cards, and — with
+  // tap_end_playback on (138) — the tail after each winner tap. Computed
+  // here because the client only ever sees the visible, re-numbered
+  // points; the full rows with the deleted cards live on this side.
+  const deadSpans = skipSpans(
+    sortPoints((points ?? []) as unknown as Point[]),
+    clipPad(
+      null,
+      (match as { clip_pads?: { pre?: number; post?: number } } | null)
+        ?.clip_pads ?? null,
+    ),
+    await getTapEndPlayback(),
+  );
+
   const { data: fundingRow } = await supabase
     .from("review_orders")
     .select("funding")
@@ -146,6 +167,7 @@ export default async function CoachOrderPage({
           // Ranked display numbers, matching the match page (idx skips
           // deleted points there too).
           .map((p, i) => ({ ...p, idx: i }))}
+        skipSpans={deadSpans}
         userId={user.id}
         sponsored={fundingRow?.funding === "sponsored"}
       />

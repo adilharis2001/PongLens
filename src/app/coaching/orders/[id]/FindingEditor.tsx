@@ -60,6 +60,7 @@ function outcomeLabel(p: WorkspacePoint): string {
 function CutPlayer({
   matchId,
   points,
+  skipSpans,
   tall,
   keysActive,
   currentIdx,
@@ -71,6 +72,8 @@ function CutPlayer({
 }: {
   matchId: string;
   points: WorkspacePoint[];
+  /** Dead footage to jump during playback (playhead.skipSpans). */
+  skipSpans: { start: number; end: number }[];
   /** Desktop full-width mode: let the picture use more of the screen. */
   tall: boolean;
   /** Off while the pattern sheet is up: those keys are the sheet's, and
@@ -202,6 +205,17 @@ function CutPlayer({
   // Which point the playhead is inside: the last seekable point whose
   // cut_t0 is behind the clock. Cheap linear scan; a match has ~100.
   function onTime(v: HTMLVideoElement) {
+    // Dead footage is dead here too: deleted cards and tap-trimmed tails
+    // jump forward during playback, the same contract as the match page.
+    if (!v.paused) {
+      const z = skipSpans.find(
+        (sp) => v.currentTime >= sp.start && v.currentTime < sp.end - 0.05,
+      );
+      if (z) {
+        v.currentTime = z.end;
+        return;
+      }
+    }
     let cur: WorkspacePoint | null = null;
     for (const p of seekable) {
       if ((p.cut_t0 ?? 0) <= v.currentTime + 0.05) cur = p;
@@ -732,6 +746,7 @@ export function FindingEditor({
   matchId,
   tall = false,
   points,
+  skipSpans = [],
   findings,
   findingPoints,
   suggested = [],
@@ -742,6 +757,10 @@ export function FindingEditor({
   /** Desktop full-width mode, passed straight through to the player. */
   tall?: boolean;
   points: WorkspacePoint[];
+  /** Dead footage to jump during playback: deleted cards and, with the
+   *  tap-end flag on, the tail after each winner tap (playhead.skipSpans,
+   *  computed by the page — the client only sees visible points). */
+  skipSpans?: { start: number; end: number }[];
   findings: ReviewFindingRow[];
   findingPoints: Record<string, { point_id: string; idx: number }[]>;
   /** Pattern names this offering expects. The coach's own prompt, never
@@ -825,6 +844,7 @@ export function FindingEditor({
         <CutPlayer
           matchId={matchId}
           points={points}
+          skipSpans={skipSpans}
           tall={tall}
           keysActive={!sheetOpen}
           currentIdx={currentIdx}

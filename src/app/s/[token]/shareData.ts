@@ -73,6 +73,24 @@ export interface ResolvedSharePoint {
   server: "user" | "opponent" | null;
   server_override: "user" | "opponent" | null;
   placement_flagged: boolean;
+  /** Playhead fields (139): where the point's footage effectively ends
+   *  (playhead.effectiveEnd). Optional — a cached page rendered against
+   *  the pre-139 function simply has no taps, which must read as "no
+   *  trimming", never as anything else. */
+  tight_start?: boolean | null;
+  tight_end?: boolean | null;
+  edited?: boolean | null;
+  scored_at_cut_s?: number | null;
+}
+
+/** Row from resolve_share_removed() (139): a deleted card's footage
+ *  boundaries on the cut clock — enough to jump it, nothing else. */
+export interface ResolvedShareRemoved {
+  cut_t0: number | null;
+  t0: number | null;
+  t1: number | null;
+  tight_start: boolean | null;
+  tight_end: boolean | null;
 }
 
 /** Row from resolve_share_starred(): a currently-starred visible point. */
@@ -128,9 +146,15 @@ export function sharePointsAsPoints(
     confirmed_how: null,
     starred: r.starred,
     deleted: false,
-    edited: false,
-    tight_start: false,
-    tight_end: false,
+    // Playhead fields (139): absent on a response from the pre-139
+    // function, and absence must mean "no trimming" (the 133 rule).
+    edited: r.edited ?? false,
+    tight_start: r.tight_start ?? false,
+    tight_end: r.tight_end ?? false,
+    scored_at_cut_s:
+      r.scored_at_cut_s === null || r.scored_at_cut_s === undefined
+        ? null
+        : Number(r.scored_at_cut_s),
     game_end_override: r.game_end_override,
     game_winner_override: r.game_winner_override,
   }));

@@ -241,12 +241,10 @@ struct PlayerTakeover: View {
     var highlightSpans: [TimeSpan]? {
         guard let picks = highlightPicks else { return nil }
         return picks.compactMap { p in
-            guard let c = p.cutT0, let t0 = p.t0, let t1 = p.t1
+            guard let c = p.cutT0,
+                  let end = effectiveEnd(p, pad, on: app.tapEndPlayback)
             else { return nil }
-            let eff = effectivePad(pad, tightStart: p.tightStart,
-                                   tightEnd: p.tightEnd)
-            return TimeSpan(start: max(0, c),
-                            end: c + (t1 - t0) + eff.pre + eff.post)
+            return TimeSpan(start: max(0, c), end: end)
         }
     }
 
@@ -267,7 +265,7 @@ struct PlayerTakeover: View {
             return reviewing
         }
         return targetAt(
-            points, at: t, pad: pad,
+            points, at: t, pad: pad, tapEnd: app.tapEndPlayback,
             hold: mode == .score && phase == .play,
             runStart: runStartT, firedId: endPauseBlockedId
         )
@@ -313,6 +311,29 @@ struct PlayerTakeover: View {
     /// the user can see is wrong.
     var deadSpans: [TimeSpan] {
         deletedSpans(all: model.points, visible: points, pad: pad)
+    }
+
+    /// Tap-trimmed dead zones (2026-08-25): footage between a scored
+    /// rally's effective end (winner tap + 0.5s, Playhead.effectiveEnd)
+    /// and the next visible rally's padded start — ball retrieval,
+    /// walk-backs and any junk cards in between, ~25% of a scored match's
+    /// cut. Watch mode jumps them. A rally without a tap gets no zone:
+    /// its tail plays exactly as it always has. The last rally's zone
+    /// stops at its own padded end, so playback still runs the file out
+    /// naturally instead of trapping a pause at the tape's edge.
+    var tapSpans: [TimeSpan] {
+        guard app.tapEndPlayback else { return [] }
+        let cut = points.filter { $0.cutT0 != nil }
+        var out: [TimeSpan] = []
+        for (i, p) in cut.enumerated() {
+            guard let padded = paddedEnd(p, pad),
+                  let eff = effectiveEnd(p, pad, on: true),
+                  eff < padded else { continue }
+            let next = i + 1 < cut.count ? (cut[i + 1].cutT0 ?? padded) : padded
+            let end = max(next, eff)
+            if end > eff + 0.05 { out.append(TimeSpan(start: eff, end: end)) }
+        }
+        return out.sorted { $0.start < $1.start }
     }
 
     var firstPointStart: Double? {
@@ -2098,7 +2119,8 @@ struct PlayerTakeover: View {
         // Playback progress through the current point's padded span.
         let progress: Double = {
             guard isCurrent, let cutT0 = p.cutT0,
-                  let end = paddedEnd(p, pad), end > cutT0 else { return 0 }
+                  let end = effectiveEnd(p, pad, on: app.tapEndPlayback),
+                  end > cutT0 else { return 0 }
             return min(1, max(0, (currentT - cutT0) / (end - cutT0)))
         }()
         return Button {
@@ -2527,7 +2549,8 @@ struct PlayerTakeover: View {
     func advance(from p: MatchPoint) {
         switch advanceMove(
             from: p, now: currentT,
-            nextStart: nextCutStart(points, after: p), pad: pad
+            nextStart: nextCutStart(points, after: p), pad: pad,
+            tapEnd: app.tapEndPlayback
         ) {
         case .playTail(let end):
             playTail = PlayTail(id: p.id, end: end)
@@ -2837,6 +2860,16 @@ struct PlayerTakeover: View {
             return
         }
 
+        // Tap-trimmed tails (see tapSpans), watch mode only — the
+        // highlights tape's own spans already end at the tap. Inside a
+        // zone the point is decided: jump to the next rally's padded
+        // start. Playing only, same contract as the deleted-span skip.
+        if mode == .watch, highlightPicks == nil,
+           let out = spanEnd(tapSpans, at: t) {
+            seek(to: out)
+            return
+        }
+
         // Highlights: everything between the picks is dead too. Unlike a
         // let, a deliberate scrub does NOT get to stay — the tape only
         // ever shows its rallies, so a landing outside snaps forward.
@@ -2871,10 +2904,10 @@ struct PlayerTakeover: View {
         guard mode == .score else { return }
 
         if phase == .review {
-            // Review clips stop at their padded end.
+            // Review clips stop at the reviewed rally's effective end.
             if reviewQueue.indices.contains(reviewIndex),
                let p = points.first(where: { $0.id == reviewQueue[reviewIndex] }),
-               let end = paddedEnd(p, pad), t >= end {
+               let end = effectiveEnd(p, pad, on: app.tapEndPlayback), t >= end {
                 player.pause()
                 showChrome(autoHide: false)
             }
@@ -2929,11 +2962,13 @@ struct PlayerTakeover: View {
         }
     }
 
-    /// Where a rally stops the video in score mode.
+    /// Where a rally stops the video in score mode: unanswered, the
+    /// answer beat; answered, its effective end (the winner tap when the
+    /// flag is on, the full clip otherwise).
     func stopAt(_ p: MatchPoint) -> Double? {
         isUnscored(p)
             ? pauseEnd(p, pad, nextStart: nextCutStart(points, after: p))
-            : paddedEnd(p, pad)
+            : effectiveEnd(p, pad, on: app.tapEndPlayback)
     }
 
     /// A game just closed under a live answer. The result is an announcement,

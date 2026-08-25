@@ -15,6 +15,9 @@ final class CoachOrderStore {
     var attachments: [ReviewAttachmentRow] = []
     var match: MatchRow?
     var points: [WorkspacePoint] = []
+    /// Every point row, deleted included — the workspace player's
+    /// dead-footage spans need the junk cards' positions.
+    var allPoints: [WorkspacePoint] = []
     var sponsored = false
     var loaded = false
 
@@ -128,6 +131,9 @@ final class CoachOrderStore {
                 .execute().value
             let (mt, pts) = await (matchQ, pointsQ)
             match = mt
+            // The full rows, deleted included — the player's dead-footage
+            // spans need to know where the junk cards sit.
+            allPoints = pts ?? []
             // Ranked display numbers, matching the match page (idx skips
             // deleted points there too).
             points = (pts ?? []).filter { $0.deleted != true }

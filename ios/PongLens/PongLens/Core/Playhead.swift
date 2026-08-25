@@ -62,6 +62,32 @@ func paddedEnd(_ p: MatchPoint, _ pad: ClipPad) -> Double? {
     return end + effectivePad(pad, tightStart: p.tightStart, tightEnd: p.tightEnd).post
 }
 
+/// Margin kept after the winner tap: the 2026-08-16 boundary study puts
+/// the tap at the rally's true end at the median but up to ~0.7s early,
+/// so half a second stays on before the cut.
+let TAP_END_GUARD_S = 0.5
+
+/// Where a point's footage EFFECTIVELY ends, for playback and renders.
+///
+/// scoredAtCutS is the playhead at the winner tap — the owner saying
+/// "decided by here" (067). Everything past tap + 0.5s is ball retrieval
+/// and walking: ~25% of a scored match's cut
+/// (docs/research/2026-08-25-tap-end-shave.md).
+///
+/// A CLAMP, never an extension: min(paddedEnd, tap + 0.5s). The tap is
+/// ignored — the padded end stands — when `on` is false
+/// (app_config.tap_end_playback, the kill switch), on hand-edited points
+/// (the clip editor is explicit intent about boundaries and the tap
+/// predates the edit), and when the tap lands before its own clip start
+/// (a slipped or stale tap describes no point that can happen). Mirrors
+/// playhead.ts effectiveEnd — the two must stay rule-identical.
+func effectiveEnd(_ p: MatchPoint, _ pad: ClipPad, on: Bool) -> Double? {
+    guard let padded = paddedEnd(p, pad) else { return nil }
+    guard on, !p.edited, let tap = p.scoredAtCutS, let cutT0 = p.cutT0,
+          tap >= cutT0 else { return padded }
+    return min(padded, tap + TAP_END_GUARD_S)
+}
+
 /// Inverse of the anchoring fact: the SOURCE-video time for cut time T
 /// inside point p's span.
 func cutToSource(_ p: MatchPoint, _ t: Double, _ pad: ClipPad) -> Double? {

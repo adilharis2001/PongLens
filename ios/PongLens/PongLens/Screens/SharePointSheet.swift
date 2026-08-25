@@ -33,6 +33,7 @@ struct SharePointSheet: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var app
     @State private var model = StoryShareModel()
     /// The emergency switch (136). Read once per presentation; an
     /// unreadable row answers "on" — a config outage must not take the
@@ -52,7 +53,16 @@ struct SharePointSheet: View {
         guard let t0 = point.t0, let t1 = point.t1 else { return nil }
         let eff = effectivePad(pad, tightStart: point.tightStart,
                                tightEnd: point.tightEnd)
-        return max(0, t1 - t0) + eff.pre + eff.post
+        var s = max(0, t1 - t0) + eff.pre + eff.post
+        // The winner tap trims what actually renders (138), so the gate
+        // must measure the trimmed file — a rally that only fits a Story
+        // because of the trim should be offered as one. Legacy points
+        // without cut offsets keep the pad formula.
+        if app.tapEndPlayback, let c = point.cutT0,
+           let end = effectiveEnd(point, pad, on: true) {
+            s = min(s, end - c)
+        }
+        return s
     }
 
     /// Where this rally can go: a Story up to 20 seconds, a Reel up to
@@ -154,6 +164,7 @@ struct SharePointSheet: View {
     private func runShare(to destination: InstagramShare.Destination?) async {
         guard let url = await model.prepare(
             match: match, point: point, points: points, pad: pad,
+            tapEnd: app.tapEndPlayback,
             showNames: showNames, showScore: showScore)
         else { return }
         if let destination {
@@ -230,7 +241,7 @@ final class StoryShareModel {
     }
 
     func prepare(match: MatchRow, point: MatchPoint,
-                 points: [MatchPoint], pad: ClipPad,
+                 points: [MatchPoint], pad: ClipPad, tapEnd: Bool,
                  showNames: Bool = true, showScore: Bool = true) async -> URL? {
         guard !busy else { return nil }
         busy = true
@@ -247,6 +258,7 @@ final class StoryShareModel {
         if await renderPath() == "device" {
             if let local = await prepareOnDevice(
                 match: match, point: point, points: points, pad: pad,
+                tapEnd: tapEnd,
                 showNames: showNames, showScore: showScore) {
                 return local
             }
@@ -313,6 +325,7 @@ final class StoryShareModel {
 
     private func prepareOnDevice(match: MatchRow, point: MatchPoint,
                                  points: [MatchPoint], pad: ClipPad,
+                                 tapEnd: Bool,
                                  showNames: Bool,
                                  showScore: Bool) async -> URL? {
         let matchId = match.id.uuidString.lowercased()
@@ -356,7 +369,11 @@ final class StoryShareModel {
         let eff = effectivePad(pad, tightStart: point.tightStart,
                                tightEnd: point.tightEnd)
         let segStart = max(0, cutT0)
-        let segEnd = cutT0 + max(0, t1 - t0) + eff.pre + eff.post
+        // Playhead.effectiveEnd, the same maths route.ts's segment block
+        // runs — the same rally must render identically whichever path
+        // app_config.instagram_render picks (136/138).
+        let segEnd = effectiveEnd(point, pad, on: tapEnd)
+            ?? cutT0 + max(0, t1 - t0) + eff.pre + eff.post
 
         // Score ENTERING this rally, and the games already completed. A
         // match with no confirmed winners has no score to print, and

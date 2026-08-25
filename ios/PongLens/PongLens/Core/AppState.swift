@@ -77,14 +77,26 @@ final class AppState {
     /// look like the build before it, not like a half-flipped one.
     var placementServesOnly = false
 
-    func refreshPlacementMode() async {
-        struct ConfigRow: Decodable { let value: String? }
+    /// app_config tap_end_playback (138): scored points end at the winner
+    /// tap plus half a second (Playhead.effectiveEnd) and watch mode jumps
+    /// the dead footage between a tap and the next rally. False on any
+    /// failure — a build that cannot reach the config behaves like the
+    /// build before the flag existed.
+    var tapEndPlayback = false
+
+    func refreshConfigFlags() async {
+        struct ConfigRow: Decodable { let key: String?; let value: String? }
         let rows: [ConfigRow]? = try? await supa
             .from("app_config")
-            .select("value")
-            .eq("key", value: "placement_serves_only")
+            .select("key,value")
+            .in("key", values: ["placement_serves_only", "tap_end_playback"])
             .execute().value
-        placementServesOnly = (rows?.first?.value ?? "").contains("true")
+        placementServesOnly = (rows?.first {
+            $0.key == "placement_serves_only"
+        }?.value ?? "").contains("true")
+        tapEndPlayback = rows?.first {
+            $0.key == "tap_end_playback"
+        }?.value == "on"
     }
 
     func metadataFlag(_ key: String) -> Bool {

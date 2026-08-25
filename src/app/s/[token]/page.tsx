@@ -2,9 +2,15 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { getPlacementServesOnly, getSupportEmail } from "@/lib/config";
+import {
+  getPlacementServesOnly,
+  getSupportEmail,
+  getTapEndPlayback,
+} from "@/lib/config";
 import { Logo } from "@/components/Logo";
 import { computeMatchScore } from "@/app/match/[id]/gameScore";
+import { clipPad } from "@/app/match/[id]/clipEdit";
+import { skipSpans } from "@/app/match/[id]/playhead";
 import { computeMatchAnalysis } from "@/app/match/[id]/matchAnalysis";
 import { computeMatchStats } from "@/app/match/[id]/matchStats";
 import { computeServing } from "@/app/match/[id]/serving";
@@ -30,6 +36,7 @@ import {
   type ResolvedShareLink,
   type ResolvedSharePlacement,
   type ResolvedSharePoint,
+  type ResolvedShareRemoved,
   type ResolvedStarredPoint,
 } from "./shareData";
 
@@ -86,6 +93,54 @@ const resolveSharePoints = cache(
       p_token: token,
     });
     return (data ?? []) as ResolvedSharePoint[];
+  }
+);
+
+// The dead footage a MATCH link's player jumps: the deleted cards'
+// boundaries (139) plus the match's clip pads, folded together with the
+// visible points through playhead.skipSpans. Either call failing answers
+// [] / null — the 133 rule: a missing answer is "no spans", and the page
+// then plays exactly as it did before 139.
+const resolveShareSkips = cache(
+  async (
+    token: string,
+    visible: Point[]
+  ): Promise<{ start: number; end: number }[]> => {
+    const supabase = await createClient();
+    const [removedRes, padsRes, tapEnd] = await Promise.all([
+      supabase.rpc("resolve_share_removed", { p_token: token }),
+      supabase.rpc("resolve_share_clip_pads", { p_token: token }),
+      getTapEndPlayback(),
+    ]);
+    const removed = ((removedRes.data ?? []) as ResolvedShareRemoved[]).map(
+      (r) =>
+        ({
+          id: `removed-${r.cut_t0}`,
+          idx: -1,
+          t0: r.t0,
+          t1: r.t1,
+          cut_t0: r.cut_t0,
+          deleted: true,
+          edited: false,
+          tight_start: r.tight_start ?? false,
+          tight_end: r.tight_end ?? false,
+          is_let: false,
+          starred: false,
+          clip_path: null,
+          confirmed_winner: null,
+          scored_at_cut_s: null,
+        }) as unknown as Point
+    );
+    const pad = clipPad(
+      null,
+      (padsRes.data ?? null) as { pre?: number; post?: number } | null
+    );
+    const rows = [...visible, ...removed].sort(
+      (a, b) =>
+        Number(a.cut_t0 ?? Number.POSITIVE_INFINITY) -
+        Number(b.cut_t0 ?? Number.POSITIVE_INFINITY)
+    );
+    return skipSpans(rows, pad, tapEnd);
   }
 );
 
@@ -279,6 +334,7 @@ export default async function SharePage({
   // MatchScore carries a Map and a Set, neither of which survives the
   // server-to-client boundary, and none of this needs to be interactive.
   const asPoints = sharePointsAsPoints(points, link.match_id);
+  const deadSpans = isMatch ? await resolveShareSkips(token, asPoints) : [];
   const scored =
     isMatch &&
     link.show_score &&
@@ -352,6 +408,7 @@ export default async function SharePage({
               kind={isPoint ? "point" : "match"}
               matchId={link.match_id}
               points={points}
+              skipSpans={deadSpans}
               showScore={Boolean(scored)}
               you={you}
               them={them}

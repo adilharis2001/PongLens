@@ -152,7 +152,8 @@ struct ToolsSection: View {
         let picks = Highlights.pick(
             model.visible,
             pad: clipPad(strictness: nil, stored: match.clipPads),
-            budgetS: Highlights.reelBudgetS)
+            budgetS: Highlights.reelBudgetS,
+            tapEnd: app.tapEndPlayback)
         return Highlights.summary(picks) ?? "No rallies yet"
     }
 

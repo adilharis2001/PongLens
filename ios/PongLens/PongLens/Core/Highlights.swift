@@ -48,9 +48,14 @@ enum Highlights {
     }
 
     /// `ordered` must be the match's VISIBLE points in timeline order.
-    /// Lets are never picked.
+    /// Lets are never picked. `tapEnd` is app_config.tap_end_playback:
+    /// clip lengths end at the winner tap plus half a second
+    /// (Playhead.effectiveEnd), so the budget buys real play instead of
+    /// ball retrieval — every caller must pass the same value the
+    /// players use, or the row, the tape and the render disagree.
     static func pick(
-        _ ordered: [MatchPoint], pad: ClipPad, budgetS: Double
+        _ ordered: [MatchPoint], pad: ClipPad, budgetS: Double,
+        tapEnd: Bool = false
     ) -> Picks {
         struct Candidate {
             let p: MatchPoint
@@ -66,7 +71,14 @@ enum Highlights {
             let eff = effectivePad(pad, tightStart: p.tightStart,
                                    tightEnd: p.tightEnd)
             let rallyLen = t1 - t0
-            let s = round2(rallyLen + eff.pre + eff.post)
+            var s = round2(rallyLen + eff.pre + eff.post)
+            // The tap trims the clip (never extends): its cost against
+            // the budget and its watchable length are the trimmed one.
+            // Legacy points without cut offsets keep the pad formula.
+            if tapEnd, let c = p.cutT0,
+               let end = effectiveEnd(p, pad, on: true) {
+                s = round2(min(s, end - c))
+            }
             if s <= 0 { continue }
             // Roughly one recorded contact per six seconds is a LOW bar
             // for a real rally — the point is catching the thirty-second

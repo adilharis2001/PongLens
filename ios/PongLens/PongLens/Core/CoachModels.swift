@@ -295,6 +295,13 @@ struct WorkspacePoint: Codable, Identifiable, Hashable {
     let deleted: Bool?
     let cutT0: Double?
     let t0: Double
+    // Playhead fields (138): enough to compute where a point's footage
+    // effectively ends, so the workspace player can jump dead footage.
+    let t1: Double?
+    let tightStart: Bool?
+    let tightEnd: Bool?
+    let edited: Bool?
+    let scoredAtCutS: Double?
 
     /// The web workspace's outcome word, from the coach's seat: "they"
     /// is the student.
@@ -308,14 +315,36 @@ struct WorkspacePoint: Codable, Identifiable, Hashable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, idx, starred, deleted, t0
+        case id, idx, starred, deleted, t0, t1, edited
         case confirmedWinner = "confirmed_winner"
         case isLet = "is_let"
         case cutT0 = "cut_t0"
+        case tightStart = "tight_start"
+        case tightEnd = "tight_end"
+        case scoredAtCutS = "scored_at_cut_s"
     }
 
     static let workspaceSelect =
-        "id,idx,confirmed_winner,starred,is_let,deleted,cut_t0,t0"
+        "id,idx,confirmed_winner,starred,is_let,deleted,cut_t0,t0,t1,"
+        + "tight_start,tight_end,edited,scored_at_cut_s"
+
+    /// A playhead-shaped view of this row, so the workspace player reuses
+    /// Playhead.effectiveEnd/paddedEnd instead of restating the rule.
+    var playheadPoint: MatchPoint {
+        MatchPoint(
+            id: id, matchId: id, idx: idx, t0: t0, t1: t1, cutT0: cutT0,
+            server: nil, serverOverride: nil, isLet: isLet ?? false,
+            confirmedWinner: confirmedWinner, confirmedHow: nil,
+            starred: starred, deleted: deleted ?? false,
+            edited: edited ?? false,
+            tightStart: tightStart ?? false, tightEnd: tightEnd ?? false,
+            gameEndOverride: nil, gameWinnerOverride: nil,
+            scoredAtCutS: scoredAtCutS, lossReasons: nil, direction: nil,
+            misreadKind: nil, serveSpin: nil, serveSidespin: nil,
+            serveLength: nil, placementFlagged: nil, clipPath: nil,
+            placement: nil
+        )
+    }
 }
 
 // MARK: - Copy helpers

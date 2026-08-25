@@ -41,6 +41,7 @@ import {
 import {
   armedPointId,
   paddedEnd,
+  effectiveEnd,
   nextCutStart,
   pauseEnd,
   playingPointId,
@@ -484,6 +485,7 @@ function targetAt(
   ps: Point[],
   t: number,
   pad: ClipPad,
+  tapEnd: boolean,
   hold: boolean,
   runStart: number | null,
   firedId: string | null
@@ -500,7 +502,7 @@ function targetAt(
   if (!prev || prev.id === firedId) return cur;
   const stop = isUnscored(prev)
     ? pauseEnd(prev, pad, nextCutStart(ps, prev))
-    : paddedEnd(prev, pad);
+    : effectiveEnd(prev, pad, tapEnd);
   const rEnd = rallyEnd(prev, pad);
   if (stop === null || rEnd === null || t >= stop) return cur;
   if (runStart === null || runStart >= rEnd) return cur;
@@ -637,6 +639,13 @@ export const Player = forwardRef<
      * computation — the pause boundary above all — needs it (playhead.ts).
      */
     pad: ClipPad;
+    /**
+     * app_config.tap_end_playback (playhead.effectiveEnd): scored points
+     * end at the winner tap plus half a second, and watch mode jumps the
+     * dead footage between a tap and the next rally. Off = padded ends
+     * everywhere, exactly the pre-flag behavior.
+     */
+    tapEnd: boolean;
     /**
      * Deleted points' footage spans inside the cut video ([start, end]
      * seconds, sorted, overlaps merged). Dead footage is dead everywhere:
@@ -789,6 +798,7 @@ export const Player = forwardRef<
     serving,
     score,
     pad,
+    tapEnd,
     deletedSpans,
     onDeletePoint,
     onUndoDelete,
@@ -1495,6 +1505,8 @@ export const Player = forwardRef<
   // Clip pad, same reasoning (the pause boundary is computed per tick).
   const padRef = useRef(pad);
   padRef.current = pad;
+  const tapEndRef = useRef(tapEnd);
+  tapEndRef.current = tapEnd;
 
   /** End of the deleted span the playhead is inside, or null. The small
    *  epsilon keeps a jump that landed exactly on an end from re-matching. */
@@ -1543,14 +1555,43 @@ export const Player = forwardRef<
     const out: { start: number; end: number }[] = [];
     for (const p of points) {
       if (!highlightIds.has(p.id) || p.cut_t0 === null) continue;
-      const end = paddedEnd(p, pad);
+      const end = effectiveEnd(p, pad, tapEnd);
       if (end === null) continue;
       out.push({ start: Number(p.cut_t0), end });
     }
     return out.sort((a, b) => a.start - b.start);
-  }, [highlightIds, points, pad]);
+  }, [highlightIds, points, pad, tapEnd]);
   const highlightSpansRef = useRef(highlightSpans);
   highlightSpansRef.current = highlightSpans;
+
+  /**
+   * Tap-trimmed dead zones (2026-08-25): for every rally the owner scored
+   * live, the footage between its effective end (winner tap + 0.5s) and
+   * the next rally's padded start is ball retrieval, walk-backs and any
+   * junk cards in between — measured at ~25% of a scored match's cut.
+   * Watch mode jumps them like deleted spans. A rally without a tap gets
+   * no zone: its tail plays exactly as it always has. The last rally's
+   * zone runs only to its own padded end, so playback can still run out
+   * the file naturally instead of trapping a pause at the tape's edge.
+   */
+  const tapSpans = useMemo(() => {
+    if (!tapEnd) return [];
+    const out: { start: number; end: number }[] = [];
+    const cut = points.filter((p) => p.cut_t0 !== null);
+    for (let i = 0; i < cut.length; i++) {
+      const p = cut[i];
+      const padded = paddedEnd(p, pad);
+      const eff = effectiveEnd(p, pad, true);
+      if (padded === null || eff === null || eff >= padded) continue;
+      const next =
+        i + 1 < cut.length ? Number(cut[i + 1].cut_t0) : padded;
+      const end = Math.max(next, eff);
+      if (end > eff + 0.05) out.push({ start: eff, end });
+    }
+    return out.sort((a, b) => a.start - b.start);
+  }, [points, pad, tapEnd]);
+  const tapSpansRef = useRef(tapSpans);
+  tapSpansRef.current = tapSpans;
   /** Previous watch-mode tick, so we only skip a let we ran INTO. Nulled
    *  on any pause/seek: landing inside a let on purpose stays put. */
   const watchTickRef = useRef<number | null>(null);
@@ -1622,13 +1663,13 @@ export const Player = forwardRef<
       .sort((a, b) => a - b);
     for (const p of cut) {
       const start = Number(p.cut_t0);
-      let end = paddedEnd(p, pad) ?? start;
+      let end = effectiveEnd(p, pad, tapEnd) ?? start;
       const next = starts.find((s) => s > start + 0.01);
       if (next !== undefined && end > next) end = next;
       if (end > start) m.set(p.id, { start, end });
     }
     return m;
-  }, [points, pad]);
+  }, [points, pad, tapEnd]);
 
   // ---------------------------------------------------------------- media
 
@@ -1709,6 +1750,28 @@ export const Player = forwardRef<
         if (end !== null && end > v.currentTime) {
           v.currentTime = end;
           setPlayheadT(end);
+          return;
+        }
+      }
+      // Tap-trimmed tails (see tapSpans), WATCH mode only — and never
+      // while the highlights tape is up, whose own spans already end at
+      // the tap. Inside a zone the point is decided: jump to the next
+      // rally's padded start. Same contract as the deleted-span skip
+      // (playing only, never mid-scrub, forward by construction).
+      if (
+        modeRef.current === "watch" &&
+        !highlightSpansRef.current &&
+        !scrubbing.current &&
+        !v.paused
+      ) {
+        const t = v.currentTime;
+        const z = tapSpansRef.current.find(
+          (sp) => t >= sp.start && t < sp.end - 0.05
+        );
+        if (z) {
+          v.currentTime = z.end;
+          setPlayheadT(z.end);
+          watchTickRef.current = z.end;
           return;
         }
       }
@@ -1799,7 +1862,7 @@ export const Player = forwardRef<
         const stopAt = (p: Point) =>
           isUnscored(p)
             ? pauseEnd(p, cpad, nextCutStart(ps, p))
-            : paddedEnd(p, cpad);
+            : effectiveEnd(p, cpad, tapEndRef.current);
         // Playing out an answered clip's tail: when it runs out, move on
         // exactly as the answer would have — except while the split offer
         // is still open, where the video holds its last frame for two
@@ -1902,7 +1965,7 @@ export const Player = forwardRef<
       // Review clips stop at the reviewed point's padded end (the full
       // footage extent — same span the reel would cut).
       if (phase === "review" && reviewPoint) {
-        const end = paddedEnd(reviewPoint, padRef.current);
+        const end = effectiveEnd(reviewPoint, padRef.current, tapEndRef.current);
         if (end !== null && v.currentTime >= end) v.pause();
       }
     },
@@ -1988,6 +2051,7 @@ export const Player = forwardRef<
           points,
           playheadT,
           pad,
+          tapEnd,
           mode === "score" && phase === "play",
           runStartTRef.current,
           endPauseFiredRef.current
@@ -2097,6 +2161,7 @@ export const Player = forwardRef<
       ps,
       t,
       padRef.current,
+      tapEndRef.current,
       modeRef.current === "score" && phase === "play",
       runStartTRef.current,
       endPauseFiredRef.current
@@ -2886,7 +2951,7 @@ export const Player = forwardRef<
       // is what the jump would have done anyway.
       const v = videoRef.current;
       const now = v && v.readyState >= 1 ? v.currentTime : playheadT;
-      const own = paddedEnd(p, padRef.current);
+      const own = effectiveEnd(p, padRef.current, tapEndRef.current);
       if (own !== null && own - now > TAIL_WATCH_S) {
         playTailRef.current = { id: p.id, end: own };
         endPauseFiredRef.current = p.id; // its own end must not stop us here

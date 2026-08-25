@@ -145,3 +145,18 @@ export const getReviewFeeConfig = cache(
 export const getPlacementServesOnly = cache(async (): Promise<boolean> => {
   return (await getConfigValue("placement_serves_only")) === "true";
 });
+
+/**
+ * Scored points end at the winner tap plus half a second (2026-08-25).
+ *
+ * On, every playback and render surface clamps a tapped point's end to
+ * scored_at_cut_s + 0.5 (playhead.effectiveEnd) and watch mode jumps the
+ * dead footage between a tap and the next rally. Off — or on any fetch
+ * failure — everything is exactly the padded-end behavior this replaced.
+ * Applied at read time, so it covers every match ever processed and
+ * rollback is one UPDATE. Measured: ~25% of a scored match's cut is
+ * after the taps (docs/research/2026-08-25-tap-end-shave.md).
+ */
+export const getTapEndPlayback = cache(async (): Promise<boolean> => {
+  return (await getConfigValue("tap_end_playback")) === "on";
+});

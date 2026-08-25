@@ -6,7 +6,9 @@ import {
   sortPoints,
   stepBoundaryWalk,
 } from "@/app/match/[id]/gameScore";
-import { clipPad, effectivePad } from "@/app/match/[id]/clipEdit";
+import { clipPad } from "@/app/match/[id]/clipEdit";
+import { effectiveEnd } from "@/app/match/[id]/playhead";
+import { getTapEndPlayback } from "@/lib/config";
 import {
   HIGHLIGHT_BUDGETS_S,
   pickHighlights,
@@ -231,12 +233,23 @@ export async function POST(req: Request) {
     .eq("deleted", false);
   const ordered = sortPoints((points ?? []) as Point[]);
 
+  // app_config.tap_end_playback (138): scored points end at the winner
+  // tap plus half a second. The SAME value must reach the picker and the
+  // segment math below, and it is the value the players and the Tools
+  // row read — one flag, every surface, or the row promises one cut and
+  // the render delivers another.
+  const tapEnd = await getTapEndPlayback();
+
   // Automatic highlights: the picker decides membership, everything after
   // this treats the picks like any other included set.
   const hlIds = new Set<string>();
   if (hlKind) {
-    for (const p of pickHighlights(ordered, pad, HIGHLIGHT_BUDGETS_S[hlKind])
-      .picks) {
+    for (const p of pickHighlights(
+      ordered,
+      pad,
+      HIGHLIGHT_BUDGETS_S[hlKind],
+      tapEnd
+    ).picks) {
       hlIds.add(p.id);
     }
   }
@@ -299,17 +312,16 @@ export async function POST(req: Request) {
       // edges: split-born points now get a cut_t0 anchored on
       // t0 - TIGHT_PAD (split_point RPC / migration 023), so a full pre
       // here would overshoot the child's clip span by pre - 0.3.
+      // The end goes through playhead.effectiveEnd — paddedEnd exactly,
+      // unless the owner's winner tap trims it (tap + 0.5s, clamped,
+      // never extended; 138). The device renderer mirrors this same
+      // pair of lines in SharePointSheet.swift — keep them rule-identical.
       let segStart: number | null = null;
       let segEnd: number | null = null;
       if (p.cut_t0 !== null && p.t0 !== null && p.t1 !== null) {
-        const eff = effectivePad(pad, p.tight_start, p.tight_end);
         segStart = round2(Math.max(0, Number(p.cut_t0)));
-        segEnd = round2(
-          Number(p.cut_t0) +
-            (Number(p.t1) - Number(p.t0)) +
-            eff.pre +
-            eff.post
-        );
+        const end = effectiveEnd(p, pad, tapEnd);
+        segEnd = end === null ? null : round2(end);
       }
       manifestPoints.push({
         point_id: p.id,

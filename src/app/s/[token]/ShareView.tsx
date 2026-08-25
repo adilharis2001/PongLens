@@ -35,6 +35,7 @@ export function ShareView({
   kind,
   matchId,
   points = [],
+  skipSpans = [],
   showScore = false,
   you,
   them,
@@ -48,6 +49,11 @@ export function ShareView({
    *  than on the server because MatchScore carries a Map and a Set, and
    *  neither survives the server-to-client boundary. */
   points?: ResolvedSharePoint[];
+  /** Dead footage the player jumps during playback: deleted cards and,
+   *  with tap_end_playback on (138/139), the tail after each winner tap.
+   *  Computed by the page (playhead.skipSpans); absent means no jumping,
+   *  exactly the pre-139 page. */
+  skipSpans?: { start: number; end: number }[];
   showScore?: boolean;
   you: string;
   them: string;
@@ -56,6 +62,27 @@ export function ShareView({
   const [error, setError] = useState<string | null>(null);
   const [playheadT, setPlayheadT] = useState(0);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
+  const skipSpansRef = useRef(skipSpans);
+  skipSpansRef.current = skipSpans;
+
+  /** Every playhead move goes through here: inside dead footage —
+   *  deleted cards, tap-trimmed tails — playback jumps forward, the same
+   *  contract as the owner's own player. Only while playing; a paused
+   *  scrub goes wherever it was put. */
+  const onPlayhead = useCallback((t: number) => {
+    const v = videoElRef.current;
+    if (v && !v.paused) {
+      const z = skipSpansRef.current.find(
+        (sp) => t >= sp.start && t < sp.end - 0.05
+      );
+      if (z) {
+        v.currentTime = z.end;
+        setPlayheadT(z.end);
+        return;
+      }
+    }
+    setPlayheadT(t);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -173,7 +200,7 @@ export function ShareView({
           src={videoUrl}
           kind={kind === "match" ? "match" : "clip"}
           videoElRef={videoElRef}
-          onTime={setPlayheadT}
+          onTime={onPlayhead}
           onStepPoint={hasRallies ? stepPoint : undefined}
           onReplay={hasRallies ? replayRally : undefined}
           overlay={

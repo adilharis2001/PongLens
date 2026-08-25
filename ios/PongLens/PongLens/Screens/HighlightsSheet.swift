@@ -20,15 +20,18 @@ struct HighlightsSheet: View {
     static var detentHeight: CGFloat { 330 }
 
     @State private var playCut: HighlightCut?
+    @Environment(AppState.self) private var app
 
     private var pad: ClipPad {
         clipPad(strictness: nil, stored: match.clipPads)
     }
     private var reel: Highlights.Picks {
-        Highlights.pick(model.visible, pad: pad, budgetS: Highlights.reelBudgetS)
+        Highlights.pick(model.visible, pad: pad, budgetS: Highlights.reelBudgetS,
+                        tapEnd: app.tapEndPlayback)
     }
     private var long: Highlights.Picks {
-        Highlights.pick(model.visible, pad: pad, budgetS: Highlights.longBudgetS)
+        Highlights.pick(model.visible, pad: pad, budgetS: Highlights.longBudgetS,
+                        tapEnd: app.tapEndPlayback)
     }
     /// The long cut earns its row only when it actually shows more.
     private var longWorthIt: Bool {
@@ -133,6 +136,7 @@ struct HighlightsShareSheet: View {
     @State private var shareItem: URL?
     /// The emergency switch (136); an unreadable row answers "on".
     @State private var sharingOn = true
+    @Environment(AppState.self) private var app
     /// Which row is working, so only it animates.
     @State private var busyAction: String?
     @AppStorage("shareShowNames") private var showNames = true
@@ -141,7 +145,8 @@ struct HighlightsShareSheet: View {
     private var story: Highlights.Picks {
         Highlights.pick(points,
                         pad: clipPad(strictness: nil, stored: match.clipPads),
-                        budgetS: Highlights.storyBudgetS)
+                        budgetS: Highlights.storyBudgetS,
+                        tapEnd: app.tapEndPlayback)
     }
 
     var body: some View {

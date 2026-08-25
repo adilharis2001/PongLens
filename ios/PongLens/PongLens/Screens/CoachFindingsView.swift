@@ -293,6 +293,7 @@ private struct CutPlayerView: View {
     var onExpand: (() -> Void)?
     var expandBusy = false
 
+    @Environment(AppState.self) private var app
     @State private var url: URL?
     @State private var failed = false
     @State private var playing = false
@@ -553,6 +554,17 @@ private struct CutPlayerView: View {
         }
     }
 
+    /// Dead footage the player jumps: deleted cards and, with the
+    /// tap-end flag on (138), the tail after each winner tap. Recomputed
+    /// off the store like the takeover's deadSpans — the list is short.
+    private var deadSpans: [TimeSpan] {
+        skipSpans(
+            all: store.allPoints.map(\.playheadPoint),
+            pad: clipPad(strictness: nil, stored: store.match?.clipPads),
+            tapEnd: app.tapEndPlayback
+        )
+    }
+
     /// Follows playback: the current point is the last one whose cut_t0
     /// has passed.
     private func startClock() {
@@ -563,6 +575,15 @@ private struct CutPlayerView: View {
             Task { @MainActor in
                 guard playing else { return }
                 let t = time.seconds
+                // Dead footage is dead here too — jump out of it during
+                // playback, the same contract as the match players.
+                if let out = spanEnd(deadSpans, at: t) {
+                    player.seek(
+                        to: CMTime(seconds: out, preferredTimescale: 600),
+                        toleranceBefore: .zero, toleranceAfter: .zero
+                    )
+                    return
+                }
                 if let i = store.points.lastIndex(where: { ($0.cutT0 ?? .infinity) <= t }) {
                     currentIndex = i
                 }
