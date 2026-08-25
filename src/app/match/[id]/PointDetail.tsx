@@ -96,6 +96,7 @@ export function PointDetail({
   onSetGameOverride,
   mapLabels,
   neutral = false,
+  scored = true,
   onSetUserSide,
   strictness,
   placementNotice,
@@ -145,6 +146,9 @@ export function PointDetail({
   /** Neutral / third-party match (see MatchView's `neutral`): the scorecard
    * names the two players instead of "Me"/"Them"/"I won". Normal = false. */
   neutral?: boolean;
+  /** tracksServe on the live match type. False (practice/drills) drops the
+   * scorecard — no server, no winner, no loss reasons to collect. */
+  scored?: boolean;
   /** Owner-only: set matches.user_side from the map's orientation prompt
    * while untagged (same write PlayerTagging uses). Absent for coaches. */
   onSetUserSide?: (side: Side) => void;
@@ -422,21 +426,24 @@ export function PointDetail({
       </ActionSegment>
     );
   }
-  actions.push(
-    <ActionSegment
-      key="game"
-      label={gamePill.label}
-      onClick={() => void pickGameEnd(gamePill.next)}
-    >
-      <svg {...ICON} aria-hidden="true">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M6 21V4m0 0h11l-2 3.5L17 11H6"
-        />
-      </svg>
-    </ActionSegment>
-  );
+  // "Game ends here" is a score boundary; practice has no games to bound.
+  if (scored) {
+    actions.push(
+      <ActionSegment
+        key="game"
+        label={gamePill.label}
+        onClick={() => void pickGameEnd(gamePill.next)}
+      >
+        <svg {...ICON} aria-hidden="true">
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M6 21V4m0 0h11l-2 3.5L17 11H6"
+          />
+        </svg>
+      </ActionSegment>
+    );
+  }
   if (onOpenInPlayer) {
     actions.push(
       // "Open this moment in the full match" — an out-of-box arrow, not the
@@ -671,8 +678,10 @@ export function PointDetail({
 
 
       {/* scorecard: the owner's call, hidden for coach viewers. Its own
-          component, because the Keep-score pad asks the same questions. */}
-      {isOwner && (
+          component, because the Keep-score pad asks the same questions.
+          Scored types only — a practice point has no server and no winner
+          to collect, so the sheet is the clip, the map, and the notes. */}
+      {isOwner && scored && (
         <PointScorecard
           point={point}
           serve={serve}

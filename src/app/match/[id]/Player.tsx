@@ -622,6 +622,14 @@ export const Player = forwardRef<
     removedPoints: Point[];
     /** Owner with cut offsets: may enter score mode. Coaches: watch only. */
     canScore: boolean;
+    /**
+     * Does a score mean anything for this footage — tracksServe on the
+     * live match type. Separate from canScore because canScore also gates
+     * viewing chrome that practice keeps (the star button): this flag
+     * removes only the invitations to score — the in-player Score Keeper
+     * pill and the "score first?" ask on the way into watch mode.
+     */
+    scoringRelevant?: boolean;
     opponentName: string;
     /**
      * The uploader-side label on the scoring pad: "Me" for a normal match,
@@ -791,6 +799,7 @@ export const Player = forwardRef<
     points,
     removedPoints,
     canScore,
+    scoringRelevant = true,
     opponentName,
     youLabel,
     firstServer,
@@ -2329,7 +2338,7 @@ export const Player = forwardRef<
     [points, seekTo, openTakeover, playNow]
   );
 
-  const askBeforeOpening = canScore && unscored.length > 0;
+  const askBeforeOpening = canScore && scoringRelevant && unscored.length > 0;
 
   // Resume toast is deferred while the serve sheet is up.
   const resumeToastRef = useRef<string | null>(null);
@@ -5264,7 +5273,7 @@ export const Player = forwardRef<
                       <path d="M7.8 8.4h7.9M7.8 11.7h4.6" />
                     </svg>
                   </button>
-                  {canScore && (
+                  {canScore && scoringRelevant && (
                     <button
                       type="button"
                       // Wrapped: openScore's first argument is a point id,

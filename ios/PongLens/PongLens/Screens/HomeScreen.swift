@@ -631,7 +631,9 @@ struct HomeScreen: View {
     }
 
     private func continueEyebrow(for match: MatchRow) -> String {
-        guard let entry = scores.scores[match.id] else { return "Continue" }
+        // "Score it" asks for the one thing practice removed.
+        guard MatchTitle.tracksServe(match.matchType),
+              let entry = scores.scores[match.id] else { return "Continue" }
         if entry.unscoredCount > 0 && entry.confirmedCount == 0 { return "Score it" }
         if entry.unscoredCount > 0 { return "Keep scoring" }
         return "Continue"

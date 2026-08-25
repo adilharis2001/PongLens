@@ -50,7 +50,10 @@ struct MatchListRow: View {
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
                         .lineLimit(1)
-                    if let score, score.confirmedCount > 0 {
+                    // Scored types only: a games pill on a card that says
+                    // "Practice" one word earlier reads as a contradiction.
+                    if MatchTitle.tracksServe(match.matchType),
+                       let score, score.confirmedCount > 0 {
                         ScorePill(you: score.gamesYou, them: score.gamesThem)
                     }
                 }
@@ -140,10 +143,14 @@ struct MatchCard: View {
 
     @ViewBuilder
     private var footer: some View {
-        if let score, score.confirmedCount > 0 {
+        // Both branches are score furniture, so both sit behind
+        // tracksServe — the pill for the same reason as the list row's,
+        // the nudge because practice has no score to add.
+        if MatchTitle.tracksServe(match.matchType),
+           let score, score.confirmedCount > 0 {
             ScorePill(you: score.gamesYou, them: score.gamesThem)
         } else if match.status == .ready,
-                  match.matchType != "drills", match.matchType != "practice" {
+                  MatchTitle.tracksServe(match.matchType) {
             Text("Add score")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(PL.text500)

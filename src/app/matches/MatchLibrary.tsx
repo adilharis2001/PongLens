@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Job, SharedPlayer } from "@/lib/types";
 import { formatClock } from "@/lib/commerce/minutes";
-import { deriveMatchTitle, deriveMatchTitleParts } from "@/lib/matchTitle";
+import { deriveMatchTitle, deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
 import { ShareSheet } from "@/components/ShareSheet";
 import { CoachCta } from "@/components/reviews/CoachCta";
 import { chipTargetIds } from "./chipTargets";
@@ -683,7 +683,11 @@ export function MatchLibrary({
           </p>
           {/* fixed-height footer keeps every card the same size */}
           <div className="mt-2 flex h-6 items-center gap-2">
-            {m.status === "ready" && chip ? (
+            {/* Both branches are score furniture, so both sit behind
+                tracksServe: a games chip beside the word "Practice" reads
+                as a contradiction, and "Add score" asks for the one thing
+                practice removed. */}
+            {m.status === "ready" && chip && tracksServe(m.match_type) ? (
               <span
                 title={chip.complete ? "Final games score" : "Scoring in progress"}
                 className="whitespace-nowrap rounded-full border border-edge bg-ink/50 px-2 py-0.5 text-[11px] font-semibold tabular-nums"

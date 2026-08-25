@@ -2555,7 +2555,11 @@ export function MatchView({
           <p className="min-w-0 truncate text-sm text-zinc-500">
             {titleParts.secondary}
           </p>
-          {score.confirmedCount > 0 && (
+          {/* `scored` too, not just "has winners": a match that was scored
+              and then re-tagged as practice keeps its winner rows in the
+              database, and a games total beside the word "Practice" reads
+              as a contradiction. Flip the type back and the score returns. */}
+          {scored && score.confirmedCount > 0 && (
             <GamesToggle
               score={score}
               open={headerScoreOpen}
@@ -2564,7 +2568,7 @@ export function MatchView({
             />
           )}
         </div>
-        {headerScoreOpen && score.confirmedCount > 0 && (
+        {headerScoreOpen && scored && score.confirmedCount > 0 && (
           <ScoreLine
             wrap
             score={score}
@@ -2623,8 +2627,13 @@ export function MatchView({
                 className="mt-1 w-full rounded-xl border border-edge bg-ink/60 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
               />
             </label>
+            {/* The same five types the upload form offers, in the same
+                order. This panel is where a recording that came in through
+                the wrong door gets fixed, so a type missing here (drills
+                was, and "match" could only be said by unsetting) meant the
+                fix was impossible on exactly the page you'd look for it. */}
             <div className="flex flex-wrap gap-2">
-              {(["practice", "league", "tournament"] as const).map((t) => (
+              {(["drills", "practice", "match", "league", "tournament"] as const).map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -2666,6 +2675,7 @@ export function MatchView({
               points={visiblePoints}
               removedPoints={removedPoints}
               canScore={isOwner && hasCutOffsets}
+              scoringRelevant={scored}
               opponentName={opponentName}
               youLabel={mapLabels.you}
               firstServer={firstServer}
@@ -2848,25 +2858,30 @@ export function MatchView({
               onReady={() => scrollToReadyPlacement(document)}
             />
             {/* Placement owns its lifecycle row above; this remains the one
-                jump for the rest of the analysis area. Always visible for the
-                owner because the section carries its own teaching states. */}
-            <button
-              type="button"
-              onClick={() => scrollToSection(matchStatsRef)}
-              className={TOOL_ROW_CLASS}
-            >
-              <span className="text-sm font-semibold">Match analysis</span>
-              <span className="flex shrink-0 items-center gap-2">
-                <span
-                  className={`shrink-0 text-xs ${
-                    stats.hasData ? "text-zinc-400" : "text-zinc-500"
-                  }`}
-                >
-                  {statsRowSummary(stats)}
+                jump for the rest of the analysis area. Visible for the owner
+                on scored types because the section carries its own teaching
+                states; absent for practice, whose section it would jump to
+                does not exist — every number in it derives from a confirmed
+                score, and a practice never has one. */}
+            {scored && (
+              <button
+                type="button"
+                onClick={() => scrollToSection(matchStatsRef)}
+                className={TOOL_ROW_CLASS}
+              >
+                <span className="text-sm font-semibold">Match analysis</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={`shrink-0 text-xs ${
+                      stats.hasData ? "text-zinc-400" : "text-zinc-500"
+                    }`}
+                  >
+                    {statsRowSummary(stats)}
+                  </span>
+                  <ToolRowChevron />
                 </span>
-                <ToolRowChevron />
-              </span>
-            </button>
+              </button>
+            )}
             {/* Jump to the overall notes at the bottom — saves the long
                 scroll past every point on mobile. */}
             <button
@@ -3084,8 +3099,9 @@ export function MatchView({
             )}
           </div>
 
-          {/* game checkpoints: nobody scrolls a 60-point timeline blind */}
-          {!pfActive && gameStarts.length > 1 && (
+          {/* game checkpoints: nobody scrolls a 60-point timeline blind.
+              Scored types only — games are a score construct. */}
+          {scored && !pfActive && gameStarts.length > 1 && (
             <div className="relative mt-3">
               <div className="flex gap-1.5 overflow-x-auto pb-1 pr-8">
                 {gameStarts.map((g) => (
@@ -3115,34 +3131,40 @@ export function MatchView({
             <div className="mt-3 space-y-3 rounded-2xl border border-edge/70 bg-surface/50 p-4">
               {(
                 [
-                  {
-                    label: "Serve",
-                    row: (
-                      <PfSegment
-                        value={pf.served}
-                        onChange={(v) => setPf({ ...pf, served: v, deleted: false })}
-                        options={[
-                          { value: "any", label: "Anyone" },
-                          { value: "me", label: "I served" },
-                          { value: "them", label: "They served" },
-                        ]}
-                      />
-                    ),
-                  },
-                  {
-                    label: "Winner",
-                    row: (
-                      <PfSegment
-                        value={pf.won}
-                        onChange={(v) => setPf({ ...pf, won: v, deleted: false })}
-                        options={[
-                          { value: "any", label: "Anyone" },
-                          { value: "me", label: "I won" },
-                          { value: "them", label: "They won" },
-                        ]}
-                      />
-                    ),
-                  },
+                  // Serve and winner are score facts, and practice collects
+                  // neither — the filters would only ever return nothing.
+                  ...(scored
+                    ? [
+                        {
+                          label: "Serve",
+                          row: (
+                            <PfSegment
+                              value={pf.served}
+                              onChange={(v) => setPf({ ...pf, served: v, deleted: false })}
+                              options={[
+                                { value: "any", label: "Anyone" },
+                                { value: "me", label: "I served" },
+                                { value: "them", label: "They served" },
+                              ]}
+                            />
+                          ),
+                        },
+                        {
+                          label: "Winner",
+                          row: (
+                            <PfSegment
+                              value={pf.won}
+                              onChange={(v) => setPf({ ...pf, won: v, deleted: false })}
+                              options={[
+                                { value: "any", label: "Anyone" },
+                                { value: "me", label: "I won" },
+                                { value: "them", label: "They won" },
+                              ]}
+                            />
+                          ),
+                        },
+                      ]
+                    : []),
                   ...(tagShareOptions.length > 0
                     ? [
                         {
@@ -3203,7 +3225,11 @@ export function MatchView({
                         {(
                           [
                             { key: "starred", label: "Starred" },
-                            { key: "skipped", label: "Skipped" },
+                            // "Skipped" partitions the scoring, which
+                            // practice doesn't do.
+                            ...(scored
+                              ? ([{ key: "skipped", label: "Skipped" }] as const)
+                              : []),
                             { key: "deleted", label: "Deleted" },
                           ] as const
                         ).map((o) => {
@@ -3386,7 +3412,7 @@ export function MatchView({
                             }
                             onPointUpdate={updatePoint}
                           />}
-                          {point.confirmed_winner && !point.is_let && (
+                          {scored && point.confirmed_winner && !point.is_let && (
                             <span
                               className={`text-[11px] font-medium ${
                                 point.confirmed_winner === "user"
@@ -3446,8 +3472,10 @@ export function MatchView({
                       {/* one-tap outcome: You/Them build the score without
                           opening the point (tap the same side again to
                           clear); Skip below is the quieter third outcome —
-                          skipped points never score, tap again to un-skip */}
-                      {isOwner && (
+                          skipped points never score, tap again to un-skip.
+                          Scored types only: a practice point has no winner
+                          to collect, so the rally list is just the rallies. */}
+                      {isOwner && scored && (
                         <span className="flex shrink-0 flex-col gap-1">
                           <button
                             type="button"
@@ -3605,8 +3633,9 @@ export function MatchView({
                     </SwipeRemoveRow>
                     {/* game boundary from the confirmed sequence. The owner
                         can nudge it a point up/down when a rally landed in
-                        the wrong game (score ran past 11). */}
-                    {!pfActive && nextGame !== undefined && (
+                        the wrong game (score ran past 11). Scored types
+                        only — games are a score construct. */}
+                    {scored && !pfActive && nextGame !== undefined && (
                       <div className="mt-3 flex items-center gap-3">
                         <span className="h-px flex-1 bg-edge" />
                         <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
@@ -3817,11 +3846,13 @@ export function MatchView({
                 </span>
               </p>
               {/* running score as of this point (chevrons on the clip +
-                  arrow keys handle prev/next) */}
-              <ScoreLine
-                score={runningScore}
-                className="text-sm font-bold tabular-nums tracking-tight"
-              />
+                  arrow keys handle prev/next). Scored types only. */}
+              {scored && (
+                <ScoreLine
+                  score={runningScore}
+                  className="text-sm font-bold tabular-nums tracking-tight"
+                />
+              )}
             </div>
             <PointDetail
               key={panePoint.id}
@@ -3848,6 +3879,7 @@ export function MatchView({
               onSetGameOverride={(v) => setGameEndOverride(panePoint, v)}
               mapLabels={mapLabels}
               neutral={neutral}
+              scored={scored}
               onSetUserSide={isOwner ? handleSetUserSide : undefined}
               strictness={strictness}
               placementNotice={
@@ -3904,8 +3936,12 @@ export function MatchView({
       </div>
 
       {/* Match analysis: the card deck summarises what the confirmed score
-          knows (swipe on mobile, grid on desktop). Owner-only. */}
-      {isOwner && (
+          knows (swipe on mobile, grid on desktop). Owner-only, and only on
+          scored types — every card derives from confirmed winners, and a
+          practice never collects any, so for it this whole section could
+          only ever say "score a full game", which is an instruction to do
+          the one thing practice removed. */}
+      {isOwner && scored && (
         <div ref={matchStatsRef} className="scroll-mt-32">
           <AnalysisCards
             stats={stats}
@@ -3923,8 +3959,14 @@ export function MatchView({
           scorecard's), it carries the same name as its Tools row so tapping
           that row lands on a matching heading, and nesting its card deck
           inside the analysis deck stacked two dot pagers. Owner-only; sits
-          below the points so the timeline stays the page's spine. */}
-      {isOwner && (
+          below the points so the timeline stays the page's spine.
+
+          On practice the section appears only once it has real maps to
+          show: the empty-state pitch is scored-match furniture on a page
+          that shed the rest of it, but maps that exist are the camera's
+          own data and stay shown whatever the type. Generation stays in
+          Tools either way. */}
+      {isOwner && (scored || placementMappedPoints > 0) && (
         <div id="ball-map" className="scroll-mt-32">
           {showPlacementDeepDive(
             placement.view,
@@ -4026,7 +4068,7 @@ export function MatchView({
                   >
                     {titleParts.primary}
                   </button>
-                  {score.confirmedCount > 0 && (
+                  {scored && score.confirmedCount > 0 && (
                     // Games won, for the same reason as the page header:
                     // the per-game line used to live here in 45% of the
                     // bar, cut off mid-number with a hidden scrollbar as
@@ -4039,7 +4081,7 @@ export function MatchView({
                     />
                   )}
                 </div>
-                {barScoreOpen && score.confirmedCount > 0 && (
+                {barScoreOpen && scored && score.confirmedCount > 0 && (
                   <div className="border-t border-edge/60 px-4 py-2">
                     <ScoreLine
                       wrap
@@ -4108,6 +4150,7 @@ export function MatchView({
           onSetGameOverride={(v) => setGameEndOverride(selectedPoint, v)}
           mapLabels={mapLabels}
           neutral={neutral}
+          scored={scored}
           onSetUserSide={isOwner ? handleSetUserSide : undefined}
           strictness={strictness}
           placementNotice={

@@ -9,6 +9,10 @@ struct PointCard: View {
     /// Rotation-computed server (serving.ts port), with the raw column as
     /// display fallback while rotation can't be computed.
     let displayServer: Winner?
+    /// tracksServe on the live match type. False (practice/drills) drops
+    /// the score anatomy — server chip, winner text, You/Them/Skip pills —
+    /// and the row becomes number · duration · tag/star/delete.
+    var scoring = true
     var noteCount = 0
     var tagCount = 0
     let onOpen: () -> Void
@@ -32,14 +36,16 @@ struct PointCard: View {
                         .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
 
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            serverChip
-                                .fixedSize()
-                            if let winner = winnerLabel {
-                                Text(winner.text)
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(winner.color)
-                                    .lineLimit(1)
+                        if scoring {
+                            HStack(spacing: 8) {
+                                serverChip
+                                    .fixedSize()
+                                if let winner = winnerLabel {
+                                    Text(winner.text)
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(winner.color)
+                                        .lineLimit(1)
+                                }
                             }
                         }
                         HStack(spacing: 10) {
@@ -73,10 +79,12 @@ struct PointCard: View {
             }
             .buttonStyle(.plain)
 
-            VStack(spacing: 8) {
-                answerPill("You", selected: point.confirmedWinner == .user, tint: PL.cyan, action: onYou)
-                answerPill("Them", selected: point.confirmedWinner == .opponent, tint: PL.magentaSoft, action: onThem)
-                answerPill("Skip", selected: point.isLet, tint: PL.warning, small: true, action: onSkip)
+            if scoring {
+                VStack(spacing: 8) {
+                    answerPill("You", selected: point.confirmedWinner == .user, tint: PL.cyan, action: onYou)
+                    answerPill("Them", selected: point.confirmedWinner == .opponent, tint: PL.magentaSoft, action: onThem)
+                    answerPill("Skip", selected: point.isLet, tint: PL.warning, small: true, action: onSkip)
+                }
             }
 
             VStack(spacing: 16) {

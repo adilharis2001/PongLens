@@ -439,6 +439,12 @@ struct MatchDetailScreen: View {
 
     private var current: MatchRow { live ?? match }
 
+    /// Does a score mean anything here — tracksServe on the LIVE type, so
+    /// changing it in Match details reacts without a reload. Gates every
+    /// score-shaped thing on this screen: the games total, the game
+    /// checkpoints and dividers, and the You/Them/Skip pills on the rows.
+    private var tracksServe: Bool { MatchTitle.tracksServe(current.matchType) }
+
     private var isOwner: Bool { app.userId == current.userId }
 
     private var pad: ClipPad {
@@ -837,7 +843,7 @@ struct MatchDetailScreen: View {
                 .foregroundStyle(PL.textBody)
                 .lineLimit(1)
             Spacer()
-            if score.confirmedCount > 0 {
+            if tracksServe, score.confirmedCount > 0 {
                 Button {
                     withAnimation { proxy.scrollTo("match-top", anchor: .top) }
                 } label: {
@@ -880,7 +886,11 @@ struct MatchDetailScreen: View {
                         status: model.jobRunning ? .processing : current.chipStatus
                     )
                 }
-                if score.confirmedCount > 0 {
+                // tracksServe too, not just "has winners": a match that was
+                // scored and then re-tagged as practice keeps its winner
+                // rows, and a games total beside "Practice" reads as a
+                // contradiction. Flip the type back and it returns.
+                if tracksServe, score.confirmedCount > 0 {
                     Button {
                         withAnimation(.easeOut(duration: 0.15)) {
                             showGamesDetail.toggle()
@@ -1294,7 +1304,7 @@ struct MatchDetailScreen: View {
                 .accessibilityLabel("Filter points")
             }
 
-            if gameStarts.count > 1, !filtersActive {
+            if tracksServe, gameStarts.count > 1, !filtersActive {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(gameStarts, id: \.id) { start in
@@ -1343,6 +1353,7 @@ struct MatchDetailScreen: View {
                             point: point,
                             number: number,
                             displayServer: serving[point.id]?.server ?? point.displayServer,
+                            scoring: tracksServe,
                             noteCount: notesStore.count(for: point.id),
                             tagCount: tagsStore.tags(for: point.id).count,
                             onOpen: {
@@ -1359,7 +1370,7 @@ struct MatchDetailScreen: View {
                             onDelete: { Task { await model.softDelete(point) } }
                         )
                         .id(point.id)
-                        if !filtersActive, let boundary = score.boundaryAfter[point.id] {
+                        if tracksServe, !filtersActive, let boundary = score.boundaryAfter[point.id] {
                             Text("Game \(boundary.game) ends \(boundary.you)-\(boundary.them) · game \(boundary.game + 1) begins")
                                 .font(.plCaption)
                                 .monospacedDigit()

@@ -8,7 +8,7 @@ import { UploadFab } from "@/components/Fab";
 import { createClient } from "@/lib/supabase/client";
 import { BalancesCard } from "@/components/BalancesCard";
 import type { Job, NoteFeedRow, SharedPlayer } from "@/lib/types";
-import { deriveMatchTitleParts } from "@/lib/matchTitle";
+import { deriveMatchTitleParts, tracksServe } from "@/lib/matchTitle";
 import { FirstSteps } from "./FirstSteps";
 import { YourGame } from "./YourGame";
 import {
@@ -483,9 +483,10 @@ export function HomeOverview({
                         latestReady.points?.[0]?.count ?? 0
                       } points`}
                 </span>
-                {scoreChips.get(latestReady.id) && (
-                  <ScorePill chip={scoreChips.get(latestReady.id)!} />
-                )}
+                {tracksServe(latestReady.match_type) &&
+                  scoreChips.get(latestReady.id) && (
+                    <ScorePill chip={scoreChips.get(latestReady.id)!} />
+                  )}
               </p>
             </div>
             <svg
@@ -567,9 +568,11 @@ export function HomeOverview({
                     </div>
                     <p className="mt-1 flex items-center gap-2 text-xs text-zinc-500">
                       <span className="truncate">{bits.join(" · ")}</span>
-                      {m.status === "ready" && scoreChips.get(m.id) && (
-                        <ScorePill chip={scoreChips.get(m.id)!} />
-                      )}
+                      {m.status === "ready" &&
+                        tracksServe(m.match_type) &&
+                        scoreChips.get(m.id) && (
+                          <ScorePill chip={scoreChips.get(m.id)!} />
+                        )}
                     </p>
                   </div>
                 </>

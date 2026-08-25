@@ -145,6 +145,7 @@ export function PointSheet({
   onSetGameOverride,
   mapLabels,
   neutral = false,
+  scored = true,
   onSetUserSide,
   strictness,
   placementNotice,
@@ -190,6 +191,8 @@ export function PointSheet({
   /** Neutral / third-party match: names the players in the scorecard (see
    * MatchView's `neutral`). Forwarded to PointDetail. */
   neutral?: boolean;
+  /** tracksServe on the live match type; forwarded to PointDetail. */
+  scored?: boolean;
   /** Owner-only: set matches.user_side from the map's orientation prompt. */
   onSetUserSide?: (side: Side) => void;
   strictness: string;
@@ -449,11 +452,13 @@ export function PointSheet({
           </p>
           <div className="flex min-w-0 items-center gap-3">
             {/* running match line AS OF this point — it tracks live while
-                outcomes get corrected below */}
-            <ScoreLine
-              score={score}
-              className="min-w-0 text-xs font-bold tabular-nums tracking-tight"
-            />
+                outcomes get corrected below. Scored types only. */}
+            {scored && (
+              <ScoreLine
+                score={score}
+                className="min-w-0 text-xs font-bold tabular-nums tracking-tight"
+              />
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -507,6 +512,7 @@ export function PointSheet({
             onSetGameOverride={onSetGameOverride}
             mapLabels={mapLabels}
             neutral={neutral}
+            scored={scored}
             onSetUserSide={onSetUserSide}
             strictness={strictness}
             placementNotice={placementNotice}

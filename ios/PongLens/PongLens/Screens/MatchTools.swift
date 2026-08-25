@@ -58,8 +58,14 @@ struct ToolsSection: View {
                         placementOpen = true
                     }
                 }
-                divider
-                toolRow("Match analysis", trailing: .text(analysisTrailing)) { analysisOpen = true }
+                // Every number in the analysis derives from a confirmed
+                // score, and practice never collects one — for it the
+                // sheet could only ever say "score a full game", which is
+                // an instruction to do the one thing practice removed.
+                if MatchTitle.tracksServe(match.matchType) {
+                    divider
+                    toolRow("Match analysis", trailing: .text(analysisTrailing)) { analysisOpen = true }
+                }
                 divider
                 toolRow("Notes", trailing: .text("Add a note")) { onScrollToNotes() }
                 divider

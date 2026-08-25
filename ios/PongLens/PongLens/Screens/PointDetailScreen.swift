@@ -140,7 +140,10 @@ struct PointDetailScreen: View {
                                 onNext: { index = min(points.count - 1, index + 1) }
                             )
                             actionBar(point)
-                            if isOwner {
+                            // Scored types only: a practice point has no
+                            // server and no winner to collect, so the sheet
+                            // is the clip, the map and the notes.
+                            if isOwner, tracksServe {
                                 scorecard(point)
                             }
                             placementSection(point)
@@ -277,11 +280,15 @@ struct PointDetailScreen: View {
                 .monospacedDigit()
                 .foregroundStyle(PL.text500)
             Spacer()
-            (Text("\(runningScore.you)").foregroundColor(PL.cyan)
-                + Text("-").foregroundColor(PL.text600)
-                + Text("\(runningScore.them)").foregroundColor(PL.magentaSoft))
-                .font(.system(size: 15, weight: .semibold))
-                .monospacedDigit()
+            // Running score as of this point. Scored types only — practice
+            // has no score for this line to run.
+            if tracksServe {
+                (Text("\(runningScore.you)").foregroundColor(PL.cyan)
+                    + Text("-").foregroundColor(PL.text600)
+                    + Text("\(runningScore.them)").foregroundColor(PL.magentaSoft))
+                    .font(.system(size: 15, weight: .semibold))
+                    .monospacedDigit()
+            }
             Button {
                 dismiss()
             } label: {
@@ -320,8 +327,12 @@ struct PointDetailScreen: View {
                         }
                         actionSeparator
                     }
-                    boundaryButton(point)
-                    actionSeparator
+                    // "Game ends here" is a score boundary; practice has
+                    // no games to bound.
+                    if tracksServe {
+                        boundaryButton(point)
+                        actionSeparator
+                    }
                 }
                 actionButton("In match", icon: "arrow.up.forward.square", tint: PL.text300) {
                     if let cutT0 = point.cutT0 {
