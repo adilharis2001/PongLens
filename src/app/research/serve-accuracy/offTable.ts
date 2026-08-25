@@ -285,9 +285,14 @@ export function findOffTable(
     return make("shot", 1, null);
   }
 
-  // No terminator seen: the older read, unchanged.
+  // No terminator seen: the older read, unchanged — except that a point
+  // whose record simply stops after the last landing now says so, rather
+  // than returning nothing. 34 of the two matches' scored points end this
+  // way: no touch, no floor bounce, no ending of any kind on record.
   const touches = win.filter((e) => e.kind === "contact");
-  if (touches.length === 0) return null;
+  if (touches.length === 0) {
+    return make("open", 0, "nothing followed the last landing");
+  }
   let shots = 1;
   for (let i = 1; i < touches.length; i++) {
     if (touches[i].t - touches[i - 1].t > OFF_TABLE_SHOT_GAP_S) shots++;

@@ -813,7 +813,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   const [active, setActive] = useState(matches[0].matchId);
   const [only, setOnly] = useState<
     "all" | "drawn" | "refused" | "disagreed" | "deadrun" | "offtable"
-    | "wrong" | "heldback"
+    | "wrong" | "heldback" | "nocall"
   >("all");
   const match = matches.find((m) => m.matchId === active) ?? matches[0];
   const stats = useMemo(() => summarise(match.rows), [match]);
@@ -831,6 +831,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
                     ) !== null
                   : only === "wrong" ? ruleIsWrong(r, match.corners)
                     : only === "heldback" ? ruleHeldBack(r, match.corners)
+                      : only === "nocall" ? ruleVerdict(r, match.corners) === null
                       : r.winner !== null
                         && r.computed?.winner != null
                         && r.computed.winner !== r.winner,
@@ -857,6 +858,10 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   );
   const heldBack = useMemo(
     () => match.rows.filter((r) => ruleHeldBack(r, match.corners)).length,
+    [match],
+  );
+  const noCall = useMemo(
+    () => match.rows.filter((r) => ruleVerdict(r, match.corners) === null).length,
     [match],
   );
   // How the off-table rule scores against the pad, on the points it fires.
@@ -989,6 +994,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             ["offtable", `Off table ${withOffTable}`],
             ["wrong", `We called it wrong ${ruleWrong}`],
             ["heldback", `Held back ${heldBack}`],
+            ["nocall", `No call ${noCall}`],
           ] as const
         ).map(([key, label]) => (
           <button
