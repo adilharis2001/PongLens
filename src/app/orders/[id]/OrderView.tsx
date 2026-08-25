@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   FollowupThread,
@@ -18,6 +18,13 @@ import type {
   ReviewSectionContent,
 } from "@/lib/reviews/types";
 import { isOverdueCancellable } from "@/lib/reviews/types";
+import {
+  Thumb,
+  fetchPointsPaged,
+  useScoreChips,
+  useThumbs,
+  type PointLite,
+} from "@/app/dashboard/shared";
 import { createClient } from "@/lib/supabase/client";
 import { ChatThread } from "@/components/reviews/ChatThread";
 import { UpLink } from "@/components/UpLink";
@@ -78,6 +85,39 @@ function SubmitWizard({
   // One page, one scroll: recent matches show outright, the rest expand
   // in place rather than scrolling inside a box.
   const [showAllMatches, setShowAllMatches] = useState(false);
+
+  // A row of text can't tell three "vs Julian · Aug 23 · Pingpod" uploads
+  // apart, and the student is deciding which one a coach reviews. So each
+  // row carries the same poster thumb and games-score pill the library
+  // cards use — the score comes from the shared chip walk, so the number
+  // here can never disagree with the Matches page.
+  const candidateIds = useMemo(() => candidates.map((m) => m.id), [candidates]);
+  const thumbs = useThumbs(candidateIds);
+  const [pointsLite, setPointsLite] = useState<PointLite[]>([]);
+  useEffect(() => {
+    const ready = candidates
+      .filter((m) => m.status === "ready")
+      .map((m) => m.id);
+    if (ready.length === 0) return;
+    let cancelled = false;
+    void fetchPointsPaged<PointLite>(
+      "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override",
+      ready
+    ).then((rows) => {
+      if (!cancelled) setPointsLite(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [candidates]);
+  const scoreChips = useScoreChips(pointsLite);
+  const pointCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of pointsLite) {
+      counts.set(p.match_id, (counts.get(p.match_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [pointsLite]);
 
   const required = detail.intake_questions.filter((q) => !q.optional);
   // A raw video longer than the review's included minutes can't be sent
@@ -156,39 +196,72 @@ function SubmitWizard({
         </p>
       ) : (
         <div className="mt-3 space-y-2">
-          {(showAllMatches ? candidates : candidates.slice(0, 6)).map((m) => (
-            <label
-              key={m.id}
-              className={`flex cursor-pointer items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm transition-colors ${
-                matchId === m.id
-                  ? "border-cyan-glow/60 bg-surface-2"
-                  : "border-edge bg-surface-2/50 hover:border-cyan-glow/30"
-              }`}
-            >
-              <span className="min-w-0 truncate text-zinc-200">
-                {m.opponent_name ? matchLabel(m) : (m.original_name ?? matchLabel(m))}
-                {m.status === "processing" && (
-                  <span className="ml-2 text-xs text-zinc-500">
-                    still processing
+          {(showAllMatches ? candidates : candidates.slice(0, 6)).map((m) => {
+            const chip = scoreChips.get(m.id);
+            const points = pointCounts.get(m.id);
+            return (
+              <label
+                key={m.id}
+                className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm transition-colors ${
+                  matchId === m.id
+                    ? "border-cyan-glow/60 bg-surface-2"
+                    : "border-edge bg-surface-2/50 hover:border-cyan-glow/30"
+                }`}
+              >
+                <Thumb
+                  url={thumbs[m.id]}
+                  className="aspect-video w-24 shrink-0 rounded-lg"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-zinc-200">
+                    {m.opponent_name
+                      ? matchLabel(m)
+                      : (m.original_name ?? matchLabel(m))}
                   </span>
-                )}
-                {m.status === "uploaded" && (
-                  <span className="ml-2 text-xs text-zinc-500">
-                    {overCap(m)
-                      ? `longer than the ${includedMinutes} minutes included`
-                      : "not processed yet · included with this review"}
+                  <span className="mt-1 flex items-center gap-2 text-xs text-zinc-500">
+                    {chip && (
+                      <span
+                        title={
+                          chip.complete
+                            ? "Final games score"
+                            : "Scoring in progress"
+                        }
+                        className="whitespace-nowrap rounded-full border border-edge bg-ink/50 px-2 py-0.5 text-[11px] font-semibold tabular-nums"
+                      >
+                        <span className="text-cyan-glow">{chip.you}</span>
+                        <span className="px-0.5 text-zinc-600">-</span>
+                        <span className="text-magenta-glow">{chip.them}</span>
+                      </span>
+                    )}
+                    {m.status === "ready" && (
+                      <span className="truncate">
+                        {points != null
+                          ? `${points} point${points === 1 ? "" : "s"}`
+                          : null}
+                      </span>
+                    )}
+                    {m.status === "processing" && (
+                      <span className="truncate">still processing</span>
+                    )}
+                    {m.status === "uploaded" && (
+                      <span className="truncate">
+                        {overCap(m)
+                          ? `longer than the ${includedMinutes} minutes included`
+                          : "not processed yet · included with this review"}
+                      </span>
+                    )}
                   </span>
-                )}
-              </span>
-              <input
-                type="radio"
-                name="match"
-                checked={matchId === m.id}
-                onChange={() => setMatchId(m.id)}
-                className="h-4 w-4 accent-cyan-400"
-              />
-            </label>
-          ))}
+                </span>
+                <input
+                  type="radio"
+                  name="match"
+                  checked={matchId === m.id}
+                  onChange={() => setMatchId(m.id)}
+                  className="h-4 w-4 shrink-0 accent-cyan-400"
+                />
+              </label>
+            );
+          })}
           {!showAllMatches && candidates.length > 6 && (
             <button
               type="button"

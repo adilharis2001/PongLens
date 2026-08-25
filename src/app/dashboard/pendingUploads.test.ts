@@ -40,14 +40,14 @@ const browser = new Store();
 const tabs: Record<string, Store> = { a: new Store(), b: new Store() };
 
 function inTab(name: "a" | "b") {
-  (globalThis as { sessionStorage?: Store }).sessionStorage = tabs[name];
+  (globalThis as unknown as { sessionStorage: Store }).sessionStorage = tabs[name];
 }
 
 beforeEach(() => {
   browser.map.clear();
   tabs.a = new Store();
   tabs.b = new Store();
-  (globalThis as { localStorage?: Store }).localStorage = browser;
+  (globalThis as unknown as { localStorage: Store }).localStorage = browser;
   inTab("a");
 });
 
