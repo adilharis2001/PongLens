@@ -887,8 +887,8 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
           <p className="mt-2 text-sm text-zinc-200">
             The ball left the table on{" "}
             <span className="tabular-nums">{offScore.fires}</span> more, where
-            the last landing and the shot after it were both clean enough to
-            read, and that named the winner right{" "}
+            the ball&rsquo;s path into that last shot was clean enough to
+            follow, and that named the winner right{" "}
             <span className="tabular-nums">{offScore.right}</span> times
             against the worker&rsquo;s{" "}
             <span className="tabular-nums">{offScore.workerRight}</span>.

@@ -54,6 +54,11 @@ export interface OffTableCall {
    * landed on plays next" is reading the wrong shot.
    */
   alternates: boolean;
+  /**
+   * Whether the ball bounced somewhere we could not place, between the
+   * last landing we could and the shot about to be blamed for the point.
+   */
+  blindBounce: boolean;
   /** Both gates passed: the call is worth showing. */
   trusted: boolean;
 }
@@ -95,12 +100,30 @@ export function findOffTable(
     }
   }
 
+  // Point 12 of the Chris match: Adil serves, Chris returns, Adil hits
+  // long. The ball never comes down on the table again — it hits the wall
+  // behind Chris, pops back up over the table for a moment and drops out.
+  // Chris's return landed on Adil's half and was never placed, so the last
+  // landing on record is the serve, on Chris's half, and the rule blamed
+  // Chris for a ball Adil hit out.
+  //
+  // The tell is in the data: an unplaced bounce sits between that landing
+  // and the shot. The ball touched something we could not see, so we do
+  // not know whose shot came next and must not guess.
+  const blindBounce = sorted.some(
+    (e) => e.kind === "bounce"
+      && (e.u === null || e.v === null)
+      && e.t > lastLanding.t + 0.03
+      && e.t < touches[0].t + 0.03,
+  );
+
   return {
     lastLanding,
     struckBy: halfOf(lastLanding.v as number),
     shotsAfter,
     alternates,
-    trusted: alternates && shotsAfter === 1,
+    blindBounce,
+    trusted: alternates && shotsAfter === 1 && !blindBounce,
   };
 }
 
@@ -108,11 +131,21 @@ export function findOffTable(
  * Who lost, when the call is one worth making.
  *
  * Ungated the rule is right on 57 of 82, which is not far enough above
- * the reconstruction's 39 to be worth showing. Requiring the bounces to
- * alternate and exactly one shot to follow the last landing leaves 41
- * points and 36 right. Adding a third gate — the serve landing on the
- * server's own half first — reads 13 of 13, but thirteen points is not
- * evidence of a better rule, only of a smaller sample, so it is left out.
+ * the reconstruction's 39 to be worth showing. Three gates carry it: the
+ * bounces alternate, exactly one shot follows the last landing, and
+ * nothing bounced unplaced in between. That leaves 32 points and 30 right.
+ *
+ * The third gate replaced the obvious alternative, which was to demand
+ * more landings. Requiring three of them also excludes the point that
+ * exposed the hole and reads 20 of 21 — but it throws away eleven more
+ * points to get there, and it is a number rather than a reason. "We could
+ * not see where the ball went" is the actual defect; "there were not many
+ * bounces" is a symptom of it.
+ *
+ * Worth knowing about the alternation gate: below three landings it
+ * cannot fail, because there is no pair to compare. Point 12 has one
+ * landing and passed it on a technicality. The unplaced-bounce gate is
+ * what actually catches that case.
  */
 export function offTableLoser(
   call: OffTableCall | null,
@@ -126,6 +159,7 @@ export function offTableLoser(
 export function offTableWithheld(call: OffTableCall | null): string | null {
   if (call === null) return null;
   if (!call.alternates) return "a landing was missed";
+  if (call.blindBounce) return "the ball bounced somewhere we could not place";
   if (call.shotsAfter !== 1) return `${call.shotsAfter} shots after the last landing`;
   return null;
 }
