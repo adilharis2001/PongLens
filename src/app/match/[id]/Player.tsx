@@ -4907,7 +4907,7 @@ export const Player = forwardRef<
                 share read the same. Bottom-left, clear of the transport
                 row, and it stays put when the chrome fades — it is
                 information, not a control. Coaches get it too. */}
-            {mode === "watch" && !highlightIds && score.confirmedCount > 0 && (
+            {mode === "watch" && score.confirmedCount > 0 && (
               <ScoreBug
                 score={enteringScore}
                 you={youLabel}

@@ -93,9 +93,11 @@ struct PlayerTakeover: View {
     var onTagPoint: ((MatchPoint) -> Void)?
     /// Highlights mode (2026-08-25): play ONLY these rallies, in order,
     /// jumping the footage between them. The viewing chrome stays — play,
-    /// the scrubber, zoom, rotate, the prev/next flanks — and the working
-    /// chrome (gestures help, speed, grid, star, notes, score bug) stands
-    /// down; a Share pill takes the top-left corner. nil = normal player.
+    /// the scrubber, zoom, rotate, the flanks, and the SCORE BUG, whose
+    /// numbers walk the whole match so it reads the true score entering
+    /// the rally on screen. The working chrome (gestures help, speed,
+    /// grid, star, notes) stands down; a Share pill takes the top-left
+    /// corner. nil = the normal player.
     var highlightPicks: [MatchPoint]? = nil
     /// The Share pill's tap; the host presents the share sheet.
     var onShareHighlight: (() -> Void)?
@@ -227,7 +229,11 @@ struct PlayerTakeover: View {
     @State var annotateFrame: UIImage?
     @State var pendingImage: (path: String, preview: UIImage)?
 
-    var points: [MatchPoint] { highlightPicks ?? model.visible }
+    // The FULL visible list, always — the score walk, the serve rotation
+    // and the chip strip must read the real match even on the highlights
+    // tape (a walk over only the picks would print a fiction). Which
+    // rallies PLAY is highlightSpans' business, in tick().
+    var points: [MatchPoint] { model.visible }
     var isHighlights: Bool { highlightPicks != nil }
 
     /// The picks' spans on the cut timeline. Everything outside them is
@@ -695,7 +701,7 @@ struct PlayerTakeover: View {
                 // The score is information, not a control, so it stays when
                 // the controls go — the same rule the exported reel follows.
                 // It lifts to clear the transport while that is up.
-                if mode == .watch, !isHighlights {
+                if mode == .watch {
                     // Measured, not guessed. This was a flat 44, which
                     // cleared the bar it was written against and stopped
                     // clearing it the moment the buttons grew — the score
