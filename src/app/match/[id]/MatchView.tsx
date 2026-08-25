@@ -46,6 +46,7 @@ import { Player, type PlayerHandle } from "./Player";
 import { PointDetail } from "./PointDetail";
 import { PointSheet } from "./PointSheet";
 import { PickSide } from "./PickSide";
+import { tracksServe } from "@/lib/matchTitle";
 import { ServerChipMenu } from "./ServerChipMenu";
 import { NameCombobox } from "@/app/dashboard/NameCombobox";
 import {
@@ -691,6 +692,12 @@ export function MatchView({
     [match]
   );
   const [matchType, setMatchType] = useState(match.match_type ?? "");
+  // Drills and practice are not played to a score, so serve rotation is
+  // not being followed and there is no score to keep. Derived from the
+  // LIVE type state rather than the row, so switching the type in Details
+  // below adds or removes these surfaces without a reload — the same rule
+  // and the same behaviour as MatchTitle.tracksServe on iOS.
+  const scored = tracksServe(matchType || null);
   const saveMatchType = useCallback(
     async (value: string) => {
       const next = (value || null) as Match["match_type"];
@@ -2746,7 +2753,7 @@ export function MatchView({
           <section className="mt-8 scroll-mt-32" ref={toolsRef}>
           <SectionHeading>Tools</SectionHeading>
           <div className="mt-3 w-full divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface lg:grid lg:grid-cols-3 lg:gap-3 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent">
-            {hasCutOffsets && (
+            {hasCutOffsets && scored && (
               <button
                 type="button"
                 onClick={() => playerRef.current?.openScore()}
@@ -3358,7 +3365,7 @@ export function MatchView({
                         {/* the chip is its own tap target (server menu),
                             so it lives outside the open-point button */}
                         <div className="flex flex-wrap items-center gap-2">
-                          <ServerChipMenu
+                          {scored && <ServerChipMenu
                             point={point}
                             serve={serving.get(point.id)}
                             userSide={userSide}
@@ -3369,7 +3376,7 @@ export function MatchView({
                                 : undefined
                             }
                             onPointUpdate={updatePoint}
-                          />
+                          />}
                           {point.confirmed_winner && !point.is_let && (
                             <span
                               className={`text-[11px] font-medium ${

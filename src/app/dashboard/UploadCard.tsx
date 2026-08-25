@@ -1,5 +1,7 @@
 "use client";
 
+import { tracksServe } from "@/lib/matchTitle";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import Uppy from "@uppy/core";
 import AwsS3 from "@uppy/aws-s3";
@@ -1821,13 +1823,19 @@ export function UploadCard({
                   key={t.value}
                   type="button"
                   aria-pressed={form.matchType === t.value}
-                  onClick={() =>
-                    setField(
-                      "matchType",
-                      form.matchType === t.value ? "" : t.value,
-                      true
-                    )
-                  }
+                  onClick={() => {
+                    const next = form.matchType === t.value ? "" : t.value;
+                    setField("matchType", next, true);
+                    // Drills and practice are not played to a score and
+                    // have no serve to map, so they do not spend
+                    // processing minutes unless the owner says so. Picking
+                    // a match type puts both back on. Defaults, not locks:
+                    // the two toggles sit directly above and can be
+                    // changed straight afterwards.
+                    const scored = tracksServe(next || null);
+                    setField("points", scored, true);
+                    setField("placement", scored, true);
+                  }}
                   className={`rounded-full border px-3 py-2 text-sm font-medium transition-colors ${
                     form.matchType === t.value
                       ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"

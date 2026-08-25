@@ -1340,7 +1340,9 @@ struct PlayerTakeover: View {
             // Watching a match and deciding to score it is the same
             // thought, so it should not mean closing the player and
             // finding the row on the page behind it.
-            if let onKeepScore, app.userId == match.userId, !points.isEmpty {
+            // Same rule as the Tools row: no score to keep on drills. The
+            // player itself stays exactly as it is.
+            if let onKeepScore, tracksServe, app.userId == match.userId, !points.isEmpty {
                 Button {
                     let at = currentT
                     player.pause()

@@ -1109,10 +1109,21 @@ struct MatchDetailsSheet: View {
 
     private var queue: RecordingQueue { RecordingQueue.shared }
 
-    /// Which door this recording came through. Only the types that door
-    /// can honestly produce are offered, and serve is asked about only
-    /// when serve means something.
-    let kind: MatchKind
+    /// Which door this recording came through, or nil when there was no
+    /// door. Recording knows in advance; UPLOADING cannot, so it offers
+    /// every type and lets the answer drive the toggles instead.
+    ///
+    /// This was `let kind: MatchKind` with a `.match` default, which meant
+    /// the upload path silently lost Practice and Drills from its Type
+    /// list — the regression this optional exists to prevent.
+    let kind: MatchKind?
+
+    private let settingsProcessDefault: Bool
+    private let settingsPlacementDefault: Bool
+
+    private var offeredTypes: [String] {
+        kind?.types ?? (MatchKind.match.types + MatchKind.practice.types)
+    }
 
     /// Serve rotation is not followed in drills, so asking who served
     /// first is asking for a number nobody has. Keyed on the type in the
@@ -1127,7 +1138,7 @@ struct MatchDetailsSheet: View {
         draft: Binding<RecordingMetadata>,
         recentOpponents: [String],
         recentVenues: [String],
-        kind: MatchKind = .match,
+        kind: MatchKind? = nil,
         processOn: Bool,
         placementOn: Bool
     ) {
@@ -1138,6 +1149,11 @@ struct MatchDetailsSheet: View {
         self.kind = kind
         self._processOn = State(initialValue: processOn)
         self._placementOn = State(initialValue: placementOn)
+        // What the owner's Record settings said on the way in. Switching the
+        // Type from Practice back to Match restores THIS rather than a
+        // hardcoded true, so the setting keeps meaning something.
+        self.settingsProcessDefault = processOn
+        self.settingsPlacementDefault = placementOn
     }
 
     var body: some View {
@@ -1162,7 +1178,7 @@ struct MatchDetailsSheet: View {
                     entryRow("Club or location", text: venueBinding, options: recentVenues)
                     Picker("Type", selection: typeBinding) {
                         Text("Not set").tag("")
-                        ForEach(kind.types, id: \.self) { value in
+                        ForEach(offeredTypes, id: \.self) { value in
                             Text(MatchTitle.typeLabel[value] ?? value).tag(value)
                         }
                     }
@@ -1224,6 +1240,17 @@ struct MatchDetailsSheet: View {
         }
         .onChange(of: processOn) { pushProcessing() }
         .onChange(of: placementOn) { pushProcessing() }
+        // The Type answer is the only thing that knows whether this footage
+        // is worth processing minutes, and on the upload path it arrives
+        // AFTER the toggles were set. So the toggles follow it: choosing
+        // Practice or Drills turns them off, choosing a match type restores
+        // the owner's Record settings. Set as defaults, not locks — the
+        // owner can turn either back on straight afterwards.
+        .onChange(of: draft.matchType) { _, next in
+            let tracked = MatchTitle.tracksServe(next)
+            processOn = tracked ? settingsProcessDefault : false
+            placementOn = tracked ? settingsPlacementDefault : false
+        }
         // A recording still merging when the sheet opened enqueues late;
         // re-apply the choices the moment its rows exist.
         .onChange(of: sessionCount) { pushProcessing() }

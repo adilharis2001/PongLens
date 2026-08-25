@@ -70,6 +70,26 @@ export const MATCH_TYPE_LABEL: Record<string, string> = {
   tournament: "Tournament",
 };
 
+/** Types where nobody is keeping score, so serve rotation is not followed. */
+export const NON_MATCH_TYPES = new Set(["drills", "practice"]);
+
+/**
+ * Does serve, and a score, mean anything for this footage?
+ *
+ * Twin of MatchTitle.tracksServe in the iOS app — the same question has to
+ * get the same answer on both platforms or the product contradicts itself
+ * one device apart.
+ *
+ * Keyed on the STORED match_type, never on how the footage arrived, so
+ * changing the type on the match page changes the behaviour with it in
+ * both directions and there is nothing to migrate. An unset type reads as
+ * a match, which is what every row predating this is.
+ */
+export function tracksServe(matchType?: string | null): boolean {
+  if (!matchType) return true;
+  return !NON_MATCH_TYPES.has(matchType);
+}
+
 /**
  * Title/subtitle split for list + header display. The one-line
  * deriveMatchTitle truncated once venue + date piled on; a title/subtitle
