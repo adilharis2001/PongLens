@@ -861,6 +861,11 @@ struct MatchDetailScreen: View {
                     .font(.plBody)
                     .foregroundStyle(PL.text500)
                 Spacer()
+                if current.status != .ready {
+                    StatusChip(
+                        status: model.jobRunning ? .processing : current.chipStatus
+                    )
+                }
                 if score.confirmedCount > 0 {
                     Button {
                         withAnimation(.easeOut(duration: 0.15)) {
@@ -978,41 +983,104 @@ struct MatchDetailScreen: View {
     /// process decision with real numbers when the video just sits there.
     @ViewBuilder
     private var rawSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StatusChip(
-                status: model.jobRunning ? .processing : current.chipStatus
-            )
-            if model.jobRunning || current.status == .processing {
+        if model.jobRunning || current.status == .processing {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Processing")
+                    .font(.plCardTitle)
+                    .foregroundStyle(PL.text100)
                 ProgressView(value: Double(min(100, max(4, model.job?.progress ?? 0))) / 100)
                     .tint(PL.cyan)
                 Text("You can leave this page. We email you when the match is ready.")
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
-            } else if current.status == .failed {
-                Text(model.job?.userMessage ?? "Processing failed, and your minutes came back.")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .plCard()
+        } else if sourceGone {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(model.job?.userMessage ?? "This video couldn't be processed.")
                     .font(.plBody)
                     .foregroundStyle(PL.warningText)
-                if sourceGone {
-                    Text("The file has been removed and nothing was charged for it. If this was a match, upload it again and it will go through.")
-                        .font(.plBody)
-                        .foregroundStyle(PL.text500)
-                }
+                Text("The file has been removed and nothing was charged for it. If this was a match, upload it again and it will go through.")
+                    .font(.plBody)
+                    .foregroundStyle(PL.text500)
             }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .plCard()
-
-        if isOwner, !model.jobRunning, current.status != .processing,
-           !sourceGone {
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .plCard()
+        } else if isOwner {
             processCard
         }
+
+        if !sourceGone {
+            rawDetailsCard
+        }
+        // The same overall-notes thread the processed page ends with.
+        // Notes were the invisible half of the raw player: its note button
+        // saved a real match note, and this page had nowhere to show it.
+        overallNotesSection
     }
+
+    /// What the details sheet edits, readable without opening it. On the
+    /// web these fields sit as a form on the raw page — a fresh upload is
+    /// where names get filled in, and a value behind a menu might as well
+    /// not exist.
+    private var rawDetailsCard: some View {
+        Button {
+            detailsOpen = true
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Match details")
+                        .font(.plCardTitle)
+                        .foregroundStyle(PL.text100)
+                    Text(rawDetailsSummary)
+                        .font(.plBody)
+                        .foregroundStyle(PL.text500)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 8)
+                Text(isOwner ? "Edit" : "")
+                    .font(.plButtonSecondary)
+                    .foregroundStyle(PL.text300)
+                if isOwner {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(PL.text600)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .plCard(padding: 16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!isOwner)
+    }
+
+    private var rawDetailsSummary: String {
+        var parts: [String] = []
+        if let opp = current.opponentName?.trimmingCharacters(in: .whitespaces),
+           !opp.isEmpty { parts.append("vs \(opp)") }
+        if let venue = current.venue?.trimmingCharacters(in: .whitespaces),
+           !venue.isEmpty { parts.append(venue) }
+        if let type = current.matchType,
+           let label = MatchTitle.typeLabel[type] { parts.append(label) }
+        return parts.isEmpty
+            ? "Add the opponent, venue, and type."
+            : parts.joined(separator: " · ")
+    }
+
+
 
     private var processCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Break it into points")
                 .font(.plCardTitle)
                 .foregroundStyle(PL.text100)
+            if current.status == .failed {
+                Text(model.job?.userMessage ?? "Processing failed, and your minutes came back.")
+                    .font(.plBody)
+                    .foregroundStyle(PL.warningText)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 Toggle("Placement maps", isOn: $placementOn)
                     .font(.plRowTitle)

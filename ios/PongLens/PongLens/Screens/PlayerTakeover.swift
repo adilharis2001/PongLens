@@ -741,7 +741,9 @@ struct PlayerTakeover: View {
             if let hint {
                 VStack {
                     Spacer()
-                    PLToast(message: GestureHints.message(hint))
+                    PLToast(message: GestureHints.message(
+                        hint, hasPoints: !cutPoints.isEmpty
+                    ))
                         .padding(.bottom, mode == .score ? 12 : 84)
                 }
                 .transition(.opacity)
@@ -837,6 +839,16 @@ struct PlayerTakeover: View {
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { location in
                 retireHint(.doubleTap)
+                // No points to walk (an unprocessed match): the halves
+                // seek ±10s, the web cut player's double tap. The thirds
+                // only exist where there are rallies for them to step.
+                guard !cutPoints.isEmpty else {
+                    var target = max(0, currentT + (isRight ? 10 : -10))
+                    if duration > 0 { target = min(target, duration - 0.1) }
+                    seek(to: target)
+                    showFlash(isRight ? "+10s" : "-10s")
+                    return
+                }
                 let x = (isRight ? pictureWidth / 2 : 0) + location.x
                 switch TapZone.of(x: x, width: pictureWidth) {
                 case .prev: step(-1)
@@ -1195,10 +1207,15 @@ struct PlayerTakeover: View {
             // No prev/next here any more: they live on the video's flanks,
             // where they are bigger, always in the same place, and beside
             // the thing being navigated.
-            transportIcon(
-                "gobackward", "Replay this point", dim: displayTarget?.cutT0 == nil
-            ) {
-                replayTarget()
+            // A match with no points has no point to replay and no grid
+            // to jump around: both controls stand down rather than sit
+            // there permanently dimmed or opening an empty sheet.
+            if !cutPoints.isEmpty {
+                transportIcon(
+                    "gobackward", "Replay this point", dim: displayTarget?.cutT0 == nil
+                ) {
+                    replayTarget()
+                }
             }
             Menu {
                 // Slowest nearest the thumb, the web menu's ordering.
@@ -1230,7 +1247,9 @@ struct PlayerTakeover: View {
             .tint(PL.text200)
             .accessibilityLabel("Playback speed")
 
-            transportIcon("square.grid.3x3", "Jump to a point") { pointsGridOpen = true }
+            if !cutPoints.isEmpty {
+                transportIcon("square.grid.3x3", "Jump to a point") { pointsGridOpen = true }
+            }
 
             Spacer(minLength: 2)
 

@@ -57,9 +57,16 @@ enum GestureHints {
         return nil
     }
 
-    static func message(_ hint: GestureHint) -> String {
+    /// `hasPoints` decides what the double tap teaches: on a processed
+    /// match the thirds walk points; on an unprocessed one they seek ten
+    /// seconds, and a hint promising points it cannot deliver is worse
+    /// than none.
+    static func message(_ hint: GestureHint, hasPoints: Bool = true) -> String {
         switch hint {
-        case .doubleTap: "Double-tap the sides to skip a point, the middle to see it again"
+        case .doubleTap:
+            hasPoints
+                ? "Double-tap the sides to skip a point, the middle to see it again"
+                : "Double-tap a side to skip 10 seconds"
         case .hold: "Hold a side for slow motion or double speed"
         case .score: "Tap who won this point"
         }

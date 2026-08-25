@@ -131,6 +131,9 @@ export default async function MatchPage({
             commerceEnabled={commerceEnabled}
             minutesBalance={minutesBalance}
             initialJob={initialJob}
+            initialNotes={(notesRes.data ?? []) as Note[]}
+            noteAuthors={(authorsRes.data ?? []) as NoteAuthor[]}
+            userId={user.id}
           />
         </main>
       </>

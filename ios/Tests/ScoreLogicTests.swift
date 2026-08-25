@@ -72,7 +72,7 @@ func mkPoint(
         gameEndOverride: override, gameWinnerOverride: winnerOverride,
         scoredAtCutS: nil, lossReasons: nil, direction: nil, misreadKind: nil,
         serveSpin: nil, serveSidespin: nil, serveLength: nil,
-        placementFlagged: nil, placement: placement
+        placementFlagged: nil, clipPath: nil, placement: placement
     )
 }
 

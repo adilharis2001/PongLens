@@ -19,13 +19,14 @@
  * app — double-tap to skip, pinch to zoom, hold for speed.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { NoteComposer, NoteItem } from "./Notes";
 
 import { chargeMinutes, formatClock, formatMinutes } from "@/lib/commerce/minutes";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { createClient } from "@/lib/supabase/client";
-import type { Match } from "@/lib/types";
+import type { Match, Note, NoteAuthor } from "@/lib/types";
 import { NameCombobox } from "@/app/dashboard/NameCombobox";
 import { TrimBar } from "@/components/TrimBar";
 import { ClipPlayer } from "./ClipPlayer";
@@ -49,6 +50,9 @@ export function RawMatchView({
   commerceEnabled,
   minutesBalance,
   initialJob,
+  initialNotes,
+  noteAuthors,
+  userId,
 }: {
   match: Match;
   rawUrl: string | null;
@@ -56,8 +60,25 @@ export function RawMatchView({
   commerceEnabled: boolean;
   minutesBalance: number | null;
   initialJob: ActiveJob | null;
+  initialNotes: Note[];
+  noteAuthors: NoteAuthor[];
+  userId: string;
 }) {
   const router = useRouter();
+  // Match-level notes. The page already had a place to WRITE one — the
+  // app's raw player saves match notes — and nowhere that showed them, so
+  // a note taken here surfaced only in the Journal. Same thread the
+  // processed page ends with, so processing keeps every note.
+  const [notes, setNotes] = useState<Note[]>(
+    initialNotes.filter((n) => n.point_id == null)
+  );
+  const authorNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const a of noteAuthors) {
+      if (a.name) map.set(a.author_id, a.name);
+    }
+    return map;
+  }, [noteAuthors]);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   const [duration, setDuration] = useState<number | null>(
@@ -660,6 +681,38 @@ export function RawMatchView({
           </div>
         </section>
       )}
+
+      {/* match-level notes (point_id null), the processed page's closing
+          section. People who keep the rally whole still debrief. */}
+      <section className="mt-6">
+        <h2 className="text-sm font-medium text-zinc-100">Overall notes</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          Notes about the whole match. Type or record a voice note.
+        </p>
+        {notes.length > 0 && (
+          <ul className="mt-4 space-y-3">
+            {notes.map((n) => (
+              <NoteItem
+                key={n.id}
+                note={n}
+                matchId={match.id}
+                ownerId={match.user_id}
+                viewerId={userId}
+                authorName={authorNames.get(n.author_id)}
+              />
+            ))}
+          </ul>
+        )}
+        <div className="mt-4">
+          <NoteComposer
+            matchId={match.id}
+            pointId={null}
+            userId={userId}
+            placeholder="How did the match go?"
+            onNoteAdded={(note) => setNotes((ns) => [...ns, note])}
+          />
+        </div>
+      </section>
 
       {isOwner && !jobRunning && (
         <div className="mt-6 flex items-center gap-3">
