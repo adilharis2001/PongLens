@@ -171,7 +171,7 @@ export function HomeOverview({
       // and PostgREST truncates at 1000 without saying so — a short array
       // reads to the score walk as a short match, not a missing page.
       const ps = await fetchPointsPaged<HomePoint>(
-        "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override, starred",
+        "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override, game_winner_override, starred",
         chipIds
       );
       setPointsLite(ps);
@@ -365,6 +365,13 @@ export function HomeOverview({
     if (!latestReady || latestReady.user_id !== userId) return null;
     const pts = pointsLite.filter((p) => p.match_id === latestReady.id);
     if (pts.length === 0) return null;
+    // "Score it" asks a practice for the one thing practice removed. Its
+    // next step is watching, so the card says so.
+    if (!tracksServe(latestReady.match_type))
+      return {
+        eyebrow: "Review",
+        line: `${pts.length} point${pts.length === 1 ? "" : "s"} to review`,
+      };
     const scored = pts.filter((p) => p.confirmed_winner !== null).length;
     const unscored = pts.filter(
       (p) => p.confirmed_winner === null && !p.is_let

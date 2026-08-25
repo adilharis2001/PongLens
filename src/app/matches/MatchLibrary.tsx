@@ -428,7 +428,7 @@ export function MatchLibrary({
       const ids = chipKey === "*" ? null : chipKey ? chipKey.split(",") : [];
       if (ids !== null && ids.length === 0) return;
       const rows = await fetchPointsPaged<PointLite>(
-        "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override",
+        "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override, game_winner_override",
         ids
       );
       const fetched = new Map<string, PointLite[]>();

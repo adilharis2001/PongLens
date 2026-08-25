@@ -631,9 +631,11 @@ struct HomeScreen: View {
     }
 
     private func continueEyebrow(for match: MatchRow) -> String {
-        // "Score it" asks for the one thing practice removed.
-        guard MatchTitle.tracksServe(match.matchType),
-              let entry = scores.scores[match.id] else { return "Continue" }
+        // "Score it" asks a practice for the one thing practice removed;
+        // its next step is watching, so the card says so. Same word the
+        // web hero uses.
+        guard MatchTitle.tracksServe(match.matchType) else { return "Review" }
+        guard let entry = scores.scores[match.id] else { return "Continue" }
         if entry.unscoredCount > 0 && entry.confirmedCount == 0 { return "Score it" }
         if entry.unscoredCount > 0 { return "Keep scoring" }
         return "Continue"

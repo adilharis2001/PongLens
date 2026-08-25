@@ -25,8 +25,10 @@ export type ReelRow = {
 };
 
 /** Just enough of a point to run computeMatchScore for the score chips
- *  (game_end_override included so overridden boundaries — and therefore
- *  the games chip — match the match page's walk). */
+ *  (both game overrides included so hand-closed games — and therefore the
+ *  games chip — match the match page's walk. game_end_override alone was
+ *  not enough: a game ended by hand at 10-8 had a boundary but no provable
+ *  winner, so it counted for nobody and a 3-1 match wore a 2-1 chip). */
 export type PointLite = Pick<
   Point,
   | "id"
@@ -36,6 +38,7 @@ export type PointLite = Pick<
   | "is_let"
   | "confirmed_winner"
   | "game_end_override"
+  | "game_winner_override"
 >;
 
 export const matchChips: Record<
