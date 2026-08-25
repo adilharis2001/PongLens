@@ -558,10 +558,24 @@ private struct VideoPicker: UIViewControllerRepresentable {
 /// the three checks that make footage processable, and the landscape note.
 /// Dressed on the shared sheet scaffold, the same chrome as match details.
 struct CameraPlacementSheet: View {
+    /// Which door raised it. Only the closing note changes: "Record a
+    /// match and the camera screen draws the table" is nonsense read one
+    /// tap away from that camera screen, and pointing at the recorder is
+    /// no use to somebody whose footage was filmed yesterday.
+    enum Context {
+        case general
+        /// About to hand over to the recorder.
+        case recording
+        /// About to hand over to the library picker.
+        case upload
+    }
+
+    var context: Context = .general
+
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        PLSheetScaffold(title: "Where to place the camera") {
+        PLSheetScaffold(title: "Where to place the camera", showDone: false) {
             Form {
                 Section {
                     CameraDiagram()
@@ -597,27 +611,56 @@ struct CameraPlacementSheet: View {
                         .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
                 }
 
-                Section {
-                    HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: "viewfinder")
-                            .font(.system(size: 15))
-                            .foregroundStyle(PL.cyan)
-                            .padding(.top, 2)
-                        Text("Filming on this phone? Record a match and the camera screen draws the table where it should sit, so you can line the real one up with it before you start.")
-                            .font(.plBody)
-                            .foregroundStyle(PL.text300)
+                if let note = viewfinderNote {
+                    Section {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "viewfinder")
+                                .font(.system(size: 15))
+                                .foregroundStyle(PL.cyan)
+                                .padding(.top, 2)
+                            Text(note)
+                                .font(.plBody)
+                                .foregroundStyle(PL.text300)
+                        }
+                        .padding(.vertical, 2)
                     }
-                    .padding(.vertical, 2)
                 }
-
-                Section {
+            }
+            // The bar covers the last inch of the form, and a Form inside
+            // a sheet does not extend its own scroll for a safeAreaInset
+            // — so the closing note sat permanently behind the button,
+            // unreachable at any scroll position. Reserved explicitly.
+            .contentMargins(.bottom, 76, for: .scrollContent)
+            // Pinned, not the last row of the form. The sheet opens
+            // unasked for the first two occasions an account meets it
+            // (CameraGuideGate), and a way out that has to be scrolled
+            // down to — past the diagram, four rules, a landscape note
+            // and three photographs — reads as a trap rather than an exit.
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 0) {
+                    Divider().overlay(PL.edge)
                     Button("Got it") { dismiss() }
                         .buttonStyle(PLPrimaryButtonStyle())
                         .frame(maxWidth: .infinity)
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                        .padding(.bottom, 6)
                 }
+                .background(PL.surface)
             }
+        }
+    }
+
+    private var viewfinderNote: String? {
+        switch context {
+        case .general:
+            "Filming on this phone? Record a match and the camera screen draws the table where it should sit, so you can line the real one up with it before you start."
+        case .recording:
+            "The next screen draws this table over the camera. Line the real one up with it before you start."
+        case .upload:
+            // Pointing at the recorder here is no help: the footage this
+            // person is about to pick already exists.
+            nil
         }
     }
 

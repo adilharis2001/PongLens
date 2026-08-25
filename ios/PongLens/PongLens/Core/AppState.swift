@@ -96,6 +96,18 @@ final class AppState {
         try? await supa.auth.update(user: UserAttributes(data: [key: .bool(value)]))
     }
 
+    /// A metadata value that is a number rather than a flag, handed back
+    /// raw so the tested half — `CameraGuideGate.coerce` — is the only
+    /// thing that decides what counts as a count.
+    func metadataValue(_ key: String) -> Any? {
+        guard case .signedIn(let session) = phase else { return nil }
+        return session.user.userMetadata[key]?.value
+    }
+
+    func setMetadataInt(_ key: String, _ value: Int) async {
+        try? await supa.auth.update(user: UserAttributes(data: [key: .integer(value)]))
+    }
+
     func start() async {
         for await (event, session) in supa.auth.authStateChanges {
             switch event {

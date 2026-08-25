@@ -39,7 +39,47 @@ struct MainTabView: View {
     @State private var path = NavigationPath()
     @State private var bellOpen = false
     @State private var newMatchChoice: NewMatchChoice?
+    /// The chosen door, held while the camera guide is up in front of it,
+    /// and consumed when the guide closes.
+    @State private var pendingChoice: NewMatchChoice?
+    /// The guide's own presentation. `sheet(item:)` rather than a Bool:
+    /// the sheet has to know which door raised it, and reading that from
+    /// a second piece of state resolved a beat too early — every showing
+    /// came out in the upload wording, including the two raised by
+    /// Record. Carried by the item, it cannot disagree.
+    @State private var cameraGuideDoor: CameraGuideDoor?
     @State private var keyboardVisible = false
+
+    struct CameraGuideDoor: Identifiable {
+        let id = UUID()
+        let context: CameraPlacementSheet.Context
+    }
+
+    /// Everything the chooser used to do inline, now also reachable from
+    /// the far side of the camera guide.
+    private func beginNewMatch(_ choice: NewMatchChoice) {
+        switch choice {
+        case .record(let kind):
+            // Which door was used has to be set before the recorder is
+            // presented, because the details sheet it raises on stop reads
+            // it for its processing defaults and its type list.
+            router.recordKind = kind
+            // Rotate BEFORE presenting, not after. The recorder is
+            // landscape-only, and a cover raised in portrait and rotated
+            // once it is up resizes with the camera preview already on
+            // screen — a preview is a plain layer that does not resize
+            // with the window, so the picture is a portrait-width strip
+            // with black beside it for a few frames. Six tenths of a
+            // second at most, then present regardless; the recorder keeps
+            // asking on its own behalf.
+            Task {
+                await RecordOrientation.pinLandscape()
+                router.recordOpen = true
+            }
+        case .upload:
+            router.uploadOpen = true
+        }
+    }
 
     var body: some View {
         @Bindable var router = router
@@ -152,28 +192,28 @@ struct MainTabView: View {
         // the sheet is still up races the dismissal, and the loser of that
         // race is simply dropped — you tap Record and nothing happens.
         .sheet(isPresented: $router.newMatchOpen, onDismiss: {
-            switch newMatchChoice {
-            case .record(let kind):
-                // Which door was used has to be set before the recorder is
-                // presented, because the details sheet it raises on stop
-                // reads it for its processing defaults and its type list.
-                router.recordKind = kind
-                // Rotate BEFORE presenting, not after. The recorder is
-                // landscape-only, and a cover raised in portrait and
-                // rotated once it is up resizes with the camera preview
-                // already on screen — a preview is a plain layer that
-                // does not resize with the window, so the picture is a
-                // portrait-width strip with black beside it for a few
-                // frames. Six tenths of a second at most, then present
-                // regardless; the recorder keeps asking on its own behalf.
-                Task {
-                    await RecordOrientation.pinLandscape()
-                    router.recordOpen = true
-                }
-            case .upload: router.uploadOpen = true
-            case nil: break
-            }
+            guard let choice = newMatchChoice else { return }
             newMatchChoice = nil
+            // For the first two occasions an account walks through any of
+            // these three doors, the camera guide stands in front of it.
+            // Where the camera goes is the single biggest thing deciding
+            // whether the pipeline finds any points, and this is the last
+            // moment the advice can still change the footage.
+            //
+            // It has to open HERE, before the errand starts, because the
+            // recorder rotates the phone before it presents and this is a
+            // tall portrait form. Portrait first, hand over on dismissal.
+            if CameraGuideFirstRun.shouldAutoShow(
+                app: app,
+                hasAnyMatch: library.loaded ? !library.matches.isEmpty : nil
+            ) {
+                pendingChoice = choice
+                cameraGuideDoor = CameraGuideDoor(
+                    context: { if case .record = choice { .recording } else { .upload } }()
+                )
+            } else {
+                beginNewMatch(choice)
+            }
         }) {
             NewMatchSheet { choice in
                 newMatchChoice = choice
@@ -185,6 +225,24 @@ struct MainTabView: View {
             .presentationDetents([.height(336)])
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
+        }
+        // Raised only by the gate above. The manual "How to record"
+        // triggers on Home and Upload keep their own sheets and never
+        // count against the two automatic showings.
+        .sheet(item: $cameraGuideDoor, onDismiss: {
+            // Closing it must never cancel the errand — by the button, by
+            // the drag, or by tapping outside. A tap that opens a sheet
+            // and then leaves you exactly where you started reads as a
+            // broken button, which is the easiest way there is to spoil a
+            // first run.
+            if let choice = pendingChoice {
+                pendingChoice = nil
+                beginNewMatch(choice)
+            }
+        }) { door in
+            CameraPlacementSheet(context: door.context)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
         }
         .onReceive(NotificationCenter.default.publisher(for: .plUploadRegistered)) { _ in
             // A finished upload just registered its match row; pull the

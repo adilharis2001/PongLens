@@ -1,0 +1,28 @@
+{
+  "_comment": "One table, read by both implementations of the camera-guide rule: src/lib/cameraGuideGate.test.ts on web and CameraGuideGateTests.swift on iOS. Neither side produces it — it is the spec written down once, so that checking the two ports cannot degenerate into reading the same prose twice and making the same mistake twice.",
+
+  "readSeenCount": [
+    { "name": "nothing written anywhere is a new account", "account": null, "device": null, "expected": null },
+    { "name": "the account copy alone", "account": 2, "device": null, "expected": 2 },
+    { "name": "the device copy alone, as the string localStorage hands back", "account": null, "device": "1", "expected": 1 },
+    { "name": "offline: the local write landed and the account write did not", "account": 0, "device": "2", "expected": 2 },
+    { "name": "the account copy ahead of a stale device copy", "account": 2, "device": "1", "expected": 2 },
+    { "name": "garbage is not a count", "account": "yes", "device": null, "expected": null },
+    { "name": "a negative is not a count", "account": -1, "device": null, "expected": null },
+    { "name": "zero is a count, and is not the same as absence", "account": 0, "device": null, "expected": 0 }
+  ],
+
+  "gate": [
+    { "name": "brand new account, first door it walks through", "seen": null, "hasAnyMatch": false, "shownThisSession": false, "show": true, "persist": 1 },
+    { "name": "the second occasion", "seen": 1, "hasAnyMatch": false, "shownThisSession": false, "show": true, "persist": 2 },
+    { "name": "a third time never comes", "seen": 2, "hasAnyMatch": false, "shownThisSession": false, "show": false, "persist": null },
+    { "name": "one showing per launch, whatever the count allows", "seen": 0, "hasAnyMatch": false, "shownThisSession": true, "show": false, "persist": null },
+    { "name": "record then upload in one launch is still one showing", "seen": 1, "hasAnyMatch": false, "shownThisSession": true, "show": false, "persist": null },
+    { "name": "an account that already has footage is seeded, not interrupted", "seen": null, "hasAnyMatch": true, "shownThisSession": false, "show": false, "persist": 2 },
+    { "name": "the seed is written even when this launch already showed one", "seen": null, "hasAnyMatch": true, "shownThisSession": true, "show": false, "persist": 2 },
+    { "name": "filming a first match does not cancel the second showing", "seen": 1, "hasAnyMatch": true, "shownThisSession": false, "show": true, "persist": 2 },
+    { "name": "already seeded, so there is nothing left to write", "seen": 2, "hasAnyMatch": true, "shownThisSession": false, "show": false, "persist": null },
+    { "name": "a count past the cap still stops", "seen": 7, "hasAnyMatch": false, "shownThisSession": false, "show": false, "persist": null },
+    { "name": "a written zero is not absence, so no back-fill fires", "seen": 0, "hasAnyMatch": true, "shownThisSession": false, "show": true, "persist": 1 }
+  ]
+}

@@ -15,6 +15,11 @@ struct PLSheetScaffold<Content: View>: View {
     let title: String
     var doneLabel = "Done"
     var doneDisabled = false
+    /// Sheets that carry their own pinned primary action turn this off.
+    /// Two controls that do the same thing, both on screen at once, read
+    /// as two choices — and the camera guide grew a pinned "Got it" when
+    /// it started opening unasked.
+    var showDone = true
     var onDone: (() -> Void)? = nil
     @ViewBuilder var content: () -> Content
 
@@ -28,15 +33,17 @@ struct PLSheetScaffold<Content: View>: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(doneLabel) {
-                            if let onDone {
-                                onDone()
-                            } else {
-                                dismiss()
+                        if showDone {
+                            Button(doneLabel) {
+                                if let onDone {
+                                    onDone()
+                                } else {
+                                    dismiss()
+                                }
                             }
+                            .fontWeight(.semibold)
+                            .disabled(doneDisabled)
                         }
-                        .fontWeight(.semibold)
-                        .disabled(doneDisabled)
                     }
                 }
         }

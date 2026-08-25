@@ -31,6 +31,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 export function CameraGuide({
   className = "",
   variant = "link",
+  autoOpen = false,
 }: {
   className?: string;
   /**
@@ -43,8 +44,20 @@ export function CameraGuide({
    * meets it on the way past.
    */
   variant?: "link" | "row";
+  /**
+   * Open without being asked. CameraGuideFirstRun decides this — it owns
+   * the counting, so this component stays what it has always been: a
+   * trigger and a sheet, with no opinion about who has seen it.
+   *
+   * Flips false → true one frame after mount, never the other way, so a
+   * re-render while somebody is reading cannot close the sheet under them.
+   */
+  autoOpen?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (autoOpen) setOpen(true);
+  }, [autoOpen]);
   const titleId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -136,42 +149,50 @@ export function CameraGuide({
             aria-hidden="true"
           />
 
-          <div className="cg-sheet relative z-10 max-h-[92vh] w-full overflow-y-auto rounded-t-2xl border border-edge bg-surface px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 sm:max-w-md sm:rounded-2xl sm:pt-5">
-            {/* Grab handle — reads as a bottom sheet on mobile */}
-            <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-edge sm:hidden" />
+          {/* Head and foot are pinned, and only the middle scrolls. The
+              sheet can now open without being asked, and a way out that
+              has to be scrolled down to — past a diagram, four rules, a
+              landscape note and three photographs — reads as a trap
+              rather than as an exit. */}
+          <div className="cg-sheet relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl border border-edge bg-surface sm:max-w-md sm:rounded-2xl">
+            <div className="shrink-0 px-5 pt-3 sm:pt-5">
+              {/* Grab handle — reads as a bottom sheet on mobile */}
+              <div className="mx-auto mb-3 h-1 w-9 rounded-full bg-edge sm:hidden" />
 
-            <div className="flex items-start justify-between gap-4">
-              <h2
-                id={titleId}
-                className="flex items-center gap-2 text-base font-semibold text-zinc-100"
-              >
-                <CameraIcon className="h-4 w-4 shrink-0 text-cyan-glow" />
-                Where to place the camera
-              </h2>
-              <button
-                ref={closeRef}
-                type="button"
-                onClick={close}
-                aria-label="Close"
-                className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-surface-2 hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-5 w-5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  aria-hidden="true"
+              <div className="flex items-start justify-between gap-4">
+                <h2
+                  id={titleId}
+                  className="flex items-center gap-2 text-base font-semibold text-zinc-100"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M6 6l12 12M18 6L6 18"
-                  />
-                </svg>
-              </button>
+                  <CameraIcon className="h-4 w-4 shrink-0 text-cyan-glow" />
+                  Where to place the camera
+                </h2>
+                <button
+                  ref={closeRef}
+                  type="button"
+                  onClick={close}
+                  aria-label="Close"
+                  className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-surface-2 hover:text-white"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M6 6l12 12M18 6L6 18"
+                    />
+                  </svg>
+                </button>
+              </div>
             </div>
 
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
             <TableDiagram />
 
             <ul className="mt-5 space-y-3">
@@ -212,14 +233,17 @@ export function CameraGuide({
                 the real one up with it before you start.
               </p>
             </div>
+            </div>
 
-            <button
-              type="button"
-              onClick={close}
-              className="glow-cta mt-5 w-full rounded-full bg-cyan-glow py-3 text-sm font-semibold text-ink"
-            >
-              Got it
-            </button>
+            <div className="shrink-0 border-t border-edge/60 px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+              <button
+                type="button"
+                onClick={close}
+                className="glow-cta w-full rounded-full bg-cyan-glow py-3 text-sm font-semibold text-ink"
+              >
+                Got it
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -7,7 +7,8 @@ import { AppShell } from "@/components/AppShell";
 import { BalancesCard } from "@/components/BalancesCard";
 import { UploadCard } from "@/app/dashboard/UploadCard";
 import { YouTubeImport } from "@/components/YouTubeImport";
-import { CameraGuide } from "@/components/CameraGuide";
+import { CameraGuideFirstRun } from "@/components/CameraGuideFirstRun";
+import { CAMERA_GUIDE_METADATA_KEY } from "@/lib/cameraGuideGate";
 import { UpLink } from "@/components/UpLink";
 import { HideWhileUploading } from "@/components/HideWhileUploading";
 
@@ -37,6 +38,20 @@ export default async function UploadPage({
     null;
   const commerceEnabled = await getCommerceEnabled();
 
+  // The camera guide opens itself on this page for the first two
+  // occasions an account reaches it (src/lib/cameraGuideGate.ts). Both
+  // inputs are read here, on the server, so the decision is made in the
+  // first client frame rather than after a round trip — otherwise the
+  // page paints and a sheet drops onto it a moment later.
+  //
+  // The match count is the back-fill: an account that already has footage
+  // in it has plainly worked out where the camera goes and is seeded
+  // straight past both showings. RLS scopes the count to the owner, so no
+  // user filter is needed here.
+  const { count: matchCount } = await supabase
+    .from("matches")
+    .select("id", { head: true, count: "exact" });
+
   return (
     <AppShell avatarUrl={avatarUrl}>
       {/* No subtitle. It used to say "Process it into points whenever you
@@ -53,8 +68,17 @@ export default async function UploadPage({
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Upload</h1>
         {/* The one way into the camera guide on this page. It used to
             anchor to a second, full-width copy of the same control at the
-            bottom — two entries into one sheet read as two features. */}
-        <CameraGuide variant="link" className="shrink-0" />
+            bottom — two entries into one sheet read as two features.
+
+            It also opens itself here, twice, for an account that has not
+            met it yet. Tapping the link is always available and never
+            counts against those two. */}
+        <CameraGuideFirstRun
+          userId={user.id}
+          seenFromAccount={user.user_metadata?.[CAMERA_GUIDE_METADATA_KEY]}
+          hasAnyMatch={(matchCount ?? 0) > 0}
+          className="shrink-0"
+        />
       </div>
 
       <div className="mt-7">
