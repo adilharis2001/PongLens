@@ -121,6 +121,32 @@ const LEGEND: {
   },
 ];
 
+/**
+ * What the two rules together make of a point: the dead run where it
+ * speaks, the off-table read otherwise, and null when neither will.
+ * The filters, the counts and the row all ask this, so they cannot drift
+ * apart on which rule won an argument.
+ */
+function ruleVerdict(row: ServeAccuracyRow): "user" | "opponent" | null {
+  const loser =
+    deadRunLoser(findDeadRuns(row.events), row.userPhysicalSide)
+    ?? offTableLoser(findOffTable(row.events), row.userPhysicalSide);
+  if (loser === null) return null;
+  return loser === "user" ? "opponent" : "user";
+}
+
+/** Fired, the point is scored, and it named the wrong player. */
+function ruleIsWrong(row: ServeAccuracyRow): boolean {
+  const verdict = ruleVerdict(row);
+  return verdict !== null && row.winner !== null && verdict !== row.winner;
+}
+
+/** The off-table read found something and then refused to call it. */
+function ruleHeldBack(row: ServeAccuracyRow): boolean {
+  if (ruleVerdict(row) !== null) return false;
+  return offTableWithheld(findOffTable(row.events)) !== null;
+}
+
 function Legend() {
   return (
     <div className="rounded-xl border border-edge bg-surface p-4">
@@ -770,6 +796,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   const [active, setActive] = useState(matches[0].matchId);
   const [only, setOnly] = useState<
     "all" | "drawn" | "refused" | "disagreed" | "deadrun" | "offtable"
+    | "wrong" | "heldback"
   >("all");
   const match = matches.find((m) => m.matchId === active) ?? matches[0];
   const stats = useMemo(() => summarise(match.rows), [match]);
@@ -782,9 +809,11 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
               : only === "deadrun" ? findDeadRuns(r.events).length > 0
                 : only === "offtable"
                   ? offTableLoser(findOffTable(r.events), r.userPhysicalSide) !== null
-                : r.winner !== null
-                  && r.computed?.winner != null
-                  && r.computed.winner !== r.winner,
+                  : only === "wrong" ? ruleIsWrong(r)
+                    : only === "heldback" ? ruleHeldBack(r)
+                      : r.winner !== null
+                        && r.computed?.winner != null
+                        && r.computed.winner !== r.winner,
       ),
     [match, only],
   );
@@ -797,6 +826,14 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
     () => match.rows.filter(
       (r) => offTableLoser(findOffTable(r.events), r.userPhysicalSide) !== null,
     ).length,
+    [match],
+  );
+  const ruleWrong = useMemo(
+    () => match.rows.filter(ruleIsWrong).length,
+    [match],
+  );
+  const heldBack = useMemo(
+    () => match.rows.filter(ruleHeldBack).length,
     [match],
   );
   // How the off-table rule scores against the pad, on the points it fires.
@@ -924,6 +961,8 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             ["disagreed", `Worker disagreed ${disagreed}`],
             ["deadrun", `Dead run ${withDeadRun}`],
             ["offtable", `Off table ${withOffTable}`],
+            ["wrong", `We called it wrong ${ruleWrong}`],
+            ["heldback", `Held back ${heldBack}`],
           ] as const
         ).map(([key, label]) => (
           <button
