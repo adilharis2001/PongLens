@@ -89,7 +89,7 @@ struct SharePointSheet: View {
                 icon: "square.and.arrow.down",
                 title: "Save the video",
                 detail: hasClip
-                    ? "The same vertical clip, to save or send anywhere."
+                    ? "This rally as a vertical clip, to save or send anywhere."
                     : "This rally has no video yet.",
                 pending: !hasClip || model.busy
             ) {

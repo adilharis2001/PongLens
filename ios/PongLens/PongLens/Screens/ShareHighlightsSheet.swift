@@ -49,7 +49,8 @@ struct ShareHighlightsSheet: View {
                 icon: "square.and.arrow.down",
                 title: "Save the video",
                 detail: starredCount > 0
-                    ? "The same vertical video, to save or send anywhere."
+                    ? "Your starred rallies as one vertical video, "
+                        + "to save or send anywhere."
                     : "Star points to share them.",
                 pending: starredCount == 0 || model.busy
             ) {

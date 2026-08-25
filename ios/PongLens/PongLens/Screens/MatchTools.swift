@@ -670,7 +670,7 @@ struct ExportSheet: View {
                 Text("Instagram Reel").font(.plRowTitle)
                     .foregroundStyle(starredCount > 0 ? PL.text100 : PL.text500)
                 Text(starredCount > 0
-                     ? "Your starred rallies as one vertical video"
+                     ? "Your starred rallies, back to back"
                      : "Star points to share them")
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
