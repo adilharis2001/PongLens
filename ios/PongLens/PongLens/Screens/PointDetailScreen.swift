@@ -1042,7 +1042,6 @@ struct TagPickerSheet: View {
 /// Speed and zoom persist across point navigation (the web's module-scoped
 /// persistedSpeed/persistedZoom): if you zoomed, the camera was too far for
 /// the whole recording — every clip needs the same correction.
-@MainActor private var persistedRate: Float = 1
 @MainActor private var persistedZoom: (scale: CGFloat, offset: CGSize) = (1, .zero)
 
 struct ClipPlayerView: View {
@@ -1066,7 +1065,6 @@ struct ClipPlayerView: View {
     var onEnded: (() -> Void)?
 
     @State private var progress: Double = 0
-    @State private var rate: Float = persistedRate
     @State private var muted = false
     @State private var zoomScale: CGFloat = persistedZoom.scale
     @State private var zoomOffset: CGSize = persistedZoom.offset
@@ -1089,7 +1087,7 @@ struct ClipPlayerView: View {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        if player.rate > 0 { player.pause() } else { player.play(); player.rate = rate }
+                        if player.rate > 0 { player.pause() } else { player.play() }
                     }
                     .gesture(zoomGesture(in: geo.size))
 
@@ -1141,7 +1139,6 @@ struct ClipPlayerView: View {
             player.replaceCurrentItem(with: AVPlayerItem(url: url))
             player.isMuted = muted
             player.play()
-            player.rate = rate
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -1195,20 +1192,14 @@ struct ClipPlayerView: View {
                 Spacer()
                 HStack(spacing: 6) {
                     Spacer()
-                    Button {
-                        rate = rate == 1 ? 0.5 : rate == 0.5 ? 0.25 : 1
-                        persistedRate = rate
-                        if player.rate > 0 { player.rate = rate }
-                    } label: {
-                        Text(rate == 1 ? "1x" : rate == 0.5 ? "0.5x" : "0.25x")
-                            .font(.system(size: 12, weight: .semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(PL.text200)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(PL.ink.opacity(0.65), in: Capsule())
+                    glassButton(
+                        icon: "arrow.counterclockwise", size: 13,
+                        tint: PL.text100
+                    ) {
+                        player.seek(to: .zero)
+                        player.play()
                     }
-                    .buttonStyle(.plain)
+                    .accessibilityLabel("Replay this point")
                     glassButton(icon: "minus.magnifyingglass", size: 13, tint: zoomScale > 1 ? PL.text100 : PL.text500) {
                         setZoom(scale: max(1, zoomScale / 1.5))
                     }
