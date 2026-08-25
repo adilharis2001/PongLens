@@ -223,6 +223,7 @@ export function CoachOrder({
           findingPoints={findingPoints}
           attachments={attachments}
           points={points}
+          skipSpans={skipSpans}
           messages={messages}
           matchId={match?.id ?? null}
           onChanged={() => router.refresh()}
@@ -431,6 +432,7 @@ function Workspace({
   findingPoints,
   attachments,
   points,
+  skipSpans,
   messages,
   matchId,
   onChanged,
@@ -447,6 +449,8 @@ function Workspace({
   findingPoints: Record<string, { point_id: string; idx: number }[]>;
   attachments: ReviewAttachmentRow[];
   points: WorkspacePoint[];
+  /** Dead footage the workspace player jumps (playhead.skipSpans). */
+  skipSpans: { start: number; end: number }[];
   messages: ReviewMessageRow[];
   matchId: string | null;
   onChanged: () => void;
