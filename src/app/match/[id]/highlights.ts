@@ -12,11 +12,20 @@ export type ClipPad = { pre: number; post: number };
  *  - Rally LENGTH is the quality signal. In table tennis the long rallies
  *    are almost always the ones worth watching, and length is the one
  *    signal every processed match already carries (t1 - t0).
- *  - A long rally must look GENUINE. Length alone can be a segmentation
- *    error wearing a rally's clothes, so where the worker recorded ball
- *    contacts (placement v3 candidates), a "long rally" with almost none
- *    drops to the back of the line. No contact data reads as genuine —
- *    failing open, like every gate in this product.
+ *  - A long rally must look GENUINE, and the worker holds two receipts.
+ *    The rally reconstruction's HIT COUNT (suggestion.n_hits): two bat
+ *    contacts or fewer is a serve error or an ace, never a highlight —
+ *    the Prabhas match put two one-hit "13-second rallies" in a reel
+ *    this way. And the placement bounce detections (v3 candidates):
+ *    a long span with almost none is dead time in a rally's clothes.
+ *    Either signal missing reads as genuine — failing open, like every
+ *    gate in this product.
+ *  - RANK length is capped at what the hit count can vouch for, about
+ *    two seconds of credible play per contact. A real eight-shot rally
+ *    inside a bloated 25-second span ranks as sixteen seconds, so spans
+ *    inflated by failed serve detection and walking-around stop beating
+ *    honest rallies. The BUDGET still pays the true clip length — the
+ *    footage really is that long.
  *  - Up to TWO starred rallies (the longest of them) keep a nod ahead of
  *    plain length. Stars used to outrank everything, but people star
  *    rallies to work on them or export them, and four stars plus filler
@@ -82,6 +91,7 @@ export function pickHighlights(
   const eligible: {
     p: Point;
     s: number;
+    rankS: number;
     starred: boolean;
     genuine: boolean;
   }[] = [];
@@ -95,9 +105,14 @@ export function pickHighlights(
     // real rally — the point is catching the thirty-second "rally" with
     // two contacts, not grading normal ones.
     const contacts = contactCount(p);
+    const nHits = p.suggestion?.n_hits ?? null;
     const genuine =
-      contacts === null || contacts >= Math.max(2, Math.floor(rallyLen / 6));
-    eligible.push({ p, s, starred: !!p.starred, genuine });
+      (contacts === null ||
+        contacts >= Math.max(2, Math.floor(rallyLen / 6))) &&
+      (nHits === null || nHits >= 3);
+    // The span only ranks as high as the hits can vouch for.
+    const rankS = nHits !== null ? Math.min(s, round2(2 * nHits)) : s;
+    eligible.push({ p, s, rankS, starred: !!p.starred, genuine });
   }
 
   // Up to two starred rallies — the longest genuine ones — keep a nod
@@ -105,7 +120,7 @@ export function pickHighlights(
   const boosted = new Set(
     eligible
       .filter((e) => e.starred && e.genuine)
-      .sort((a, b) => b.s - a.s || a.p.idx - b.p.idx)
+      .sort((a, b) => b.rankS - a.rankS || a.p.idx - b.p.idx)
       .slice(0, 2)
       .map((e) => e.p.id)
   );
@@ -116,7 +131,7 @@ export function pickHighlights(
     const ta = tier(a);
     const tb = tier(b);
     if (ta !== tb) return ta - tb;
-    if (b.s !== a.s) return b.s - a.s;
+    if (b.rankS !== a.rankS) return b.rankS - a.rankS;
     return a.p.idx - b.p.idx; // deterministic ties, and parity needs that
   });
 

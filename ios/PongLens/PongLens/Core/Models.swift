@@ -56,6 +56,16 @@ struct MatchRow: Codable, Identifiable, Hashable {
         "id,user_id,job_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,first_server,clip_pads,placement_status,created_at,points(count)"
 }
 
+
+/// The slice of the worker's umpire suggestion the app reads: the bat
+/// contact count. The rest of the suggestion stays server-side.
+struct PointSuggestionLite: Codable, Hashable {
+    let nHits: Int?
+    enum CodingKeys: String, CodingKey {
+        case nHits = "n_hits"
+    }
+}
+
 /// Full point row for the match screen and player. Mirrors src/lib/types.ts
 /// Point (placement JSON deferred to the placement task).
 struct MatchPoint: Codable, Identifiable, Hashable {
@@ -97,6 +107,10 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     /// one that says so.
     let clipPath: String?
     let placement: PlacementData?
+    /// The umpire suggestion, read ONLY for its hit count — the highlight
+    /// picker's receipt that a "long rally" actually contained rallying.
+    /// Defaulted so every existing memberwise construction stands.
+    var suggestion: PointSuggestionLite? = nil
 
     var hasClip: Bool { clipPath != nil }
 
@@ -125,10 +139,11 @@ struct MatchPoint: Codable, Identifiable, Hashable {
         case serveLength = "serve_length"
         case placementFlagged = "placement_flagged"
         case clipPath = "clip_path"
+        case suggestion
     }
 
     static let matchSelect =
-        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,scored_at_cut_s,serve_start_at_cut_s,loss_reasons,direction,misread_kind,serve_spin,serve_sidespin,serve_length,placement_flagged,clip_path,placement"
+        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,scored_at_cut_s,serve_start_at_cut_s,loss_reasons,direction,misread_kind,serve_spin,serve_sidespin,serve_length,placement_flagged,clip_path,placement,suggestion"
 
     /// Duration of the rally itself, in seconds.
     var rallySeconds: Double? {

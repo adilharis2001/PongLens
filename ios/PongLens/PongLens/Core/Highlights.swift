@@ -14,12 +14,15 @@ import Foundation
 /// the other side's test names what drifted.
 ///
 /// The rule itself (reordered 2026-08-25): rally length is the quality
-/// signal; a long rally must look GENUINE where the worker recorded ball
-/// contacts (few contacts drops it to the back — no data reads as
-/// genuine); up to two starred rallies, the longest of them, keep a nod
-/// ahead of plain length; selection FILLS the time budget greedily by
-/// rank (a count-based rule measured out at 51s for "top 3" against a
-/// 20s Story); the picks come back in match order.
+/// signal, but a long rally must look GENUINE and the worker holds two
+/// receipts — the reconstruction's hit count (two contacts or fewer is a
+/// serve error or an ace, never a highlight) and the placement bounce
+/// detections (a long span with almost none is dead time in a rally's
+/// clothes). Rank length is capped at ~2s of credible play per contact,
+/// so spans inflated by failed serve detection stop beating honest
+/// rallies, while the budget still pays the true clip length. Either
+/// signal missing reads as genuine. Up to two starred rallies keep a
+/// nod ahead of plain length; the picks come back in match order.
 enum Highlights {
     static let storyBudgetS = 20.0
     static let reelBudgetS = 60.0
@@ -52,6 +55,7 @@ enum Highlights {
         struct Candidate {
             let p: MatchPoint
             let s: Double
+            let rankS: Double
             let starred: Bool
             let genuine: Bool
         }
@@ -67,14 +71,18 @@ enum Highlights {
             // Roughly one recorded contact per six seconds is a LOW bar
             // for a real rally — the point is catching the thirty-second
             // "rally" with two contacts, not grading normal ones.
-            let genuine: Bool
+            let densityOK: Bool
             if let contacts = contactCount(p) {
-                genuine = contacts >= max(2, Int(rallyLen / 6))
+                densityOK = contacts >= max(2, Int(rallyLen / 6))
             } else {
-                genuine = true
+                densityOK = true
             }
-            eligible.append(Candidate(p: p, s: s, starred: p.starred,
-                                      genuine: genuine))
+            let nHits = p.suggestion?.nHits
+            let genuine = densityOK && (nHits == nil || nHits! >= 3)
+            // The span only ranks as high as the hits can vouch for.
+            let rankS = nHits.map { min(s, round2(2 * Double($0))) } ?? s
+            eligible.append(Candidate(p: p, s: s, rankS: rankS,
+                                      starred: p.starred, genuine: genuine))
         }
 
         // Up to two starred rallies — the longest genuine ones — keep a
@@ -82,7 +90,7 @@ enum Highlights {
         let boosted = Set(
             eligible.filter { $0.starred && $0.genuine }
                 .sorted { a, b in
-                    a.s != b.s ? a.s > b.s : a.p.idx < b.p.idx
+                    a.rankS != b.rankS ? a.rankS > b.rankS : a.p.idx < b.p.idx
                 }
                 .prefix(2)
                 .map(\.p.id)
@@ -95,7 +103,7 @@ enum Highlights {
             let ta = tier(a)
             let tb = tier(b)
             if ta != tb { return ta < tb }
-            if a.s != b.s { return a.s > b.s }
+            if a.rankS != b.rankS { return a.rankS > b.rankS }
             return a.p.idx < b.p.idx
         }
 

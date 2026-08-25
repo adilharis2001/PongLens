@@ -18,7 +18,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 4
+   "contacts": 4,
+   "n_hits": 5
   },
   {
    "id": "1e5bf84c-21a5-4089-b01e-8a0195e9780e",
@@ -32,7 +33,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 4
+   "contacts": 4,
+   "n_hits": 4
   },
   {
    "id": "65491272-7e4f-4211-8350-4f9dfba33c0f",
@@ -46,7 +48,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 8
+   "contacts": 8,
+   "n_hits": 2
   },
   {
    "id": "b419f157-ab3c-46c4-a3a3-a09134fa6a2d",
@@ -60,7 +63,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 21
+   "contacts": 21,
+   "n_hits": 1
   },
   {
    "id": "977eeba2-e44e-412b-be76-3d8d157efa88",
@@ -74,7 +78,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 13
+   "contacts": 13,
+   "n_hits": 4
   },
   {
    "id": "88262588-6924-4926-a2a4-4f76e3b98776",
@@ -88,7 +93,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 13
+   "contacts": 13,
+   "n_hits": 2
   },
   {
    "id": "b1c28c44-f89c-4b7f-8c12-6e0a1c226d8b",
@@ -102,7 +108,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 10
+   "contacts": 10,
+   "n_hits": 6
   },
   {
    "id": "15795c24-c78f-4907-8aa5-b903b67035b5",
@@ -116,7 +123,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 12
+   "contacts": 12,
+   "n_hits": 1
   },
   {
    "id": "89f096be-9043-4fe8-9f37-ca76eb0af522",
@@ -130,7 +138,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 13
+   "contacts": 13,
+   "n_hits": 4
   },
   {
    "id": "68ba0285-b676-48e8-ad3c-b46cb850ebc1",
@@ -144,7 +153,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 1
   },
   {
    "id": "02572174-27fb-4975-bc94-d4615e59a1da",
@@ -158,7 +168,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 12
+   "contacts": 12,
+   "n_hits": 6
   },
   {
    "id": "d1142a29-2d48-4609-af81-360579ff8da6",
@@ -172,7 +183,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 2
   },
   {
    "id": "04923b1b-83e0-4899-8bcd-7c985fef4d4d",
@@ -186,7 +198,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 15
+   "contacts": 15,
+   "n_hits": 6
   },
   {
    "id": "86604589-2676-4df8-9a8e-28c39b4078f7",
@@ -200,7 +213,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 10
+   "contacts": 10,
+   "n_hits": 5
   },
   {
    "id": "d561da75-bf77-4847-9f65-4e9d0248abb7",
@@ -214,7 +228,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 10
+   "contacts": 10,
+   "n_hits": 5
   },
   {
    "id": "780007d2-abbc-46b5-97a5-1b602b9fd3e9",
@@ -228,7 +243,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 11
+   "contacts": 11,
+   "n_hits": 2
   },
   {
    "id": "59f7a89e-c846-4871-bc9c-7362d319dfb5",
@@ -242,7 +258,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 13
+   "contacts": 13,
+   "n_hits": 2
   },
   {
    "id": "64c176be-c7ae-4774-aa48-198146eaf6e7",
@@ -256,7 +273,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 7
+   "contacts": 7,
+   "n_hits": 3
   },
   {
    "id": "6a8ef739-f6bc-453b-be21-3d0419bed5d0",
@@ -270,7 +288,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 5
+   "contacts": 5,
+   "n_hits": 3
   },
   {
    "id": "56b9e0b9-c2d4-4724-8cdb-d7155d463b2d",
@@ -284,7 +303,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 14
+   "contacts": 14,
+   "n_hits": 8
   },
   {
    "id": "31b90987-7d0d-49b8-ab9e-9ea6e415a097",
@@ -298,7 +318,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 10
+   "contacts": 10,
+   "n_hits": 5
   },
   {
    "id": "644d7315-0f8d-4917-a412-15f97a3583ea",
@@ -312,7 +333,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 18
+   "contacts": 18,
+   "n_hits": 1
   },
   {
    "id": "77eb4ea1-3440-4404-bf62-d0450f69dedc",
@@ -326,7 +348,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 9
+   "contacts": 9,
+   "n_hits": 1
   },
   {
    "id": "27494f46-b4da-45de-b6b3-ee86d32efbdc",
@@ -340,7 +363,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 23
+   "contacts": 23,
+   "n_hits": 11
   },
   {
    "id": "2d0c74c0-c331-40cd-8829-58c35cb7eb55",
@@ -354,7 +378,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 10
+   "contacts": 10,
+   "n_hits": 5
   },
   {
    "id": "84c5d7de-6d46-4ad4-a980-08b914c776d4",
@@ -368,7 +393,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 13
+   "contacts": 13,
+   "n_hits": 3
   },
   {
    "id": "f7958fb3-2808-4d0a-bbf9-460fe4137fdf",
@@ -382,7 +408,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 12
+   "contacts": 12,
+   "n_hits": 1
   },
   {
    "id": "41cab3a7-3f13-4aa4-a367-38ee704d139a",
@@ -396,7 +423,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 14
+   "contacts": 14,
+   "n_hits": 5
   },
   {
    "id": "cb390cf5-2cc7-4b06-b876-666fdd03b303",
@@ -410,7 +438,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 8
+   "contacts": 8,
+   "n_hits": 4
   },
   {
    "id": "ba553156-5ce4-4399-a463-8691c482ae7f",
@@ -424,7 +453,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 3
   },
   {
    "id": "2634291a-2287-45f4-aaf4-967b2f2537bf",
@@ -438,7 +468,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 16
+   "contacts": 16,
+   "n_hits": 6
   },
   {
    "id": "79583da4-ff30-459e-ba6b-b311bd3729cd",
@@ -452,7 +483,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 10
+   "contacts": 10,
+   "n_hits": 3
   },
   {
    "id": "c72b78c5-7da8-4c9e-a590-3093f11a9960",
@@ -466,7 +498,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 8
+   "contacts": 8,
+   "n_hits": 4
   },
   {
    "id": "1e26ba91-8433-41e6-9e9c-7e3d9fd11b3e",
@@ -480,7 +513,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 22
+   "contacts": 22,
+   "n_hits": 6
   },
   {
    "id": "66cd6d46-9c95-4ab0-a3e9-1a12d48f8334",
@@ -494,7 +528,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": "continue",
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 2
   },
   {
    "id": "6eff97b1-749b-4dcd-905e-d5fbaab830b5",
@@ -508,7 +543,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": "end",
    "has_clip": true,
-   "contacts": 16
+   "contacts": 16,
+   "n_hits": 9
   },
   {
    "id": "f96e04e4-0933-41c5-8536-f8c04c6cb79b",
@@ -522,7 +558,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 18
+   "contacts": 18,
+   "n_hits": 2
   },
   {
    "id": "d8b6c5d3-0e15-4f82-bffc-06b38a373462",
@@ -536,7 +573,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 2
+   "contacts": 2,
+   "n_hits": 2
   },
   {
    "id": "b4d63560-4c28-4ec0-b77f-a0653528cb11",
@@ -550,7 +588,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 18
+   "contacts": 18,
+   "n_hits": 1
   },
   {
    "id": "3fb5e646-bd6b-47b8-b352-ee3c3a2e5b3d",
@@ -564,7 +603,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 0
+   "contacts": 0,
+   "n_hits": 3
   },
   {
    "id": "c9c57f6d-cf01-46f4-be97-55da7c3a458c",
@@ -578,7 +618,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 13
+   "contacts": 13,
+   "n_hits": 1
   },
   {
    "id": "e2365700-9e0f-4b4c-ae49-840f194309eb",
@@ -592,7 +633,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 11
+   "contacts": 11,
+   "n_hits": 5
   },
   {
    "id": "1c30a806-cfa6-4bc3-b919-233ac37c7196",
@@ -606,7 +648,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 10
+   "contacts": 10,
+   "n_hits": 2
   },
   {
    "id": "01bdcf0a-9bdf-4bff-8900-6801c3a21549",
@@ -620,7 +663,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 4
   },
   {
    "id": "fbcfe4ff-adb4-4588-bfb1-8a82cd84b34c",
@@ -634,7 +678,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 30
+   "contacts": 30,
+   "n_hits": 15
   },
   {
    "id": "09d35dd0-5f24-46fc-809c-311fb167b6ae",
@@ -648,7 +693,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 5
+   "contacts": 5,
+   "n_hits": 2
   },
   {
    "id": "e02c9de2-a539-41bd-b3e0-3894a66a35c4",
@@ -662,7 +708,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 15
+   "contacts": 15,
+   "n_hits": 2
   },
   {
    "id": "2dd6d6bd-3739-4c72-9ccd-2870bf0cfc25",
@@ -676,7 +723,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 11
+   "contacts": 11,
+   "n_hits": 3
   },
   {
    "id": "5e89cf5a-f237-4f26-9571-12d6711d6d9b",
@@ -690,7 +738,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 12
+   "contacts": 12,
+   "n_hits": 8
   },
   {
    "id": "31f819ce-4fb7-487a-8528-d78ba4e81508",
@@ -704,7 +753,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 23
+   "contacts": 23,
+   "n_hits": 4
   },
   {
    "id": "305a94dd-0a73-4979-8809-a324d3318075",
@@ -718,7 +768,8 @@
    "confirmed_winner": "user",
    "game_end_override": "continue",
    "has_clip": true,
-   "contacts": 10
+   "contacts": 10,
+   "n_hits": 1
   },
   {
    "id": "6026b36f-0f3d-48ef-865a-c657fb5ba155",
@@ -732,7 +783,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 7
+   "contacts": 7,
+   "n_hits": 1
   },
   {
    "id": "22ff8530-c142-420b-811b-04f3f3a679f1",
@@ -746,7 +798,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": "end",
    "has_clip": true,
-   "contacts": 4
+   "contacts": 4,
+   "n_hits": 4
   },
   {
    "id": "b9c0b08e-2266-4d1a-ac9f-bf80dc1baa19",
@@ -760,7 +813,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 12
+   "contacts": 12,
+   "n_hits": 2
   },
   {
    "id": "477f5e32-8e05-44c7-8ba2-f99d3362b1e4",
@@ -774,7 +828,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 4
+   "contacts": 4,
+   "n_hits": 2
   },
   {
    "id": "03d2a80f-212d-464b-a5e7-dc7ac4c202b9",
@@ -788,7 +843,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 18
+   "contacts": 18,
+   "n_hits": 3
   },
   {
    "id": "7d28e1ae-4490-470f-8fb8-041c91887e6c",
@@ -802,7 +858,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 17
+   "contacts": 17,
+   "n_hits": 9
   },
   {
    "id": "542c1e2c-5104-4d26-8d61-7cfc0e337be8",
@@ -816,7 +873,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 5
+   "contacts": 5,
+   "n_hits": 5
   },
   {
    "id": "59a90a11-6116-450f-a5a5-bc7d5f3cae8a",
@@ -830,7 +888,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 5
   },
   {
    "id": "325f38bf-7615-4bda-a73e-dc50c998d8bc",
@@ -844,7 +903,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 12
+   "contacts": 12,
+   "n_hits": 2
   },
   {
    "id": "8a076596-7a84-4a82-99c9-cd8d6ce22704",
@@ -858,7 +918,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 25
+   "contacts": 25,
+   "n_hits": 7
   },
   {
    "id": "a6b41788-b8f8-4c2a-9e91-a014714283e0",
@@ -872,7 +933,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 7
+   "contacts": 7,
+   "n_hits": 3
   },
   {
    "id": "237bd718-ada9-4fa0-adc5-fef0af7c719f",
@@ -886,7 +948,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 2
   },
   {
    "id": "b9e47643-8b77-475b-9983-28b52ba11d6a",
@@ -900,7 +963,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 3
   },
   {
    "id": "757f0d50-6eab-4566-94ff-b2f2d98fdcd5",
@@ -914,7 +978,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 21
+   "contacts": 21,
+   "n_hits": 2
   },
   {
    "id": "485c7e6c-4e7e-4da1-bd61-001d29568a6a",
@@ -928,7 +993,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 10
+   "contacts": 10,
+   "n_hits": 7
   },
   {
    "id": "4c738012-55ba-4dfc-b92a-04abc2b6b09d",
@@ -942,7 +1008,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 6
   },
   {
    "id": "531e288c-28c1-41c4-9dee-8a6d781c7a51",
@@ -956,7 +1023,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 13
+   "contacts": 13,
+   "n_hits": 5
   },
   {
    "id": "b7abd075-241d-4283-8401-b0400411bede",
@@ -970,7 +1038,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 13
+   "contacts": 13,
+   "n_hits": 2
   },
   {
    "id": "b2334354-ccaf-4b04-9de6-d2e0459c03ce",
@@ -984,7 +1053,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 2
+   "contacts": 2,
+   "n_hits": 2
   },
   {
    "id": "326c879e-4ca6-4c42-821a-5b5f86ca3815",
@@ -998,7 +1068,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 1
   },
   {
    "id": "32bd3112-db88-490d-a69f-727b4f42902a",
@@ -1012,7 +1083,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 10
+   "contacts": 10,
+   "n_hits": 2
   },
   {
    "id": "8cad678b-637d-4681-91ea-bf7ce367718d",
@@ -1026,7 +1098,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 2
   },
   {
    "id": "63e75099-4aab-45af-8815-b5bf095fa9fb",
@@ -1040,7 +1113,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 5
+   "contacts": 5,
+   "n_hits": 3
   },
   {
    "id": "da850c4e-e6c2-4518-b1d3-9d131b199fa5",
@@ -1054,7 +1128,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 11
+   "contacts": 11,
+   "n_hits": 6
   },
   {
    "id": "964876c3-80dd-47fa-a5eb-a602daeff8b7",
@@ -1068,7 +1143,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 31
+   "contacts": 31,
+   "n_hits": 2
   },
   {
    "id": "f8fd63c3-2e5b-4233-a4a4-8cf2988c3b2c",
@@ -1082,7 +1158,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": null
+   "contacts": null,
+   "n_hits": null
   },
   {
    "id": "b124b683-9d42-442c-992a-7fce64ed07f7",
@@ -1096,7 +1173,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 1
+   "contacts": 1,
+   "n_hits": 1
   },
   {
    "id": "7571c35a-3bef-4456-b130-4b649c4cb7d2",
@@ -1110,7 +1188,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 8
+   "contacts": 8,
+   "n_hits": 4
   },
   {
    "id": "3d66ddce-4775-4c41-834b-8e375c7622a2",
@@ -1124,7 +1203,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": "continue",
    "has_clip": true,
-   "contacts": 8
+   "contacts": 8,
+   "n_hits": 4
   },
   {
    "id": "99287355-05ec-4414-90d3-a48edf912e81",
@@ -1138,7 +1218,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 17
+   "contacts": 17,
+   "n_hits": 4
   },
   {
    "id": "db6620ba-6ce5-43b0-8f26-71531dd6d288",
@@ -1152,7 +1233,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 13
+   "contacts": 13,
+   "n_hits": 8
   },
   {
    "id": "c40e7e62-52a9-4c08-a96f-133451b92299",
@@ -1166,7 +1248,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 5
+   "contacts": 5,
+   "n_hits": 3
   },
   {
    "id": "734966d9-9488-44cd-be1c-c2ad0c572042",
@@ -1180,7 +1263,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 7
+   "contacts": 7,
+   "n_hits": 2
   },
   {
    "id": "328e57dd-51aa-48df-ba49-b98ae133b8bb",
@@ -1194,7 +1278,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 7
+   "contacts": 7,
+   "n_hits": 4
   },
   {
    "id": "409526b6-b93c-4cad-8f2b-ccd864da6fc4",
@@ -1208,7 +1293,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 5
+   "contacts": 5,
+   "n_hits": 6
   },
   {
    "id": "d4f3e628-1b54-4ed6-adc9-44693b582ec5",
@@ -1222,7 +1308,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 14
+   "contacts": 14,
+   "n_hits": 9
   },
   {
    "id": "8c3cf0d3-301d-47f5-9e1a-3d29cdfadc8c",
@@ -1236,7 +1323,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 11
+   "contacts": 11,
+   "n_hits": 1
   },
   {
    "id": "2b671e92-dc99-408b-8d28-adcc99ebe68d",
@@ -1250,7 +1338,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 2
+   "contacts": 2,
+   "n_hits": 3
   },
   {
    "id": "c88ab5ea-92b5-4ffd-8f59-9ef8c97772f5",
@@ -1264,7 +1353,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 17
+   "contacts": 17,
+   "n_hits": 9
   },
   {
    "id": "1dbc5661-a172-4666-b1ad-2e4174eb667d",
@@ -1278,7 +1368,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": "end",
    "has_clip": true,
-   "contacts": 13
+   "contacts": 13,
+   "n_hits": 2
   },
   {
    "id": "3cca0ac2-9af2-43e7-8fc1-aab0ecd4f248",
@@ -1292,7 +1383,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 52
+   "contacts": 52,
+   "n_hits": 24
   },
   {
    "id": "5e2ff6bc-80f0-42b2-8030-95b4f00ca71e",
@@ -1306,7 +1398,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 7
+   "contacts": 7,
+   "n_hits": 2
   },
   {
    "id": "10aec248-e68b-49ac-8afb-e3ea95412730",
@@ -1320,7 +1413,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 1
+   "contacts": 1,
+   "n_hits": 3
   },
   {
    "id": "c7cc313a-b3dc-4e1a-a286-8b214cf0cc78",
@@ -1334,7 +1428,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 7
+   "contacts": 7,
+   "n_hits": 3
   },
   {
    "id": "41be9193-a327-4cb1-9adb-a95ee578b2d6",
@@ -1348,7 +1443,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 14
+   "contacts": 14,
+   "n_hits": 2
   },
   {
    "id": "e035b305-10ae-4e7f-816f-7b47d13d3015",
@@ -1362,7 +1458,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 8
+   "contacts": 8,
+   "n_hits": 2
   },
   {
    "id": "67be022f-a42b-43fa-893d-1ce03b305009",
@@ -1376,7 +1473,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 8
+   "contacts": 8,
+   "n_hits": 2
   },
   {
    "id": "aaecfa28-d71c-45aa-b4dd-99ad9f82eb98",
@@ -1390,7 +1488,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 17
+   "contacts": 17,
+   "n_hits": 9
   },
   {
    "id": "95e9be8e-771e-40d1-8601-1ff13c60f326",
@@ -1404,7 +1503,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 2
   },
   {
    "id": "13a99c90-66f4-4cf0-b647-c1b1f9c200a3",
@@ -1418,7 +1518,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 22
+   "contacts": 22,
+   "n_hits": 10
   },
   {
    "id": "c617c99c-98f7-416f-93a2-722399c60e29",
@@ -1432,7 +1533,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 14
+   "contacts": 14,
+   "n_hits": 8
   },
   {
    "id": "8e4a4667-c2e1-4c41-b8db-9f41c2511578",
@@ -1446,7 +1548,8 @@
    "confirmed_winner": "user",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 15
+   "contacts": 15,
+   "n_hits": 1
   },
   {
    "id": "b96a0d53-5ad0-48b6-8a50-5834b155be20",
@@ -1460,7 +1563,8 @@
    "confirmed_winner": "opponent",
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 7
+   "contacts": 7,
+   "n_hits": 1
   },
   {
    "id": "57b466cc-476e-48f5-9d20-306fef814a94",
@@ -1474,7 +1578,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 12
+   "contacts": 12,
+   "n_hits": 2
   },
   {
    "id": "9d00eaca-6b69-42b0-9d58-27cc4c15a39d",
@@ -1488,7 +1593,8 @@
    "confirmed_winner": null,
    "game_end_override": "continue",
    "has_clip": true,
-   "contacts": 13
+   "contacts": 13,
+   "n_hits": 1
   },
   {
    "id": "cce2867c-7c90-458f-a09e-67a02d5becb6",
@@ -1502,7 +1608,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 5
+   "contacts": 5,
+   "n_hits": 2
   },
   {
    "id": "de81eaea-e721-48ac-920a-1b9bc23afc4a",
@@ -1516,7 +1623,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 17
+   "contacts": 17,
+   "n_hits": 5
   },
   {
    "id": "9f5884ce-c108-4aee-8209-e727f9bcd557",
@@ -1530,7 +1638,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 15
+   "contacts": 15,
+   "n_hits": 1
   },
   {
    "id": "05330811-d46a-42ff-a109-15cbc61bf0c3",
@@ -1544,7 +1653,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 7
+   "contacts": 7,
+   "n_hits": 1
   },
   {
    "id": "bf407b32-a62b-4fab-a565-553a91f5f26d",
@@ -1558,7 +1668,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 1
+   "contacts": 1,
+   "n_hits": 2
   },
   {
    "id": "f42c5728-4753-4eb8-b03c-1fb42e48ee23",
@@ -1572,7 +1683,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 3
   },
   {
    "id": "f2c7b05d-ad64-407b-9950-976fa84c7d8d",
@@ -1586,7 +1698,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 10
+   "contacts": 10,
+   "n_hits": 3
   },
   {
    "id": "93518a1a-7ee3-4e7c-9604-0cc18bfce7ee",
@@ -1600,7 +1713,8 @@
    "confirmed_winner": null,
    "game_end_override": "end",
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 2
   },
   {
    "id": "15da2584-db06-4678-9956-2757bf750349",
@@ -1614,7 +1728,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 7
+   "contacts": 7,
+   "n_hits": 3
   },
   {
    "id": "da5d037a-d718-4bf3-b789-9273c2875fda",
@@ -1628,7 +1743,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 15
+   "contacts": 15,
+   "n_hits": 2
   },
   {
    "id": "cb1fbb60-0c01-4707-bdf6-978ea67df610",
@@ -1642,7 +1758,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 15
+   "contacts": 15,
+   "n_hits": 9
   },
   {
    "id": "c72171c4-2dfa-4792-b68a-8d35857e4ae7",
@@ -1656,7 +1773,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 3
+   "contacts": 3,
+   "n_hits": 4
   },
   {
    "id": "306dc14b-8343-4115-a553-af0e7eca86ae",
@@ -1670,7 +1788,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 5
+   "contacts": 5,
+   "n_hits": 2
   },
   {
    "id": "503c23a4-2b37-49fa-acfc-c49cb6fa0663",
@@ -1684,7 +1803,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 5
+   "contacts": 5,
+   "n_hits": 1
   },
   {
    "id": "30cd249e-fb46-4b5b-8314-c4bad22be048",
@@ -1698,7 +1818,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 13
+   "contacts": 13,
+   "n_hits": 5
   },
   {
    "id": "1d3ea241-280c-49d5-b7c2-e4615b4a437f",
@@ -1712,7 +1833,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 19
+   "contacts": 19,
+   "n_hits": 10
   },
   {
    "id": "3f81bcfb-7d52-4274-b0f6-0450974102fc",
@@ -1726,7 +1848,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 20
+   "contacts": 20,
+   "n_hits": 3
   },
   {
    "id": "69a00231-6d57-472f-80d9-722e4acc0c53",
@@ -1740,7 +1863,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 6
+   "contacts": 6,
+   "n_hits": 3
   },
   {
    "id": "95825aa7-58c4-4cc4-8c68-bdcfb396fd6c",
@@ -1754,7 +1878,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 1
+   "contacts": 1,
+   "n_hits": 1
   },
   {
    "id": "1c55cdf1-dbd2-4f0c-90f8-32598d3768a8",
@@ -1768,7 +1893,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 5
+   "contacts": 5,
+   "n_hits": 1
   },
   {
    "id": "cf39e51e-7426-49c8-bda8-f91bad05aa95",
@@ -1782,7 +1908,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 8
+   "contacts": 8,
+   "n_hits": 3
   },
   {
    "id": "55fee22a-a842-4cb2-b119-4f8bda63ab47",
@@ -1796,7 +1923,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 10
+   "contacts": 10,
+   "n_hits": 2
   },
   {
    "id": "de6f69b7-0002-40d2-ba31-73cdde90e34f",
@@ -1810,7 +1938,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 8
+   "contacts": 8,
+   "n_hits": 1
   },
   {
    "id": "793eb9e5-d4e4-43a5-82c1-6d21ccd7a88c",
@@ -1824,7 +1953,8 @@
    "confirmed_winner": null,
    "game_end_override": null,
    "has_clip": true,
-   "contacts": 11
+   "contacts": 11,
+   "n_hits": 6
   }
  ],
  "pad": {
@@ -1834,35 +1964,40 @@
  "expected": {
   "story": {
    "ids": [
-    "b419f157-ab3c-46c4-a3a3-a09134fa6a2d",
-    "2dd6d6bd-3739-4c72-9ccd-2870bf0cfc25"
+    "fbcfe4ff-adb4-4588-bfb1-8a82cd84b34c",
+    "cb1fbb60-0c01-4707-bdf6-978ea67df610"
    ],
    "totalS": 19.52
   },
   "reel": {
    "ids": [
-    "b419f157-ab3c-46c4-a3a3-a09134fa6a2d",
-    "15795c24-c78f-4907-8aa5-b903b67035b5",
+    "1e26ba91-8433-41e6-9e9c-7e3d9fd11b3e",
+    "6eff97b1-749b-4dcd-905e-d5fbaab830b5",
     "fbcfe4ff-adb4-4588-bfb1-8a82cd84b34c",
-    "3cca0ac2-9af2-43e7-8fc1-aab0ecd4f248"
+    "3cca0ac2-9af2-43e7-8fc1-aab0ecd4f248",
+    "793eb9e5-d4e4-43a5-82c1-6d21ccd7a88c"
    ],
-   "totalS": 56.54
+   "totalS": 59.54
   },
   "long": {
    "ids": [
-    "b419f157-ab3c-46c4-a3a3-a09134fa6a2d",
-    "15795c24-c78f-4907-8aa5-b903b67035b5",
-    "b4d63560-4c28-4ec0-b77f-a0653528cb11",
+    "977eeba2-e44e-412b-be76-3d8d157efa88",
+    "27494f46-b4da-45de-b6b3-ee86d32efbdc",
+    "1e26ba91-8433-41e6-9e9c-7e3d9fd11b3e",
+    "6eff97b1-749b-4dcd-905e-d5fbaab830b5",
     "fbcfe4ff-adb4-4588-bfb1-8a82cd84b34c",
-    "b7abd075-241d-4283-8401-b0400411bede",
-    "32bd3112-db88-490d-a69f-727b4f42902a",
-    "964876c3-80dd-47fa-a5eb-a602daeff8b7",
-    "734966d9-9488-44cd-be1c-c2ad0c572042",
-    "1dbc5661-a172-4666-b1ad-2e4174eb667d",
+    "7d28e1ae-4490-470f-8fb8-041c91887e6c",
+    "8a076596-7a84-4a82-99c9-cd8d6ce22704",
+    "99287355-05ec-4414-90d3-a48edf912e81",
+    "c88ab5ea-92b5-4ffd-8f59-9ef8c97772f5",
     "3cca0ac2-9af2-43e7-8fc1-aab0ecd4f248",
-    "c72171c4-2dfa-4792-b68a-8d35857e4ae7"
+    "aaecfa28-d71c-45aa-b4dd-99ad9f82eb98",
+    "13a99c90-66f4-4cf0-b647-c1b1f9c200a3",
+    "cb1fbb60-0c01-4707-bdf6-978ea67df610",
+    "1d3ea241-280c-49d5-b7c2-e4615b4a437f",
+    "793eb9e5-d4e4-43a5-82c1-6d21ccd7a88c"
    ],
-   "totalS": 146.89
+   "totalS": 148.58
   }
  }
 }

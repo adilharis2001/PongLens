@@ -114,6 +114,31 @@ test("lets and clipless rallies never make the cut", () => {
   assert.equal(picks[0].t0, 300);
 });
 
+test("a serve error never outranks a real rally, whatever its span claims", () => {
+  const points = [
+    // One bat contact across a "13.5 second rally": the Prabhas case.
+    pt({ t0: 100, t1: 113.5, suggestion: { winner: "user", how: "", n_hits: 1 } } as never),
+    pt({ t0: 300, t1: 306, suggestion: { winner: "user", how: "", n_hits: 6 } } as never),
+  ];
+  const padS = PAD.pre + PAD.post;
+  const { picks } = pickHighlights(points, PAD, 6 + padS + 0.01);
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].t0, 300);
+});
+
+test("a bloated span ranks only as high as its hits vouch for", () => {
+  const points = [
+    // 25s span but only 5 hits: ranks as 10s of credible play.
+    pt({ t0: 100, t1: 125, suggestion: { winner: "user", how: "", n_hits: 5 } } as never),
+    // 12s span, 8 hits: honest, ranks as 12s and wins.
+    pt({ t0: 300, t1: 312, suggestion: { winner: "user", how: "", n_hits: 8 } } as never),
+  ];
+  const padS = PAD.pre + PAD.post;
+  const { picks } = pickHighlights(points, PAD, 12 + padS + 0.01);
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].t0, 300);
+});
+
 test("nothing eligible means nothing picked", () => {
   const { picks, totalS } = pickHighlights([], PAD, 20);
   assert.equal(picks.length, 0);
@@ -146,6 +171,22 @@ test("the committed parity fixture matches this module's output", () => {
       confirmed_winner: r.confirmed_winner,
       game_end_override: r.game_end_override,
       clip_path: r.has_clip ? "c" : null,
+      suggestion:
+        r.n_hits == null
+          ? null
+          : { winner: "user", how: "", n_hits: r.n_hits },
+      placement:
+        r.contacts == null
+          ? null
+          : {
+              v: 3,
+              status: "ready",
+              candidates: Array.from(
+                { length: r.contacts as number },
+                (_, i) => ({ t: i })
+              ),
+              hypotheses: { near: {}, far: {} },
+            },
     })) as unknown as Point[]
   );
   for (const kind of Object.keys(HIGHLIGHT_BUDGETS_S) as

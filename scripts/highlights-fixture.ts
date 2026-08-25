@@ -40,6 +40,8 @@ const points = sortPoints(
     confirmed_winner: r.confirmed_winner,
     game_end_override: r.game_end_override,
     clip_path: r.has_clip ? "c" : null,
+    suggestion:
+      r.n_hits == null ? null : { winner: "user", how: "", n_hits: r.n_hits },
     placement:
       r.contacts == null
         ? null
