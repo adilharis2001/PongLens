@@ -233,8 +233,8 @@ struct LoginScreen: View {
                     .shadow(color: PL.cyan.opacity(0.35), radius: 12, y: 2)
             }
             .buttonStyle(.plain)
-            .disabled(verifying || code.count < 6)
-            .opacity(verifying || code.count < 6 ? 0.6 : 1)
+            .disabled(verifying || code.count < 8)
+            .opacity(verifying || code.count < 8 ? 0.6 : 1)
 
             Button("Use a different email") {
                 sent = false
@@ -380,7 +380,7 @@ struct LoginScreen: View {
             )
         } catch {
             if !(error is CancellationError) {
-                errorMessage = "Google sign-in isn't switched on for the app yet. Use the email code."
+                errorMessage = "Google sign-in didn't complete. Try again, or use the email code."
             }
         }
     }
