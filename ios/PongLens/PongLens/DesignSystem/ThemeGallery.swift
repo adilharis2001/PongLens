@@ -98,6 +98,21 @@ struct ThemeGallery: View {
                         .background(Color.black)
                         .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
 
+                        SectionHeading("Live check, filming a screen")
+                        // The refusal the monitor test produces: geometry
+                        // fine under some lens, refused under the real
+                        // one. The caption is the shipped string so a
+                        // copy change shows up here.
+                        TableGhost(level: 0,
+                                   previewDebug: Self.clippedQuad.map {
+                                       SIMD2($0.x + 126, $0.y)
+                                   },
+                                   previewNote: TableFinderEngine.screenNote)
+                        .frame(height: 200)
+                        .frame(maxWidth: .infinity)
+                        .background(Color.black)
+                        .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+
                         SectionHeading("Live check, nothing found")
                         // Ten quiet seconds. The placement line stays the
                         // caption until then; this is what replaces it,

@@ -56,6 +56,18 @@ final class TableFinderEngine {
     /// search with no stated way out reads as a hang.
     nonisolated static let stalledNote =
         "Still looking for the table. You can record without it."
+    /// Said when the gate keeps refusing a steady sighting that some
+    /// OTHER lens would explain cleanly — the signature of footage on a
+    /// screen, where the geometry belongs to whichever camera filmed the
+    /// original. The angle check cannot be honest there, and saying so
+    /// beats "checking the angle" forever.
+    nonisolated static let screenNote =
+        "That looks like a screen, not a real table"
+    /// Said when the gate has refused a steady sighting for eight
+    /// seconds with no better explanation. A refusal that never says
+    /// anything reads as a hang.
+    nonisolated static let refusedNote =
+        "Can't judge the angle from this view"
 
     private(set) var state: State = .searching(nil)
     private(set) var drifted = false
@@ -122,6 +134,8 @@ final class TableFinderEngine {
     private nonisolated(unsafe) var recent: [[SIMD2<Double>]] = []
     private nonisolated(unsafe) var framesSeen = 0
     private nonisolated(unsafe) var darkSince: TimeInterval?
+    private nonisolated(unsafe) var refusedSince: TimeInterval?
+    private nonisolated(unsafe) var screenStreak = 0
     private let model: MLModel
     private let context = CIContext(options: [.cacheIntermediates: false])
 
@@ -240,6 +254,8 @@ final class TableFinderEngine {
             report(nil, note: dark ? Self.darkNote : nil,
                    raw: corners,
                    diag: "\(frameTag) \(peakText) — too faint")
+            refusedSince = nil
+            screenStreak = 0
             return
         }
         darkSince = nil
@@ -250,7 +266,9 @@ final class TableFinderEngine {
             corners: corners, focal: focal,
             cx: Double(TableFinderCore.inputWidth) / 2,
             cy: Double(TableFinderCore.inputHeight) / 2) else {
-            report(nil, sighted: corners, note: Self.framingCue(corners),
+            report(nil, sighted: corners,
+                   note: Self.framingCue(corners)
+                       ?? refusalNote(corners, now: now),
                    raw: corners,
                    diag: "\(frameTag) \(peakText) — no camera fits")
             return
@@ -263,11 +281,15 @@ final class TableFinderEngine {
         let verdict = TableFinderCore.verdict(for: stance,
                                               expectedSide: expectedSideMirror)
         if verdict == .implausible {
-            report(nil, sighted: corners, note: Self.framingCue(corners),
+            report(nil, sighted: corners,
+                   note: Self.framingCue(corners)
+                       ?? refusalNote(corners, now: now),
                    raw: corners,
                    diag: "\(stanceText) — gate refused")
             return
         }
+        refusedSince = nil
+        screenStreak = 0
 
         // Three consecutive agreeing frames flip the state; anything
         // else decays toward searching.
@@ -297,6 +319,30 @@ final class TableFinderEngine {
         report(settled, detection: corners, sighted: corners,
                angle: TableFinderCore.axisDegrees(for: stance), raw: corners,
                diag: "\(stanceText) \(vote) → \(label(for: verdict))")
+    }
+
+    /// The caption for a sighting the gate keeps refusing. Serial tap
+    /// queue only, like the rest of the frame path.
+    ///
+    /// Three refusals in a row that some solvable lens explains cleanly
+    /// name the screen; eight quiet seconds name the stuck state. The
+    /// solved lens grants NOTHING — the 2026-08-25 study measured why it
+    /// never can — it only chooses between two apologies.
+    private nonisolated func refusalNote(_ corners: [SIMD2<Double>],
+                                         now: TimeInterval) -> String? {
+        if refusedSince == nil { refusedSince = now }
+        let w = Double(TableFinderCore.inputWidth)
+        let h = Double(TableFinderCore.inputHeight)
+        if TableFinderCore.fitsSomeLens(image: corners,
+                                        cx: w / 2, cy: h / 2,
+                                        imageWidth: w) {
+            screenStreak += 1
+        } else {
+            screenStreak = 0
+        }
+        if screenStreak >= 3 { return Self.screenNote }
+        if now - (refusedSince ?? now) > 8 { return Self.refusedNote }
+        return nil
     }
 
     /// Which way to turn when the model can see the table but the table

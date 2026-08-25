@@ -163,6 +163,59 @@ enum TableFinderCore {
         return nil
     }
 
+    /// Zhang's two single-plane constraints, each solved for a focal
+    /// length. Port of mine_record_poses.focal_candidates, and NOT used
+    /// to grant anything: the 2026-08-25 focal-recovery study measured
+    /// that a single table quad is too little signal to trust a solved
+    /// lens (median 22% disagreement between the two answers on
+    /// hand-marked corners, and the solved-lens gate waved through half
+    /// the end-for-end rotations the current gate catches). What a
+    /// solved lens IS good for is explaining a refusal: a steady
+    /// sighting the known lens rejects but SOME lens explains cleanly is
+    /// the signature of footage on a screen.
+    static func focalCandidates(image corners: [SIMD2<Double>],
+                                cx: Double, cy: Double) -> [Double] {
+        guard let h = homography(image: corners) else { return [] }
+        // Column j of H is (h[j], h[3+j], h[6+j]).
+        var c1 = (h[0], h[3], h[6])
+        var c2 = (h[1], h[4], h[7])
+        c1.0 -= cx * c1.2; c1.1 -= cy * c1.2
+        c2.0 -= cx * c2.2; c2.1 -= cy * c2.2
+        let numerators = (c1.0 * c2.0 + c1.1 * c2.1,
+                          c1.0 * c1.0 + c1.1 * c1.1
+                              - c2.0 * c2.0 - c2.1 * c2.1)
+        let denominators = (c1.2 * c2.2,
+                            c1.2 * c1.2 - c2.2 * c2.2)
+        var out: [Double] = []
+        for (n, d) in [(numerators.0, denominators.0),
+                       (numerators.1, denominators.1)] {
+            guard abs(d) > 1e-12 else { continue }
+            let value = -n / d
+            if value > 0 { out.append(value.squareRoot()) }
+        }
+        return out
+    }
+
+    /// Does ANY plausible lens explain this quad as a real table seen by
+    /// a camera somewhere a person could stand? True alongside a
+    /// known-lens refusal reads as "the geometry is fine, the lens is
+    /// wrong" — a screen, not garbage.
+    static func fitsSomeLens(image corners: [SIMD2<Double>],
+                             cx: Double, cy: Double,
+                             imageWidth: Double) -> Bool {
+        for focal in focalCandidates(image: corners, cx: cx, cy: cy) {
+            let fov = 2 * atan(imageWidth / (2 * focal)) * 180 / .pi
+            guard (40...110).contains(fov),
+                  let s = stance(corners: corners, focal: focal,
+                                 cx: cx, cy: cy),
+                  s.behind > 0.2, s.behind < 9,
+                  s.height > 0.15, s.height < 3,
+                  abs(s.lateral) < 8 else { continue }
+            return true
+        }
+        return false
+    }
+
     enum Verdict: Equatable {
         case good
         case adjust(String)
