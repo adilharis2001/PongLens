@@ -281,15 +281,44 @@ struct LoginScreen: View {
         verifying = true
         errorMessage = nil
         do {
-            try await supa.auth.verifyOTP(
-                email: email.trimmingCharacters(in: .whitespaces),
-                token: code,
-                type: .email
-            )
+            let clean = email.trimmingCharacters(in: .whitespaces)
+            // App Review signs in with a fixed code from the review notes,
+            // because a reviewer cannot read a real mailbox. The server
+            // checks the pair against admin-only config and answers with
+            // the one-time token a magic link carries; when the fixed code
+            // is switched off (or wrong) this returns nothing and the
+            // address gets the ordinary emailed-code path below.
+            if clean.lowercased() == "reviewer@ponglens.com",
+               let tokenHash = await reviewerTokenHash(email: clean.lowercased()) {
+                try await supa.auth.verifyOTP(tokenHash: tokenHash, type: .email)
+            } else {
+                try await supa.auth.verifyOTP(email: clean, token: code, type: .email)
+            }
         } catch {
             errorMessage = "That code didn't work. Check the digits or send a fresh one."
         }
         verifying = false
+    }
+
+    /// Deliberately not APIClient: there is no session yet to attach, and
+    /// the route is unauthenticated by design.
+    private func reviewerTokenHash(email: String) async -> String? {
+        struct Req: Encodable {
+            let email: String
+            let code: String
+        }
+        struct Res: Decodable { let tokenHash: String }
+        var request = URLRequest(
+            url: AppConfig.apiBase.appendingPathComponent("api/review-signin")
+        )
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONEncoder().encode(Req(email: email, code: code))
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let res = try? JSONDecoder().decode(Res.self, from: data)
+        else { return nil }
+        return res.tokenHash
     }
 
     /// Fallback: the emailed link still signs in, pasted whole. Links are
