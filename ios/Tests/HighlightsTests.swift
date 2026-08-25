@@ -20,6 +20,7 @@ private struct HLFixture: Decodable {
         let confirmed_winner: String?
         let game_end_override: String?
         let has_clip: Bool
+        let contacts: Int?
     }
     struct Pad: Decodable {
         let pre: Double
@@ -50,7 +51,9 @@ private func hlPoint(_ r: HLFixture.Pt, matchId: UUID) -> MatchPoint {
         serveSpin: nil, serveSidespin: nil, serveLength: nil,
         placementFlagged: nil,
         clipPath: r.has_clip ? "c" : nil,
-        placement: nil
+        // A real v3 PlacementData carrying n contact detections — the
+        // detections() builder from ScoreLogicTests, same compile unit.
+        placement: r.contacts.map { detections((0..<$0).map(Double.init)) }
     )
 }
 

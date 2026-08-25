@@ -58,31 +58,49 @@ test("picks come back in match order, not rank order", () => {
   );
 });
 
-test("a starred rally outranks a longer one", () => {
+test("a starred rally outranks a longer one, but only two get the nod", () => {
   const points = [
-    pt({ t0: 100, t1: 104, starred: true }), // 4s, starred
-    pt({ t0: 200, t1: 215 }), // 15s
+    pt({ t0: 100, t1: 103, starred: true }), // 3s, starred
+    pt({ t0: 200, t1: 204, starred: true }), // 4s, starred
+    pt({ t0: 300, t1: 305, starred: true }), // 5s, starred
+    pt({ t0: 400, t1: 415 }), // 15s, unstarred
   ];
-  // Budget takes only one of them (each clip ≈ rally + pads).
-  const { picks } = pickHighlights(points, PAD, 8);
-  assert.equal(picks.length, 1);
-  assert.equal(picks[0].starred, true);
+  // Budget holds exactly the two longest starred clips: the boost covers
+  // two, so those two beat the 15s rally — and the THIRD star competes on
+  // plain length, where 15s wins.
+  const padS = PAD.pre + PAD.post;
+  const twoStars = 5 + 4 + 2 * padS + 0.01;
+  const first = pickHighlights(points, PAD, twoStars);
+  assert.deepEqual(
+    first.picks.map((p) => p.t0),
+    [200, 300]
+  );
+  const roomy = pickHighlights(points, PAD, twoStars + 15 + padS + 0.01);
+  assert.deepEqual(
+    roomy.picks.map((p) => p.t0),
+    [200, 300, 400] // third star (3s) loses to the 15s rally
+  );
 });
 
-test("the rally that closed the last game outranks plain length", () => {
+test("a long rally with almost no recorded contacts drops to the back", () => {
+  const sparse = {
+    v: 3,
+    status: "ready",
+    candidates: [{ t: 1 }, { t: 2 }],
+    hypotheses: { near: {}, far: {} },
+  };
   const points = [
-    pt({ t0: 100, t1: 111, confirmed_winner: "user" }), // 11s
-    // 3s, but pinned as the game's end
-    pt({
-      t0: 200,
-      t1: 203,
-      confirmed_winner: "user",
-      game_end_override: "end",
-    }),
+    pt({ t0: 100, t1: 130, placement: sparse } as never), // 30s, 2 contacts
+    pt({ t0: 300, t1: 308 }), // 8s, no contact data (reads genuine)
   ];
-  const { picks } = pickHighlights(points, PAD, 7);
+  const padS = PAD.pre + PAD.post;
+  // Room for one clip: the genuine 8s rally wins over the suspect 30s one.
+  const { picks } = pickHighlights(points, PAD, 8 + padS + 0.01);
   assert.equal(picks.length, 1);
-  assert.equal(picks[0].t0, 200);
+  assert.equal(picks[0].t0, 300);
+  // With room for both, the suspect rally still fills the tail.
+  const both = pickHighlights(points, PAD, 38 + 2 * padS + 0.02);
+  assert.equal(both.picks.length, 2);
 });
 
 test("lets and clipless rallies never make the cut", () => {

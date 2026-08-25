@@ -13,15 +13,17 @@ import Foundation
 /// (node --experimental-strip-types scripts/highlights-fixture.ts), and
 /// the other side's test names what drifted.
 ///
-/// The rule itself: rally length is the quality signal; a starred rally
-/// or the one that closed the last completed game outranks plain length;
-/// selection FILLS the time budget greedily by rank (a count-based rule
-/// measured out at 51s for "top 3" against a 20s Story); the picks come
-/// back in match order so the score band walks forward.
+/// The rule itself (reordered 2026-08-25): rally length is the quality
+/// signal; a long rally must look GENUINE where the worker recorded ball
+/// contacts (few contacts drops it to the back — no data reads as
+/// genuine); up to two starred rallies, the longest of them, keep a nod
+/// ahead of plain length; selection FILLS the time budget greedily by
+/// rank (a count-based rule measured out at 51s for "top 3" against a
+/// 20s Story); the picks come back in match order.
 enum Highlights {
     static let storyBudgetS = 20.0
     static let reelBudgetS = 60.0
-    static let longBudgetS = 120.0
+    static let longBudgetS = 150.0
 
     struct Picks {
         /// The chosen points, in match order.
@@ -34,38 +36,64 @@ enum Highlights {
         (v * 100).rounded() / 100
     }
 
-    /// `ordered` must be the match's VISIBLE points in timeline order —
-    /// the same list every score walk consumes. Lets fold into the walk
-    /// but are never picked.
+    /// Ball-contact detections recorded for this rally, when the worker
+    /// has them (placement v3 candidates). nil = no signal — and no
+    /// signal must read as genuine, never as suspect.
+    private static func contactCount(_ p: MatchPoint) -> Int? {
+        guard case .v3(let data)? = p.placement else { return nil }
+        return data.candidates?.count
+    }
+
+    /// `ordered` must be the match's VISIBLE points in timeline order.
+    /// Lets are never picked.
     static func pick(
         _ ordered: [MatchPoint], pad: ClipPad, budgetS: Double
     ) -> Picks {
-        var walk = BoundaryWalk()
-        var lastGameEnd: UUID?
         struct Candidate {
             let p: MatchPoint
             let s: Double
             let starred: Bool
+            let genuine: Bool
         }
         var eligible: [Candidate] = []
         for p in ordered {
-            let winner: Winner? = p.isLet ? nil : p.confirmedWinner
-            if stepBoundaryWalk(&walk, winner: winner,
-                                override: p.gameEndOverride) != nil {
-                lastGameEnd = p.id
-            }
             guard p.clipPath != nil, !p.isLet,
                   let t0 = p.t0, let t1 = p.t1 else { continue }
             let eff = effectivePad(pad, tightStart: p.tightStart,
                                    tightEnd: p.tightEnd)
-            let s = round2(t1 - t0 + eff.pre + eff.post)
+            let rallyLen = t1 - t0
+            let s = round2(rallyLen + eff.pre + eff.post)
             if s <= 0 { continue }
-            eligible.append(Candidate(p: p, s: s, starred: p.starred))
+            // Roughly one recorded contact per six seconds is a LOW bar
+            // for a real rally — the point is catching the thirty-second
+            // "rally" with two contacts, not grading normal ones.
+            let genuine: Bool
+            if let contacts = contactCount(p) {
+                genuine = contacts >= max(2, Int(rallyLen / 6))
+            } else {
+                genuine = true
+            }
+            eligible.append(Candidate(p: p, s: s, starred: p.starred,
+                                      genuine: genuine))
         }
 
+        // Up to two starred rallies — the longest genuine ones — keep a
+        // nod ahead of plain length.
+        let boosted = Set(
+            eligible.filter { $0.starred && $0.genuine }
+                .sorted { a, b in
+                    a.s != b.s ? a.s > b.s : a.p.idx < b.p.idx
+                }
+                .prefix(2)
+                .map(\.p.id)
+        )
+
+        func tier(_ c: Candidate) -> Int {
+            !c.genuine ? 2 : boosted.contains(c.p.id) ? 0 : 1
+        }
         let ranked = eligible.sorted { a, b in
-            let ta = (a.starred || a.p.id == lastGameEnd) ? 0 : 1
-            let tb = (b.starred || b.p.id == lastGameEnd) ? 0 : 1
+            let ta = tier(a)
+            let tb = tier(b)
             if ta != tb { return ta < tb }
             if a.s != b.s { return a.s > b.s }
             return a.p.idx < b.p.idx

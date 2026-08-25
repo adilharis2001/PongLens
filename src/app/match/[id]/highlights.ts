@@ -1,7 +1,3 @@
-import {
-  createBoundaryWalk,
-  stepBoundaryWalk,
-} from "./gameScore.ts";
 import { effectivePad } from "./clipEdit.ts";
 import type { Point } from "../../../lib/types.ts";
 
@@ -12,15 +8,19 @@ export type ClipPad = { pre: number; post: number };
  * The automatic highlight picker: which of a match's rallies make the cut
  * for a given time budget.
  *
- * The rule, in the order it was decided (2026-08-25):
+ * The rule (reordered 2026-08-25 after Adil's review):
  *  - Rally LENGTH is the quality signal. In table tennis the long rallies
  *    are almost always the ones worth watching, and length is the one
  *    signal every processed match already carries (t1 - t0).
- *  - A rally the owner STARRED outranks everything: they already said it
- *    was good.
- *  - The rally that closed the LAST completed game outranks plain length
- *    too — the decision moment belongs in a highlight even when it was
- *    short.
+ *  - A long rally must look GENUINE. Length alone can be a segmentation
+ *    error wearing a rally's clothes, so where the worker recorded ball
+ *    contacts (placement v3 candidates), a "long rally" with almost none
+ *    drops to the back of the line. No contact data reads as genuine —
+ *    failing open, like every gate in this product.
+ *  - Up to TWO starred rallies (the longest of them) keep a nod ahead of
+ *    plain length. Stars used to outrank everything, but people star
+ *    rallies to work on them or export them, and four stars plus filler
+ *    is not a highlight reel.
  *  - Selection FILLS THE BUDGET rather than taking a fixed count. Measured
  *    over 101 real matches, "top 3" averages 51 seconds against a Story's
  *    20 and "top 10" averages 139 against a Reel's 60, so a count-based
@@ -30,7 +30,7 @@ export type ClipPad = { pre: number; post: number };
  *    highlight reads as a story of the match, and the score band the
  *    renderer draws walks forward through it.
  *
- * Budgets are Instagram's ceilings: 20s Story, 60s Reel, and 120s for the
+ * Budgets: 20s Story and 60s Reel are Instagram's ceilings; 150s for the
  * long cut that never goes through the Instagram handover (it exists for
  * watching, downloading and every other destination).
  *
@@ -45,12 +45,21 @@ export type ClipPad = { pre: number; post: number };
 export const HIGHLIGHT_BUDGETS_S = {
   story: 20,
   reel: 60,
-  long: 120,
+  long: 150,
 } as const;
 
 export type HighlightKind = keyof typeof HIGHLIGHT_BUDGETS_S;
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
+
+/** Ball-contact detections recorded for this rally, when the worker has
+ * them (placement v3 candidates). null = no signal — and no signal must
+ * read as genuine, never as suspect. */
+function contactCount(p: Point): number | null {
+  const pl = p.placement as { v?: number; candidates?: unknown[] } | null;
+  if (!pl || pl.v !== 3 || !Array.isArray(pl.candidates)) return null;
+  return pl.candidates.length;
+}
 
 export interface HighlightPicks {
   /** The chosen points, in match order. */
@@ -70,25 +79,42 @@ export function pickHighlights(
   pad: ClipPad,
   budgetS: number
 ): HighlightPicks {
-  // One pass: fold the score walk (to find the rally that closed the last
-  // completed game) and collect every rally eligible for picking.
-  const walk = createBoundaryWalk();
-  let lastGameEndId: string | null = null;
-  const eligible: { p: Point; s: number; starred: boolean }[] = [];
+  const eligible: {
+    p: Point;
+    s: number;
+    starred: boolean;
+    genuine: boolean;
+  }[] = [];
   for (const p of ordered) {
-    const winner = p.is_let ? null : p.confirmed_winner;
-    const ended = stepBoundaryWalk(walk, winner ?? null, p.game_end_override ?? null);
-    if (ended) lastGameEndId = p.id;
     if (!p.clip_path || p.is_let || p.t0 === null || p.t1 === null) continue;
     const eff = effectivePad(pad, p.tight_start, p.tight_end);
-    const s = round2(Number(p.t1) - Number(p.t0) + eff.pre + eff.post);
+    const rallyLen = Number(p.t1) - Number(p.t0);
+    const s = round2(rallyLen + eff.pre + eff.post);
     if (s <= 0) continue;
-    eligible.push({ p, s, starred: !!p.starred });
+    // Roughly one recorded contact per six seconds is a LOW bar for a
+    // real rally — the point is catching the thirty-second "rally" with
+    // two contacts, not grading normal ones.
+    const contacts = contactCount(p);
+    const genuine =
+      contacts === null || contacts >= Math.max(2, Math.floor(rallyLen / 6));
+    eligible.push({ p, s, starred: !!p.starred, genuine });
   }
 
+  // Up to two starred rallies — the longest genuine ones — keep a nod
+  // ahead of plain length.
+  const boosted = new Set(
+    eligible
+      .filter((e) => e.starred && e.genuine)
+      .sort((a, b) => b.s - a.s || a.p.idx - b.p.idx)
+      .slice(0, 2)
+      .map((e) => e.p.id)
+  );
+
+  const tier = (e: (typeof eligible)[number]) =>
+    !e.genuine ? 2 : boosted.has(e.p.id) ? 0 : 1;
   const ranked = [...eligible].sort((a, b) => {
-    const ta = a.starred || a.p.id === lastGameEndId ? 0 : 1;
-    const tb = b.starred || b.p.id === lastGameEndId ? 0 : 1;
+    const ta = tier(a);
+    const tb = tier(b);
     if (ta !== tb) return ta - tb;
     if (b.s !== a.s) return b.s - a.s;
     return a.p.idx - b.p.idx; // deterministic ties, and parity needs that

@@ -45,8 +45,7 @@ struct HighlightsSheet: View {
                 PLChooserRow(
                     icon: "play.fill",
                     title: "Short highlight",
-                    detail: (Highlights.summary(reel) ?? "")
-                        + ". Your best rallies, inside a minute."
+                    detail: Highlights.summary(reel) ?? ""
                 ) {
                     playCut = HighlightCut(kind: .short)
                 }
@@ -54,8 +53,7 @@ struct HighlightsSheet: View {
                     PLChooserRow(
                         icon: "play.fill",
                         title: "Long highlight",
-                        detail: (Highlights.summary(long) ?? "")
-                            + ". More of the match."
+                        detail: Highlights.summary(long) ?? ""
                     ) {
                         playCut = HighlightCut(kind: .long)
                     }

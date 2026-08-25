@@ -40,6 +40,17 @@ const points = sortPoints(
     confirmed_winner: r.confirmed_winner,
     game_end_override: r.game_end_override,
     clip_path: r.has_clip ? "c" : null,
+    placement:
+      r.contacts == null
+        ? null
+        : {
+            v: 3,
+            status: "ready",
+            candidates: Array.from({ length: r.contacts as number }, (_, i) => ({
+              t: i,
+            })),
+            hypotheses: { near: {}, far: {} },
+          },
   })) as unknown as Point[]
 );
 
