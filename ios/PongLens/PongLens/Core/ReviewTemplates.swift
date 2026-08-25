@@ -99,7 +99,7 @@ let offeringTemplates: [OfferingTemplate] = [
             ReviewSectionDef(key: "summary", label: "Summary"),
             ReviewSectionDef(key: "serves", label: "Your serve"),
             ReviewSectionDef(key: "receives", label: "Your receive"),
-            ReviewSectionDef(key: "work_ons", label: "What to practise"),
+            ReviewSectionDef(key: "work_ons", label: "What to practice"),
         ],
         suggestedPatterns: [
             "What your serve gives away",

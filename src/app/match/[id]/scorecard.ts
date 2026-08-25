@@ -72,7 +72,7 @@ export const SKIP_REASONS: { value: string; label: string }[] = [
  * from float, and the answer is watching contact. AMOUNT is a touch
  * problem: you read it correctly and misjudged how much, and the answer is
  * bat angle and feel. Lumping them loses the distinction that decides what
- * you practise.
+ * you practice.
  *
  * Deliberately NOT the spin itself (backspin / topspin / sidespin / …).
  * Naming the spin is a question about the ball; this is a question about

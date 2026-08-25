@@ -380,8 +380,14 @@ export async function POST(req: Request) {
     // preview: inline disposition so the match page can stream it in a
     // <video>; default: attachment with a friendly filename.
     if (preview) {
+      // Six hours, like the raw link: this URL is HELD, not clicked. The
+      // coach workspace streams a whole review session off one mint, and
+      // at an hour the signature died mid-review — the player's error
+      // recovery then threw the coach back to 0:00. Recovery now keeps
+      // the position, but the link should outlive any real session in
+      // the first place.
       const url = await presignGet(loc.bucket, loc.key, {
-        expiresSeconds: 3600,
+        expiresSeconds: 6 * 3600,
         disposition: "inline",
       });
       return NextResponse.json({ url });

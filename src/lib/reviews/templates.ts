@@ -163,7 +163,7 @@ export const OFFERING_TEMPLATES: OfferingTemplate[] = [
       { key: "summary", label: "Summary" },
       { key: "serves", label: "Your serve" },
       { key: "receives", label: "Your receive" },
-      { key: "work_ons", label: "What to practise" },
+      { key: "work_ons", label: "What to practice" },
     ],
     suggested_patterns: [
       "What your serve gives away",

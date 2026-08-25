@@ -148,8 +148,12 @@ export function ClipPlayer({
    *  and a caller waiting for the duration would wait forever. */
   onLoadedMetadata?: (el: HTMLVideoElement) => void;
   /** The media failed after the CORS retry — the owner may hold an
-   *  expired signed URL and want to mint a fresh one. */
-  onMediaError?: () => void;
+   *  expired signed URL and want to mint a fresh one. Carries the last
+   *  good playback state so an owner who remounts the player can put the
+   *  viewer back where they were: by the time this fires, load() has
+   *  already reset the element itself to zero, so the element can no
+   *  longer be asked. */
+  onMediaError?: (state?: { time: number; wasPlaying: boolean }) => void;
   /** Restart whatever the owner considers "this point". Only the caller
    *  knows where a point begins in cut mode, so the button is theirs to
    *  wire; it sits in the transport cluster so the spacing stays right. */
@@ -257,6 +261,12 @@ export function ClipPlayer({
   // Readable pixels for annotation; a CORS regression retries once
   // without crossOrigin so the clip always plays (drawing degrades).
   const [corsOff, setCorsOff] = useState(false);
+  /** Where playback stood at the last media error. load() wipes the
+   *  element's own position, so recovery — the reload here, or the
+   *  owner's re-mint — reads this instead of the element. */
+  const errorStateRef = useRef<{ time: number; wasPlaying: boolean } | null>(
+    null
+  );
   const [progress, setProgress] = useState(0);
   /** Seconds, for the cut transport's clock. A clip does not need one. */
   const [duration, setDuration] = useState(0);
@@ -991,21 +1001,47 @@ export function ClipPlayer({
           if (Number.isFinite(d) && d > 0) setDuration(d);
         }}
         onError={() => {
+          const v = videoRef.current;
+          // The element still knows where it was unless an earlier
+          // retry's load() already wiped it — keep the newest sane
+          // reading. A coach an hour into a review used to land back at
+          // 0:00 here, with no idea which point they had been on.
+          if (v && v.currentTime > 0) {
+            errorStateRef.current = {
+              time: v.currentTime,
+              wasPlaying: !v.paused,
+            };
+          }
           if (!corsOff) {
             setCorsOff(true);
-            const v = videoRef.current;
             if (v) {
               // Drop the attribute NOW: a sync load() would otherwise
               // re-request before React commits the prop change, and the
               // retry races the very failure it exists to dodge.
               v.removeAttribute("crossorigin");
               v.load();
+              // Back to where they were once the reload answers. If it
+              // never answers (a dead URL), this listener never fires and
+              // the next error hands errorStateRef to the owner instead.
+              const resume = errorStateRef.current;
+              if (resume) {
+                v.addEventListener(
+                  "loadedmetadata",
+                  () => {
+                    v.currentTime = resume.time;
+                    if (mode === "cut" && resume.wasPlaying) {
+                      void v.play().catch(() => {});
+                    }
+                  },
+                  { once: true }
+                );
+              }
               if (mode !== "cut") {
                 void v.play().catch(() => setPaused(true));
               }
             }
           } else {
-            onMediaError?.();
+            onMediaError?.(errorStateRef.current ?? undefined);
           }
         }}
         // Same as the match player: a long press here is a gesture of ours,

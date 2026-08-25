@@ -89,6 +89,9 @@ function CutPlayer({
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const retried = useRef(false);
+  /** Where the coach was when the media died; a re-mint remounts the
+   *  player, and the fresh mount must not open on 0:00. */
+  const resumeRef = useRef<{ time: number; wasPlaying: boolean } | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
   const swipe = useRef<{ x: number; y: number } | null>(null);
   const speedRef = useRef<{
@@ -176,6 +179,25 @@ function CutPlayer({
   useEffect(() => {
     void fetchUrl();
   }, [fetchUrl]);
+
+  // After a re-mint, put the coach back on the exact moment the failure
+  // interrupted. The fresh player mounts paused at zero; seek once its
+  // metadata is in, and only resume playing if the error caught them
+  // mid-watch. A working reload also re-arms the retry, so a session can
+  // recover from more than one bad moment without dead-ending.
+  useEffect(() => {
+    const resume = resumeRef.current;
+    const v = videoElRef.current;
+    if (!url || !resume || !v) return;
+    resumeRef.current = null;
+    const apply = () => {
+      v.currentTime = resume.time;
+      retried.current = false;
+      if (resume.wasPlaying) void v.play().catch(() => {});
+    };
+    if (v.readyState >= 1) apply();
+    else v.addEventListener("loadedmetadata", apply, { once: true });
+  }, [url, videoElRef]);
 
   const seekToIdx = useCallback(
     (idx: number) => {
@@ -361,10 +383,13 @@ function CutPlayer({
           // Gives the double tap somewhere to walk to, so it navigates
           // points in thirds here rather than nudging ten seconds.
           onStepPoint={step}
-          onMediaError={() => {
-            // Long sessions outlive the presigned URL: mint a fresh one.
+          onMediaError={(state) => {
+            // Long sessions outlive the presigned URL: mint a fresh one,
+            // remembering where the coach was so the remount goes back
+            // there instead of to the start.
             if (!retried.current) {
               retried.current = true;
+              if (state) resumeRef.current = state;
               setUrl(null);
               void fetchUrl();
             } else {
