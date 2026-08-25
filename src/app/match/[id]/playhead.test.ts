@@ -7,6 +7,7 @@ import {
   pauseEnd,
   rallyEnd,
   skipSpans,
+  tapeMove,
 } from "./playhead.ts";
 import type { Point } from "@/lib/types";
 
@@ -140,4 +141,48 @@ test("an untapped rally leaves no span — its tail plays as it always has", () 
   const a = pt({ id: "a", cut_t0: 50, t0: 100, t1: 104 });
   const b = pt({ id: "b", cut_t0: 62, t0: 120, t1: 124 });
   assert.deepEqual(skipSpans([a, b], PAD, true), []);
+});
+
+// tapeMove: the highlights tape's one authority. The Swift twin pins the
+// SAME numbers in ScoreLogicTests — change both or neither.
+
+test("inside a pick the tape stays put", () => {
+  const spans = [
+    { start: 10, end: 20 },
+    { start: 30, end: 40 },
+  ];
+  assert.deepEqual(tapeMove(spans, 15), { kind: "stay" });
+  // The 0.05 entry lead: a seek that lands a breath early still counts.
+  assert.deepEqual(tapeMove(spans, 9.96), { kind: "stay" });
+});
+
+test("outside a pick the tape jumps straight to the next one — one hop", () => {
+  const spans = [
+    { start: 10, end: 20 },
+    { start: 30, end: 40 },
+  ];
+  assert.deepEqual(tapeMove(spans, 22), { kind: "jump", to: 30 });
+  // Before the first pick: jump to it, never play the lead-in.
+  assert.deepEqual(tapeMove(spans, 3), { kind: "jump", to: 10 });
+});
+
+test("a boundary fired exactly at a span's end jumps immediately", () => {
+  const spans = [
+    { start: 10, end: 20 },
+    { start: 30, end: 40 },
+  ];
+  // t === end is already outside (the 0.01 end epsilon): no extra tick
+  // of the next unpicked serve gets shown.
+  assert.deepEqual(tapeMove(spans, 20), { kind: "jump", to: 30 });
+  assert.deepEqual(tapeMove(spans, 19.995), { kind: "jump", to: 30 });
+});
+
+test("past the last pick the tape ends", () => {
+  const spans = [
+    { start: 10, end: 20 },
+    { start: 30, end: 40 },
+  ];
+  assert.deepEqual(tapeMove(spans, 40), { kind: "end" });
+  assert.deepEqual(tapeMove(spans, 55), { kind: "end" });
+  assert.deepEqual(tapeMove([], 5), { kind: "end" });
 });

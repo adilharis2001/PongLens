@@ -391,6 +391,26 @@ func runAllChecks() {
            "with the flag off the same answer plays the clip out")
     }
 
+    // The tape's one authority — the SAME numbers playhead.test.ts pins
+    // for the web tapeMove; change both or neither.
+    suite("tapeMove") {
+        let spans = [TimeSpan(start: 10, end: 20), TimeSpan(start: 30, end: 40)]
+        eq(tapeMove(spans, at: 15), .stay, "inside a pick the tape stays put")
+        eq(tapeMove(spans, at: 9.96), .stay,
+           "the 0.05 entry lead: a seek landing a breath early still counts")
+        eq(tapeMove(spans, at: 22), .jump(to: 30),
+           "outside a pick: one hop, straight to the next")
+        eq(tapeMove(spans, at: 3), .jump(to: 10),
+           "before the first pick: jump to it, never play the lead-in")
+        eq(tapeMove(spans, at: 20), .jump(to: 30),
+           "a boundary fired exactly at a span's end jumps immediately")
+        eq(tapeMove(spans, at: 19.995), .jump(to: 30),
+           "the 0.01 end epsilon reads the last breath as already over")
+        eq(tapeMove(spans, at: 40), .end, "past the last pick the tape ends")
+        eq(tapeMove(spans, at: 55), .end, "well past too")
+        eq(tapeMove([], at: 5), .end, "no picks, no tape")
+    }
+
     // The same synthetic cases playhead.test.ts pins for the web
     // skipSpans — the two spans builders must agree number for number.
     suite("skipSpans") {

@@ -92,6 +92,40 @@ export function effectiveEnd(
 }
 
 /**
+ * The highlights tape's ONE authority for what happens at a playhead
+ * position. While the tape is up, everything outside the picked spans is
+ * dead by definition — including deleted cards and lets — so the tape
+ * must never delegate to the other skip mechanisms: doing so crossed the
+ * gap between two picks in two or three visible hops (deleted-span skip
+ * first, tape second), each rendering a beat of an unpicked serve. One
+ * rule, one hop.
+ *
+ *   stay — inside a pick (with the 0.05s entry lead a seek deserves)
+ *   jump — outside, with a pick still ahead: go straight to its start
+ *   end  — past the last pick: the tape is over
+ *
+ * The 0.01s end epsilon makes a boundary fired exactly AT a span's end
+ * read as outside it, so a frame-accurate callback jumps immediately
+ * instead of waiting a tick. Mirrored in ScoreLogic.swift tapeMove —
+ * the two must stay rule-identical.
+ */
+export type TapeMove =
+  | { kind: "stay" }
+  | { kind: "jump"; to: number }
+  | { kind: "end" };
+
+export function tapeMove(
+  spans: { start: number; end: number }[],
+  t: number
+): TapeMove {
+  if (spans.some((s) => t >= s.start - 0.05 && t < s.end - 0.01)) {
+    return { kind: "stay" };
+  }
+  const next = spans.find((s) => s.start - 0.05 > t);
+  return next ? { kind: "jump", to: next.start } : { kind: "end" };
+}
+
+/**
  * Dead footage spans for surfaces WITHOUT their own span builders (the
  * coach review workspace, the public share page). The match page's
  * Player/MatchView build these inline with per-mode nuances; this is the

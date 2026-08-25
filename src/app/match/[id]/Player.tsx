@@ -46,6 +46,7 @@ import {
   pauseEnd,
   playingPointId,
   rallyEnd,
+  tapeMove,
   type ClipPad,
 } from "./playhead";
 import { fusedSplitCut } from "./fusedPoint";
@@ -1573,6 +1574,40 @@ export const Player = forwardRef<
   const highlightSpansRef = useRef(highlightSpans);
   highlightSpansRef.current = highlightSpans;
 
+  // Frame-accurate tape jumps. Polling at timeupdate cadence (~4Hz) let a
+  // beat of the next unpicked serve show before every jump; while the
+  // tape is up this checks every DISPLAYED frame instead, so the jump
+  // lands on the frame a pick ends. onTime keeps the same logic as the
+  // safety net (no rVFC support, resumed playback).
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!highlightIds || !v) return;
+    const rvfc = v as HTMLVideoElement & {
+      requestVideoFrameCallback?: (cb: () => void) => number;
+      cancelVideoFrameCallback?: (h: number) => void;
+    };
+    if (!rvfc.requestVideoFrameCallback) return;
+    let handle = 0;
+    const step = () => {
+      const tape = highlightSpansRef.current;
+      if (tape && !scrubbing.current && !v.paused) {
+        const move = tapeMove(tape, v.currentTime);
+        if (move.kind === "jump") {
+          v.currentTime = move.to;
+          setPlayheadT(move.to);
+          watchTickRef.current = move.to;
+        } else if (move.kind === "end") {
+          v.pause();
+          setControlsVisible(true);
+        }
+      }
+      handle = rvfc.requestVideoFrameCallback!(step);
+    };
+    handle = rvfc.requestVideoFrameCallback(step);
+    return () => rvfc.cancelVideoFrameCallback?.(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightIds]);
+
   /**
    * Tap-trimmed dead zones (2026-08-25): for every rally the owner scored
    * live, the footage between its effective end (winner tap + 0.5s) and
@@ -1748,6 +1783,32 @@ export const Player = forwardRef<
 
   const onTime = useCallback(
     (v: HTMLVideoElement) => {
+      // THE TAPE OWNS PLAYBACK while highlights are up (2026-08-25). One
+      // authority, one hop: outside a pick, straight to the next pick's
+      // start — never via the deleted-span or let skips below, whose
+      // partial jumps crossed a gap in two or three visible hops, each
+      // showing a beat of an unpicked serve. The rVFC loop does the
+      // frame-accurate work; this is the safety net for browsers
+      // without it.
+      const tape = highlightSpansRef.current;
+      if (tape) {
+        if (!scrubbing.current && !v.paused) {
+          const move = tapeMove(tape, v.currentTime);
+          if (move.kind === "jump") {
+            v.currentTime = move.to;
+            setPlayheadT(move.to);
+            watchTickRef.current = move.to;
+            return;
+          }
+          if (move.kind === "end") {
+            v.pause();
+            setControlsVisible(true);
+            return;
+          }
+        }
+        setPlayheadT(v.currentTime);
+        return; // nothing below applies while the tape is up
+      }
       // Deleted-span auto-skip: dead footage is dead in BOTH modes.
       // During playback (never mid-scrub — respect the user's drag) the
       // playhead entering a deleted span silently jumps to its end.
@@ -1807,25 +1868,6 @@ export const Player = forwardRef<
         }
       } else {
         watchTickRef.current = null;
-      }
-      // Highlights tape: outside every picked span is dead footage. Snap
-      // forward to the next pick; past the last one the tape ends —
-      // pause, chrome up.
-      const hs = highlightSpansRef.current;
-      if (hs && !scrubbing.current && !v.paused) {
-        const t = v.currentTime;
-        if (!hs.some((s) => t >= s.start - 0.05 && t < s.end)) {
-          const next = hs.find((s) => s.start > t);
-          if (next) {
-            v.currentTime = next.start;
-            setPlayheadT(next.start);
-            watchTickRef.current = next.start;
-          } else {
-            v.pause();
-            setControlsVisible(true);
-          }
-          return;
-        }
       }
       setPlayheadT(v.currentTime);
       // Pause-at-point-end: every rally stops the video ONCE, at its own

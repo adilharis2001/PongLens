@@ -192,6 +192,31 @@ func advanceMove(
 
 // MARK: - Does this clip hold two rallies?
 
+/// The highlights tape's ONE authority for what happens at a playhead
+/// position. While the tape is up, everything outside the picked spans
+/// is dead by definition — deleted cards and lets included — so the tape
+/// never delegates to the other skips: doing so crossed the gap between
+/// two picks in two or three visible hops, each showing a beat of an
+/// unpicked serve. One rule, one hop. The 0.01s end epsilon makes a
+/// boundary fired exactly AT a span's end read as outside it, so the
+/// frame-accurate observer jumps immediately instead of waiting a tick.
+/// Mirrors playhead.ts tapeMove — the two must stay rule-identical.
+enum TapeMove: Equatable {
+    case stay
+    case jump(to: Double)
+    case end
+}
+
+func tapeMove(_ spans: [TimeSpan], at t: Double) -> TapeMove {
+    if spans.contains(where: { t >= $0.start - 0.05 && t < $0.end - 0.01 }) {
+        return .stay
+    }
+    if let next = spans.first(where: { $0.start - 0.05 > t }) {
+        return .jump(to: next.start)
+    }
+    return .end
+}
+
 /// Dead footage for players WITHOUT their own span builders (the coach
 /// workspace): every deleted card's footage plus, with the tap-end flag
 /// on (138), the tail after each winner tap — effectiveEnd to the next

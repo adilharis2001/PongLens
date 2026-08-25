@@ -120,6 +120,9 @@ struct PlayerTakeover: View {
     @State var scrubT: Double = 0
     @State var flash: String?
     @State var observer: Any?
+    /// Boundary observer at each highlight pick's end (highlights mode
+    /// only) — the frame-accurate half of the tape's jump.
+    @State var tapeObserver: Any?
 
     /// The network fell behind. Named on screen, because without it a
     /// choppy connection reads as the app freezing — the picture stops and
@@ -473,6 +476,7 @@ struct PlayerTakeover: View {
         .onChange(of: runningScore.games.count) { _, _ in watchGameBoundary() }
         .onDisappear {
             if let observer { player.removeTimeObserver(observer) }
+            if let tapeObserver { player.removeTimeObserver(tapeObserver) }
             player.pause()
             releaseForcedLandscape()
         }
@@ -2764,6 +2768,22 @@ struct PlayerTakeover: View {
         ) { time in
             Task { @MainActor in tick(time.seconds) }
         }
+        // Frame-accurate tape jumps: the periodic tick is 0.2s coarse,
+        // which showed a beat of the next unpicked serve before every
+        // jump. A boundary observer fires exactly when playback passes a
+        // pick's end; tapeMove then names the one hop to make. The tick
+        // above stays as the safety net.
+        if let spans = highlightSpans, !spans.isEmpty {
+            tapeObserver = player.addBoundaryTimeObserver(
+                forTimes: spans.map {
+                    NSValue(time: CMTime(seconds: $0.end,
+                                         preferredTimescale: 600))
+                },
+                queue: .main
+            ) {
+                Task { @MainActor in tapeBoundaryFired() }
+            }
+        }
 
         firstServer = match.firstServer.flatMap(Winner.init(rawValue:))
         prevGamesCount = runningScore.games.count
@@ -2852,6 +2872,26 @@ struct PlayerTakeover: View {
         lastTick = t
         if prev == nil { runStartT = t }
 
+        // THE TAPE OWNS PLAYBACK while highlights are up (2026-08-25).
+        // One authority, one hop: outside a pick, straight to the next
+        // pick's start — never via the deleted-span or let skips below,
+        // whose partial jumps crossed a gap in two or three visible
+        // hops, each showing a beat of an unpicked serve. The boundary
+        // observer (tapeBoundaryFired) does the frame-accurate work;
+        // this is the safety net for resumed playback and scrub landings.
+        if let spans = highlightSpans {
+            switch tapeMove(spans, at: t) {
+            case .stay:
+                break
+            case .jump(let to):
+                seek(to: to)
+            case .end:
+                player.pause()
+                chromeVisible = true
+            }
+            return // nothing below applies while the tape is up
+        }
+
         // Deleted footage is dead in both modes: jump out of it rather than
         // play frames the owner removed. Only during playback — landing
         // inside a span on purpose (a scrub) stays put.
@@ -2860,28 +2900,11 @@ struct PlayerTakeover: View {
             return
         }
 
-        // Tap-trimmed tails (see tapSpans), watch mode only — the
-        // highlights tape's own spans already end at the tap. Inside a
+        // Tap-trimmed tails (see tapSpans), watch mode only. Inside a
         // zone the point is decided: jump to the next rally's padded
         // start. Playing only, same contract as the deleted-span skip.
-        if mode == .watch, highlightPicks == nil,
-           let out = spanEnd(tapSpans, at: t) {
+        if mode == .watch, let out = spanEnd(tapSpans, at: t) {
             seek(to: out)
-            return
-        }
-
-        // Highlights: everything between the picks is dead too. Unlike a
-        // let, a deliberate scrub does NOT get to stay — the tape only
-        // ever shows its rallies, so a landing outside snaps forward.
-        // Past the last rally the tape ends: pause, chrome up.
-        if let spans = highlightSpans,
-           !spans.contains(where: { t >= $0.start - 0.05 && t < $0.end }) {
-            if let next = spans.first(where: { $0.start > t }) {
-                seek(to: next.start)
-            } else {
-                player.pause()
-                chromeVisible = true
-            }
             return
         }
 
@@ -3058,6 +3081,23 @@ struct PlayerTakeover: View {
             toleranceBefore: .zero, toleranceAfter: .zero
         )
         currentT = max(0, seconds)
+    }
+
+    /// The tape's boundary observer fired: playback just passed a pick's
+    /// end. tapeMove names the one hop to make — its 0.01s end epsilon is
+    /// what lets a callback fired exactly AT the end read as outside the
+    /// span, so the jump happens now rather than a tick later.
+    func tapeBoundaryFired() {
+        guard let spans = highlightSpans, isPlaying, !scrubbing else { return }
+        switch tapeMove(spans, at: player.currentTime().seconds) {
+        case .stay:
+            break
+        case .jump(let to):
+            seek(to: to)
+        case .end:
+            player.pause()
+            chromeVisible = true
+        }
     }
 
     func step(_ direction: Int) {
