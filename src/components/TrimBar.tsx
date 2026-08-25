@@ -79,7 +79,7 @@ export function TrimBar({
     "absolute -inset-y-1 z-10 flex w-7 cursor-ew-resize touch-none " +
     "items-center justify-center";
   const knob =
-    "h-full w-[18px] rounded-md bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.35)] " +
+    "h-full w-[18px] rounded-md bg-cyan-glow shadow-[0_0_12px_rgba(34,211,238,0.35)] " +
     "flex items-center justify-center";
 
   return (
@@ -96,11 +96,11 @@ export function TrimBar({
         onPointerMove={onDrag}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        className="relative h-12 touch-none rounded-xl bg-zinc-800/70"
+        className="relative h-12 touch-none rounded-xl border border-edge bg-ink/60"
       >
         {/* The kept window */}
         <div
-          className="absolute inset-y-0 rounded-lg border-y-2 border-cyan-400/50 bg-cyan-400/10"
+          className="absolute inset-y-0 rounded-lg border-y-2 border-cyan-glow/50 bg-cyan-glow/10"
           style={{ left: `${leftPct}%`, right: `${100 - rightPct}%` }}
         />
         <div

@@ -318,10 +318,12 @@ export function RawMatchView({
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pt-6">
-      <header className="mb-4 flex items-baseline justify-between gap-3">
+      <header className="mb-5 flex items-baseline justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-100">{title}</h1>
-          <p className="mt-0.5 text-sm text-zinc-400">
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-50 sm:text-3xl">
+            {title}
+          </h1>
+          <p className="mt-1 text-sm text-zinc-400">
             {new Date(match.played_at).toLocaleDateString(undefined, {
               month: "short",
               day: "numeric",
@@ -330,7 +332,7 @@ export function RawMatchView({
             {duration != null && <> · {formatClock(duration)}</>}
           </p>
         </div>
-        <span className="shrink-0 rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-400">
+        <span className="shrink-0 rounded-full border border-edge px-3 py-1 text-xs text-zinc-400">
           {jobRunning
             ? "Processing"
             : match.status === "failed"
@@ -347,7 +349,7 @@ export function RawMatchView({
 
           Sized on the wrapper, never the video: a media element has no
           intrinsic size until metadata arrives. */}
-      <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-black">
+      <div className="overflow-hidden rounded-2xl border border-edge bg-black">
         {rawUrl && !undecodable ? (
           <ClipPlayer
             src={rawUrl}
@@ -405,9 +407,11 @@ export function RawMatchView({
       </div>
 
       {jobRunning && (
-        <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
-          <h2 className="text-sm font-medium text-zinc-100">Processing</h2>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-zinc-800">
+        <section className="mt-4 rounded-2xl border border-edge bg-surface p-5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Processing
+          </h2>
+          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-2">
             <div
               className="h-full rounded-full bg-cyan-400 transition-all"
               style={{ width: `${Math.max(4, job?.progress ?? 0)}%` }}
@@ -426,8 +430,8 @@ export function RawMatchView({
           details for one release and the scrolling was the first thing
           anyone noticed. */}
       {isOwner && !jobRunning && commerceEnabled && !sourceGone && (
-        <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
-          <h2 className="text-sm font-medium text-zinc-100">
+        <section className="mt-4 rounded-2xl border border-edge bg-surface p-5">
+          <h2 className="text-base font-semibold text-zinc-100">
             Break it into points
           </h2>
           {match.status === "failed" && (
@@ -464,13 +468,13 @@ export function RawMatchView({
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
                   onClick={stampStart}
-                  className="rounded-full border border-zinc-700 px-3.5 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
+                  className="rounded-full border border-edge px-3.5 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
                 >
                   Start here
                 </button>
                 <button
                   onClick={stampEnd}
-                  className="rounded-full border border-zinc-700 px-3.5 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
+                  className="rounded-full border border-edge px-3.5 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
                 >
                   End here
                 </button>
@@ -486,7 +490,7 @@ export function RawMatchView({
 
               {/* Same shape as the upload sheet's options: a labelled row
                   with a switch, not a pill that hides what it means. */}
-              <div className="mt-5 divide-y divide-zinc-800 rounded-xl border border-zinc-800 bg-black/20">
+              <div className="mt-5 divide-y divide-edge/60 rounded-xl border border-edge bg-ink/20">
                 <div className="flex items-center justify-between gap-4 p-3.5">
                   <div>
                     <p className="text-sm text-zinc-200">Placement maps</p>
@@ -505,7 +509,7 @@ export function RawMatchView({
                   <p className="mt-0.5 text-xs text-zinc-500">
                     How much room to leave around each point.
                   </p>
-                  <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-lg border border-zinc-800 bg-black/40 p-1">
+                  <div className="mt-2.5 grid grid-cols-3 gap-1 rounded-lg border border-edge bg-ink/40 p-1">
                     {(["tight", "normal", "loose"] as const).map((s) => (
                       <button
                         key={s}
@@ -513,7 +517,7 @@ export function RawMatchView({
                         aria-pressed={strictness === s}
                         className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                           strictness === s
-                            ? "bg-cyan-400/15 text-cyan-200"
+                            ? "bg-cyan-glow/15 text-cyan-glow"
                             : "text-zinc-400 hover:text-zinc-200"
                         }`}
                       >
@@ -532,7 +536,7 @@ export function RawMatchView({
                 <button
                   onClick={process}
                   disabled={busy || !enough}
-                  className="rounded-full bg-cyan-400 px-5 py-2 text-sm font-semibold text-zinc-950 disabled:opacity-40"
+                  className="rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-zinc-950 disabled:opacity-40"
                 >
                   {charge != null
                     ? `Process · ${formatMinutes(charge)}`
@@ -546,7 +550,7 @@ export function RawMatchView({
                 {charge != null && minutesBalance != null && !enough && (
                   <a
                     href="/account"
-                    className="rounded-full border border-zinc-700 px-4 py-1.5 text-sm text-zinc-200 hover:border-zinc-500"
+                    className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-200 hover:border-zinc-500"
                   >
                     Get more minutes
                   </a>
@@ -559,9 +563,9 @@ export function RawMatchView({
       )}
 
       {isOwner && !sourceGone && (
-        <section className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5">
+        <section className="mt-4 rounded-2xl border border-edge bg-surface p-5">
           <div className="flex items-baseline justify-between gap-3">
-            <h2 className="text-sm font-medium text-zinc-100">Match details</h2>
+            <h2 className="text-base font-semibold text-zinc-100">Match details</h2>
             <span
               aria-live="polite"
               className="text-xs text-emerald-400"
@@ -583,7 +587,7 @@ export function RawMatchView({
                   }
                   placeholder="Name"
                   ariaLabel="Opponent name"
-                  className="w-full rounded-xl border border-zinc-800 bg-black/40 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/60"
+                  className="w-full rounded-xl border border-edge bg-ink/40 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
                 />
               </div>
             </div>
@@ -603,7 +607,7 @@ export function RawMatchView({
                 aria-label="Venue"
                 autoComplete="off"
                 enterKeyHint="done"
-                className="mt-1 w-full rounded-xl border border-zinc-800 bg-black/40 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-400/60"
+                className="mt-1 w-full rounded-xl border border-edge bg-ink/40 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
               />
             </label>
 
@@ -624,8 +628,8 @@ export function RawMatchView({
                       }}
                       className={`rounded-full border px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
                         on
-                          ? "border-cyan-400/60 bg-cyan-400/15 text-cyan-200"
-                          : "border-zinc-800 bg-black/40 text-zinc-400 hover:text-zinc-200"
+                          ? "border-cyan-400/60 bg-cyan-glow/15 text-cyan-glow"
+                          : "border-edge bg-ink/40 text-zinc-400 hover:text-zinc-200"
                       }`}
                     >
                       {t}
@@ -640,12 +644,12 @@ export function RawMatchView({
                 the browser cannot decode it, PickSide says so and the
                 match page asks again once the H.264 cut exists. */}
             {rawUrl && (
-              <div className="rounded-xl border border-zinc-800 bg-black/20 p-3.5">
+              <div className="rounded-xl border border-edge bg-ink/20 p-3.5">
                 {userSide !== null ? (
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-sm text-zinc-200">
                       You&apos;re at the{" "}
-                      <span className="font-semibold text-cyan-200">
+                      <span className="font-semibold text-cyan-glow">
                         {userSide === "near" ? "bottom" : "top"}
                       </span>{" "}
                       of the video
@@ -653,7 +657,7 @@ export function RawMatchView({
                     <button
                       type="button"
                       onClick={() => setUserSide(null)}
-                      className="shrink-0 rounded-full border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
+                      className="shrink-0 rounded-full border border-edge px-3 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
                     >
                       Change
                     </button>
@@ -685,7 +689,7 @@ export function RawMatchView({
       {/* match-level notes (point_id null), the processed page's closing
           section. People who keep the rally whole still debrief. */}
       <section className="mt-6">
-        <h2 className="text-sm font-medium text-zinc-100">Overall notes</h2>
+        <h2 className="text-base font-semibold text-zinc-100">Overall notes</h2>
         <p className="mt-1 text-sm text-zinc-500">
           Notes about the whole match. Type or record a voice note.
         </p>
@@ -719,14 +723,14 @@ export function RawMatchView({
           <button
             onClick={remove}
             disabled={busy}
-            className="rounded-full border border-zinc-700 px-4 py-1.5 text-sm text-zinc-300 hover:border-amber-400/60 hover:text-amber-200"
+            className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 hover:border-amber-400/60 hover:text-amber-200"
           >
             {confirmDelete ? "Delete for good?" : "Delete video"}
           </button>
           {confirmDelete && (
             <button
               onClick={() => setConfirmDelete(false)}
-              className="rounded-full border border-zinc-700 px-4 py-1.5 text-sm text-zinc-400 hover:border-zinc-500"
+              className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-400 hover:border-zinc-500"
             >
               Keep it
             </button>
@@ -759,8 +763,8 @@ function Switch({
       onClick={() => onChange(!on)}
       className={`relative h-7 w-12 shrink-0 rounded-full border transition-colors ${
         on
-          ? "border-cyan-400/60 bg-cyan-400/30"
-          : "border-zinc-700 bg-zinc-800"
+          ? "border-cyan-glow/60 bg-cyan-glow/30"
+          : "border-edge bg-surface-2"
       } ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
     >
       <span

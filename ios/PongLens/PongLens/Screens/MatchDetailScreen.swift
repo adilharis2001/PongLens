@@ -203,12 +203,17 @@ final class MatchDetailModel {
 
     /// Spend minutes on the full video. Returns nil on success (the job is
     /// set), or the sentence to show.
-    func process(_ match: MatchRow, placement: Bool) async -> String? {
+    func process(
+        _ match: MatchRow, placement: Bool,
+        trimStart: Double?, trimEnd: Double?, strictness: String
+    ) async -> String? {
         struct Req: Encodable {
             let matchId: String
+            let trimStartS: Double?
+            let trimEndS: Double?
             let points = true
             let placement: Bool
-            let strictness = "normal"
+            let strictness: String
         }
         struct Res: Decodable {
             let jobId: String?
@@ -217,7 +222,11 @@ final class MatchDetailModel {
         do {
             let res: Res = try await API.post(
                 "api/process",
-                Req(matchId: match.id.uuidString.lowercased(), placement: placement)
+                Req(
+                    matchId: match.id.uuidString.lowercased(),
+                    trimStartS: trimStart, trimEndS: trimEnd,
+                    placement: placement, strictness: strictness
+                )
             )
             if let jobId = res.jobId.flatMap(UUID.init(uuidString:)) {
                 // The job the owner just asked for, so it counts as running
@@ -414,6 +423,11 @@ struct MatchDetailScreen: View {
     @State private var live: MatchRow?
     @State private var watchKick = 0
     @State private var placementOn = false
+    // Trim window in raw-video seconds (web RawMatchView's trimStart /
+    // trimEnd). End nil = untouched = the whole video.
+    @State private var trimStart: Double = 0
+    @State private var trimEnd: Double?
+    @State private var strictness = "normal"
     @State private var processBusy = false
     @State private var processError: String?
     @State private var detailsOpen = false
@@ -1081,6 +1095,23 @@ struct MatchDetailScreen: View {
                     .font(.plBody)
                     .foregroundStyle(PL.warningText)
             }
+            if let duration = current.durationS, duration > 10 {
+                RawTrimBar(
+                    duration: duration,
+                    start: $trimStart,
+                    end: Binding(
+                        get: { trimEnd ?? duration },
+                        set: { trimEnd = $0 }
+                    )
+                )
+                if trimmed {
+                    Button("Reset trim") {
+                        trimStart = 0
+                        trimEnd = nil
+                    }
+                    .buttonStyle(PLSecondaryButtonStyle())
+                }
+            }
             VStack(alignment: .leading, spacing: 3) {
                 Toggle("Placement maps", isOn: $placementOn)
                     .font(.plRowTitle)
@@ -1089,6 +1120,36 @@ struct MatchDetailScreen: View {
                 Text("Where every ball landed. Adds processing time.")
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Cut strictness")
+                    .font(.plRowTitle)
+                    .foregroundStyle(PL.text100)
+                Text("How much room to leave around each point.")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+                HStack(spacing: 4) {
+                    ForEach(["tight", "normal", "loose"], id: \.self) { level in
+                        let active = strictness == level
+                        Button(level.capitalized) { strictness = level }
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(active ? PL.cyan : PL.text400)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
+                            .background(
+                                active ? PL.cyan.opacity(0.15) : .clear,
+                                in: RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
+                            )
+                            .buttonStyle(.plain)
+                    }
+                }
+                .padding(3)
+                .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                        .strokeBorder(PL.edge, lineWidth: 1)
+                )
+                .padding(.top, 5)
             }
             if let processError {
                 Text(processError)
@@ -1112,8 +1173,21 @@ struct MatchDetailScreen: View {
         .plCard()
     }
 
+    /// The kept window's length — what the charge is quoted on. The
+    /// server recomputes the same number at claim time, so this label can
+    /// only ever be wrong in the direction of an error message.
+    private var keptSeconds: Double? {
+        guard let duration = current.durationS else { return nil }
+        return max(0, (trimEnd ?? duration) - trimStart)
+    }
+
+    private var trimmed: Bool {
+        guard let duration = current.durationS else { return false }
+        return trimStart > 0.5 || (trimEnd.map { $0 < duration - 0.5 } ?? false)
+    }
+
     private var minutesCharge: Int? {
-        current.durationS.map { max(1, Int(ceil($0 / 60))) }
+        keptSeconds.map { max(1, Int(ceil($0 / 60))) }
     }
 
     private var chargeLabel: String {
@@ -1127,7 +1201,12 @@ struct MatchDetailScreen: View {
 
     private func runProcess() async {
         processBusy = true
-        processError = await model.process(current, placement: placementOn)
+        processError = await model.process(
+            current, placement: placementOn,
+            trimStart: trimmed ? trimStart : nil,
+            trimEnd: trimmed ? trimEnd : nil,
+            strictness: strictness
+        )
         if processError == nil {
             if let fresh = await model.refetchMatch(current.id) {
                 live = fresh
