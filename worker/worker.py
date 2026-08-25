@@ -5003,7 +5003,8 @@ def story_video_box(crop_w: int, crop_h: int) -> tuple[int, int, int, int]:
 def _story_background(path: str, you: str, them: str, video_box, *,
                       score_you: int = 0, score_them: int = 0,
                       games_detail: list | None = None,
-                      show_score: bool = False):
+                      show_score: bool = False,
+                      show_names: bool = True):
     """The full 1080x1920 story canvas the rally is overlaid onto.
 
     Everything except the video: the ink ground with the site's bloom, the
@@ -5055,21 +5056,25 @@ def _story_background(path: str, you: str, them: str, video_box, *,
     # chrome. On a tall picture it is the safe line that wins.
     top = max(STORY_SAFE_TOP * s, vy - 210 * s)
 
-    f_you = _load_font(30 * s, "medium")
-    f_vs = _load_font(52 * s, "bold")
-    d.text((margin, top), _fit_name(you, 22).upper(), font=f_you,
-           fill=(*REEL_CYAN, 255))
-    d.text((margin, top + 44 * s), f"vs {_fit_name(them, 20)}", font=f_vs,
-           fill=(*REEL_WHITE, 255))
+    if show_names:
+        f_you = _load_font(30 * s, "medium")
+        f_vs = _load_font(52 * s, "bold")
+        d.text((margin, top), _fit_name(you, 22).upper(), font=f_you,
+               fill=(*REEL_CYAN, 255))
+        d.text((margin, top + 44 * s), f"vs {_fit_name(them, 20)}", font=f_vs,
+               fill=(*REEL_WHITE, 255))
 
     if show_score:
+        # Inset further than the names: Instagram's own icon rail runs down
+        # the composer's right edge and sat over the score at 72.
+        score_right = W - 150 * s
         f_score = _load_font(84 * s, "bold")
         score = f"{int(score_you)} – {int(score_them)}"
-        d.text((W - margin, top + 18 * s), score, font=f_score,
+        d.text((score_right, top + 18 * s), score, font=f_score,
                fill=(*REEL_WHITE, 255), anchor="ra")
         if games_detail:
             games = "   ".join(f"{int(a)}-{int(b)}" for a, b in games_detail)
-            d.text((W - margin, top + 118 * s), games,
+            d.text((score_right, top + 118 * s), games,
                    font=_load_font(28 * s, "medium"),
                    fill=(*REEL_MUTED, 255), anchor="ra")
 
@@ -5081,7 +5086,7 @@ def _story_background(path: str, you: str, them: str, video_box, *,
     box = 46 * s
     gap = 16 * s
     total = box + gap + label_w
-    x0 = (W - total) / 2
+    x0 = W - margin - total
     _draw_lens_mark(layer, x0 + box / 2, mark_y, box)
     d.text((x0 + box + gap, mark_y), label, font=f_wm,
            fill=(*REEL_WHITE, 235), anchor="lm")
@@ -5471,6 +5476,9 @@ def render_story(manifest: dict, show_score: bool, workdir: str,
     points = manifest["points"]
     you = (manifest.get("you_name") or "Player").strip() or "Player"
     them = (manifest.get("them_name") or "Opponent").strip() or "Opponent"
+    # Absent on every manifest written before the toggle existed, and
+    # absence must mean what those renders did: names on.
+    show_names = manifest.get("show_names") is not False
 
     # cut_local may be a local path OR a presigned URL. A single rally is a
     # few seconds out of a video that can run to hundreds of megabytes, and
@@ -5516,16 +5524,37 @@ def render_story(manifest: dict, show_score: bool, workdir: str,
         for p in audio_srcs)
 
     # The canvas is 1080x1920 but only the middle strip carries picture —
-    # the bands are flat ink. Rating the whole frame at the reel's ~9 Mbps
-    # spent 35 MB on a 31-second rally for no visible gain, and Meta asks
-    # for under 50 MB. 6 Mbps holds the picture and roughly halves the file,
-    # which also matters because the phone downloads it before sharing.
-    vt = ["-c:v", "h264_videotoolbox", "-b:v", "6000000",
+    # the bands are flat ink. Meta asks for under 50 MB, and a stitched
+    # 60-second reel at 10 Mbps would break that, so multi-rally renders
+    # hold at 6 Mbps. A single rally is 20 seconds at most, where 10 Mbps
+    # tops out around 25 MB — affordable, and it is the render whose dark
+    # gradient shows 6 Mbps banding on a phone screen.
+    single = len(points) == 1
+    vt = ["-c:v", "h264_videotoolbox",
+          "-b:v", "10000000" if single else "6000000",
           "-allow_sw", "1", "-pix_fmt", "yuv420p"]
-    x264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "21",
-            "-pix_fmt", "yuv420p"]
+    x264 = ["-c:v", "libx264", "-preset", "medium",
+            "-crf", "19" if single else "21", "-pix_fmt", "yuv420p"]
     audio_args = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2"]
     encoder_used = "libx264"
+
+    # Match the source's motion instead of flattening it to 30 fps — a 60
+    # fps recording loses half its smoothness exactly where a rally moves
+    # fastest. Capped at Instagram's 60, floored at 24, and shared by every
+    # segment because xfade needs one clock.
+    def _fps_of(src) -> int:
+        try:
+            v = next(st for st in _ffprobe_streams(src)["streams"]
+                     if st["codec_type"] == "video")
+            num, den = (v.get("avg_frame_rate") or "0/1").split("/")
+            f = float(num) / max(1.0, float(den))
+            if f >= 1:
+                return max(24, min(60, round(f)))
+        except Exception:                                       # noqa: BLE001
+            pass
+        return 30
+    fps = _fps_of(cut_local if any(s[0] == "cut" for s in sources)
+                  else sources[0][1])
 
     segments = []
     for i, (src, p) in enumerate(zip(sources, points)):
@@ -5560,7 +5589,7 @@ def render_story(manifest: dict, show_score: bool, workdir: str,
             score_you=int(p.get("score_you") or 0),
             score_them=int(p.get("score_them") or 0),
             games_detail=p.get("games_detail") or [],
-            show_score=show_score)
+            show_score=show_score, show_names=show_names)
 
         if from_cut:
             inputs = ["-ss", f"{src[1]:.3f}", "-t", f"{src[2]:.3f}",
@@ -5569,7 +5598,7 @@ def render_story(manifest: dict, show_score: bool, workdir: str,
             inputs = ["-i", src[1], "-i", bg]
         chain = (
             f"[0:v]{crop_filter}scale={bw}:{bh}:flags=lanczos,setsar=1,"
-            f"fps=30[vid];"
+            f"fps={fps}[vid];"
             f"[1:v][vid]overlay={bx}:{by}:format=auto[out]"
         )
         maps = ["-map", "[out]"]
@@ -6439,9 +6468,10 @@ def process_job(conn, msg) -> None:
         if not check_match_id or not r2_input:
             raise RuntimeError("content check job missing match or source")
         with conn.cursor() as cur:
-            cur.execute("select 1 from public.matches where id = %s",
+            cur.execute("select user_id from public.matches where id = %s",
                         (check_match_id,))
-            row_alive = cur.fetchone() is not None
+            check_row = cur.fetchone()
+            row_alive = check_row is not None
         if not row_alive:
             # Deleted before the check ran; nothing left to judge.
             update_job(conn, job_id, status="done", progress=100)
@@ -6463,6 +6493,43 @@ def process_job(conn, msg) -> None:
                 cur.execute(
                     "update public.matches set content_checked_at = now() "
                     "where id = %s", (check_match_id,))
+            # A poster for the library while the match is still raw. The
+            # video is already on disk, so this is one frame and a WebP
+            # encode on the way out the door — the difference between a
+            # library of grey "Not processed" rectangles and one where an
+            # unprocessed match looks like the match it is. Keyed by this
+            # job so the URL is fresh (the fixed-name thumb burned us
+            # once); processing later replaces thumb_path with its own,
+            # per-job-keyed picture, so nothing here goes stale.
+            # Best-effort by construction: a match without a thumb is a
+            # plain card, not a failure.
+            try:
+                raw_dur = probe_duration_s(local_input)
+                seek = min(60.0, raw_dur * 0.25) if raw_dur else 30.0
+                thumb_local = os.path.join(workdir, "raw_thumb.webp")
+                if check_row and extract_thumb(local_input, thumb_local, seek):
+                    owner = str(check_row[0])
+                    prefix = f"points/{owner}/{check_match_id}"
+                    key = f"{prefix}/thumb-{job_id}.webp"
+                    r2().upload_file(
+                        thumb_local, R2_MEDIA_BUCKET, key,
+                        ExtraArgs={"ContentType": "image/webp"})
+                    with conn.cursor() as cur:
+                        # Never over an existing picture: a reprocess can
+                        # re-run the check, and the processed thumb (a
+                        # rally, not the walk-in) is the better one.
+                        cur.execute(
+                            "update public.matches set thumb_path = %s "
+                            "where id = %s and thumb_path is null",
+                            (f"r2://{R2_MEDIA_BUCKET}/{key}",
+                             check_match_id))
+                    ledger_append(conn, str(check_row[0]), "other",
+                                  os.path.getsize(thumb_local),
+                                  f"r2://{R2_MEDIA_BUCKET}/{prefix}/",
+                                  check_match_id)
+            except Exception:
+                log.warning("  content check: thumb extraction failed "
+                            "for %s", check_match_id, exc_info=True)
             update_job(conn, job_id, status="done", progress=100)
             archive_message(conn, msg["msg_id"])
             log.info("  content check passed: match %s", check_match_id)

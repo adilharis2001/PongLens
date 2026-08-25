@@ -29,11 +29,17 @@ struct SharePointSheet: View {
     /// on those phones — which reads as something failing to load rather
     /// than as a row that was never offered.
     static var detentHeight: CGFloat {
-        InstagramShare.isAvailable() ? 400 : 300
+        InstagramShare.isAvailable() ? 490 : 390
     }
 
     @Environment(\.dismiss) private var dismiss
     @State private var model = StoryShareModel()
+    /// The emergency switch (136). Read once per presentation; an
+    /// unreadable row answers "on" — a config outage must not take the
+    /// button away.
+    @State private var sharingOn = true
+    @AppStorage("shareShowNames") private var showNames = true
+    @AppStorage("shareShowScore") private var showScore = true
     /// Whatever is being handed to the system share sheet: the rendered
     /// video, or a public link. One presentation for both, so the two
     /// entry points into this sheet cannot drift apart.
@@ -49,24 +55,31 @@ struct SharePointSheet: View {
         return max(0, t1 - t0) + eff.pre + eff.post
     }
 
-    private var tooLongForStory: Bool {
-        guard let s = clipSeconds else { return false }
-        return s > InstagramShare.Destination.story.maxSeconds
+    /// Where this rally can go: a Story up to 20 seconds, a Reel up to
+    /// 60, nothing past that. Both take the same file through the same
+    /// handover; length is the only thing that picks between them.
+    private var destination: InstagramShare.Destination? {
+        guard let s = clipSeconds else { return .story }
+        if s <= InstagramShare.Destination.story.maxSeconds { return .story }
+        if s <= InstagramShare.Destination.reel.maxSeconds { return .reel }
+        return nil
     }
 
     private var hasClip: Bool { point.clipPath != nil }
 
     var body: some View {
         PLChooserSheet(title: "Share this point") {
-            if InstagramShare.isAvailable() {
+            if sharingOn, InstagramShare.isAvailable(destination ?? .story) {
                 PLChooserRow(
                     icon: "camera.aperture",
                     title: instagramTitle,
                     detail: instagramDetail,
-                    pending: !hasClip || tooLongForStory,
+                    pending: !hasClip || destination == nil,
                     busy: model.busy
                 ) {
-                    Task { await runShare(to: .story) }
+                    if let d = destination {
+                        Task { await runShare(to: d) }
+                    }
                 }
             }
 
@@ -92,6 +105,20 @@ struct SharePointSheet: View {
                 Task { shareItem = await model.mintLink(match: match, point: point) }
             }
 
+            // What the frame carries. Both apply to the rendered video —
+            // handed to Instagram or saved — never to the link. On a match
+            // with no confirmed score the score never prints regardless:
+            // 0-0 over a rally that was really 8-6 is worse than nothing.
+            Toggle("Include names", isOn: $showNames)
+                .font(.plBody)
+                .foregroundStyle(PL.text200)
+                .tint(PL.cyan.opacity(0.5))
+                .padding(.top, 4)
+            Toggle("Include score", isOn: $showScore)
+                .font(.plBody)
+                .foregroundStyle(PL.text200)
+                .tint(PL.cyan.opacity(0.5))
+
             if let message = model.errorMessage {
                 Text(message)
                     .font(.plCaption)
@@ -104,17 +131,19 @@ struct SharePointSheet: View {
             ActivityView(items: [url])
                 .presentationDetents([.medium])
         }
+        .task { sharingOn = await StoryShareModel.sharingEnabled() }
     }
 
     private var instagramTitle: String {
-        model.busy ? "Preparing…" : "Instagram Story"
+        if model.busy { return "Preparing…" }
+        return (destination ?? .story).label
     }
 
     private var instagramDetail: String {
         if !hasClip { return "This rally has no video yet." }
-        if tooLongForStory, let s = clipSeconds {
+        if destination == nil, let s = clipSeconds {
             return "This rally runs \(Int(s.rounded())) seconds. "
-                + "An Instagram Story takes 20."
+                + "Instagram takes up to 60."
         }
         if model.busy { return model.progressLine }
         return "Opens Instagram with this rally ready to post."
@@ -124,7 +153,8 @@ struct SharePointSheet: View {
     /// instead of to Instagram.
     private func runShare(to destination: InstagramShare.Destination?) async {
         guard let url = await model.prepare(
-            match: match, point: point, points: points, pad: pad)
+            match: match, point: point, points: points, pad: pad,
+            showNames: showNames, showScore: showScore)
         else { return }
         if let destination {
             do {
@@ -184,7 +214,6 @@ final class StoryShareModel {
     /// after any real render would have finished rather than spin forever
     /// on a worker that is not running.
     private let pollInterval = Duration.milliseconds(1200)
-    private let deadline: Duration = .seconds(90)
 
     /// Which renderer runs, from app_config.instagram_render (136).
     /// Unreadable or unset answers "server", the path that has been through
@@ -201,7 +230,8 @@ final class StoryShareModel {
     }
 
     func prepare(match: MatchRow, point: MatchPoint,
-                 points: [MatchPoint], pad: ClipPad) async -> URL? {
+                 points: [MatchPoint], pad: ClipPad,
+                 showNames: Bool = true, showScore: Bool = true) async -> URL? {
         guard !busy else { return nil }
         busy = true
         errorMessage = nil
@@ -216,7 +246,8 @@ final class StoryShareModel {
         // Worst case is the old speed, never a broken button.
         if await renderPath() == "device" {
             if let local = await prepareOnDevice(
-                match: match, point: point, points: points, pad: pad) {
+                match: match, point: point, points: points, pad: pad,
+                showNames: showNames, showScore: showScore) {
                 return local
             }
             errorMessage = nil
@@ -231,6 +262,7 @@ final class StoryShareModel {
             let matchId: String
             let pointId: String
             let showScore: Bool
+            let showNames: Bool
         }
         struct ReelRes: Decodable { let status: String? }
         do {
@@ -240,7 +272,8 @@ final class StoryShareModel {
             // really 8-6 would be worse than printing nothing.
             let _: ReelRes = try await API.post(
                 "api/reel",
-                ReelReq(matchId: matchId, pointId: pointId, showScore: true))
+                ReelReq(matchId: matchId, pointId: pointId,
+                        showScore: showScore, showNames: showNames))
         } catch {
             errorMessage = friendly(error)
             return nil
@@ -279,8 +312,9 @@ final class StoryShareModel {
     // comes from the walk the match page already uses.
 
     private func prepareOnDevice(match: MatchRow, point: MatchPoint,
-                                 points: [MatchPoint],
-                                 pad: ClipPad) async -> URL? {
+                                 points: [MatchPoint], pad: ClipPad,
+                                 showNames: Bool,
+                                 showScore: Bool) async -> URL? {
         let matchId = match.id.uuidString.lowercased()
         progressLine = "Building it here."
 
@@ -335,11 +369,12 @@ final class StoryShareModel {
                      gameWinnerOverride: $0.gameWinnerOverride)
         }
         let scored = computeMatchScore(rows).confirmedCount > 0
+        let withScore = scored && showScore
         let idx = points.firstIndex { $0.id == point.id } ?? 0
         let entering = computeMatchScore(Array(rows.prefix(idx)))
         let score: (you: Int, them: Int)? =
-            scored ? (entering.current.you, entering.current.them) : nil
-        let games = scored ? entering.games.map { ($0.you, $0.them) } : []
+            withScore ? (entering.current.you, entering.current.them) : nil
+        let games = withScore ? entering.games.map { ($0.you, $0.them) } : []
 
         // Same fallback chain /api/reel uses, including the account first
         // name — without it a match with untagged sides would say "Player"
@@ -359,17 +394,90 @@ final class StoryShareModel {
             .first { !$0.isEmpty } ?? "Opponent"
 
         do {
-            return try await StoryRenderer.render(
-                cutURL: cutURL, segStart: segStart, segEnd: segEnd,
-                crop: cropRows?.first?.story_crop, you: you, them: them,
-                score: score, games: games)
+            // Bounded: an export over a stalled connection can hang far
+            // past anything a person will wait through, and the server
+            // fallback right behind this is the better answer by then.
+            return try await withShareTimeout(seconds: 25) {
+                try await StoryRenderer.render(
+                    cutURL: cutURL, segStart: segStart, segEnd: segEnd,
+                    crop: cropRows?.first?.story_crop, you: you, them: them,
+                    score: score, games: games, showNames: showNames)
+            }
         } catch {
             errorMessage = error.localizedDescription
             return nil
         }
     }
 
-    private func waitForRender(matchId: String, scope: String) async -> Bool {
+    /// The starred rallies as ONE vertical video — scope v:starred,
+    /// stitched by the worker. Always the server: joining several clips
+    /// with crossfades is exactly the machinery render_story already has,
+    /// and a phone rebuilding it would be a third copy of the frame.
+    func prepareHighlights(match: MatchRow, showNames: Bool,
+                           showScore: Bool) async -> URL? {
+        guard !busy else { return nil }
+        busy = true
+        errorMessage = nil
+        progressLine = "This takes a little while."
+        defer { busy = false }
+        let matchId = match.id.uuidString.lowercased()
+        struct Req: Encodable {
+            let matchId: String
+            let vertical: Bool
+            let showScore: Bool
+            let showNames: Bool
+        }
+        struct Res: Decodable { let status: String? }
+        do {
+            let _: Res = try await API.post(
+                "api/reel",
+                Req(matchId: matchId, vertical: true,
+                    showScore: showScore, showNames: showNames))
+        } catch {
+            errorMessage = friendly(error)
+            return nil
+        }
+        // Several rallies take several times longer than one; the deadline
+        // stretches with them rather than declaring a working render dead.
+        guard await waitForRender(matchId: matchId, scope: "v:starred",
+                                  deadline: .seconds(180)) else { return nil }
+        struct MediaReq: Encodable {
+            let matchId: String
+            let reel: Bool
+            let scope: String
+        }
+        struct MediaRes: Decodable { let url: String? }
+        do {
+            let res: MediaRes = try await API.post(
+                "api/media-url",
+                MediaReq(matchId: matchId, reel: true, scope: "v:starred"))
+            guard let link = res.url.flatMap(URL.init) else {
+                errorMessage = "Couldn't prepare the video. Try again."
+                return nil
+            }
+            return try await download(link, named: "PongLens-highlights.mp4")
+        } catch {
+            errorMessage = friendly(error)
+            return nil
+        }
+    }
+
+    /// app_config.instagram_sharing (136), the emergency switch. An
+    /// unreadable row answers "on": a config outage must not take the
+    /// feature away — only the stored value 'off' does.
+    static func sharingEnabled() async -> Bool {
+        struct Row: Decodable { let value: String }
+        let rows: [Row]? = try? await supa
+            .from("app_config")
+            .select("value")
+            .eq("key", value: "instagram_sharing")
+            .execute()
+            .value
+        return rows?.first?.value != "off"
+    }
+
+    private func waitForRender(matchId: String, scope: String,
+                               deadline: Duration = .seconds(90)) async -> Bool {
         struct Row: Decodable {
             let status: String
             let error: String?
@@ -424,5 +532,30 @@ final class StoryShareModel {
             }
         }
         return "Couldn't prepare that clip. Try again."
+    }
+}
+
+// MARK: - Bounding the device render
+
+private struct ShareTimeout: Error, LocalizedError {
+    var errorDescription: String? { "That took too long." }
+}
+
+/// Race the work against a clock. On timeout the group cancels the work
+/// task; an export already writing keeps going briefly and its file is
+/// simply never used — the point is unblocking the person, not reclaiming
+/// the cycles.
+func withShareTimeout<T: Sendable>(
+    seconds: Double, _ work: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await work() }
+        group.addTask {
+            try await Task.sleep(for: .seconds(seconds))
+            throw ShareTimeout()
+        }
+        let result = try await group.next()!
+        group.cancelAll()
+        return result
     }
 }

@@ -615,6 +615,9 @@ struct ExportSheet: View {
     @State private var showScore = true
     @State private var reels: [String: String] = [:] // scope -> status
     @State private var busy: String?
+    @State private var instagramOpen = false
+    /// The emergency switch (136); an unreadable row answers "on".
+    @State private var sharingOn = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -638,12 +641,46 @@ struct ExportSheet: View {
                 scope: "starred",
                 disabled: starredCount == 0
             )
+            if sharingOn {
+                instagramRow
+            }
             rawRow
             Spacer()
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .task { await loadReels() }
+        .task {
+            sharingOn = await StoryShareModel.sharingEnabled()
+            await loadReels()
+        }
+        .sheet(isPresented: $instagramOpen) {
+            ShareHighlightsSheet(match: match, starredCount: starredCount)
+                .presentationDetents([.height(ShareHighlightsSheet.detentHeight)])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    /// The starred rallies as one 9:16 video, handed straight to
+    /// Instagram — the vertical sibling of the row above, rendered on the
+    /// worker like every other stitched export.
+    private var instagramRow: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Instagram Reel").font(.plRowTitle)
+                    .foregroundStyle(starredCount > 0 ? PL.text100 : PL.text500)
+                Text(starredCount > 0
+                     ? "Your starred rallies as one vertical video"
+                     : "Star points to share them")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+            }
+            Spacer()
+            Button("Share") { instagramOpen = true }
+                .buttonStyle(PLSecondaryButtonStyle())
+                .disabled(starredCount == 0)
+        }
+        .plInnerRow()
     }
 
     private func exportRow(

@@ -85,6 +85,10 @@ interface Manifest {
    *  landscape — so old stored manifests still compare equal and are not
    *  re-rendered just because this key was added. */
   format?: "story";
+  /** Vertical only: whether the name band is drawn. Lives in the manifest
+   *  rather than a column so the freshness check re-renders on a change of
+   *  mind for free. Absent = true, matching every render before it. */
+  show_names?: boolean;
   you_name: string;
   them_name: string;
   played_at: string | null;
@@ -117,6 +121,7 @@ export async function POST(req: Request) {
 
   let matchId: string;
   let showScore: boolean;
+  let showNames: boolean;
   let scope: string;
   let tagId: string;
   let pointId: string;
@@ -124,6 +129,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
     showScore = body.showScore !== false; // default on
+    showNames = body.showNames !== false; // default on
     tagId = String(body.tagId ?? "");
     // A pointId asks for the vertical single-rally render a Share to
     // Instagram hands over (135). It outranks the other selectors: there
@@ -132,13 +138,18 @@ export async function POST(req: Request) {
     // scope 'tag:<uuid>' (036) selects the points carrying that tag; the
     // rest of the pipeline is scope-agnostic (the manifest lists the
     // points, the worker renders the manifest).
+    // vertical: true with the default starred scope asks for the 9:16
+    // stitched highlights a share hands to Instagram as a Reel — the same
+    // canvas as a single-point story, one segment per starred rally.
     scope = pointId
       ? `v:point:${pointId}`
       : tagId
         ? `tag:${tagId}`
         : body.scope === "full"
           ? "full"
-          : "starred"; // default starred
+          : body.vertical === true
+            ? "v:starred"
+            : "starred"; // default starred
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
@@ -149,7 +160,25 @@ export async function POST(req: Request) {
   ) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
-  const vertical = Boolean(pointId);
+  const vertical = Boolean(pointId) || scope === "v:starred";
+
+  // The switch shipped in 136. Reading it here covers every caller —
+  // including a phone whose own config read failed open — and failing OPEN
+  // on an unreadable row is deliberate: a config outage should slow nobody's
+  // share, it is the 'off' value that must always be obeyed.
+  if (vertical) {
+    const { data: gate } = await supabase
+      .from("app_config")
+      .select("value")
+      .eq("key", "instagram_sharing")
+      .maybeSingle();
+    if (gate?.value === "off") {
+      return NextResponse.json(
+        { error: "Sharing to Instagram is off right now.", code: "sharing_off" },
+        { status: 403 }
+      );
+    }
+  }
 
   // Strict ownership (like /api/share): only the owner publishes media.
   const { data: match } = await supabase
@@ -320,7 +349,9 @@ export async function POST(req: Request) {
     if (seconds > VERTICAL_MAX_S) {
       return NextResponse.json(
         {
-          error: `That rally runs ${Math.round(seconds)} seconds. Instagram takes up to ${VERTICAL_MAX_S}.`,
+          error: pointId
+            ? `That rally runs ${Math.round(seconds)} seconds. Instagram takes up to ${VERTICAL_MAX_S}.`
+            : `Your starred rallies run ${Math.round(seconds)} seconds together. Instagram takes up to ${VERTICAL_MAX_S}.`,
           code: "too_long",
         },
         { status: 400 }
@@ -350,7 +381,7 @@ export async function POST(req: Request) {
     // Only ever set for a vertical render, so a landscape export's stored
     // manifest keeps the exact shape it had before 135 and its freshness
     // check still passes.
-    ...(vertical ? { format: "story" as const } : {}),
+    ...(vertical ? { format: "story" as const, show_names: showNames } : {}),
     you_name: youName,
     them_name: themName,
     played_at: match.played_at ?? null,

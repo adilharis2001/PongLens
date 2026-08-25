@@ -60,12 +60,14 @@ enum StoryRenderer {
         you: String,
         them: String,
         score: (you: Int, them: Int)?,
-        games: [(Int, Int)]
+        games: [(Int, Int)],
+        showNames: Bool = true
     ) async throws -> URL {
         let asset = AVURLAsset(url: cutURL)
         guard let vTrack = try await asset.loadTracks(withMediaType: .video).first
         else { throw RenderError.noVideoTrack }
         let natural = try await vTrack.load(.naturalSize)
+        let nominalFPS = (try? await vTrack.load(.nominalFrameRate)) ?? 0
 
         let duration = try await asset.load(.duration).seconds
         let s0 = max(0, segStart)
@@ -95,7 +97,12 @@ enum StoryRenderer {
             guard let c = crop,
                   c.src_w == Int(natural.width.rounded()),
                   c.src_h == Int(natural.height.rounded()),
-                  c.w > 0, c.h > 0 else { return nil }
+                  c.w > 0, c.h > 0,
+                  // The transform below is horizontal-only, which is all
+                  // story_crop_window ever emits. A vertical component
+                  // appearing upstream must fall back to the full frame
+                  // here, not silently mis-frame every phone render.
+                  c.y == 0, c.h == c.src_h else { return nil }
             return c
         }()
         let cropX = CGFloat(usable?.x ?? 0)
@@ -122,7 +129,8 @@ enum StoryRenderer {
         // dependency, runs in the Simulator, and needs no layer tree.
         guard let artwork = bandArtwork(
             videoY: vy, videoH: shownH, videoX: vx, videoW: shownW,
-            you: you, them: them, score: score, games: games)
+            you: you, them: them, score: score, games: games,
+            showNames: showNames)
         else { throw RenderError.exportFailed("Couldn't draw the frame.") }
 
         let band = CIImage(cgImage: artwork)
@@ -150,7 +158,12 @@ enum StoryRenderer {
                     context: nil)
             })
         vcompCI.renderSize = canvas
-        vcompCI.frameDuration = CMTime(value: 1, timescale: 30)
+        // The source's own clock, not a flat 30 — halving a 60 fps rally
+        // is visible exactly where it moves fastest. Instagram tops out at
+        // 60; an unreadable rate falls back to 30.
+        let fps: Int32 = nominalFPS > 0
+            ? Int32(min(60, max(24, nominalFPS.rounded()))) : 30
+        vcompCI.frameDuration = CMTime(value: 1, timescale: fps)
         let vcompFinal = vcompCI
 
         let out = FileManager.default.temporaryDirectory
@@ -185,7 +198,7 @@ enum StoryRenderer {
     private static func bandArtwork(
         videoY vy: CGFloat, videoH: CGFloat, videoX vx: CGFloat, videoW: CGFloat,
         you: String, them: String, score: (you: Int, them: Int)?,
-        games: [(Int, Int)]
+        games: [(Int, Int)], showNames: Bool
     ) -> CGImage? {
         let W = Int(canvas.width), H = Int(canvas.height)
         guard let ctx = CGContext(
@@ -220,18 +233,23 @@ enum StoryRenderer {
 
         let margin: CGFloat = 72
         let top = max(safeTop, vy - 210)
-        text(ctx, fit(you, 22).uppercased(), 30, "HelveticaNeue-Medium",
-             cyan, at: CGPoint(x: margin, y: top))
-        text(ctx, "vs \(fit(them, 20))", 52, "HelveticaNeue-Bold",
-             white, at: CGPoint(x: margin, y: top + 44))
+        if showNames {
+            text(ctx, fit(you, 22).uppercased(), 30, "HelveticaNeue-Medium",
+                 cyan, at: CGPoint(x: margin, y: top))
+            text(ctx, "vs \(fit(them, 20))", 52, "HelveticaNeue-Bold",
+                 white, at: CGPoint(x: margin, y: top + 44))
+        }
         if let score {
+            // Inset further than the names: Instagram's own icon rail runs
+            // down the composer's right edge and sat over the score at 72.
+            let scoreRight = canvas.width - 150
             text(ctx, "\(score.you) – \(score.them)", 84, "HelveticaNeue-Bold",
-                 white, at: CGPoint(x: canvas.width - margin, y: top + 18),
+                 white, at: CGPoint(x: scoreRight, y: top + 18),
                  rightAligned: true)
             if !games.isEmpty {
                 let line = games.map { "\($0.0)-\($0.1)" }.joined(separator: "   ")
                 text(ctx, line, 28, "HelveticaNeue-Medium", muted,
-                     at: CGPoint(x: canvas.width - margin, y: top + 118),
+                     at: CGPoint(x: scoreRight, y: top + 118),
                      rightAligned: true)
             }
         }
@@ -269,7 +287,8 @@ enum StoryRenderer {
         ctx.restoreGState()
     }
 
-    /// The Logo.tsx lens-ring glyph beside the wordmark, centred. Geometry
+    /// The Logo.tsx lens-ring glyph beside the wordmark, in the frame's
+    /// bottom-right corner — a signature, not a title. Geometry
     /// mirrors _draw_lens_mark: ring r=12 stroke 2.5, glint arc r=8.25
     /// stroke 2 from 210 to 285 degrees, on a 32-unit box.
     private static func drawMark(_ ctx: CGContext, centreY: CGFloat,
@@ -278,7 +297,7 @@ enum StoryRenderer {
         let label = "PongLens"
         let labelW = textWidth(label, 38, "HelveticaNeue-Bold")
         let gap: CGFloat = 16
-        let x0 = (canvas.width - (box + gap + labelW)) / 2
+        let x0 = canvas.width - 72 - (box + gap + labelW)
         let k = box / 32
         let cx = x0 + box / 2
 

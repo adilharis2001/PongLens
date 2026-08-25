@@ -18,6 +18,11 @@ struct StarredScreen: View {
     /// Handed over by the player on the way out (see onChange below).
     @State private var pendingMatch: StarredPointRow?
     @State private var openMatch: MatchPointRoute?
+    /// Which match's starred set is being shared, when the group header's
+    /// share button is tapped.
+    @State private var shareMatch: MatchRow?
+    /// The emergency switch (136); an unreadable row answers "on".
+    @State private var sharingOn = true
 
     var body: some View {
         ZStack {
@@ -51,7 +56,20 @@ struct StarredScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .overlay(alignment: .bottom) { undoBar }
-        .task { await store.load(userId: app.userId) }
+        .task {
+            sharingOn = await StoryShareModel.sharingEnabled()
+            await store.load(userId: app.userId)
+        }
+        .sheet(item: $shareMatch) { match in
+            ShareHighlightsSheet(
+                match: match,
+                starredCount: store.groups
+                    .first { $0.matchId == match.id }?.points.count ?? 0
+            )
+            .presentationDetents([.height(ShareHighlightsSheet.detentHeight)])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
+        }
         .fullScreenCover(item: $openIndex) { start in
             StarredPlayerScreen(
                 store: store,
@@ -207,8 +225,25 @@ struct StarredScreen: View {
         }
 
         if let destination {
-            NavigationLink(value: destination) { content }
-                .buttonStyle(.plain)
+            HStack(spacing: 10) {
+                NavigationLink(value: destination) { content }
+                    .buttonStyle(.plain)
+                if sharingOn {
+                    // Outside the link on purpose: a button nested inside
+                    // a NavigationLink's label fights it for the tap.
+                    Button {
+                        shareMatch = destination
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(PL.text200)
+                            .frame(width: 38, height: 38)
+                            .background(PL.surface2, in: Circle())
+                            .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         } else {
             content
         }
