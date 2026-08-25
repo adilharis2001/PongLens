@@ -593,6 +593,11 @@ struct CameraPlacementSheet: View {
                 }
 
                 Section {
+                    CameraRealSetups()
+                        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+                }
+
+                Section {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "viewfinder")
                             .font(.system(size: 15))
@@ -738,5 +743,87 @@ struct CameraDiagram: View {
                 at: CGPoint(x: cam.x, y: cam.y + 22)
             )
         }
+    }
+}
+
+
+/// Three real setups, collapsed until asked for.
+///
+/// Not chosen by eye. Every hand-corrected quad in table_calibration_review
+/// pins down the camera that filmed it, so the corpus was reduced to a pose
+/// (metres behind the near end, metres to the side, height above the table)
+/// and these are the closest each venue gets to the placement the rules
+/// above describe. The caption states that pose, because "about here" is
+/// worth much less than a number a player can pace out.
+///
+/// Closed by default: someone who already knows where to stand should not
+/// scroll past three photographs to reach Got it. Faces are blurred,
+/// bystanders included, and so is the booking name on the venue screens.
+struct CameraRealSetups: View {
+    @State private var open = false
+
+    private static let setups: [(file: String, caption: String)] = [
+        ("camera-ref-1",
+         "2.7 m to the side, level with the near end, 0.9 m above the table."),
+        ("camera-ref-2",
+         "2.8 m to the side, just past the near end, 1.0 m up."),
+        ("camera-ref-3",
+         "2.1 m to the side and a little further back. A busy hall, and the table is still clear."),
+    ]
+
+    /// Loose files in Resources/, the same as guides.json, so they ride the
+    /// synchronised group without needing an asset catalog entry each.
+    private func image(_ name: String) -> UIImage? {
+        guard let url = Bundle.main.url(forResource: name, withExtension: "jpg") else { return nil }
+        return UIImage(contentsOfFile: url.path)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) { open.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Text("Real setups that worked")
+                        .font(.plRowTitle)
+                        .foregroundStyle(PL.text100)
+                    Spacer()
+                    Text("3 photos")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(PL.text500)
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if open {
+                ForEach(Self.setups, id: \.file) { setup in
+                    VStack(alignment: .leading, spacing: 0) {
+                        if let ui = image(setup.file) {
+                            Image(uiImage: ui)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                        }
+                        Text(setup.caption)
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text400)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                    }
+                    .background(PL.ink)
+                    .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                            .strokeBorder(PL.edge, lineWidth: 1)
+                    )
+                }
+            }
+        }
+        .padding(.vertical, 4)
     }
 }

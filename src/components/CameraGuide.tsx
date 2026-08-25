@@ -198,6 +198,8 @@ export function CameraGuide({
               </p>
             </div>
 
+            <RealSetups />
+
             {/* The iPhone app can show this instead of describing it: the
                 recorder draws the table in perspective from the position
                 these rules describe, so lining the real one up with it
@@ -220,6 +222,93 @@ export function CameraGuide({
             </button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The three stills are not chosen by eye. Every hand-corrected quad in
+ * table_calibration_review pins down the camera that filmed it, so the
+ * whole corpus was reduced to a pose (metres behind the near end, metres
+ * to the side, height above the table) and these are the closest each
+ * venue gets to the placement the rules above describe. The caption states
+ * that pose, because "about here" is worth much less than a number a
+ * player can pace out.
+ *
+ * Closed by default. Someone who already knows where to stand should not
+ * have to scroll past three photographs to reach "Got it", and the diagram
+ * carries the rule on its own.
+ *
+ * Faces are blurred, including bystanders at the back of the hall, and so
+ * is the booking name on the venue screens.
+ */
+const SETUPS = [
+  {
+    src: "/camera/camera-ref-1.jpg",
+    caption: "2.7 m to the side, level with the near end, 0.9 m above the table.",
+  },
+  {
+    src: "/camera/camera-ref-2.jpg",
+    caption: "2.8 m to the side, just past the near end, 1.0 m up.",
+  },
+  {
+    src: "/camera/camera-ref-3.jpg",
+    caption: "2.1 m to the side and a little further back. A busy hall, and the table is still clear.",
+  },
+];
+
+function RealSetups() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 rounded-xl border border-edge bg-surface-2/40 px-3.5 py-3 text-left text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50"
+      >
+        <span className="flex-1 font-medium text-zinc-100">
+          Real setups that worked
+        </span>
+        <span className="text-xs text-zinc-500">3 photos</span>
+        <svg
+          viewBox="0 0 24 24"
+          className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${open ? "rotate-90" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+        </svg>
+      </button>
+
+      {open && (
+        <ul className="mt-3 space-y-3">
+          {SETUPS.map((s) => (
+            <li key={s.src}>
+              <figure className="overflow-hidden rounded-xl border border-edge bg-ink">
+                {/* Plain img, not next/image: these are fixed local stills
+                    inside a sheet that is usually never opened, so the
+                    optimiser earns nothing and lazy loading is the only
+                    thing that matters. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={s.src}
+                  alt="A table tennis table filmed from the side, both players clear of it"
+                  loading="lazy"
+                  width={1280}
+                  height={720}
+                  className="block w-full"
+                />
+                <figcaption className="px-3 py-2.5 text-xs leading-relaxed text-zinc-400">
+                  {s.caption}
+                </figcaption>
+              </figure>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
