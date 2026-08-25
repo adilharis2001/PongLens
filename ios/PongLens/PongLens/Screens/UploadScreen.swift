@@ -92,7 +92,12 @@ struct UploadScreen: View {
                     }
 
                     pickCard
-                    youtubeCard
+                    // YouTube import stays web-only. Apps that pull video
+                    // off YouTube run against YouTube's terms whoever owns
+                    // the footage, and App Review has a long history of
+                    // rejecting for it (5.2.3) — not an argument to invite
+                    // on a first submission. The card and its plumbing are
+                    // kept below, unrendered, for if that call changes.
                     balanceCard
                     reportRow
                 }

@@ -49,7 +49,10 @@ final class CoachingStore {
     }
 
     init() {
-        if let uid = supa.auth.currentSession?.user.id {
+        // With the marketplace web-only, the Coaching tab never shows: the
+        // free half of coaching lives on Account (your coaches) and in
+        // Matches (shared with you) instead.
+        if AppConfig.coachMarketplace, let uid = supa.auth.currentSession?.user.id {
             showTab = UserDefaults.standard.bool(forKey: Self.tabCacheKey(uid))
         } else {
             showTab = false
@@ -80,10 +83,11 @@ final class CoachingStore {
         isCoach = (profile?.count ?? 0) > 0
         coachLinks = links ?? []
         orders = orderRows ?? []
-        showTab = isCoach
-            || (asCoach?.count ?? 0) > 0
-            || !coachLinks.isEmpty
-            || !orders.isEmpty
+        showTab = AppConfig.coachMarketplace
+            && (isCoach
+                || (asCoach?.count ?? 0) > 0
+                || !coachLinks.isEmpty
+                || !orders.isEmpty)
         UserDefaults.standard.set(showTab, forKey: Self.tabCacheKey(userId))
         loaded = true
     }

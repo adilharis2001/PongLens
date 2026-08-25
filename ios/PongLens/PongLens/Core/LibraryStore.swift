@@ -32,6 +32,27 @@ final class LibraryStore {
         }
     }
 
+    /// Deletes through /api/delete-match, never straight through PostgREST.
+    /// The route sweeps R2 first — point clips, the cut video, note audio —
+    /// then removes the row; a bare row delete frees the quota (the ledger
+    /// trigger fires on rows) while stranding every object forever, with
+    /// nothing left that remembers the keys. The row leaves the local list
+    /// immediately; the reload squares up, and brings the match back if the
+    /// server said no.
+    func delete(_ match: MatchRow) async {
+        matches.removeAll { $0.id == match.id }
+        struct Req: Encodable {
+            let action: String
+            let matchId: String
+        }
+        struct Res: Decodable { let ok: Bool? }
+        let _: Res? = try? await API.post(
+            "api/delete-match",
+            Req(action: "delete", matchId: match.id.uuidString.lowercased())
+        )
+        await load()
+    }
+
     func load() async {
         do {
             async let matchesQuery: [MatchRow] = supa

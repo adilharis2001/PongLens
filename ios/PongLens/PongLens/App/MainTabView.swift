@@ -111,10 +111,13 @@ struct MainTabView: View {
                 case "learn": LearnScreen()
                 case "learn-videos": TutorialVideosScreen()
                 case "feedback": FeedbackScreen()
-                case "coach-orders": CoachOrdersScreen()
-                case "coach-offerings": CoachOfferingsScreen()
-                case "coach-profile": CoachProfileScreen()
-                case "coach-sponsored": CoachSponsoredScreen()
+                // Marketplace screens: only the Coaching tab pushes these,
+                // and the tab is gated on the same flag — this is a second
+                // fence around the same boundary, not a separate decision.
+                case "coach-orders": if AppConfig.coachMarketplace { CoachOrdersScreen() }
+                case "coach-offerings": if AppConfig.coachMarketplace { CoachOfferingsScreen() }
+                case "coach-profile": if AppConfig.coachMarketplace { CoachProfileScreen() }
+                case "coach-sponsored": if AppConfig.coachMarketplace { CoachSponsoredScreen() }
                 default:
                     // "guide:<slug>" opens one Learn guide directly. It is
                     // resolved HERE rather than pushing a GuideData, because
@@ -133,7 +136,9 @@ struct MainTabView: View {
                 }
             }
             .navigationDestination(for: CoachOrderRoute.self) { route in
-                CoachOrderScreen(orderId: route.id)
+                if AppConfig.coachMarketplace {
+                    CoachOrderScreen(orderId: route.id)
+                }
             }
         }
         .fullScreenCover(isPresented: $router.uploadOpen) {

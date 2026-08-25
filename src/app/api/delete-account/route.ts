@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 
+import { sendReviewEmail } from "@/lib/email/reviewEmails";
+import {
+  refundOrder,
+  releasePayoutForOrder,
+} from "@/lib/payments/orderMoney";
 import { deleteObjects, listObjects, MEDIA_BUCKET, RAW_BUCKET } from "@/lib/r2";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -52,10 +57,23 @@ const USER_PREFIXES = [
 ] as const;
 
 /**
- * Orders where money has changed hands and the work is not finished. Deleting
- * an account mid-order would stand a real person up — the student who paid or
- * the coach owed the fee — so it is refused with something the UI can explain
- * rather than silently swallowed.
+ * Orders where money has changed hands and the work is not finished. These
+ * used to BLOCK deletion, telling the user to finish or cancel first — but
+ * the iOS app has no paid-coaching surface to finish or cancel from, and
+ * Apple requires in-app deletion to actually delete (5.1.1(v)). So the
+ * route settles them itself instead, before anything is removed:
+ *
+ *   - a DELIVERED order the deleting user bought completes: the coach did
+ *     the work and gets paid, exactly as the 7-day sweep would have done;
+ *   - everything else cancels and refunds, whichever side is leaving. A
+ *     coach's cancel-on-delivered mirrors coach_cancel_review_order, which
+ *     already allows it.
+ *
+ * Money settles BEFORE the R2 sweep and the auth delete, and a failed
+ * refund aborts the whole request: the coach_id cascade destroys order
+ * rows, and a refund that has lost its payment refs can never be made
+ * right afterwards. Failing with the account intact is the direction that
+ * can be retried.
  */
 const IN_FLIGHT = [
   "awaiting_submission",
@@ -97,14 +115,18 @@ export async function POST(req: Request) {
   const uid = user.id;
 
   // What is in flight, read as the caller so RLS still applies. Both sides:
-  // a coach with work owed cannot vanish either.
+  // a coach leaving with work owed settles those orders too.
   const { data: liveOrders } = await supabase
     .from("review_orders")
-    .select("id, status, coach_id, student_id")
+    .select("id, status, coach_id, student_id, funding")
     .or(`student_id.eq.${uid},coach_id.eq.${uid}`)
     .in("status", IN_FLIGHT);
 
-  const blocked = (liveOrders ?? []).length > 0;
+  const orders = liveOrders ?? [];
+  const completions = orders.filter(
+    (o) => o.student_id === uid && o.status === "delivered",
+  );
+  const refunds = orders.filter((o) => !completions.includes(o));
 
   const { data: matchRows } = await supabase
     .from("matches")
@@ -120,8 +142,13 @@ export async function POST(req: Request) {
     return NextResponse.json({
       matches: matchIds.length,
       entries: entryCount ?? 0,
-      blocked,
-      blockedOrders: (liveOrders ?? []).length,
+      // Nothing blocks any more; the fields stay so an older client that
+      // still reads them sees an account it is allowed to delete.
+      blocked: false,
+      blockedOrders: 0,
+      // What settling will do, so the dialog can say it in numbers.
+      completions: completions.length,
+      refunds: refunds.length,
     });
   }
 
@@ -134,19 +161,77 @@ export async function POST(req: Request) {
     );
   }
 
-  if (blocked) {
-    return NextResponse.json(
-      {
-        code: "orders_in_flight",
-        error:
-          "You have a review still in progress. Finish or cancel it, then delete your account.",
-        blockedOrders: (liveOrders ?? []).length,
-      },
-      { status: 409 }
+  const admin = createAdminClient();
+
+  // Settle every in-flight order before touching anything else. Any refund
+  // that does not land aborts the request with the account fully intact.
+  for (const order of completions) {
+    // The student is leaving with a delivered review: complete it, which
+    // pays the coach — the same ending the 7-day sweep gives a quiet
+    // order. The RPC runs as the caller and only accepts 'delivered'.
+    const { error: completeError } = await supabase.rpc(
+      "complete_review_order",
+      { p_order_id: order.id }
+    );
+    if (completeError) {
+      // Re-read: a race may have already moved it somewhere terminal,
+      // which is fine. Anything still in flight means settling failed.
+      const { data: now } = await admin
+        .from("review_orders")
+        .select("status")
+        .eq("id", order.id)
+        .maybeSingle();
+      if (!now || IN_FLIGHT.includes(now.status)) {
+        console.error("delete-account: complete failed:", completeError);
+        return NextResponse.json(
+          { error: "Could not settle a review order. Try again." },
+          { status: 500 }
+        );
+      }
+    }
+    // Best-effort: the daily reviews-sweep retries any completed order
+    // still missing its payout, and the order row survives this user's
+    // deletion (student_id is ON DELETE SET NULL).
+    await releasePayoutForOrder(order.id).catch((e) =>
+      console.error("delete-account payout:", e)
     );
   }
 
-  const admin = createAdminClient();
+  for (const order of refunds) {
+    const side = order.coach_id === uid ? "coach" : "student";
+    // The same write the cancel RPCs make, status-guarded so a racing
+    // transition wins cleanly. Admin because the student RPC refuses
+    // mid-review cancels — a protection that stops mattering when the
+    // student is deleting the account the review would come back to.
+    await admin
+      .from("review_orders")
+      .update({
+        status: "cancelled",
+        cancel_reason: `${side}: account deleted`,
+        cancelled_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", order.id)
+      .in("status", IN_FLIGHT);
+
+    // Idempotent, and a no-op for sponsored or never-charged orders. This
+    // is the step that must not be outlived by the account: a coach's
+    // deletion cascades their order rows, and with them the payment refs.
+    const refunded = await refundOrder(order.id);
+    if (!refunded) {
+      console.error(`delete-account: refund failed for order ${order.id}`);
+      return NextResponse.json(
+        {
+          error:
+            "Could not refund a review order, so nothing was deleted. Try again, or contact support@ponglens.com.",
+        },
+        { status: 500 }
+      );
+    }
+    if (order.funding !== "sponsored") {
+      await sendReviewEmail("order_refunded", order.id).catch(() => {});
+    }
+  }
 
   try {
     for (const prefix of USER_PREFIXES) {

@@ -14,4 +14,12 @@ enum AppConfig {
     /// the share came from, and Instagram shows it as the attribution.
     /// Must match the `FacebookAppID` entry in Info.plist.
     static let metaAppID = "1012434688493595"
+
+    /// The paid coaching marketplace (coach hub, offerings, orders, the
+    /// review workspace, sponsored credits) is web-only for now — the app
+    /// ships as a player product, and paid coaching stays at ponglens.com.
+    /// Free sharing with a coach is NOT behind this flag: invites, shared
+    /// matches and coach notes are a sharing feature and always ship.
+    /// This flag is the one boundary; nothing else decides it.
+    static let coachMarketplace = false
 }

@@ -9,8 +9,11 @@ import { createClient } from "@/lib/supabase/client";
 type Preview = {
   matches: number;
   entries: number;
-  blocked: boolean;
-  blockedOrders: number;
+  /// Open review orders the server will settle as part of deleting:
+  /// delivered reviews the user bought complete (the coach gets paid),
+  /// everything else cancels with a refund. Nothing blocks any more.
+  completions: number;
+  refunds: number;
 };
 
 /**
@@ -79,7 +82,7 @@ export function DeleteAccountSection() {
     }
   }
 
-  const blocked = preview?.blocked ?? false;
+  const settling = (preview?.completions ?? 0) + (preview?.refunds ?? 0);
 
   return (
     <>
@@ -96,50 +99,50 @@ export function DeleteAccountSection() {
 
       <ConfirmDialog
         open={open}
-        title={blocked ? "Finish your review first" : "Delete your account?"}
-        body={
-          blocked
-            ? "A review is still in progress. Deleting now would leave the other person without it."
-            : "This removes your account and everything in it. It cannot be undone."
-        }
+        title="Delete your account?"
+        body="This removes your account and everything in it. It cannot be undone."
         confirmLabel="Delete account"
         busy={busy}
         error={error}
-        confirmDisabled={blocked || typed.trim().toUpperCase() !== "DELETE"}
+        confirmDisabled={typed.trim().toUpperCase() !== "DELETE"}
         onCancel={() => {
           setOpen(false);
           setError(null);
         }}
         onConfirm={confirm}
       >
-        {blocked ? (
-          <p className="text-sm text-zinc-400">
-            {preview?.blockedOrders === 1
-              ? "One review is open."
-              : `${preview?.blockedOrders} reviews are open.`}{" "}
-            Complete or cancel it, then come back here.
+        <p className="text-sm text-zinc-400">
+          Going for good: {preview?.matches ?? 0}{" "}
+          {preview?.matches === 1 ? "match" : "matches"} with their video and
+          points, {preview?.entries ?? 0} journal{" "}
+          {preview?.entries === 1 ? "entry" : "entries"}, your notes, your
+          stats, and any coach page you have.
+        </p>
+        {settling > 0 && (
+          <p className="mt-2 text-sm text-zinc-400">
+            {settling === 1
+              ? "One review order is still open. "
+              : `${settling} review orders are still open. `}
+            {(preview?.refunds ?? 0) > 0 &&
+              (preview?.refunds === 1
+                ? "One will be cancelled and the payment refunded. "
+                : `${preview?.refunds} will be cancelled and their payments refunded. `)}
+            {(preview?.completions ?? 0) > 0 &&
+              (preview?.completions === 1
+                ? "A delivered review will be completed so the coach is paid."
+                : `${preview?.completions} delivered reviews will be completed so the coaches are paid.`)}
           </p>
-        ) : (
-          <>
-            <p className="text-sm text-zinc-400">
-              Going for good: {preview?.matches ?? 0}{" "}
-              {preview?.matches === 1 ? "match" : "matches"} with their video
-              and points, {preview?.entries ?? 0} journal{" "}
-              {preview?.entries === 1 ? "entry" : "entries"}, your notes, your
-              stats, and any coach page you have.
-            </p>
-            <label className="mt-4 block text-sm text-zinc-400">
-              Type DELETE to confirm
-              <input
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                autoComplete="off"
-                spellCheck={false}
-                className="mt-1.5 w-full rounded-lg border border-edge bg-ink/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
-              />
-            </label>
-          </>
         )}
+        <label className="mt-4 block text-sm text-zinc-400">
+          Type DELETE to confirm
+          <input
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            className="mt-1.5 w-full rounded-lg border border-edge bg-ink/40 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-glow/50"
+          />
+        </label>
       </ConfirmDialog>
     </>
   );

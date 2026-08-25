@@ -38,12 +38,17 @@ struct MatchesScreen: View {
         return library.matches.filter { $0.userId == uid }
     }
 
-    /// Matches RLS delivered that are not yours: your students', through
-    /// an accepted coach link or an active review order. Grouped by
-    /// player, like the web library's "shared with you".
+    /// Matches RLS delivered that are not yours, grouped by player, like
+    /// the web library's "shared with you". RLS also grants a coach rows
+    /// through an active PAID order — web-only work that would appear here
+    /// as an unexplained match from "A player" and vanish again when the
+    /// order closes — so this list is held to players with an accepted
+    /// coach link, the set coach_players() answers with.
     private var sharedByPlayer: [(playerId: UUID, matches: [MatchRow])] {
-        guard let uid = app.userId else { return [] }
-        let shared = library.matches.filter { $0.userId != uid }
+        guard let uid = app.userId, linkedPlayersLoaded else { return [] }
+        let shared = library.matches.filter {
+            $0.userId != uid && linkedPlayers.contains($0.userId)
+        }
         let grouped = Dictionary(grouping: shared, by: \.userId)
         return grouped.map { ($0.key, $0.value) }
             .sorted { a, b in
@@ -54,6 +59,11 @@ struct MatchesScreen: View {
     }
 
     @State private var playerNames: [UUID: String] = [:]
+    /// Players behind an accepted coach link. Separate from the names map
+    /// because a player with no display name still belongs in the list —
+    /// and `dict[key] = nil` would silently drop them from one.
+    @State private var linkedPlayers: Set<UUID> = []
+    @State private var linkedPlayersLoaded = false
 
     /// coach_players() → {player_id, player_name}, the same lookup the
     /// web library uses to head its shared groups.
@@ -65,7 +75,9 @@ struct MatchesScreen: View {
         let rows: [Row]? = try? await supa.rpc("coach_players").execute().value
         for row in rows ?? [] {
             playerNames[row.player_id] = row.player_name
+            linkedPlayers.insert(row.player_id)
         }
+        if rows != nil { linkedPlayersLoaded = true }
     }
 
     private var filtersActive: Bool {
@@ -164,7 +176,10 @@ struct MatchesScreen: View {
                 .padding(.top, 12)
                 .padding(.bottom, 120)
             }
-            .refreshable { await library.load() }
+            .refreshable {
+                await library.load()
+                await loadPlayerNames()
+            }
             .task { await loadPlayerNames() }
 
             PLFabStack()
@@ -206,20 +221,11 @@ struct MatchesScreen: View {
         .scrollDismissesKeyboard(.interactively)
     }
 
-    /// Web parity: deleting the matches row cascades to everything else.
     /// The card leaves the grid immediately so clearing several in a row
-    /// feels quick; the reload afterwards squares the list with the server
+    /// feels quick; the store's reload squares the list with the server
     /// (and brings the match back if the delete failed).
     private func delete(_ match: MatchRow) {
-        library.matches.removeAll { $0.id == match.id }
-        Task {
-            _ = try? await supa
-                .from("matches")
-                .delete()
-                .eq("id", value: match.id.uuidString.lowercased())
-                .execute()
-            await library.load()
-        }
+        Task { await library.delete(match) }
     }
 
     private var searchField: some View {

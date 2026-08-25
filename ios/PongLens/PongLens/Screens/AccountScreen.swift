@@ -5,10 +5,13 @@ struct AccountScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(AppState.self) private var app
+    @Environment(CoachingStore.self) private var coaching
     @State private var store = AccountStore()
     @State private var editingName = false
     @State private var nameDraft = ""
     @State private var linksOpen = false
+    @State private var coachesOpen = false
+    @State private var coachInviteOpen = false
     @State private var profileOpen = false
     @State private var deleteOpen = false
     @State private var recollectSaving = false
@@ -76,6 +79,8 @@ struct AccountScreen: View {
                         .padding(16)
                     }
 
+                    coachingSection
+
                     if store.commerceEnabled {
                         minutesSection
                         storageSection
@@ -133,6 +138,18 @@ struct AccountScreen: View {
         .task { await store.load(userId: app.userId) }
         .sheet(isPresented: $linksOpen) {
             ShareLinksManager(store: store)
+                .presentationDetents([.medium, .large])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $coachesOpen) {
+            CoachLinksManager()
+                .presentationDetents([.medium, .large])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $coachInviteOpen) {
+            AllMatchesCoachInvite()
                 .presentationDetents([.medium, .large])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
@@ -255,6 +272,42 @@ struct AccountScreen: View {
         .padding(16)
     }
 
+    /// The free half of coaching, rehomed here from the old Coaching tab:
+    /// who can watch your matches, and the invite that adds someone. Same
+    /// idea as Public links, one card up — paid coaching stays on the web
+    /// and has no surface in the app.
+    private var coachingSection: some View {
+        let accepted = coaching.coachLinks.filter { $0.status == "accepted" }.count
+        let pending = coaching.coachLinks.count - accepted
+        return group("Coaching") {
+            HStack(spacing: 12) {
+                Image(systemName: "person.2")
+                    .font(.system(size: 15))
+                    .foregroundStyle(PL.text400)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(accepted > 0
+                        ? "\(accepted) coach\(accepted == 1 ? "" : "es") connected"
+                        : pending > 0 ? "Invite sent" : "No coaches yet")
+                        .font(.plRowTitle)
+                        .foregroundStyle(PL.text100)
+                    Text(pending > 0
+                        ? "\(pending) invite\(pending == 1 ? "" : "s") pending"
+                        : "They can watch your matches and leave notes.")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
+                }
+                Spacer()
+                if !coaching.coachLinks.isEmpty {
+                    Button("Manage") { coachesOpen = true }
+                        .buttonStyle(PLSecondaryButtonStyle())
+                }
+            }
+            .padding(16)
+            rowDivider
+            navRow("Add a coach") { coachInviteOpen = true }
+        }
+    }
+
     private var minutesSection: some View {
         group("Processing minutes") {
             VStack(alignment: .leading, spacing: 12) {
@@ -275,9 +328,6 @@ struct AccountScreen: View {
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
                     .lineSpacing(3)
-                Text("Get more minutes at ponglens.com. Purchases stay on the web for now.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text400)
             }
             .padding(16)
         }
@@ -413,6 +463,63 @@ struct ShareLinksManager: View {
     }
 }
 
+// MARK: - Coach links manager
+
+/// The coaches with access to your matches, one row each, with the same
+/// revoke idiom as the public links above. Rows carry their scope (all
+/// matches or one) because that is the fact a player checks before removing.
+struct CoachLinksManager: View {
+    @Environment(CoachingStore.self) private var coaching
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Your coaches")
+                .font(.plCardTitle)
+                .foregroundStyle(PL.text100)
+            if coaching.coachLinks.isEmpty {
+                Text("No coaches yet.")
+                    .font(.plBody)
+                    .foregroundStyle(PL.text500)
+            }
+            ScrollView {
+                VStack(spacing: 10) {
+                    ForEach(coaching.coachLinks) { link in
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(link.status == "accepted" ? "Coach connected" : "Invite pending")
+                                    .font(.plRowTitle)
+                                    .foregroundStyle(PL.text100)
+                                Text(link.scopeMatchId == nil ? "All matches" : "One match")
+                                    .font(.plCaption)
+                                    .foregroundStyle(PL.text500)
+                            }
+                            Spacer()
+                            if link.status != "accepted", let token = link.inviteToken,
+                               let url = URL(string: "https://www.ponglens.com/coach-invite/\(token)") {
+                                ShareLink(item: url) {
+                                    Text("Copy link")
+                                        .font(.plButtonSecondary)
+                                        .foregroundStyle(PL.text300)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                                }
+                            }
+                            Button("Remove") {
+                                Task { await coaching.revokeLink(link) }
+                            }
+                            .buttonStyle(PLSoftDestructiveButtonStyle())
+                        }
+                        .plInnerRow()
+                    }
+                }
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 // MARK: - Player profile
 
 struct PlayerProfileSheet: View {
@@ -533,15 +640,20 @@ struct DeleteAccountSheet: View {
 
     @State private var matches = 0
     @State private var entries = 0
-    @State private var blocked = false
-    @State private var blockedOrders = 0
+    /// Open review orders the server settles as part of deleting: delivered
+    /// reviews this user bought complete (the coach gets paid), the rest
+    /// cancel with a refund. Deletion no longer blocks on them — the app
+    /// has nowhere to finish or cancel an order, and in-app deletion has
+    /// to actually delete.
+    @State private var completions = 0
+    @State private var refunds = 0
     @State private var loaded = false
     @State private var typed = ""
     @State private var busy = false
     @State private var error: String?
 
     private var armed: Bool {
-        loaded && !blocked && !busy
+        loaded && !busy
             && typed.trimmingCharacters(in: .whitespaces).uppercased() == "DELETE"
     }
 
@@ -556,15 +668,6 @@ struct DeleteAccountSheet: View {
                                 .font(.plBody)
                                 .foregroundStyle(PL.text300)
                         }
-                    } else if blocked {
-                        Text(blockedOrders == 1
-                             ? "A review is still in progress."
-                             : "\(blockedOrders) reviews are still in progress.")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(PL.text100)
-                        Text("Deleting now would leave the other person without the review they are waiting for. Finish or cancel it, then come back here.")
-                            .font(.plBody)
-                            .foregroundStyle(PL.text300)
                     } else {
                         Text("This cannot be undone.")
                             .font(.system(size: 17, weight: .semibold))
@@ -572,6 +675,11 @@ struct DeleteAccountSheet: View {
                         Text(summary)
                             .font(.plBody)
                             .foregroundStyle(PL.text300)
+                        if let settling = settlingLine {
+                            Text(settling)
+                                .font(.plBody)
+                                .foregroundStyle(PL.text300)
+                        }
 
                         VStack(alignment: .leading, spacing: 7) {
                             Text("Type DELETE to confirm")
@@ -621,20 +729,36 @@ struct DeleteAccountSheet: View {
         return "Your account goes, and with it \(m) with their video and points, \(e), your notes, your stats, and any coach page you have."
     }
 
+    private var settlingLine: String? {
+        guard completions + refunds > 0 else { return nil }
+        var parts: [String] = []
+        if refunds > 0 {
+            parts.append(refunds == 1
+                ? "An open review order will be cancelled and the payment refunded."
+                : "\(refunds) open review orders will be cancelled and their payments refunded.")
+        }
+        if completions > 0 {
+            parts.append(completions == 1
+                ? "A delivered review will be completed so the coach is paid."
+                : "\(completions) delivered reviews will be completed so the coaches are paid.")
+        }
+        return parts.joined(separator: " ")
+    }
+
     private func loadPreview() async {
         struct Req: Encodable { let action: String }
         struct Res: Decodable {
             let matches: Int
             let entries: Int
-            let blocked: Bool
-            let blockedOrders: Int
+            let completions: Int?
+            let refunds: Int?
         }
         do {
             let res: Res = try await API.post("api/delete-account", Req(action: "preview"))
             matches = res.matches
             entries = res.entries
-            blocked = res.blocked
-            blockedOrders = res.blockedOrders
+            completions = res.completions ?? 0
+            refunds = res.refunds ?? 0
             loaded = true
         } catch {
             self.error = "Couldn't check your account. Close this and try again."

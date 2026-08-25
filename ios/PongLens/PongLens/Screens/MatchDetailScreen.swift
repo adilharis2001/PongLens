@@ -755,19 +755,12 @@ struct MatchDetailScreen: View {
         .plKeyboardDismiss()
     }
 
-    /// Web parity: deleting the matches row cascades to everything else.
     /// The row leaves the library immediately, this page dismisses back to
-    /// it, and the reload squares the list with the server.
+    /// it, and the store's reload squares the list with the server.
     private func deleteMatch() async {
         deleting = true
-        _ = try? await supa
-            .from("matches")
-            .delete()
-            .eq("id", value: current.id.uuidString.lowercased())
-            .execute()
-        library.matches.removeAll { $0.id == current.id }
         dismiss()
-        await library.load()
+        await library.delete(current)
     }
 
     // MARK: - Header

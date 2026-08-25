@@ -167,10 +167,34 @@ final class NotificationsStore {
 
     var unreadCount: Int { rows.filter { $0.readAt == nil }.count }
 
+    /// The kinds this app can actually show and open. The table also
+    /// carries marketplace kinds (order_*, review_delivered, sample_*, …)
+    /// for people using paid coaching on the web — those land in the bell
+    /// there, where tapping them goes somewhere. Here they would be a row
+    /// that does nothing, so they only come through with the marketplace.
+    private var kinds: [String] {
+        var list = [
+            "note", "match_ready", "match_failed", "upload_failed",
+            "reel_ready", "reel_failed", "coach_joined",
+        ]
+        if AppConfig.coachMarketplace {
+            list += [
+                "order_paid", "order_submitted", "order_accepted",
+                "order_declined", "clarification_requested",
+                "review_delivered", "followup_received", "order_completed",
+                "order_refunded", "sample_requested", "sample_responded",
+                "testimonial_left", "clarification_answered",
+                "sponsored_claimed",
+            ]
+        }
+        return list
+    }
+
     func load() async {
         let fetched: [NotificationRow]? = try? await supa
             .from("notifications")
             .select("id,kind,match_id,title,body,href,group_count,read_at,created_at")
+            .in("kind", values: kinds)
             .order("created_at", ascending: false)
             .limit(30)
             .execute().value
