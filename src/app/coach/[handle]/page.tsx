@@ -27,8 +27,29 @@ export async function generateMetadata({
   params: Promise<{ handle: string }>;
 }): Promise<Metadata> {
   const page = await loadCoachPage((await params).handle);
+  const title = page ? page.display_name : "Coach";
+  // The line a student reads in the link preview before deciding to tap.
+  // Headline first (it is written to be exactly this), bio as fallback.
+  const description =
+    page?.headline?.trim() ||
+    page?.bio?.trim().slice(0, 160) ||
+    "Match review by a real coach on PongLens.";
   return {
-    title: page ? page.display_name : "Coach",
+    title,
+    description,
+    // Without these, messengers show the root layout's generic PongLens
+    // card. The og image itself is the opengraph-image.tsx beside this
+    // file — Next wires the file into og:image per route.
+    openGraph: {
+      title: `${title} · PongLens`,
+      description,
+      type: "profile",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${title} · PongLens`,
+      description,
+    },
     robots: { index: false, follow: false },
   };
 }
