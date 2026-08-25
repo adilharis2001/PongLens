@@ -2,8 +2,11 @@ import {
   createBoundaryWalk,
   stepBoundaryWalk,
 } from "./gameScore.ts";
-import { effectivePad, type ClipPad } from "./clipEdit.ts";
+import { effectivePad } from "./clipEdit.ts";
 import type { Point } from "../../../lib/types.ts";
+
+/** What clipPad() returns — the pads a clip was actually cut with. */
+export type ClipPad = { pre: number; post: number };
 
 /**
  * The automatic highlight picker: which of a match's rallies make the cut

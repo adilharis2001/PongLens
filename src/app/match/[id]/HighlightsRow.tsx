@@ -4,10 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { clipUrlFor } from "@/app/starred/clipUrls";
 import type { Point } from "@/lib/types";
-import type { ClipPad } from "./clipEdit";
 import {
   HIGHLIGHT_BUDGETS_S,
   pickHighlights,
+  type ClipPad,
   type HighlightKind,
 } from "./highlights";
 import { TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";

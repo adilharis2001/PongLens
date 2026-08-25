@@ -3,7 +3,7 @@ import CryptoKit
 import SwiftUI
 import Supabase
 
-/// Sign in, three ways: a six-digit email code (the same email carries the
+/// Sign in, three ways: an eight-digit email code (the same email carries the
 /// web's magic link, so one template serves both apps), native Sign in with
 /// Apple, and the web's existing Google provider through a secure in-app
 /// auth session. The pasted-link path stays as a quiet fallback.
@@ -182,12 +182,12 @@ struct LoginScreen: View {
 
     private var codeEntry: some View {
         VStack(spacing: 12) {
-            Text("We emailed a six-digit code to \(email).")
+            Text("We emailed a code to \(email).")
                 .font(.plBody)
                 .foregroundStyle(PL.text300)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            TextField("6-digit code", text: $code)
+            TextField("8-digit code", text: $code)
                 .font(.system(size: 24, weight: .semibold))
                 .monospacedDigit()
                 .kerning(code.isEmpty ? 0 : 6)
@@ -207,9 +207,12 @@ struct LoginScreen: View {
                 )
                 .onAppear { codeFocused = true }
                 .onChange(of: code) { _, value in
-                    let digits = value.filter(\.isNumber).prefix(6)
+                    // Supabase mints EIGHT-digit codes for this project;
+                    // the field capped at six and auto-submitted the
+                    // truncation, so a real code could never be entered.
+                    let digits = value.filter(\.isNumber).prefix(8)
                     if String(digits) != value { code = String(digits) }
-                    if digits.count == 6, !verifying {
+                    if digits.count == 8, !verifying {
                         Task { await verifyCode() }
                     }
                 }
