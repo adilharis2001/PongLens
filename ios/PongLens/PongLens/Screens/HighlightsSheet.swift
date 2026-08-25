@@ -1,36 +1,31 @@
 import AVFoundation
 import SwiftUI
 
-/// The match's automatic highlights: what the picker chose, played as a
-/// tape, and the three cuts it can leave the app as.
+/// The match's automatic highlights: two cuts, watched full screen, shared
+/// from the player.
 ///
-/// Opened from the Tools row below Score Keeper. Nothing here re-decides
-/// anything: Core/Highlights.swift picks the rallies (the same rule the
-/// server renders with — the parity fixture keeps them honest), and the
-/// share actions go through the same render pipeline as every other
-/// vertical. The preview costs no render at all: it plays the rallies'
-/// existing clips back to back.
+/// The hierarchy (Adil, 2026-08-25): a SHORT highlight and a LONG one,
+/// each named with its own rally count so the two never blur together.
+/// Tapping one opens the full-screen tape — ClipPlayerView, the same
+/// player every clip surface uses, so pinch zoom, speed and their
+/// persistence arrive without being written twice. Sharing and saving
+/// live INSIDE the player, after watching, the same shape as sharing a
+/// single rally.
+///
+/// Nothing here re-decides anything: Core/Highlights.swift picks the
+/// rallies (parity-tested against the server's picker), and the share
+/// actions ride the same render pipeline as every other vertical.
 struct HighlightsSheet: View {
     let match: MatchRow
     /// The match's visible points in timeline order (model.visible).
     let points: [MatchPoint]
 
-    @Environment(\.dismiss) private var dismiss
-    @State private var model = StoryShareModel()
-    @State private var shareItem: URL?
-    /// The emergency switch (136); an unreadable row answers "on".
-    @State private var sharingOn = true
-    /// Which action row is working, so only it animates.
-    @State private var busyAction: String?
-    @State private var playStart: HighlightsPlayStart?
-    @AppStorage("shareShowNames") private var showNames = true
-    @AppStorage("shareShowScore") private var showScore = true
+    static var detentHeight: CGFloat { 330 }
+
+    @State private var playCut: HighlightCut?
 
     private var pad: ClipPad {
         clipPad(strictness: nil, stored: match.clipPads)
-    }
-    private var story: Highlights.Picks {
-        Highlights.pick(points, pad: pad, budgetS: Highlights.storyBudgetS)
     }
     private var reel: Highlights.Picks {
         Highlights.pick(points, pad: pad, budgetS: Highlights.reelBudgetS)
@@ -38,236 +33,79 @@ struct HighlightsSheet: View {
     private var long: Highlights.Picks {
         Highlights.pick(points, pad: pad, budgetS: Highlights.longBudgetS)
     }
+    /// The long cut earns its row only when it actually shows more.
+    private var longWorthIt: Bool {
+        long.totalS > reel.totalS + 1
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Highlights")
-                    .font(.plPageTitle)
-                    .tracking(-0.6)
-                    .foregroundStyle(PL.textBody)
-                    .padding(.bottom, 4)
-
-                if reel.points.isEmpty {
-                    Text("No rallies to pick from yet.")
-                        .font(.plBody)
-                        .foregroundStyle(PL.text500)
-                } else {
+        PLChooserSheet(title: "Highlights") {
+            if reel.points.isEmpty {
+                Text("No rallies to pick from yet.")
+                    .font(.plBody)
+                    .foregroundStyle(PL.text500)
+            } else {
+                PLChooserRow(
+                    icon: "play.fill",
+                    title: "Short highlight",
+                    detail: (Highlights.summary(reel) ?? "")
+                        + ". Your best rallies, inside a minute."
+                ) {
+                    playCut = HighlightCut(kind: .short)
+                }
+                if longWorthIt {
                     PLChooserRow(
                         icon: "play.fill",
-                        title: "Play the highlights",
-                        detail: Highlights.summary(reel) ?? ""
+                        title: "Long highlight",
+                        detail: (Highlights.summary(long) ?? "")
+                            + ". More of the match."
                     ) {
-                        playStart = HighlightsPlayStart(index: 0)
+                        playCut = HighlightCut(kind: .long)
                     }
-
-                    rallyList
-
-                    if sharingOn, !story.points.isEmpty,
-                       InstagramShare.isAvailable(.story) {
-                        PLChooserRow(
-                            icon: "camera.aperture",
-                            title: busyAction == "story"
-                                ? "Preparing…" : "Instagram Story",
-                            detail: busyAction == "story"
-                                ? model.progressLine : storyDetail,
-                            pending: model.busy && busyAction != "story",
-                            busy: busyAction == "story"
-                        ) {
-                            Task { await run("story", to: .story) }
-                        }
-                    }
-                    if sharingOn, InstagramShare.isAvailable(.reel) {
-                        PLChooserRow(
-                            icon: "camera.aperture",
-                            title: busyAction == "reel"
-                                ? "Preparing…" : "Instagram Reel",
-                            detail: busyAction == "reel"
-                                ? model.progressLine
-                                : "The same rallies as one vertical video. "
-                                    + "Opens Instagram ready to post.",
-                            pending: model.busy && busyAction != "reel",
-                            busy: busyAction == "reel"
-                        ) {
-                            Task { await run("reel", to: .reel) }
-                        }
-                    }
-                    PLChooserRow(
-                        icon: "square.and.arrow.down",
-                        title: busyAction == "save"
-                            ? "Preparing…" : "Save the video",
-                        detail: busyAction == "save"
-                            ? model.progressLine
-                            : "The highlights as one vertical video, "
-                                + "to save or send anywhere.",
-                        pending: model.busy && busyAction != "save",
-                        busy: busyAction == "save"
-                    ) {
-                        Task { await run("reel", to: nil, action: "save") }
-                    }
-                    if long.totalS > reel.totalS + 1 {
-                        PLChooserRow(
-                            icon: "square.and.arrow.down",
-                            title: busyAction == "long"
-                                ? "Preparing…" : "Save the long cut",
-                            detail: busyAction == "long"
-                                ? model.progressLine : longDetail,
-                            pending: model.busy && busyAction != "long",
-                            busy: busyAction == "long"
-                        ) {
-                            Task { await run("long", to: nil, action: "long") }
-                        }
-                    }
-
-                    Toggle("Include names", isOn: $showNames)
-                        .font(.plBody)
-                        .foregroundStyle(PL.text200)
-                        .tint(PL.cyan.opacity(0.5))
-                        .padding(.top, 4)
-                    Toggle("Include score", isOn: $showScore)
-                        .font(.plBody)
-                        .foregroundStyle(PL.text200)
-                        .tint(PL.cyan.opacity(0.5))
-                }
-
-                if let message = model.errorMessage {
-                    Text(message)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.dangerText)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 2)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
         }
-        .sheet(item: $shareItem) { url in
-            ActivityView(items: [url])
-                .presentationDetents([.medium])
-        }
-        .fullScreenCover(item: $playStart) { start in
+        .fullScreenCover(item: $playCut) { cut in
             HighlightsPlayerScreen(
-                match: match, picks: reel.points, index: start.index)
-        }
-        .task { sharingOn = await StoryShareModel.sharingEnabled() }
-    }
-
-    /// What the picker chose, named. Tapping a rally starts the tape there.
-    private var rallyList: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(reel.points.enumerated()), id: \.element.id) { i, p in
-                Button {
-                    playStart = HighlightsPlayStart(index: i)
-                } label: {
-                    HStack(spacing: 10) {
-                        Text("Point \(pointNumber(p))")
-                            .font(.plRowTitle)
-                            .monospacedDigit()
-                            .foregroundStyle(PL.text100)
-                        if p.starred {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 11))
-                                .foregroundStyle(PL.warningText)
-                        }
-                        Spacer()
-                        Text(rallyLength(p))
-                            .font(.plCaption)
-                            .monospacedDigit()
-                            .foregroundStyle(PL.text500)
-                        Image(systemName: "play.circle")
-                            .font(.system(size: 16))
-                            .foregroundStyle(PL.text400)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                if i < reel.points.count - 1 {
-                    Divider().overlay(PL.edge.opacity(0.6))
-                }
-            }
-        }
-        .background(PL.surface2.opacity(0.5),
-                    in: RoundedRectangle(cornerRadius: PL.rField,
-                                         style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                .strokeBorder(PL.edge, lineWidth: 1)
-        )
-    }
-
-    private var storyDetail: String {
-        let n = story.points.count
-        let s = Int(story.totalS.rounded())
-        return n == 1
-            ? "Your best rally, \(s) seconds. Opens Instagram ready to post."
-            : "Your best \(n) rallies, \(s) seconds. Opens Instagram ready to post."
-    }
-
-    private var longDetail: String {
-        let n = long.points.count
-        let s = Int(long.totalS.rounded())
-        return "\(n) rallies · \(String(format: "%d:%02d", s / 60, s % 60)). "
-            + "For anywhere that takes more than a minute."
-    }
-
-    /// The number the rest of the app calls this point: its position in
-    /// the match's visible list, not the worker's idx (which has gaps).
-    private func pointNumber(_ p: MatchPoint) -> Int {
-        (points.firstIndex { $0.id == p.id } ?? 0) + 1
-    }
-
-    private func rallyLength(_ p: MatchPoint) -> String {
-        guard let t0 = p.t0, let t1 = p.t1 else { return "" }
-        return "\(Int((t1 - t0).rounded()))s"
-    }
-
-    private func run(_ kind: String,
-                     to destination: InstagramShare.Destination?,
-                     action: String? = nil) async {
-        busyAction = action ?? kind
-        defer { busyAction = nil }
-        guard let url = await model.prepareAuto(
-            match: match, kind: kind,
-            showNames: showNames, showScore: showScore)
-        else { return }
-        if let destination {
-            do {
-                try InstagramShare.share(url, to: destination)
-                dismiss()
-            } catch {
-                model.errorMessage = error.localizedDescription
-            }
-        } else {
-            shareItem = url
+                match: match,
+                points: points,
+                kind: cut.kind,
+                picks: cut.kind == .short ? reel.points : long.points
+            )
         }
     }
 }
 
-struct HighlightsPlayStart: Identifiable {
-    let index: Int
-    var id: Int { index }
+struct HighlightCut: Identifiable {
+    enum Kind { case short, long }
+    let kind: Kind
+    var id: Bool { kind == .short }
 }
 
 // MARK: - The tape
 
-/// The picked rallies, played back to back — the StarredPlayerScreen
-/// shape over one match's picks, sharing ClipPlayerView so the pinch
-/// zoom and speed control arrive without being written twice.
+/// One cut, played back to back — ClipPlayerView over the picked rallies,
+/// with Share at the bottom once you have seen it.
 struct HighlightsPlayerScreen: View {
     let match: MatchRow
+    /// All visible points, for the picker the share sheet re-runs.
+    let points: [MatchPoint]
+    let kind: HighlightCut.Kind
     let picks: [MatchPoint]
-    @State var index: Int
 
     @Environment(\.dismiss) private var dismiss
+    @State private var index = 0
     @State private var player = AVPlayer()
     @State private var url: URL?
     @State private var failed = false
     @State private var loadSeq = 0
+    @State private var shareOpen = false
 
     private var point: MatchPoint? {
         picks.indices.contains(index) ? picks[index] : nil
+    }
+    private var title: String {
+        kind == .short ? "Short highlight" : "Long highlight"
     }
 
     var body: some View {
@@ -275,10 +113,11 @@ struct HighlightsPlayerScreen: View {
             PL.ink.ignoresSafeArea()
             if let point {
                 VStack(spacing: 0) {
-                    header(point)
+                    header
                     Spacer(minLength: 0)
                     picture(point)
                     Spacer(minLength: 0)
+                    bottomBar
                 }
             } else {
                 ProgressView().tint(PL.cyan)
@@ -286,12 +125,18 @@ struct HighlightsPlayerScreen: View {
         }
         .task(id: point?.id) { await load() }
         .onDisappear { player.pause() }
+        .sheet(isPresented: $shareOpen) {
+            HighlightsShareSheet(match: match, points: points, kind: kind)
+                .presentationDetents([.height(HighlightsShareSheet.detentHeight(kind))])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
     }
 
-    private func header(_ point: MatchPoint) -> some View {
+    private var header: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Highlights")
+                Text(title)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(PL.text100)
                 Text("\(index + 1) of \(picks.count)")
@@ -358,6 +203,16 @@ struct HighlightsPlayerScreen: View {
         }
     }
 
+    private var bottomBar: some View {
+        Button("Share") {
+            player.pause()
+            shareOpen = true
+        }
+        .buttonStyle(PLSecondaryButtonStyle())
+        .padding(.top, 18)
+        .padding(.bottom, 8)
+    }
+
     private func go(_ next: Int) {
         guard picks.indices.contains(next) else { return }
         index = next
@@ -384,6 +239,139 @@ struct HighlightsPlayerScreen: View {
         // a round trip, so the round trip happens during the rally before.
         if let next = picks[safe: index + 1], next.hasClip {
             _ = await ClipLinks.url(matchId: match.id, pointId: next.id)
+        }
+    }
+}
+
+// MARK: - Sharing a cut
+
+/// What Share offers for the cut being watched — the SharePointSheet
+/// shape, applied to a highlight. The short cut can leave for Instagram;
+/// the long one runs past Instagram's minute and is for saving.
+struct HighlightsShareSheet: View {
+    let match: MatchRow
+    let points: [MatchPoint]
+    let kind: HighlightCut.Kind
+
+    static func detentHeight(_ kind: HighlightCut.Kind) -> CGFloat {
+        kind == .short && InstagramShare.isAvailable(.reel) ? 470 : 330
+    }
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var model = StoryShareModel()
+    @State private var shareItem: URL?
+    /// The emergency switch (136); an unreadable row answers "on".
+    @State private var sharingOn = true
+    /// Which row is working, so only it animates.
+    @State private var busyAction: String?
+    @AppStorage("shareShowNames") private var showNames = true
+    @AppStorage("shareShowScore") private var showScore = true
+
+    private var story: Highlights.Picks {
+        Highlights.pick(points,
+                        pad: clipPad(strictness: nil, stored: match.clipPads),
+                        budgetS: Highlights.storyBudgetS)
+    }
+
+    var body: some View {
+        PLChooserSheet(title: "Share this highlight") {
+            if kind == .short {
+                if sharingOn, !story.points.isEmpty,
+                   InstagramShare.isAvailable(.story) {
+                    PLChooserRow(
+                        icon: "camera.aperture",
+                        title: busyAction == "story"
+                            ? "Preparing…" : "Instagram Story",
+                        detail: busyAction == "story"
+                            ? model.progressLine : storyDetail,
+                        pending: model.busy && busyAction != "story",
+                        busy: busyAction == "story"
+                    ) {
+                        Task { await run("story", to: .story) }
+                    }
+                }
+                if sharingOn, InstagramShare.isAvailable(.reel) {
+                    PLChooserRow(
+                        icon: "camera.aperture",
+                        title: busyAction == "reel"
+                            ? "Preparing…" : "Instagram Reel",
+                        detail: busyAction == "reel"
+                            ? model.progressLine
+                            : "This highlight as one vertical video. "
+                                + "Opens Instagram ready to post.",
+                        pending: model.busy && busyAction != "reel",
+                        busy: busyAction == "reel"
+                    ) {
+                        Task { await run("reel", to: .reel) }
+                    }
+                }
+            }
+            PLChooserRow(
+                icon: "square.and.arrow.down",
+                title: busyAction == "save"
+                    ? "Preparing…" : "Save the video",
+                detail: busyAction == "save"
+                    ? model.progressLine
+                    : "This highlight as one vertical video, "
+                        + "to save or send anywhere.",
+                pending: model.busy && busyAction != "save",
+                busy: busyAction == "save"
+            ) {
+                Task { await run(kind == .short ? "reel" : "long",
+                                 to: nil, action: "save") }
+            }
+
+            Toggle("Include names", isOn: $showNames)
+                .font(.plBody)
+                .foregroundStyle(PL.text200)
+                .tint(PL.cyan.opacity(0.5))
+                .padding(.top, 4)
+            Toggle("Include score", isOn: $showScore)
+                .font(.plBody)
+                .foregroundStyle(PL.text200)
+                .tint(PL.cyan.opacity(0.5))
+
+            if let message = model.errorMessage {
+                Text(message)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.dangerText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+            }
+        }
+        .sheet(item: $shareItem) { url in
+            ActivityView(items: [url])
+                .presentationDetents([.medium])
+        }
+        .task { sharingOn = await StoryShareModel.sharingEnabled() }
+    }
+
+    private var storyDetail: String {
+        let n = story.points.count
+        let s = Int(story.totalS.rounded())
+        return n == 1
+            ? "Your best rally, \(s) seconds. Opens Instagram ready to post."
+            : "Your best \(n) rallies, \(s) seconds. Opens Instagram ready to post."
+    }
+
+    private func run(_ apiKind: String,
+                     to destination: InstagramShare.Destination?,
+                     action: String? = nil) async {
+        busyAction = action ?? apiKind
+        defer { busyAction = nil }
+        guard let url = await model.prepareAuto(
+            match: match, kind: apiKind,
+            showNames: showNames, showScore: showScore)
+        else { return }
+        if let destination {
+            do {
+                try InstagramShare.share(url, to: destination)
+                dismiss()
+            } catch {
+                model.errorMessage = error.localizedDescription
+            }
+        } else {
+            shareItem = url
         }
     }
 }

@@ -15,23 +15,19 @@ import { TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 /**
  * The Tools row for the automatic highlights, and the overlay it opens.
  *
- * The row sits below Score Keeper and reads "5 rallies · 0:48" — the reel
- * cut, the flagship of the three. The overlay plays the picked rallies'
- * existing preview clips back to back (no render, no waiting) and offers
- * the three rendered cuts as downloads: the Story cut (20s), the Reel cut
- * (60s) and the long cut (120s — for anywhere that takes more than a
- * minute; the Instagram handover itself is an app-only thing).
+ * Two cuts, each named with its own rally count (the hierarchy Adil set,
+ * 2026-08-25): the SHORT highlight, sized for Instagram's minute, and the
+ * LONG one, up to two. The overlay plays whichever is selected using the
+ * rallies' existing preview clips — no render, no waiting — and offers
+ * the watched cut as a download, rendered through the same pipeline as
+ * every vertical share.
  *
  * Which rallies is decided by highlights.ts — the same picker the API
  * renders with and the phone previews with, so all three surfaces name
  * the same rallies.
  */
 
-const cutLabel: Record<HighlightKind, string> = {
-  story: "Story cut",
-  reel: "Reel cut",
-  long: "Long cut",
-};
+type Cut = "short" | "long";
 
 type CutState =
   | { step: "idle" }
@@ -50,13 +46,13 @@ export function HighlightsRow({
   const [open, setOpen] = useState(false);
   const [sharingOn, setSharingOn] = useState(true);
 
-  const reel = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.reel);
-  const story = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.story);
+  const short = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.reel);
   const long = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.long);
+  const longWorthIt = long.totalS > short.totalS + 1;
 
   useEffect(() => {
     // The emergency switch (136). Fails open: only a stored 'off' hides
-    // the rendered cuts — and never the playback, which needs no render.
+    // the rendered downloads — and never the playback, which needs none.
     const supabase = createClient();
     supabase
       .from("app_config")
@@ -69,8 +65,8 @@ export function HighlightsRow({
   }, []);
 
   const summary =
-    reel.picks.length > 0
-      ? `${reel.picks.length} ${reel.picks.length === 1 ? "rally" : "rallies"} · ${clock(reel.totalS)}`
+    short.picks.length > 0
+      ? `${short.picks.length} ${short.picks.length === 1 ? "rally" : "rallies"} · ${clock(short.totalS)}`
       : "No rallies yet";
 
   return (
@@ -88,16 +84,14 @@ export function HighlightsRow({
           <ToolRowChevron />
         </span>
       </button>
-      {open && (
+      {open && short.picks.length > 0 && (
         <HighlightsOverlay
           matchId={matchId}
-          allPoints={points}
-          picks={reel.picks}
           cuts={{
-            story: { n: story.picks.length, s: story.totalS },
-            reel: { n: reel.picks.length, s: reel.totalS },
-            long: { n: long.picks.length, s: long.totalS },
+            short: { picks: short.picks, totalS: short.totalS },
+            long: { picks: long.picks, totalS: long.totalS },
           }}
+          longWorthIt={longWorthIt}
           sharingOn={sharingOn}
           onClose={() => setOpen(false)}
         />
@@ -113,19 +107,18 @@ function clock(seconds: number) {
 
 function HighlightsOverlay({
   matchId,
-  allPoints,
-  picks,
   cuts,
+  longWorthIt,
   sharingOn,
   onClose,
 }: {
   matchId: string;
-  allPoints: Point[];
-  picks: Point[];
-  cuts: Record<HighlightKind, { n: number; s: number }>;
+  cuts: Record<Cut, { picks: Point[]; totalS: number }>;
+  longWorthIt: boolean;
   sharingOn: boolean;
   onClose: () => void;
 }) {
+  const [cut, setCut] = useState<Cut>("short");
   const [index, setIndex] = useState(0);
   const [src, setSrc] = useState<string | null>(null);
   const [showNames, setShowNames] = useState(
@@ -134,14 +127,10 @@ function HighlightsOverlay({
   const [showScore, setShowScore] = useState(
     () => localStorage.getItem("shareShowScore") !== "false"
   );
-  const [cutStates, setCutStates] = useState<Record<HighlightKind, CutState>>({
-    story: { step: "idle" },
-    reel: { step: "idle" },
-    long: { step: "idle" },
-  });
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const [state, setState] = useState<CutState>({ step: "idle" });
   const seq = useRef(0);
 
+  const picks = cuts[cut].picks;
   const point = picks[index];
 
   useEffect(() => {
@@ -161,86 +150,101 @@ function HighlightsOverlay({
     setIndex((i) => Math.min(i + 1, picks.length - 1));
   }, [picks.length]);
 
-  const requestCut = useCallback(
-    async (kind: HighlightKind) => {
-      setCutStates((s) => ({ ...s, [kind]: { step: "rendering" } }));
-      const body = JSON.stringify({
-        matchId,
-        highlight: kind,
-        showScore,
-        showNames,
-      });
-      const deadline = Date.now() + (kind === "long" ? 240 : 180) * 1000;
-      try {
-        for (;;) {
-          const res = await fetch("/api/reel", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body,
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            throw new Error(data.error ?? "Couldn't prepare the video.");
-          }
-          if (data.status === "ready") break;
-          if (Date.now() > deadline) {
-            throw new Error("That took too long. Try again in a minute.");
-          }
-          await new Promise((r) => setTimeout(r, 1500));
-        }
-        const media = await fetch("/api/media-url", {
+  const switchCut = useCallback((next: Cut) => {
+    setCut(next);
+    setIndex(0);
+  }, []);
+
+  const download = useCallback(async () => {
+    const kind: HighlightKind = cut === "short" ? "reel" : "long";
+    setState({ step: "rendering" });
+    const body = JSON.stringify({
+      matchId,
+      highlight: kind,
+      showScore,
+      showNames,
+    });
+    const deadline = Date.now() + (kind === "long" ? 240 : 180) * 1000;
+    try {
+      for (;;) {
+        const res = await fetch("/api/reel", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            matchId,
-            reel: true,
-            download: true,
-            scope: `v:hl:${kind}`,
-          }),
+          body,
         });
-        const { url } = await media.json();
-        if (!url) throw new Error("Couldn't prepare the video. Try again.");
-        window.location.assign(url);
-        setCutStates((s) => ({ ...s, [kind]: { step: "idle" } }));
-      } catch (e) {
-        setCutStates((s) => ({
-          ...s,
-          [kind]: {
-            step: "failed",
-            message:
-              e instanceof Error ? e.message : "Couldn't prepare the video.",
-          },
-        }));
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error ?? "Couldn't prepare the video.");
+        }
+        if (data.status === "ready") break;
+        if (Date.now() > deadline) {
+          throw new Error("That took too long. Try again in a minute.");
+        }
+        await new Promise((r) => setTimeout(r, 1500));
       }
-    },
-    [matchId, showNames, showScore]
-  );
-
-  const anyRendering = Object.values(cutStates).some(
-    (s) => s.step === "rendering"
-  );
-  const failure = Object.values(cutStates).find((s) => s.step === "failed");
+      const media = await fetch("/api/media-url", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          matchId,
+          reel: true,
+          download: true,
+          scope: `v:hl:${kind}`,
+        }),
+      });
+      const { url } = await media.json();
+      if (!url) throw new Error("Couldn't prepare the video. Try again.");
+      window.location.assign(url);
+      setState({ step: "idle" });
+    } catch (e) {
+      setState({
+        step: "failed",
+        message:
+          e instanceof Error ? e.message : "Couldn't prepare the video.",
+      });
+    }
+  }, [cut, matchId, showNames, showScore]);
 
   if (!point) return null;
-  const pointNo = allPoints.findIndex((p) => p.id === point.id) + 1;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-ink/95 backdrop-blur-sm">
       <div className="flex items-start justify-between px-5 pb-3 pt-5">
         <div>
-          <div className="text-sm font-semibold text-zinc-100">Highlights</div>
+          <div className="text-sm font-semibold text-zinc-100">
+            {cut === "short" ? "Short highlight" : "Long highlight"}
+          </div>
           <div className="text-xs tabular-nums text-zinc-500">
-            {index + 1} of {picks.length} · Point {pointNo}
-            {point.starred ? " ★" : ""}
+            {index + 1} of {picks.length}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-full border border-edge bg-surface px-4 py-1.5 text-sm text-zinc-300 hover:text-zinc-100"
-        >
-          Close
-        </button>
+        <div className="flex items-center gap-2">
+          {longWorthIt && (
+            <div className="flex overflow-hidden rounded-full border border-edge bg-surface text-xs">
+              {(["short", "long"] as Cut[]).map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => switchCut(c)}
+                  className={`px-3 py-1.5 tabular-nums ${
+                    cut === c
+                      ? "bg-cyan-400/15 text-cyan-200"
+                      : "text-zinc-400 hover:text-zinc-200"
+                  }`}
+                >
+                  {c === "short" ? "Short" : "Long"} · {clock(cuts[c].totalS)}
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-edge bg-surface px-4 py-1.5 text-sm text-zinc-300 hover:text-zinc-100"
+          >
+            Close
+          </button>
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 items-center justify-center px-3">
@@ -250,7 +254,6 @@ function HighlightsOverlay({
           <div className="overflow-hidden rounded-2xl border border-edge bg-black">
             {src ? (
               <video
-                ref={videoRef}
                 key={src}
                 src={src}
                 className="aspect-video w-full"
@@ -269,7 +272,7 @@ function HighlightsOverlay({
       </div>
 
       <div className="mx-auto w-full max-w-4xl px-5 pb-6 pt-4">
-        <div className="flex items-center justify-center gap-3">
+        <div className="flex flex-wrap items-center justify-center gap-3">
           <button
             type="button"
             onClick={() => setIndex((i) => Math.max(0, i - 1))}
@@ -286,28 +289,19 @@ function HighlightsOverlay({
           >
             Next
           </button>
+          {sharingOn && (
+            <button
+              type="button"
+              onClick={download}
+              disabled={state.step === "rendering"}
+              className="rounded-full border border-edge bg-surface px-4 py-1.5 text-sm text-zinc-200 hover:border-zinc-500 disabled:opacity-40"
+            >
+              {state.step === "rendering"
+                ? "Rendering…"
+                : `Download this cut (${clock(cuts[cut].totalS)})`}
+            </button>
+          )}
         </div>
-
-        {sharingOn && (
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
-            {(Object.keys(cutLabel) as HighlightKind[]).map((kind) =>
-              cuts[kind].n > 0 &&
-              (kind !== "long" || cuts.long.s > cuts.reel.s + 1) ? (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={() => requestCut(kind)}
-                  disabled={anyRendering}
-                  className="rounded-full border border-edge bg-surface px-4 py-1.5 text-sm text-zinc-200 hover:border-zinc-500 disabled:opacity-40"
-                >
-                  {cutStates[kind].step === "rendering"
-                    ? "Rendering…"
-                    : `Download the ${cutLabel[kind]} (${clock(cuts[kind].s)})`}
-                </button>
-              ) : null
-            )}
-          </div>
-        )}
         {sharingOn && (
           <div className="mt-3 flex items-center justify-center gap-5 text-sm text-zinc-400">
             <label className="flex items-center gap-2">
@@ -342,9 +336,9 @@ function HighlightsOverlay({
             </label>
           </div>
         )}
-        {failure && failure.step === "failed" && (
+        {state.step === "failed" && (
           <p className="mt-3 text-center text-sm text-amber-300/90">
-            {failure.message}
+            {state.message}
           </p>
         )}
       </div>
