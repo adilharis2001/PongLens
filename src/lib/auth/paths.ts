@@ -57,6 +57,35 @@ export function buildEmailConfirmRedirect(
   return `${canonicalOrigin(origin)}/auth/confirm?next=${encodeURIComponent(safeNextPath(next))}`;
 }
 
+/**
+ * Repair the malformed confirm link the iOS app's sign-in emails carried.
+ *
+ * The auth email templates build their link as
+ * `{{ .RedirectTo }}&token_hash=...`, which assumes RedirectTo already
+ * carries a query string. The web always sends `/auth/confirm?next=...`,
+ * so appending `&` is right there — but the app sent a bare
+ * `/auth/confirm`, and every email it requested came out as
+ * `/auth/confirm&token_hash=...`: one path segment, no query at all. The
+ * email's button 404'd and the app's paste fallback refused it, which a
+ * tester reported as "paste never works".
+ *
+ * The app now sends a proper query, but emails already delivered and
+ * builds already installed keep minting the malformed shape, so the site
+ * meets them halfway: turn the first `&` back into the `?` it was meant
+ * to be. Anything after it is passed through untouched for
+ * /auth/confirm's own validation to judge.
+ */
+export function repairAuthConfirmPath(
+  pathname: string,
+): { pathname: string; search: string } | null {
+  const marker = "/auth/confirm&";
+  if (!pathname.startsWith(marker)) return null;
+  return {
+    pathname: "/auth/confirm",
+    search: `?${pathname.slice(marker.length)}`,
+  };
+}
+
 export function loginPathForDestination(destination: string): string {
   return `/login?next=${encodeURIComponent(safeNextPath(destination))}`;
 }

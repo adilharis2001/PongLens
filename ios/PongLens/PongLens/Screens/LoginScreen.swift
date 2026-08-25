@@ -6,7 +6,13 @@ import Supabase
 /// Sign in, three ways: an eight-digit email code (the same email carries the
 /// web's magic link, so one template serves both apps), native Sign in with
 /// Apple, and the web's existing Google provider through a secure in-app
-/// auth session. The pasted-link path stays as a quiet fallback.
+/// auth session.
+///
+/// There used to be a fourth, a paste-the-link fallback. It predates the
+/// code appearing in every auth email and earned its keep only while the
+/// Confirm signup template lacked a code; once that was fixed the field
+/// mostly confused people, and the malformed redirect below meant the
+/// link it asked for was broken in exactly the emails this screen sends.
 struct LoginScreen: View {
     @State private var email = ""
     @State private var sending = false
@@ -14,8 +20,6 @@ struct LoginScreen: View {
     @State private var errorMessage: String?
     @State private var code = ""
     @State private var verifying = false
-    @State private var pasteFallbackOpen = false
-    @State private var pastedLink = ""
     @State private var appleNonce: String?
     @State private var appeared = false
     @FocusState private var emailFocused: Bool
@@ -232,36 +236,15 @@ struct LoginScreen: View {
             .disabled(verifying || code.count < 6)
             .opacity(verifying || code.count < 6 ? 0.6 : 1)
 
-            HStack(spacing: 16) {
-                Button("Use a different email") {
-                    sent = false
-                    code = ""
-                    errorMessage = nil
-                }
-                .font(.plCaption)
-                .foregroundStyle(PL.text500)
-                .buttonStyle(.plain)
-
-                Button("Paste the link instead") {
-                    pasteFallbackOpen.toggle()
-                }
-                .font(.plCaption)
-                .foregroundStyle(PL.text500)
-                .buttonStyle(.plain)
+            Button("Use a different email") {
+                sent = false
+                code = ""
+                errorMessage = nil
             }
+            .font(.plCaption)
+            .foregroundStyle(PL.text500)
+            .buttonStyle(.plain)
             .padding(.top, 2)
-
-            if pasteFallbackOpen {
-                TextField("Paste the sign-in link", text: $pastedLink)
-                    .plField()
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button(verifying ? "Signing in…" : "Sign in with the link") {
-                    Task { await verifyPastedLink() }
-                }
-                .buttonStyle(PLSecondaryButtonStyle())
-                .disabled(verifying || pastedLink.isEmpty)
-            }
         }
     }
 
@@ -269,9 +252,16 @@ struct LoginScreen: View {
         sending = true
         errorMessage = nil
         do {
+            // The email template appends "&token_hash=..." to this URL,
+            // which assumes it already carries a query — the web always
+            // sends ?next=.... A bare /auth/confirm here made every
+            // app-requested email's link malformed: the button 404'd on
+            // the site (the web now repairs that shape in middleware, but
+            // this stops minting it).
             try await supa.auth.signInWithOTP(
                 email: email.trimmingCharacters(in: .whitespaces),
-                redirectTo: AppConfig.apiBase.appendingPathComponent("auth/confirm")
+                redirectTo: URL(string:
+                    "\(AppConfig.apiBase.absoluteString)/auth/confirm?next=%2Fdashboard")!
             )
             sent = true
         } catch {
@@ -326,27 +316,6 @@ struct LoginScreen: View {
 
     /// Fallback: the emailed link still signs in, pasted whole. Links are
     /// single-use — tapping one in Mail spends it in Safari.
-    private func verifyPastedLink() async {
-        verifying = true
-        errorMessage = nil
-        let raw = pastedLink.trimmingCharacters(in: .whitespacesAndNewlines)
-        let tokenHash: String? =
-            URLComponents(string: raw)?.queryItems?
-                .first(where: { $0.name == "token_hash" })?.value
-            ?? (raw.contains("://") ? nil : raw)
-        guard let tokenHash, !tokenHash.isEmpty else {
-            errorMessage = "That doesn't look like a sign-in link."
-            verifying = false
-            return
-        }
-        do {
-            try await supa.auth.verifyOTP(tokenHash: tokenHash, type: .email)
-        } catch {
-            errorMessage = "That link didn't work. Links are single-use, and tapping one in Mail spends it. Send a fresh code instead."
-        }
-        verifying = false
-    }
-
     // MARK: - Apple
 
     private func handleApple(_ result: Result<ASAuthorization, Error>) async {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  repairAuthConfirmPath,
   buildEmailConfirmRedirect,
   canonicalOrigin,
   isProtectedAppPath,
@@ -84,4 +85,24 @@ test("loginErrorMessage explains an expired email link", () => {
     "That sign-in link is invalid or has expired. Request a new one below.",
   );
   assert.equal(loginErrorMessage(undefined), null);
+});
+
+test("a malformed app email link is repaired into a real query", () => {
+  // The exact shape every app-requested email carried: RedirectTo had no
+  // query, so the template's "&token_hash" landed inside the path.
+  assert.deepEqual(
+    repairAuthConfirmPath("/auth/confirm&token_hash=abc123&type=email"),
+    { pathname: "/auth/confirm", search: "?token_hash=abc123&type=email" },
+  );
+});
+
+test("well-formed and unrelated paths are left alone", () => {
+  // A correct link never enters the repair: token_hash rides the query,
+  // so the pathname is exactly /auth/confirm.
+  assert.equal(repairAuthConfirmPath("/auth/confirm"), null);
+  assert.equal(repairAuthConfirmPath("/auth/callback"), null);
+  assert.equal(repairAuthConfirmPath("/match/abc"), null);
+  // A path that merely shares the prefix without the "&" is not ours to
+  // touch either.
+  assert.equal(repairAuthConfirmPath("/auth/confirmation"), null);
 });
