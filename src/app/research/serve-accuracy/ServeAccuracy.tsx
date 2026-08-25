@@ -127,24 +127,34 @@ const LEGEND: {
  * The filters, the counts and the row all ask this, so they cannot drift
  * apart on which rule won an argument.
  */
-function ruleVerdict(row: ServeAccuracyRow): "user" | "opponent" | null {
+type Corners = ServeAccuracyMatch["corners"];
+
+function ruleVerdict(
+  row: ServeAccuracyRow,
+  corners: Corners,
+): "user" | "opponent" | null {
   const loser =
     deadRunLoser(findDeadRuns(row.events), row.userPhysicalSide)
-    ?? offTableLoser(findOffTable(row.events), row.userPhysicalSide);
+    ?? offTableLoser(
+      findOffTable(row.events, corners ? { corners } : null),
+      row.userPhysicalSide,
+    );
   if (loser === null) return null;
   return loser === "user" ? "opponent" : "user";
 }
 
 /** Fired, the point is scored, and it named the wrong player. */
-function ruleIsWrong(row: ServeAccuracyRow): boolean {
-  const verdict = ruleVerdict(row);
+function ruleIsWrong(row: ServeAccuracyRow, corners: Corners): boolean {
+  const verdict = ruleVerdict(row, corners);
   return verdict !== null && row.winner !== null && verdict !== row.winner;
 }
 
 /** The off-table read found something and then refused to call it. */
-function ruleHeldBack(row: ServeAccuracyRow): boolean {
-  if (ruleVerdict(row) !== null) return false;
-  return offTableWithheld(findOffTable(row.events)) !== null;
+function ruleHeldBack(row: ServeAccuracyRow, corners: Corners): boolean {
+  if (ruleVerdict(row, corners) !== null) return false;
+  return offTableWithheld(
+    findOffTable(row.events, corners ? { corners } : null),
+  ) !== null;
 }
 
 function Legend() {
@@ -410,7 +420,7 @@ const TW = 118;
 const TH = 202;
 
 /** Every touch that projected onto the table, in the map's own frame. */
-function Court({ row }: { row: ServeAccuracyRow }) {
+function Court({ row, corners }: { row: ServeAccuracyRow; corners: Corners }) {
   const xy = (u: number, v: number) => ({
     x: TX + (TW * u) / TABLE_W_M,
     y: TY + TH * (1 - v / TABLE_L_M),
@@ -492,7 +502,7 @@ function Court({ row }: { row: ServeAccuracyRow }) {
         />
       )}
       {(() => {
-        const call = findOffTable(row.events);
+        const call = findOffTable(row.events, corners ? { corners } : null);
         if (!call || !call.trusted) return null;
         const e = call.lastLanding;
         if (e.nu === null || e.nv === null) return null;
@@ -620,7 +630,10 @@ function Row({
     : null;
   const deadRuns = findDeadRuns(row.events);
   const runLoser = deadRunLoser(deadRuns, row.userPhysicalSide);
-  const offTable = findOffTable(row.events);
+  const offTable = findOffTable(
+    row.events,
+    match.corners ? { corners: match.corners } : null,
+  );
   const offLoser = offTableLoser(offTable, row.userPhysicalSide);
   const offVerdict =
     offLoser === null ? null : offLoser === "user" ? "opponent" : "user";
@@ -675,7 +688,7 @@ function Row({
             </button>
           )}
         </div>
-        <Court row={row} />
+        <Court row={row} corners={match.corners} />
       </div>
 
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
@@ -752,7 +765,8 @@ function Row({
               ? "none on the table"
               : `${offTable.struckBy === row.userPhysicalSide ? "your" : "their"} half`
                 + `, ${offTable.shotsAfter} shot`
-                + `${offTable.shotsAfter === 1 ? "" : "s"} after`}
+                + `${offTable.shotsAfter === 1 ? "" : "s"} after`
+                + (offTable.endedBy ? " · floor bounce seen" : "")}
           </dd>
         </div>
         <div>
@@ -763,9 +777,12 @@ function Row({
                 : offAgrees ? "text-emerald-300" : "text-amber-300"
             }
           >
-            {offVerdict !== null
+            {offVerdict !== null && offTable !== null
               ? `${offVerdict === "user" ? "you" : opponent} won · `
-                + `${offVerdict === "user" ? opponent : "you"} missed the table`
+                + `${offVerdict === "user" ? opponent : "you"} `
+                + (offTable.via === "unreturned"
+                  ? "never returned it"
+                  : "missed the table")
               : withheld === null ? "no call" : `held back — ${withheld}`}
           </dd>
         </div>
@@ -808,9 +825,12 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             : only === "refused" ? r.serve === null
               : only === "deadrun" ? findDeadRuns(r.events).length > 0
                 : only === "offtable"
-                  ? offTableLoser(findOffTable(r.events), r.userPhysicalSide) !== null
-                  : only === "wrong" ? ruleIsWrong(r)
-                    : only === "heldback" ? ruleHeldBack(r)
+                  ? offTableLoser(
+                      findOffTable(r.events, match.corners ? { corners: match.corners } : null),
+                      r.userPhysicalSide,
+                    ) !== null
+                  : only === "wrong" ? ruleIsWrong(r, match.corners)
+                    : only === "heldback" ? ruleHeldBack(r, match.corners)
                       : r.winner !== null
                         && r.computed?.winner != null
                         && r.computed.winner !== r.winner,
@@ -824,23 +844,29 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   );
   const withOffTable = useMemo(
     () => match.rows.filter(
-      (r) => offTableLoser(findOffTable(r.events), r.userPhysicalSide) !== null,
+      (r) => offTableLoser(
+        findOffTable(r.events, match.corners ? { corners: match.corners } : null),
+        r.userPhysicalSide,
+      ) !== null,
     ).length,
     [match],
   );
   const ruleWrong = useMemo(
-    () => match.rows.filter(ruleIsWrong).length,
+    () => match.rows.filter((r) => ruleIsWrong(r, match.corners)).length,
     [match],
   );
   const heldBack = useMemo(
-    () => match.rows.filter(ruleHeldBack).length,
+    () => match.rows.filter((r) => ruleHeldBack(r, match.corners)).length,
     [match],
   );
   // How the off-table rule scores against the pad, on the points it fires.
   const offScore = useMemo(() => {
     let fires = 0, right = 0, workerRight = 0;
     for (const r of match.rows) {
-      const loser = offTableLoser(findOffTable(r.events), r.userPhysicalSide);
+      const loser = offTableLoser(
+        findOffTable(r.events, match.corners ? { corners: match.corners } : null),
+        r.userPhysicalSide,
+      );
       if (loser === null || r.winner === null) continue;
       fires += 1;
       if ((loser === "user" ? "opponent" : "user") === r.winner) right += 1;
