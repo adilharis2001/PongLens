@@ -165,7 +165,7 @@ struct PointDetailScreen: View {
         }
         .sheet(isPresented: $shareSheetOpen) {
             if let point {
-                SharePointSheet(match: match, point: point, pad: pad)
+                SharePointSheet(match: match, point: point, pad: pad, points: points)
                 .presentationDetents([.height(SharePointSheet.detentHeight)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)

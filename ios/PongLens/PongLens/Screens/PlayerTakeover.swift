@@ -471,7 +471,7 @@ struct PlayerTakeover: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(item: $sharePoint) { point in
-            SharePointSheet(match: match, point: point, pad: pad)
+            SharePointSheet(match: match, point: point, pad: pad, points: points)
                 .presentationDetents([.height(SharePointSheet.detentHeight)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)

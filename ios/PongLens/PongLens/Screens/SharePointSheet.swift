@@ -16,6 +16,11 @@ struct SharePointSheet: View {
     let match: MatchRow
     let point: MatchPoint
     let pad: ClipPad
+    /// The match's visible points in timeline order. Only the on-device
+    /// renderer needs them, to work out the score entering this rally the
+    /// same way /api/reel does — through computeMatchScore, the walk the
+    /// match page already draws from, so this adds no third copy.
+    var points: [MatchPoint] = []
 
     /// How tall to present this sheet.
     ///
@@ -118,9 +123,9 @@ struct SharePointSheet: View {
     /// destination nil = hand the finished file to the system share sheet
     /// instead of to Instagram.
     private func runShare(to destination: InstagramShare.Destination?) async {
-        guard let url = await model.prepare(match: match, point: point) else {
-            return
-        }
+        guard let url = await model.prepare(
+            match: match, point: point, points: points, pad: pad)
+        else { return }
         if let destination {
             do {
                 try InstagramShare.share(url, to: destination)
@@ -181,12 +186,42 @@ final class StoryShareModel {
     private let pollInterval = Duration.milliseconds(1200)
     private let deadline: Duration = .seconds(90)
 
-    func prepare(match: MatchRow, point: MatchPoint) async -> URL? {
+    /// Which renderer runs, from app_config.instagram_render (136).
+    /// Unreadable or unset answers "server", the path that has been through
+    /// a real device.
+    private func renderPath() async -> String {
+        struct Row: Decodable { let key: String; let value: String }
+        let rows: [Row]? = try? await supa
+            .from("app_config")
+            .select("key,value")
+            .eq("key", value: "instagram_render")
+            .execute()
+            .value
+        return rows?.first?.value == "device" ? "device" : "server"
+    }
+
+    func prepare(match: MatchRow, point: MatchPoint,
+                 points: [MatchPoint], pad: ClipPad) async -> URL? {
         guard !busy else { return nil }
         busy = true
         errorMessage = nil
         progressLine = "This takes a few seconds."
         defer { busy = false }
+
+        // On-device first when it is selected, but never as a one-way door.
+        // The server path is the one that has been through a real handset
+        // and out to Instagram; if the phone cannot do it — an older chip
+        // refusing the composition, a cut video that will not range-read,
+        // anything unforeseen — the share still goes out, just slower.
+        // Worst case is the old speed, never a broken button.
+        if await renderPath() == "device" {
+            if let local = await prepareOnDevice(
+                match: match, point: point, points: points, pad: pad) {
+                return local
+            }
+            errorMessage = nil
+            progressLine = "Taking a little longer."
+        }
 
         let matchId = match.id.uuidString.lowercased()
         let pointId = point.id.uuidString.lowercased()
@@ -232,6 +267,104 @@ final class StoryShareModel {
             return try await download(link, named: "PongLens-\(pointId).mp4")
         } catch {
             errorMessage = friendly(error)
+            return nil
+        }
+    }
+
+    // MARK: - On device
+    //
+    // The same clip, built here instead of on the Mac. Nothing about the
+    // FRAME is decided locally: the crop window was worked out on the
+    // server from the table quad and stored on the match row, and the score
+    // comes from the walk the match page already uses.
+
+    private func prepareOnDevice(match: MatchRow, point: MatchPoint,
+                                 points: [MatchPoint],
+                                 pad: ClipPad) async -> URL? {
+        let matchId = match.id.uuidString.lowercased()
+        progressLine = "Building it here."
+
+        // The cut video's signed URL, and the crop window, together — the
+        // renderer range-reads the video rather than downloading it.
+        struct CutReq: Encodable {
+            let matchId: String
+            let preview: Bool
+        }
+        struct CutRes: Decodable { let url: String? }
+        // The names live on the match row but not on MatchRow — the app has
+        // never needed them. Read here rather than widening the shared
+        // model, so this feature touches nothing anyone else is editing.
+        struct MatchBits: Decodable {
+            let story_crop: StoryRenderer.Crop?
+            let player_near_name: String?
+            let player_far_name: String?
+        }
+
+        async let cutTask: CutRes? = try? await API.post(
+            "api/media-url", CutReq(matchId: matchId, preview: true))
+        async let cropTask: [MatchBits]? = try? await supa
+            .from("matches")
+            .select("story_crop,player_near_name,player_far_name")
+            .eq("id", value: matchId)
+            .execute()
+            .value
+
+        let (cutRes, cropRows) = await (cutTask, cropTask)
+        guard let cutURL = cutRes?.url.flatMap(URL.init) else {
+            errorMessage = "Couldn't reach that match's video. Try again."
+            return nil
+        }
+
+        guard let cutT0 = point.cutT0, let t0 = point.t0, let t1 = point.t1 else {
+            errorMessage = "This rally has no video to share."
+            return nil
+        }
+        let eff = effectivePad(pad, tightStart: point.tightStart,
+                               tightEnd: point.tightEnd)
+        let segStart = max(0, cutT0)
+        let segEnd = cutT0 + max(0, t1 - t0) + eff.pre + eff.post
+
+        // Score ENTERING this rally, and the games already completed. A
+        // match with no confirmed winners has no score to print, and
+        // printing 0-0 over a rally that was really 8-6 is worse than
+        // printing nothing — the same rule /api/reel applies.
+        let rows = points.map {
+            PointRow(id: $0.id, matchId: $0.matchId, idx: $0.idx, t0: $0.t0,
+                     confirmedWinner: $0.confirmedWinner, isLet: $0.isLet,
+                     deleted: $0.deleted, gameEndOverride: $0.gameEndOverride,
+                     gameWinnerOverride: $0.gameWinnerOverride)
+        }
+        let scored = computeMatchScore(rows).confirmedCount > 0
+        let idx = points.firstIndex { $0.id == point.id } ?? 0
+        let entering = computeMatchScore(Array(rows.prefix(idx)))
+        let score: (you: Int, them: Int)? =
+            scored ? (entering.current.you, entering.current.them) : nil
+        let games = scored ? entering.games.map { ($0.you, $0.them) } : []
+
+        // Same fallback chain /api/reel uses, including the account first
+        // name — without it a match with untagged sides would say "Player"
+        // here and "Adil" on the server, which is exactly the kind of drift
+        // two renderers invite.
+        let bits = cropRows?.first
+        let userIsFar = match.userSide == "far"
+        let near = (bits?.player_near_name ?? "").trimmingCharacters(in: .whitespaces)
+        let far = (bits?.player_far_name ?? "").trimmingCharacters(in: .whitespaces)
+        let account = ((try? await supa.auth.session.user.userMetadata["full_name"]?
+            .stringValue) ?? nil)?
+            .split(separator: " ").first.map(String.init) ?? ""
+        let you = [userIsFar ? far : near, account, "Player"]
+            .first { !$0.isEmpty } ?? "Player"
+        let them = [userIsFar ? near : far,
+                    match.opponentName ?? "", "Opponent"]
+            .first { !$0.isEmpty } ?? "Opponent"
+
+        do {
+            return try await StoryRenderer.render(
+                cutURL: cutURL, segStart: segStart, segEnd: segEnd,
+                crop: cropRows?.first?.story_crop, you: you, them: them,
+                score: score, games: games)
+        } catch {
+            errorMessage = error.localizedDescription
             return nil
         }
     }
