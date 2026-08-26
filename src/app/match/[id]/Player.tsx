@@ -11,13 +11,7 @@ import {
   useState,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
-import type {
-  Note,
-  Point,
-  ServeStartMeta,
-  SideChangeEvidence,
-  Tag,
-} from "@/lib/types";
+import type { Note, Point, ServeStartMeta, Tag } from "@/lib/types";
 import { TIGHT_PAD, effectivePad } from "./clipEdit";
 import { ModifyClip } from "./ModifyClip";
 import { runJoinPlan, runSplitPlan } from "./modifyOps";
@@ -662,13 +656,6 @@ export const Player = forwardRef<
      */
     tapEnd: boolean;
     /**
-     * point id -> a detected game end sits AFTER that point (140).
-     * MatchView only fills this for an UNSCORED competitive match, so
-     * the strip's hint disappears the moment real scoring starts.
-     * Informational: the marker is not tappable and feeds nothing.
-     */
-    detectedGameEnds?: ReadonlyMap<string, SideChangeEvidence>;
-    /**
      * Deleted points' footage spans inside the cut video ([start, end]
      * seconds, sorted, overlaps merged). Dead footage is dead everywhere:
      * playback silently jumps over these in BOTH modes, and opening/
@@ -822,7 +809,6 @@ export const Player = forwardRef<
     score,
     pad,
     tapEnd,
-    detectedGameEnds,
     deletedSpans,
     onDeletePoint,
     onUndoDelete,
@@ -5952,22 +5938,6 @@ export const Player = forwardRef<
                         {ends.you}-{ends.them}
                       </span>
                     </button>
-                  )}
-                  {/* Detected game end (140): unscored matches only —
-                      MatchView empties the map the moment scoring starts,
-                      so this and the scored divider above never coexist.
-                      NO border: in this strip a border marks something
-                      tappable, and this is information, not a control. */}
-                  {!ends && detectedGameEnds?.has(p.id) && (
-                    <span
-                      className="flex h-8 shrink-0 flex-col items-center justify-center gap-1 px-1"
-                      title="Game end detected"
-                    >
-                      <span className="block h-3 w-px bg-zinc-600" />
-                      <span className="block whitespace-nowrap text-[9px] font-semibold leading-none text-zinc-500">
-                        Game end detected
-                      </span>
-                    </span>
                   )}
                   </Fragment>
                 );

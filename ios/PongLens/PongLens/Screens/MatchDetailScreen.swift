@@ -421,9 +421,6 @@ struct MatchDetailScreen: View {
     /// this screen is open — the page flips to the full match view the way
     /// the web's refresh does.
     @State private var live: MatchRow?
-    /// matches.match_structure for THIS match (140), fetched separately
-    /// from librarySelect. nil until loaded or when detection is off.
-    @State private var matchStructureEvidence: MatchStructureLite?
     @State private var watchKick = 0
     @State private var placementOn = false
     // Trim window in raw-video seconds (web RawMatchView's trimStart /
@@ -465,20 +462,6 @@ struct MatchDetailScreen: View {
         })
     }
 
-    /// Detected game ends (140): informational dividers for an UNSCORED
-    /// competitive match. The first winner tap or pinned boundary empties
-    /// this and the real dividers take over. Web twin: MatchView's
-    /// detectedGameEnds memo.
-    private var detectedGameEnds: [UUID: SideChange] {
-        guard MatchStructure.gameEndIndicatorsEligible(
-            matchType: current.matchType,
-            points: model.visible,
-            flagOn: app.gameEndDetection
-        ) else { return [:] }
-        return MatchStructure.resolveDetectedGameEnds(
-            visible: model.visible, evidence: matchStructureEvidence
-        )
-    }
 
     private var filtersActive: Bool {
         winnerFilter != .anyone || onlyFilter != .everything
@@ -651,22 +634,6 @@ struct MatchDetailScreen: View {
         .task {
             await model.load(match)
             model.startClipPoll(match.id)
-            // One tiny single-row read, separate from librarySelect so the
-            // library list never hauls evidence JSON it doesn't render.
-            struct StructureRow: Decodable {
-                let matchStructure: MatchStructureLite?
-                enum CodingKeys: String, CodingKey {
-                    case matchStructure = "match_structure"
-                }
-            }
-            if app.gameEndDetection {
-                let rows: [StructureRow]? = try? await supa
-                    .from("matches")
-                    .select("match_structure")
-                    .eq("id", value: match.id)
-                    .execute().value
-                matchStructureEvidence = rows?.first?.matchStructure
-            }
             await notesStore.load(matchId: match.id)
             await tagsStore.load(ownerId: match.userId, pointIds: model.visible.map(\.id))
             await reasonsStore.load(ownerId: match.userId)
@@ -737,8 +704,7 @@ struct MatchDetailScreen: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
                         playerRequest = PlayerRequest(url: url, startAt: at, mode: .score)
                     }
-                },
-                detectedGameEnds: detectedGameEnds
+                }
             )
         }
         .sheet(isPresented: $pointSheetOpen, onDismiss: {
@@ -1409,17 +1375,6 @@ struct MatchDetailScreen: View {
                             Text("Game \(boundary.game) ends \(boundary.you)-\(boundary.them) · game \(boundary.game + 1) begins")
                                 .font(.plCaption)
                                 .monospacedDigit()
-                                .foregroundStyle(PL.text500)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 2)
-                        }
-                        // Detected game end (140): unscored competitive
-                        // matches only — detectedGameEnds is empty
-                        // otherwise, so this and the scored divider above
-                        // never coexist. Informational, nothing to tap.
-                        if !filtersActive, detectedGameEnds[point.id] != nil {
-                            Text("Game end detected")
-                                .font(.plCaption)
                                 .foregroundStyle(PL.text500)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 2)

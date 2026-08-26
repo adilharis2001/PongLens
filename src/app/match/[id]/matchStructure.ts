@@ -3,7 +3,6 @@ import type {
   MatchEndChangeEvidence,
   MatchStructureEvidence,
   Point,
-  SideChangeEvidence,
 } from "@/lib/types";
 import {
   computeMatchScore,
@@ -22,92 +21,6 @@ export interface ResolvedBoundaries {
   provenance: Map<string, "user" | "detected" | "score-confirmed">;
   boundaryAfter: Set<string>;
   unresolved: MatchEndChangeEvidence[];
-}
-
-/**
- * Whether detected game-end indicators may show on this match at all.
- *
- * Three gates, every one deliberate:
- *  - the app_config flag (read server-side, passed down) — rollback is
- *    one UPDATE;
- *  - competitive content only: match, league or tournament. A missing
- *    type FAILS SAFE to no indicators, even though the rest of the app
- *    treats untyped as scoreable — an indicator is a claim about the
- *    footage, and we don't make claims about footage nobody classified;
- *  - the match is UNSCORED: no confirmed winner and no user game
- *    boundary anywhere. The moment the owner scores a point or pins a
- *    boundary they are doing the job themselves, and the real dividers
- *    take over. Detection stays out of the way.
- */
-export function gameEndIndicatorsEligible(
-  matchType: Match["match_type"],
-  points: Pick<Point, "confirmed_winner" | "game_end_override">[],
-  flagOn: boolean
-): boolean {
-  if (!flagOn) return false;
-  if (
-    matchType !== "match" &&
-    matchType !== "league" &&
-    matchType !== "tournament"
-  ) {
-    return false;
-  }
-  return points.every(
-    (point) =>
-      point.confirmed_winner === null && point.game_end_override === null
-  );
-}
-
-/**
- * point id -> the confirmed detected side change sitting AFTER that
- * visible point. Purely informational: nothing here feeds scoring,
- * serving or game numbering.
- *
- * Placement is by point id when the referenced point is still visible,
- * else by time (the evidence's gap start against t1), so an indicator
- * survives the owner deleting the junk card the worker referenced. A
- * change that would land after the last visible point is dropped —
- * "the match ended" is not a boundary between two things.
- */
-export function resolveDetectedGameEnds(
-  visiblePoints: Point[],
-  evidence: MatchStructureEvidence | null | undefined
-): Map<string, SideChangeEvidence> {
-  const out = new Map<string, SideChangeEvidence>();
-  if (
-    !evidence ||
-    evidence.algorithm !== "side-change-v2" ||
-    evidence.status !== "ready"
-  ) {
-    return out;
-  }
-  const positions = new Map(
-    visiblePoints.map((point, index) => [point.id, index])
-  );
-  for (const change of evidence.side_changes ?? []) {
-    if (!change.confirmed) continue;
-    let position = change.after_point_id
-      ? positions.get(change.after_point_id)
-      : undefined;
-    if (position === undefined && typeof change.gap_t0 === "number") {
-      for (let i = visiblePoints.length - 1; i >= 0; i--) {
-        const t1 = visiblePoints[i].t1;
-        if (t1 !== null && Number(t1) <= change.gap_t0 + 0.5) {
-          position = i;
-          break;
-        }
-      }
-    }
-    if (position === undefined || position >= visiblePoints.length - 1) {
-      continue;
-    }
-    const id = visiblePoints[position].id;
-    const existing = out.get(id);
-    if (!existing || change.confidence > existing.confidence) {
-      out.set(id, change);
-    }
-  }
-  return out;
 }
 
 /** Manual scoring must never silently trust a detector-authored value. */

@@ -84,30 +84,18 @@ final class AppState {
     /// build before the flag existed.
     var tapEndPlayback = false
 
-    /// app_config game_end_detection (140): unscored competitive matches
-    /// may show a small "Game end detected" divider where the worker saw
-    /// the players switch ends. Informational only; false on any failure.
-    var gameEndDetection = false
-
     func refreshConfigFlags() async {
         struct ConfigRow: Decodable { let key: String?; let value: String? }
         let rows: [ConfigRow]? = try? await supa
             .from("app_config")
             .select("key,value")
-            .in("key", values: [
-                "placement_serves_only",
-                "tap_end_playback",
-                "game_end_detection",
-            ])
+            .in("key", values: ["placement_serves_only", "tap_end_playback"])
             .execute().value
         placementServesOnly = (rows?.first {
             $0.key == "placement_serves_only"
         }?.value ?? "").contains("true")
         tapEndPlayback = rows?.first {
             $0.key == "tap_end_playback"
-        }?.value == "on"
-        gameEndDetection = rows?.first {
-            $0.key == "game_end_detection"
         }?.value == "on"
     }
 

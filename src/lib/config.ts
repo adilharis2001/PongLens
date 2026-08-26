@@ -160,18 +160,3 @@ export const getPlacementServesOnly = cache(async (): Promise<boolean> => {
 export const getTapEndPlayback = cache(async (): Promise<boolean> => {
   return (await getConfigValue("tap_end_playback")) === "on";
 });
-
-/**
- * Game-end detection indicators (2026-08-26, migration 140).
- *
- * On, an UNSCORED match / league / tournament whose worker evidence
- * (matches.match_structure, algorithm side-change-v2) carries confirmed
- * side changes shows a small "Game end detected" divider between the two
- * points in the point list and the Keep-score strip. Informational only:
- * it never assigns scores, games, winners, or moves a point. Off — or on
- * any fetch failure — nothing renders anywhere. Applied at read time, so
- * backfilled evidence works on every match and rollback is one UPDATE.
- */
-export const getGameEndDetection = cache(async (): Promise<boolean> => {
-  return (await getConfigValue("game_end_detection")) === "on";
-});
