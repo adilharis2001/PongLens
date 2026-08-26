@@ -134,7 +134,7 @@ function halfOf(v: number): "near" | "far" {
  * Left in, both fake a repeated half and disqualify the point through the
  * alternation gate.
  */
-function dedupeLandings(sorted: readonly DetectedEvent[]): DetectedEvent[] {
+export function dedupeLandings(sorted: readonly DetectedEvent[]): DetectedEvent[] {
   const out: DetectedEvent[] = [];
   for (const e of sorted) {
     if (!onTable(e)) continue;

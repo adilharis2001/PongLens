@@ -6,6 +6,14 @@ import { ballDiedLoser, ballDiedReasonCopy, findBallDied } from "./ballDied";
 import { findOffTable, offTableLoser, offTableWithheld } from "./offTable";
 import { netSegment } from "./netDeath";
 import { findNoReturn, noReturnLoser } from "./noReturn";
+import {
+  readPoint,
+  readingIsWrong,
+  rulesDisagree,
+  type PointReading,
+  type Tracks,
+} from "./pointReading";
+import { isRecovered } from "./segments";
 import { finalExits, inPrism, prismPolygon, type Pt } from "./prism";
 import {
   REJECTION_COPY,
@@ -67,6 +75,14 @@ const LEGEND: {
     ring: true,
     label: "Rally ending",
     where: "last shot with a landing, ungated and measured against nothing",
+  },
+  {
+    swatch: "#22d3ee",
+    ring: true,
+    label: "Landing put back by the flights",
+    where:
+      "the detector missed it; the ball's arc either side of the gap says it "
+      + "was there",
   },
   {
     swatch: "#f472b6",
@@ -133,84 +149,45 @@ const LEGEND: {
 type Corners = ServeAccuracyMatch["corners"];
 type SourceDims = ServeAccuracyMatch["source"];
 
+/**
+ * The page's one reading of a point, memoised per render pass.
+ *
+ * Every chip, counter and row asks through here, so they cannot disagree
+ * about which rule won an argument or whether a point was repaired. The
+ * cache matters: the reading runs the three rules twice and, when the
+ * first pass refuses, splits the ball track into flights as well, and the
+ * summary alone asks for it five times per point.
+ */
+const NO_TRACKS = {} as Tracks;
+const readings = new WeakMap<Tracks, WeakMap<ServeAccuracyRow, PointReading>>();
+
+function reading(
+  row: ServeAccuracyRow,
+  corners: Corners,
+  tracks: Tracks | null,
+  source: SourceDims,
+): PointReading {
+  // Keyed on the track file as well as the row. Half a megabyte of ball
+  // positions arrives after the first render, and three of the rules read
+  // it — a cache on the row alone would freeze every point at the answer
+  // it had before the ball existed.
+  const key = tracks ?? NO_TRACKS;
+  let perRow = readings.get(key);
+  if (!perRow) { perRow = new WeakMap(); readings.set(key, perRow); }
+  const hit = perRow.get(row);
+  if (hit) return hit;
+  const made = readPoint(row, corners, tracks, source);
+  perRow.set(row, made);
+  return made;
+}
+
 function ruleVerdict(
   row: ServeAccuracyRow,
   corners: Corners,
   tracks: Tracks | null,
   source: SourceDims,
 ): "user" | "opponent" | null {
-  const loser =
-    ballDiedLoser(
-      findBallDied(
-        row.events,
-        tracks?.[row.pointId] ?? null,
-        corners,
-        row.clipT0,
-        source,
-        row.userPhysicalSide,
-      ),
-      row.userPhysicalSide,
-    )
-    ?? offTableLoser(
-      findOffTable(row.events, corners ? { corners } : null),
-      row.userPhysicalSide,
-    )
-    ?? noReturnLoser(
-      findNoReturn(
-        row.events,
-        tracks?.[row.pointId] ?? null,
-        corners,
-        row.clipT0,
-        source,
-      ),
-      row.userPhysicalSide,
-    );
-  if (loser === null) return null;
-  return loser === "user" ? "opponent" : "user";
-}
-
-
-/**
- * Which rule spoke, and what each of them would have said on its own.
- *
- * The chain only reports the first rule to answer, which hides two things
- * worth seeing on a review page: which rule owns a mistake, and whether a
- * later rule would have contradicted the one that won. Both are asked for
- * here rather than inferred from the verdict.
- */
-function ruleVerdicts(
-  row: ServeAccuracyRow,
-  corners: Corners,
-  tracks: Tracks | null,
-  source: SourceDims,
-): { name: string; verdict: "user" | "opponent" }[] {
-  const side = row.userPhysicalSide;
-  const flip = (l: "user" | "opponent" | null) =>
-    l === null ? null : l === "user" ? "opponent" as const : "user" as const;
-  const out: { name: string; verdict: "user" | "opponent" }[] = [];
-  const died = flip(ballDiedLoser(
-    findBallDied(row.events, tracks?.[row.pointId] ?? null, corners,
-      row.clipT0, source, side), side));
-  if (died) out.push({ name: "ball died", verdict: died });
-  const off = flip(offTableLoser(
-    findOffTable(row.events, corners ? { corners } : null), side));
-  if (off) out.push({ name: "off table", verdict: off });
-  const ret = flip(noReturnLoser(
-    findNoReturn(row.events, tracks?.[row.pointId] ?? null, corners,
-      row.clipT0, source), side));
-  if (ret) out.push({ name: "no return", verdict: ret });
-  return out;
-}
-
-/** Two rules both spoke and named different winners. */
-function rulesDisagree(
-  row: ServeAccuracyRow,
-  corners: Corners,
-  tracks: Tracks | null,
-  source: SourceDims,
-): boolean {
-  const vs = ruleVerdicts(row, corners, tracks, source);
-  return vs.length > 1 && vs.some((v) => v.verdict !== vs[0].verdict);
+  return reading(row, corners, tracks, source).winner;
 }
 
 /** Which rule made the call, for grouping the mistakes by author. */
@@ -220,7 +197,7 @@ function decidingRule(
   tracks: Tracks | null,
   source: SourceDims,
 ): string | null {
-  return ruleVerdicts(row, corners, tracks, source)[0]?.name ?? null;
+  return reading(row, corners, tracks, source).rule;
 }
 
 /**
@@ -234,9 +211,7 @@ function noCallReason(
   tracks: Tracks | null,
   source: SourceDims,
 ): string | null {
-  if (ruleVerdict(row, corners, tracks, source) !== null) return null;
-  return offTableWithheld(findOffTable(row.events, corners ? { corners } : null))
-    ?? "nothing to go on";
+  return reading(row, corners, tracks, source).refusal;
 }
 
 /** Fired, the point is scored, and it named the wrong player. */
@@ -246,8 +221,28 @@ function ruleIsWrong(
   tracks: Tracks | null,
   source: SourceDims,
 ): boolean {
-  const verdict = ruleVerdict(row, corners, tracks, source);
-  return verdict !== null && row.winner !== null && verdict !== row.winner;
+  return readingIsWrong(row, reading(row, corners, tracks, source));
+}
+
+/** Two rules both spoke and named different winners. */
+function disagrees(
+  row: ServeAccuracyRow,
+  corners: Corners,
+  tracks: Tracks | null,
+  source: SourceDims,
+): boolean {
+  return rulesDisagree(reading(row, corners, tracks, source));
+}
+
+/** A call that only exists because the flights put a missing event back. */
+function ruleWasRepaired(
+  row: ServeAccuracyRow,
+  corners: Corners,
+  tracks: Tracks | null,
+  source: SourceDims,
+): boolean {
+  const r = reading(row, corners, tracks, source);
+  return r.winner !== null && r.recovered.length > 0;
 }
 
 /** The off-table read found something and then refused to call it. */
@@ -257,10 +252,8 @@ function ruleHeldBack(
   tracks: Tracks | null,
   source: SourceDims,
 ): boolean {
-  if (ruleVerdict(row, corners, tracks, source) !== null) return false;
-  return offTableWithheld(
-    findOffTable(row.events, corners ? { corners } : null),
-  ) !== null;
+  const r = reading(row, corners, tracks, source);
+  return r.winner === null && r.refusal !== null && r.refusal !== "nothing to go on";
 }
 
 function Legend() {
@@ -530,12 +523,15 @@ const TW = 118;
 const TH = 202;
 
 /** Every touch that projected onto the table, in the map's own frame. */
-function Court({ row, corners }: { row: ServeAccuracyRow; corners: Corners }) {
+function Court(
+  { row, corners, events }:
+  { row: ServeAccuracyRow; corners: Corners; events: DetectedEvent[] },
+) {
   const xy = (u: number, v: number) => ({
     x: TX + (TW * u) / TABLE_W_M,
     y: TY + TH * (1 - v / TABLE_L_M),
   });
-  const bounces = row.events.filter(
+  const bounces = events.filter(
     (e) => e.kind === "bounce" && e.nu !== null && e.nv !== null,
   );
   return (
@@ -575,17 +571,20 @@ function Court({ row, corners }: { row: ServeAccuracyRow; corners: Corners }) {
         return (
           <g key={e.id}>
             <title>
-              {`${e.kind}${e.role ? ` · ${e.role.replace(/_/g, " ")}` : ""} · `
-                + `${e.t.toFixed(2)}s · vis ${e.visual.toFixed(2)}`}
+              {isRecovered(e)
+                ? `landing put back by the flights · ${e.t.toFixed(2)}s`
+                : `${e.kind}${e.role ? ` · ${e.role.replace(/_/g, " ")}` : ""} · `
+                  + `${e.t.toFixed(2)}s · vis ${e.visual.toFixed(2)}`}
             </title>
             <circle
               cx={p.x}
               cy={p.y}
               r={isServe ? 5 : 3.5}
-              fill={toneFor(e)}
+              fill={isRecovered(e) ? "none" : toneFor(e)}
               fillOpacity={isServe ? 0.9 : 0.45}
-              stroke="#0c1222"
-              strokeWidth="0.75"
+              stroke={isRecovered(e) ? "#22d3ee" : "#0c1222"}
+              strokeWidth={isRecovered(e) ? 1.25 : 0.75}
+              strokeDasharray={isRecovered(e) ? "2 1.5" : undefined}
             />
             {!isServe && (
               <text
@@ -612,7 +611,7 @@ function Court({ row, corners }: { row: ServeAccuracyRow; corners: Corners }) {
         />
       )}
       {(() => {
-        const call = findOffTable(row.events, corners ? { corners } : null);
+        const call = findOffTable(events, corners ? { corners } : null);
         if (!call || !call.trusted) return null;
         const e = call.lastLanding;
         if (e.nu === null || e.nv === null) return null;
@@ -634,7 +633,7 @@ function Court({ row, corners }: { row: ServeAccuracyRow; corners: Corners }) {
           </g>
         );
       })()}
-      {findDeadRuns(row.events).map((run) => {
+      {findDeadRuns(events).map((run) => {
         const pts = run.events
           .filter((e) => e.nu !== null && e.nv !== null)
           .map((e) => xy(e.nu as number, e.nv as number));
@@ -679,7 +678,6 @@ function Court({ row, corners }: { row: ServeAccuracyRow; corners: Corners }) {
   );
 }
 
-type Tracks = Record<string, (readonly number[])[]>;
 let tracksPromise: Promise<Tracks> | null = null;
 /**
  * Half a megabyte of ball positions, code-split and fetched the first time
@@ -740,9 +738,13 @@ function Row({
   const agree = computed !== null && row.winner !== null
     ? row.computed?.winner === row.winner
     : null;
-  const deadRuns = findDeadRuns(row.events);
+  // The reading decides which events the rules see: the recorded ones, or
+  // those plus what the flights put back where the first pass refused.
+  const read = reading(row, match.corners, tracks, match.source);
+  const events = read.events;
+  const deadRuns = findDeadRuns(events);
   const died = findBallDied(
-    row.events,
+    events,
     tracks?.[row.pointId] ?? null,
     match.corners,
     row.clipT0,
@@ -755,11 +757,11 @@ function Row({
   const runAgrees =
     runVerdict !== null && row.winner !== null ? runVerdict === row.winner : null;
   const offTable = findOffTable(
-    row.events,
+    events,
     match.corners ? { corners: match.corners } : null,
   );
   const noRet = findNoReturn(
-    row.events,
+    events,
     tracks?.[row.pointId] ?? null,
     match.corners,
     row.clipT0,
@@ -777,7 +779,7 @@ function Row({
     offLoser === null ? null : offLoser === "user" ? "opponent" : "user";
   const offAgrees =
     offVerdict !== null && row.winner !== null ? offVerdict === row.winner : null;
-  const withheld = offTableWithheld(offTable);
+  const withheld = read.refusal ?? offTableWithheld(offTable);
   const bounces = row.events.filter((e) => e.kind === "bounce").length;
   const projected = row.events.filter(
     (e) => e.kind === "bounce" && e.nu !== null,
@@ -820,7 +822,7 @@ function Row({
             </button>
           )}
         </div>
-        <Court row={row} corners={match.corners} />
+        <Court row={row} corners={match.corners} events={events} />
       </div>
 
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
@@ -875,6 +877,29 @@ function Row({
                   + `${deadRuns[deadRuns.length - 1].metresFromNet.toFixed(2)} m `
                   + "from the net"
                 : `turned at the net, ${died.turn?.distM.toFixed(2)} m out`}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Put back by the flights</dt>
+          <dd className={read.recovered.length ? "text-cyan-glow" : "text-zinc-500"}>
+            {read.recovered.length === 0
+              ? "nothing missing"
+              : read.recovered
+                .map((e) => `${e.kind === "bounce" ? "landing" : "touch"} at `
+                  + `${(e.clipT ?? 0).toFixed(2)}s`
+                  + (e.kind === "bounce" && e.v !== null
+                    ? ` on ${(e.v < TABLE_L_M / 2) === (row.userPhysicalSide === "near")
+                      ? "your" : "their"} half`
+                    : ""))
+                .join(", ")}
+            {read.trust && !read.trust.trusted && (
+              <span className="text-zinc-500">
+                {" — "}
+                {read.trust.fullAlternation
+                  ? "but the ball was never seen leaving, so the call is withheld"
+                  : "but the rally still has a hole, so the call is withheld"}
+              </span>
+            )}
           </dd>
         </div>
         <div>
@@ -977,24 +1002,15 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
           : only === "drawn" ? r.serve !== null
             : only === "refused" ? r.serve === null
               : only === "deadrun"
-                ? ballDiedLoser(
-                    findBallDied(r.events, allTracks?.[r.pointId] ?? null,
-                      match.corners, r.clipT0, match.source, r.userPhysicalSide),
-                    r.userPhysicalSide,
-                  ) !== null
+                ? decidingRule(r, match.corners, allTracks, match.source) === "ball died"
                 : only === "offtable"
-                  ? offTableLoser(
-                      findOffTable(r.events, match.corners ? { corners: match.corners } : null),
-                      r.userPhysicalSide,
-                    ) !== null
+                  ? decidingRule(r, match.corners, allTracks, match.source) === "off table"
                   : only === "noreturn"
-                    ? noReturnLoser(
-                        findNoReturn(r.events, allTracks?.[r.pointId] ?? null,
-                          match.corners, r.clipT0, match.source),
-                        r.userPhysicalSide,
-                      ) !== null
+                    ? decidingRule(r, match.corners, allTracks, match.source) === "no return"
+                  : only === "repaired"
+                    ? ruleWasRepaired(r, match.corners, allTracks, match.source)
                   : only === "disagree"
-                    ? rulesDisagree(r, match.corners, allTracks, match.source)
+                    ? disagrees(r, match.corners, allTracks, match.source)
                   : only.startsWith("wrongby:")
                     ? ruleIsWrong(r, match.corners, allTracks, match.source)
                       && decidingRule(r, match.corners, allTracks, match.source)
@@ -1015,14 +1031,11 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
     [match, only, allTracks],
   );
   const disagreed = stats.callCompared - stats.callAgreed;
-  const withOffTable = useMemo(
+  const repairedCount = useMemo(
     () => match.rows.filter(
-      (r) => offTableLoser(
-        findOffTable(r.events, match.corners ? { corners: match.corners } : null),
-        r.userPhysicalSide,
-      ) !== null,
+      (r) => ruleWasRepaired(r, match.corners, allTracks, match.source),
     ).length,
-    [match],
+    [match, allTracks],
   );
   const ruleWrong = useMemo(
     () => match.rows.filter(
@@ -1038,7 +1051,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   );
   const disagreeCount = useMemo(
     () => match.rows.filter(
-      (r) => rulesDisagree(r, match.corners, allTracks, match.source),
+      (r) => disagrees(r, match.corners, allTracks, match.source),
     ).length,
     [match, allTracks],
   );
@@ -1067,60 +1080,38 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
     ).length,
     [match, allTracks],
   );
-  // How the off-table rule scores against the pad, on the points it fires.
-  const offScore = useMemo(() => {
-    let fires = 0, right = 0, workerRight = 0;
+  /**
+   * How each rule scores against Adil's own taps, on the points it decides.
+   *
+   * One pass over the readings rather than three re-derivations of the
+   * chain, so a repaired call is counted by the rule that made it and the
+   * chips add up to the verdict the row shows.
+   */
+  const scores = useMemo(() => {
+    const zero = () => ({ fires: 0, right: 0, workerRight: 0, byTurn: 0, repaired: 0 });
+    const out: Record<string, ReturnType<typeof zero>> = {
+      "ball died": zero(), "off table": zero(), "no return": zero(),
+    };
     for (const r of match.rows) {
-      const loser = offTableLoser(
-        findOffTable(r.events, match.corners ? { corners: match.corners } : null),
-        r.userPhysicalSide,
-      );
-      if (loser === null || r.winner === null) continue;
-      fires += 1;
-      if ((loser === "user" ? "opponent" : "user") === r.winner) right += 1;
-      if (r.computed?.winner === r.winner) workerRight += 1;
+      const read = reading(r, match.corners, allTracks, match.source);
+      if (read.rule === null || r.winner === null) continue;
+      const s = out[read.rule];
+      s.fires += 1;
+      if (read.winner === r.winner) s.right += 1;
+      if (r.computed?.winner === r.winner) s.workerRight += 1;
+      if (read.recovered.length) s.repaired += 1;
+      if (read.rule === "ball died") {
+        const died = findBallDied(read.events, allTracks?.[r.pointId] ?? null,
+          match.corners, r.clipT0, match.source, r.userPhysicalSide);
+        if (died?.via === "turn") s.byTurn += 1;
+      }
     }
-    return { fires, right, workerRight };
-  }, [match]);
-  const noReturnScore = useMemo(() => {
-    let fires = 0, right = 0, workerRight = 0;
-    for (const r of match.rows) {
-      if (ballDiedLoser(
-        findBallDied(r.events, allTracks?.[r.pointId] ?? null,
-          match.corners, r.clipT0, match.source, r.userPhysicalSide),
-        r.userPhysicalSide,
-      )) continue;
-      if (offTableLoser(
-        findOffTable(r.events, match.corners ? { corners: match.corners } : null),
-        r.userPhysicalSide,
-      )) continue;
-      const loser = noReturnLoser(
-        findNoReturn(r.events, allTracks?.[r.pointId] ?? null,
-          match.corners, r.clipT0, match.source),
-        r.userPhysicalSide,
-      );
-      if (loser === null || r.winner === null) continue;
-      fires += 1;
-      if ((loser === "user" ? "opponent" : "user") === r.winner) right += 1;
-      if (r.computed?.winner === r.winner) workerRight += 1;
-    }
-    return { fires, right, workerRight };
+    return out;
   }, [match, allTracks]);
-  // How the ball-died rule scores against the pad, and which witness saw it.
-  const runScore = useMemo(() => {
-    let fires = 0, right = 0, workerRight = 0, byTurn = 0;
-    for (const r of match.rows) {
-      const died = findBallDied(r.events, allTracks?.[r.pointId] ?? null,
-        match.corners, r.clipT0, match.source, r.userPhysicalSide);
-      const loser = ballDiedLoser(died, r.userPhysicalSide);
-      if (loser === null || r.winner === null) continue;
-      fires += 1;
-      if (died?.via === "turn") byTurn += 1;
-      if ((loser === "user" ? "opponent" : "user") === r.winner) right += 1;
-      if (r.computed?.winner === r.winner) workerRight += 1;
-    }
-    return { fires, right, workerRight, byTurn };
-  }, [match, allTracks]);
+  const runScore = scores["ball died"];
+  const offScore = scores["off table"];
+  const noReturnScore = scores["no return"];
+  const repairedTotal = runScore.repaired + offScore.repaired + noReturnScore.repaired;
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
@@ -1202,6 +1193,13 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             against the worker&rsquo;s{" "}
             <span className="tabular-nums">{noReturnScore.workerRight}</span>.
           </p>
+          <p className="mt-2 text-sm text-zinc-200">
+            <span className="tabular-nums">{repairedTotal}</span> of those
+            calls only exist because the ball&rsquo;s track was read as
+            flights and the events it was missing were put back. Where the
+            rules answer from what the worker recorded, nothing is repaired,
+            so no call already being made can change.
+          </p>
           <p className="mt-2 text-[11px] text-zinc-500">
             Calibration: {match.calibrationSource ?? "unknown"}.
           </p>
@@ -1232,9 +1230,10 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             ["refused", `Refused ${match.rows.length - stats.drawn}`],
             ["disagreed", `Worker disagreed ${disagreed}`],
             ["deadrun", `Ball died ${runScore.fires}`],
-            ["offtable", `Off table ${withOffTable}`],
+            ["offtable", `Off table ${offScore.fires}`],
             ["wrong", `We called it wrong ${ruleWrong}`],
             ["disagree", `Rules disagree ${disagreeCount}`],
+            ["repaired", `Repaired ${repairedCount}`],
             ["heldback", `Held back ${heldBack}`],
             ["noreturn", `No return ${noReturnScore.fires}`],
             ["nocall", `No call ${noCall}`],
