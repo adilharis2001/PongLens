@@ -289,21 +289,37 @@ def choose_players(
         "near": [],
         "far": [],
     }
+    # Per-box reasoning, for the diagnostic page. Recorded here rather
+    # than recomputed by the renderer so what a reviewer is shown is the
+    # decision that was actually made, not a second implementation of it.
+    seen: list[dict[str, Any]] = []
     for box in boxes:
         anchor_x = (float(box[0]) + float(box[2])) / 2.0
         anchor_y = float(box[3])
         height = max(1.0, float(box[3]) - float(box[1]))
-        if (
-            _quad_distance(anchor_x, anchor_y, named)
-            > NEAR_TABLE_FACTOR * height
-        ):
+        quad_distance = _quad_distance(anchor_x, anchor_y, named)
+        allowance = NEAR_TABLE_FACTOR * height
+        record = {
+            "box": [round(float(v), 1) for v in box],
+            "anchor": [round(anchor_x, 1), round(anchor_y, 1)],
+            "height": round(height, 1),
+            "quad_distance": round(quad_distance, 1),
+            "allowance": round(allowance, 1),
+        }
+        if quad_distance > allowance:
+            record["verdict"] = "too far from the table"
+            seen.append(record)
             continue
         d_near = _segment_distance(anchor_x, anchor_y, *near_line)
         d_far = _segment_distance(anchor_x, anchor_y, *far_line)
-        if d_near <= d_far:
-            candidates["near"].append((d_near, height, box))
-        else:
-            candidates["far"].append((d_far, height, box))
+        record["d_near"] = round(d_near, 1)
+        record["d_far"] = round(d_far, 1)
+        side = "near" if d_near <= d_far else "far"
+        record["side"] = side
+        record["verdict"] = f"candidate for {side}"
+        candidates[side].append((d_near if side == "near" else d_far,
+                                 height, box))
+        seen.append(record)
     result: dict[str, Any] = {}
     for side in ("near", "far"):
         ranked = sorted(candidates[side], key=lambda c: c[0])
@@ -320,6 +336,21 @@ def choose_players(
             )
         result[side] = None if ambiguous else ranked[0][2]
         result[f"{side}_ambiguous"] = ambiguous
+        chosen = None if ambiguous else ranked[0][2]
+        for record in seen:
+            if record.get("side") != side:
+                continue
+            if ambiguous:
+                record["verdict"] = (
+                    f"{side} end ambiguous — two people equally close"
+                )
+            elif chosen is not None and record["box"] == [
+                round(float(v), 1) for v in chosen
+            ]:
+                record["verdict"] = f"CHOSEN as the {side} player"
+            else:
+                record["verdict"] = f"behind the {side} player"
+    result["boxes"] = seen
     return result
 
 
