@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { deadRunLoser, deadRunReasonCopy, findDeadRuns } from "./deadRun";
 import { findOffTable, offTableLoser, offTableWithheld } from "./offTable";
 import { findNetDeath, netDeathLoser, netSegment } from "./netDeath";
+import { findNoReturn, noReturnLoser } from "./noReturn";
 import { finalExits, inPrism, prismPolygon, type Pt } from "./prism";
 import {
   REJECTION_COPY,
@@ -145,6 +146,16 @@ function ruleVerdict(
     )
     ?? netDeathLoser(
       findNetDeath(
+        row.events,
+        tracks?.[row.pointId] ?? null,
+        corners,
+        row.clipT0,
+        source,
+      ),
+      row.userPhysicalSide,
+    )
+    ?? noReturnLoser(
+      findNoReturn(
         row.events,
         tracks?.[row.pointId] ?? null,
         corners,
@@ -676,6 +687,20 @@ function Row({
     netLoser === null ? null : netLoser === "user" ? "opponent" : "user";
   const netAgrees =
     netVerdict !== null && row.winner !== null ? netVerdict === row.winner : null;
+  const noRet = findNoReturn(
+    row.events,
+    tracks?.[row.pointId] ?? null,
+    match.corners,
+    row.clipT0,
+    match.source,
+  );
+  const noRetLoser = noReturnLoser(noRet, row.userPhysicalSide);
+  const noRetVerdict =
+    noRetLoser === null ? null : noRetLoser === "user" ? "opponent" : "user";
+  const noRetAgrees =
+    noRetVerdict !== null && row.winner !== null
+      ? noRetVerdict === row.winner
+      : null;
   const offLoser = offTableLoser(offTable, row.userPhysicalSide);
   const offVerdict =
     offLoser === null ? null : offLoser === "user" ? "opponent" : "user";
@@ -844,6 +869,20 @@ function Row({
           </dd>
         </div>
         <div>
+          <dt className="text-zinc-500">No return says</dt>
+          <dd
+            className={
+              noRetVerdict === null ? "text-zinc-500"
+                : noRetAgrees ? "text-emerald-300" : "text-amber-300"
+            }
+          >
+            {noRetVerdict === null
+              ? "no call"
+              : `${noRetVerdict === "user" ? "you" : opponent} won · the ball `
+                + "never came back over the net"}
+          </dd>
+        </div>
+        <div>
           <dt className="text-zinc-500">Ball track</dt>
           <dd className="text-zinc-200 tabular-nums">
             {track ? `${track.length} frames` : "load the clip"}
@@ -870,7 +909,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   const [active, setActive] = useState(matches[0].matchId);
   const [only, setOnly] = useState<
     "all" | "drawn" | "refused" | "disagreed" | "deadrun" | "offtable"
-    | "netdeath" | "wrong" | "heldback" | "nocall"
+    | "netdeath" | "noreturn" | "wrong" | "heldback" | "nocall"
   >("all");
   // The verdict counts need every track, not just the open clip's, so the
   // whole file loads once up front. Still code-split out of the bundle.
@@ -895,6 +934,12 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
                   : only === "netdeath"
                     ? netDeathLoser(
                         findNetDeath(r.events, allTracks?.[r.pointId] ?? null,
+                          match.corners, r.clipT0, match.source),
+                        r.userPhysicalSide,
+                      ) !== null
+                  : only === "noreturn"
+                    ? noReturnLoser(
+                        findNoReturn(r.events, allTracks?.[r.pointId] ?? null,
                           match.corners, r.clipT0, match.source),
                         r.userPhysicalSide,
                       ) !== null
@@ -978,6 +1023,31 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
     }
     return { fires, right, workerRight };
   }, [match]);
+  const noReturnScore = useMemo(() => {
+    let fires = 0, right = 0, workerRight = 0;
+    for (const r of match.rows) {
+      if (deadRunLoser(findDeadRuns(r.events), r.userPhysicalSide)) continue;
+      if (offTableLoser(
+        findOffTable(r.events, match.corners ? { corners: match.corners } : null),
+        r.userPhysicalSide,
+      )) continue;
+      if (netDeathLoser(
+        findNetDeath(r.events, allTracks?.[r.pointId] ?? null,
+          match.corners, r.clipT0, match.source),
+        r.userPhysicalSide,
+      )) continue;
+      const loser = noReturnLoser(
+        findNoReturn(r.events, allTracks?.[r.pointId] ?? null,
+          match.corners, r.clipT0, match.source),
+        r.userPhysicalSide,
+      );
+      if (loser === null || r.winner === null) continue;
+      fires += 1;
+      if ((loser === "user" ? "opponent" : "user") === r.winner) right += 1;
+      if (r.computed?.winner === r.winner) workerRight += 1;
+    }
+    return { fires, right, workerRight };
+  }, [match, allTracks]);
   // How the dead-run rule scores against the pad, on the points it fires.
   const runScore = useMemo(() => {
     let fires = 0, right = 0, workerRight = 0;
@@ -1068,6 +1138,15 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             against the worker&rsquo;s{" "}
             <span className="tabular-nums">{netScore.workerRight}</span>.
           </p>
+          <p className="mt-2 text-sm text-zinc-200">
+            And on{" "}
+            <span className="tabular-nums">{noReturnScore.fires}</span> more
+            the track shows the ball never coming back over the net after the
+            last landing, which named the winner right{" "}
+            <span className="tabular-nums">{noReturnScore.right}</span> times
+            against the worker&rsquo;s{" "}
+            <span className="tabular-nums">{noReturnScore.workerRight}</span>.
+          </p>
           <p className="mt-2 text-[11px] text-zinc-500">
             Calibration: {match.calibrationSource ?? "unknown"}.
           </p>
@@ -1102,6 +1181,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             ["wrong", `We called it wrong ${ruleWrong}`],
             ["heldback", `Held back ${heldBack}`],
             ["netdeath", `Net death ${netScore.fires}`],
+            ["noreturn", `No return ${noReturnScore.fires}`],
             ["nocall", `No call ${noCall}`],
           ] as const
         ).map(([key, label]) => (
