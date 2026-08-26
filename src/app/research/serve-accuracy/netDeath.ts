@@ -148,16 +148,29 @@ export function findNetDeath(
 
   let i = LEG_FRAMES;
   while (i < pts.length - LEG_FRAMES) {
-    const p = pts[i];
-    const before = along(p.x, p.y) - along(pts[i - LEG_FRAMES].x, pts[i - LEG_FRAMES].y);
-    const after = along(pts[i + LEG_FRAMES].x, pts[i + LEG_FRAMES].y) - along(p.x, p.y);
+    const at = pts[i];
+    const before = along(at.x, at.y) - along(pts[i - LEG_FRAMES].x, pts[i - LEG_FRAMES].y);
+    const after = along(pts[i + LEG_FRAMES].x, pts[i + LEG_FRAMES].y) - along(at.x, at.y);
     const span = pts[i + LEG_FRAMES].t - pts[i - LEG_FRAMES].t;
     const turned = Math.abs(before) >= LEG_MIN_TRAVEL
       && Math.abs(after) >= LEG_MIN_TRAVEL
       && before * after < 0
       && span <= 0.6;
     if (!turned) { i++; continue; }
-    i += LEG_FRAMES;
+    // The scan can flag the turn a frame or two early, where the ball is
+    // still centimetres short of where it actually turns. Judging the
+    // distance there and skipping on threw away Julian's point 6: flagged
+    // at 0.39 m, rejected by the 0.35 band, and the true turning point at
+    // 0.25 m was jumped over. So find the extremum of the trajectory
+    // inside the window first, and judge THAT point.
+    let j = i - LEG_FRAMES;
+    for (let k = i - LEG_FRAMES; k <= i + LEG_FRAMES; k++) {
+      const sk = along(pts[k].x, pts[k].y);
+      const sj = along(pts[j].x, pts[j].y);
+      if (before > 0 ? sk > sj : sk < sj) j = k;
+    }
+    const p = pts[j];
+    i = Math.max(i, j) + LEG_FRAMES;
     const distM = distToNet(p.x, p.y) / ppmAt(p.x, p.y);
     if (distM > NET_DEATH_BAND_M) continue;
     const drops = landings.filter(
