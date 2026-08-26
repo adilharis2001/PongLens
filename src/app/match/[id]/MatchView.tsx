@@ -13,6 +13,7 @@ import type {
   Point,
   PointTag,
   ServeStartMeta,
+  SideChangeEvidence,
   Tag,
 } from "@/lib/types";
 import { TagGlyph, TagPicker } from "./Tags";
@@ -56,6 +57,8 @@ import {
 } from "./serving";
 import type { Side } from "./sides";
 import {
+  gameEndIndicatorsEligible,
+  resolveDetectedGameEnds,
   userConfirmedFirstServer,
   userFirstServerUpdate,
 } from "./matchStructure";
@@ -403,6 +406,7 @@ export function MatchView({
   initialLossReasonLabels = [],
   placementServesOnly = false,
   tapEnd = false,
+  gameEndDetection = false,
 }: {
   match: Match;
   initialPoints: Point[];
@@ -436,6 +440,10 @@ export function MatchView({
   /** app_config tap_end_playback: scored points end at the winner tap
    *  plus half a second (playhead.effectiveEnd). Read on the server. */
   tapEnd?: boolean;
+  /** app_config game_end_detection (140): unscored competitive matches
+   *  may show a small "Game end detected" divider where the worker saw
+   *  the players switch ends. Informational only. */
+  gameEndDetection?: boolean;
 }) {
   const [points, setPoints] = useState<Point[]>(initialPoints);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -976,6 +984,24 @@ export function MatchView({
     () => computeMatchScore(visiblePoints),
     [visiblePoints]
   );
+
+  // Detected game ends (side-change-v2, migration 140): a small divider
+  // where the worker saw the two players persistently switch table ends.
+  // Informational only, and only while the match is UNSCORED — the first
+  // winner tap or pinned boundary empties this map and the real dividers
+  // take over. Never feeds score, serving, or game numbers.
+  const detectedGameEnds = useMemo(() => {
+    if (
+      !gameEndIndicatorsEligible(
+        (matchType || null) as Match["match_type"],
+        visiblePoints,
+        gameEndDetection
+      )
+    ) {
+      return new Map<string, SideChangeEvidence>();
+    }
+    return resolveDetectedGameEnds(visiblePoints, match.match_structure);
+  }, [matchType, visiblePoints, gameEndDetection, match.match_structure]);
 
 
   // Clip context padding for this match's cut (strictness lives on the
@@ -2684,6 +2710,7 @@ export function MatchView({
               score={score}
               pad={pad}
               tapEnd={tapEnd}
+              detectedGameEnds={detectedGameEnds}
               deletedSpans={deletedSpans}
               onDeletePoint={(p) => void deletePointQuiet(p)}
               onUndoDelete={(id) => void undoDelete(id)}
@@ -3727,6 +3754,21 @@ export function MatchView({
                             </button>
                           </span>
                         )}
+                        <span className="h-px flex-1 bg-edge" />
+                      </div>
+                    )}
+                    {/* Detected game end (140): the worker saw the players
+                        switch table ends after this point. Shown only on
+                        UNSCORED competitive matches (the map is empty
+                        otherwise), purely informational, nothing to tap.
+                        Once scoring starts, the real dividers above take
+                        over and this disappears. */}
+                    {!pfActive && detectedGameEnds.has(point.id) && (
+                      <div className="mt-3 flex items-center gap-3">
+                        <span className="h-px flex-1 bg-edge" />
+                        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                          Game end detected
+                        </span>
                         <span className="h-px flex-1 bg-edge" />
                       </div>
                     )}

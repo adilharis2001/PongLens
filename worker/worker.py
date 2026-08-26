@@ -3970,6 +3970,152 @@ def persist_match_structure(
     return mapped
 
 
+# ---------------------------------------------------------------------------
+# Side-change detection (game-end candidates), v2 — 2026-08-26
+#
+# Downstream of point detection and deliberately blind to it: reads the
+# clips the pipeline already cut and answers one question — did the two
+# players persistently swap table ends between two consecutive points?
+# It never decides whether a point exists or where it starts or ends.
+#
+# Runs AFTER the match is ready and the owner is notified: the detector
+# costs ~4 minutes of CPU (RTMDet person detection is CPU-only here —
+# onnxruntime's CoreML EP rejects its output shape), and an upload's
+# time-to-ready must not pay for an indicator. Evidence simply appears
+# on the match a few minutes later.
+# ---------------------------------------------------------------------------
+SIDE_CHANGE_SCRIPT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "extract_side_changes_rtmpose.py",
+)
+# Content the detector must not run for. Everything else — match, league,
+# tournament, and untyped — is computed; DISPLAY is gated separately at
+# read time (app must also see an eligible type and an unscored match),
+# so typing a match after upload lights it up with no reprocess.
+SIDE_CHANGE_SKIP_TYPES = {"drills", "practice"}
+
+
+def side_change_detection_enabled(conn) -> bool:
+    """app_config.game_end_detection == 'on'.
+
+    Same contract as points_pipeline_version: read per job so one UPDATE
+    turns the stage on or off with no deploy and no restart, and a config
+    read that errors FAILS OPEN to off — a broken config table must not
+    change how a match processes.
+    """
+    try:
+        return get_config(conn, "game_end_detection") == "on"
+    except Exception:
+        return False
+
+
+def side_change_config(conn) -> dict | None:
+    """Optional threshold overrides: app_config.game_end_detection_config,
+    a JSON object merged over side_change.DEFAULT_CONFIG. Junk or a failed
+    read means defaults."""
+    try:
+        raw = get_config(conn, "game_end_detection_config")
+        parsed = json.loads(raw) if raw else None
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        return None
+
+
+def run_side_change_stage(conn, match_id: str, workdir: str,
+                          outdir: str) -> None:
+    """Post-ready enrichment: detect side changes, persist the evidence.
+
+    Every failure is logged and swallowed — the match is already ready
+    and notified, so nothing downstream may be disturbed. Persists the
+    COMPACT evidence (side_changes + provenance, no per-point payload)
+    to matches.match_structure, never touching first_server, and uploads
+    the full diagnostic artifact beside match.json in R2.
+    """
+    try:
+        from worker.side_change import compact_evidence, map_point_ids
+    except ModuleNotFoundError:  # direct `python worker/worker.py`
+        from side_change import compact_evidence, map_point_ids
+
+    if not side_change_detection_enabled(conn):
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select user_id, match_type, status, match_json_path "
+                "from public.matches where id = %s",
+                (match_id,),
+            )
+            row = cur.fetchone()
+        if not row or row[2] != "ready":
+            return
+        user_id, match_type, _, match_json_path = row
+        if match_type in SIDE_CHANGE_SKIP_TYPES:
+            return
+        output = os.path.join(workdir, "side-changes.json")
+        cmd = [
+            RTMPOSE_PY, SIDE_CHANGE_SCRIPT,
+            "--clips-dir", outdir,
+            "--match-json", os.path.join(outdir, "match.json"),
+            "--output", output,
+            "--model", RTMPOSE_MODEL,
+            "--backend", RTMPOSE_BACKEND,
+            "--device", RTMPOSE_DEVICE,
+        ]
+        overrides = side_change_config(conn)
+        if overrides:
+            cmd += ["--config", json.dumps(overrides)]
+        started = time.perf_counter()
+        subprocess.run(cmd, check=True, timeout=30 * 60)
+        with open(output) as source:
+            evidence = json.load(source)
+        with conn.cursor() as cur:
+            cur.execute(
+                "select id, idx, t0, t1 from public.points "
+                "where match_id = %s",
+                (match_id,),
+            )
+            points_by_idx = {
+                int(r[1]): {"id": r[0], "t0": float(r[2]),
+                            "t1": float(r[3])}
+                for r in cur.fetchall()
+            }
+        mapped = map_point_ids(evidence, points_by_idx)
+        with conn.cursor() as cur:
+            cur.execute(
+                "update public.matches set match_structure = %s "
+                "where id = %s",
+                (json.dumps(compact_evidence(mapped)), match_id),
+            )
+        # Full diagnostics land beside match.json; the ledger row keeps
+        # the bytes attached to the match so deletion frees them.
+        if match_json_path and match_json_path.startswith("r2://"):
+            prefix = match_json_path.rsplit("/", 1)[0]
+            bucket, key_prefix = prefix.removeprefix("r2://").split("/", 1)
+            r2().upload_file(
+                output, bucket, f"{key_prefix}/side-changes.json",
+                ExtraArgs={"ContentType": "application/json"},
+            )
+            ledger_append(conn, user_id, "other",
+                          os.path.getsize(output), f"{prefix}/", match_id)
+        confirmed = [
+            c for c in mapped.get("side_changes") or []
+            if c.get("confirmed")
+        ]
+        log.info(
+            "  side changes %s: %d confirmed, %s/%s qualified, %.0fs",
+            mapped.get("status"),
+            len(confirmed),
+            (mapped.get("coverage") or {}).get("qualified"),
+            (mapped.get("coverage") or {}).get("total"),
+            time.perf_counter() - started,
+        )
+    except Exception:
+        log.exception(
+            "  side-change stage failed open; match %s stays as shipped",
+            match_id,
+        )
+
+
 def points_child_env(workdir: str | Path) -> tuple[dict, Path]:
     """Environment for a points-pipeline child, wired for cost metering.
 
@@ -6767,18 +6913,29 @@ def process_job(conn, msg) -> None:
             storage_upload("results", result_path, result)
 
         # SPEC.md §6: point-by-point breakdown on the ORIGINAL video
+        points_match_id = None
         if options.get("points"):
             update_job(conn, job_id, progress=70)
-            run_points_stage(conn, job_id, user_id, local_input,
-                             blurball_out, workdir, options, result_path,
-                             played_at=played_at,
-                             attempt_key=attempt_key)
+            points_match_id = run_points_stage(
+                conn, job_id, user_id, local_input,
+                blurball_out, workdir, options, result_path,
+                played_at=played_at,
+                attempt_key=attempt_key)
 
         update_job(conn, job_id, status="done", result_path=result_path,
                    progress=100)
         archive_message(conn, msg["msg_id"])
         log.info("  done: %s", result_path)
         notify_job_done(conn, job_id, user_id)
+
+        # Post-ready enrichment: side-change (game-end) detection. Runs
+        # after the owner is told the match is ready so its ~4 CPU
+        # minutes never delay a result; the workdir with the clips is
+        # still alive until the finally below.
+        if points_match_id:
+            run_side_change_stage(
+                conn, points_match_id, workdir,
+                os.path.join(workdir, "points_out"))
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 

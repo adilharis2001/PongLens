@@ -12,6 +12,7 @@ import type {
 } from "@/lib/types";
 import {
   getCommerceEnabled,
+  getGameEndDetection,
   getPlacementServesOnly,
   getTapEndPlayback,
 } from "@/lib/config";
@@ -250,6 +251,7 @@ export default async function MatchPage({
           }
           placementServesOnly={await getPlacementServesOnly()}
           tapEnd={await getTapEndPlayback()}
+          gameEndDetection={await getGameEndDetection()}
           initialPointTags={(pointTagsRes.data ?? []).map(
             (r) =>
               ({

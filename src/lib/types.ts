@@ -49,21 +49,52 @@ export interface MatchEndChangeEvidence {
   kind: "end_change";
 }
 
+/**
+ * One detected side change (v2, worker/side_change.py): between two
+ * consecutive detected points the two tracked players persistently
+ * swapped table ends. Under the rules that is how a game ends — the
+ * one exception being the deciding game's switch at 5 points, which is
+ * indistinguishable without a score, so consumers must treat this as
+ * "very likely a game boundary", never as certainty. `confirmed` is the
+ * detector's own precision gate; anything unconfirmed is diagnostics.
+ * gap_t0/gap_t1 bound the dead space between the two points in SOURCE
+ * seconds, so a display can survive later splits and deletions.
+ */
+export interface SideChangeEvidence {
+  kind: "side_change";
+  after_idx: number;
+  before_idx: number;
+  after_point_id?: string;
+  before_point_id?: string;
+  gap_t0?: number;
+  gap_t1?: number;
+  confidence: number;
+  confirmed: boolean;
+  components?: Record<string, number | null>;
+}
+
 export interface MatchStructureEvidence {
-  version: 1;
+  version: 1 | 2;
   status: MatchStructureStatus;
-  algorithm: "rtmpose-match-structure-v1";
+  // v1 (rtmpose-match-structure-v1) is the retired 2026-07 experiment —
+  // dormant, never consumed. v2 (side-change-v2) is the game-end
+  // detector; only its `side_changes` reach any UI.
+  algorithm: "rtmpose-match-structure-v1" | "side-change-v2";
   first_server?: {
     status: "high_confidence" | "withheld" | "unavailable";
     side: "near" | "far" | null;
     usable_points?: number[];
   };
   end_changes?: MatchEndChangeEvidence[];
+  side_changes?: SideChangeEvidence[];
+  flips_total?: number;
+  foreshortening?: number | null;
   coverage?: {
     total: number;
-    high_confidence: number;
-    needs_review: number;
-    unavailable: number;
+    high_confidence?: number;
+    needs_review?: number;
+    unavailable?: number;
+    qualified?: number;
   };
   compute?: {
     elapsed_s?: number;

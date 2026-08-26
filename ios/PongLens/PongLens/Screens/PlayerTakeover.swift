@@ -101,6 +101,11 @@ struct PlayerTakeover: View {
     var highlightPicks: [MatchPoint]? = nil
     /// The Share pill's tap; the host presents the share sheet.
     var onShareHighlight: (() -> Void)?
+    /// Detected game ends (140): point id -> a detected boundary sits
+    /// after that chip. The host only fills this for an UNSCORED
+    /// competitive match, so the hint and the scored divider never
+    /// coexist. Informational — the marker is not tappable.
+    var detectedGameEnds: [UUID: SideChange] = [:]
 
     @Environment(\.dismiss) var dismiss
     @Environment(AppState.self) var app
@@ -2009,6 +2014,21 @@ struct PlayerTakeover: View {
                             .id(p.id)
                             if let ends = full.boundaryAfter[p.id] {
                                 gameDivider(p, ends)
+                            } else if detectedGameEnds[p.id] != nil {
+                                // Detected game end (140). NO border and
+                                // NO button: in this strip a border marks
+                                // something tappable, and this is
+                                // information, not a control.
+                                VStack(spacing: 3) {
+                                    Rectangle().fill(PL.text600)
+                                        .frame(width: 1, height: 10)
+                                    Text("Game end detected")
+                                        .font(.system(
+                                            size: 9, weight: .semibold
+                                        ))
+                                        .foregroundStyle(PL.text500)
+                                        .fixedSize()
+                                }
                             }
                         }
                     }

@@ -7,6 +7,8 @@ import type {
   Point,
 } from "../../../lib/types.ts";
 import {
+  gameEndIndicatorsEligible,
+  resolveDetectedGameEnds,
   resolveFirstServer,
   resolveMatchBoundaries,
   userConfirmedFirstServer,
@@ -193,4 +195,137 @@ test("low coverage withholds boundary application", () => {
   );
   assert.equal(result.effectiveOverrides.size, 0);
   assert.equal(result.unresolved.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// v2: side-change-v2 game-end indicators (migration 140)
+// ---------------------------------------------------------------------------
+
+function v2Evidence(
+  changes: Partial<
+    NonNullable<MatchStructureEvidence["side_changes"]>[number]
+  >[]
+): MatchStructureEvidence {
+  return {
+    version: 2,
+    status: "ready",
+    algorithm: "side-change-v2",
+    side_changes: changes.map((change, i) => ({
+      kind: "side_change" as const,
+      after_idx: i,
+      before_idx: i + 1,
+      confidence: 1,
+      confirmed: true,
+      ...change,
+    })),
+  };
+}
+
+function timedPoint(id: string, t0: number, t1: number): Point {
+  return {
+    id,
+    idx: Number(id.slice(1)),
+    t0,
+    t1,
+    confirmed_winner: null,
+    is_let: false,
+    deleted: false,
+    game_end_override: null,
+  } as Point;
+}
+
+const FOUR_POINTS = [
+  timedPoint("p1", 0, 5),
+  timedPoint("p2", 10, 15),
+  timedPoint("p3", 40, 45),
+  timedPoint("p4", 50, 55),
+];
+
+test("eligibility: flag, competitive type, and unscored all required", () => {
+  const unscored = FOUR_POINTS;
+  assert.equal(gameEndIndicatorsEligible("match", unscored, true), true);
+  assert.equal(gameEndIndicatorsEligible("league", unscored, true), true);
+  assert.equal(gameEndIndicatorsEligible("tournament", unscored, true), true);
+  // Flag off: nothing, ever.
+  assert.equal(gameEndIndicatorsEligible("match", unscored, false), false);
+  // Missing or non-competitive type fails safe.
+  assert.equal(gameEndIndicatorsEligible(null, unscored, true), false);
+  assert.equal(gameEndIndicatorsEligible("practice", unscored, true), false);
+  assert.equal(gameEndIndicatorsEligible("drills", unscored, true), false);
+});
+
+test("eligibility: one scored point or one pin turns it all off", () => {
+  const scored = [
+    ...FOUR_POINTS.slice(0, 3),
+    { ...FOUR_POINTS[3], confirmed_winner: "user" as const },
+  ];
+  assert.equal(gameEndIndicatorsEligible("match", scored, true), false);
+  const pinned = [
+    ...FOUR_POINTS.slice(0, 3),
+    { ...FOUR_POINTS[3], game_end_override: "end" as const },
+  ];
+  assert.equal(gameEndIndicatorsEligible("match", pinned, true), false);
+});
+
+test("v2 resolver places a confirmed change after its point", () => {
+  const evidence = v2Evidence([
+    { after_point_id: "p2", before_point_id: "p3", gap_t0: 15, gap_t1: 40 },
+  ]);
+  const map = resolveDetectedGameEnds(FOUR_POINTS, evidence);
+  assert.equal(map.size, 1);
+  assert.equal(map.has("p2"), true);
+});
+
+test("v2 resolver ignores unconfirmed changes and non-v2 evidence", () => {
+  const unconfirmed = v2Evidence([
+    {
+      after_point_id: "p2",
+      before_point_id: "p3",
+      confirmed: false,
+    },
+  ]);
+  assert.equal(resolveDetectedGameEnds(FOUR_POINTS, unconfirmed).size, 0);
+  const v1 = evidenceWithChange("p2", "p3", "p3");
+  assert.equal(resolveDetectedGameEnds(FOUR_POINTS, v1).size, 0);
+  assert.equal(resolveDetectedGameEnds(FOUR_POINTS, null).size, 0);
+});
+
+test("v2 resolver falls back to time when the point was deleted", () => {
+  // The worker referenced a junk card the owner has since removed: the
+  // indicator lands after the last visible point before the gap.
+  const evidence = v2Evidence([
+    {
+      after_point_id: "deleted-junk",
+      before_point_id: "p3",
+      gap_t0: 15.2,
+      gap_t1: 40,
+    },
+  ]);
+  const map = resolveDetectedGameEnds(FOUR_POINTS, evidence);
+  assert.equal(map.size, 1);
+  assert.equal(map.has("p2"), true);
+});
+
+test("v2 resolver drops a change after the final visible point", () => {
+  const evidence = v2Evidence([
+    { after_point_id: "p4", before_point_id: "gone", gap_t0: 55 },
+  ]);
+  assert.equal(resolveDetectedGameEnds(FOUR_POINTS, evidence).size, 0);
+});
+
+test("v2 resolver keeps the higher-confidence change per point", () => {
+  const evidence = v2Evidence([
+    {
+      after_point_id: "p2",
+      before_point_id: "p3",
+      confidence: 0.6,
+    },
+    {
+      after_point_id: "p2",
+      before_point_id: "p3",
+      confidence: 0.9,
+    },
+  ]);
+  const map = resolveDetectedGameEnds(FOUR_POINTS, evidence);
+  assert.equal(map.get("p2")?.confidence, 0.9);
 });
