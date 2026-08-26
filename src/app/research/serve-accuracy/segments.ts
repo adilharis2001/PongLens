@@ -643,8 +643,9 @@ export interface RepairTrust {
  * and equally when the tracker simply stopped looking. Watching the ball
  * descend out of the playing volume and stay out separates them.
  *
- * Neither is redundant. Alternation alone leaves two wrong; the exit alone
- * leaves three; together, none.
+ * Neither is redundant. Alternation alone keeps sixteen calls and leaves
+ * three wrong; the exit alone keeps eleven and leaves one; together they
+ * keep nine and leave none.
  */
 export function repairTrust(
   repaired: readonly DetectedEvent[],

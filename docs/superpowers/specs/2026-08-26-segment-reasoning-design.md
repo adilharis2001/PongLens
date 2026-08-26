@@ -267,8 +267,9 @@ failures — both are questions the repair itself raises.
    stopped looking. Watching it descend out of the playing volume and stay
    out separates them.
 
-Alternation alone leaves two wrong. The exit alone leaves three. Together,
-none. They are not redundant and neither should be dropped.
+Alternation alone keeps 16 calls and leaves 3 wrong. The exit alone keeps
+11 and leaves 1. Together they keep 9 and leave none. They are not
+redundant and neither should be dropped.
 
 ## Thresholds
 
@@ -341,7 +342,7 @@ inspectable rather than invisible.
 - Adil has not watched the nine gained points. The numbers say nine of
   nine; only the video says that for certain.
 - **Eleven calls instead of nine, at the cost of one wrong.** Dropping the
-  alternation test alone reaches 11 of 12. This document's bar says no,
+  alternation test and keeping only the exit reaches 10 right of 11. This document's bar says no,
   and that is how it was built, but it is Adil's call and not a technical
   one.
 - 58 points still get no call. The two largest reasons are unchanged in
