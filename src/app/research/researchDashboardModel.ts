@@ -8,6 +8,14 @@ export interface ResearchPage {
 
 export const RESEARCH_PAGES = [
   {
+    title: "Serve spin",
+    category: "Data labeling",
+    description:
+      "Watch each serve and say what spin it carried, beside what the bounce-ratio estimator predicted. Builds the ground truth the spin work needs.",
+    href: "/research/spin",
+    accent: "cyan",
+  },
+  {
     title: "Fused labeling",
     category: "Data labeling",
     description:
