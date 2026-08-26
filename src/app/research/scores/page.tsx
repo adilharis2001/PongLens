@@ -8,6 +8,7 @@ import {
   type ScoredGame,
   type ScoringPoint,
 } from "@/lib/research/scoreGaps";
+import { fetchVisiblePoints } from "@/lib/research/scorePoints";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -37,7 +38,6 @@ export const metadata: Metadata = {
  * sees on their match.
  */
 
-const PAGE = 1000;
 const BLUE = "#5a8cff";
 const AMBER = "#f59e0b";
 
@@ -54,45 +54,6 @@ interface Row {
   venue: string | null;
   created: string;
   scoring: MatchScoring;
-}
-
-/**
- * PostgREST answers at most 1000 rows per request whatever the query says,
- * and there are about five thousand points across the scored matches. A
- * page that silently rendered the first thousand would report a lot of
- * missing rallies that are simply not in the response.
- */
-async function allVisiblePoints(
-  admin: ReturnType<typeof createAdminClient>,
-): Promise<(ScoringPoint & { match_id: string })[]> {
-  const out: (ScoringPoint & { match_id: string })[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await admin
-      .from("points")
-      .select(
-        "id,match_id,idx,t0,t1,is_let,confirmed_winner,game_end_override,game_winner_override",
-      )
-      .eq("deleted", false)
-      .order("match_id")
-      .order("idx")
-      .range(from, from + PAGE - 1);
-    if (error || !data || data.length === 0) break;
-    for (const r of data) {
-      out.push({
-        id: r.id,
-        match_id: r.match_id,
-        idx: r.idx,
-        t0: r.t0 === null ? null : Number(r.t0),
-        t1: r.t1 === null ? null : Number(r.t1),
-        is_let: Boolean(r.is_let),
-        confirmed_winner: r.confirmed_winner,
-        game_end_override: r.game_end_override,
-        game_winner_override: r.game_winner_override,
-      });
-    }
-    if (data.length < PAGE) break;
-  }
-  return out;
 }
 
 /** Why a score does not add up, in the order that matters. */
@@ -169,7 +130,7 @@ export default async function ScoresPage() {
     );
   }
 
-  const points = await allVisiblePoints(admin);
+  const points = await fetchVisiblePoints(admin);
   const byMatch = new Map<string, ScoringPoint[]>();
   for (const p of points) {
     const list = byMatch.get(p.match_id) ?? [];

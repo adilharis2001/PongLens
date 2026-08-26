@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { listObjects, MEDIA_BUCKET, presignGetBatch } from "@/lib/r2";
-import {
-  scoreMatch,
-  type MatchScoring,
-  type ScoringPoint,
-} from "@/lib/research/scoreGaps";
+import { scoreMatch, type MatchScoring } from "@/lib/research/scoreGaps";
+import { fetchVisiblePoints } from "@/lib/research/scorePoints";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -27,14 +24,6 @@ const PREFIX = "research/endon/";
 /**
  * What each match's owner has scored, folded into games.
  *
- * Read with the service key rather than the signed-in session, because the
- * row policy on `points` has no admin branch: it grants a match's owner,
- * their accepted coach and a coach holding a live review order, and these
- * are other people's matches on every count. The page itself is already
- * behind `is_admin()`, so this widens nothing that the page did not
- * already show — the video and the ball track for these same matches come
- * through the same gate.
- *
  * A missing service key is not an error. Locally there is none, and a
  * research page that will not render at all is a worse failure than one
  * that renders without the scoring lane.
@@ -49,26 +38,10 @@ async function scoringFor(
   } catch {
     return out;
   }
-  const { data } = await admin
-    .from("points")
-    .select(
-      "id,match_id,idx,t0,t1,is_let,confirmed_winner,game_end_override,game_winner_override,deleted",
-    )
-    .in("match_id", ids)
-    .eq("deleted", false);
-  const byMatch = new Map<string, ScoringPoint[]>();
-  for (const row of data ?? []) {
+  const byMatch = new Map<string, Parameters<typeof scoreMatch>[0][number][]>();
+  for (const row of await fetchVisiblePoints(admin, ids)) {
     const list = byMatch.get(row.match_id) ?? [];
-    list.push({
-      id: row.id,
-      idx: row.idx,
-      t0: row.t0 === null ? null : Number(row.t0),
-      t1: row.t1 === null ? null : Number(row.t1),
-      is_let: Boolean(row.is_let),
-      confirmed_winner: row.confirmed_winner,
-      game_end_override: row.game_end_override,
-      game_winner_override: row.game_winner_override,
-    });
+    list.push(row);
     byMatch.set(row.match_id, list);
   }
   for (const [id, list] of byMatch) out.set(id, scoreMatch(list));
