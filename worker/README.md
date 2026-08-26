@@ -83,9 +83,13 @@ Env knobs (mostly for debugging):
 
 - `WORKER_SKIP_CONTENT_CHECK=1` — skip the gate entirely (local testing)
 - `WORKER_CONTENT_CHECK_MODEL` — override the model (default `gpt-5-nano`)
-- `WORKER_PLACEMENT_VISION_MODEL` — vision-capable OpenAI model used only
-  for an owner-requested placement retry after deterministic calibration
-  fails (default `gpt-5.6-sol`)
+- `WORKER_PLACEMENT_VISION_MODEL` — vision-capable OpenAI model used when
+  the keypoint detector declines, both in the points pipeline's calibration
+  ladder and for an owner-requested placement retry (default `gpt-5.6-sol`)
+- `WORKER_PLACEMENT_VISION_ESCALATION_MODEL` — the cheaper second opinion
+  the points ladder falls back to if the model above refuses (default
+  `gpt-5.6-luna`). The name says escalation for backward compatibility;
+  since 2026-08-26 it is a fallback, not an escalation.
 - `WORKER_OPENAI_BASE_URL` — override the API base (used to test the
   fail-open path)
 

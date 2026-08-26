@@ -1502,22 +1502,46 @@ def keypoint_calibrate(video, workdir):
 # points with zero fragmentation; padding wider from there only re-admits
 # false points (35 -> 41 -> 44) for nothing.
 VISION_ROI_PAD = (0.35, 2.0, 0.9)
-# Luna at five trials, Sol only when Luna cannot produce a quad.
+# Sol at three trials, Luna only if Sol cannot produce a quad.
 #
-# Measured against 62 matches the owner marked by hand (see
-# docs/research/2026-08-16-table-detection.md). Luna is 2.4% median corner
-# error against those marks and Sol 0.0% on the 7 it was called for, but Sol
-# is 25x the price, and five Luna trials cost about a seventh of three Sol
-# ones. So Luna runs first and Sol picks up what is left.
+# This order was the other way round until 2026-08-26, on an explicit cost
+# trade rather than an accuracy one: the note here read "Luna is 2.4% median
+# corner error and Sol 0.0% on the 7 it was called for, but Sol is 25x the
+# price". Both halves of that were right. Sol was then run over all 62 of
+# the owner's hand-marked frames rather than the 7, and the accuracy gap is
+# far wider than 2.4% suggested:
 #
-# Three, not two, for the escalation. Consensus needs a PAIR that agrees;
-# with only two trials a single wandering corner (the far corners are the
-# occluded, most foreshortened ones) takes the whole calibration down.
-VISION_MODEL = os.environ.get("WORKER_PLACEMENT_VISION_MODEL", "gpt-5.6-luna")
-VISION_TRIALS = 5
-VISION_ESCALATION_MODEL = os.environ.get(
-    "WORKER_PLACEMENT_VISION_ESCALATION_MODEL", "gpt-5.6-sol")
-VISION_ESCALATION_TRIALS = 3
+#     median corner error   Luna 57.0px   Sol 10.6px
+#     worst frame           Luna  426px   Sol   96px
+#     frames over 80px off  Luna     22   Sol      2
+#     Sol better on 50 of 60, and breaks NONE of the 25 Luna got right
+#
+# The 2.4% figure was not wrong, it was a fraction of the frame diagonal —
+# about 53px, which agrees with the 57px above. What it hid is the tail.
+#
+# Luna is not uniformly weak: at PingPod the two are indistinguishable
+# (3.8px against 4.0px), which is most likely how it came to be first, since
+# the early corpus was PingPod-heavy. Everywhere else it is three to six
+# times worse. Keep that in mind before reading a venue-thin result as a
+# general one.
+#
+# Cost is unchanged as a fact and changed as a decision: Sol really is ~25x
+# the price, roughly $0.075 a match against $0.003, and the owner accepted
+# that on 2026-08-26 on the grounds that a match is already minutes in the
+# pipeline and a wrong table poisons everything downstream of it. Watch it
+# if the keypoint detector's decline rate stays near half of uploads —
+# that rate, not this choice, is what sets the bill.
+#
+# Three trials for Sol, five for Luna: those are the counts each model was
+# measured at, and select_by_shape needs enough proposals to rank.
+VISION_MODEL = os.environ.get("WORKER_PLACEMENT_VISION_MODEL", "gpt-5.6-sol")
+VISION_TRIALS = 3
+# Kept under the old env name so any existing configuration keeps working.
+# It is no longer an escalation — it is the cheap second opinion when the
+# better model has refused.
+VISION_FALLBACK_MODEL = os.environ.get(
+    "WORKER_PLACEMENT_VISION_ESCALATION_MODEL", "gpt-5.6-luna")
+VISION_FALLBACK_TRIALS = 5
 
 
 def _openai_key() -> str:
@@ -1567,8 +1591,8 @@ def vision_calibrate(video, workdir, det, gate_core=None):
 
     height, width = background.shape[:2]
     ladder = [(VISION_MODEL, VISION_TRIALS)]
-    if VISION_ESCALATION_MODEL and VISION_ESCALATION_MODEL != VISION_MODEL:
-        ladder.append((VISION_ESCALATION_MODEL, VISION_ESCALATION_TRIALS))
+    if VISION_FALLBACK_MODEL and VISION_FALLBACK_MODEL != VISION_MODEL:
+        ladder.append((VISION_FALLBACK_MODEL, VISION_FALLBACK_TRIALS))
 
     consensus = None
     used_model = VISION_MODEL
