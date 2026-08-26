@@ -1,0 +1,7 @@
+# Regenerable from gen_serves.py (20MB of simulated serves) — the study's
+# conclusions live in the figures and the small result files beside them.
+out/serves.json
+out/serves_clean.json
+# Cached match.json downloads from R2, refetched by real_extract2.py.
+out/matchjson/
+__pycache__/
