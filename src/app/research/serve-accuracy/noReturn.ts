@@ -1,5 +1,6 @@
 import type { DetectedEvent } from "./serveAccuracyModel";
 import { netSegment } from "./netDeath";
+import { inPrism, prismPolygon, type Pt } from "./prism";
 
 /**
  * The fourth way to see a point end: the ball never came back over the net.
@@ -55,6 +56,22 @@ const CROSS_SUSTAIN = 4;
 /** ...provided they travel at least this far along the table (as a
  *  fraction of its length — a static distractor fails this). */
 const CROSS_MIN_TRAVEL = 0.05;
+/**
+ * ...and provided this many of them are inside the prism, the volume a
+ * rally actually lives in.
+ *
+ * This is the difference between a return and a deflection. Adil's point
+ * 20 on the Julian match: his bat turns an attacking shot up and away, the
+ * ball sails high over the far end and never comes back. Projected flat
+ * onto the table axis that reads as "past the net", so the rule saw a
+ * crossing, assumed the rally continued, and refused — the ball was over
+ * the ROOM, not over the table.
+ *
+ * All four frames is too strict: a real return can clip the prism boundary
+ * for a frame on its way through, and demanding four breaks Julian's point
+ * 55. Three of four is where it settles.
+ */
+const CROSS_MIN_IN_PRISM = 3;
 /** The last landing must follow the previous event within a rally. */
 const RALLY_GAP_S = 1.2;
 
@@ -69,6 +86,9 @@ interface Geo {
   axis: [number, number];
   axisLen2: number;
   sNet: number;
+  /** Null when the corners will not make one; the prism test then passes
+   *  everything, leaving the rule exactly as strict as it was before. */
+  prism: readonly Pt[] | null;
 }
 
 function buildGeo(corners: Record<string, [number, number]> | null): Geo | null {
@@ -92,6 +112,7 @@ function buildGeo(corners: Record<string, [number, number]> | null): Geo | null 
   return {
     quad: [A, B, C, D], nearMid, axis, axisLen2,
     sNet: ((netMid[0] - nearMid[0]) * axis[0] + (netMid[1] - nearMid[1]) * axis[1]) / axisLen2,
+    prism: prismPolygon(corners),
   };
 }
 
@@ -180,7 +201,12 @@ export function findNoReturn(
     const travel = Math.abs(along(run[run.length - 1]) - along(run[0]));
     const steps = run.every((p, k) =>
       k === 0 || Math.hypot(p.x - run[k - 1].x, p.y - run[k - 1].y) < 250);
-    if (travel >= CROSS_MIN_TRAVEL && steps) return null;
+    const inside = geo.prism === null
+      ? CROSS_MIN_IN_PRISM
+      : run.filter((p) => inPrism(geo.prism as readonly Pt[], p.x, p.y)).length;
+    if (travel >= CROSS_MIN_TRAVEL && steps && inside >= CROSS_MIN_IN_PRISM) {
+      return null;
+    }
   }
 
   return { loser: H, lastLanding: L };
