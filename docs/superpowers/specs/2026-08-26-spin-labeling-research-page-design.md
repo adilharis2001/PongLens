@@ -265,3 +265,34 @@ criteria (>= 50% clean yield, >= 85% top-vs-back on labels).
 4. Prediction chip + blind holdout + summary block.
 5. Label an evening's worth, then review the disagreement filter
    together before trusting the accuracy readout.
+
+---
+
+## Built, 2026-08-26
+
+Live at `/research/spin` (77bfc275, 8c15e1cd, e15ed2b6). Three things
+came out different from the design, each found by driving the real page
+rather than by typechecking it.
+
+- **The page loads through one FK join, not an id list.** Fetching the
+  predictions and then asking for those point ids in batches of 500
+  built a query string long enough that fetch refused to send it, which
+  surfaces as `TypeError: fetch failed` with no Postgres error behind
+  it. `spin_predictions` embeds `points!inner(...)` instead.
+- **Another account's match is hidden, and says so.** Julian's match —
+  175 points carrying 46 of the 155 predictions — belongs to a
+  different user, so RLS drops it from the join. That is the right
+  outcome, since `/api/media-url` could not sign its video either, but
+  the page prints the count rather than quietly reporting a smaller
+  corpus than the estimator measured.
+- **Refusals are never blinded.** The holdout hid the estimator's call
+  on every fifth point including the refusals, where there is no call to
+  anchor on and the refusal reason is the only useful thing on screen.
+  `shouldBlind()` now requires a measurable prediction.
+
+**Where it stands:** 1,551 prediction rows, 155 measured (10% yield),
+1,373 points labelable with 109 predictions among them. The yield, not
+the page, is the next piece of work — 338 points refuse as
+`fake_serve_reversal` and 368 as `no_candidates`. Labeling a batch of
+each is what tells us whether those gates are right, and a
+refusal-reason filter (not built) would make that pass much faster.
