@@ -9,11 +9,11 @@ import {
   disagrees,
   filterPoints,
   formatClock,
-  isBlind,
   labeled,
   productPrefill,
   refusalText,
   serveWindow,
+  shouldBlind,
   summarize,
   type QueueFilter,
   type SpinMatchRow,
@@ -159,7 +159,7 @@ export function SpinReview({
   // The prediction stays hidden on the blind slice until a spin label is
   // committed; the label row records which mode it was saved under.
   const blindNow = point
-    ? isBlind(point.pointId) && !forceShow && !labeled(note)
+    ? shouldBlind(point.pointId, prediction) && !forceShow && !labeled(note)
     : false;
 
   useEffect(() => {
@@ -256,7 +256,10 @@ export function SpinReview({
         predicted_spin: pred?.predicted_spin ?? null,
         predicted_confidence: pred?.confidence ?? null,
         algo: pred?.algo ?? null,
-        blind: prev.spin !== null ? prev.blind : isBlind(p.pointId) && !forceShow,
+        blind:
+          prev.spin !== null
+            ? prev.blind
+            : shouldBlind(p.pointId, pred) && !forceShow,
       };
       setNotes((map) => new Map(map).set(p.pointId, next));
       setSaveState("saving");
@@ -681,12 +684,12 @@ export function SpinReview({
                   </span>
                   <span className="flex-1 text-xs text-zinc-400">
                     {pr && pr.predicted_spin !== "unmeasurable"
-                      ? isBlind(p.pointId) && !forceShow && !labeled(n)
+                      ? shouldBlind(p.pointId, pr) && !forceShow && !labeled(n)
                         ? "prediction hidden"
                         : `pred ${pr.predicted_spin === "none" ? "flat" : pr.predicted_spin}`
                       : "—"}
                   </span>
-                  {isBlind(p.pointId) && (
+                  {shouldBlind(p.pointId, pr) && (
                     <span className="text-[10px] uppercase tracking-wide text-zinc-600">
                       blind
                     </span>

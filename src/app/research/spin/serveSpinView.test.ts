@@ -9,6 +9,7 @@ import {
   productPrefill,
   refusalText,
   serveWindow,
+  shouldBlind,
   summarize,
   type SpinNote,
   type SpinPointRow,
@@ -74,6 +75,22 @@ test("isBlind is deterministic and hits roughly a fifth", () => {
   assert.deepEqual(first, second);
   const share = first.filter(Boolean).length / ids.length;
   assert.ok(share > 0.12 && share < 0.28, `blind share ${share}`);
+});
+
+test("only measurable predictions are ever blinded", () => {
+  // find an id the hash puts in the blind fifth
+  const blindId = Array.from(
+    { length: 200 },
+    (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+  ).find(isBlind)!;
+  assert.equal(isBlind(blindId), true);
+  // measurable: blinded as usual
+  assert.equal(shouldBlind(blindId, pred(blindId, "back")), true);
+  // refused: never blinded, or the refusal reason would be withheld and
+  // the point becomes unlabelable in practice
+  assert.equal(shouldBlind(blindId, pred(blindId, "unmeasurable")), false);
+  // no prediction row at all: nothing to hide
+  assert.equal(shouldBlind(blindId, undefined), false);
 });
 
 test("labeled and disagrees", () => {

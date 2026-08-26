@@ -75,6 +75,19 @@ export function isBlind(pointId: string): boolean {
   return ((h % 5) + 5) % 5 === 0;
 }
 
+/** Whether to hide the estimator's call until this point is answered.
+ * Only points the estimator actually measured are ever blinded: a
+ * refusal carries no call to anchor on, and hiding it would withhold the
+ * refusal reason — the one thing that makes a refused serve worth
+ * labeling, since those labels are how the gates get fixed. */
+export function shouldBlind(
+  pointId: string,
+  prediction: SpinPrediction | undefined,
+): boolean {
+  if (!prediction || prediction.predicted_spin === "unmeasurable") return false;
+  return isBlind(pointId);
+}
+
 export type QueueFilter =
   | "unlabeled"
   | "all"
