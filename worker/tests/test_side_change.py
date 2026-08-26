@@ -128,11 +128,30 @@ class DetectSideChanges(unittest.TestCase):
         self.assertEqual(result["status"], "withheld")
         self.assertEqual(result["side_changes"], [])
 
-    def test_unqualified_points_break_pairing(self):
-        points = sequence(8, flip_at=4)
-        points[3]["near"]["ok"] = False
+    def test_flip_reaches_across_transition_cards(self):
+        # The changeover itself gets cut into junk cards — a player
+        # fetching the ball or a drink, with nobody at one end — so the
+        # last rally of a game and the first of the next are rarely
+        # neighbours. Reaching across them is the point: requiring
+        # adjacency threw away 8 of 11 real changeovers on the corpus
+        # (2026-08-26). The boundary is reported after the last
+        # qualified point, which is where the game actually ended.
+        points = sequence(9, flip_at=5)
+        points[4]["near"]["ok"] = False
         result = detect_side_changes(points)
-        # The flip pair (3,4) no longer exists; nothing may confirm.
+        confirmed = [c for c in result["side_changes"] if c["confirmed"]]
+        self.assertEqual(len(confirmed), 1)
+        self.assertEqual(confirmed[0]["after_idx"], 3)
+        self.assertEqual(confirmed[0]["before_idx"], 5)
+        self.assertEqual(confirmed[0]["components"]["bridged"], 1)
+
+    def test_reach_stops_at_the_bridge_limit(self):
+        # Four unqualified points in a row is not a changeover, it is a
+        # blind spot; no pair spans it, so nothing confirms.
+        points = sequence(14, flip_at=8)
+        for i in range(4, 8):
+            points[i]["near"]["ok"] = False
+        result = detect_side_changes(points, {"bridge_max": 3})
         self.assertTrue(
             all(not c["confirmed"] for c in result["side_changes"])
         )

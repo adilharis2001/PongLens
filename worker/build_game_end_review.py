@@ -140,10 +140,11 @@ def img(data: str | None, label: str) -> str:
     )
 
 
-def render(cases: list[dict[str, Any]]) -> str:
+def render(cases: list[dict[str, Any]], seeded: dict[str, str]) -> str:
     blocks = []
     for case in cases:
         components = case["components"]
+        bridged = int(components.get("bridged") or 0)
         chips = [
             ("confirmed" if case["confirmed"] else "withheld"),
             f"confidence {case['confidence']}",
@@ -153,6 +154,12 @@ def render(cases: list[dict[str, Any]]) -> str:
             f"{components.get('post_stable_pairs')} after",
             f"camera {case['foreshortening']}",
         ]
+        if bridged:
+            chips.insert(
+                1,
+                f"reaches across {bridged} "
+                f"{'card' if bridged == 1 else 'cards'}",
+            )
         chip_html = "".join(
             f'<span class="chip">{html.escape(str(c))}</span>' for c in chips
         )
@@ -193,6 +200,8 @@ def render(cases: list[dict[str, Any]]) -> str:
         )
 
     confirmed = sum(1 for c in cases if c["confirmed"])
+    fresh = sum(1 for c in cases if c["case_id"] not in seeded)
+    seed_json = json.dumps(seeded)
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -240,6 +249,7 @@ button[aria-pressed="true"] {{ border-color:#22d3ee; color:#22d3ee; }}
       <div class="meta">{len(cases)} candidates, {confirmed} of them
         confirmed by the detector</div>
     </div>
+    <button type="button" id="unjudged">Only unjudged ({fresh})</button>
     <button type="button" id="copy">Copy results</button>
   </div>
   <div class="meta" style="margin-top:8px">
@@ -250,7 +260,11 @@ button[aria-pressed="true"] {{ border-color:#22d3ee; color:#22d3ee; }}
 {''.join(blocks)}
 <script>
 const KEY = 'ponglens-gameend-verdicts';
-const store = JSON.parse(localStorage.getItem(KEY) || '{{}}');
+// Verdicts already given are baked in, so a fresh build keeps them even
+// when it is opened from a different origin than the one they were
+// clicked on. Anything in localStorage is newer and wins.
+const store = Object.assign({seed_json}, JSON.parse(localStorage.getItem(KEY) || '{{}}'));
+localStorage.setItem(KEY, JSON.stringify(store));
 function refresh() {{
   const cases = [...document.querySelectorAll('.case')];
   let done = 0, cHit = 0, cTotal = 0;
@@ -290,6 +304,15 @@ document.getElementById('copy').addEventListener('click', async () => {{
   b.textContent = 'Copied';
   setTimeout(() => (b.textContent = 'Copy results'), 1200);
 }});
+let onlyNew = false;
+document.getElementById('unjudged').addEventListener('click', () => {{
+  onlyNew = !onlyNew;
+  const b = document.getElementById('unjudged');
+  b.setAttribute('aria-pressed', String(onlyNew));
+  for (const el of document.querySelectorAll('.case')) {{
+    el.style.display = onlyNew && store[el.dataset.case] ? 'none' : '';
+  }}
+}});
 refresh();
 </script>
 </body></html>"""
@@ -299,14 +322,28 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cache", required=True, type=Path)
     parser.add_argument("--out", required=True, type=Path)
+    parser.add_argument(
+        "--labels",
+        type=Path,
+        default=None,
+        help=(
+            "JSON of verdicts already given, baked into the page so a "
+            "rebuild does not ask for them a second time"
+        ),
+    )
     args = parser.parse_args()
+    seeded = (
+        json.loads(args.labels.read_text()) if args.labels else {}
+    )
     cases = collect(args.cache.expanduser())
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(render(cases))
+    args.out.write_text(render(cases, seeded))
     size_mb = args.out.stat().st_size / 1e6
+    fresh = sum(1 for c in cases if c["case_id"] not in seeded)
     print(
         f"{len(cases)} candidates "
-        f"({sum(1 for c in cases if c['confirmed'])} confirmed) "
+        f"({sum(1 for c in cases if c['confirmed'])} confirmed, "
+        f"{fresh} not yet judged) "
         f"-> {args.out} ({size_mb:.1f} MB)"
     )
 

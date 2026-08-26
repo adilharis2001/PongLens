@@ -51,9 +51,15 @@ DEFAULT_CONFIG = {
     # More swapped verdicts than this in one match means the appearance
     # signal itself is unstable; withhold everything rather than pick.
     "max_flips": 6,
-    # A pair may bridge this many unqualified points when confirming
-    # stability. Flip pairs must always be strictly adjacent.
-    "bridge_max": 1,
+    # How many points a pair may reach across. A changeover is not one
+    # clean gap: players fetch the ball, drink, towel off, and the cutter
+    # turns that into one to three junk cards sitting between the last
+    # rally of a game and the first of the next. Measured 2026-08-26
+    # against Adil's own frame-by-frame verdicts: of 11 candidates the
+    # strict-adjacency rule threw away, 8 were real changeovers and every
+    # one of them had exactly one point in between. Reaching three covers
+    # the longer transitions the same footage produces.
+    "bridge_max": 3,
     # Gap length only shapes confidence (recordings paused between games
     # produce real boundaries with near-zero gaps — measured 2026-08-26:
     # p25 of true boundary gaps is 6.7s and the minimum is 0.0s).
@@ -195,13 +201,23 @@ def build_pairs(
 ) -> list[dict[str, Any]]:
     """Pair verdicts over consecutive qualified points.
 
-    A pair may bridge up to bridge_max unqualified points — without this,
-    ordinary qualification holes starve the stability runs (measured
-    2026-08-26: 34 pairs from 105 gaps on a healthy match). Each pair
-    records whether its two points are strictly adjacent in the sequence:
-    only ADJACENT pairs may mint a boundary, because a flip detected
-    across a bridge cannot say which of the bridged gaps it happened in.
-    Bridged pairs still confirm stability on either side of a flip.
+    A pair may reach across up to bridge_max unqualified points — without
+    this, ordinary qualification holes starve the stability runs
+    (measured 2026-08-26: 34 pairs from 105 gaps on a healthy match).
+
+    Bridged pairs may mint a boundary, and this is the whole point. An
+    earlier version required the flip pair to be strictly adjacent, on
+    the reasoning that a flip spanning a bridge cannot say which of the
+    bridged gaps it happened in. True, and it does not matter: the
+    bridged cards ARE the changeover — a player walking round the table
+    for the ball or a drink, cut into a card that never had two players
+    at two ends. The game ended before them, so the boundary belongs
+    after the last qualified point, which is exactly where a bridged
+    pair puts it. Requiring adjacency discarded 8 of the 11 real
+    changeovers this detector found.
+
+    `bridged` rides on every pair so a reviewer can see how far a
+    verdict reached, and so the cost of widening it stays measurable.
     """
     bridge_max = int(config.get("bridge_max", 1))
     qualified = [
@@ -218,6 +234,7 @@ def build_pairs(
             "a_idx": int(a["idx"]),
             "b_idx": int(b["idx"]),
             "adjacent": skipped == 0,
+            "bridged": skipped,
             "gap_s": (
                 round(float(b["t0"]) - float(a["t1"]), 2)
                 if a.get("t1") is not None and b.get("t0") is not None
@@ -436,8 +453,7 @@ def detect_side_changes(
         post_run = _stable_run(pairs, i + 1, +1)
         confidence, components = _confidence(pairs[i], pre_run, post_run, cfg)
         confirmed = (
-            bool(pairs[i].get("adjacent", True))
-            and pre_run >= int(cfg["pre_stable_pairs"])
+            pre_run >= int(cfg["pre_stable_pairs"])
             and post_run >= int(cfg["post_stable_pairs"])
             and confidence >= float(cfg["min_confidence"])
         )
@@ -451,6 +467,7 @@ def detect_side_changes(
                 "components": {
                     **components,
                     "margin": pairs[i]["margin"],
+                    "bridged": pairs[i].get("bridged", 0),
                 },
             }
         )

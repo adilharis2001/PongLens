@@ -116,21 +116,64 @@ guard tests start times rather than counts.
 
 ## What is actually known
 
-Very little, and that is the honest state:
+The corpus figure quoted in the first version of this note (100%
+precision, 36% recall on 14 fully-scored matches) is **withdrawn** for
+the reason above. What replaced it is better: Adil judged all 31
+candidates frame by frame on the review page, which is ground truth
+about the actual question rather than a proxy.
 
-- **31 candidates across 23 matches**, 19 of which the detector
-  confirmed. None has been checked against the footage by a human yet.
-- The corpus figure quoted in the first version of this note (100%
-  precision, 36% recall on 14 fully-scored matches) is **withdrawn** for
-  the reason above.
-- Coverage varies enormously and is the recall ceiling: 88 of 106 points
-  qualified on a square-on camera, 1 of 143 on Yilin's end-on tournament
-  footage, which produced nothing at all. That refusal is the system
-  working.
+**Of the 31, 26 were real changeovers, 3 were not, 2 unclear.** Split by
+what the detector decided:
+
+```
+                          real swap   not a swap
+detector confirmed             18            0
+detector withheld               8            3
+```
+
+Precision was already perfect. **The whole problem was recall, and it
+had a single cause.** Every one of the 8 real changeovers thrown away
+was rejected for the same reason: one point sat between the pair, so the
+strict-adjacency rule refused it. The 3 genuine non-swaps were rejected
+by the stability rule, at confidence 0.0, 0.0 and 0.1.
+
+So adjacency was doing all the damage and stability all the useful work.
+
+## Reaching across the transition
+
+**A changeover is not one clean gap.** Players fetch the ball, drink,
+towel off, and the cutter turns that into one to three junk cards
+between the last rally of a game and the first of the next — Adil's
+observation, and the numbers agree with it exactly: all 8 lost
+changeovers had precisely one card in between.
+
+The flip pair no longer has to be adjacent. It may reach across up to
+`bridge_max` (3) unqualified points, and the boundary is reported after
+the last qualified point before the swap, which is where the game
+actually ended — the bridged cards belong to the changeover, not to the
+game. The objection this replaces was that a bridged flip cannot say
+which gap it happened in; true, and it does not matter for the same
+reason.
+
+Rescored against the same verdicts:
+
+```
+                            confirmed   right   wrong
+strict adjacency (before)          18      18       0
+reaching across (after)            26      26       0
+```
+
+**Every recovered candidate is a real changeover, and nothing new is
+wrong.** Reaching to 2–3 cards adds 8 further candidates on the corpus,
+not yet judged. Coverage remains the ceiling: 88 of 106 points qualified
+on a square-on camera against 1 of 143 on Yilin's end-on tournament
+footage, which correctly produced nothing.
 
 `docs/research/gameend.html` is the review page: every candidate as the
 two frames the detector actually compared, so a swap is either visible
-or it is not. Rebuild it with `worker/build_game_end_review.py`.
+or it is not. Verdicts already given are baked in by
+`--labels` (kept in `verdicts-2026-08-26.json` beside the cache), so a
+rebuild never asks for the same judgement twice.
 
 The next number to trust comes from that page, not from the harness.
 
