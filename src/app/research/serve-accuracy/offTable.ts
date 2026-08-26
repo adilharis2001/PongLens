@@ -69,6 +69,24 @@ export const OFF_TABLE_OVERSHOOT_M = 0.5;
  */
 export const TOUCH_AFTER_FLOOR_S = 0.4;
 
+/**
+ * How many landings back the alternation test looks.
+ *
+ * It used to read the whole rally, and that punished long points for
+ * being long. Julian's point 21 runs eleven shots; one landing is missed
+ * around the fifth, the halves repeat there, and the gate threw away a
+ * read that depends on none of it — the rule uses the LAST landing and
+ * the shot after it, so a gap in the middle of the rally is no evidence
+ * against it. Every extra shot was another chance to be disqualified for
+ * an irrelevant reason.
+ *
+ * Three is the knee: 34 fires and 32 right, against 31 and 29 reading the
+ * whole rally. Two reaches 38 but starts calling points wrong (Julian 68),
+ * because with a single pair there is nothing left to notice a missed
+ * landing right at the end — which is the one that would matter.
+ */
+export const OFF_TABLE_ALT_TAIL = 3;
+
 export interface OffTableGeometry {
   /** Calibrated corners in source pixels, the pipeline's A/B near, C/D far. */
   corners: Record<string, [number, number]>;
@@ -102,6 +120,32 @@ function onTable(e: DetectedEvent): boolean {
 
 function halfOf(v: number): "near" | "far" {
   return v < NET_V_M ? "near" : "far";
+}
+
+/**
+ * The landings, with the ones that are not landings taken out.
+ *
+ * Two kinds of impostor, both found on Julian's point 21. A "bounce"
+ * logged at the same instant as a racket touch is the bat being seen
+ * twice, not the ball hitting the table. And two landings a tenth of a
+ * second apart on the same half are one landing detected twice — a real
+ * second bounce comes later than that, and belongs to the dead run.
+ *
+ * Left in, both fake a repeated half and disqualify the point through the
+ * alternation gate.
+ */
+function dedupeLandings(sorted: readonly DetectedEvent[]): DetectedEvent[] {
+  const out: DetectedEvent[] = [];
+  for (const e of sorted) {
+    if (!onTable(e)) continue;
+    if (sorted.some((x) => x.kind === "contact" && Math.abs(x.t - e.t) < 0.02)) continue;
+    const prev = out[out.length - 1];
+    if (prev
+      && e.t - prev.t < 0.15
+      && halfOf(e.v as number) === halfOf(prev.v as number)) continue;
+    out.push(e);
+  }
+  return out;
 }
 
 /** Metres outside the table rectangle, 0 when on it. */
@@ -213,16 +257,19 @@ export function findOffTable(
 ): OffTableCall | null {
   const geo = buildGeometry(geometry);
   const sorted = [...events].sort((a, b) => a.t - b.t);
-  const landings = sorted.filter(onTable);
+  const landings = dedupeLandings(sorted);
   if (landings.length === 0) return null;
   const lastLanding = landings[landings.length - 1];
   const struckBy = halfOf(lastLanding.v as number);
 
-  // The serve lands twice on the same side of the net by design, so the
-  // alternation test starts after it. A half repeating means a landing
-  // was missed, and the read is then following the wrong shot.
+  // A half repeating means a landing was missed, and the read is then
+  // following the wrong shot. Only the tail matters: the rule rests on
+  // the last landing and the shot after it, so a gap earlier in the rally
+  // is no evidence against it. The serve lands twice on the same side by
+  // design, so the comparison never reaches back past the second landing.
   let alternates = true;
-  for (let i = 2; i < landings.length; i++) {
+  const from = Math.max(2, landings.length - OFF_TABLE_ALT_TAIL + 1);
+  for (let i = from; i < landings.length; i++) {
     if (halfOf(landings[i].v as number) === halfOf(landings[i - 1].v as number)) {
       alternates = false;
     }
