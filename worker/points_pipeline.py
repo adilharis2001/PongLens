@@ -80,6 +80,12 @@ def write_evidence_dump(path, E, cards, calib, meta, fps, route, rate, notes):
         "fps": round(float(fps), 3),
         "w": meta["width"], "h": meta["height"],
         "quad": corners,
+        # Which rung of the ladder answered, in its own words. Without it a
+        # review page can show a quad but not say where it came from, and
+        # "was this the keypoint model, Sol or Luna" is the first question
+        # anyone asks of a table that looks wrong.
+        "calibration": (calib or {}).get("note"),
+        "calibration_source": (calib or {}).get("source"),
         "prism": (points_endon.prism_polygon(corners).reshape(-1, 2).tolist()
                   if corners is not None else None),
         "camera": None if E.shape is None else round(float(E.shape), 3),

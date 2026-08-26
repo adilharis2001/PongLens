@@ -158,6 +158,19 @@ export default async function EndOnPage() {
           really start and end, and the marks save as you go.
         </p>
         <p className="mt-3 max-w-prose text-sm text-zinc-400">
+          Each panel says which rung of the table ladder answered for that
+          run, because a quad that is one table over changes every number
+          under it. Where you have scored a match, your own winner calls sit
+          on the purple lane as small triangles, blue for you and amber for
+          your opponent, placed from the playhead at the moment you tapped.
+          A proposed card with no call anywhere inside it is outlined in
+          red. That is the one test on this page that owes nothing to a
+          detector, so it is worth more than the card count: a tap is you
+          saying a rally finished. Read it coarsely. The tap can land ten
+          seconds either side of where the rally really ended, so it says
+          which rally, not where it stopped.
+        </p>
+        <p className="mt-3 max-w-prose text-sm text-zinc-400">
           Where you have scored a match, the blue lane now carries the
           scoring: each card is tinted by who won that point, blue for the
           uploader and amber for the opponent, with the running score

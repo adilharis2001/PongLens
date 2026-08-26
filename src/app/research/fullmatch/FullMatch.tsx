@@ -65,6 +65,12 @@ interface FullData {
     fused: number; split: number; lost: number;
   };
   presence: number[][]; // [t, near, far]
+  /** The owner's own winner calls, on the source clock: [t, winner,
+   *  game_end_override]. The one label on a re-run that owes nothing to
+   *  any detector, so it is the only fair way to ask whether a new card
+   *  holds a real rally. Coarse: the tap can land ten seconds either side
+   *  of where the rally actually ended. */
+  taps?: [number, "user" | "opponent" | null, string | null][];
   /** Present on matches re-run for review, absent on the hand-marked three:
    *  there is no ground truth for these yet, so there is no score to show
    *  and the routing decision is the interesting number instead. */
@@ -74,6 +80,8 @@ interface FullData {
     camera?: number;
     venue?: string | null;
     created?: string | null;
+    /** which rung of the calibration ladder answered, in its own words */
+    calibration?: string | null;
   };
 }
 
@@ -272,13 +280,36 @@ function drawZoom(
       }
     }
   }
-  // the new segmentation's cards
+  // the new segmentation's cards, and whether the owner's own scoring
+  // landed inside each one
+  const taps = d.taps ?? [];
   for (const [a, b] of d.newcards ?? []) {
     if (b < t0 || a > t0 + ZOOM_S) continue;
+    const held = taps.some(([tt]) => tt >= a && tt <= b);
     ctx.fillStyle = "rgba(160,110,255,0.35)";
     ctx.fillRect(X(a), 30, X(b) - X(a), 20);
-    ctx.strokeStyle = "#a06eff";
+    if (taps.length && !held) {
+      // no winner call anywhere inside it: either a card over nothing, or
+      // a rally whose call landed outside its own boundaries
+      ctx.setLineDash([4, 3]);
+      ctx.strokeStyle = "#ff6b6b";
+    } else {
+      ctx.setLineDash([]);
+      ctx.strokeStyle = "#a06eff";
+    }
     ctx.strokeRect(X(a), 30, X(b) - X(a), 20);
+    ctx.setLineDash([]);
+  }
+  // the taps themselves, sitting on top of the lane they are judging
+  for (const [tt, w] of taps) {
+    if (tt < t0 || tt > t0 + ZOOM_S) continue;
+    ctx.fillStyle = w === "user" ? WON_ME : w === "opponent" ? WON_OPP : "#fff";
+    ctx.beginPath();
+    ctx.moveTo(X(tt) - 4, 28);
+    ctx.lineTo(X(tt) + 4, 28);
+    ctx.lineTo(X(tt), 36);
+    ctx.closePath();
+    ctx.fill();
   }
   // serve calls
   ctx.fillStyle = "#ffdc00";
@@ -376,9 +407,14 @@ function drawOverview(
     for (const [a, b] of d.cards)
       ctx.fillRect(X(a as number), 2, Math.max(1, X(b as number) - X(a as number)), 6);
   }
-  ctx.fillStyle = "rgba(160,110,255,0.6)";
-  for (const [a, b] of d.newcards ?? [])
+  for (const [a, b] of d.newcards ?? []) {
+    const held = (d.taps ?? []).some(([tt]) => tt >= a && tt <= b);
+    ctx.fillStyle =
+      (d.taps ?? []).length && !held
+        ? "rgba(255,80,80,0.75)"
+        : "rgba(160,110,255,0.6)";
     ctx.fillRect(X(a), 10, Math.max(1, X(b) - X(a)), 6);
+  }
   ctx.fillStyle = "#ffdc00";
   for (const s of d.serves) ctx.fillRect(X(s), 2, 1.5, 6);
   // game boundaries full height, suspect gaps as red ticks along the bottom
@@ -704,6 +740,22 @@ function MatchPanel({
     if (ref.current) ref.current.playbackRate = rate;
   }, [rate]);
 
+  // How much of the owner's own scoring the proposed cards actually cover.
+  // Not a detector marking a detector's homework: a tap is a person saying
+  // a rally finished, so a card either holds one or it does not.
+  const tapCover = useMemo(() => {
+    const taps = d?.taps ?? [];
+    const cards = d?.newcards ?? [];
+    if (!taps.length || !cards.length) return null;
+    const held = cards.filter(([a, b]) =>
+      taps.some(([t]) => t >= a && t <= b),
+    ).length;
+    const landed = taps.filter(([t]) =>
+      cards.some(([a, b]) => t >= a && t <= b),
+    ).length;
+    return { held, cards: cards.length, landed, total: taps.length };
+  }, [d]);
+
   const seekZoom = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!d || !ref.current) return;
     const r = e.currentTarget.getBoundingClientRect();
@@ -763,6 +815,22 @@ function MatchPanel({
           </span>
         ) : null}
       </div>
+
+      {d?.meta?.calibration || tapCover ? (
+        <p className="mt-1 text-xs text-zinc-400">
+          {d?.meta?.calibration ? (
+            <span>table: {d.meta.calibration}</span>
+          ) : null}
+          {d?.meta?.calibration && tapCover ? " · " : null}
+          {tapCover ? (
+            <span>
+              your winner calls land on {tapCover.held} of{" "}
+              {tapCover.cards} new cards, {tapCover.landed} of{" "}
+              {tapCover.total} calls inside one
+            </span>
+          ) : null}
+        </p>
+      ) : null}
 
       {score && score.scored > 0 ? (
         <ScoreStrip

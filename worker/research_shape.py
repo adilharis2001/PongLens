@@ -32,9 +32,43 @@ import sys
 
 import boto3
 
+import psycopg2
+
 from research_reprocess import MEDIA_BUCKET, PREFIX, config, s3_client
 
 CORNER_ORDER = ("A_near_1", "B_near_2", "C_far_2", "D_far_1")
+
+
+def winner_taps(conn, match_id):
+    """When the owner called each point, on the SOURCE clock.
+
+    `scored_at_cut_s` is where the playhead was in the CUT video at the
+    moment the winner was tapped, so it means nothing until it is put back
+    on the clock the cards live on. Each point carries its own offset in
+    `cut_t0`, and the two only line up per point: a match's clips overlap,
+    so there is no single constant that converts the whole match.
+
+    This is the one label on a re-run that owes nothing to the pipeline.
+    Every other lane on the page is something a detector produced, and
+    judging new cards by a detector's own output is circular. A tap is a
+    human saying "this rally is over", so a card either carries one or it
+    does not.
+
+    It is a coarse anchor and should be read as one: measured on this
+    match the tap lands a median 1.5s BEFORE the card ends, with a spread
+    from 10s early to 10s late. Good enough to say which rally; useless
+    for saying where the rally ended.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "select t0, cut_t0, scored_at_cut_s, confirmed_winner, "
+            "       game_end_override "
+            "from public.points "
+            "where match_id = %s and not deleted "
+            "  and scored_at_cut_s is not null and cut_t0 is not null "
+            "order by t0", (match_id,))
+        return [[round(float(t0) + (float(tap) - float(ct0)), 2), win, ge]
+                for t0, ct0, tap, win, ge in cur.fetchall()]
 
 
 def in_poly(poly, x, y):
@@ -51,7 +85,7 @@ def in_poly(poly, x, y):
     return inside
 
 
-def convert(blob):
+def convert(blob, taps=None):
     quad_d = blob.get("quad")
     if not quad_d:
         raise ValueError("no table quad; nothing to draw against")
@@ -89,6 +123,8 @@ def convert(blob):
         "newcards": [[c[0], c[1]] for c in blob["cards"]],
         # no person detector on this path; the page draws an empty lane
         "presence": [],
+        # the owner's own winner calls, on the source clock
+        "taps": taps or [],
         # carried through for the page's own header, not read by the renderer
         "meta": {
             "opponent": blob.get("opponent"),
@@ -97,6 +133,7 @@ def convert(blob):
             "route": blob.get("route"),
             "serves_per_min": blob.get("serves_per_min"),
             "camera": blob.get("camera"),
+            "calibration": blob.get("calibration"),
             "notes": blob.get("notes"),
         },
     }
@@ -106,18 +143,24 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--workroot", required=True)
     ap.add_argument("--no-upload", action="store_true")
+    ap.add_argument("ids", nargs="*",
+                    help="only these match ids; default is every one found")
     args = ap.parse_args()
 
-    s3 = None if args.no_upload else s3_client(config())
+    env = config()
+    s3 = None if args.no_upload else s3_client(env)
+    conn = psycopg2.connect(env["DATABASE_URL"])
     rows = []
     for name in sorted(os.listdir(args.workroot)):
+        if args.ids and name not in args.ids:
+            continue
         src = os.path.join(args.workroot, name, "evidence.json")
         if not os.path.exists(src):
             continue
         with open(src) as fh:
             blob = json.load(fh)
         try:
-            page = convert(blob)
+            page = convert(blob, winner_taps(conn, name))
         except ValueError as e:
             print(f"{name[:8]}  skipped: {e}")
             continue
