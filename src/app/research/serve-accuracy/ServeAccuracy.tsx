@@ -169,6 +169,76 @@ function ruleVerdict(
   return loser === "user" ? "opponent" : "user";
 }
 
+
+/**
+ * Which rule spoke, and what each of them would have said on its own.
+ *
+ * The chain only reports the first rule to answer, which hides two things
+ * worth seeing on a review page: which rule owns a mistake, and whether a
+ * later rule would have contradicted the one that won. Both are asked for
+ * here rather than inferred from the verdict.
+ */
+function ruleVerdicts(
+  row: ServeAccuracyRow,
+  corners: Corners,
+  tracks: Tracks | null,
+  source: SourceDims,
+): { name: string; verdict: "user" | "opponent" }[] {
+  const side = row.userPhysicalSide;
+  const flip = (l: "user" | "opponent" | null) =>
+    l === null ? null : l === "user" ? "opponent" as const : "user" as const;
+  const out: { name: string; verdict: "user" | "opponent" }[] = [];
+  const died = flip(ballDiedLoser(
+    findBallDied(row.events, tracks?.[row.pointId] ?? null, corners,
+      row.clipT0, source, side), side));
+  if (died) out.push({ name: "ball died", verdict: died });
+  const off = flip(offTableLoser(
+    findOffTable(row.events, corners ? { corners } : null), side));
+  if (off) out.push({ name: "off table", verdict: off });
+  const ret = flip(noReturnLoser(
+    findNoReturn(row.events, tracks?.[row.pointId] ?? null, corners,
+      row.clipT0, source), side));
+  if (ret) out.push({ name: "no return", verdict: ret });
+  return out;
+}
+
+/** Two rules both spoke and named different winners. */
+function rulesDisagree(
+  row: ServeAccuracyRow,
+  corners: Corners,
+  tracks: Tracks | null,
+  source: SourceDims,
+): boolean {
+  const vs = ruleVerdicts(row, corners, tracks, source);
+  return vs.length > 1 && vs.some((v) => v.verdict !== vs[0].verdict);
+}
+
+/** Which rule made the call, for grouping the mistakes by author. */
+function decidingRule(
+  row: ServeAccuracyRow,
+  corners: Corners,
+  tracks: Tracks | null,
+  source: SourceDims,
+): string | null {
+  return ruleVerdicts(row, corners, tracks, source)[0]?.name ?? null;
+}
+
+/**
+ * Why no call was made, in the words the row already shows. One bucket per
+ * distinct reason, so the biggest pile can be opened on its own instead of
+ * being scrolled past inside a single "held back" list.
+ */
+function noCallReason(
+  row: ServeAccuracyRow,
+  corners: Corners,
+  tracks: Tracks | null,
+  source: SourceDims,
+): string | null {
+  if (ruleVerdict(row, corners, tracks, source) !== null) return null;
+  return offTableWithheld(findOffTable(row.events, corners ? { corners } : null))
+    ?? "nothing to go on";
+}
+
 /** Fired, the point is scored, and it named the wrong player. */
 function ruleIsWrong(
   row: ServeAccuracyRow,
@@ -890,8 +960,7 @@ function Row({
 export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   const [active, setActive] = useState(matches[0].matchId);
   const [only, setOnly] = useState<
-    "all" | "drawn" | "refused" | "disagreed" | "deadrun" | "offtable"
-    | "noreturn" | "wrong" | "heldback" | "nocall"
+    string
   >("all");
   // The verdict counts need every track, not just the open clip's, so the
   // whole file loads once up front. Still code-split out of the bundle.
@@ -924,6 +993,15 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
                           match.corners, r.clipT0, match.source),
                         r.userPhysicalSide,
                       ) !== null
+                  : only === "disagree"
+                    ? rulesDisagree(r, match.corners, allTracks, match.source)
+                  : only.startsWith("wrongby:")
+                    ? ruleIsWrong(r, match.corners, allTracks, match.source)
+                      && decidingRule(r, match.corners, allTracks, match.source)
+                        === only.slice(8)
+                  : only.startsWith("why:")
+                    ? noCallReason(r, match.corners, allTracks, match.source)
+                      === only.slice(4)
                   : only === "wrong"
                     ? ruleIsWrong(r, match.corners, allTracks, match.source)
                     : only === "heldback"
@@ -958,6 +1036,31 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
     ).length,
     [match, allTracks],
   );
+  const disagreeCount = useMemo(
+    () => match.rows.filter(
+      (r) => rulesDisagree(r, match.corners, allTracks, match.source),
+    ).length,
+    [match, allTracks],
+  );
+  /** The mistakes, grouped by the rule that made them. */
+  const wrongByRule = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const r of match.rows) {
+      if (!ruleIsWrong(r, match.corners, allTracks, match.source)) continue;
+      const who = decidingRule(r, match.corners, allTracks, match.source);
+      if (who) out.set(who, (out.get(who) ?? 0) + 1);
+    }
+    return [...out.entries()].sort((a, b) => b[1] - a[1]);
+  }, [match, allTracks]);
+  /** Every reason a point went uncalled, biggest pile first. */
+  const noCallReasons = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const r of match.rows) {
+      const why = noCallReason(r, match.corners, allTracks, match.source);
+      if (why) out.set(why, (out.get(why) ?? 0) + 1);
+    }
+    return [...out.entries()].sort((a, b) => b[1] - a[1]);
+  }, [match, allTracks]);
   const noCall = useMemo(
     () => match.rows.filter(
       (r) => ruleVerdict(r, match.corners, allTracks, match.source) === null,
@@ -1131,6 +1234,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             ["deadrun", `Ball died ${runScore.fires}`],
             ["offtable", `Off table ${withOffTable}`],
             ["wrong", `We called it wrong ${ruleWrong}`],
+            ["disagree", `Rules disagree ${disagreeCount}`],
             ["heldback", `Held back ${heldBack}`],
             ["noreturn", `No return ${noReturnScore.fires}`],
             ["nocall", `No call ${noCall}`],
@@ -1150,6 +1254,50 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
           </button>
         ))}
       </div>
+
+      {wrongByRule.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wide text-zinc-500">
+            Which rule got it wrong
+          </span>
+          {wrongByRule.map(([name, count]) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => setOnly(`wrongby:${name}`)}
+              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                only === `wrongby:${name}`
+                  ? "border-amber-300/60 bg-amber-300/15 text-amber-200"
+                  : "border-edge bg-surface-2/40 text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {name} {count}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {noCallReasons.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wide text-zinc-500">
+            Why it made no call
+          </span>
+          {noCallReasons.map(([why, count]) => (
+            <button
+              key={why}
+              type="button"
+              onClick={() => setOnly(`why:${why}`)}
+              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+                only === `why:${why}`
+                  ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+                  : "border-edge bg-surface-2/40 text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {why} {count}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="mt-4 space-y-3">
         {rows.map((row) => (
