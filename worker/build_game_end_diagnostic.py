@@ -263,10 +263,14 @@ def render(cases: list[dict], seeded: dict) -> str:
 
         points = []
         for case in group:
+            when = ["early in the rally", "middle of the rally",
+                    "late in the rally"]
             shots = "".join(
                 f'<figure><img src="data:image/jpeg;base64,{s["img"]}" alt="">'
-                f'<figcaption>{s["n"]} people detected</figcaption></figure>'
-                for s in case["shots"])
+                f'<figcaption>{when[i] if i < len(when) else "later"} · '
+                f'{s["n"]} {"person" if s["n"] == 1 else "people"} detected'
+                f"</figcaption></figure>"
+                for i, s in enumerate(case["shots"]))
             sides = ""
             for side in ("near", "far"):
                 summary = case.get(side) or {}
@@ -294,6 +298,8 @@ def render(cases: list[dict], seeded: dict) -> str:
     <h3>point {case['idx']}
       {'<span class=good>qualified</span>' if case.get('qualified')
        else '<span class=bad>rejected</span>'}</h3>
+    <p class="hint">Three moments inside this one rally — not before and
+      after. They should show the same two people each time.</p>
     <div class="shots">{shots}</div>
     <div class="grid">{sides}</div>
     <div class="ask">
@@ -364,6 +370,13 @@ textarea:focus {{ outline:none; border-color:#52525b; }}
   display:flex; align-items:center; gap:12px; flex-wrap:wrap; }}
 .bar .grow {{ flex:1; }}
 .done[data-done="1"] {{ opacity:.55; }}
+.howto {{ border:1px solid #27272a; border-left:3px solid #22d3ee;
+  border-radius:10px; padding:14px 18px; margin-bottom:20px;
+  background:#0e0e10; max-width:70ch; }}
+.howto h3 {{ margin:0 0 8px; font-size:13px; color:#e4e4e7; }}
+.howto p {{ margin:0 0 9px; font-size:14px; color:#a1a1aa; }}
+.howto p:last-child {{ margin-bottom:0; }}
+.hint {{ font-size:12px; color:#71717a; margin:0 0 10px; }}
 .shots {{ display:flex; gap:10px; flex-wrap:wrap; }}
 figure {{ margin:0; }} img {{ border-radius:8px; display:block;
   max-width:100%; }}
@@ -389,6 +402,26 @@ figcaption {{ font-size:11px; color:#71717a; margin-top:4px; }}
   </div>
   <button type="button" id="copy">Copy feedback</button>
 </div>
+<section class="howto">
+  <h3>How to read this</h3>
+  <p>Each point shows <strong>three moments inside that one rally</strong>,
+  about a fifth, half and four fifths of the way through. They are not
+  before and after a game — that is the other page. Here they should show
+  the same two people at the same two ends every time, and where they do
+  not, the point gets rejected.</p>
+  <p>Two things are worth your eye, and they are the two questions
+  below each block:</p>
+  <p><strong>The table</strong>, asked once per match because the same
+  table is used for every point in it. Is the drawn quad on the table
+  these two are actually playing on?</p>
+  <p><strong>The players</strong>, asked per point. Are the two boxes
+  marked CHOSEN the two people playing, and is the one nearer the camera
+  the one labelled near?</p>
+  <p>The colour strip under each torso crop is literally what the
+  appearance comparison uses. If those look like one person in one shirt
+  and the point was still rejected, the fault is mine, not the
+  footage.</p>
+</section>
 <div class="legend">
   <span><i class="key" style="background:rgb(60,210,255)"></i>table it found
     (A near-left, B near-right, C far-right, D far-left)</span>
