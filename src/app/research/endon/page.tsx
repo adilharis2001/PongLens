@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { listObjects, MEDIA_BUCKET, presignGetBatch } from "@/lib/r2";
+import {
+  scoreMatch,
+  type MatchScoring,
+  type ScoringPoint,
+} from "@/lib/research/scoreGaps";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
   FullMatch,
@@ -17,6 +23,57 @@ export const metadata: Metadata = {
 };
 
 const PREFIX = "research/endon/";
+
+/**
+ * What each match's owner has scored, folded into games.
+ *
+ * Read with the service key rather than the signed-in session, because the
+ * row policy on `points` has no admin branch: it grants a match's owner,
+ * their accepted coach and a coach holding a live review order, and these
+ * are other people's matches on every count. The page itself is already
+ * behind `is_admin()`, so this widens nothing that the page did not
+ * already show — the video and the ball track for these same matches come
+ * through the same gate.
+ *
+ * A missing service key is not an error. Locally there is none, and a
+ * research page that will not render at all is a worse failure than one
+ * that renders without the scoring lane.
+ */
+async function scoringFor(
+  ids: readonly string[],
+): Promise<Map<string, MatchScoring>> {
+  const out = new Map<string, MatchScoring>();
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch {
+    return out;
+  }
+  const { data } = await admin
+    .from("points")
+    .select(
+      "id,match_id,idx,t0,t1,is_let,confirmed_winner,game_end_override,game_winner_override,deleted",
+    )
+    .in("match_id", ids)
+    .eq("deleted", false);
+  const byMatch = new Map<string, ScoringPoint[]>();
+  for (const row of data ?? []) {
+    const list = byMatch.get(row.match_id) ?? [];
+    list.push({
+      id: row.id,
+      idx: row.idx,
+      t0: row.t0 === null ? null : Number(row.t0),
+      t1: row.t1 === null ? null : Number(row.t1),
+      is_let: Boolean(row.is_let),
+      confirmed_winner: row.confirmed_winner,
+      game_end_override: row.game_end_override,
+      game_winner_override: row.game_winner_override,
+    });
+    byMatch.set(row.match_id, list);
+  }
+  for (const [id, list] of byMatch) out.set(id, scoreMatch(list));
+  return out;
+}
 
 /**
  * Both halves of this page come from R2 rather than public/, and that is not
@@ -74,6 +131,8 @@ export default async function EndOnPage() {
     .select("id,opponent_name,venue,created_at")
     .in("id", ids);
   const byId = new Map((rows ?? []).map((r) => [r.id, r]));
+  const scoring = await scoringFor(ids);
+  const scoredCount = [...scoring.values()].filter((v) => v.scored > 0).length;
 
   const panels: FullMatchPanel[] = ids.map((id, i) => {
     const m = byId.get(id);
@@ -87,6 +146,7 @@ export default async function EndOnPage() {
       title: `${who}${where} · ${when} · ${id.slice(0, 8)}`,
       dataUrl: `/api/research/endon/${id}`,
       video: videoUrls[i],
+      score: scoring.get(id) ?? null,
     };
   });
 
@@ -110,6 +170,7 @@ export default async function EndOnPage() {
       panels={panels}
       heading="End-on cards"
       intro={
+        <div>
         <p className="mt-2 max-w-prose text-sm text-zinc-400">
           Every match Thanakorn and Guillaume have uploaded, plus the four of
           yours against Gui, re-run through the pipeline as it stands now with
@@ -123,6 +184,30 @@ export default async function EndOnPage() {
           rally-strength ball motion. Sound is on. Mark where the points
           really start and end, and the marks save as you go.
         </p>
+        <p className="mt-3 max-w-prose text-sm text-zinc-400">
+          Where you have scored a match, the blue lane now carries the
+          scoring: each card is tinted by who won that point, blue for the
+          uploader and amber for the opponent, with the running score
+          written on it and a pink line where a game ends. Above the video
+          is every game with its final score. A game ends at 11, or past
+          10-all at the first two-point lead, so any other score means the
+          scoring ran out of footage before the game ran out of points, and
+          rallies that were played are missing from the cut. Those games are
+          red, and the red chips beside them are gaps far longer than that
+          game&apos;s own rhythm, which is the closest thing to a pointer at
+          the rally that went missing. The last game of a match is excused:
+          it is short because the recording stopped.{" "}
+          {scoredCount === 0
+            ? "None of these matches is scored yet."
+            : `${scoredCount} of ${ids.length} of these matches is scored.`}{" "}
+          <a
+            className="text-cyan-400 underline underline-offset-2"
+            href="/research/scores"
+          >
+            Every scored match is on the score page.
+          </a>
+        </p>
+        </div>
       }
       initialNotes={(notes ?? []) as FullMatchNote[]}
       initialLabels={(labels ?? []) as FullMatchLabel[]}

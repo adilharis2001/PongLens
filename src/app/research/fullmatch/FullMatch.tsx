@@ -9,6 +9,11 @@ import {
   useState,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  pointsShort,
+  type MatchScoring,
+  type ScoredGame,
+} from "@/lib/research/scoreGaps";
 
 export interface FullMatchNote {
   readonly case_id: string;
@@ -87,6 +92,17 @@ const MODES: [PlayMode, string][] = [
   ["new", "New cards only"],
   ["mine", "My points only"],
 ];
+/** Who took the point. Blue stays the uploader everywhere on this page,
+ *  which is also what the "now" lane already meant. */
+const WON_ME = "#5a8cff";
+const WON_OPP = "#f59e0b";
+const UNSCORED = "#6a6a74";
+
+function mmss(t: number): string {
+  const m = Math.floor(t / 60);
+  return `${m}:${Math.floor(t % 60).toString().padStart(2, "0")}`;
+}
+
 const TRAIL_S = 0.7;
 const ZOOM_S = 30; // zoom band width in seconds
 
@@ -185,6 +201,7 @@ function drawZoom(
   d: FullData,
   t: number,
   labels: readonly FullMatchLabel[] = [],
+  score: MatchScoring | null = null,
 ) {
   const ctx = cv.getContext("2d");
   if (!ctx) return;
@@ -211,16 +228,48 @@ function drawZoom(
   ctx.fillStyle = "#606070";
   for (const [name, y] of lanes) ctx.fillText(name, 4, y + 10);
 
-  // cards with serve anchors
-  for (const [a, b, sv] of d.cards) {
-    if ((b as number) < t0 || (a as number) > t0 + ZOOM_S) continue;
-    ctx.fillStyle = "rgba(90,140,255,0.35)";
-    ctx.fillRect(X(a as number), 6, X(b as number) - X(a as number), 20);
-    ctx.strokeStyle = "#5a8cff";
-    ctx.strokeRect(X(a as number), 6, X(b as number) - X(a as number), 20);
-    if (sv != null) {
-      ctx.fillStyle = "#ffdc00";
-      ctx.fillRect(X(sv as number) - 1, 6, 2, 20);
+  // The "now" lane: the point rows this match already has. Once the owner
+  // has scored them it draws from the scoring rather than from the dump,
+  // which is both live (the dump is a snapshot) and the only way the tint,
+  // the running score and the game dividers can agree with each other.
+  if (score && score.scored > 0) {
+    for (const p of score.points) {
+      if (p.t1 < t0 || p.t0 > t0 + ZOOM_S) continue;
+      const x = X(p.t0);
+      const w = X(p.t1) - x;
+      const c =
+        p.winner === "user" ? WON_ME
+        : p.winner === "opponent" ? WON_OPP
+        : UNSCORED;
+      ctx.fillStyle = c + "59"; // ~35% alpha
+      ctx.fillRect(x, 6, w, 20);
+      ctx.strokeStyle = c;
+      ctx.strokeRect(x, 6, w, 20);
+      if (w > 30 && p.winner) {
+        ctx.font = "10px system-ui";
+        ctx.fillStyle = "#e8e8ee";
+        ctx.fillText(`${p.you}-${p.them}`, x + 3, 20);
+      }
+      if (p.endsGame) {
+        // where the players change ends: the one boundary in this lane
+        // that is not a guess
+        ctx.fillStyle = "#ff3ca0";
+        ctx.fillRect(X(p.t1) - 1, 0, 2, H - 6);
+        ctx.font = "10px system-ui";
+        ctx.fillText(`end of game ${p.game}`, X(p.t1) + 4, 44);
+      }
+    }
+  } else {
+    for (const [a, b, sv] of d.cards) {
+      if ((b as number) < t0 || (a as number) > t0 + ZOOM_S) continue;
+      ctx.fillStyle = "rgba(90,140,255,0.35)";
+      ctx.fillRect(X(a as number), 6, X(b as number) - X(a as number), 20);
+      ctx.strokeStyle = "#5a8cff";
+      ctx.strokeRect(X(a as number), 6, X(b as number) - X(a as number), 20);
+      if (sv != null) {
+        ctx.fillStyle = "#ffdc00";
+        ctx.fillRect(X(sv as number) - 1, 6, 2, 20);
+      }
     }
   }
   // the new segmentation's cards
@@ -277,6 +326,18 @@ function drawZoom(
       ctx.fillText(l.winner === "me" ? "me" : "opp", X(l.t_s) + 3, 10);
     }
   }
+  // a gap far longer than this game's own rhythm: the likeliest place a
+  // rally is missing from the cut
+  for (const g of score?.games ?? []) {
+    for (const gap of g.gaps) {
+      if (gap.t + gap.seconds < t0 || gap.t > t0 + ZOOM_S) continue;
+      ctx.fillStyle = "rgba(255,80,80,0.18)";
+      ctx.fillRect(X(gap.t), 6, X(gap.t + gap.seconds) - X(gap.t), 20);
+      ctx.font = "10px system-ui";
+      ctx.fillStyle = "#ff6b6b";
+      ctx.fillText(`${Math.round(gap.seconds)}s gap`, X(gap.t) + 4, 20);
+    }
+  }
   // playhead
   ctx.fillStyle = "#fff";
   ctx.fillRect(X(t) - 1, 0, 2, H);
@@ -287,7 +348,11 @@ function drawZoom(
 }
 
 /** The whole-match overview strip, drawn once. */
-function drawOverview(cv: HTMLCanvasElement, d: FullData) {
+function drawOverview(
+  cv: HTMLCanvasElement,
+  d: FullData,
+  score: MatchScoring | null = null,
+) {
   const ctx = cv.getContext("2d");
   if (!ctx) return;
   const W = cv.width,
@@ -298,14 +363,115 @@ function drawOverview(cv: HTMLCanvasElement, d: FullData) {
   ctx.fillStyle = "rgba(120,200,255,0.4)";
   for (const [a, b] of d.dense)
     ctx.fillRect(X(a), 18, Math.max(1, X(b) - X(a)), 8);
-  ctx.fillStyle = "rgba(90,140,255,0.5)";
-  for (const [a, b] of d.cards)
-    ctx.fillRect(X(a as number), 2, Math.max(1, X(b as number) - X(a as number)), 6);
+  if (score && score.scored > 0) {
+    for (const p of score.points) {
+      ctx.fillStyle =
+        p.winner === "user" ? WON_ME
+        : p.winner === "opponent" ? WON_OPP
+        : "rgba(120,120,135,0.5)";
+      ctx.fillRect(X(p.t0), 2, Math.max(1, X(p.t1) - X(p.t0)), 6);
+    }
+  } else {
+    ctx.fillStyle = "rgba(90,140,255,0.5)";
+    for (const [a, b] of d.cards)
+      ctx.fillRect(X(a as number), 2, Math.max(1, X(b as number) - X(a as number)), 6);
+  }
   ctx.fillStyle = "rgba(160,110,255,0.6)";
   for (const [a, b] of d.newcards ?? [])
     ctx.fillRect(X(a), 10, Math.max(1, X(b) - X(a)), 6);
   ctx.fillStyle = "#ffdc00";
   for (const s of d.serves) ctx.fillRect(X(s), 2, 1.5, 6);
+  // game boundaries full height, suspect gaps as red ticks along the bottom
+  for (const g of score?.games ?? []) {
+    ctx.fillStyle = "rgba(255,60,160,0.65)";
+    ctx.fillRect(X(g.t1), 0, 1, H);
+    ctx.fillStyle = "#ff5050";
+    for (const gap of g.gaps) ctx.fillRect(X(gap.t), H - 5, 2, 5);
+  }
+}
+
+/**
+ * The owner's own scoring, laid out as games.
+ *
+ * A game ends at 11, or past 10-all at the first two-point lead. Any other
+ * final score means the scoring ran out of footage before the game ran out
+ * of points, so rallies that were played are missing from the cut — and
+ * unlike every other signal on this page, that verdict needs no model and
+ * no hand marking. The last game of a match is excused: it is short because
+ * the recording stopped, which is not a defect.
+ *
+ * Every chip seeks, because the point of showing it here rather than in a
+ * table is being able to watch the moment it names.
+ */
+function ScoreStrip({
+  score,
+  onSeek,
+}: {
+  score: MatchScoring;
+  onSeek: (t: number) => void;
+}) {
+  const gapsOf = (g: ScoredGame) => g.gaps;
+  const allGaps = score.games.flatMap((g) =>
+    gapsOf(g).map((gap) => ({ game: g.game, ...gap })),
+  );
+  return (
+    <div className="mt-3 rounded-md border border-zinc-800 bg-zinc-950/60 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {score.games.map((g) => (
+          <button
+            key={g.game}
+            type="button"
+            onClick={() => onSeek(g.t0)}
+            title={`${mmss(g.t0)} – ${mmss(g.t1)} · ${g.scored} of ${
+              g.points.length
+            } points scored`}
+            className={`rounded-full border px-3 py-1 text-sm tabular-nums ${
+              g.suspect
+                ? "border-red-500 text-red-300 hover:bg-red-950"
+                : g.legal
+                  ? "border-zinc-700 text-zinc-200 hover:bg-zinc-800"
+                  : "border-zinc-700 text-zinc-400 hover:bg-zinc-800"
+            }`}
+          >
+            <span className="text-zinc-500">G{g.game}</span>{" "}
+            {g.you} – {g.them}
+            {g.suspect ? (
+              <span className="text-red-400">
+                {" "}
+                · {pointsShort(g.you, g.them)} short
+              </span>
+            ) : g.overrun ? (
+              <span className="text-zinc-500"> · ran past 11</span>
+            ) : g.unscored > 0 && !g.legal ? (
+              <span className="text-zinc-500">
+                {" "}
+                · {g.unscored} not scored
+              </span>
+            ) : !g.legal ? (
+              <span className="text-zinc-500"> · last game</span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+      {allGaps.length > 0 ? (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-zinc-500">
+            unusually long gaps between points:
+          </span>
+          {allGaps.map((gap, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => onSeek(gap.t)}
+              className="rounded-full border border-red-900 px-2.5 py-0.5 text-xs tabular-nums text-red-300 hover:bg-red-950"
+            >
+              {mmss(gap.t)} · {Math.round(gap.seconds)}s
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function MatchPanel({
@@ -322,6 +488,7 @@ function MatchPanel({
   onTagWinner,
   active,
   onActivate,
+  score,
 }: {
   dataUrl: string;
   video: string;
@@ -339,6 +506,8 @@ function MatchPanel({
   onTagWinner: (winner: "me" | "opponent") => void;
   active: boolean;
   onActivate: () => void;
+  /** the owner's scoring, when this match has any */
+  score: MatchScoring | null;
 }) {
   const [d, setD] = useState<FullData | null>(null);
   const ref = useRef<HTMLVideoElement | null>(null);
@@ -432,13 +601,13 @@ function MatchPanel({
         }
         setT(v.currentTime);
         if (d && zoomRef.current)
-          drawZoom(zoomRef.current, d, v.currentTime, labels);
+          drawZoom(zoomRef.current, d, v.currentTime, labels, score);
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [d, labels]);
+  }, [d, labels, score]);
 
   // Marking keys, Keep-score muscle memory: B = serve start, arrows call
   // the winner (which is also the point's end), E = end with no winner,
@@ -528,8 +697,8 @@ function MatchPanel({
   }, [mode]);
 
   useEffect(() => {
-    if (d && overRef.current) drawOverview(overRef.current, d);
-  }, [d]);
+    if (d && overRef.current) drawOverview(overRef.current, d, score);
+  }, [d, score]);
 
   useEffect(() => {
     if (ref.current) ref.current.playbackRate = rate;
@@ -578,7 +747,31 @@ function MatchPanel({
         ) : d ? null : (
           <span className="text-xs text-zinc-500">loading signals…</span>
         )}
+        {score && score.scored > 0 ? (
+          <span className="text-xs text-zinc-400">
+            {score.scored} of {score.visible} points scored ·{" "}
+            {score.games.length} game{score.games.length === 1 ? "" : "s"}
+            {score.suspect > 0 ? (
+              <span className="text-red-400">
+                {" "}
+                · {score.suspect} could not have ended that way, at least{" "}
+                {score.missing} point{score.missing === 1 ? "" : "s"} missing
+              </span>
+            ) : (
+              <span className="text-emerald-400"> · every game adds up</span>
+            )}
+          </span>
+        ) : null}
       </div>
+
+      {score && score.scored > 0 ? (
+        <ScoreStrip
+          score={score}
+          onSeek={(x) => {
+            if (ref.current) ref.current.currentTime = Math.max(0, x - 2);
+          }}
+        />
+      ) : null}
 
       <div className="relative mt-3 w-full max-w-[960px]">
         <video
@@ -810,6 +1003,8 @@ export interface FullMatchPanel {
   readonly title: string;
   readonly dataUrl: string;
   readonly video: string;
+  /** what the match's owner has scored, when they have scored any of it */
+  readonly score?: MatchScoring | null;
 }
 
 export function FullMatch({
@@ -972,6 +1167,11 @@ export function FullMatch({
   return (
     <main className="mx-auto max-w-5xl px-5 py-8">
       <h1 className="text-xl font-semibold text-zinc-100">{heading}</h1>
+      {/* Wrapped, so the caller's paragraph is this element's only child.
+          A React element built in a server component and handed over as a
+          prop carries no key, and dropping it straight into a children
+          list makes the dev build warn about it on every load. */}
+      <div>
       {intro ?? (
       <p className="mt-2 max-w-prose text-sm text-zinc-400">
         The whole Koko, Terry and Tripp videos, uncut, with everything the pipeline
@@ -992,13 +1192,15 @@ export function FullMatch({
         signal could find them.
       </p>
       )}
+      </div>
       <div className="mt-6 space-y-10">
-        {items.map(({ key: k, title, dataUrl, video }) => (
+        {items.map(({ key: k, title, dataUrl, video, score }) => (
           <MatchPanel
             key={k}
             dataUrl={dataUrl}
             video={video}
             title={title}
+            score={score ?? null}
             note={notes[`${k}@full`] ?? ""}
             onNote={(v) => onNote(k, v)}
             state={state[`${k}@full`] ?? "idle"}

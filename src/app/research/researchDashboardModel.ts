@@ -72,6 +72,14 @@ export const RESEARCH_PAGES = [
     accent: "magenta",
   },
   {
+    title: "Score gaps",
+    category: "Model evaluation",
+    description:
+      "Every match anyone has scored, game by game, with the games that could not have ended on their recorded score and the long gaps where a rally most likely went missing from the cut.",
+    href: "/research/scores",
+    accent: "cyan",
+  },
+  {
     title: "Side-on cameras",
     category: "Model evaluation",
     description:
