@@ -249,12 +249,11 @@ export function ClipPlayer({
   /** The host's picture is SMALL on a phone — a deck slide inside a card,
    *  not a full-width clip — and this player's usual chrome covers the
    *  footage the viewer is trying to study. Below the sm breakpoint keep
-   *  the buttons off the picture: no gestures sheet, no chevrons, no zoom
-   *  pair, no replay. Everything they did still exists — double tap walks
-   *  and replays, pinch zooms, the deck swipes, the chips jump — and from
-   *  sm up the full chrome returns. Mute, the speed pill and the progress
-   *  hairline stay at every size; they are small and they answer things
-   *  a gesture cannot. */
+   *  ALL the buttons off the picture: no gestures sheet, no chevrons, no
+   *  zoom pair, no replay, no mute, no speed pill. The reel's phone slides
+   *  are posters — a tap there opens the full-screen takeover, which runs
+   *  this player again with its full chrome — so buttons on the poster
+   *  are unreachable clutter. From sm up everything returns. */
   quietChrome?: boolean;
   /** Lift the desktop height cap. Width alone does not make a 16:9 picture
    *  bigger: past 52vh the box just grows black bars either side, so a
@@ -1333,7 +1332,9 @@ export function ClipPlayer({
           setMuted(v.muted);
         }}
         aria-label={muted ? "Unmute" : "Mute"}
-        className="rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm"
+        className={`rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm ${
+          quietChrome ? "hidden sm:block" : ""
+        }`}
       >
         <svg
           viewBox="0 0 24 24"
@@ -1416,7 +1417,9 @@ export function ClipPlayer({
         <SpeedMenu
           value={speed}
           onChange={setSpeed}
-          className="rounded-full bg-ink/60 px-2.5 py-1.5 text-[11px] font-semibold tabular-nums leading-none text-zinc-300 backdrop-blur-sm"
+          className={`rounded-full bg-ink/60 px-2.5 py-1.5 text-[11px] font-semibold tabular-nums leading-none text-zinc-300 backdrop-blur-sm ${
+            quietChrome ? "hidden sm:block" : ""
+          }`}
         />
         <button
           type="button"

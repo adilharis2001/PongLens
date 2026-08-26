@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
 import type { GameSummary } from "@/app/match/[id]/gameScore";
@@ -77,6 +78,11 @@ export function PointReel({
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [failed, setFailed] = useState(false);
   const [cur, setCur] = useState(0);
+  /** Index open in the phone's full-screen watch view, null when inline.
+   *  While it is open the inline players are unmounted: a re-signed URL
+   *  makes ClipPlayer autoplay its new src, and two players voicing the
+   *  same rally — one of them behind the takeover — is the alternative. */
+  const [full, setFull] = useState<number | null>(null);
 
   const deckRef = useRef<HTMLDivElement | null>(null);
   const slideEls = useRef<Record<string, HTMLDivElement | null>>({});
@@ -204,6 +210,40 @@ export function PointReel({
     playRefs.current.get(pointId)?.current?.play();
   }, []);
 
+  /** Walk the takeover to point i. Marking it started (and re-arming its
+   *  recovery latch) is what lets a dead URL re-sign itself in there —
+   *  the same rule the inline play listener applies. */
+  const fullGo = useCallback(
+    (i: number) => {
+      if (i < 0 || i >= points.length) return;
+      const id = points[i].point_id;
+      started.current.add(id);
+      reminted.current.delete(id);
+      setFull(i);
+    },
+    [points],
+  );
+
+  const openFull = useCallback(
+    (i: number) => {
+      only(null);
+      fullGo(i);
+    },
+    [only, fullGo],
+  );
+
+  const closeFull = () => {
+    if (full !== null) {
+      // The page picks up where the takeover left off: same slide
+      // centred, same chip lit.
+      curRef.current = full;
+      setCur(full);
+      const idx = full;
+      requestAnimationFrame(() => goTo(idx));
+    }
+    setFull(null);
+  };
+
   /**
    * The URL that loaded the first frame ten minutes ago will not serve the
    * rest of the clip today. Mint a fresh one; the restore effect below
@@ -319,11 +359,13 @@ export function PointReel({
 
   return (
     <div className="mt-3">
+      {/* Full bleed through the card's p-5 on a phone: the picture is the
+          point of the page, and forty pixels of padding was a fifth of it. */}
       <div
         ref={deckRef}
         onScroll={many ? onScroll : undefined}
-        className={`flex snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
-          many ? "gap-2 px-[6%] sm:px-0" : ""
+        className={`-mx-5 flex snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] sm:mx-0 [&::-webkit-scrollbar]:hidden ${
+          many ? "gap-2 px-[4%] sm:px-0" : ""
         }`}
       >
         {points.map((p, i) => {
@@ -335,7 +377,7 @@ export function PointReel({
                 slideEls.current[p.point_id] = el;
               }}
               className={`shrink-0 snap-center ${
-                many ? "w-[88%] sm:w-full" : "w-full"
+                many ? "w-[92%] sm:w-full" : "w-full"
               }`}
               aria-label={`Point ${p.idx + 1}`}
             >
@@ -343,7 +385,7 @@ export function PointReel({
                   metadata lands, so sizing one starts at the spec's 300x150
                   and visibly jumps when the file answers. */}
               <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-edge bg-black">
-                {url ? (
+                {url && full === null ? (
                   <ClipPlayer
                     src={url}
                     fill
@@ -361,8 +403,22 @@ export function PointReel({
                 ) : (
                   <div
                     className={`h-full w-full ${
-                      failed ? "" : "animate-pulse bg-surface-2/40"
+                      url || failed ? "" : "animate-pulse bg-surface-2/40"
                     }`}
+                  />
+                )}
+                {/* On a phone the slide is a poster: the tap goes to the
+                    full-screen watch view instead of playing a clip this
+                    small in place. The overlay sits above the player, so
+                    its idle glyph shows through and its own controls never
+                    fight for the tap. Swiping still moves the deck — a
+                    drag on a button scrolls like a drag anywhere else. */}
+                {url && (
+                  <button
+                    type="button"
+                    onClick={() => openFull(i)}
+                    aria-label={`Watch point ${p.idx + 1} full screen`}
+                    className="absolute inset-0 z-10 sm:hidden"
                   />
                 )}
               </div>
@@ -415,6 +471,161 @@ export function PointReel({
             Open in the match
           </a>
         )}
+      </div>
+
+      {full !== null &&
+        createPortal(
+          <ReelTakeover
+            points={points}
+            urls={urls}
+            scores={scores}
+            index={full}
+            onIndex={fullGo}
+            onClose={closeFull}
+            onError={(pointId) => recover(pointId, undefined)}
+          />,
+          document.body,
+        )}
+    </div>
+  );
+}
+
+/**
+ * The phone's watch view. Inline on a phone the reel's slides are small —
+ * a card's width minus its padding minus the peek — which works as a
+ * poster and fails as a place to study a serve. Tapping a slide opens
+ * this instead: the starred tape's takeover, one ClipPlayer at full
+ * chrome, walked with the same double tap and chevrons, rolling to the
+ * next cited point on 'ended'. X, Escape, or a vertical swipe outside
+ * the picture puts the review page back where it was. Desktop never
+ * comes here; its inline picture is already the size this view exists
+ * to provide.
+ *
+ * Portalled to document.body: `position: fixed` resolves against the
+ * nearest transformed ancestor, and AppShell's `.page-enter` holds a
+ * transform while it animates in — the starred player's lesson.
+ */
+function ReelTakeover({
+  points,
+  urls,
+  scores,
+  index,
+  onIndex,
+  onClose,
+  onError,
+}: {
+  points: ReelPoint[];
+  urls: Record<string, string>;
+  scores?: Record<string, GameSummary>;
+  index: number;
+  onIndex: (i: number) => void;
+  onClose: () => void;
+  onError: (pointId: string) => void;
+}) {
+  const p = points[index];
+  const url = urls[p.point_id];
+  const score = scores?.[p.point_id];
+  const many = points.length > 1;
+  const playerBox = useRef<HTMLDivElement | null>(null);
+  /** A vertical swipe on the backdrop closes; one that starts on the
+   *  picture belongs to the player's gestures and is left alone. */
+  const drag = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // The page behind must not scroll under the takeover.
+  useEffect(() => {
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex flex-col bg-ink/97 backdrop-blur-sm"
+      onPointerDown={(e) => {
+        if (playerBox.current?.contains(e.target as Node)) return;
+        drag.current = { x: e.clientX, y: e.clientY };
+      }}
+      onPointerUp={(e) => {
+        const d = drag.current;
+        drag.current = null;
+        if (!d) return;
+        const dy = e.clientY - d.y;
+        const dx = e.clientX - d.x;
+        if (Math.abs(dy) > 80 && Math.abs(dy) > 2 * Math.abs(dx)) onClose();
+      }}
+    >
+      <header className="flex shrink-0 items-start justify-between gap-4 px-5 pb-4 pt-5">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-zinc-100">
+            Point {p.idx + 1}
+            {score && <ChipScore score={score} />}
+          </p>
+          {many && (
+            <p className="mt-0.5 text-xs tabular-nums text-zinc-500">
+              {index + 1} of {points.length}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-edge text-zinc-400 transition-colors hover:border-zinc-500 hover:text-white"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4 w-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </header>
+
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center pb-10">
+        <div ref={playerBox} className="w-full overflow-hidden bg-black">
+          {url ? (
+            <ClipPlayer
+              key={p.point_id}
+              src={url}
+              tall
+              landscape
+              readPixels={false}
+              onStepPoint={
+                many
+                  ? (d) => {
+                      const to = index + d;
+                      if (to >= 0 && to < points.length) onIndex(to);
+                    }
+                  : undefined
+              }
+              onEnded={() => {
+                if (index < points.length - 1) onIndex(index + 1);
+              }}
+              onMediaError={() => onError(p.point_id)}
+            />
+          ) : (
+            <div className="flex aspect-video items-center justify-center">
+              <p className="text-sm text-zinc-600">Loading…</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
