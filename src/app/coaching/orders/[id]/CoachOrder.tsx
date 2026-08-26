@@ -13,6 +13,11 @@ import type {
   ReviewOrderDetail,
   ReviewSectionContent,
 } from "@/lib/reviews/types";
+import {
+  runningScoreByPoint,
+  sortPoints,
+} from "@/app/match/[id]/gameScore";
+import type { Point } from "@/lib/types";
 import { ChatThread } from "@/components/reviews/ChatThread";
 import { deliveryBlocker } from "@/lib/reviews/deliveryGate";
 import { createClient } from "@/lib/supabase/client";
@@ -107,6 +112,16 @@ export function CoachOrder({
   for (const list of Object.values(findingPoints)) {
     list.sort((a, b) => a.idx - b.idx);
   }
+
+  // The delivered reader's reel chips: running score at each cited point,
+  // from the same walk the match page uses. Only when the match has any
+  // scoring at all — a wall of 0-0 chips says nothing.
+  const orderedPoints = sortPoints(
+    points.filter((p) => !p.deleted) as unknown as Point[],
+  );
+  const reelScores = orderedPoints.some((p) => p.confirmed_winner !== null)
+    ? Object.fromEntries(runningScoreByPoint(orderedPoints))
+    : undefined;
 
   const header = (
     <>
@@ -261,6 +276,7 @@ export function CoachOrder({
             findings={findings}
             findingPoints={findingPoints}
             attachments={attachments}
+            scores={reelScores}
           />
           <div className="mt-8">
             <FollowupThread

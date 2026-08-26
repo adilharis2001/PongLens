@@ -259,6 +259,35 @@ export function computeMatchScore(
   };
 }
 
+/** Just the fields the running-score walk reads — callers holding lite
+ *  point rows (a review's cited points) don't carry a full Point. */
+export interface RunningScorePoint {
+  id: string;
+  is_let: boolean;
+  confirmed_winner: "user" | "opponent" | null;
+  game_end_override: GameEndOverride;
+}
+
+/**
+ * point id -> the game score as it stood once that point was played, with
+ * a game's closing point carrying that game's final score. This is what a
+ * chip beside "Point 13" should say — and it folds through the same walk
+ * as computeMatchScore, so a review's chips and the match page can never
+ * disagree about what the score was.
+ */
+export function runningScoreByPoint(
+  orderedPoints: RunningScorePoint[]
+): Map<string, GameSummary> {
+  const out = new Map<string, GameSummary>();
+  const walk = createBoundaryWalk();
+  for (const p of orderedPoints) {
+    const winner = !p.is_let ? (p.confirmed_winner ?? null) : null;
+    const ended = stepBoundaryWalk(walk, winner, p.game_end_override ?? null);
+    out.set(p.id, ended ?? { you: walk.you, them: walk.them });
+  }
+  return out;
+}
+
 /** Timeline order: by source-video time, worker idx as tiebreak/fallback. */
 export function sortPoints(points: Point[]): Point[] {
   return [...points].sort((a, b) => {

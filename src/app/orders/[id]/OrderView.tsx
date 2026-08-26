@@ -25,6 +25,11 @@ import {
   useThumbs,
   type PointLite,
 } from "@/app/dashboard/shared";
+import {
+  runningScoreByPoint,
+  sortPoints,
+} from "@/app/match/[id]/gameScore";
+import type { Point } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { ChatThread } from "@/components/reviews/ChatThread";
 import { UpLink } from "@/components/UpLink";
@@ -101,7 +106,7 @@ function SubmitWizard({
     if (ready.length === 0) return;
     let cancelled = false;
     void fetchPointsPaged<PointLite>(
-      "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override",
+      "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override, game_winner_override",
       ready
     ).then((rows) => {
       if (!cancelled) setPointsLite(rows);
@@ -403,6 +408,30 @@ export function OrderView({
     s === "submitted" ||
     isOverdueCancellable(s, detail.promised_by);
 
+  // The reel's score chips: the running score at each cited point, walked
+  // the same way the match page walks it. Fetched once the review is on
+  // screen and the processed match is still around; if the read fails or
+  // the match was never scored, the chips just stay plain.
+  const [reviewPoints, setReviewPoints] = useState<PointLite[]>([]);
+  useEffect(() => {
+    if (!delivered || !match || match.status !== "ready") return;
+    let cancelled = false;
+    void fetchPointsPaged<PointLite>(
+      "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override, game_winner_override",
+      [match.id],
+    ).then((rows) => {
+      if (!cancelled) setReviewPoints(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [delivered, match]);
+  const reelScores = useMemo(() => {
+    const ordered = sortPoints(reviewPoints as Point[]);
+    if (!ordered.some((p) => p.confirmed_winner !== null)) return undefined;
+    return Object.fromEntries(runningScoreByPoint(ordered));
+  }, [reviewPoints]);
+
   const clarifications = messages.filter((m) => m.kind === "clarification");
   const followupsUsed = messages.filter(
     (m) => m.kind === "followup" && m.author_id === userId,
@@ -575,6 +604,7 @@ export function OrderView({
             findingPoints={findingPoints}
             attachments={attachments}
             matchId={match?.status === "ready" ? match.id : null}
+            scores={reelScores}
           />
           <div className="mt-8">
             <FollowupThread

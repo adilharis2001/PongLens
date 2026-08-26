@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import type { GameSummary } from "@/app/match/[id]/gameScore";
 import { PointReel } from "@/components/reviews/PointReel";
 import { formatUsd } from "@/lib/reviews/money";
 import type {
@@ -97,12 +98,15 @@ export function FindingCard({
   points,
   orderId,
   matchId,
+  scores,
 }: {
   finding: ReviewFindingRow;
   points: { point_id: string; idx: number }[];
   orderId: string;
   /** When set, each finding links into the full match viewer. */
   matchId?: string | null;
+  /** point id -> running game score, for the reel's chips. */
+  scores?: Record<string, GameSummary>;
 }) {
   return (
     <div className="rounded-2xl border border-edge bg-surface p-5">
@@ -129,7 +133,12 @@ export function FindingCard({
         />
       )}
       {points.length > 0 && (
-        <PointReel orderId={orderId} points={points} matchId={matchId} />
+        <PointReel
+          orderId={orderId}
+          points={points}
+          matchId={matchId}
+          scores={scores}
+        />
       )}
     </div>
   );
@@ -171,6 +180,7 @@ export function ReviewBody({
   findingPoints,
   attachments,
   matchId,
+  scores,
 }: {
   orderId: string;
   sections: ReviewSectionContent[];
@@ -178,6 +188,9 @@ export function ReviewBody({
   findingPoints: Record<string, { point_id: string; idx: number }[]>;
   attachments: ReviewAttachmentRow[];
   matchId?: string | null;
+  /** point id -> running game score at that point, when the host can
+   *  compute it (runningScoreByPoint over the match's points). */
+  scores?: Record<string, GameSummary>;
 }) {
   const filled = sections.filter((s) => s.body.trim());
   return (
@@ -204,6 +217,7 @@ export function ReviewBody({
                 points={findingPoints[f.id] ?? []}
                 orderId={orderId}
                 matchId={matchId}
+                scores={scores}
               />
             ))}
           </div>

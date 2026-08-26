@@ -133,6 +133,9 @@ export function ClipPlayer({
   landscape = false,
   tall = false,
   speedRef,
+  playRef,
+  hostSwipeX = false,
+  quietChrome = false,
 }: {
   src: string;
   /** Exposes the <video> element so the point view can capture the
@@ -227,6 +230,32 @@ export function ClipPlayer({
     hold: (target: number) => void;
     release: () => void;
   } | null>;
+  /** Filled with play/pause the way this player starts a clip itself —
+   *  sound first, muted as the fallback autoplay policy allows, paused
+   *  poster as the last resort — so a sequence host (the review reel)
+   *  can roll its tape forward on 'ended' without owning a second copy
+   *  of that dance. A bare element.play() that the policy refuses just
+   *  rejects, and the tape stops. */
+  playRef?: React.MutableRefObject<{
+    play: () => void;
+    pause: () => void;
+  } | null>;
+  /** The host is a horizontal swipe deck: leave 1x horizontal drags to
+   *  the browser (touch-action pan-x pan-y) so a swipe on the picture
+   *  moves the deck. Without this the wrapper claims the axis (pan-y)
+   *  and a deck can only be swiped from the margins around the video.
+   *  Panning while zoomed still owns the finger either way. */
+  hostSwipeX?: boolean;
+  /** The host's picture is SMALL on a phone — a deck slide inside a card,
+   *  not a full-width clip — and this player's usual chrome covers the
+   *  footage the viewer is trying to study. Below the sm breakpoint keep
+   *  the buttons off the picture: no gestures sheet, no chevrons, no zoom
+   *  pair, no replay. Everything they did still exists — double tap walks
+   *  and replays, pinch zooms, the deck swipes, the chips jump — and from
+   *  sm up the full chrome returns. Mute, the speed pill and the progress
+   *  hairline stay at every size; they are small and they answer things
+   *  a gesture cannot. */
+  quietChrome?: boolean;
   /** Lift the desktop height cap. Width alone does not make a 16:9 picture
    *  bigger: past 52vh the box just grows black bars either side, so a
    *  full-width layout has to raise the ceiling too. */
@@ -494,6 +523,33 @@ export function ClipPlayer({
     };
   }
 
+  /** Start playback the way the autoplay path does: sound first, muted
+   *  retry when the policy refuses, paused poster as the last resort. */
+  const tryPlay = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.play().catch(() => {
+      // Autoplay with sound refused (fresh iOS page load): retry muted.
+      v.muted = true;
+      autoMuted.current = true;
+      setMuted(true);
+      v.play().catch(() => setPaused(true));
+    });
+  }, []);
+
+  // The imperative twin of the autoplay above, handed back the same way
+  // speedRef is: the host that owns the sequence decides WHEN a clip
+  // starts, this component stays the authority on HOW.
+  if (playRef) {
+    playRef.current = {
+      play: () => {
+        playsRef.current = 0;
+        tryPlay();
+      },
+      pause: () => videoRef.current?.pause(),
+    };
+  }
+
   // Press-and-hold rate (match-player parity). holdRate drives the pill;
   // the timer arms on a still, single-finger press during 1x playback.
   const [holdRate, setHoldRate] = useState<number | null>(null);
@@ -554,15 +610,9 @@ export function ClipPlayer({
       setPaused(true);
       return () => v.removeEventListener("loadedmetadata", readDuration);
     }
-    v.play().catch(() => {
-      // Autoplay with sound refused (fresh iOS page load): retry muted.
-      v.muted = true;
-      autoMuted.current = true;
-      setMuted(true);
-      v.play().catch(() => setPaused(true));
-    });
+    tryPlay();
     return () => v.removeEventListener("loadedmetadata", readDuration);
-  }, [src, applyTransform, mode]);
+  }, [src, applyTransform, mode, tryPlay]);
 
   // React's touch listeners are passive, so scroll prevention during an
   // active pinch (or a pan while zoomed) needs a native non-passive hook —
@@ -968,7 +1018,13 @@ export function ClipPlayer({
       style={
         fs.fakeLandscape
           ? { ...ROTATED_BOX_STYLE, touchAction: "none" }
-          : { touchAction: zoomed ? "none" : "pan-y" }
+          : {
+              touchAction: zoomed
+                ? "none"
+                : hostSwipeX
+                  ? "pan-x pan-y"
+                  : "pan-y",
+            }
       }
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -1215,7 +1271,9 @@ export function ClipPlayer({
             data-noswipe
             onClick={() => onStepPointRef.current?.(-1)}
             aria-label="Previous point"
-            className="absolute left-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+            className={`absolute left-2 top-1/2 h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white ${
+              quietChrome ? "hidden sm:flex" : "flex"
+            }`}
           >
             <svg
               viewBox="0 0 24 24"
@@ -1234,7 +1292,9 @@ export function ClipPlayer({
             data-noswipe
             onClick={() => onStepPointRef.current?.(1)}
             aria-label="Next point"
-            className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white"
+            className={`absolute right-2 top-1/2 h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-ink/60 text-zinc-200 backdrop-blur-sm transition-colors hover:text-white ${
+              quietChrome ? "hidden sm:flex" : "flex"
+            }`}
           >
             <svg
               viewBox="0 0 24 24"
@@ -1256,7 +1316,9 @@ export function ClipPlayer({
       {onStepPoint && (
         <GesturesButton
           mode="watch"
-          className="absolute left-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-ink/60 text-[13px] font-semibold text-zinc-300 backdrop-blur-sm transition-colors hover:text-white"
+          className={`absolute left-2 top-2 z-10 h-8 w-8 items-center justify-center rounded-full bg-ink/60 text-[13px] font-semibold text-zinc-300 backdrop-blur-sm transition-colors hover:text-white ${
+            quietChrome ? "hidden sm:flex" : "flex"
+          }`}
         />
       )}
       <div className="absolute right-2 top-2 flex items-center gap-1.5">
@@ -1337,7 +1399,9 @@ export function ClipPlayer({
             onClick={onReplay}
             aria-label="Replay this point"
             title="Replay this point"
-            className="rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white"
+            className={`rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white ${
+              quietChrome ? "hidden sm:block" : ""
+            }`}
           >
             <svg
               viewBox="0 0 24 24"
@@ -1360,7 +1424,9 @@ export function ClipPlayer({
           disabled={zoomScale <= 1.001}
           aria-label="Zoom out"
           title="Zoom out"
-          className="rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white disabled:opacity-30"
+          className={`rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white disabled:opacity-30 ${
+            quietChrome ? "hidden sm:block" : ""
+          }`}
         >
           <svg
             viewBox="0 0 24 24"
@@ -1381,7 +1447,9 @@ export function ClipPlayer({
           disabled={zoomScale >= MAX_ZOOM - 0.001}
           aria-label="Zoom in"
           title="Zoom in"
-          className="rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white disabled:opacity-30"
+          className={`rounded-full bg-ink/60 p-1.5 text-zinc-300 backdrop-blur-sm transition-colors hover:text-white disabled:opacity-30 ${
+            quietChrome ? "hidden sm:block" : ""
+          }`}
         >
           <svg
             viewBox="0 0 24 24"

@@ -2,17 +2,26 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ClipPlayer } from "@/app/match/[id]/ClipPlayer";
+import type { GameSummary } from "@/app/match/[id]/gameScore";
+
 /**
  * The points a coach cited, on the page instead of behind a button.
  *
  * Somebody paid for this review, and the clips are the part of it that only
- * this coach could have made. A row of "Point 1 / Point 2" chips hides them
- * behind a decision; a reel puts the footage on the page, so the review
- * arrives looking like footage plus writing rather than writing alone.
+ * this coach could have made. The player is ClipPlayer — the same one the
+ * point detail view and the coach's workspace use — so the review viewer
+ * stops being the one clip surface on the platform with browser chrome
+ * painted over the footage. Tap to play, double-tap the sides to step
+ * points, hold a half for slow motion or fast forward, pinch to zoom.
  *
- * One clip at a time, swiped on a touch screen and stepped with arrows on a
- * desktop. Nothing autoplays: several videos on one page, all deciding to
- * start themselves, is how a page starts shouting.
+ * One clip at a time, swiped on a touch screen (the neighbour peeks in at
+ * the edge so the deck reads as a deck) and stepped with the player's own
+ * chevrons on a desktop. Nothing autoplays on load: several videos on one
+ * page, all deciding to start themselves, is how a page starts shouting.
+ * Once someone presses play, though, the reel behaves like a tape — a clip
+ * that ends rolls on to the next cited point, and a swipe away from a
+ * playing clip starts the one that arrives.
  */
 
 interface ReelPoint {
@@ -38,28 +47,80 @@ async function signBatch(
   }
 }
 
+/** The running score once this point was played, in the library's colours:
+ *  the student's number cyan, the opponent's magenta. */
+function ChipScore({ score }: { score: GameSummary }) {
+  return (
+    <span className="pl-1.5 tabular-nums">
+      <span className="text-cyan-glow">{score.you}</span>
+      <span className="px-0.5 text-zinc-600">-</span>
+      <span className="text-magenta-glow">{score.them}</span>
+    </span>
+  );
+}
+
 export function PointReel({
   orderId,
   points,
   matchId,
+  scores,
 }: {
   orderId: string;
   points: ReelPoint[];
   /** When set, the reel offers a way through to the full match. */
   matchId?: string | null;
+  /** point id -> running game score at that point (runningScoreByPoint).
+   *  Absent when the match has no scoring, or the host cannot read the
+   *  points — the chips just stay plain. */
+  scores?: Record<string, GameSummary>;
 }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [failed, setFailed] = useState(false);
   const [cur, setCur] = useState(0);
-  /** Which slides have been played, so native controls arrive per clip. */
-  const [started, setStarted] = useState<Record<string, boolean>>({});
-  const [playing, setPlaying] = useState(false);
 
-  const trackRef = useRef<HTMLDivElement | null>(null);
-  const videos = useRef<Record<string, HTMLVideoElement | null>>({});
+  const deckRef = useRef<HTMLDivElement | null>(null);
+  const slideEls = useRef<Record<string, HTMLDivElement | null>>({});
   const curRef = useRef(0);
-  /** A clip whose signed URL died mid-session and which is owed a play. */
-  const owed = useRef<string | null>(null);
+  /** ClipPlayer wants stable ref objects (videoElRef / playRef), one pair
+   *  per point, however many times this component renders. */
+  const videoRefs = useRef(
+    new Map<string, React.MutableRefObject<HTMLVideoElement | null>>(),
+  );
+  const playRefs = useRef(
+    new Map<
+      string,
+      React.MutableRefObject<{ play: () => void; pause: () => void } | null>
+    >(),
+  );
+  /** Clips someone has actually asked to play. A signed URL dying under
+   *  one of these earns a re-mint; an idle failure is left alone, because
+   *  re-signing on every idle error is a retry loop. */
+  const started = useRef(new Set<string>());
+  /** One automatic re-mint per watch attempt — the next play gesture
+   *  re-arms it. Without the latch a dead bucket loops sign-fail-sign. */
+  const reminted = useRef(new Set<string>());
+  /** Where the viewer stood when a clip's URL died mid-watch. Recovery
+   *  must not cost them their place (the coach workspace's rule). */
+  const resume = useRef<
+    Record<string, { time: number; wasPlaying: boolean }>
+  >({});
+
+  const videoRefFor = (id: string) => {
+    let r = videoRefs.current.get(id);
+    if (!r) {
+      r = { current: null };
+      videoRefs.current.set(id, r);
+    }
+    return r;
+  };
+  const playRefFor = (id: string) => {
+    let r = playRefs.current.get(id);
+    if (!r) {
+      r = { current: null };
+      playRefs.current.set(id, r);
+    }
+    return r;
+  };
 
   // Signed URLs are short lived by design, so the identity that matters is
   // the list of points, not the array object the parent happened to build.
@@ -81,69 +142,175 @@ export function PointReel({
 
   // A detached <video> carries on playing, with sound. Every one of them.
   useEffect(() => {
-    const els = videos.current;
+    const refs = videoRefs.current;
     return () => {
-      Object.values(els).forEach((v) => v?.pause());
+      for (const r of refs.values()) r.current?.pause();
     };
   }, []);
 
-  const only = (pointId: string) => {
-    Object.entries(videos.current).forEach(([id, v]) => {
-      if (id !== pointId) v?.pause();
-    });
+  const only = useCallback((pointId: string | null) => {
+    for (const [id, r] of videoRefs.current) {
+      if (id !== pointId) r.current?.pause();
+    }
+  }, []);
+
+  const anyPlaying = () => {
+    for (const r of videoRefs.current.values()) {
+      const v = r.current;
+      if (v && !v.paused && !v.ended) return true;
+    }
+    return false;
   };
 
-  const start = useCallback((pointId: string) => {
-    only(pointId);
-    setStarted((s) => (s[pointId] ? s : { ...s, [pointId]: true }));
-    void videos.current[pointId]?.play().catch(() => {});
+  /** Centre slide i in the deck. Rect-based so the peek padding and the
+   *  gap between slides never enter the arithmetic. */
+  const goTo = useCallback(
+    (i: number) => {
+      const deck = deckRef.current;
+      const slide =
+        i >= 0 && i < points.length
+          ? slideEls.current[points[i].point_id]
+          : null;
+      if (!deck || !slide) return;
+      const dRect = deck.getBoundingClientRect();
+      const sRect = slide.getBoundingClientRect();
+      deck.scrollTo({
+        left:
+          sRect.left -
+          dRect.left +
+          deck.scrollLeft -
+          (dRect.width - sRect.width) / 2,
+        behavior: "smooth",
+      });
+    },
+    [points],
+  );
+
+  /** Walk to slide i and start it — the double tap, the player's chevrons
+   *  and the tape's own advance all arrive here, so stepping a point plays
+   *  it, the same as the point sheet and the starred tape. */
+  const step = useCallback(
+    (i: number) => {
+      if (i < 0 || i >= points.length) return;
+      goTo(i);
+      playRefs.current.get(points[i].point_id)?.current?.play();
+    },
+    [points, goTo],
+  );
+
+  const replay = useCallback((pointId: string) => {
+    const v = videoRefs.current.get(pointId)?.current;
+    if (v) v.currentTime = 0;
+    playRefs.current.get(pointId)?.current?.play();
   }, []);
 
   /**
    * The URL that loaded the first frame ten minutes ago will not serve the
-   * rest of the clip today. Mint a fresh one and finish the play the reader
-   * actually asked for; a failure before they pressed anything is left
-   * alone, because re-signing on every idle error is a retry loop.
+   * rest of the clip today. Mint a fresh one; the restore effect below
+   * finishes the job by putting the viewer back at the second they lost.
    */
-  const refresh = useCallback(
-    async (pointId: string, wanted: boolean) => {
-      if (wanted) owed.current = pointId;
-      const got = await signBatch(orderId, [pointId]);
-      const fresh = got[pointId];
-      if (!fresh) return;
-      setUrls((u) => ({ ...u, [pointId]: fresh }));
+  const recover = useCallback(
+    (pointId: string, state?: { time: number; wasPlaying: boolean }) => {
+      if (!started.current.has(pointId) || reminted.current.has(pointId)) {
+        return;
+      }
+      reminted.current.add(pointId);
+      if (state) resume.current[pointId] = state;
+      void signBatch(orderId, [pointId]).then((got) => {
+        const fresh = got[pointId];
+        if (fresh) setUrls((u) => ({ ...u, [pointId]: fresh }));
+      });
     },
     [orderId],
   );
 
+  // A fresh URL after a mid-watch failure: back to where they were.
+  // ClipPlayer autoplays a src change in clip mode, so a clip that was
+  // PAUSED when its URL died gets paused again, not left running.
   useEffect(() => {
-    const id = owed.current;
-    if (!id || !urls[id]) return;
-    owed.current = null;
-    only(id);
-    void videos.current[id]?.play().catch(() => {});
+    for (const [id, r] of Object.entries(resume.current)) {
+      const v = videoRefs.current.get(id)?.current;
+      if (!v || !urls[id]) continue;
+      delete resume.current[id];
+      const apply = () => {
+        v.currentTime = r.time;
+        if (!r.wasPlaying) v.pause();
+      };
+      if (v.readyState >= 1) apply();
+      else v.addEventListener("loadedmetadata", apply, { once: true });
+    }
   }, [urls]);
 
-  const goTo = (i: number) => {
-    const el = trackRef.current;
-    if (!el) return;
-    el.scrollTo({ left: i * el.clientWidth, behavior: "smooth" });
-  };
+  // Whichever clip starts — a tap on it, a tap on a peeking neighbour, or
+  // the tape rolling forward — silence the rest, remember it has played,
+  // and bring its slide to the middle if it is not there already.
+  useEffect(() => {
+    const cleanups: (() => void)[] = [];
+    points.forEach((p, i) => {
+      const v = videoRefs.current.get(p.point_id)?.current;
+      if (!v) return;
+      const onPlay = () => {
+        started.current.add(p.point_id);
+        reminted.current.delete(p.point_id);
+        only(p.point_id);
+        if (curRef.current !== i) goTo(i);
+      };
+      v.addEventListener("play", onPlay);
+      cleanups.push(() => v.removeEventListener("play", onPlay));
+    });
+    return () => {
+      for (const fn of cleanups) fn();
+    };
+  }, [points, urls, only, goTo]);
+
+  /** Playback follows the swipe — but only once the deck has come to
+   *  rest. Playing at every crossing turned a two-slide swipe (or a chip
+   *  jump across the deck) into a cascade of hundred-millisecond blips,
+   *  one per slide passed. Whether anything WAS playing is read at the
+   *  start of the scroll burst, because by the time it settles the
+   *  departed clip has already been paused. */
+  const carryRef = useRef(false);
+  const settleTimer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+    },
+    [],
+  );
 
   const onScroll = () => {
-    const el = trackRef.current;
-    if (!el || !el.clientWidth) return;
-    const i = Math.min(
-      points.length - 1,
-      Math.max(0, Math.round(el.scrollLeft / el.clientWidth)),
-    );
-    if (i === curRef.current) return;
-    curRef.current = i;
-    // Swiping away from a clip stops it. Two rallies talking over each
-    // other is the one thing a deck of videos can do that nothing else can.
-    only(points[i].point_id);
-    setPlaying(false);
-    setCur(i);
+    const deck = deckRef.current;
+    if (!deck) return;
+    if (settleTimer.current === null) carryRef.current = anyPlaying();
+    else window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => {
+      settleTimer.current = null;
+      if (!carryRef.current) return;
+      carryRef.current = false;
+      playRefs.current
+        .get(points[curRef.current]?.point_id ?? "")
+        ?.current?.play();
+    }, 160);
+    const dRect = deck.getBoundingClientRect();
+    const mid = dRect.left + dRect.width / 2;
+    let best = curRef.current;
+    let bestDist = Infinity;
+    points.forEach((p, i) => {
+      const el = slideEls.current[p.point_id];
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const d = Math.abs(r.left + r.width / 2 - mid);
+      if (d < bestDist) {
+        bestDist = d;
+        best = i;
+      }
+    });
+    if (best === curRef.current) return;
+    // Leaving a playing clip silences it at the crossing; the arriving
+    // clip starts from the settle timer above.
+    curRef.current = best;
+    setCur(best);
+    only(points[best].point_id);
   };
 
   if (points.length === 0) return null;
@@ -152,125 +319,56 @@ export function PointReel({
 
   return (
     <div className="mt-3">
-      <div className="relative">
-        <div
-          ref={trackRef}
-          onScroll={onScroll}
-          className="flex snap-x snap-mandatory overflow-x-auto rounded-xl [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        >
-          {points.map((p, i) => {
-            const url = urls[p.point_id];
-            const live = started[p.point_id] === true;
-            return (
-              <div
-                key={p.point_id}
-                className="w-full shrink-0 snap-center"
-                aria-label={`Point ${p.idx + 1}`}
-              >
-                {/* The box is a div, always. A <video> has no size until its
-                    metadata lands, so sizing one starts at the spec's 300x150
-                    and visibly jumps when the file answers. */}
-                <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-edge bg-black">
-                  {url ? (
-                    <video
-                      ref={(el) => {
-                        videos.current[p.point_id] = el;
-                      }}
-                      src={url}
-                      controls={live}
-                      playsInline
-                      preload={Math.abs(i - cur) <= 1 ? "metadata" : "none"}
-                      onPlay={() => {
-                        setPlaying(true);
-                        setStarted((s) =>
-                          s[p.point_id] ? s : { ...s, [p.point_id]: true },
-                        );
-                      }}
-                      onPause={() => setPlaying(false)}
-                      onEnded={() => setPlaying(false)}
-                      onError={() => void refresh(p.point_id, live)}
-                      className="h-full w-full object-contain"
-                    />
-                  ) : (
-                    <div
-                      className={`h-full w-full ${
-                        failed ? "" : "animate-pulse bg-surface-2/40"
-                      }`}
-                    />
-                  )}
-
-                  {/* Ours until it plays. Idle, the browser paints its own
-                      play button, skip controls and scrubber across the
-                      picture, and on iOS an expand icon in the corner. */}
-                  {!live && (
-                    <button
-                      type="button"
-                      onClick={() => start(p.point_id)}
-                      disabled={!url}
-                      aria-label={`Play point ${p.idx + 1}`}
-                      className="absolute inset-0 flex items-center justify-center transition-colors hover:bg-black/10 disabled:cursor-default"
-                    >
-                      {url && (
-                        <span className="flex h-14 w-14 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur">
-                          <svg
-                            viewBox="0 0 24 24"
-                            className="ml-0.5 h-6 w-6"
-                            fill="currentColor"
-                            aria-hidden="true"
-                          >
-                            <path d="M8 5v14l11-7z" />
-                          </svg>
-                        </span>
-                      )}
-                    </button>
-                  )}
-                </div>
+      <div
+        ref={deckRef}
+        onScroll={many ? onScroll : undefined}
+        className={`flex snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+          many ? "gap-2 px-[6%] sm:px-0" : ""
+        }`}
+      >
+        {points.map((p, i) => {
+          const url = urls[p.point_id];
+          return (
+            <div
+              key={p.point_id}
+              ref={(el) => {
+                slideEls.current[p.point_id] = el;
+              }}
+              className={`shrink-0 snap-center ${
+                many ? "w-[88%] sm:w-full" : "w-full"
+              }`}
+              aria-label={`Point ${p.idx + 1}`}
+            >
+              {/* The box is a div, always. A <video> has no size until its
+                  metadata lands, so sizing one starts at the spec's 300x150
+                  and visibly jumps when the file answers. */}
+              <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-edge bg-black">
+                {url ? (
+                  <ClipPlayer
+                    src={url}
+                    fill
+                    startPaused
+                    hostSwipeX
+                    quietChrome
+                    readPixels={false}
+                    videoElRef={videoRefFor(p.point_id)}
+                    playRef={playRefFor(p.point_id)}
+                    onStepPoint={many ? (d) => step(i + d) : undefined}
+                    onReplay={() => replay(p.point_id)}
+                    onEnded={() => step(i + 1)}
+                    onMediaError={(state) => recover(p.point_id, state)}
+                  />
+                ) : (
+                  <div
+                    className={`h-full w-full ${
+                      failed ? "" : "animate-pulse bg-surface-2/40"
+                    }`}
+                  />
+                )}
               </div>
-            );
-          })}
-        </div>
-
-        {/* Desktop stepping. Hidden while a clip plays, because the native
-            controls own the picture from then on. */}
-        {many && (
-          <div
-            className={`pointer-events-none absolute inset-y-0 left-0 right-0 hidden items-center justify-between px-2 transition-opacity sm:flex ${
-              playing ? "opacity-0" : "opacity-100"
-            }`}
-          >
-            {[-1, 1].map((d) => {
-              const to = cur + d;
-              const can = to >= 0 && to < points.length;
-              return (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => goTo(to)}
-                  disabled={!can}
-                  aria-label={d < 0 ? "Previous point" : "Next point"}
-                  className={`pointer-events-auto flex h-9 w-9 items-center justify-center rounded-full bg-black/55 text-white backdrop-blur transition-opacity hover:text-cyan-glow ${
-                    can ? "" : "opacity-0"
-                  }`}
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-5 w-5"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d={d < 0 ? "m15 6-6 6 6 6" : "m9 6 6 6-6 6"}
-                    />
-                  </svg>
-                </button>
-              );
-            })}
-          </div>
-        )}
+            </div>
+          );
+        })}
       </div>
 
       {failed && (
@@ -296,11 +394,17 @@ export function PointReel({
               }`}
             >
               Point {p.idx + 1}
+              {scores?.[p.point_id] && (
+                <ChipScore score={scores[p.point_id]} />
+              )}
             </button>
           ))}
         {!many && (
           <span className="text-sm text-zinc-400">
             Point {points[0].idx + 1}
+            {scores?.[points[0].point_id] && (
+              <ChipScore score={scores[points[0].point_id]} />
+            )}
           </span>
         )}
         {matchId && (

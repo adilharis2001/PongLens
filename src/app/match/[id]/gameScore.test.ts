@@ -8,6 +8,7 @@ import {
   gameBoundaryAction,
   gameWinner,
   resolvedGameWinner,
+  runningScoreByPoint,
 } from "./gameScore.ts";
 
 /** Minimal point rows: only what the walk reads. */
@@ -211,4 +212,45 @@ test("resolvedGameWinner: the named winner beats the heuristic", () => {
     resolvedGameWinner({ you: 11, them: 6, winnerOverride: "opponent" }),
     "opponent"
   );
+});
+
+test("runningScoreByPoint: the score once each point was played", () => {
+  const points = build("UUT.U");
+  const scores = runningScoreByPoint(points);
+  assert.deepEqual(scores.get("p0"), { you: 1, them: 0 });
+  assert.deepEqual(scores.get("p1"), { you: 2, them: 0 });
+  assert.deepEqual(scores.get("p2"), { you: 2, them: 1 });
+  // A skipped or unscored point carries the standing score, unchanged.
+  assert.deepEqual(scores.get("p3"), { you: 2, them: 1 });
+  assert.deepEqual(scores.get("p4"), { you: 3, them: 1 });
+});
+
+test("runningScoreByPoint: a closing point carries the game's final", () => {
+  const points = build("UUUUUUUUUUUT");
+  const scores = runningScoreByPoint(points);
+  // The 11th user point closes the game at 11-0…
+  assert.deepEqual(scores.get("p10"), { you: 11, them: 0 });
+  // …and the next point starts the next game from zero.
+  assert.deepEqual(scores.get("p11"), { you: 0, them: 1 });
+});
+
+test("runningScoreByPoint: a pinned end closes wherever it lands", () => {
+  const points = build("UUTET");
+  const scores = runningScoreByPoint(points);
+  assert.deepEqual(scores.get("p2"), { you: 2, them: 1 });
+  assert.deepEqual(scores.get("p3"), { you: 0, them: 1 });
+});
+
+test("runningScoreByPoint agrees with computeMatchScore's boundaries", () => {
+  const points = build("UUUUUUUUUUU" + "TTTTTTTTTTT" + "UUU");
+  const scores = runningScoreByPoint(points);
+  const match = computeMatchScore(points);
+  for (const [id, boundary] of match.boundaryAfter) {
+    assert.deepEqual(scores.get(id), {
+      you: boundary.you,
+      them: boundary.them,
+    });
+  }
+  const last = points[points.length - 1];
+  assert.deepEqual(scores.get(last.id), match.current);
 });
