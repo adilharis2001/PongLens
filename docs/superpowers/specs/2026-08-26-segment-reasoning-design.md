@@ -1,6 +1,8 @@
 # Segment reasoning: read the ball's flights, not its frames
 
-Status: design, agreed with Adil on 2026-08-26. Nothing built yet.
+Status: built and measured on 2026-08-26. The design is below as it was
+agreed; what it measured, and the parts of it that turned out to be wrong,
+are recorded at the end.
 
 ## What this is for
 
