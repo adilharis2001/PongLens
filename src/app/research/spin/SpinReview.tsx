@@ -90,10 +90,15 @@ export function SpinReview({
   matches,
   predictions,
   initialNotes,
+  hidden = 0,
 }: {
   matches: SpinMatchRow[];
   predictions: SpinPrediction[];
   initialNotes: SpinNote[];
+  /** Predictions whose point this account cannot read (a match owned by
+   * someone else). Shown rather than swallowed: their videos cannot be
+   * signed here either, so they are genuinely unlabelable on this login. */
+  hidden?: number;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const predMap = useMemo(
@@ -186,6 +191,10 @@ export function SpinReview({
     return () => {
       cancelled = true;
     };
+    // Keyed on the id, not the object: re-signing the whole cut video on
+    // every re-render of an equal-but-new match object would restart the
+    // player mid-label.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [match?.matchId]);
 
   const playServe = useCallback(() => {
@@ -217,6 +226,9 @@ export function SpinReview({
   useEffect(() => {
     if (!url || !point) return;
     playServe();
+    // Same reason: seek when the selected point actually changes, not
+    // when an identical row object is recreated by a filter recompute.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, point?.pointId, playServe]);
 
   // A video removed from the document keeps playing with sound.
@@ -372,6 +384,11 @@ export function SpinReview({
         {blindPct !== null && (
           <span className="tabular-nums text-cyan-100">
             blind agreement {blindPct}% (n={summary.totalBlind})
+          </span>
+        )}
+        {hidden > 0 && (
+          <span className="tabular-nums text-zinc-500">
+            {hidden} hidden (match owned by another account)
           </span>
         )}
         <button

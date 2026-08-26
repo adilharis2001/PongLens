@@ -10,6 +10,15 @@ import type {
   SpinPrediction,
 } from "./serveSpinView";
 
+interface PointJoin {
+  id: string;
+  match_id: string;
+  idx: number;
+  cut_t0: number | null;
+  serve_spin: "back" | "top" | "none" | null;
+  serve_sidespin: boolean | null;
+}
+
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
@@ -50,29 +59,35 @@ export default async function SpinResearchPage() {
   const { data: isAdmin } = await supabase.rpc("is_admin");
   if (!isAdmin) notFound();
 
-  const predictions = await fetchAll<SpinPrediction>(
+  // One paginated query, joined through the foreign key. Fetching the
+  // predictions and then asking for those point ids by list is what the
+  // first version did, and 500 uuids per .in() built a query string long
+  // enough that fetch itself gave up ("TypeError: fetch failed") — with
+  // no Postgres error to read, because the request never arrived.
+  const joined = await fetchAll<SpinPrediction & { points: PointJoin | null }>(
     supabase,
     "spin_predictions",
-    "point_id,algo,predicted_spin,confidence,ratio1,kick1_deg,hop_t,hop_speed,pre_speed,post_speed,serve_cut_s,quality",
+    "point_id,algo,predicted_spin,confidence,ratio1,kick1_deg,hop_t," +
+      "hop_speed,pre_speed,post_speed,serve_cut_s,quality," +
+      "points!inner(id,match_id,idx,cut_t0,serve_spin,serve_sidespin)",
   );
 
-  // The covered matches are exactly the ones with prediction rows.
-  const coveredIds = Array.from(new Set(predictions.map((p) => p.point_id)));
-  const pointRows: {
-    id: string;
-    match_id: string;
-    idx: number;
-    cut_t0: number | null;
-    serve_spin: "back" | "top" | "none" | null;
-    serve_sidespin: boolean | null;
-  }[] = [];
-  for (let i = 0; i < coveredIds.length; i += 500) {
-    const { data, error } = await supabase
-      .from("points")
-      .select("id,match_id,idx,cut_t0,serve_spin,serve_sidespin")
-      .in("id", coveredIds.slice(i, i + 500));
-    if (error) throw new Error(`points: ${error.message}`);
-    pointRows.push(...(data ?? []));
+  // spin_predictions is admin-readable in full, but the points it names
+  // are not: a match owned by someone else is invisible under RLS, so the
+  // !inner join above drops it. That is the right outcome — /api/media-url
+  // could not sign its video either, so those serves are unlabelable — but
+  // it must not be silent, or the page quietly claims a smaller corpus
+  // than the estimator actually measured.
+  const { count: predictionRowCount } = await supabase
+    .from("spin_predictions")
+    .select("point_id", { count: "exact", head: true });
+
+  const predictions: SpinPrediction[] = [];
+  const pointRows: PointJoin[] = [];
+  for (const row of joined) {
+    const { points, ...prediction } = row;
+    predictions.push(prediction as SpinPrediction);
+    if (points) pointRows.push(points);
   }
 
   const matchIdSet = Array.from(new Set(pointRows.map((p) => p.match_id)));
@@ -113,11 +128,14 @@ export default async function SpinResearchPage() {
     .filter((m) => m.points.length > 0)
     .sort((a, b) => b.points.length - a.points.length);
 
+  const hidden = Math.max(0, (predictionRowCount ?? 0) - pointRows.length);
+
   return (
     <SpinReview
       matches={matches}
       predictions={predictions}
       initialNotes={notes}
+      hidden={hidden}
     />
   );
 }
