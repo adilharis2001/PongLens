@@ -65,6 +65,7 @@ TABLE = (255, 210, 60)      # the quad
 NEAR_LINE = (120, 255, 120)  # A-B
 FAR_LINE = (255, 130, 255)   # C-D
 CHOSEN = (110, 255, 110)
+PROPOSED = (60, 190, 255)   # would have been picked, but a guard refused
 OTHER = (150, 150, 150)
 REJECT = (90, 90, 220)
 
@@ -96,6 +97,7 @@ def annotate(image, corners, chosen) -> np.ndarray:
         x0, y0, x1, y1 = [int(v) for v in record["box"]]
         verdict = record["verdict"]
         colour = (CHOSEN if verdict.startswith("CHOSEN")
+                  else PROPOSED if verdict.startswith("WOULD PICK")
                   else REJECT if "too far" in verdict else OTHER)
         cv2.rectangle(vis, (x0, y0), (x1, y1), colour, 2)
         ax, ay = [int(v) for v in record["anchor"]]
@@ -180,12 +182,24 @@ def run(cache: Path, wanted: list[str], per_match: int) -> list[dict]:
                     shots.append({"img": b64(annotate(image, corners, chosen)),
                                   "boxes": chosen.get("boxes") or [],
                                   "n": len(boxes)})
-                    sides = [s for s in ("near", "far")
-                             if chosen.get(s) is not None]
+                    # Read the torso for whoever the detector settled on,
+                    # and failing that for whoever it WOULD have settled
+                    # on. A crowded venue otherwise shows no crops at all
+                    # and there is nothing to judge.
+                    sides, boxes_for_pose, proposed_only = [], [], set()
+                    for s in ("near", "far"):
+                        box = chosen.get(s)
+                        if box is None:
+                            box = chosen.get(f"{s}_proposed")
+                            if box is not None:
+                                proposed_only.add(s)
+                        if box is not None:
+                            sides.append(s)
+                            boxes_for_pose.append(box)
                     if not sides:
                         continue
                     kpts, scores = pose(image, bboxes=np.asarray(
-                        [chosen[s] for s in sides], dtype=np.float32))
+                        boxes_for_pose, dtype=np.float32))
                     for i, side in enumerate(sides):
                         sig = torso_signature_v2(image, kpts[i], scores[i])
                         pts = [kpts[i][j] for j in (5, 6, 11, 12)
@@ -200,6 +214,7 @@ def run(cache: Path, wanted: list[str], per_match: int) -> list[dict]:
                                 crop_b64 = b64(image[y0:y1, x0:x1], CROP_W)
                         crops[side].append({
                             "crop": crop_b64, "sig": sig,
+                            "proposed": side in proposed_only,
                             "joints": int(sum(
                                 1 for j in (5, 6, 11, 12)
                                 if float(scores[i][j]) >= TORSO_MIN_CONF)),
@@ -280,7 +295,10 @@ def render(cases: list[dict], seeded: dict) -> str:
                        if c.get("crop")
                        else '<div class="sw none">no torso</div>')
                     + swatch(c.get("sig"))
-                    + f'<div class="tiny">{c["joints"]}/4 joints</div></div>'
+                    + f'<div class="tiny">{c["joints"]}/4 joints'
+                    + ('<br><span class="prop">not used</span>'
+                       if c.get("proposed") else "")
+                    + "</div></div>"
                     for c in case["crops"][side]) or (
                     '<div class="tiny bad">nothing read at this end</div>')
                 ok = summary.get("ok")
@@ -377,6 +395,7 @@ textarea:focus {{ outline:none; border-color:#52525b; }}
 .howto p {{ margin:0 0 9px; font-size:14px; color:#a1a1aa; }}
 .howto p:last-child {{ margin-bottom:0; }}
 .hint {{ font-size:12px; color:#71717a; margin:0 0 10px; }}
+.prop {{ color:#fbbf24; }}
 .shots {{ display:flex; gap:10px; flex-wrap:wrap; }}
 figure {{ margin:0; }} img {{ border-radius:8px; display:block;
   max-width:100%; }}
@@ -416,7 +435,11 @@ figcaption {{ font-size:11px; color:#71717a; margin-top:4px; }}
   these two are actually playing on?</p>
   <p><strong>The players</strong>, asked per point. Are the two boxes
   marked CHOSEN the two people playing, and is the one nearer the camera
-  the one labelled near?</p>
+  the one labelled near? In a busy hall the detector often refuses to
+  pick, because two people stand equally close to an end. It still shows
+  you who it WOULD have picked, in amber — judge those the same way. If
+  the amber boxes are the right two players, the guard is too cautious
+  and that is a fix.</p>
   <p>The colour strip under each torso crop is literally what the
   appearance comparison uses. If those look like one person in one shirt
   and the point was still rejected, the fault is mine, not the
@@ -431,6 +454,8 @@ figcaption {{ font-size:11px; color:#71717a; margin-top:4px; }}
     C-D</span>
   <span><i class="key" style="background:rgb(110,255,110)"></i>chosen as a
     player</span>
+  <span><i class="key" style="background:rgb(255,190,60)"></i>would have been
+    picked, but refused as ambiguous</span>
   <span><i class="key" style="background:rgb(150,150,150)"></i>a person, not
     chosen</span>
   <span><i class="key" style="background:rgb(220,90,90)"></i>rejected as too

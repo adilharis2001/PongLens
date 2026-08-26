@@ -336,13 +336,24 @@ def choose_players(
             )
         result[side] = None if ambiguous else ranked[0][2]
         result[f"{side}_ambiguous"] = ambiguous
+        # The best candidate REGARDLESS of the guard. Never used for
+        # detection — it exists so the diagnostic page can show what the
+        # detector would have picked and a reviewer can say whether the
+        # guard was right to refuse. Without it a crowded venue renders
+        # as a field of grey boxes with nothing to agree or disagree
+        # with, which is exactly the feedback Adil could not give.
+        result[f"{side}_proposed"] = ranked[0][2]
         chosen = None if ambiguous else ranked[0][2]
         for record in seen:
             if record.get("side") != side:
                 continue
+            top = record["box"] == [round(float(v), 1) for v in ranked[0][2]]
             if ambiguous:
                 record["verdict"] = (
-                    f"{side} end ambiguous — two people equally close"
+                    f"WOULD PICK for {side} — refused, another person "
+                    f"just as close"
+                    if top
+                    else f"the other person contesting {side}"
                 )
             elif chosen is not None and record["box"] == [
                 round(float(v), 1) for v in chosen
