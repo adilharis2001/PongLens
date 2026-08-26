@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { deadRunLoser, deadRunReasonCopy, findDeadRuns } from "./deadRun";
 import { findOffTable, offTableLoser, offTableWithheld } from "./offTable";
+import { findNetDeath, netDeathLoser, netSegment } from "./netDeath";
 import { finalExits, inPrism, prismPolygon, type Pt } from "./prism";
 import {
   REJECTION_COPY,
@@ -128,15 +129,28 @@ const LEGEND: {
  * apart on which rule won an argument.
  */
 type Corners = ServeAccuracyMatch["corners"];
+type SourceDims = ServeAccuracyMatch["source"];
 
 function ruleVerdict(
   row: ServeAccuracyRow,
   corners: Corners,
+  tracks: Tracks | null,
+  source: SourceDims,
 ): "user" | "opponent" | null {
   const loser =
     deadRunLoser(findDeadRuns(row.events), row.userPhysicalSide)
     ?? offTableLoser(
       findOffTable(row.events, corners ? { corners } : null),
+      row.userPhysicalSide,
+    )
+    ?? netDeathLoser(
+      findNetDeath(
+        row.events,
+        tracks?.[row.pointId] ?? null,
+        corners,
+        row.clipT0,
+        source,
+      ),
       row.userPhysicalSide,
     );
   if (loser === null) return null;
@@ -144,14 +158,24 @@ function ruleVerdict(
 }
 
 /** Fired, the point is scored, and it named the wrong player. */
-function ruleIsWrong(row: ServeAccuracyRow, corners: Corners): boolean {
-  const verdict = ruleVerdict(row, corners);
+function ruleIsWrong(
+  row: ServeAccuracyRow,
+  corners: Corners,
+  tracks: Tracks | null,
+  source: SourceDims,
+): boolean {
+  const verdict = ruleVerdict(row, corners, tracks, source);
   return verdict !== null && row.winner !== null && verdict !== row.winner;
 }
 
 /** The off-table read found something and then refused to call it. */
-function ruleHeldBack(row: ServeAccuracyRow, corners: Corners): boolean {
-  if (ruleVerdict(row, corners) !== null) return false;
+function ruleHeldBack(
+  row: ServeAccuracyRow,
+  corners: Corners,
+  tracks: Tracks | null,
+  source: SourceDims,
+): boolean {
+  if (ruleVerdict(row, corners, tracks, source) !== null) return false;
   return offTableWithheld(
     findOffTable(row.events, corners ? { corners } : null),
   ) !== null;
@@ -284,11 +308,15 @@ function Clip({
           ctx.strokeStyle = "#ff2d95";
           ctx.lineWidth = 2;
           ctx.stroke();
-          // The net line, halfway down each sideline.
-          const mid = (a: number[], b: number[]) =>
-            [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] as const;
-          const l = mid(pts[0], pts[3]);
-          const r = mid(pts[1], pts[2]);
+          // The net line, projected properly. The pixel midpoint of the
+          // sidelines is NOT where the net is: perspective compresses the
+          // far half, so the real net sits nearer the far end. The quad's
+          // diagonals meet at the table's true centre, and the net runs
+          // through it. Adil caught the drawn line sitting off the
+          // physical net on the Julian match; this is the fix.
+          const seg = netSegment(corners);
+          const l = seg ? seg.e1 : [0, 0];
+          const r = seg ? seg.e2 : [0, 0];
           ctx.beginPath();
           ctx.moveTo(l[0] * sx, l[1] * sy);
           ctx.lineTo(r[0] * sx, r[1] * sy);
@@ -587,9 +615,11 @@ function loadTracks(): Promise<Tracks> {
 function Row({
   row,
   match,
+  tracks,
 }: {
   row: ServeAccuracyRow;
   match: ServeAccuracyMatch;
+  tracks: Tracks | null;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [track, setTrack] = useState<readonly (readonly number[])[] | null>(null);
@@ -634,6 +664,18 @@ function Row({
     row.events,
     match.corners ? { corners: match.corners } : null,
   );
+  const netDeath = findNetDeath(
+    row.events,
+    tracks?.[row.pointId] ?? null,
+    match.corners,
+    row.clipT0,
+    match.source,
+  );
+  const netLoser = netDeathLoser(netDeath, row.userPhysicalSide);
+  const netVerdict =
+    netLoser === null ? null : netLoser === "user" ? "opponent" : "user";
+  const netAgrees =
+    netVerdict !== null && row.winner !== null ? netVerdict === row.winner : null;
   const offLoser = offTableLoser(offTable, row.userPhysicalSide);
   const offVerdict =
     offLoser === null ? null : offLoser === "user" ? "opponent" : "user";
@@ -787,6 +829,21 @@ function Row({
           </dd>
         </div>
         <div>
+          <dt className="text-zinc-500">Net turn says</dt>
+          <dd
+            className={
+              netVerdict === null ? "text-zinc-500"
+                : netAgrees ? "text-emerald-300" : "text-amber-300"
+            }
+          >
+            {netVerdict === null || netDeath === null
+              ? "no call"
+              : `${netVerdict === "user" ? "you" : opponent} won · ball `
+                + `turned ${netDeath.distM.toFixed(2)} m from the net and `
+                + "died there"}
+          </dd>
+        </div>
+        <div>
           <dt className="text-zinc-500">Ball track</dt>
           <dd className="text-zinc-200 tabular-nums">
             {track ? `${track.length} frames` : "load the clip"}
@@ -813,8 +870,14 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   const [active, setActive] = useState(matches[0].matchId);
   const [only, setOnly] = useState<
     "all" | "drawn" | "refused" | "disagreed" | "deadrun" | "offtable"
-    | "wrong" | "heldback" | "nocall"
+    | "netdeath" | "wrong" | "heldback" | "nocall"
   >("all");
+  // The verdict counts need every track, not just the open clip's, so the
+  // whole file loads once up front. Still code-split out of the bundle.
+  const [allTracks, setAllTracks] = useState<Tracks | null>(null);
+  useEffect(() => {
+    void loadTracks().then(setAllTracks);
+  }, []);
   const match = matches.find((m) => m.matchId === active) ?? matches[0];
   const stats = useMemo(() => summarise(match.rows), [match]);
   const rows = useMemo(
@@ -829,14 +892,23 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
                       findOffTable(r.events, match.corners ? { corners: match.corners } : null),
                       r.userPhysicalSide,
                     ) !== null
-                  : only === "wrong" ? ruleIsWrong(r, match.corners)
-                    : only === "heldback" ? ruleHeldBack(r, match.corners)
-                      : only === "nocall" ? ruleVerdict(r, match.corners) === null
+                  : only === "netdeath"
+                    ? netDeathLoser(
+                        findNetDeath(r.events, allTracks?.[r.pointId] ?? null,
+                          match.corners, r.clipT0, match.source),
+                        r.userPhysicalSide,
+                      ) !== null
+                  : only === "wrong"
+                    ? ruleIsWrong(r, match.corners, allTracks, match.source)
+                    : only === "heldback"
+                      ? ruleHeldBack(r, match.corners, allTracks, match.source)
+                      : only === "nocall"
+                        ? ruleVerdict(r, match.corners, allTracks, match.source) === null
                       : r.winner !== null
                         && r.computed?.winner != null
                         && r.computed.winner !== r.winner,
       ),
-    [match, only],
+    [match, only, allTracks],
   );
   const disagreed = stats.callCompared - stats.callAgreed;
   const withDeadRun = useMemo(
@@ -853,17 +925,44 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
     [match],
   );
   const ruleWrong = useMemo(
-    () => match.rows.filter((r) => ruleIsWrong(r, match.corners)).length,
-    [match],
+    () => match.rows.filter(
+      (r) => ruleIsWrong(r, match.corners, allTracks, match.source),
+    ).length,
+    [match, allTracks],
   );
   const heldBack = useMemo(
-    () => match.rows.filter((r) => ruleHeldBack(r, match.corners)).length,
-    [match],
+    () => match.rows.filter(
+      (r) => ruleHeldBack(r, match.corners, allTracks, match.source),
+    ).length,
+    [match, allTracks],
   );
   const noCall = useMemo(
-    () => match.rows.filter((r) => ruleVerdict(r, match.corners) === null).length,
-    [match],
+    () => match.rows.filter(
+      (r) => ruleVerdict(r, match.corners, allTracks, match.source) === null,
+    ).length,
+    [match, allTracks],
   );
+  const netScore = useMemo(() => {
+    let fires = 0, right = 0, workerRight = 0;
+    for (const r of match.rows) {
+      // Only where it is the deciding rule, so the summary lines add up.
+      if (deadRunLoser(findDeadRuns(r.events), r.userPhysicalSide)) continue;
+      if (offTableLoser(
+        findOffTable(r.events, match.corners ? { corners: match.corners } : null),
+        r.userPhysicalSide,
+      )) continue;
+      const loser = netDeathLoser(
+        findNetDeath(r.events, allTracks?.[r.pointId] ?? null,
+          match.corners, r.clipT0, match.source),
+        r.userPhysicalSide,
+      );
+      if (loser === null || r.winner === null) continue;
+      fires += 1;
+      if ((loser === "user" ? "opponent" : "user") === r.winner) right += 1;
+      if (r.computed?.winner === r.winner) workerRight += 1;
+    }
+    return { fires, right, workerRight };
+  }, [match, allTracks]);
   // How the off-table rule scores against the pad, on the points it fires.
   const offScore = useMemo(() => {
     let fires = 0, right = 0, workerRight = 0;
@@ -961,6 +1060,14 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             against the worker&rsquo;s{" "}
             <span className="tabular-nums">{offScore.workerRight}</span>.
           </p>
+          <p className="mt-2 text-sm text-zinc-200">
+            The ball turned round at the net on{" "}
+            <span className="tabular-nums">{netScore.fires}</span> more that
+            neither rule could reach, and the turn named the winner right{" "}
+            <span className="tabular-nums">{netScore.right}</span> times
+            against the worker&rsquo;s{" "}
+            <span className="tabular-nums">{netScore.workerRight}</span>.
+          </p>
           <p className="mt-2 text-[11px] text-zinc-500">
             Calibration: {match.calibrationSource ?? "unknown"}.
           </p>
@@ -994,6 +1101,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             ["offtable", `Off table ${withOffTable}`],
             ["wrong", `We called it wrong ${ruleWrong}`],
             ["heldback", `Held back ${heldBack}`],
+            ["netdeath", `Net death ${netScore.fires}`],
             ["nocall", `No call ${noCall}`],
           ] as const
         ).map(([key, label]) => (
@@ -1014,7 +1122,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
 
       <div className="mt-4 space-y-3">
         {rows.map((row) => (
-          <Row key={row.pointId} row={row} match={match} />
+          <Row key={row.pointId} row={row} match={match} tracks={allTracks} />
         ))}
       </div>
     </main>
