@@ -164,10 +164,40 @@ reaching across (after)            26      26       0
 ```
 
 **Every recovered candidate is a real changeover, and nothing new is
-wrong.** Reaching to 2–3 cards adds 8 further candidates on the corpus,
-not yet judged. Coverage remains the ceiling: 88 of 106 points qualified
-on a square-on camera against 1 of 143 on Yilin's end-on tournament
-footage, which correctly produced nothing.
+wrong.**
+
+## The corpus figures
+
+39 matches extracted; 4 refused by `assert_aligned` (stale match.json);
+23 fully scored and aligned, which is where a boundary count exists to
+measure against.
+
+```
+                                 matches   game ends   found   wrong    P      R
+all fully-scored + aligned            23          57      33       3   92%    58%
+minus the bad-truth match             22          53      33       0  100%    62%
+
+coverage under 50%                    10          19       2       0  100%    11%
+coverage 50-75%                        5          18      15       0  100%    83%
+coverage over 75%                      8          20      16       3   84%    80%
+```
+
+**Accuracy is not the limit; visibility is.** Where the camera shows
+both players the detector finds 80% of game ends and essentially never
+fires wrongly. Where it does not, it stays quiet — which is why the
+low-coverage band still reads 100% precision on the two it did find.
+
+**All three "wrong" fires are one match, `cebaa6d4`, and there the
+reference is wrong, not the detector.** It fired on gaps of 22.5s, 22.7s
+and 18.3s; the score-derived boundaries sit 3–4 points later on gaps of
+1.2s, 2.5s, 1.0s and 1.2s. Nobody changes ends in 1.2 seconds. That
+match has 80 scored points and no pins, so its boundaries come purely
+from the 11-point rule, which drifts late when a few points are
+mis-scored. Score-derived truth has its own noise, and this is what it
+looks like — another reason the frame-by-frame verdicts outrank it.
+
+Coverage does NOT work as a safety gate, tempting as it looks: the
+bad-reference match sits at 91% qualified, in the highest band.
 
 `docs/research/gameend.html` is the review page: every candidate as the
 two frames the detector actually compared, so a swap is either visible
