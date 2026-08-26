@@ -218,52 +218,109 @@ def run(cache: Path, wanted: list[str], per_match: int) -> list[dict]:
     return out
 
 
-def render(cases: list[dict]) -> str:
-    blocks = []
+TABLE_CHOICES = [
+    ("right", "Table is right"),
+    ("wrong-table", "It found the wrong table"),
+    ("not-a-table", "That is not a table"),
+    ("loose", "Right table, sloppy corners"),
+]
+PLAYER_CHOICES = [
+    ("both", "Both players right"),
+    ("near-wrong", "Near is wrong"),
+    ("far-wrong", "Far is wrong"),
+    ("both-wrong", "Both wrong"),
+    ("ends-swapped", "Ends are the wrong way round"),
+    ("not-playing", "Picked someone not playing"),
+]
+
+
+def buttons(group: str, key: str, choices) -> str:
+    return "".join(
+        f'<button type="button" data-group="{group}" data-key="{html.escape(key)}"'
+        f' data-v="{v}">{html.escape(label)}</button>'
+        for v, label in choices)
+
+
+def render(cases: list[dict], seeded: dict) -> str:
+    by_match: dict[str, list[dict]] = {}
     for case in cases:
-        if case.get("fatal"):
+        by_match.setdefault(case["match"], []).append(case)
+
+    blocks = []
+    for match, group in by_match.items():
+        short = match[:8]
+        fatal = next((c["fatal"] for c in group if c.get("fatal")), None)
+        head = group[0]
+        cov = head.get("coverage") or {}
+        meta = (f"coverage {cov.get('qualified')}/{cov.get('total')} · "
+                f"camera {head.get('foreshortening')}"
+                if not fatal else "")
+        if fatal:
             blocks.append(
-                f'<section class="case"><h2>{html.escape(case["match"][:8])}'
-                f'</h2><p class="bad">{html.escape(case["fatal"])}</p>'
-                f"</section>")
+                f'<section class="match"><h2>{html.escape(short)}</h2>'
+                f'<p class="bad">{html.escape(fatal)}</p></section>')
             continue
-        shots = "".join(
-            f'<figure><img src="data:image/jpeg;base64,{s["img"]}" alt="">'
-            f'<figcaption>{s["n"]} people detected</figcaption></figure>'
-            for s in case["shots"])
-        sides = ""
-        for side in ("near", "far"):
-            summary = case.get(side) or {}
-            items = "".join(
-                f'<div class="crop">'
-                + (f'<img src="data:image/jpeg;base64,{c["crop"]}" alt="">'
-                   if c.get("crop") else '<div class="sw none">no torso</div>')
-                + swatch(c.get("sig"))
-                + f'<div class="tiny">{c["joints"]}/4 joints</div></div>'
-                for c in case["crops"][side]) or (
-                '<div class="tiny bad">nothing read at this end</div>')
-            ok = summary.get("ok")
-            sides += (
-                f'<div class="side"><h3>{side} end — '
-                + ("<span class=good>qualified</span>" if ok
-                   else "<span class=bad>not qualified</span>")
-                + (f' · spread {summary.get("spread")} '
-                   f'(limit {DEFAULT_CONFIG["spread_max"]})'
-                   if summary.get("spread") is not None else "")
-                + f'</h3><div class="crops">{items}</div></div>')
-        cov = case.get("coverage") or {}
+
+        points = []
+        for case in group:
+            shots = "".join(
+                f'<figure><img src="data:image/jpeg;base64,{s["img"]}" alt="">'
+                f'<figcaption>{s["n"]} people detected</figcaption></figure>'
+                for s in case["shots"])
+            sides = ""
+            for side in ("near", "far"):
+                summary = case.get(side) or {}
+                items = "".join(
+                    '<div class="crop">'
+                    + (f'<img src="data:image/jpeg;base64,{c["crop"]}" alt="">'
+                       if c.get("crop")
+                       else '<div class="sw none">no torso</div>')
+                    + swatch(c.get("sig"))
+                    + f'<div class="tiny">{c["joints"]}/4 joints</div></div>'
+                    for c in case["crops"][side]) or (
+                    '<div class="tiny bad">nothing read at this end</div>')
+                ok = summary.get("ok")
+                sides += (
+                    f'<div class="side"><h4>{side} end — '
+                    + ("<span class=good>qualified</span>" if ok
+                       else "<span class=bad>not qualified</span>")
+                    + (f' · spread {summary.get("spread")} '
+                       f'(limit {DEFAULT_CONFIG["spread_max"]})'
+                       if summary.get("spread") is not None else "")
+                    + f'</h4><div class="crops">{items}</div></div>')
+            key = f"{short}@{case['idx']}"
+            points.append(f"""
+  <section class="case" data-key="{html.escape(key)}">
+    <h3>point {case['idx']}
+      {'<span class=good>qualified</span>' if case.get('qualified')
+       else '<span class=bad>rejected</span>'}</h3>
+    <div class="shots">{shots}</div>
+    <div class="grid">{sides}</div>
+    <div class="ask">
+      <span class="q">The players it picked</span>
+      <div class="opts">{buttons('players', key, PLAYER_CHOICES)}</div>
+    </div>
+  </section>""")
+
         blocks.append(f"""
-<section class="case">
-  <h2>{html.escape(case['match'][:8])} · point {case['idx']}
-      {'<span class=good>point qualified</span>'
-       if case.get('qualified') else '<span class=bad>point rejected</span>'}
-  </h2>
-  <div class="meta">match coverage {cov.get('qualified')}/{cov.get('total')}
-      · camera {case.get('foreshortening')}</div>
-  <div class="shots">{shots}</div>
-  <div class="grid">{sides}</div>
+<section class="match" data-match="{html.escape(short)}">
+  <header>
+    <h2>{html.escape(short)}</h2>
+    <div class="meta">{meta}</div>
+    <div class="ask">
+      <span class="q">The table it found</span>
+      <div class="opts">{buttons('table', short, TABLE_CHOICES)}</div>
+    </div>
+    <textarea data-note="{html.escape(short)}" rows="2"
+      placeholder="Anything else about this match — what it should have
+found, what is different about this venue"></textarea>
+  </header>
+  {''.join(points)}
 </section>""")
 
+    seed_json = json.dumps(seeded)
+    n_tables = len([m for m in by_match])
+    n_points = len([c for c in cases if not c.get("fatal")])
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -277,12 +334,36 @@ h1 {{ font-size:22px; margin:0 0 6px; }}
   color:#a1a1aa; margin-bottom:22px; }}
 .key {{ display:inline-block; width:11px; height:11px; border-radius:2px;
   margin-right:5px; vertical-align:-1px; }}
-.case {{ border:1px solid #27272a; border-radius:12px; padding:16px;
-  margin-bottom:20px; background:#111113; }}
-h2 {{ font-size:15px; margin:0 0 4px; font-weight:600; }}
-h3 {{ font-size:12px; margin:0 0 8px; font-weight:600; color:#a1a1aa;
+.match {{ border:1px solid #27272a; border-radius:14px; padding:16px;
+  margin-bottom:24px; background:#0e0e10; scroll-margin-top:96px; }}
+.match > header {{ border-bottom:1px solid #27272a; padding-bottom:14px;
+  margin-bottom:6px; }}
+.case {{ border-top:1px solid #1c1c1f; padding:16px 0 4px;
+  scroll-margin-top:96px; }}
+h2 {{ font-size:16px; margin:0 0 4px; font-weight:600; }}
+h3 {{ font-size:13px; margin:0 0 10px; font-weight:600; }}
+h4 {{ font-size:12px; margin:0 0 8px; font-weight:600; color:#a1a1aa;
   text-transform:uppercase; letter-spacing:.05em; }}
 .meta {{ font-size:12px; color:#71717a; margin-bottom:12px; }}
+.ask {{ margin-top:12px; }}
+.q {{ display:block; font-size:12px; color:#a1a1aa; margin-bottom:6px;
+  text-transform:uppercase; letter-spacing:.05em; font-weight:600; }}
+.opts {{ display:flex; gap:8px; flex-wrap:wrap; }}
+button {{ font:inherit; font-size:14px; padding:7px 15px; border-radius:999px;
+  border:1px solid #3f3f46; background:transparent; color:#e4e4e7;
+  cursor:pointer; }}
+button:hover {{ border-color:#52525b; }}
+button[aria-pressed="true"] {{ border-color:#22d3ee; color:#22d3ee;
+  background:rgba(34,211,238,.08); }}
+textarea {{ width:100%; margin-top:12px; background:#141417; color:#e4e4e7;
+  border:1px solid #3f3f46; border-radius:8px; padding:9px 11px;
+  font:inherit; font-size:14px; resize:vertical; box-sizing:border-box; }}
+textarea:focus {{ outline:none; border-color:#52525b; }}
+.bar {{ position:sticky; top:0; z-index:5; background:#09090b;
+  padding:12px 0 14px; border-bottom:1px solid #27272a; margin-bottom:22px;
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap; }}
+.bar .grow {{ flex:1; }}
+.done[data-done="1"] {{ opacity:.55; }}
 .shots {{ display:flex; gap:10px; flex-wrap:wrap; }}
 figure {{ margin:0; }} img {{ border-radius:8px; display:block;
   max-width:100%; }}
@@ -298,7 +379,16 @@ figcaption {{ font-size:11px; color:#71717a; margin-top:4px; }}
 .tiny {{ font-size:11px; color:#71717a; margin-top:2px; }}
 .good {{ color:#4ade80; }} .bad {{ color:#f87171; }}
 </style></head><body>
-<h1>What the detector sees</h1>
+<div class="bar">
+  <div class="grow">
+    <h1>What the detector sees</h1>
+    <div class="meta" style="margin:0">
+      Answered <strong id="tally">0</strong> of {n_tables} tables and
+      {n_points} points
+    </div>
+  </div>
+  <button type="button" id="copy">Copy feedback</button>
+</div>
 <div class="legend">
   <span><i class="key" style="background:rgb(60,210,255)"></i>table it found
     (A near-left, B near-right, C far-right, D far-left)</span>
@@ -318,6 +408,60 @@ figcaption {{ font-size:11px; color:#71717a; margin-top:4px; }}
 end is whichever end line is nearer. The colour under each torso is what the
 appearance comparison actually uses.</p>
 {''.join(blocks)}
+<script>
+const KEY = 'ponglens-gameend-seen';
+// Answers already given are baked in, so a rebuild keeps them even when
+// opened from a different origin. Anything in localStorage is newer.
+const store = Object.assign({seed_json},
+  JSON.parse(localStorage.getItem(KEY) || '{{}}'));
+function save() {{ localStorage.setItem(KEY, JSON.stringify(store)); }}
+function slot(group, key) {{
+  store[group] = store[group] || {{}};
+  return store[group];
+}}
+function refresh() {{
+  let n = 0;
+  for (const g of ['table', 'players'])
+    n += Object.keys(store[g] || {{}}).length;
+  document.getElementById('tally').textContent = n;
+  for (const el of document.querySelectorAll('.case')) {{
+    el.classList.add('done');
+    el.dataset.done = (store.players || {{}})[el.dataset.key] ? '1' : '0';
+  }}
+}}
+for (const b of document.querySelectorAll('button[data-group]')) {{
+  const g = b.dataset.group, k = b.dataset.key;
+  b.addEventListener('click', () => {{
+    const s = slot(g, k);
+    s[k] = s[k] === b.dataset.v ? undefined : b.dataset.v;
+    if (!s[k]) delete s[k];
+    save();
+    for (const other of document.querySelectorAll(
+      `button[data-group="${{g}}"][data-key="${{CSS.escape(k)}}"]`))
+      other.setAttribute('aria-pressed', String(s[k] === other.dataset.v));
+    refresh();
+  }});
+  b.setAttribute('aria-pressed',
+    String(((store[g] || {{}})[k]) === b.dataset.v));
+}}
+for (const t of document.querySelectorAll('textarea[data-note]')) {{
+  const k = t.dataset.note;
+  t.value = (store.notes || {{}})[k] || '';
+  t.addEventListener('input', () => {{
+    store.notes = store.notes || {{}};
+    if (t.value.trim()) store.notes[k] = t.value.trim();
+    else delete store.notes[k];
+    save();
+  }});
+}}
+document.getElementById('copy').addEventListener('click', async () => {{
+  await navigator.clipboard.writeText(JSON.stringify(store, null, 2));
+  const b = document.getElementById('copy');
+  b.textContent = 'Copied';
+  setTimeout(() => (b.textContent = 'Copy feedback'), 1200);
+}});
+refresh();
+</script>
 </body></html>"""
 
 
@@ -327,10 +471,15 @@ def main() -> None:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--match", nargs="*", default=[])
     parser.add_argument("--per-match", type=int, default=4)
+    parser.add_argument(
+        "--feedback", type=Path, default=None,
+        help="JSON of answers already given, baked in so a rebuild does "
+             "not ask for them again")
     args = parser.parse_args()
+    seeded = json.loads(args.feedback.read_text()) if args.feedback else {}
     cases = run(args.cache.expanduser(), args.match, args.per_match)
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(render(cases))
+    args.out.write_text(render(cases, seeded))
     print(f"{len(cases)} points -> {args.out} "
           f"({args.out.stat().st_size / 1e6:.1f} MB)")
 
