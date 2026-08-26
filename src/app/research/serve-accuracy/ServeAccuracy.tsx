@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { deadRunLoser, deadRunReasonCopy, findDeadRuns } from "./deadRun";
+import { findDeadRuns } from "./deadRun";
+import { ballDiedLoser, ballDiedReasonCopy, findBallDied } from "./ballDied";
 import { findOffTable, offTableLoser, offTableWithheld } from "./offTable";
-import { findNetDeath, netDeathLoser, netSegment } from "./netDeath";
+import { netSegment } from "./netDeath";
 import { findNoReturn, noReturnLoser } from "./noReturn";
 import { finalExits, inPrism, prismPolygon, type Pt } from "./prism";
 import {
@@ -112,14 +113,14 @@ const LEGEND: {
   {
     swatch: "#34d399",
     ring: true,
-    label: "Dead run",
+    label: "Ball died",
     where:
-      "three or more bounces on one half with nobody hitting the ball — the "
-      + "point is over, and the side it died on lost it. Where the ball was "
-      + "last seen before the run says which kind it was: same end and that "
-      + "player put it into the net, other end and they never got it back. "
-      + "A run that never leaves the net line belongs to neither half, so it "
-      + "goes to whoever hit it there",
+      "the ball bouncing itself out on one half — the point is over, and the "
+      + "side it died on lost it. Two witnesses to the same thing: three or "
+      + "more bounces with nobody hitting the ball, or the track turning at "
+      + "the net and dropping twice. Where the ball was last seen says which "
+      + "kind of ending it was — same end and that player put it into the "
+      + "net, other end and they never got it back",
   },
 ];
 
@@ -139,19 +140,19 @@ function ruleVerdict(
   source: SourceDims,
 ): "user" | "opponent" | null {
   const loser =
-    deadRunLoser(findDeadRuns(row.events), row.userPhysicalSide)
-    ?? offTableLoser(
-      findOffTable(row.events, corners ? { corners } : null),
-      row.userPhysicalSide,
-    )
-    ?? netDeathLoser(
-      findNetDeath(
+    ballDiedLoser(
+      findBallDied(
         row.events,
         tracks?.[row.pointId] ?? null,
         corners,
         row.clipT0,
         source,
+        row.userPhysicalSide,
       ),
+      row.userPhysicalSide,
+    )
+    ?? offTableLoser(
+      findOffTable(row.events, corners ? { corners } : null),
       row.userPhysicalSide,
     )
     ?? noReturnLoser(
@@ -670,23 +671,23 @@ function Row({
     ? row.computed?.winner === row.winner
     : null;
   const deadRuns = findDeadRuns(row.events);
-  const runLoser = deadRunLoser(deadRuns, row.userPhysicalSide);
-  const offTable = findOffTable(
-    row.events,
-    match.corners ? { corners: match.corners } : null,
-  );
-  const netDeath = findNetDeath(
+  const died = findBallDied(
     row.events,
     tracks?.[row.pointId] ?? null,
     match.corners,
     row.clipT0,
     match.source,
+    row.userPhysicalSide,
   );
-  const netLoser = netDeathLoser(netDeath, row.userPhysicalSide);
-  const netVerdict =
-    netLoser === null ? null : netLoser === "user" ? "opponent" : "user";
-  const netAgrees =
-    netVerdict !== null && row.winner !== null ? netVerdict === row.winner : null;
+  const diedLoser = ballDiedLoser(died, row.userPhysicalSide);
+  const runVerdict =
+    diedLoser === null ? null : diedLoser === "user" ? "opponent" : "user";
+  const runAgrees =
+    runVerdict !== null && row.winner !== null ? runVerdict === row.winner : null;
+  const offTable = findOffTable(
+    row.events,
+    match.corners ? { corners: match.corners } : null,
+  );
   const noRet = findNoReturn(
     row.events,
     tracks?.[row.pointId] ?? null,
@@ -707,12 +708,6 @@ function Row({
   const offAgrees =
     offVerdict !== null && row.winner !== null ? offVerdict === row.winner : null;
   const withheld = offTableWithheld(offTable);
-  const runVerdict =
-    runLoser === null ? null : runLoser === "user" ? "opponent" : "user";
-  const runAgrees =
-    runVerdict !== null && row.winner !== null
-      ? runVerdict === row.winner
-      : null;
   const bounces = row.events.filter((e) => e.kind === "bounce").length;
   const projected = row.events.filter(
     (e) => e.kind === "bounce" && e.nu !== null,
@@ -805,24 +800,26 @@ function Row({
           <dd className="text-zinc-200">
             {deadRuns.length === 0
               ? "none"
-              : `${deadRuns[deadRuns.length - 1].events.length} bounces, `
-                + `${deadRuns[deadRuns.length - 1].metresFromNet.toFixed(2)} m `
-                + "from the net"}
+              : died === null || died.via === "bounces"
+                ? `${deadRuns[deadRuns.length - 1].events.length} bounces, `
+                  + `${deadRuns[deadRuns.length - 1].metresFromNet.toFixed(2)} m `
+                  + "from the net"
+                : `turned at the net, ${died.turn?.distM.toFixed(2)} m out`}
           </dd>
         </div>
         <div>
-          <dt className="text-zinc-500">Dead run says</dt>
+          <dt className="text-zinc-500">Ball died says</dt>
           <dd
             className={
               runVerdict === null ? "text-zinc-500"
                 : runAgrees ? "text-emerald-300" : "text-amber-300"
             }
           >
-            {runVerdict === null
+            {runVerdict === null || died === null
               ? "no call"
               : `${runVerdict === "user" ? "you" : opponent} won · `
                 + `${runVerdict === "user" ? opponent : "you"} `
-                + deadRunReasonCopy(deadRuns[deadRuns.length - 1])}
+                + ballDiedReasonCopy(died)}
           </dd>
         </div>
         <div>
@@ -851,21 +848,6 @@ function Row({
                   ? "never returned it"
                   : "missed the table")
               : withheld === null ? "no call" : `held back — ${withheld}`}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-zinc-500">Net turn says</dt>
-          <dd
-            className={
-              netVerdict === null ? "text-zinc-500"
-                : netAgrees ? "text-emerald-300" : "text-amber-300"
-            }
-          >
-            {netVerdict === null || netDeath === null
-              ? "no call"
-              : `${netVerdict === "user" ? "you" : opponent} won · ball `
-                + `turned ${netDeath.distM.toFixed(2)} m from the net and `
-                + "died there"}
           </dd>
         </div>
         <div>
@@ -909,7 +891,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   const [active, setActive] = useState(matches[0].matchId);
   const [only, setOnly] = useState<
     "all" | "drawn" | "refused" | "disagreed" | "deadrun" | "offtable"
-    | "netdeath" | "noreturn" | "wrong" | "heldback" | "nocall"
+    | "noreturn" | "wrong" | "heldback" | "nocall"
   >("all");
   // The verdict counts need every track, not just the open clip's, so the
   // whole file loads once up front. Still code-split out of the bundle.
@@ -925,18 +907,17 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
         only === "all" ? true
           : only === "drawn" ? r.serve !== null
             : only === "refused" ? r.serve === null
-              : only === "deadrun" ? findDeadRuns(r.events).length > 0
+              : only === "deadrun"
+                ? ballDiedLoser(
+                    findBallDied(r.events, allTracks?.[r.pointId] ?? null,
+                      match.corners, r.clipT0, match.source, r.userPhysicalSide),
+                    r.userPhysicalSide,
+                  ) !== null
                 : only === "offtable"
                   ? offTableLoser(
                       findOffTable(r.events, match.corners ? { corners: match.corners } : null),
                       r.userPhysicalSide,
                     ) !== null
-                  : only === "netdeath"
-                    ? netDeathLoser(
-                        findNetDeath(r.events, allTracks?.[r.pointId] ?? null,
-                          match.corners, r.clipT0, match.source),
-                        r.userPhysicalSide,
-                      ) !== null
                   : only === "noreturn"
                     ? noReturnLoser(
                         findNoReturn(r.events, allTracks?.[r.pointId] ?? null,
@@ -956,10 +937,6 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
     [match, only, allTracks],
   );
   const disagreed = stats.callCompared - stats.callAgreed;
-  const withDeadRun = useMemo(
-    () => match.rows.filter((r) => findDeadRuns(r.events).length > 0).length,
-    [match],
-  );
   const withOffTable = useMemo(
     () => match.rows.filter(
       (r) => offTableLoser(
@@ -987,27 +964,6 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
     ).length,
     [match, allTracks],
   );
-  const netScore = useMemo(() => {
-    let fires = 0, right = 0, workerRight = 0;
-    for (const r of match.rows) {
-      // Only where it is the deciding rule, so the summary lines add up.
-      if (deadRunLoser(findDeadRuns(r.events), r.userPhysicalSide)) continue;
-      if (offTableLoser(
-        findOffTable(r.events, match.corners ? { corners: match.corners } : null),
-        r.userPhysicalSide,
-      )) continue;
-      const loser = netDeathLoser(
-        findNetDeath(r.events, allTracks?.[r.pointId] ?? null,
-          match.corners, r.clipT0, match.source),
-        r.userPhysicalSide,
-      );
-      if (loser === null || r.winner === null) continue;
-      fires += 1;
-      if ((loser === "user" ? "opponent" : "user") === r.winner) right += 1;
-      if (r.computed?.winner === r.winner) workerRight += 1;
-    }
-    return { fires, right, workerRight };
-  }, [match, allTracks]);
   // How the off-table rule scores against the pad, on the points it fires.
   const offScore = useMemo(() => {
     let fires = 0, right = 0, workerRight = 0;
@@ -1026,14 +982,13 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   const noReturnScore = useMemo(() => {
     let fires = 0, right = 0, workerRight = 0;
     for (const r of match.rows) {
-      if (deadRunLoser(findDeadRuns(r.events), r.userPhysicalSide)) continue;
-      if (offTableLoser(
-        findOffTable(r.events, match.corners ? { corners: match.corners } : null),
+      if (ballDiedLoser(
+        findBallDied(r.events, allTracks?.[r.pointId] ?? null,
+          match.corners, r.clipT0, match.source, r.userPhysicalSide),
         r.userPhysicalSide,
       )) continue;
-      if (netDeathLoser(
-        findNetDeath(r.events, allTracks?.[r.pointId] ?? null,
-          match.corners, r.clipT0, match.source),
+      if (offTableLoser(
+        findOffTable(r.events, match.corners ? { corners: match.corners } : null),
         r.userPhysicalSide,
       )) continue;
       const loser = noReturnLoser(
@@ -1048,18 +1003,21 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
     }
     return { fires, right, workerRight };
   }, [match, allTracks]);
-  // How the dead-run rule scores against the pad, on the points it fires.
+  // How the ball-died rule scores against the pad, and which witness saw it.
   const runScore = useMemo(() => {
-    let fires = 0, right = 0, workerRight = 0;
+    let fires = 0, right = 0, workerRight = 0, byTurn = 0;
     for (const r of match.rows) {
-      const loser = deadRunLoser(findDeadRuns(r.events), r.userPhysicalSide);
+      const died = findBallDied(r.events, allTracks?.[r.pointId] ?? null,
+        match.corners, r.clipT0, match.source, r.userPhysicalSide);
+      const loser = ballDiedLoser(died, r.userPhysicalSide);
       if (loser === null || r.winner === null) continue;
       fires += 1;
+      if (died?.via === "turn") byTurn += 1;
       if ((loser === "user" ? "opponent" : "user") === r.winner) right += 1;
       if (r.computed?.winner === r.winner) workerRight += 1;
     }
-    return { fires, right, workerRight };
-  }, [match]);
+    return { fires, right, workerRight, byTurn };
+  }, [match, allTracks]);
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
@@ -1113,13 +1071,15 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             .
           </p>
           <p className="mt-2 text-sm text-zinc-200">
-            A dead run fired on{" "}
+            The ball died on the table on{" "}
             <span className="tabular-nums">{runScore.fires}</span> scored
-            points and named the winner right{" "}
+            points, and the side it died on lost it{" "}
             <span className="tabular-nums">{runScore.right}</span> times. The
             worker was right on{" "}
             <span className="tabular-nums">{runScore.workerRight}</span> of the
-            same points.
+            same points. Its bounces were the witness on all but{" "}
+            <span className="tabular-nums">{runScore.byTurn}</span>, where the
+            ball turned at the net and dropped only twice.
           </p>
           <p className="mt-2 text-sm text-zinc-200">
             The ball left the table on{" "}
@@ -1129,14 +1089,6 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             <span className="tabular-nums">{offScore.right}</span> times
             against the worker&rsquo;s{" "}
             <span className="tabular-nums">{offScore.workerRight}</span>.
-          </p>
-          <p className="mt-2 text-sm text-zinc-200">
-            The ball turned round at the net on{" "}
-            <span className="tabular-nums">{netScore.fires}</span> more that
-            neither rule could reach, and the turn named the winner right{" "}
-            <span className="tabular-nums">{netScore.right}</span> times
-            against the worker&rsquo;s{" "}
-            <span className="tabular-nums">{netScore.workerRight}</span>.
           </p>
           <p className="mt-2 text-sm text-zinc-200">
             And on{" "}
@@ -1176,11 +1128,10 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             ["drawn", `Serve drawn ${stats.drawn}`],
             ["refused", `Refused ${match.rows.length - stats.drawn}`],
             ["disagreed", `Worker disagreed ${disagreed}`],
-            ["deadrun", `Dead run ${withDeadRun}`],
+            ["deadrun", `Ball died ${runScore.fires}`],
             ["offtable", `Off table ${withOffTable}`],
             ["wrong", `We called it wrong ${ruleWrong}`],
             ["heldback", `Held back ${heldBack}`],
-            ["netdeath", `Net death ${netScore.fires}`],
             ["noreturn", `No return ${noReturnScore.fires}`],
             ["nocall", `No call ${noCall}`],
           ] as const
