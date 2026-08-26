@@ -199,6 +199,48 @@ looks like — another reason the frame-by-frame verdicts outrank it.
 Coverage does NOT work as a safety gate, tempting as it looks: the
 bad-reference match sits at 91% qualified, in the highest band.
 
+## One venue, and why that settles the confidence question
+
+Camera geometry looked like the gate. Grouped by foreshortening —
+computable at calibration time, before any detection runs — square-on
+cameras scored 100% precision and 96% recall while end-on scored 25%
+and 7%, and the gate cleanly excluded the bad-reference match.
+
+Then the set was deduplicated and the venues counted.
+
+```
+                    matches   game ends   found   wrong     P      R
+PingPod                  16          45      31       3    91%    69%
+everywhere else           7          12       2       0   100%    17%
+```
+
+**Every well-shot, well-covered match in the corpus is PingPod.** The
+gated set — foreshortening ≥ 0.75 and coverage ≥ 60%, which reads 100%
+precision and 92% recall — is 7 recordings after deduplication (11
+before; `ec6490f4`/`86f880b9` and `7e02fbb9`/`81b609e6` are the same
+uploads twice), three opponents, one room. Outside PingPod **no match
+reaches 50% coverage at all**, so the gate has never been tested
+elsewhere.
+
+**And foreshortening does not predict coverage off-venue.** Westchester
+`98be5eb5` and `1466e3c3` are geometrically square (2.44 and 1.79) and
+still qualified only 43% and 22% of their points. Whatever suppresses
+coverage there — distance to the table, how small the players sit in
+frame — is not the ratio, so a gate built on the ratio would let those
+through expecting PingPod behaviour.
+
+What the corpus DOES support: **the detector fails silent, not loud.**
+Precision is 100% everywhere outside PingPod and in every low-coverage
+band. It refuses rather than guesses, which is the property that was
+designed for and the one that matters most.
+
+What it does not support: any claim about how often it fires on a
+well-shot match at a venue we have not measured. That needs
+fully-scored, calibrated, side-on matches from LYTTC, MatchPoint or
+Westchester. The two attempted here (`51625364`, `16ed0458`) both
+refused for lack of table calibration, which is itself the ladder
+working, but leaves the question open.
+
 `docs/research/gameend.html` is the review page: every candidate as the
 two frames the detector actually compared, so a swap is either visible
 or it is not. Verdicts already given are baked in by
