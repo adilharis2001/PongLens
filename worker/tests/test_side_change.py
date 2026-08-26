@@ -3,6 +3,7 @@ import unittest
 from worker.side_change import (
     DEFAULT_CONFIG,
     detect_side_changes,
+    map_point_ids,
     merge_config,
     pair_verdict,
     summarize_point_side,
@@ -182,6 +183,65 @@ class MergeConfig(unittest.TestCase):
             merged["pre_stable_pairs"], DEFAULT_CONFIG["pre_stable_pairs"]
         )
 
+
+
+class Alignment(unittest.TestCase):
+    """The 2026-08-26 failure: evidence keyed by match.json idx, pinned
+    onto database rows of the same idx, on a match that was reprocessed
+    in between."""
+
+    def evidence(self):
+        return {
+            "points": [
+                {"idx": 73, "t0": 684.0, "t1": 693.0},
+                {"idx": 74, "t0": 704.0, "t1": 715.0},
+            ],
+            "side_changes": [
+                {
+                    "kind": "side_change",
+                    "after_idx": 73,
+                    "before_idx": 74,
+                    "confidence": 1.0,
+                    "confirmed": True,
+                }
+            ],
+        }
+
+    def test_matching_times_map_cleanly(self):
+        stored = {
+            73: {"id": "a", "t0": 684.0, "t1": 693.0},
+            74: {"id": "b", "t0": 704.0, "t1": 715.0},
+        }
+        mapped = map_point_ids(self.evidence(), stored)
+        change = mapped["side_changes"][0]
+        self.assertEqual(change["after_point_id"], "a")
+        self.assertEqual(change["before_point_id"], "b")
+        self.assertEqual(change["gap_t0"], 693.0)
+        self.assertEqual(change["gap_t1"], 704.0)
+
+    def test_reprocessed_match_is_refused(self):
+        # The real Chris numbers: same idx, 198s apart.
+        stored = {
+            73: {"id": "a", "t0": 542.4, "t1": 552.1},
+            74: {"id": "b", "t0": 552.7, "t1": 559.3},
+        }
+        with self.assertRaises(ValueError) as caught:
+            map_point_ids(self.evidence(), stored)
+        self.assertIn("not aligned", str(caught.exception))
+
+    def test_deleted_points_are_not_misalignment(self):
+        # The owner removed idx 74 as junk. The rest still lines up, so
+        # this must map, not refuse.
+        stored = {73: {"id": "a", "t0": 684.0, "t1": 693.0}}
+        evidence = self.evidence()
+        evidence["side_changes"] = []
+        mapped = map_point_ids(evidence, stored)
+        self.assertEqual(mapped["points"][0]["point_id"], "a")
+
+    def test_no_shared_index_is_refused(self):
+        with self.assertRaises(ValueError):
+            map_point_ids(self.evidence(), {5: {"id": "z", "t0": 1.0,
+                                                "t1": 2.0}})
 
 if __name__ == "__main__":
     unittest.main()

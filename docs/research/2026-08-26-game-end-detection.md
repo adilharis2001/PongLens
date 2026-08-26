@@ -87,10 +87,52 @@ boundaries by time overlap. False positives are only charged on fully
 scored matches; on pin-only matches an un-pinned fire may be a boundary
 the owner never marked, and is reported as "unverified".
 
-## Results
+## What went wrong, and why the first number was worthless
 
-(146-word placeholder — corpus run in flight; this section is filled in
-by the run's numbers before the note is cited anywhere.)
+This shipped to the product on 2026-08-26 and came straight back out the
+same day. Adil opened the first unscored match it fired on and both
+markers were wrong. The cause was not the detector.
+
+**The stage reads `match.json` from R2 and pins its findings onto
+database points carrying the same `idx`, and nothing checked that the
+two describe the same processing run.** On the Chris match (`e7a83f97`)
+`match.json` describes a 106-point cut while the database holds 127
+points from a later reprocess. Same `idx`, different rally, 198 seconds
+apart. Every marker landed somewhere arbitrary.
+
+Across the 21 matches cached at the time, 19 agreed to the frame and 2
+did not — but one of the two was the match that got looked at.
+
+**The precision figure inherited the same defect.** The harness built
+detections from `match.json` times and truth from database rows, so on a
+drifted match it was comparing two different videos and calling the
+result 100%. The number was not measuring what it claimed.
+
+`assert_aligned` in `side_change.py` now refuses evidence whose shared
+indices disagree by more than a second, with the Chris numbers frozen
+into `test_side_change.py`. A missing index stays legal — the owner
+deletes junk cards and those rows are simply gone, which is why the
+guard tests start times rather than counts.
+
+## What is actually known
+
+Very little, and that is the honest state:
+
+- **31 candidates across 23 matches**, 19 of which the detector
+  confirmed. None has been checked against the footage by a human yet.
+- The corpus figure quoted in the first version of this note (100%
+  precision, 36% recall on 14 fully-scored matches) is **withdrawn** for
+  the reason above.
+- Coverage varies enormously and is the recall ceiling: 88 of 106 points
+  qualified on a square-on camera, 1 of 143 on Yilin's end-on tournament
+  footage, which produced nothing at all. That refusal is the system
+  working.
+
+`docs/research/gameend.html` is the review page: every candidate as the
+two frames the detector actually compared, so a swap is either visible
+or it is not. Rebuild it with `worker/build_game_end_review.py`.
+
+The next number to trust comes from that page, not from the harness.
 
 ## The deciding-game limitation, stated plainly
 
@@ -106,33 +148,41 @@ and why nothing downstream consumes the event yet. If score data later
 arrives (the owner scores the match), the indicators disappear entirely
 — the truth takes over.
 
-## Gating
+## Where it lives now
 
-- `app_config.game_end_detection` ('on'/'off', migration 140) gates the
-  worker stage AND both indicators, read at run/read time — rollback is
-  one UPDATE, backfilled evidence works everywhere.
-- Content: match / league / tournament only. Missing type fails safe to
-  nothing (46 of 132 ready matches are untyped; typing one later lights
-  it up with no reprocess, because eligibility is read-time).
-- Unscored only: one confirmed winner or one pinned boundary anywhere
-  hides every indicator.
-- Doubles: not a supported upload type anywhere in the product; the
-  ambiguity guard plus the flip budget withhold rather than guess if
-  four players appear. One-player, end-on, poor-calibration footage:
-  qualification starves and the match withholds (the designed refusal).
-- `app_config.game_end_detection_config` (JSON) overrides
-  side_change.DEFAULT_CONFIG thresholds without a deploy.
+**Not in the product.** Both indicators were removed from the web app
+and iOS on 2026-08-26, along with the client resolver and the config
+reader. `app_config.game_end_detection` is `off` and the two stored
+evidence rows are cleared. The worker stage still exists and is still
+gated by that flag, so it does nothing until someone turns it on
+deliberately.
+
+What survives is research tooling: the detector, the harness, the review
+page, and this note. The question — can a game boundary be read off a
+side change — is still worth answering. It just has to be answered
+somewhere a wrong answer costs nothing.
+
+If it does come back, the gating that was built stands: match / league /
+tournament only with a missing type failing safe to nothing; unscored
+only, so one confirmed winner or pinned boundary hides everything;
+doubles unsupported, with the ambiguity guard and flip budget
+withholding rather than guessing; and thresholds overridable through
+`app_config.game_end_detection_config` without a deploy.
 
 ## Files
 
-- `worker/side_change.py` — pure detection logic + evidence shaping
+- `worker/side_change.py` — detection logic, evidence shaping, and the
+  `assert_aligned` guard
 - `worker/extract_side_changes_rtmpose.py` — detector-first extractor
 - `worker/eval_side_changes.py` — evaluation harness + backfill
-- `worker/tests/test_side_change.py` — state-machine unit tests
-- `worker/worker.py` — `run_side_change_stage` (post-ready enrichment)
+- `worker/build_game_end_review.py` — builds the review page
+- `worker/tests/test_side_change.py` — state machine + alignment tests
+- `worker/worker.py` — `run_side_change_stage` (post-ready, flag-gated)
 - `supabase/migrations/140_game_end_detection.sql` — flag + allow-list
-- `src/app/match/[id]/matchStructure.ts` — eligibility + resolver
-- `src/app/match/[id]/MatchView.tsx`, `Player.tsx` — the two dividers
-- `ios/.../Core/MatchStructure.swift`, `MatchDetailScreen.swift`,
-  `PlayerTakeover.swift` — the iOS twins
+- `docs/research/gameend.html` — the review page (generated, untracked,
+  like the other large review pages here)
 - `~/ponglens-research-work/game-end-eval/` — corpus cache + artifacts
+
+The product-side files (`matchStructure.ts` resolver, both dividers,
+`ios/.../Core/MatchStructure.swift`) were removed in the strip commit;
+git history has them if the feature earns its way back.

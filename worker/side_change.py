@@ -279,36 +279,92 @@ def _confidence(
     return score, components
 
 
+MAX_ALIGNMENT_DRIFT_S = 1.0
+
+
+def assert_aligned(
+    evidence: Mapping[str, Any],
+    points_by_idx: Mapping[int, Mapping[str, Any]],
+    max_drift_s: float = MAX_ALIGNMENT_DRIFT_S,
+) -> None:
+    """Refuse evidence that describes a DIFFERENT cut of this match.
+
+    The detector reads match.json out of R2; the app reads the points
+    table. Both key on idx, and NOTHING otherwise ties them together —
+    so when a match is reprocessed and match.json goes stale, idx 73 in
+    the evidence and idx 73 in the database are unrelated rallies. That
+    is not a subtle error: on 2026-08-26 it put every marker on the
+    wrong point of a 127-point match whose match.json still described a
+    106-point cut, 198 seconds adrift, and it looked like a detector
+    accuracy problem rather than a data one.
+
+    A point count that differs is FINE and expected — the owner deletes
+    junk cards, and those rows simply are not in points_by_idx. What is
+    never fine is a shared idx whose start time disagrees.
+    """
+    checked = 0
+    for point in evidence.get("points") or []:
+        stored = points_by_idx.get(int(point["idx"]))
+        if not stored or point.get("t0") is None:
+            continue
+        drift = abs(float(point["t0"]) - float(stored["t0"]))
+        if drift > max_drift_s:
+            raise ValueError(
+                f"evidence is not aligned with the stored points: idx "
+                f"{point['idx']} is at {float(point['t0']):.1f}s in the "
+                f"evidence and {float(stored['t0']):.1f}s in the database "
+                f"({drift:.1f}s apart). The match was most likely "
+                f"reprocessed after this match.json was written; "
+                f"re-extract before persisting."
+            )
+        checked += 1
+    if not checked:
+        raise ValueError(
+            "evidence shares no point index with the stored points, so "
+            "alignment cannot be established"
+        )
+
+
 def map_point_ids(
     evidence: Mapping[str, Any],
     points_by_idx: Mapping[int, Mapping[str, Any]],
 ) -> dict[str, Any]:
     """Attach stable database point IDs and gap times to the evidence.
 
-    points_by_idx: worker idx -> {"id", "t0", "t1"} for the rows actually
-    inserted. Raises on an unknown index — evidence referencing points
-    that were never stored must not be persisted.
+    points_by_idx: worker idx -> {"id", "t0", "t1"} for the rows the
+    match currently has. Raises on evidence that describes a different
+    cut of the match (see assert_aligned) — a marker pinned to the wrong
+    rally is worse than no marker.
+
+    A MISSING idx is not an error. The owner deletes junk cards, and the
+    detector's own view of the match keeps them; those points simply get
+    no id. The gap times come from the evidence itself rather than the
+    database rows precisely so a change still carries a usable position
+    when one of its two points has since been removed — alignment has
+    already been established, so the two clocks agree.
     """
+    assert_aligned(evidence, points_by_idx)
     mapped = json.loads(json.dumps(evidence))
+    by_idx = {int(p["idx"]): p for p in mapped.get("points") or []}
     for point in mapped.get("points") or []:
         stored = points_by_idx.get(int(point["idx"]))
-        if not stored:
-            raise ValueError(
-                f"side-change evidence references missing point index "
-                f"{point['idx']}"
-            )
-        point["point_id"] = str(stored["id"])
+        if stored:
+            point["point_id"] = str(stored["id"])
     for change in mapped.get("side_changes") or []:
-        after = points_by_idx.get(int(change["after_idx"]))
-        before = points_by_idx.get(int(change["before_idx"]))
-        if not after or not before:
-            raise ValueError(
-                "side-change evidence references a missing point index"
-            )
-        change["after_point_id"] = str(after["id"])
-        change["before_point_id"] = str(before["id"])
-        change["gap_t0"] = float(after["t1"])
-        change["gap_t1"] = float(before["t0"])
+        after_idx = int(change["after_idx"])
+        before_idx = int(change["before_idx"])
+        after_stored = points_by_idx.get(after_idx)
+        before_stored = points_by_idx.get(before_idx)
+        if after_stored:
+            change["after_point_id"] = str(after_stored["id"])
+        if before_stored:
+            change["before_point_id"] = str(before_stored["id"])
+        after_point = by_idx.get(after_idx) or {}
+        before_point = by_idx.get(before_idx) or {}
+        if after_point.get("t1") is not None:
+            change["gap_t0"] = float(after_point["t1"])
+        if before_point.get("t0") is not None:
+            change["gap_t1"] = float(before_point["t0"])
     return mapped
 
 
