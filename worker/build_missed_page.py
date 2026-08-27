@@ -55,7 +55,7 @@ from side_change import (  # noqa: E402
 )
 
 CACHE = Path.home() / "ponglens-research-work" / "game-end-eval"
-FRAME_W = 300
+FRAME_W = 420
 JPEG_QUALITY = 70
 DESCRIPTOR = "lab+legs_lab"
 SPREAD_MAX = 0.130
@@ -174,7 +174,7 @@ def draw_frame(image, corners, chosen) -> np.ndarray:
     try:
         named = _named_corners(corners)
         quad = np.asarray([named[k] for k in "ABCD"], np.int32)
-        cv2.polylines(picture, [quad], True, (210, 180, 90), 2)
+        cv2.polylines(picture, [quad], True, (255, 190, 60), 3)
     except Exception:                                    # noqa: BLE001
         pass
     for box in chosen.get("boxes") or []:
