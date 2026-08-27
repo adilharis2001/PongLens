@@ -66,7 +66,7 @@ export const SERVE_FIRST_PAD_M = 0.25;
  * a landing is either on the table on its own reading, or it is not a
  * landing.
  */
-export const SERVE_MAX_KICK_PX_S = 1300;
+export const SERVE_MAX_KICK_PX_S = 1500;
 
 export interface ServePair {
   first: DetectedEvent;

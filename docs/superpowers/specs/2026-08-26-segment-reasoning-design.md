@@ -350,3 +350,102 @@ inspectable rather than invisible.
   is missing from a hole the track has nothing in at all. Eight of those
   holes have no ball detected anywhere near them, which is a BlurBall
   problem and not one this layer can reach.
+
+---
+
+# Serve recovery, and the limit it runs into
+
+Added 2026-08-26, from two points Adil brought.
+
+## What was built
+
+`serveRepair.ts`. A serve is two bounces — server's half, then receiver's,
+consecutive — and that is the whole rule, which is why it is the one shot
+worth rebuilding on its own. Where the detector found only one of the two,
+the ball's own flight supplies the other, and only ever at the position
+the sequence predicts.
+
+**120 serves reconstructed rises to 132.** Nothing lost: a point whose
+serve is already complete is never touched.
+
+The signal is in `impulsesOf`. Julian's point 75 is the case: its second
+bounce lifts the ball **two pixels**, between frames falling at sixteen
+and twenty-three, because the ball is crossing toward the lens and moving
+down the picture also means getting closer. Nothing watching for the ball
+to turn around sees it. Read the same frames as speed and it is obvious —
+gravity only ever ADDS downward speed, so losing it means something
+touched the ball, and that statement does not care about perspective.
+Against the bounces the detector already finds: a reversal catches 71%,
+this catches 83%.
+
+It is not precise. 43% of what it flags the worker agrees with, so it
+proposes bounces and never confirms one. Confirmation is the serve's own
+sequence, exactly as with the rally holes above.
+
+**Held out**: on the 130 points where the detector found both bounces,
+hiding one and asking the flights to put it back lands within **2 cm at
+the median, 15 cm at p90, 97% inside 25 cm**.
+
+## Two faults caught before this shipped
+
+Both worth keeping, because both looked like success.
+
+- **Clamping.** Recovered landings were nudged onto the table when they
+  projected outside it. Ten of what looked like twenty-one recovered
+  serves were sitting at exactly `u=0.00` or `v=0.00` — the corner of the
+  table, which is where clamping puts something that happened on the
+  floor. A landing is on the table by its own reading or it is not a
+  landing.
+- **A test that could not fail.** The first mutation check passed with the
+  clamping bug restored, because no fixture point exercised it. Two were
+  added that do. A test that cannot fail is not a test.
+
+## The limit: Julian point 24
+
+The second case Adil brought, and it does not work. It is worth recording
+exactly why, because the shape recurs.
+
+The tracker spends the first half of the point alternating between two
+static distractors on the floor, catches the real ball for fourteen
+frames as the serve crosses, then **blacks out for six frames covering
+both the second bounce and Adil's contact**, and picks the ball up again
+already travelling back the other way.
+
+So two events happen inside one hole and the join between the flights
+reads as a bat, correctly. The bounce is certain — a serve cannot be
+returned without bouncing — but its POSITION is what the map needs.
+
+Measured: drop the last N frames before a known bounce and estimate it
+from the descent that is left.
+
+| frames blacked out | median error | within 25 cm |
+| --- | --- | --- |
+| 0 | 0.04 m | 120 of 130 |
+| 1 | 0.13 m | 103 of 130 |
+| 2 | 0.14 m | 103 of 130 |
+| 3 | 0.23 m | 73 of 130 |
+| 4 | 0.42 m | 33 of 127 |
+| 5 | 0.68 m | 6 of 121 |
+| **6** | **1.11 m** | **4 of 106** |
+| 8 | 1.45 m | 2 of 77 |
+
+Point 24's blackout is six frames. The median error there is more than a
+third of the table's length, and four points in a hundred land anywhere
+near right. **Two frames of blackout is recoverable, three is marginal,
+beyond that the position is not in the footage.**
+
+The useful distinction this draws: *whether* a bounce happened and
+*where* it happened are separate questions with separate answers. The
+first is certain here and the second is unavailable. The serve map needs
+the second, so point 24 stays out. The rally rules need only the first,
+which is a thread worth pulling separately.
+
+## What the impulse cap is set from
+
+99% of confirmed table bounces give up under 1300 px/s, while impulses
+projecting off the table run past 9000, so a cap belongs there. It is set
+at **1500**, not 1300: point 24 carries a table bounce the detector itself
+confirms at **1494**, direct evidence that a real one can be harder than
+the 99th percentile of the sample. Between 1300 and 1500 nothing on this
+corpus changes, so the wider value buys a known case for nothing. Past
+1800 the violent ones start coming back.
