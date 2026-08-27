@@ -532,7 +532,13 @@ def _box_overlaps_quad(box: list[float], quad: np.ndarray) -> bool:
 # Which of the stored descriptors becomes the point's signature. Every
 # candidate is stored either way; this only names the one the state
 # machine sees without a rescore. Moved by worker/sweep_descriptors.py.
-DEFAULT_DESCRIPTOR: str | None = None
+# Measured winner on 2026-08-27 over 51 matches and 120 scored
+# boundaries: the torso's Lab a*b* joined to the shorts' Lab a*b*. Four
+# numbers, and it beat every histogram, quantile vector and colour-name
+# distribution tried against it. See docs/research/2026-08-26-game-end-
+# detection.md for the table, and note that DEFAULT_CONFIG in
+# side_change.py is calibrated to THIS descriptor's scale.
+DEFAULT_DESCRIPTOR: str | None = "lab+legs_lab"
 
 STRIP_W, STRIP_H = 24, 64
 STRIP_U0, STRIP_U1 = 0.10, 1.75      # in torso lengths below the shoulders
@@ -1048,13 +1054,20 @@ def _chosen_samples(
     """
     if not descriptor:
         return []
+    parts = descriptor.split("+")
     out = []
     for frame in frames:
         if (frame.get("_amb") or [0.0])[0] > 0.5:
             continue
-        vector = frame.get(descriptor)
+        vector: list[float] = []
+        for part in parts:
+            piece = frame.get(part)
+            if not piece:
+                vector = []
+                break
+            vector.extend(piece)
         if vector:
-            out.append(list(vector))
+            out.append(vector)
     return out
 
 

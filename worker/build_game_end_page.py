@@ -209,6 +209,7 @@ def render(cache: Path, data: dict, out: Path, limit_cases: int) -> None:
 
     blocks = []
     shown = 0
+    available = sum(len(m["cases"]) for m in matches)
     # Failures first: a page that opens on forty correct answers buries
     # the only part anyone can act on.
     order = {"wrong": 0, "miss": 1, "hit": 2}
@@ -272,6 +273,9 @@ def render(cache: Path, data: dict, out: Path, limit_cases: int) -> None:
         hits=hits, truth=truth_total, wrong=wrong,
         matches=len(matches), rows="\n".join(rows),
         cases="\n".join(blocks), shown=shown,
+        truncated=(
+            f" Showing {shown} of {available}; the rest are correct calls "
+            f"further down the list." if shown < available else ""),
     ))
     print(f"wrote {out} ({shown} cases, {len(matches)} matches)")
 
@@ -358,7 +362,7 @@ first one after it. If the two players are at opposite ends between them,
 a game ended there. Amber blocks are where the detector fired and your
 scoring disagrees; red is where your scoring says a game ended and the
 detector stayed quiet. Those two are the ones worth your time. Tap a
-verdict and send me the block from the corner.</p>
+verdict and send me the block from the corner.{truncated}</p>
 {cases}
 
 <div id="out">

@@ -144,17 +144,35 @@ class DetectSideChanges(unittest.TestCase):
         self.assertEqual(result["status"], "withheld")
         self.assertEqual(result["side_changes"], [])
 
-    def test_indistinguishable_players_withhold_everything(self):
-        # Prabhas (9e15ed10): both players in dark tops under gym light,
-        # measured 0.147 apart. Every margin in such a match is noise, so
-        # the honest answer is nothing rather than a lower bar.
+    def test_separability_floor_withholds_when_it_is_set(self):
+        # The floor exists and works; it is OFF by default because the
+        # corpus refused it. Every non-zero value measured on 2026-08-27
+        # lost recall and bought no precision, and max_contradiction
+        # already withholds the matches it was meant to catch, on better
+        # evidence — how much of its own comparisons the winning
+        # explanation had to ignore, rather than how similar two shirts
+        # happen to be.
         points = []
         for i in range(12):
             a, b = [0.30, 0.31, 0.33], [0.32, 0.30, 0.31]
             points.append(point(i, *((a, b) if i < 6 else (b, a))))
-        result = detect_side_changes(points)
+        self.assertEqual(DEFAULT_CONFIG["min_separability"], 0.0)
+        result = detect_side_changes(points, {"min_separability": 0.1})
         self.assertEqual(result["status"], "withheld")
         self.assertIn("apart", result["reason"])
+
+    def test_noise_withholds_the_whole_match(self):
+        # No labelling explains a signal that alternates every rally, so
+        # the best one still contradicts a large share of its own
+        # comparisons. That is the instability guard: not how many
+        # changes were found, but how much evidence had to be ignored.
+        points = [
+            point(i, *((RED, BLUE) if i % 2 == 0 else (BLUE, RED)))
+            for i in range(16)
+        ]
+        result = detect_side_changes(points)
+        self.assertEqual(result["status"], "withheld")
+        self.assertIn("noise", result["reason"])
 
     def test_flip_reaches_across_transition_cards(self):
         # The changeover gets cut into junk cards — a player fetching the

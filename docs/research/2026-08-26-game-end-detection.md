@@ -527,3 +527,108 @@ distribution — the spread gate from how far apart two frames of one
 player sit, the switch penalty from how far apart the two players sit.
 Comparing descriptors at one shared literal threshold would be comparing
 tunings, and it would look like a result.
+
+## What the corpus chose, and what it is worth
+
+Fifty-one matches, 120 boundaries, every descriptor fitted to its own
+ruler. The winner is not the clever one:
+
+| descriptor | dims | precision | recall | coverage |
+| --- | --- | --- | --- | --- |
+| **lab+legs_lab** — torso a*b* joined to shorts a*b* | **4** | **85.7%** | **65.0%** | 92.2% |
+| lab — torso a*b* alone | 2 | 83.7% | 64.2% | 91.0% |
+| lab_q_tc — banded quantiles, table-corrected | 60 | 84.3% | 62.5% | 91.1% |
+| rg — chromaticity | 2 | 85.9% | 60.8% | 70.9% |
+| cn_up — colour names | 16 | 86.7% | 60.0% | 61.4% |
+| hs_up — saturation-weighted hue histogram | 64 | 81.3% | 61.7% | 87.0% |
+| lab_q+logdiff | 84 | 84.3% | 58.3% | 97.9% |
+| **bgr — the baseline, on a masked polygon** | 3 | 81.4% | 58.3% | 82.7% |
+| logdiff — inter-band log contrast | 24 | 83.1% | 53.3% | 97.9% |
+| geom — body proportions, no colour | 5 | 55.6% | **4.2%** | 70.9% |
+
+Read that carefully, because most of it is a negative result:
+
+- **The shorts were the win, not the statistics.** Adding the legs region
+  to a two-number torso colour beat every histogram, quantile vector and
+  colour-name distribution tried against it. Table tennis players wear a
+  club shirt and their own shorts, and the shorts are where they differ.
+- **Quantiles did not pay off on their own.** `lab_q` (60 numbers,
+  designed to catch the collar and the trim a median throws away) scored
+  BELOW the plain median it was built to beat — unless it was also
+  table-corrected, and then it only drew level.
+- **`geom` is dead.** Body proportions are immune to lighting and to
+  identical shirts, and at 4.2% recall they are also immune to being
+  useful. RTMPose keypoint noise on a 40px twisting torso swamps the
+  difference between two adults.
+- **Coverage and accuracy are different axes.** `logdiff` qualifies 97.9%
+  of all points, the best of any descriptor, and finds the fewest
+  boundaries. Being able to measure something on every rally is not the
+  same as measuring the right thing.
+- **Masking the region was worth more than any descriptor change.**
+  Coverage went 58.4% -> 82.7% from that alone, with the SAME median-BGR
+  statistic.
+
+Tuning the state machine on the winner added two more points of recall at
+equal precision: comparing each point with the next FIVE qualified points
+rather than three, and requiring four points of settled ground per side
+rather than three.
+
+### The operating point
+
+On the 44 competitive matches — the only ones the product would run on,
+since `SIDE_CHANGE_SKIP_TYPES` has always excluded drills and practice:
+
+**73 of 109 boundaries found (67%), 11 wrong (87% precision).**
+
+| | boundaries | found | wrong | precision |
+| --- | --- | --- | --- | --- |
+| match | 56 | 79% | 8 | 85% |
+| tournament | 23 | 57% | 1 | 93% |
+| league | 17 | 53% | 1 | 90% |
+| *practice (excluded)* | *11* | *36%* | *0* | *100%* |
+
+Practice is the interesting exclusion: three practice matches sit at
+88-92% coverage and find nothing at all. **Players often do not change
+ends in a practice session**, so the owner's pinned game end is real and
+the video contains no side change to see. The detector is right to say
+nothing; the truth is simply not a side change.
+
+Within competitive matches, coverage still governs:
+
+| both players visible in | recall | precision |
+| --- | --- | --- |
+| >= 70% of rallies | 76% | 90% |
+| 45-70% | 48% | 76% |
+
+And the separability floor was **removed**, at zero by default. Every
+non-zero value lost recall and bought no precision: `max_contradiction`
+already withholds those matches, and on better evidence — how much of its
+own comparisons the winning explanation had to ignore, rather than how
+similar two shirts happen to be.
+
+### Where it stands against where it started
+
+| | boundaries judged | precision | recall |
+| --- | --- | --- | --- |
+| v2, on the old (partly misaligned) truth | 57 | 92% | 60% |
+| v2's descriptor on the honest truth | 120 | 81% | 58% |
+| **v3, competitive matches** | **109** | **87%** | **67%** |
+
+The 92% was measured against a truth set half the size, on a third of the
+corpus, with the alignment flaw still in the harness. It was never
+comparable.
+
+### Still open
+
+- **Tournament and league recall (53-57%) against match (79%).** Busier
+  venues, more people near the table, smaller players. This is the next
+  thing worth attacking and it is a player-finding problem, not a
+  descriptor one.
+- **Eleven wrong fires**, concentrated in five matches. Four of them
+  (`5721edd0`, `d4592913`) are on matches with pins rather than full
+  scoring, where an extra fire may be a boundary the owner never marked.
+- **`cebaa6d4` remains the hard case**: 96% coverage, three confident
+  fires, and the scoring disagrees with all of them by three to four
+  rallies while every fire sits on a break four to twenty times longer.
+  Judged by the video the detector looks right; judged by the score it is
+  wrong on three of four.

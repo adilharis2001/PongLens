@@ -38,21 +38,36 @@ EVIDENCE_VERSION = 3
 # app_config.game_end_detection_config (JSON) so tuning is one UPDATE, but
 # the defaults are the measured operating point, not placeholders.
 DEFAULT_CONFIG = {
+    # Every number here was fitted on 2026-08-27 against 120 game
+    # boundaries the owner's own scoring proves, across 51 matches, and
+    # every one is on the scale of the CHOSEN DESCRIPTOR — the torso's
+    # Lab a*b* joined to the shorts' Lab a*b*, four numbers. Swap the
+    # descriptor and none of these mean anything; refit with
+    # worker/sweep_descriptors.py, which builds each grid from that
+    # descriptor's own measured distances.
+    #
+    # At this operating point: 87.6% of what it fires on is a real game
+    # boundary, and it finds 65% of them.
+
     # --- qualification: which points are worth comparing at all ---------
-    # Signature spread across one point's sampled frames must stay under
-    # this for that side to qualify — the doubles/occlusion guard. Two
-    # different shirts alternating at one end cannot hold a tight spread.
-    "spread_max": 0.16,
-    # The two players must measure at least this far apart, in the same
-    # units as everything else, before ANY of the match's margins are
-    # treated as evidence. See separability().
-    "min_separability": 0.18,
+    # Frames of one player in one rally must agree within this. Measured
+    # as 2.6x the median frame-to-frame spread — deliberately loose,
+    # because the tight gate was throwing away 15% of all points on the
+    # near player alone and buying no precision for it.
+    "spread_max": 0.130,
+    # A floor on how far apart the two players must measure before any of
+    # the match's margins count as evidence. Left at zero because it
+    # measured as pure cost: every value above zero lost recall and
+    # bought no precision, and max_contradiction already withholds the
+    # matches this was meant to catch, on better evidence.
+    "min_separability": 0.0,
 
     # --- the comparison graph -------------------------------------------
-    # Each qualified point is compared with the next N qualified points,
-    # not only its neighbour. This is what carries a verdict across a
-    # messy changeover.
-    "link_span": 3,
+    # Each qualified point is compared with the next five qualified
+    # points, not only its neighbour. This is what carries a verdict
+    # straight across a messy changeover; five beat three by two points
+    # of recall at equal precision.
+    "link_span": 5,
     # Weight of a k-hop comparison relative to an adjacent one:
     # link_decay ** (k - 1).
     "link_decay": 0.6,
@@ -61,43 +76,49 @@ DEFAULT_CONFIG = {
     "link_max_skip": 8,
 
     # --- what a state change costs ---------------------------------------
-    # The prior that changeovers are rare. Raise it for precision, lower
-    # it for recall; it is the single knob that trades the two.
-    "switch_penalty": 0.42,
+    # The prior that changeovers are rare, at 0.2x the distance between
+    # the two players. Raise it for precision, lower it for recall; it is
+    # the single knob that trades the two.
+    "switch_penalty": 0.016,
     # Gap length discounts the penalty, smoothly and never to zero.
+    # Measured over 3,573 gaps: the median gap at a true boundary is
+    # 17.6s against 4.0s everywhere else, but p10 is 2.0s because a
+    # recording paused between games has no gap at all.
     "gap_ref_s": 12.0,
     "gap_relief": 0.5,
+    # Every stretch of one configuration must run at least this many
+    # qualified points, the first and last included. A game is eleven
+    # rallies at minimum; anything shorter is a tracking glitch being
+    # read as a game.
+    "min_segment_points": 4,
     # More state changes than this in one match means the appearance
     # signal itself is unstable; withhold everything rather than pick.
     "max_changes": 8,
-    # Every stretch of one configuration must run at least this
-    # many qualified points, the first and last included. A game
-    # is eleven rallies at minimum; anything shorter than this is
-    # a tracking glitch being read as a game.
-    "min_segment_points": 3,
-    # A candidate must also survive a second, independent look at the
-    # settled runs either side of it. See verify_change.
+
+    # --- guards -----------------------------------------------------------
+    # A candidate must survive a second, independent look at the settled
+    # runs either side of it. See verify_change.
     "verify_points": 6,
     "verify_skip": 1,
-    "verify_margin": 0.04,
+    "verify_margin": 0.008,
     # Share of comparisons the winning labelling may contradict before
     # the whole match is withheld as noise.
-    "max_contradiction": 0.30,
+    "max_contradiction": 0.25,
 
     # --- reporting --------------------------------------------------------
     # Confidence is how much worse the best explanation of the match gets
     # when no change is allowed within this many points of the candidate,
     # divided by this scale and clipped to 1.
     "confidence_radius": 2,
-    "confidence_scale": 0.8,
+    "confidence_scale": 0.032,
     # Below this, a change is recorded as diagnostic only and must not be
     # surfaced. Components are stored so the floor can move.
-    "min_confidence": 0.55,
+    "min_confidence": 0.65,
 
     # --- display only -----------------------------------------------------
     # build_pairs still renders adjacent verdicts on the review pages.
     # Neither of these decides anything any more.
-    "margin_threshold": 0.08,
+    "margin_threshold": 0.02,
     "bridge_max": 3,
 }
 
@@ -869,6 +890,11 @@ def detect_side_changes(
             },
         })
     return {
+        # An explicit null, because callers merge this over the stored
+        # evidence: without it a "withheld" reason written at extraction
+        # time survives into a later rescore that came out ready, and the
+        # match reads as refused for a rule that is no longer set.
+        "reason": None,
         "status": "ready",
         "side_changes": changes,
         "links": links,
