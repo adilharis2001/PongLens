@@ -351,153 +351,147 @@ def choose_players(
     boxes: list[list[float]],
     corners: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Assign detected people to table ends, in image space.
+    """Pick the two people playing, from 171 hand-labelled frames.
 
-    Each person is anchored at their bbox bottom-centre. A person
-    belongs to the table when that anchor sits within NEAR_TABLE_FACTOR
-    x their own bbox height of the quad (the deadspace study's rule —
-    absolute pixel windows and ground-plane projections both break under
-    perspective). Their end is whichever END line segment is nearer:
-    A-B (near) or C-D (far). Within an end the candidate closest to its
-    end line is the player; a second candidate nearly as close makes
-    the end ambiguous for this frame and it contributes no sample —
-    the doubles and bystander guard, applied before any appearance is
-    read.
+    Adil labelled both players in five frames of every non-PingPod
+    upload on 2026-08-26, and the two rules that came out of it are his,
+    measured over 144 frames from 34 distinct matches (duplicate uploads
+    removed):
+
+        the NEAR player is simply the biggest person             92%
+        the FAR player is the biggest one whose box OVERLAPS the
+          table, because standing behind it lays the table
+          across their legs                                      74%
+        both right in the same frame                             73%
+
+    What this replaces — splitting by which side of the near end line
+    someone stands on, then taking the biggest each side — scored 92%
+    and 37%, so 35% both. The near half was never the problem.
+
+    Variants that lost, so nobody re-proposes them: requiring a minimum
+    FRACTION of the box on the table rather than any overlap (33%),
+    ranking the far side by overlap area instead of height (62%),
+    "second biggest" with no table test at all (46%), and requiring the
+    far player to be higher in frame than the near one (48%).
+
+    Everyone must still be near the table — within NEAR_TABLE_FACTOR x
+    their own height of the quad — which is what keeps a big spectator
+    in the foreground out of it.
     """
     named = _named_corners(corners)
     near_line = (named["A"], named["B"])
     far_line = (named["C"], named["D"])
-    candidates: dict[str, list[tuple[float, float, list[float]]]] = {
-        "near": [],
-        "far": [],
-    }
-    # Per-box reasoning, for the diagnostic page. Recorded here rather
-    # than recomputed by the renderer so what a reviewer is shown is the
-    # decision that was actually made, not a second implementation of it.
+    quad = np.array([named[k] for k in "ABCD"], dtype=np.float32)
+
     seen: list[dict[str, Any]] = []
+    live: list[int] = []
     for box in boxes:
         anchor_x = (float(box[0]) + float(box[2])) / 2.0
         anchor_y = float(box[3])
         height = max(1.0, float(box[3]) - float(box[1]))
         quad_distance = _quad_distance(anchor_x, anchor_y, named)
         allowance = NEAR_TABLE_FACTOR * height
-        record = {
+        record: dict[str, Any] = {
             "box": [round(float(v), 1) for v in box],
             "anchor": [round(anchor_x, 1), round(anchor_y, 1)],
             "height": round(height, 1),
             "quad_distance": round(quad_distance, 1),
             "allowance": round(allowance, 1),
+            "d_near": round(
+                _segment_distance(anchor_x, anchor_y, *near_line), 1),
+            "d_far": round(
+                _segment_distance(anchor_x, anchor_y, *far_line), 1),
+            "overlaps_table": _box_overlaps_quad(box, quad),
         }
         if quad_distance > allowance:
             record["verdict"] = "too far from the table"
             seen.append(record)
             continue
-        d_near = _segment_distance(anchor_x, anchor_y, *near_line)
-        d_far = _segment_distance(anchor_x, anchor_y, *far_line)
-        record["d_near"] = round(d_near, 1)
-        record["d_far"] = round(d_far, 1)
-        # WHICH SIDE of each end line they stand on, not merely how close
-        # they are to it. Distance alone cannot tell a player standing in
-        # front of their own end line from a bystander standing behind
-        # the table, and in pixels the bystander often wins: measured at
-        # LYTTC 2026-08-26, a 62px onlooker beyond the table outranked
-        # the real 247px near player for the near end. The near end line
-        # is lower in the frame on 44 of 44 calibration frames, so the
-        # near player is BELOW A-B and the far player ABOVE C-D.
-        below_near = anchor_y > _line_y_at(anchor_x, *near_line)
-        above_far = anchor_y < _line_y_at(anchor_x, *far_line)
-        record["below_near_line"] = below_near
-        record["above_far_line"] = above_far
-        # Split on the NEAR line only. Requiring the far player to be
-        # beyond C-D as well is the obvious symmetric rule and it is
-        # wrong: a far player standing close to the table has their legs
-        # hidden by it, so the box bottom lands ON the table, between the
-        # two lines. That rule scored 0 of 106 points at PingPod while
-        # fixing LYTTC — it rejected every far player in the corpus's
-        # healthiest match. One line, two sides.
-        #
-        # This leaves a MEASURED tension, not a solved problem
-        # (2026-08-26, and `above_far` is still recorded so the next
-        # attempt has the number to hand):
-        #
-        #     rule                      PingPod        LYTTC
-        #     both lines (strict)        0 / 106      38 / 102
-        #     near line only (this)     87 / 106       2 / 102
-        #
-        # Neither rule reads both venues. The strict rule excludes the
-        # onlookers standing beyond a busy club's table; the loose rule
-        # is the only one that keeps a far player whose legs the table
-        # hides. What separates them is almost certainly SIZE — at LYTTC
-        # the real near player measures 232-341px against bystanders at
-        # 36-115, a 2-3x gap that nothing here currently reads. That is
-        # the next thing to try, and it wants measuring, not assuming.
-        side = "near" if below_near else "far"
-        record["side"] = side
-        record["verdict"] = f"candidate for {side}"
-        candidates[side].append((d_near if side == "near" else d_far,
-                                 height, box))
+        record["verdict"] = "at the table"
+        live.append(len(seen))
         seen.append(record)
-    result: dict[str, Any] = {}
-    for side in ("near", "far"):
-        # Ranked by SIZE, not by nearness to the end line. Whoever is
-        # playing at an end is the closest person to the camera at that
-        # end and therefore the tallest in pixels; onlookers stand behind
-        # them and read smaller. Distance ranking cannot see that and in
-        # a busy hall keeps changing its mind — measured 2026-08-26 over
-        # 252 frames from six matches, as how much the chosen person's
-        # height wobbles across the frames of a single point:
-        #
-        #     match       by distance   by size
-        #     LYTTC             0.226     0.101
-        #     a52a6612          0.222     0.096
-        #     cebaa6d4          0.152     0.052
-        #     PingPod           0.071     0.071
-        #
-        # Steadier by more than double wherever a crowd exists, and
-        # unchanged where there are only two people to choose from.
-        ranked = sorted(candidates[side], key=lambda c: -c[1])
-        result[f"{side}_candidates"] = len(ranked)
-        if not ranked:
-            result[side] = None
-            result[f"{side}_ambiguous"] = False
-            continue
-        # Ambiguity is now a question about size too: two people of
-        # nearly the same height at one end are genuinely hard to tell
-        # apart (doubles, or someone standing level with the player).
-        # Someone clearly smaller is behind, and is not a rival for the
-        # role.
-        ambiguous = False
-        if len(ranked) > 1:
-            ambiguous = ranked[1][1] >= AMBIGUOUS_SIZE_RATIO * ranked[0][1]
-        result[side] = None if ambiguous else ranked[0][2]
-        result[f"{side}_ambiguous"] = ambiguous
-        # The best candidate REGARDLESS of the guard. Never used for
-        # detection — it exists so the diagnostic page can show what the
-        # detector would have picked and a reviewer can say whether the
-        # guard was right to refuse. Without it a crowded venue renders
-        # as a field of grey boxes with nothing to agree or disagree
-        # with, which is exactly the feedback Adil could not give.
-        result[f"{side}_proposed"] = ranked[0][2]
-        chosen = None if ambiguous else ranked[0][2]
-        for record in seen:
-            if record.get("side") != side:
-                continue
-            top = record["box"] == [round(float(v), 1) for v in ranked[0][2]]
-            if ambiguous:
-                record["verdict"] = (
-                    f"WOULD PICK for {side} — refused, another person "
-                    f"just as close"
-                    if top
-                    else f"the other person contesting {side}"
-                )
-            elif chosen is not None and record["box"] == [
-                round(float(v), 1) for v in chosen
-            ]:
-                record["verdict"] = f"CHOSEN as the {side} player"
-            else:
-                record["verdict"] = f"behind the {side} player"
+
+    result: dict[str, Any] = {
+        "near": None, "far": None,
+        "near_ambiguous": False, "far_ambiguous": False,
+        "near_candidates": len(live), "far_candidates": 0,
+    }
+    if not live:
+        result["boxes"] = seen
+        return result
+
+    by_height = sorted(live, key=lambda i: -seen[i]["height"])
+    near_i = by_height[0]
+    rest = [i for i in by_height if i != near_i]
+    overlapping = [i for i in rest if seen[i]["overlaps_table"]]
+    # Falling back to the next biggest is worth 6 points of far accuracy
+    # over giving up when nobody overlaps (68% against 62% before dedup).
+    far_pool = overlapping or rest
+    far_i = far_pool[0] if far_pool else None
+    result["far_candidates"] = len(far_pool)
+
+    # Two people of nearly the same height at the same role are genuinely
+    # hard to tell apart — doubles, or someone standing level with the
+    # player — and the frame contributes nothing rather than a guess.
+    near_ambiguous = (
+        len(rest) > 0
+        and seen[rest[0]]["height"] >= AMBIGUOUS_SIZE_RATIO
+        * seen[near_i]["height"]
+        and not seen[rest[0]]["overlaps_table"]
+    )
+    far_ambiguous = (
+        far_i is not None
+        and len(far_pool) > 1
+        and seen[far_pool[1]]["height"] >= AMBIGUOUS_SIZE_RATIO
+        * seen[far_i]["height"]
+    )
+    result["near_ambiguous"] = near_ambiguous
+    result["far_ambiguous"] = far_ambiguous
+    result["near_proposed"] = seen[near_i]["box"]
+    if far_i is not None:
+        result["far_proposed"] = seen[far_i]["box"]
+    if not near_ambiguous:
+        result["near"] = seen[near_i]["box"]
+    if far_i is not None and not far_ambiguous:
+        result["far"] = seen[far_i]["box"]
+
+    seen[near_i]["verdict"] = (
+        "WOULD PICK as near — refused, someone else just as big"
+        if near_ambiguous else "CHOSEN as the near player")
+    if far_i is not None:
+        seen[far_i]["verdict"] = (
+            "WOULD PICK as far — refused, someone else just as big"
+            if far_ambiguous else "CHOSEN as the far player"
+            + ("" if seen[far_i]["overlaps_table"]
+               else " (nobody overlapped the table)"))
+    for i in live:
+        if i not in (near_i, far_i):
+            seen[i]["verdict"] = (
+                "at the table, behind the players"
+                if seen[i]["overlaps_table"]
+                else "at the table, not picked")
     result["boxes"] = seen
     return result
+
+
+def _box_overlaps_quad(box: list[float], quad: np.ndarray) -> bool:
+    """Does this person's box intersect the table at all?
+
+    The far player stands behind the table, so it lies across their legs
+    and their box always catches some of it. The near player's box
+    usually clears it, being in front and lower in frame. ANY overlap is
+    the test — demanding a minimum fraction of the box drops far
+    accuracy from 74% to 33%, because a distant player is small and the
+    table covers little of them.
+    """
+    rect = np.array(
+        [[box[0], box[1]], [box[2], box[1]],
+         [box[2], box[3]], [box[0], box[3]]], dtype=np.float32)
+    try:
+        area, _ = cv2.intersectConvexConvex(rect, quad)
+        return float(area) > 0.0
+    except Exception:
+        return False
 
 
 def torso_signature_v2(
