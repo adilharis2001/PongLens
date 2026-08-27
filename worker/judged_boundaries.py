@@ -57,9 +57,12 @@ CANDIDATES_REAL = (
     "cb0e7027@91", "efff9208@18", "efff9208@39",
 )
 # "I think the table on this match was just wrong. I would ignore this
-# match from the calculation altogether." Excluded rather than counted as
-# a miss: a match with a wrong quad is not evidence about appearance, and
-# leaving it in would make every future change look better than it is.
+# match from the calculation altogether." He was right — the stored quad
+# ran across two tables — but it has since been re-detected with the
+# keypoint model and the new one sits on the table. So this is excluded
+# as UNJUDGED, not as unusable: neither of its two breaks was ever given
+# a verdict, and once the match is re-extracted on the corrected quad
+# they belong back in a review round rather than in this list.
 EXCLUDED_MATCHES = ("6a3777db",)
 
 
@@ -79,6 +82,8 @@ def boundaries(judged: Mapping[str, str] | None = None) -> dict[str, dict]:
     judged = judgements() if judged is None else judged
     per_match: dict[str, list[tuple[int, str]]] = {}
     for key, verdict in judged.items():
+        if key.startswith(EXCLUDED_MATCHES):
+            continue
         match8, _, index = key.partition("@")
         per_match.setdefault(match8, []).append((int(index), verdict))
     out = {}
@@ -99,6 +104,7 @@ def boundaries(judged: Mapping[str, str] | None = None) -> dict[str, dict]:
 def score(
     fires_by_match: Mapping[str, Sequence[int]],
     tolerance: int = TOLERANCE,
+    considered: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Hits, misses and false fires against the judged boundaries.
 
@@ -109,6 +115,9 @@ def score(
     read as free.
     """
     truth = boundaries()
+    if considered is not None:
+        keep = {m[:8] for m in considered}
+        truth = {m: v for m, v in truth.items() if m in keep}
     found = missed = false = 0
     misses: list[str] = []
     unjudged: list[str] = []
@@ -138,7 +147,10 @@ def score(
                 unjudged.append(f"{match8}@{fire}")
     # Boundaries in matches that produced no fires at all still count as
     # missed; a match absent from fires_by_match is one the detector
-    # withheld, and withholding a real changeover is a miss.
+    # withheld, and withholding a real changeover is a miss. Pass
+    # `considered` when only part of the corpus was run, or a match that
+    # was never loaded is charged as a withheld one and recall reads
+    # near zero for a reason that has nothing to do with the detector.
     for match8, info in truth.items():
         if match8 in fires_by_match:
             continue

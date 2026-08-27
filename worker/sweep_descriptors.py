@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from worker.eval_side_changes import (  # noqa: E402
     DEFAULT_WORKDIR, keychain, load_truth, score_match,
 )
+from worker import judged_boundaries  # noqa: E402
 from worker.side_change import (  # noqa: E402
     _distance, detect_side_changes, merge_config, summarize_point_side,
 )
@@ -51,6 +52,16 @@ NAMES = (
     # joins
     "lab_q+logdiff", "lab_q+geom", "hs_up+hs_low", "cn_up+cn_low",
     "lab+legs_lab", "logdiff+geom",
+    # Adil's own suggestions, from reviewing 31 missed changeovers on
+    # 2026-08-27. A tournament hands every entrant the same shirt; it
+    # does not hand out shoes, and it cannot change how tall they are.
+    "shoe_lab", "shoe_bgr", "shoe_rg", "shoe_bgr_tc", "shins_lab",
+    "stature_rel",
+    "lab+legs_lab+shoe_lab", "lab+legs_lab+shoe_bgr",
+    "lab+legs_lab+shins_lab", "lab+legs_lab+stature_rel",
+    "lab+legs_lab+shoe_lab+stature_rel",
+    "lab+legs_lab+shins_lab+shoe_lab",
+    "lab+shoe_lab", "legs_lab+shoe_lab", "lab_q+shoe_lab",
 )
 
 
@@ -276,10 +287,20 @@ def scales(prepared: dict) -> dict[str, float]:
     }
 
 
-def evaluate(prepared: dict, truths: dict, config: dict) -> dict:
+def evaluate(prepared: dict, truths: dict, config: dict,
+             judged: bool = False) -> dict:
+    """Score one configuration against one of the two truths.
+
+    `judged` scores against the boundaries Adil confirmed by watching the
+    video; the default scores against his scoring. Where they disagree
+    the video wins, and the reason to keep both is that the video covers
+    37 matches and the scoring covers all 51 — a change that helps only
+    on the reviewed half is not yet a change worth shipping.
+    """
     tp = fp = fn = drift = 0
     qualified = total = withheld = 0
     detail = []
+    fires: dict[str, list[int]] = {}
     for match_id, evidence in prepared.items():
         points = regate(evidence, float(config["spread_max"]))
         qualified += sum(1 for p in points if p["qualified"])
@@ -288,6 +309,11 @@ def evaluate(prepared: dict, truths: dict, config: dict) -> dict:
                   **detect_side_changes(points, config)}
         if result.get("status") != "ready":
             withheld += 1
+        else:
+            fires[match_id[:8]] = [
+                int(c["after_idx"]) for c in result["side_changes"]
+                if c.get("confirmed")
+            ]
         truth = truths[match_id]
         score = score_match(result, truth)
         hits = score["hits_tolerant"]
@@ -306,6 +332,22 @@ def evaluate(prepared: dict, truths: dict, config: dict) -> dict:
             "contradiction": result.get("contradiction"),
             "reason": result.get("reason"),
         })
+    if judged:
+        scored = judged_boundaries.score(
+            fires, considered=list(prepared))
+        return {
+            "tp": scored["found"], "fp": scored["false"],
+            "fn": scored["missed"], "drift_hits": 0,
+            "unjudged": len(scored["unjudged"]),
+            "miss_list": scored["miss_list"],
+            "withheld_matches": withheld,
+            "precision": scored["precision"], "recall": scored["recall"],
+            "f1": (2 * scored["precision"] * scored["recall"]
+                   / (scored["precision"] + scored["recall"])
+                   if scored["precision"] + scored["recall"] else 0.0),
+            "coverage": qualified / total if total else 0.0,
+            "config": config, "detail": detail,
+        }
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
     return {
@@ -319,13 +361,13 @@ def evaluate(prepared: dict, truths: dict, config: dict) -> dict:
     }
 
 
-def load_cache(workdir: Path, cur) -> dict:
+def load_cache(workdir: Path, cur, filename: str = "evidence.json") -> dict:
     cache = {}
     for directory in sorted(workdir.iterdir()):
-        evidence_path = directory / "evidence.json"
+        evidence_path = directory / filename
         if directory.is_file() or not evidence_path.exists():
             continue
-        evidence = json.loads(evidence_path.read_text())
+        evidence = normalise_stature(json.loads(evidence_path.read_text()))
         if not (evidence.get("points") or [{}])[0].get("bank"):
             continue  # v2 evidence, no descriptor bank
         truth = load_truth(cur, directory.name)
@@ -338,6 +380,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR)
     parser.add_argument("--descriptor", nargs="*", default=list(NAMES))
+    parser.add_argument(
+        "--evidence", default="evidence.json",
+        help=("which extraction to read. evidence-v4.json is the bank "
+              "with footwear, shins and stature in it."))
+    parser.add_argument(
+        "--judged", action="store_true",
+        help=("score against the boundaries Adil confirmed by watching "
+              "rather than against his scoring. The two disagree and the "
+              "video wins — see worker/judged_boundaries.py."))
     parser.add_argument("--detail", action="store_true")
     parser.add_argument(
         "--ambiguous", action="store_true",
@@ -353,7 +404,7 @@ def main() -> None:
 
     conn = psycopg2.connect(keychain("ponglens-db-url"))
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cache = load_cache(args.workdir, cur)
+    cache = load_cache(args.workdir, cur, args.evidence)
     truths = {mid: truth for mid, (_, truth) in cache.items()}
     boundaries = sum(len(t["boundaries"]) for _, t in cache.values())
     print(f"{len(cache)} matches, {boundaries} scored boundaries\n")
@@ -382,7 +433,7 @@ def main() -> None:
                         "verify_margin": ruler["apart_p50"] * 0.1,
                         "confidence_scale": penalty * 2.0,
                     })
-                    outcome = evaluate(prepared, truths, config)
+                    outcome = evaluate(prepared, truths, config, args.judged)
                     if best is None or outcome["f1"] > best["f1"]:
                         best = {**outcome, "descriptor": name}
         results.append(best)
@@ -426,7 +477,7 @@ def main() -> None:
                                 "confidence_radius": radius,
                                 "max_contradiction": contradiction,
                             })
-                            outcome = evaluate(prepared, truths, config)
+                            outcome = evaluate(prepared, truths, config, args.judged)
                             tuned.append(outcome)
         tuned.sort(key=lambda r: (-r["f1"], -r["precision"]))
         for outcome in tuned[:10]:
