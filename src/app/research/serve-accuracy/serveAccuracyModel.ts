@@ -4,6 +4,25 @@ import type { ServePlacementRejection } from "@/lib/placement/placementAggregate
 export const TABLE_W_M = 1.525;
 export const TABLE_L_M = 2.74;
 
+/**
+ * The matches with a re-run ball track on disk.
+ *
+ * One file each rather than one file for all of them: six matches is two
+ * megabytes of ball positions, and the page only ever reads the open
+ * match's. Adding a seventh means a track file, a slug here and a line in
+ * the loader — deliberately three edits, so a match cannot be listed with
+ * no track behind it.
+ */
+export const TRACK_SLUGS = [
+  "chris",
+  "julian",
+  "rowel",
+  "ishan",
+  "prabhas",
+  "anton",
+] as const;
+export type TrackSlug = (typeof TRACK_SLUGS)[number];
+
 /** One detected touch, in every frame of reference we have for it. */
 export interface DetectedEvent {
   id: string;
@@ -92,12 +111,27 @@ export interface ServeAccuracyRow {
 
 export interface ServeAccuracyMatch {
   matchId: string;
+  /** Names the ball-track file for this match under `tracks/`. */
+  slug: TrackSlug;
   label: string;
   opponent: string;
   /** Table corners in SOURCE pixels, for drawing the quad over the clip. */
   corners: Record<string, [number, number]> | null;
   source: { width: number; height: number; fps: number } | null;
   calibrationSource: string | null;
+  /** Which end the uploader was on in game one, when they told us. */
+  userSide: "near" | "far" | null;
+  /** How many points were bounded by a real serve tap. */
+  serveAnchored: number;
+  /**
+   * What is known to be untrustworthy about THIS match, in plain words.
+   *
+   * The page compares its own reading against the uploader's taps, and a
+   * match whose ends are misread scores badly for a reason that has nothing
+   * to do with the rules being tested. Saying so on the match is the only
+   * thing that stops the next person reading the number as a rule failure.
+   */
+  caution: string | null;
   rows: ServeAccuracyRow[];
 }
 

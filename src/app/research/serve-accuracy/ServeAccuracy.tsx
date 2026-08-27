@@ -24,6 +24,7 @@ import {
   type DetectedEvent,
   type ServeAccuracyMatch,
   type ServeAccuracyRow,
+  type TrackSlug,
 } from "./serveAccuracyModel";
 
 /**
@@ -749,18 +750,39 @@ function Court(
   );
 }
 
-let tracksPromise: Promise<Tracks> | null = null;
 /**
- * Half a megabyte of ball positions, code-split and fetched the first time
- * a clip is opened — the same shape crossing-review uses for its own track,
- * so it never lands in the initial bundle of a page you might only be
- * reading the summary of.
+ * One import per match, written out rather than built from the slug.
+ *
+ * A template literal inside `import()` gives the bundler a directory to
+ * guess at, and it answers by shipping every file in it. Naming each one
+ * keeps the six track files in six chunks, so opening Chris fetches 426KB
+ * instead of two megabytes.
  */
-function loadTracks(): Promise<Tracks> {
-  tracksPromise ??= import("./tracks.json")
-    .then((mod) => mod.default as unknown as Tracks)
-    .catch(() => ({}) as Tracks);
-  return tracksPromise;
+const TRACK_FILES: Record<TrackSlug, () => Promise<{ default: unknown }>> = {
+  chris: () => import("./tracks/chris.json"),
+  julian: () => import("./tracks/julian.json"),
+  rowel: () => import("./tracks/rowel.json"),
+  ishan: () => import("./tracks/ishan.json"),
+  prabhas: () => import("./tracks/prabhas.json"),
+  anton: () => import("./tracks/anton.json"),
+};
+
+const tracksPromises = new Map<TrackSlug, Promise<Tracks>>();
+/**
+ * A match's ball positions, code-split and fetched when that match is
+ * opened — the same shape crossing-review uses for its own track, so it
+ * never lands in the initial bundle of a page you might only be reading
+ * the summary of.
+ */
+function loadTracks(slug: TrackSlug): Promise<Tracks> {
+  let p = tracksPromises.get(slug);
+  if (!p) {
+    p = TRACK_FILES[slug]()
+      .then((mod) => mod.default as unknown as Tracks)
+      .catch(() => ({}) as Tracks);
+    tracksPromises.set(slug, p);
+  }
+  return p;
 }
 
 function Row({
@@ -790,13 +812,13 @@ function Row({
       });
       const data = res.ok ? await res.json() : null;
       if (!data?.url) throw new Error("no url");
-      setTrack((await loadTracks())[row.pointId] ?? null);
+      setTrack((await loadTracks(match.slug))[row.pointId] ?? null);
       setUrl(data.url);
       setState("idle");
     } catch {
       setState("error");
     }
-  }, [match.matchId, row.pointId, url]);
+  }, [match.matchId, match.slug, row.pointId, url]);
 
   const opponent = match.opponent;
   const tapped =
@@ -1134,13 +1156,23 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   const [only, setOnly] = useState<
     string
   >("all");
-  // The verdict counts need every track, not just the open clip's, so the
-  // whole file loads once up front. Still code-split out of the bundle.
+  const match = matches.find((m) => m.matchId === active) ?? matches[0];
+  // The verdict counts need every point's track, not just the open clip's,
+  // so the whole match loads at once. Switching matches swaps the object,
+  // which is also what invalidates the reading cache — it is keyed on the
+  // track file itself, so a row cannot keep the answer it computed before
+  // its own track arrived.
   const [allTracks, setAllTracks] = useState<Tracks | null>(null);
   useEffect(() => {
-    void loadTracks().then(setAllTracks);
-  }, []);
-  const match = matches.find((m) => m.matchId === active) ?? matches[0];
+    let live = true;
+    setAllTracks(null);
+    void loadTracks(match.slug).then((t) => {
+      if (live) setAllTracks(t);
+    });
+    return () => {
+      live = false;
+    };
+  }, [match.slug]);
   const stats = useMemo(() => summarise(match.rows), [match]);
   const rows = useMemo(
     () =>
@@ -1295,9 +1327,35 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             }`}
           >
             {m.label}
+            <span className="ml-2 text-xs font-normal opacity-60 tabular-nums">
+              {m.rows.length}
+            </span>
+            {m.caution && <span className="ml-1.5 text-amber-300">•</span>}
           </button>
         ))}
       </div>
+
+      <p className="mt-3 text-xs text-zinc-500">
+        {match.rows.length} points ·{" "}
+        {match.calibrationSource
+          ? `table found by ${match.calibrationSource}`
+          : "table source unrecorded"}{" "}
+        ·{" "}
+        {match.serveAnchored > 0
+          ? `${match.serveAnchored} points bounded by a serve tap`
+          : "points bounded by the winner tap only"}{" "}
+        ·{" "}
+        {match.userSide
+          ? `uploader on the ${match.userSide} end in game one`
+          : "end never recorded"}
+        {allTracks === null && " · loading ball tracks"}
+      </p>
+
+      {match.caution && (
+        <p className="mt-3 rounded-xl border border-amber-300/30 bg-amber-300/5 px-4 py-3 text-sm text-amber-100/90">
+          {match.caution}
+        </p>
+      )}
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-edge bg-surface p-4">

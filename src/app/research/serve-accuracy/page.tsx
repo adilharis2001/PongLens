@@ -16,6 +16,7 @@ import {
   type DetectedEvent,
   type ServeAccuracyMatch,
   type ServeAccuracyRow,
+  type TrackSlug,
 } from "./serveAccuracyModel";
 
 export const dynamic = "force-dynamic";
@@ -25,10 +26,72 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, nocache: true },
 };
 
-const MATCHES = [
-  { id: "ec6490f4-b835-4d82-882a-8fb2f1abc2e5", label: "Chris" },
-  { id: "7e02fbb9-a3af-4686-84bc-d4b961ab9fed", label: "Julian" },
-] as const;
+/**
+ * The matches the winner rules are judged against.
+ *
+ * Chris and Julian came first and every rule on this page was written
+ * watching them, so their scores are a development set and read high. The
+ * four below were added on 27 August to find out what the rules do on
+ * sessions they have never seen: two more venues, both rungs of the
+ * calibration ladder, and one match from a different uploader.
+ *
+ * A `caution` is not a footnote. It names a reason this match's score is
+ * about something other than the rules, so nobody spends a morning
+ * chasing a rule failure that is really a missing column.
+ */
+const MATCHES: {
+  id: string;
+  slug: TrackSlug;
+  label: string;
+  caution: string | null;
+}[] = [
+  {
+    id: "ec6490f4-b835-4d82-882a-8fb2f1abc2e5",
+    slug: "chris",
+    label: "Chris",
+    caution: null,
+  },
+  {
+    id: "7e02fbb9-a3af-4686-84bc-d4b961ab9fed",
+    slug: "julian",
+    label: "Julian",
+    caution: null,
+  },
+  {
+    id: "cebaa6d4-81e4-4aab-b4fa-1ed485685d00",
+    slug: "rowel",
+    label: "Rowel",
+    caution: null,
+  },
+  {
+    id: "d59d7610-d087-42ec-a1a6-b532fb4cac96",
+    slug: "ishan",
+    label: "Ishan",
+    caution:
+      "The ends do not alternate on this match the way the page assumes. "
+      + "Fitting each game separately against the ball put you near, near, "
+      + "far, near, far, and 79 of the 81 points are tapped, so missing taps "
+      + "are not the cause. Until the real order is confirmed by eye, treat "
+      + "every winner on this match as possibly the other player, and read "
+      + "the touches and the ball track rather than the call.",
+  },
+  {
+    id: "9e15ed10-f595-4efc-85c8-74cce08eb9c5",
+    slug: "prabhas",
+    label: "Prabhas",
+    caution: null,
+  },
+  {
+    id: "840b4635-7791-4538-b722-9cd17ae6ed34",
+    slug: "anton",
+    label: "Anton",
+    caution:
+      "This match never recorded which end the uploader was on, so nothing "
+      + "here can be attributed to a player: no serve is drawn and no winner "
+      + "is called. The touches, the table and the ball track are all real "
+      + "and worth watching. Name the end from any clip and the rest follows.",
+  },
+];
 
 /** match.json carries the calibrated corners and the clip offsets. */
 async function readMatchJson(path: string | null) {
@@ -205,11 +268,19 @@ export default async function ServeAccuracyPage() {
 
     matches.push({
       matchId: entry.id,
+      slug: entry.slug,
       label: entry.label,
       opponent: match.opponent_name ?? entry.label,
       corners: matchJson?.calibration?.table_corners_px ?? null,
       source: matchJson?.source ?? null,
       calibrationSource: matchJson?.calibration?.source ?? null,
+      userSide: match.user_side ?? null,
+      // The column is optional on the type, so `!== null` would count every
+      // row on a match that predates it.
+      serveAnchored: all.filter(
+        (p) => !p.deleted && typeof p.serve_start_at_cut_s === "number",
+      ).length,
+      caution: entry.caution,
       rows,
     });
   }
