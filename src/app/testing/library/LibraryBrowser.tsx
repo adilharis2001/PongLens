@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
   RUN_STATUS_LABEL,
+  RUN_STATUS_PAST,
   currentResults,
   latestPerSurface,
   otherSurfaces,
@@ -102,7 +103,7 @@ function Elsewhere({
                   : "font-semibold text-zinc-400"
             }
           >
-            {RUN_STATUS_LABEL[e.result!.status].toLowerCase()}
+            {RUN_STATUS_PAST[e.result!.status]}
           </span>{" "}
           {new Date(e.result!.updated_at).toLocaleDateString(undefined, {
             day: "numeric",
@@ -176,6 +177,10 @@ export function LibraryBrowser({
     setSurface(next);
     setOpenId(null);
     setDepth(next === "web-desktop" ? "all" : "smoke");
+    // An area filter can survive into a surface that has no cases in it —
+    // Paid reviews on the app, say — and the list would go empty with no
+    // pill lit to explain why.
+    setArea("all");
     // Native history rather than router.replace: this keeps the URL
     // bookmarkable, which is the whole point of it being in the URL, while
     // avoiding a server round trip that would refetch every mark to render
@@ -352,7 +357,12 @@ export function LibraryBrowser({
           <Pill on={area === "all"} onClick={() => setArea("all")}>
             Everything
           </Pill>
-          {TEST_AREAS.map((a) => (
+          {/* Only areas this surface actually has. Offering "Paid reviews"
+              on the app filter row is an invitation to go looking for a
+              flow that was never built into it. */}
+          {TEST_AREAS.filter((a) =>
+            applies.some((c) => c.area === a.key),
+          ).map((a) => (
             <Pill key={a.key} on={area === a.key} onClick={() => setArea(a.key)}>
               {a.title}
             </Pill>

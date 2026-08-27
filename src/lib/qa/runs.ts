@@ -39,6 +39,14 @@ export const RUN_STATUS_LABEL: Record<RunStatus, string> = {
   skipped: "Skipped",
 };
 
+/** For reporting what already happened somewhere else, in a sentence. */
+export const RUN_STATUS_PAST: Record<RunStatus, string> = {
+  pass: "passed",
+  fail: "failed",
+  blocked: "blocked",
+  skipped: "skipped",
+};
+
 export interface CaseResult {
   case_id: string;
   period: string;
