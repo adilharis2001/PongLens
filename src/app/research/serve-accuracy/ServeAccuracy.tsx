@@ -1068,6 +1068,52 @@ function Row({
           {row.computed.hits !== null ? ` · ${row.computed.hits} hits` : ""}
         </p>
       )}
+      {(() => {
+        // The final call: everything above, settled into one line. This is
+        // the whole page in a sentence, so it says what happened rather
+        // than which rule said it, and it is the only place the reading is
+        // put next to the tap without a rule's name attached.
+        const them = opponent;
+        const disagree = rulesDisagree(read);
+        if (read.winner === null) {
+          return (
+            <div className="mt-3 border-t border-edge pt-2.5">
+              <p className="text-sm text-zinc-500">
+                No call.
+                <span className="text-zinc-600">{` ${read.refusal ?? ""}`}</span>
+              </p>
+            </div>
+          );
+        }
+        const won = read.winner === "user" ? "You" : them;
+        const lost = read.winner === "user" ? them : "you";
+        const agrees = row.winner === null ? null : read.winner === row.winner;
+        return (
+          <div className="mt-3 border-t border-edge pt-2.5">
+            <p className="text-sm">
+              <span
+                className={
+                  agrees === null ? "text-zinc-200"
+                    : agrees ? "text-emerald-300" : "text-amber-300"
+                }
+              >
+                {`${won} won`}
+              </span>
+              <span className="text-zinc-300">{` · ${lost} ${read.why}`}</span>
+              {agrees === false && (
+                <span className="text-amber-300/80">
+                  {` · you tapped ${row.winner === "user" ? "yourself" : them}`}
+                </span>
+              )}
+              {disagree && (
+                <span className="text-zinc-500">
+                  {` · ${read.verdicts.map((v) => v.name).join(" and ")} disagree`}
+                </span>
+              )}
+            </p>
+          </div>
+        );
+      })()}
       {row.serve === null && row.rejection !== null && (
         <p className="mt-1 text-xs text-amber-300/80">
           No serve drawn. {REJECTION_COPY[row.rejection]}

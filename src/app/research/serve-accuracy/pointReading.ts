@@ -1,11 +1,16 @@
-import { ballDiedLoser, findBallDied } from "./ballDied";
-import { findOffTable, offTableLoser, offTableWithheld } from "./offTable";
+import { ballDiedLoser, ballDiedReasonCopy, findBallDied } from "./ballDied";
+import {
+  findOffTable,
+  offTableLoser,
+  offTableWithheld,
+  type OffTableCall,
+} from "./offTable";
 import { findNoReturn, noReturnLoser } from "./noReturn";
 import { isRecovered, repairEvents, repairTrust, type RepairTrust } from "./segments";
-import type {
-  DetectedEvent,
-  ServeAccuracyMatch,
-  ServeAccuracyRow,
+import {
+  type DetectedEvent,
+  type ServeAccuracyMatch,
+  type ServeAccuracyRow,
 } from "./serveAccuracyModel";
 
 /**
@@ -31,6 +36,8 @@ export type Tracks = Record<string, (readonly number[])[]>;
 export interface RuleVerdict {
   name: "ball died" | "off table" | "no return";
   verdict: "user" | "opponent";
+  /** What the loser did, in the words a player would use. */
+  why: string;
 }
 
 export interface PointReading {
@@ -45,12 +52,34 @@ export interface PointReading {
   verdicts: RuleVerdict[];
   winner: "user" | "opponent" | null;
   rule: RuleVerdict["name"] | null;
+  /** What the loser did, from the rule that made the call. */
+  why: string | null;
   /** Why no call was made, when none was. */
   refusal: string | null;
 }
 
 const flip = (l: "user" | "opponent" | null) =>
   l === null ? null : l === "user" ? ("opponent" as const) : ("user" as const);
+
+/**
+ * How the ball left the table, said the way a player would say it.
+ *
+ * "Long" and "wide" are not here, and it is not for want of trying. The
+ * off-table rule ends a point on a floor bounce, and over both matches not
+ * one of those 38 floor bounces carries a table coordinate: 16 have pixels
+ * only and 22 are not recorded at all, the point having ended with nothing
+ * following the last landing. That is not a gap in the data so much as the
+ * geometry — the ball is on the floor, three quarters of a metre below the
+ * plane the homography describes, so where it "lands on the table" is a
+ * number about a place the ball never was.
+ *
+ * The branch that split long from wide was written, measured, and found to
+ * fire zero times. It is gone rather than left in to imply a distinction
+ * the page cannot make.
+ */
+function offTableWhy(call: OffTableCall): string {
+  return call.via === "unreturned" ? "never got it back" : "missed the table";
+}
 
 function askTheRules(
   row: ServeAccuracyRow,
@@ -61,15 +90,24 @@ function askTheRules(
 ): { verdicts: RuleVerdict[]; refusal: string | null } {
   const side = row.userPhysicalSide;
   const verdicts: RuleVerdict[] = [];
-  const died = flip(ballDiedLoser(
-    findBallDied(events, track, corners, row.clipT0, source, side), side));
-  if (died) verdicts.push({ name: "ball died", verdict: died });
+  const death = findBallDied(events, track, corners, row.clipT0, source, side);
+  const died = flip(ballDiedLoser(death, side));
+  if (died && death) {
+    verdicts.push({
+      name: "ball died", verdict: died,
+      why: death.via === "turn" ? "hit the net" : ballDiedReasonCopy(death),
+    });
+  }
   const call = findOffTable(events, corners ? { corners } : null);
   const off = flip(offTableLoser(call, side));
-  if (off) verdicts.push({ name: "off table", verdict: off });
+  if (off && call) {
+    verdicts.push({ name: "off table", verdict: off, why: offTableWhy(call) });
+  }
   const ret = flip(noReturnLoser(
     findNoReturn(events, track, corners, row.clipT0, source), side));
-  if (ret) verdicts.push({ name: "no return", verdict: ret });
+  if (ret) {
+    verdicts.push({ name: "no return", verdict: ret, why: "never got it back" });
+  }
   return {
     verdicts,
     refusal: verdicts.length ? null : offTableWithheld(call) ?? "nothing to go on",
@@ -90,6 +128,7 @@ export function readPoint(
       verdicts: first.verdicts,
       winner: first.verdicts[0].verdict,
       rule: first.verdicts[0].name,
+      why: first.verdicts[0].why,
       refusal: null,
     };
   }
@@ -99,7 +138,7 @@ export function readPoint(
   const recovered = repaired.filter(isRecovered);
   const blank = {
     events: row.events, recovered: [] as DetectedEvent[], trust: null,
-    verdicts: [] as RuleVerdict[], winner: null, rule: null,
+    verdicts: [] as RuleVerdict[], winner: null, rule: null, why: null,
     refusal: first.refusal,
   };
   if (!recovered.length) return blank;
@@ -122,6 +161,7 @@ export function readPoint(
     verdicts: second.verdicts,
     winner: second.verdicts[0].verdict,
     rule: second.verdicts[0].name,
+    why: second.verdicts[0].why,
     refusal: null,
   };
 }
