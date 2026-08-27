@@ -29,8 +29,8 @@ from typing import Any
 
 DEFAULT_CACHE = Path.home() / "ponglens-research-work" / "game-end-eval"
 DUMP = DEFAULT_CACHE / "page-data.json"
-FRAME_W = 330
-JPEG_QUALITY = 66
+FRAME_W = 240
+JPEG_QUALITY = 62
 
 
 # --- pass one: truth, scores and what to show -------------------------------
@@ -78,6 +78,28 @@ def dump(cache: Path, out: Path, config: dict | None) -> None:
         wrong_gaps = {
             tuple(f["gap"]) for f in score["false_positives"]
         }
+        order = sorted(by_idx)
+        position = {idx: i for i, idx in enumerate(order)}
+
+        def neighbours(idx: int, direction: int, count: int = 3) -> list[int]:
+            """Up to `count` rallies running away from the break.
+
+            One rally either side is not enough to judge a changeover.
+            The cut is not perfect: the rally next to a break is often the
+            one that caught a player walking to fetch the ball, or half of
+            a fused pair, and a single frame of it shows an empty table.
+            Three gives a reviewer something to average over.
+            """
+            start = position.get(idx)
+            if start is None:
+                return [idx]
+            picked = []
+            for step in range(count):
+                at = start + direction * step
+                if 0 <= at < len(order):
+                    picked.append(order[at])
+            return picked if direction < 0 else picked
+
         cases = []
         for change in fired:
             after = by_idx.get(int(change["after_idx"])) or {}
@@ -92,16 +114,21 @@ def dump(cache: Path, out: Path, config: dict | None) -> None:
                 "kind": "wrong" if gap in wrong_gaps else "hit",
                 "after_idx": int(change["after_idx"]),
                 "before_idx": int(change["before_idx"]),
+                "before": neighbours(int(change["after_idx"]), -1),
+                "after": neighbours(int(change["before_idx"]), +1),
                 "confidence": change.get("confidence"),
                 "components": change.get("components") or {},
             })
         for miss in score["misses"]:
             after = int(miss["idx"])
             later = sorted(i for i in by_idx if i > after)
+            nxt = later[0] if later else after
             cases.append({
                 "kind": "miss",
                 "after_idx": after,
-                "before_idx": later[0] if later else after,
+                "before_idx": nxt,
+                "before": neighbours(after, -1),
+                "after": neighbours(nxt, +1),
                 "tier": miss["tier"],
                 "gap": [miss["gap_t0"], miss["gap_t1"]],
             })
@@ -132,45 +159,82 @@ def dump(cache: Path, out: Path, config: dict | None) -> None:
 
 # --- pass two: frames and HTML ----------------------------------------------
 
-def clip_for(folder: Path, match: dict, idx: int) -> Path | None:
+def _point_row(match: dict, idx: int) -> dict | None:
     for point in match.get("points") or []:
-        if int(point["idx"]) != idx:
-            continue
-        name = str(point.get("clip") or "").split("/")[-1]
-        candidate = folder / name
-        if candidate.is_file():
-            return candidate
-        fallback = folder / f"point-{idx:03d}.mp4"
-        return fallback if fallback.is_file() else None
+        if int(point["idx"]) == idx:
+            return point
     return None
 
 
-def frame_b64(clip: Path | None, fraction: float) -> str | None:
+def clip_for(folder: Path, match: dict, idx: int) -> Path | None:
+    point = _point_row(match, idx)
+    if point is None:
+        return None
+    name = str(point.get("clip") or "").split("/")[-1]
+    candidate = folder / name
+    if candidate.is_file():
+        return candidate
+    fallback = folder / f"point-{idx:03d}.mp4"
+    return fallback if fallback.is_file() else None
+
+
+def rally_frames(folder: Path, match: dict, idx: int, count: int = 2):
+    """The frames the DETECTOR reads, not fractions of the clip.
+
+    The page used to grab 35% and 75% of the way through a clip, which is
+    not where the rally is. Clips carry about 1.2s of head pad and 1.3s of
+    tail pad around a median 3.8s of play, so three quarters of the way
+    in is often after the point ended — a player already walking to fetch
+    the ball, or an empty table. That is exactly what a reviewer was
+    being shown and asked to judge.
+
+    point_frames is the extractor's own rule: 0.4 to 3.2 seconds after
+    serve contact, falling back to the played middle of the clip when the
+    assembler found no serve. Showing what the detector saw is also the
+    only fair way to ask whether the detector was right.
+    """
     import cv2
 
-    if clip is None:
-        return None
+    from extract_side_changes_rtmpose import point_frames
+
+    clip = clip_for(folder, match, idx)
+    point = _point_row(match, idx)
+    if clip is None or point is None:
+        return []
     capture = cv2.VideoCapture(str(clip))
     try:
         if not capture.isOpened():
-            return None
-        count = int(round(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
-        if count <= 0:
-            return None
-        capture.set(cv2.CAP_PROP_POS_FRAMES,
-                    min(count - 1, max(0, int(round(count * fraction)))))
-        ok, image = capture.read()
+            return []
+        total = int(round(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
+        fps = float(capture.get(cv2.CAP_PROP_FPS)) or 30.0
+        wanted, source = point_frames(point, total, fps, 5)
+        if not wanted:
+            return []
+        # The middle of the window, then its ends, so one frame is the
+        # most representative one available and two is a spread.
+        chosen = [wanted[len(wanted) // 2]]
+        if count > 1 and len(wanted) > 1:
+            chosen.append(wanted[-1] if count == 2 else wanted[0])
+        out = []
+        for number in chosen[:count]:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, number)
+            ok, image = capture.read()
+            if not ok or image is None:
+                continue
+            height, width = image.shape[:2]
+            if width > FRAME_W:
+                image = cv2.resize(
+                    image, (FRAME_W, int(round(height * FRAME_W / width))),
+                    interpolation=cv2.INTER_AREA)
+            ok, buffer = cv2.imencode(
+                ".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+            if ok:
+                out.append((base64.b64encode(buffer.tobytes()).decode("ascii"),
+                            f"rally {idx}"
+                            + ("" if source == "serve" else " (no serve found)")))
+        return out
     finally:
         capture.release()
-    if not ok or image is None:
-        return None
-    height, width = image.shape[:2]
-    if width > FRAME_W:
-        image = cv2.resize(image, (FRAME_W, int(round(height * FRAME_W / width))),
-                           interpolation=cv2.INTER_AREA)
-    ok, buffer = cv2.imencode(".jpg", image,
-                              [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-    return base64.b64encode(buffer.tobytes()).decode("ascii") if ok else None
 
 
 def img(data: str | None, label: str) -> str:
@@ -193,6 +257,22 @@ def render(cache: Path, data: dict, out: Path, limit_cases: int) -> None:
         covered = m["qualified"] / max(m["points"], 1)
         state = ("good" if m["hits"] == m["truth"] and not m["false_positives"]
                  else "bad" if m["hits"] == 0 else "part")
+        # Plain English beats a decimal nobody can calibrate. The
+        # separability figure was on the page and it does not predict
+        # anything worth acting on — measured 2026-08-27 across the
+        # competitive corpus, it correlates +0.19 with whether a match
+        # works, and the MIDDLE third of it does better than the top
+        # third. It stays in the JSON as a diagnostic and comes off the
+        # table.
+        missed = m["truth"] - m["hits"]
+        verdict = (
+            "everything found"
+            if missed == 0 and not m["false_positives"] else
+            "found nothing" if m["hits"] == 0 else
+            f"missed {missed}" if missed and not m["false_positives"] else
+            f"{m['false_positives']} wrong" if not missed else
+            f"missed {missed}, {m['false_positives']} wrong"
+        )
         rows.append(
             f'<tr class="{state}">'
             f'<td class="mono">{html.escape(m["match"][:8])}</td>'
@@ -200,9 +280,8 @@ def render(cache: Path, data: dict, out: Path, limit_cases: int) -> None:
             f'<td>{html.escape(str(m["type"] or "—"))}</td>'
             f'<td class="num">{m["points"]}</td>'
             f'<td class="num">{covered:.0%}</td>'
-            f'<td class="num">{m["separability"] or "—"}</td>'
             f'<td class="num">{m["hits"]} of {m["truth"]}</td>'
-            f'<td class="num">{m["false_positives"] or ""}</td>'
+            f'<td>{html.escape(verdict)}</td>'
             f'<td class="why">{html.escape(str(m["reason"] or ""))}</td>'
             "</tr>"
         )
@@ -229,8 +308,6 @@ def render(cache: Path, data: dict, out: Path, limit_cases: int) -> None:
             if shown >= limit_cases:
                 break
             shown += 1
-            after = clip_for(folder, parsed, case["after_idx"])
-            before = clip_for(folder, parsed, case["before_idx"])
             case_id = f'{m["match"][:8]}@{case["after_idx"]}'
             kind = case["kind"]
             head = {
@@ -240,6 +317,15 @@ def render(cache: Path, data: dict, out: Path, limit_cases: int) -> None:
                 "miss": f'your scoring says a game ended here and the '
                         f'detector said nothing ({case.get("tier")})',
             }.get(kind, kind)
+            before = []
+            for idx in reversed(case.get("before") or [case["after_idx"]]):
+                before.extend(rally_frames(folder, parsed, idx))
+            after = []
+            for idx in case.get("after") or [case["before_idx"]]:
+                after.extend(rally_frames(folder, parsed, idx))
+            if not before and not after:
+                shown -= 1
+                continue
             detail = json.dumps(
                 case.get("components") or {"gap": case.get("gap")},
                 default=str)
@@ -249,16 +335,13 @@ def render(cache: Path, data: dict, out: Path, limit_cases: int) -> None:
     <span class="tag {kind}">{kind}</span>
     <b>{html.escape(m["opponent"] or m["match"][:8])}</b>
     <span class="mono">{html.escape(m["match"][:8])}</span>
-    <span>rally {case["after_idx"]} &rarr; {case["before_idx"]}</span>
     <span class="head">{html.escape(head)}</span>
   </header>
   <div class="pair">
-    <div class="side"><h4>last rally before the break</h4><div class="frames">
-      {img(frame_b64(after, 0.35), "early")}{img(frame_b64(after, 0.75), "late")}
-    </div></div>
-    <div class="side"><h4>first rally after it</h4><div class="frames">
-      {img(frame_b64(before, 0.35), "early")}{img(frame_b64(before, 0.75), "late")}
-    </div></div>
+    <div class="side"><h4>three rallies before the break</h4>
+      <div class="frames">{"".join(img(d, c) for d, c in before)}</div></div>
+    <div class="side"><h4>three rallies after it</h4>
+      <div class="frames">{"".join(img(d, c) for d, c in after)}</div></div>
   </div>
   <div class="verdicts">
     <button data-v="swapped">they swapped ends</button>
@@ -301,9 +384,9 @@ th {{ color:#9a9aa2; font-weight:500; }}
 td.num {{ text-align:right; font-variant-numeric:tabular-nums; }}
 td.why {{ color:#9a9aa2; font-size:12.5px; max-width:44ch; }}
 .mono {{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:#8f8f98; }}
-tr.good td:nth-child(7) {{ color:#5fd08a; }}
-tr.bad  td:nth-child(7) {{ color:#e07a6a; }}
-tr.part td:nth-child(7) {{ color:#e0c46a; }}
+tr.good td:nth-child(6), tr.good td:nth-child(7) {{ color:#5fd08a; }}
+tr.bad  td:nth-child(6), tr.bad  td:nth-child(7) {{ color:#e07a6a; }}
+tr.part td:nth-child(6), tr.part td:nth-child(7) {{ color:#e0c46a; }}
 .case {{ border:1px solid #26262c; border-radius:14px; padding:16px 18px;
   margin:16px 0; background:#141418; }}
 .case.miss {{ border-color:#4a3030; }}
@@ -317,7 +400,7 @@ tr.part td:nth-child(7) {{ color:#e0c46a; }}
 .tag.wrong {{ background:#3a3018; color:#e0c46a; }}
 .head {{ color:#9a9aa2; font-size:13px; }}
 .pair {{ display:flex; gap:20px; flex-wrap:wrap; }}
-.frames {{ display:flex; gap:8px; }}
+.frames {{ display:flex; gap:6px; flex-wrap:wrap; max-width:min(46vw,760px); }}
 figure {{ margin:0; }}
 img {{ display:block; border-radius:8px; max-width:100%; }}
 figcaption {{ color:#71717a; font-size:11px; padding-top:4px; }}
@@ -339,9 +422,11 @@ figcaption {{ color:#71717a; font-size:11px; padding-top:4px; }}
   margin-top:8px; }}
 </style>
 <h1>Game boundaries</h1>
-<p class="lede">Every game boundary your own scoring proves, across {matches}
-matches, and whether the detector found it. A boundary is a game ending:
-the players walk round the table and swap ends. Nothing here is in the app.</p>
+<p class="lede">A game ending is the one thing this looks for: when a
+game finishes, the two players walk round and swap ends of the table, and
+that swap is visible even with no score on screen. Below is every game
+ending your own scoring proves, across {matches} matches, and whether the
+detector saw it. None of this is in the app.</p>
 
 <div class="score">
   <div><b>{recall}</b><span>of real boundaries found<br>({hits} of {truth})</span></div>
@@ -349,10 +434,18 @@ the players walk round the table and swap ends. Nothing here is in the app.</p>
 </div>
 
 <h2>Match by match</h2>
+<p class="lede"><b>Both players spotted</b> is the share of rallies where
+the detector got a clean read on a player at each end of the table. It
+cannot find a changeover in a rally it could not read, so this is the
+ceiling on everything else — but a high number does not guarantee a good
+result, only make one possible.</p>
+<p class="lede"><b>Found</b> counts the game endings your own scoring
+proves, so "4 of 5" means your scoring shows five games ending and the
+detector called four of them.</p>
 <table>
 <tr><th>match</th><th>opponent</th><th>type</th><th>rallies</th>
-<th>both players seen</th><th>how different they look</th>
-<th>found</th><th>wrong</th><th>why not</th></tr>
+<th>both players spotted</th><th>found</th><th>how it went</th>
+<th>why not</th></tr>
 {rows}
 </table>
 
@@ -363,6 +456,11 @@ a game ended there. Amber blocks are where the detector fired and your
 scoring disagrees; red is where your scoring says a game ended and the
 detector stayed quiet. Those two are the ones worth your time. Tap a
 verdict and send me the block from the corner.{truncated}</p>
+<p class="lede">Frames come from between 0.4 and 3.2 seconds after the
+serve, which is the same moment the detector reads the players at — mid
+rally, when both are at their own ends. Three rallies are shown either
+side because the rally right next to a break is often the one the cut got
+wrong.</p>
 {cases}
 
 <div id="out">
