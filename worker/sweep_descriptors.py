@@ -36,8 +36,22 @@ from worker.side_change import (  # noqa: E402
     _distance, detect_side_changes, merge_config, summarize_point_side,
 )
 
-NAMES = ("bgr", "bgr_cc", "rg", "lab", "lab_cc", "hs", "hs_cc",
-         "legs_lab", "legs_hs", "lab+legs_lab", "hs+legs_hs", "lab+rg")
+NAMES = (
+    # the baseline, and the same statistic on a masked polygon: the gap
+    # between these two is what the masking alone bought
+    "bgr",
+    # single-statistic colour, illumination-reduced
+    "lab", "rg", "lab_tc", "bgr_tc", "legs_lab",
+    # the tails the median throws away, banded over a rectified body
+    "lab_q", "lab_q_tc",
+    # identity that survives a change of light by construction
+    "logdiff", "geom",
+    # distributions, which survive an arm across the shirt
+    "hs_up", "hs_low", "cn_up", "cn_low",
+    # joins
+    "lab_q+logdiff", "lab_q+geom", "hs_up+hs_low", "cn_up+cn_low",
+    "lab+legs_lab", "logdiff+geom",
+)
 
 
 def compose(frame: dict, name: str) -> list[float] | None:
