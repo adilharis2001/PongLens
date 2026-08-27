@@ -293,6 +293,9 @@ def main() -> None:
     parser.add_argument(
         "--align", action="store_true",
         help="subtract each end's own mean signature before comparing")
+    parser.add_argument(
+        "--tune", action="store_true",
+        help="after picking a descriptor, sweep the state machine too")
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
 
@@ -340,6 +343,66 @@ def main() -> None:
             f"apart {ruler['apart_p50']:.3f})",
             flush=True,
         )
+
+    if args.tune and results:
+        # Second stage: with the descriptor settled, sweep the state
+        # machine itself. Kept separate because the two grids answer
+        # different questions and multiplying them together would take
+        # the sweep from minutes to hours for a joint optimum nobody
+        # would trust on 122 boundaries anyway.
+        winner = max(results, key=lambda r: r["f1"])
+        name = winner["descriptor"]
+        base = dict(winner["config"])
+        prepared = {
+            match_id: rebuild(evidence, name, 1e9,
+                              args.ambiguous, args.align)
+            for match_id, (evidence, _) in cache.items()
+        }
+        print(f"\ntuning the state machine on {name}:")
+        print(f"{'F1':>6}{'prec':>8}{'rec':>8}{'TP':>5}{'FP':>4}{'FN':>4}"
+              f"   link_span link_decay min_segment radius contradiction")
+        tuned = []
+        for span in (2, 3, 5):
+            for decay in (0.4, 0.6, 0.8):
+                for floor in (2, 3, 4):
+                    for radius in (1, 2, 3):
+                        for contradiction in (0.25, 0.35, 0.5):
+                            config = merge_config({
+                                **base, "link_span": span,
+                                "link_decay": decay,
+                                "min_segment_points": floor,
+                                "confidence_radius": radius,
+                                "max_contradiction": contradiction,
+                            })
+                            outcome = evaluate(prepared, truths, config)
+                            tuned.append(outcome)
+        tuned.sort(key=lambda r: (-r["f1"], -r["precision"]))
+        for outcome in tuned[:10]:
+            c = outcome["config"]
+            print(f"{outcome['f1']:6.3f}{outcome['precision']:8.1%}"
+                  f"{outcome['recall']:8.1%}{outcome['tp']:5d}"
+                  f"{outcome['fp']:4d}{outcome['fn']:4d}"
+                  f"   {int(c['link_span']):9d} {c['link_decay']:10.1f}"
+                  f" {int(c['min_segment_points']):11d}"
+                  f" {int(c['confidence_radius']):6d}"
+                  f" {c['max_contradiction']:13.2f}")
+        print("\nbest precision at recall >= 60%:")
+        strong = [t for t in tuned if t["recall"] >= 0.60]
+        strong.sort(key=lambda r: (-r["precision"], -r["recall"]))
+        for outcome in strong[:6]:
+            c = outcome["config"]
+            print(f"{outcome['f1']:6.3f}{outcome['precision']:8.1%}"
+                  f"{outcome['recall']:8.1%}{outcome['tp']:5d}"
+                  f"{outcome['fp']:4d}{outcome['fn']:4d}"
+                  f"   span={int(c['link_span'])} decay={c['link_decay']} "
+                  f"seg={int(c['min_segment_points'])} "
+                  f"radius={int(c['confidence_radius'])} "
+                  f"contradiction={c['max_contradiction']}")
+        if args.out:
+            best = tuned[0]
+            Path(str(args.out) + ".tuned").write_text(
+                json.dumps({k: v for k, v in best.items() if k != "detail"},
+                           indent=1, default=str))
 
     results.sort(key=lambda r: -r["f1"])
     print("\nbest first:")
