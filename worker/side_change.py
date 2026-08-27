@@ -38,16 +38,24 @@ EVIDENCE_VERSION = 3
 # app_config.game_end_detection_config (JSON) so tuning is one UPDATE, but
 # the defaults are the measured operating point, not placeholders.
 DEFAULT_CONFIG = {
-    # Every number here was fitted on 2026-08-27 against 120 game
-    # boundaries the owner's own scoring proves, across 51 matches, and
-    # every one is on the scale of the CHOSEN DESCRIPTOR — the torso's
-    # Lab a*b* joined to the shorts' Lab a*b*, four numbers. Swap the
-    # descriptor and none of these mean anything; refit with
+    # Every number here is on the scale of the CHOSEN DESCRIPTOR — the
+    # torso's Lab a*b* joined to the shorts' Lab a*b*, four numbers. Swap
+    # the descriptor and none of these mean anything; refit with
     # worker/sweep_descriptors.py, which builds each grid from that
     # descriptor's own measured distances.
     #
-    # At this operating point: 87.6% of what it fires on is a real game
-    # boundary, and it finds 65% of them.
+    # Fitted 2026-08-27 against the owner's scoring, then RE-fitted the
+    # same day against the owner's own eye. The two truths disagree and
+    # the eye wins: he watched the video at 141 breaks and said which
+    # ones were real changeovers, and the score sheet is a record of what
+    # he had time to tap during a match.
+    #
+    # At this operating point, against 93 boundaries he confirmed by
+    # watching: it finds 86% of them and every single thing it fires on
+    # is real. Against the score sheet the same settings read 73% recall
+    # at 85% precision, and the gap between those two precisions is not
+    # error — it is fires that are right about the video and wrong about
+    # the sheet.
 
     # --- qualification: which points are worth comparing at all ---------
     # Frames of one player in one rally must agree within this. Measured
@@ -76,10 +84,12 @@ DEFAULT_CONFIG = {
     "link_max_skip": 8,
 
     # --- what a state change costs ---------------------------------------
-    # The prior that changeovers are rare, at 0.2x the distance between
+    # The prior that changeovers are rare, at 0.1x the distance between
     # the two players. Raise it for precision, lower it for recall; it is
-    # the single knob that trades the two.
-    "switch_penalty": 0.016,
+    # the single knob that trades the two. Halved on 2026-08-27: the
+    # cautious value was costing real changeovers and buying nothing,
+    # which only became visible once the truth was the video.
+    "switch_penalty": 0.008,
     # Gap length discounts the penalty, smoothly and never to zero.
     # Measured over 3,573 gaps: the median gap at a true boundary is
     # 17.6s against 4.0s everywhere else, but p10 is 2.0s because a
@@ -100,7 +110,13 @@ DEFAULT_CONFIG = {
     # runs either side of it. See verify_change.
     "verify_points": 6,
     "verify_skip": 1,
-    "verify_margin": 0.008,
+    # Seven of the 22 changeovers this detector saw and refused sat
+    # between 0.002 and 0.008 — under the old bar by a hair. Every one
+    # of them was real, and the fires the lower bar adds were put in
+    # front of the owner and confirmed one by one before it moved. It
+    # cannot be lowered again on the same reasoning: what made this safe
+    # was thirteen new fires being judged, not the margin looking small.
+    "verify_margin": 0.002,
     # Share of comparisons the winning labelling may contradict before
     # the whole match is withheld as noise.
     "max_contradiction": 0.25,
@@ -110,10 +126,14 @@ DEFAULT_CONFIG = {
     # when no change is allowed within this many points of the candidate,
     # divided by this scale and clipped to 1.
     "confidence_radius": 2,
-    "confidence_scale": 0.032,
+    "confidence_scale": 0.016,
     # Below this, a change is recorded as diagnostic only and must not be
-    # surfaced. Components are stored so the floor can move.
-    "min_confidence": 0.65,
+    # surfaced. Components are stored so the floor can move. Not the
+    # thing that was blocking the misses — five of the first cases
+    # examined carried a confidence of 1.0 and were stopped by
+    # verify_margin — so read a low-confidence fire as "the labelling was
+    # close", never as "the players looked similar".
+    "min_confidence": 0.35,
 
     # --- display only -----------------------------------------------------
     # build_pairs still renders adjacent verdicts on the review pages.

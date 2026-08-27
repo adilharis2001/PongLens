@@ -46,6 +46,7 @@ sys.path.insert(0, str(HERE))
 
 from extract_side_changes_rtmpose import (  # noqa: E402
     DET_MODEL_URL, _create_det_model, _named_corners, _scaled_corners,
+    calibration_with_size,
     choose_players, dedupe_boxes, point_frames,
 )
 from side_change import (  # noqa: E402
@@ -205,6 +206,13 @@ def encode(image) -> str:
 
 def rally_view(det_model, folder: Path, match: dict, calibration: dict,
                idx: int, summaries: dict) -> dict | None:
+    """Frames from one rally with the table and the chosen players drawn.
+
+    `calibration` must already carry a size — see calibration_with_size.
+    The first version of this page did not, so the quad it drew, and the
+    player choice it drew alongside it, were wrong on every match whose
+    calibration omits one.
+    """
     point = next((p for p in match.get("points") or []
                   if int(p["idx"]) == idx), None)
     if point is None:
@@ -524,7 +532,7 @@ def main() -> None:
     for match, case, key in targets:
         folder = args.cache / match["match"]
         parsed = json.loads((folder / "match.json").read_text())
-        calibration = parsed.get("calibration") or {}
+        calibration = calibration_with_size(parsed, 1920, 1080)
         evidence = json.loads((folder / "evidence.json").read_text())
         points = rebuild(evidence, DESCRIPTOR, SPREAD_MAX)
         result = detect_side_changes(points, None)
@@ -551,7 +559,7 @@ def main() -> None:
     for match, idx, key, change in candidates:
         folder = args.cache / match["match"]
         parsed = json.loads((folder / "match.json").read_text())
-        calibration = parsed.get("calibration") or {}
+        calibration = calibration_with_size(parsed, 1920, 1080)
         points = rebuild(
             json.loads((folder / "evidence.json").read_text()),
             DESCRIPTOR, SPREAD_MAX)

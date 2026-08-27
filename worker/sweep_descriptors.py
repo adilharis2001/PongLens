@@ -134,6 +134,58 @@ def align_ends(points: list[dict]) -> list[dict]:
     return points
 
 
+def normalise_stature(evidence: dict) -> dict:
+    """Add `stature_rel`: body size as a fraction of the typical player
+    AT THAT END of the table.
+
+    `stature` is measured in end-line units, which removes most of the
+    perspective but not all of it: a player stands a metre or so behind
+    the line they are measured against, and how much that costs depends
+    on how far the camera is, which differs between the two ends. On one
+    match the same two people read 0.64 at the near end and 1.51 at the
+    far end. Left raw, the descriptor would say the players had changed
+    every single rally.
+
+    The residual bias is MULTIPLICATIVE — it is a distance ratio — so
+    dividing each end by its own median cancels it, and dividing rather
+    than subtracting is the whole reason this is not just align_ends.
+
+    What is left is "taller or shorter than the average player at this
+    end". When the two players did swap ends during the match, each end's
+    median sits between them and the two read symmetrically either side
+    of zero, which is exactly the comparison the detector wants. When
+    they never swapped, each end's median IS that end's only player and
+    both read zero — the feature goes quiet rather than inventing a
+    difference. That asymmetry is deliberate: this descriptor can fail to
+    help, and cannot manufacture a changeover on its own.
+    """
+    medians: dict[str, list[float]] = {}
+    for side in ("near", "far"):
+        rows = [
+            frame["stature"]
+            for point in evidence.get("points") or []
+            for frame in (point.get("bank") or {}).get(side) or []
+            if frame.get("stature")
+        ]
+        if len(rows) >= 8:
+            medians[side] = [statistics.median(c) for c in zip(*rows)]
+    for point in evidence.get("points") or []:
+        for side in ("near", "far"):
+            reference = medians.get(side)
+            if not reference:
+                continue
+            for frame in (point.get("bank") or {}).get(side) or []:
+                raw = frame.get("stature")
+                if not raw:
+                    continue
+                frame["stature_rel"] = [
+                    round((value - middle) / middle, 4)
+                    if abs(middle) > 1e-6 else 0.0
+                    for value, middle in zip(raw, reference)
+                ]
+    return evidence
+
+
 def rebuild(evidence: dict, name: str, spread_max: float,
             allow_ambiguous: bool = False,
             aligned: bool = False) -> dict:

@@ -710,3 +710,172 @@ Three matches are in the corpus twice, and one three times: Chris
 Alex (`1c7eb2b8`, `efff9208`). Four uploads of three matches. They do not
 bias precision or recall — both copies behave the same way — but the
 corpus is 47 distinct matches, not 51.
+
+---
+
+## What the second review round found (2026-08-27, afternoon)
+
+Adil went through the 22 misses and the 9 borderline candidates one by
+one, wrote a cause against each and a paragraph of what he could see.
+Three things came out of it, and only one of them was the thing being
+asked about.
+
+### 1. The candidates were real, so the bar came down
+
+All nine were shown as "a looser verification bar would fire here — did
+they swap?". Seven came back described as obvious changeovers ("this is
+clearly a change", "it seems pretty obvious"); two were in a match he
+asked to drop.
+
+That settles a question that could not be settled by measurement. Four
+thresholds moved together:
+
+| | was | now |
+| --- | --- | --- |
+| `verify_margin` | 0.008 | 0.002 |
+| `switch_penalty` | 0.016 | 0.008 |
+| `confidence_scale` | 0.032 | 0.016 |
+| `min_confidence` | 0.65 | 0.35 |
+
+No single one of them carries it — each is worth two to four boundaries
+alone and all four together are worth thirteen, because a candidate has
+to survive every gate. Scored per BOUNDARY rather than per rally index,
+against the 93 changeovers Adil has now confirmed by eye:
+
+| | before | after |
+| --- | --- | --- |
+| recall | 72.0% | **86.0%** |
+| precision | 100% | **100%** |
+| fires nobody has judged | 28 | 28 |
+
+The last row is the one that makes this safe. Loosening added thirteen
+fires and every one of them landed on a boundary he had already
+confirmed; it did not go and find thirteen new places to be wrong.
+
+Against the score sheet the same change reads 66% → 73% recall and 87% →
+85% precision. Those three extra "false positives" are fires the video
+says are right. Quote the video numbers.
+
+### 2. Scoring per rally index was inventing misses
+
+Seven of the 22 "misses" had fired one to three rallies away from the
+truth position. `eval_side_changes.score_match` has forgiven that drift
+since the morning — a changeover takes half a minute and the owner taps
+when he gets to it — but the by-hand tally built for the review page did
+not, so the page showed a correct detection as a failure and asked him to
+explain why it had not fired.
+
+`worker/judged_boundaries.py` is the fix: judged rally positions within
+three of each other collapse into one physical boundary, and a fire
+within three of any of them finds it. Worth seven boundaries on this
+corpus, none of them a change to the detector.
+
+### 3. The page drew the table in the wrong place
+
+Eight of the causes he returned were `not-detected` or `table-wrong`,
+with notes like "I don't see a green box and a yellow box" and "the far
+player identification is not working very well". Measured directly
+afterwards on two of those matches: the far player was found in **74 of
+75 frames**, and adding a second detection pass on a crop of the table
+took it to 75 of 75. There was nothing wrong with the detection.
+
+`build_missed_page.py` read `calibration` straight out of `match.json`
+and handed it to `_scaled_corners`. Corners are stored in the SOURCE
+video's pixels; the per-point clips are 720x406 against a 1920x1080
+source. `_scaled_corners` rescales between the two, but only when it is
+told the source size, and **50 of the 62 calibrated matches do not record
+one**. Its fallback is to assume the clip IS the source, which leaves the
+corners at their 1920-wide values on a 720-wide frame and puts the quad
+off the right-hand edge.
+
+Nothing raises. `choose_players` finds nobody within reach of a table
+that is not on screen, so every frame comes back with no players chosen,
+which looks exactly like a detector that cannot see people. The
+extractor, the labeller and the diagnostic all patch the size; the review
+page was the one that did not.
+
+It is `calibration_with_size()` now, in the extractor, imported by the
+page. A named function so the next caller inherits the fix rather than
+the bug.
+
+**His verdicts survive this and his causes do not.** Whether two players
+swapped ends is read off the picture; the boxes were decoration. But
+`not-detected`, `table-wrong` and some of `look-alike` were read off
+decoration that was wrong, so they cannot be used to direct the next
+change.
+
+### 4. And then the tables really were wrong
+
+Chasing the drawing bug turned up a real one underneath it. **Twenty-two
+of the 62 matches — twelve of the 37 Adil judged — still carry a quad
+from the retired pink-rim calibrator**, the one measured at 0.5% at LYTTC
+and 7.6% at PingPod.
+
+Eleven of them were re-detected with the keypoint model, from sixteen
+frames taken out of sixteen different rally clips
+(`recalibrate_from_clips.py`, built the same morning for matches with no
+calibration at all). Mean corner displacement against the stored quad,
+as a fraction of frame width:
+
+| | matches |
+| --- | --- |
+| agrees (< 1%) | 2 |
+| 13-20% out | 5 |
+| 45-49% out | 4 |
+
+Rendered side by side, all eleven tell the same story: the keypoint quad
+sits on the table and the pink-rim quad is spread across the hall, over
+two tables, or off the frame entirely. In the three PingPod matches the
+stored quad is not visible in the picture at all.
+
+This matters more than any descriptor. Near and far are decided by which
+side of the quad a person stands on, so a wrong quad does not add noise
+to the appearance comparison — it compares the wrong two people. That it
+still reached 86% is a property of `choose_players` degrading gracefully:
+"the biggest person" finds the near player whatever the quad says.
+
+Eleven quads replaced, originals kept as `match.pinkrim.json`, evidence
+cleared for re-extraction. The other eleven declined — the keypoint model
+refuses rather than guesses — and are being retried with more frames,
+which is the honest retry when the pooled vote could not decide. One of
+them, `98be5eb5`, declined with "frames split evenly between two tables
+(7 each of 14)", which is the two-rule guard doing exactly its job.
+
+### What Adil asked for, and what the corpus is being asked
+
+His own suggestions, in his order of confidence:
+
+- **Shoes.** "One thing that is almost always different is the color of
+  shoes." Tournaments hand every entrant the same shirt; they do not hand
+  out shoes. COCO-17 stops at the ankle, so `footwear_pixels` hangs a box
+  below it sized from the player's own shin. Available on **98.3% of
+  frames**, which is far better than the "shoes could be under the table"
+  worry suggested. On `2f7168db` — his navy-against-navy case — the
+  baseline descriptor fires nothing and `lab+legs_lab+shoe_lab` finds the
+  changeover.
+- **Height.** "If you take the measurements of the near player standing
+  in the same spot and then you see that the near player changes, you
+  know." `geom` already stores body ratios and scored 4.2% recall alone,
+  because a ratio throws away the one number that separates a tall player
+  from a short one. `stature` stores the absolute lengths instead,
+  divided by the 1.525 m end line at that player's own end.
+- **Sample the shirt in more than one place.** "His shirt does have dark
+  spots... the top half is lighter." `lab_q` already does this and lost
+  to the plain median; it is worth retrying as an addition rather than a
+  replacement.
+- **Skin tone.** Not built, and not a close call. It is a protected
+  characteristic under GDPR Article 9 and the EU AI Act, PongLens has an
+  open legal compliance audit, and a table tennis product that tells
+  players apart by their race is indefensible whatever it scores. Adil
+  raised the concern himself in the same sentence he raised the idea.
+
+### One thing measured and rejected already
+
+**A second detection pass on a crop of the table.** RTMDet's ONNX has a
+static 640x640 input, so a 1920-wide frame is downscaled 3x before the
+model sees it and a far player 40px tall arrives as 13px. Re-running the
+detector on a crop around the table should have helped. Measured over 150
+frames of the two matches where the far player was supposedly missing:
+74/75 to 75/75 on one, 74/75 to 75/75 on the other. One frame in 150.
+Not worth doubling detection time for, and the reason it is not worth it
+is that the problem it was built for did not exist.

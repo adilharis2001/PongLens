@@ -204,6 +204,42 @@ def point_sample_frames(frame_count: int, samples: int) -> list[int]:
     )
 
 
+def calibration_with_size(
+    match: Mapping[str, Any],
+    width: int,
+    height: int,
+) -> dict[str, Any]:
+    """Calibration guaranteed to carry the size its corners were marked at.
+
+    Corners are stored in the SOURCE video's pixels; the per-point clips
+    are re-encoded smaller, 720x406 against 1920x1080 on most of this
+    corpus. `_scaled_corners` rescales between the two, but only if it is
+    told the source size, and 50 of the 62 calibrated matches here do not
+    record one. Without this patch it falls back to assuming the clip IS
+    the source, leaves the corners at their 1920-wide values, and the
+    quad lands off the right-hand edge of a 720-wide frame.
+
+    Nothing then raises. `choose_players` simply finds nobody within
+    reach of the table and every frame comes back with no players at all,
+    which reads exactly like a detector that cannot see people. It cost a
+    review round on 2026-08-27: the missed-changeover page drew the table
+    in the wrong place on every match without a size, so the boxes said
+    "nobody detected" while the detector itself, which does patch this,
+    was finding the far player in 98.7% of frames.
+
+    Every caller that scales corners needs it. It is a function so that
+    the next one inherits the fix instead of the bug.
+    """
+    calibration = dict(match.get("calibration") or {})
+    if "size" not in calibration:
+        source = match.get("source") or {}
+        calibration["size"] = [
+            int(source.get("width") or width),
+            int(source.get("height") or height),
+        ]
+    return calibration
+
+
 def _named_corners(corners: Mapping[str, Any]) -> dict[str, list[float]]:
     named = {}
     for key, value in corners.items():
@@ -552,8 +588,20 @@ BANDS = (("chest", 0.10, 0.55), ("torso", 0.55, 0.95),
 QUANTILES = (10, 25, 50, 75, 90)
 HS_BINS = (8, 8)
 LEGS_POLYGON = (11, 12, 14, 13)
+SHINS_POLYGON = (13, 14, 16, 15)
 TORSO_POLYGON = (5, 6, 12, 11)
 REGION_SHRINK = 0.82
+# Footwear. COCO-17 stops at the ankle, so the shoe is a box hung BELOW
+# it, sized from the player's own shin so it scales with distance. Adil's
+# observation from reviewing 31 missed changeovers, 2026-08-27: a
+# tournament hands every entrant the same shirt, and the thing that is
+# almost never shared is the shoes. Shoes are also the region most often
+# hidden — behind the table for the far player, cropped for the near one
+# — so this is stored as its own descriptor and is simply absent when the
+# ankles are not confidently seen, rather than degrading the torso.
+SHOE_DROP = 0.14                     # of shin length, ankle to box top
+SHOE_DEPTH = 0.34                    # of shin length, box height
+SHOE_HALF_W = 0.30                   # of shin length, either side
 
 # The sixteen standard web colours, built here rather than taken from
 # van de Weijer's w2c table, which states no licence anywhere.
@@ -881,6 +929,20 @@ def _lab_ab(pixels: np.ndarray) -> list[float]:
     return [float(v / 255.0) for v in ab]
 
 
+def _lab_full(pixels: np.ndarray) -> list[float]:
+    """Median L*,a*,b*, keeping the lightness that _lab_ab throws away.
+
+    L* is discarded everywhere else because it is mostly a record of
+    which end of the table the player is standing at. Footwear is the one
+    region where it has to stay: white shoes against black shoes differ
+    in nothing else.
+    """
+    patch = np.clip(pixels, 0, 255).astype(np.uint8).reshape(-1, 1, 3)
+    lab = cv2.cvtColor(patch, cv2.COLOR_BGR2LAB).reshape(-1, 3)
+    return [float(v / 255.0)
+            for v in np.median(lab.astype(np.float32), axis=0)]
+
+
 def table_half_reference(
     image: np.ndarray,
     corners: Mapping[str, list[float]],
@@ -955,11 +1017,131 @@ def end_correction(
     return gain.astype(np.float32)
 
 
+TABLE_W_M, TABLE_L_M = 1.525, 2.740
+
+
+def end_line_pixels(
+    corners: Mapping[str, Any] | None,
+    side: str,
+) -> float | None:
+    """Pixel length of the 1.525 m end line at one end of the table.
+
+    A ruler of known real length, lying on the floor beside the player,
+    facing the camera the same way the player does. An upright person and
+    a lateral line are both broadside to the camera, so both shrink with
+    distance at the same rate -- which makes this the right thing to
+    divide a pixel height by.
+
+    Measured on the quad itself rather than extrapolated to where the
+    player is standing. Extrapolating a homography behind the far end
+    puts the sample near the horizon and the answer runs away: the first
+    attempt at this read the far players as 0.42 m tall. What is left is
+    a known bias -- players stand a metre or so behind the line, so every
+    height reads short, and reads short by different amounts at the two
+    ends. That bias is constant for a camera and divides out when each
+    end is centred on its own median, which is a decision for the sweep
+    and not for extraction time.
+    """
+    try:
+        named = _named_corners(corners or {})
+    except Exception:                                    # noqa: BLE001
+        return None
+    a, b = ((named["A"], named["B"]) if side == "near"
+            else (named["D"], named["C"]))
+    length = float(np.hypot(a[0] - b[0], a[1] - b[1]))
+    return length if length > 4.0 else None
+
+
+def stature(
+    keypoints: np.ndarray,
+    scores: np.ndarray,
+    corners: Mapping[str, Any] | None,
+    side: str,
+) -> list[float] | None:
+    """How big this player is, in units of their own end line.
+
+    Adil's idea, from reviewing the misses on 2026-08-27: when two players
+    wear the same tournament shirt, what still differs is how tall they
+    are. `geom` already stores ratios of a body to itself and scored 4.2%
+    recall alone, because a ratio throws away the one number that
+    separates a tall player from a short one.
+
+    Absolute size cannot be read off the image -- the far player is
+    smaller for being far away, not for being shorter -- so it is divided
+    by the end line at that player's own end, which is 1.525 m of known
+    ruler at roughly the right distance.
+
+    Two lengths, because a stance bends the hips far more than it lowers
+    the shoulders relative to the feet, and a player low in their stance
+    would otherwise measure short.
+    """
+    scale = end_line_pixels(corners, side)
+    if scale is None:
+        return None
+    for index in (5, 6, 11, 12):
+        if float(scores[index]) < TORSO_MIN_CONF:
+            return None
+    ankles = [i for i in (15, 16) if float(scores[i]) >= TORSO_MIN_CONF]
+    if not ankles:
+        return None
+    foot = np.mean([keypoints[i][:2] for i in ankles], axis=0)
+    shoulders = (keypoints[5][:2] + keypoints[6][:2]) / 2.0
+    hips = (keypoints[11][:2] + keypoints[12][:2]) / 2.0
+    standing = float(np.linalg.norm(np.asarray(foot) - np.asarray(shoulders)))
+    seated = float(np.linalg.norm(np.asarray(foot) - np.asarray(hips)))
+    values = [standing / scale, seated / scale]
+    # A player is not the length of their own end line, nor a tenth of
+    # it. Anything outside that is a keypoint on somebody else and would
+    # poison the median for the whole point.
+    if not (0.15 < values[0] < 2.5) or not (0.05 < values[1] < 1.6):
+        return None
+    return [round(v, 4) for v in values]
+
+
+def footwear_pixels(
+    image: np.ndarray,
+    keypoints: np.ndarray,
+    scores: np.ndarray,
+) -> np.ndarray | None:
+    """BGR pixels of both shoes, from boxes hung below the ankles.
+
+    COCO-17 has no foot keypoints, so the box is placed by geometry: down
+    from the ankle by a fraction of the player's own shin, which keeps it
+    the right size at either end of the table. Both feet are pooled --
+    a player mid-stride has one foot the camera can see and one it
+    cannot, and pooling lets the visible one answer.
+    """
+    boxes = []
+    for ankle, knee in ((15, 13), (16, 14)):
+        if min(float(scores[ankle]), float(scores[knee])) < TORSO_MIN_CONF:
+            continue
+        shin = float(np.linalg.norm(
+            keypoints[ankle][:2] - keypoints[knee][:2]))
+        if shin < 6.0:
+            continue
+        cx, cy = float(keypoints[ankle][0]), float(keypoints[ankle][1])
+        x0 = int(round(cx - SHOE_HALF_W * shin))
+        x1 = int(round(cx + SHOE_HALF_W * shin))
+        y0 = int(round(cy + SHOE_DROP * shin))
+        y1 = int(round(cy + (SHOE_DROP + SHOE_DEPTH) * shin))
+        x0, x1 = max(0, x0), min(image.shape[1], x1)
+        y0, y1 = max(0, y0), min(image.shape[0], y1)
+        if x1 - x0 < 2 or y1 - y0 < 2:
+            continue
+        boxes.append(image[y0:y1, x0:x1].reshape(-1, 3))
+    if not boxes:
+        return None
+    pixels = np.concatenate(boxes, axis=0).astype(np.float32)
+    return pixels if pixels.shape[0] >= 12 else None
+
+
 def player_descriptors(
     image: np.ndarray,
     keypoints: np.ndarray,
     scores: np.ndarray,
     correction: np.ndarray | None = None,
+    corners: Mapping[str, Any] | None = None,
+    side: str = "near",
 ) -> dict[str, list[float]] | None:
     """Every candidate appearance signature for one player in one frame.
 
@@ -986,6 +1168,30 @@ def player_descriptors(
     legs = _region_pixels(image, keypoints, scores, LEGS_POLYGON)
     if legs is not None:
         out["legs_lab"] = [round(v, 4) for v in _lab_ab(legs)]
+
+    shins = _region_pixels(image, keypoints, scores, SHINS_POLYGON)
+    if shins is not None:
+        out["shins_lab"] = [round(v, 4) for v in _lab_ab(shins)]
+
+    shoes = footwear_pixels(image, keypoints, scores)
+    if shoes is not None:
+        # Chromaticity AND brightness, unlike every other region here.
+        # a*b* alone cannot tell a white shoe from a black one, and white
+        # against black is the commonest pair there is.
+        out["shoe_lab"] = [round(v, 4) for v in _lab_full(shoes)]
+        out["shoe_bgr"] = [round(float(v), 4)
+                           for v in np.median(shoes, axis=0) / 255.0]
+        out["shoe_rg"] = [round(v, 4) for v in _chromaticity(shoes)]
+        if correction is not None:
+            corrected = np.clip(shoes * correction, 0.0, 255.0)
+            out["shoe_bgr_tc"] = [round(float(v), 4)
+                                  for v in np.median(corrected, axis=0) / 255.0]
+        else:
+            out["shoe_bgr_tc"] = out["shoe_bgr"]
+
+    size = stature(keypoints, scores, corners, side)
+    if size is not None:
+        out["stature"] = size
 
     proportions = body_proportions(keypoints, scores)
     if proportions is not None:
@@ -1189,15 +1395,7 @@ def extract_side_change_evidence(
     if first_clip is None:
         raise FileNotFoundError(f"no point clip is present under {clips_dir}")
     _, _, first_width, first_height = _clip_metadata(first_clip)
-    if "size" not in calibration:
-        source = match.get("source") or {}
-        calibration = {
-            **calibration,
-            "size": [
-                int(source.get("width") or first_width),
-                int(source.get("height") or first_height),
-            ],
-        }
+    calibration = calibration_with_size(match, first_width, first_height)
 
     if pose_model is None:
         actual_hash = sha256(model_path)
@@ -1315,6 +1513,8 @@ def extract_side_change_evidence(
                             keypoints[position],
                             scores[position],
                             end_correction(reference, side),
+                            corners,
+                            side,
                         )
                         committed = chosen.get(side) is not None
                         if bank is not None:

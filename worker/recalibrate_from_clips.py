@@ -106,18 +106,19 @@ def frame_size(image: Path) -> tuple[int, int]:
     return int(width), int(height)
 
 
-def calibrate(match_json: Path, verbose: bool = True) -> dict:
+def calibrate(match_json: Path, verbose: bool = True,
+              frames: int = FRAMES) -> dict:
     clips = clip_paths(match_json)
     if len(clips) < 4:
         return {"ok": False, "reason": f"only {len(clips)} clips on disk"}
     staging = Path(tempfile.mkdtemp(prefix="recal-"))
     try:
         made = []
-        for i, clip in enumerate(pick(clips, FRAMES)):
+        for i, clip in enumerate(pick(clips, frames)):
             png = staging / f"f{i:03d}.png"
             if midframe(clip, png):
                 made.append(png)
-        if len(made) < FRAMES // 2:
+        if len(made) < frames // 2:
             return {"ok": False,
                     "reason": f"only {len(made)} frames could be read"}
         width, height = frame_size(made[0])
@@ -206,6 +207,13 @@ def main() -> None:
     parser.add_argument("--all-uncalibrated", action="store_true")
     parser.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument(
+        "--frames", type=int, default=FRAMES,
+        help=("clips to sample. Sixteen is the measured floor for a "
+              "single detection and must not be lowered — one frame is "
+              "wrong 13% of the time and sixteen is 0.2%. Raising it is "
+              "the honest retry when the pooled vote could not decide, "
+              "which on this corpus is a hall with two tables in shot."))
     args = parser.parse_args()
 
     targets = [args.workdir / m for m in args.match]
@@ -236,7 +244,7 @@ def main() -> None:
                   f"({cal.get('source')})")
             continue
         print(f"{directory.name[:8]} recalibrating...", flush=True)
-        result = calibrate(match_json)
+        result = calibrate(match_json, frames=args.frames)
         if not result.get("ok"):
             print(f"{directory.name[:8]} DECLINED: {result.get('reason')}")
             continue
