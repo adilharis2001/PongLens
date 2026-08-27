@@ -14,6 +14,7 @@ import {
   type Tracks,
 } from "./pointReading";
 import { isRecovered } from "./segments";
+import { recoverServe, serverSideFor, type ServePair } from "./serveRepair";
 import { finalExits, inPrism, prismPolygon, type Pt } from "./prism";
 import {
   REJECTION_COPY,
@@ -75,6 +76,14 @@ const LEGEND: {
     ring: true,
     label: "Rally ending",
     where: "last shot with a landing, ungated and measured against nothing",
+  },
+  {
+    swatch: "#22d3ee",
+    ring: true,
+    label: "Serve landing put back by the flights",
+    where:
+      "the detector found only one of the serve's two bounces; the ball's "
+      + "own flight supplied the other",
   },
   {
     swatch: "#22d3ee",
@@ -179,6 +188,49 @@ function reading(
   const made = readPoint(row, corners, tracks, source);
   perRow.set(row, made);
   return made;
+}
+
+/**
+ * The serve, rebuilt from the two bounces alone, with one supplied by the
+ * ball's own flight where the detector missed it.
+ *
+ * Kept beside the reading rather than inside it because it answers a
+ * different question: the rules above name a winner, this draws a dot on
+ * the map. Cached the same way and for the same reason.
+ */
+const serves = new WeakMap<Tracks, WeakMap<ServeAccuracyRow, ServePair | null>>();
+
+function serveOf(
+  row: ServeAccuracyRow,
+  corners: Corners,
+  tracks: Tracks | null,
+  source: SourceDims,
+): ServePair | null {
+  const key = tracks ?? NO_TRACKS;
+  let perRow = serves.get(key);
+  if (!perRow) { perRow = new WeakMap(); serves.set(key, perRow); }
+  if (perRow.has(row)) return perRow.get(row) ?? null;
+  const made = recoverServe(
+    row.events,
+    tracks?.[row.pointId] ?? null,
+    corners,
+    row.clipT0,
+    source,
+    serverSideFor(row.server, row.userPhysicalSide),
+    row.userPhysicalSide,
+  );
+  perRow.set(row, made);
+  return made;
+}
+
+/** A serve that only exists because a bounce was put back. */
+function serveWasRecovered(
+  row: ServeAccuracyRow,
+  corners: Corners,
+  tracks: Tracks | null,
+  source: SourceDims,
+): boolean {
+  return serveOf(row, corners, tracks, source)?.recovered != null;
 }
 
 function ruleVerdict(
@@ -524,8 +576,9 @@ const TH = 202;
 
 /** Every touch that projected onto the table, in the map's own frame. */
 function Court(
-  { row, corners, events }:
-  { row: ServeAccuracyRow; corners: Corners; events: DetectedEvent[] },
+  { row, corners, events, serve }:
+  { row: ServeAccuracyRow; corners: Corners; events: DetectedEvent[];
+    serve: ServePair | null },
 ) {
   const xy = (u: number, v: number) => ({
     x: TX + (TW * u) / TABLE_W_M,
@@ -630,6 +683,24 @@ function Court(
               strokeWidth="1.5"
               strokeDasharray="3 2"
             />
+          </g>
+        );
+      })()}
+      {serve?.recovered != null
+        && serve.landing.nu !== null && serve.landing.nv !== null && (() => {
+        const p = xy(serve.landing.nu as number, serve.landing.nv as number);
+        return (
+          <g>
+            <title>
+              {"serve landing, put back by the ball's flight — "
+                + `${(serve.landing.clipT ?? 0).toFixed(2)}s`}
+            </title>
+            <circle
+              cx={p.x} cy={p.y} r="6.5"
+              fill="none" stroke="#22d3ee" strokeWidth="2.25"
+            />
+            <circle cx={p.x} cy={p.y} r="11" fill="none"
+              stroke="#22d3ee" strokeWidth="1" strokeDasharray="3 2.5" />
           </g>
         );
       })()}
@@ -741,6 +812,7 @@ function Row({
   // The reading decides which events the rules see: the recorded ones, or
   // those plus what the flights put back where the first pass refused.
   const read = reading(row, match.corners, tracks, match.source);
+  const serve = serveOf(row, match.corners, tracks, match.source);
   const events = read.events;
   const deadRuns = findDeadRuns(events);
   const died = findBallDied(
@@ -822,7 +894,12 @@ function Row({
             </button>
           )}
         </div>
-        <Court row={row} corners={match.corners} events={events} />
+        <Court
+          row={row}
+          corners={match.corners}
+          events={events}
+          serve={serveOf(row, match.corners, tracks, match.source)}
+        />
       </div>
 
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
@@ -877,6 +954,24 @@ function Row({
                   + `${deadRuns[deadRuns.length - 1].metresFromNet.toFixed(2)} m `
                   + "from the net"
                 : `turned at the net, ${died.turn?.distM.toFixed(2)} m out`}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Serve</dt>
+          <dd className={serve?.recovered ? "text-cyan-glow" : "text-zinc-200"}>
+            {serve === null
+              ? "not reconstructed"
+              : serve.recovered === null
+                ? "both bounces detected"
+                : `${serve.recovered === "landing" ? "the landing"
+                  : serve.recovered === "first" ? "the first bounce"
+                  : "both bounces"} put back from the ball's flight`}
+            {serve && serve.landing.u !== null && serve.landing.v !== null && (
+              <span className="text-zinc-500">
+                {` · lands ${(serve.landing.v as number) < TABLE_L_M / 2 === (row.userPhysicalSide === "near")
+                  ? "your" : "their"} half`}
+              </span>
+            )}
           </dd>
         </div>
         <div>
@@ -976,6 +1071,12 @@ function Row({
       {row.serve === null && row.rejection !== null && (
         <p className="mt-1 text-xs text-amber-300/80">
           No serve drawn. {REJECTION_COPY[row.rejection]}
+          {serve?.recovered != null && (
+            <span className="text-cyan-glow">
+              {" The ball's own flight supplies the missing bounce, and the "}
+              {"serve above is drawn from that. Production still refuses it."}
+            </span>
+          )}
         </p>
       )}
     </div>
@@ -1009,6 +1110,8 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
                     ? decidingRule(r, match.corners, allTracks, match.source) === "no return"
                   : only === "repaired"
                     ? ruleWasRepaired(r, match.corners, allTracks, match.source)
+                  : only === "serverepair"
+                    ? serveWasRecovered(r, match.corners, allTracks, match.source)
                   : only === "disagree"
                     ? disagrees(r, match.corners, allTracks, match.source)
                   : only.startsWith("wrongby:")
@@ -1031,6 +1134,12 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
     [match, only, allTracks],
   );
   const disagreed = stats.callCompared - stats.callAgreed;
+  const serveRecovered = useMemo(
+    () => match.rows.filter(
+      (r) => serveWasRecovered(r, match.corners, allTracks, match.source),
+    ).length,
+    [match, allTracks],
+  );
   const repairedCount = useMemo(
     () => match.rows.filter(
       (r) => ruleWasRepaired(r, match.corners, allTracks, match.source),
@@ -1234,6 +1343,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
             ["wrong", `We called it wrong ${ruleWrong}`],
             ["disagree", `Rules disagree ${disagreeCount}`],
             ["repaired", `Repaired ${repairedCount}`],
+            ["serverepair", `Serve recovered ${serveRecovered}`],
             ["heldback", `Held back ${heldBack}`],
             ["noreturn", `No return ${noReturnScore.fires}`],
             ["nocall", `No call ${noCall}`],

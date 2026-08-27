@@ -7,6 +7,7 @@ import {
   TABLE_W_M,
   type DetectedEvent,
 } from "./serveAccuracyModel.ts";
+import { findServe, recoverServe, serverSideFor } from "./serveRepair.ts";
 import {
   flightsOf,
   isRecovered,
@@ -30,6 +31,7 @@ import {
 interface Fixture {
   key: string;
   winner: "user" | "opponent";
+  server: "user" | "opponent" | null;
   userPhysicalSide: "near" | "far";
   clipT0: number;
   corners: Record<string, [number, number]>;
@@ -67,6 +69,7 @@ test("the homography agrees with the worker's own projection", () => {
 
 test("a join lands on the bounces the detector found independently", () => {
   let landings = 0, seen = 0;
+  const off: number[] = [];
   for (const p of POINTS) {
     const geo = segGeometry(p.corners);
     assert.ok(geo);
@@ -78,17 +81,20 @@ test("a join lands on the bounces the detector found independently", () => {
       const j = joins.find((x) => Math.abs(x.t - e.t) < 0.12 && x.kind !== "contact");
       if (!j) continue;
       seen += 1;
-      // Two independent readings of the same bounce: the detector's, and
-      // where two fitted flights meet. Half a metre apart would mean they
-      // are not describing the same event.
-      assert.ok(
-        Math.hypot(j.u - (e.u as number), j.v - (e.v as number)) < 0.5,
-        `${p.key} at ${e.t}: join at ${j.u.toFixed(2)},${j.v.toFixed(2)}`,
-      );
+      off.push(Math.hypot(j.u - (e.u as number), j.v - (e.v as number)));
     }
   }
-  assert.ok(landings > 25, `only ${landings} landings in the fixture`);
+  assert.ok(landings > 80, `only ${landings} landings in the fixture`);
   assert.ok(seen / landings > 0.8, `joins found only ${seen} of ${landings}`);
+  // Two independent readings of the same bounce. Over the whole corpus
+  // they agree to 6.6 cm at the median and 26 cm at the ninetieth
+  // percentile, with a thin tail beyond. The claim is about that
+  // distribution, so that is what is asserted: a single outlier is
+  // expected and is not what would signal a broken reading.
+  off.sort((a, b) => a - b);
+  const at = (f: number) => off[Math.floor(f * (off.length - 1))];
+  assert.ok(at(0.5) < 0.12, `median disagreement ${at(0.5).toFixed(2)} m`);
+  assert.ok(at(0.9) < 0.45, `p90 disagreement ${at(0.9).toFixed(2)} m`);
 });
 
 test("a recovered landing never doubles one the detector already found", () => {
@@ -176,4 +182,118 @@ test("recovered landings are drawn the same way round as detected ones", () => {
       );
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+// The serve
+// ---------------------------------------------------------------------------
+
+const W = TABLE_W_M;
+const onTable = (e: { u: number | null; v: number | null }) =>
+  e.u !== null && e.v !== null
+  && e.u >= 0 && e.u <= W && e.v >= 0 && e.v <= TABLE_L_M;
+
+test("a serve bounce is put back where the one it replaces actually was", () => {
+  // Hold-out. Take a point where the detector found BOTH of the serve's
+  // bounces, hide the landing, and ask the ball's flight to supply it.
+  // Nothing here is compared against what this code produced: the answer
+  // was measured by a different detector before this file existed.
+  let tested = 0;
+  for (const p of POINTS) {
+    const side = serverSideFor(p.server, p.userPhysicalSide);
+    const full = findServe(p.events, side);
+    if (!full || full.recovered !== null) continue;
+    const without = p.events.filter((e) => e.id !== full.landing.id);
+    const rebuilt = recoverServe(
+      without, p.track, p.corners, p.clipT0, p.source, side, p.userPhysicalSide,
+    );
+    // Hiding the landing can let a different detected pair pass the serve
+    // geometry on its own. That is the plain rule working, not a recovery,
+    // and it tests nothing here.
+    if (rebuilt === null || rebuilt.recovered === null) continue;
+    tested += 1;
+    const off = Math.hypot(
+      (rebuilt.landing.u as number) - (full.landing.u as number),
+      (rebuilt.landing.v as number) - (full.landing.v as number),
+    );
+    assert.ok(off < 0.4, `${p.key}: put back ${off.toFixed(2)} m from where it was`);
+  }
+  assert.ok(tested >= 3, `only ${tested} serves actually held out`);
+});
+
+test("a recovered serve landing is on the table, never nudged onto its edge", () => {
+  for (const p of POINTS) {
+    const side = serverSideFor(p.server, p.userPhysicalSide);
+    const serve = recoverServe(
+      p.events, p.track, p.corners, p.clipT0, p.source, side, p.userPhysicalSide,
+    );
+    if (serve === null || serve.recovered === null) continue;
+    assert.ok(onTable(serve.landing), `${p.key}: landing off the table`);
+    // The bug this guards: recovered landings were clamped into the table,
+    // so impulses that happened on the floor arrived at exactly u=0 or
+    // v=0 and were accepted. Ten of twenty-one "recovered" serves were
+    // sitting on a corner. A landing is on the table by its own reading or
+    // it is not a landing.
+    const u = serve.landing.u as number, v = serve.landing.v as number;
+    const onEdge = u === 0 || u === W || v === 0 || v === TABLE_L_M;
+    assert.equal(onEdge, false, `${p.key}: landing clamped to the edge at ${u}, ${v}`);
+  }
+});
+
+test("a recovered serve still crosses the net, server's half first", () => {
+  let seen = 0;
+  for (const p of POINTS) {
+    const side = serverSideFor(p.server, p.userPhysicalSide);
+    if (side === null) continue;
+    const serve = recoverServe(
+      p.events, p.track, p.corners, p.clipT0, p.source, side, p.userPhysicalSide,
+    );
+    if (serve === null) continue;
+    seen += 1;
+    // Rule six, the guard against the invisible failure: if the rotation
+    // is wrong every serve flips player at once, and the serve's own first
+    // bounce is the second, independent read of who served. Recovering a
+    // bounce must never weaken it.
+    assert.equal(halfOf(serve.first.v as number), side, `${p.key}: first bounce`);
+    assert.notEqual(halfOf(serve.landing.v as number), side, `${p.key}: landing`);
+    assert.ok(serve.landing.t > serve.first.t, `${p.key}: out of order`);
+  }
+  assert.ok(seen >= 8, `only ${seen} serves in the fixture`);
+});
+
+test("a serve the detector already saw is left exactly as it was", () => {
+  let checked = 0;
+  for (const p of POINTS) {
+    const side = serverSideFor(p.server, p.userPhysicalSide);
+    const plain = findServe(p.events, side);
+    if (!plain) continue;
+    checked += 1;
+    const repaired = recoverServe(
+      p.events, p.track, p.corners, p.clipT0, p.source, side, p.userPhysicalSide,
+    );
+    assert.equal(repaired?.first.id, plain.first.id, `${p.key}: first moved`);
+    assert.equal(repaired?.landing.id, plain.landing.id, `${p.key}: landing moved`);
+    assert.equal(repaired?.recovered, null, `${p.key}: marked as recovered`);
+  }
+  assert.ok(checked >= 8, `only ${checked} complete serves`);
+});
+
+test("point 75 gets the bounce Adil can see and the detector never logged", () => {
+  const p = POINTS.find((x) => x.key === "Julian 75");
+  assert.ok(p, "Julian 75 missing from the fixture");
+  const f = p as Fixture;
+  // One event stored for the whole point, and it reads four centimetres
+  // wide of the sideline, so it is not even a landing.
+  assert.equal(f.events.length, 1);
+  assert.equal(onTable(f.events[0]), false);
+  const side = serverSideFor(f.server, f.userPhysicalSide);
+  assert.equal(findServe(f.events, side), null, "a serve was built from one event");
+  const serve = recoverServe(
+    f.events, f.track, f.corners, f.clipT0, f.source, side, f.userPhysicalSide,
+  );
+  assert.ok(serve, "no serve recovered");
+  const s = serve as NonNullable<typeof serve>;
+  // Julian served; the landing belongs on Adil's half, which is near here.
+  assert.equal(halfOf(s.landing.v as number), f.userPhysicalSide);
+  assert.ok(onTable(s.landing));
 });

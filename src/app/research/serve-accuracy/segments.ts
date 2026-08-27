@@ -694,3 +694,93 @@ export function repairTrust(
     trusted: fullAlternation && sawItLeave,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Impulses
+// ---------------------------------------------------------------------------
+
+/**
+ * Moments the ball stopped falling as fast as it was falling.
+ *
+ * The flight splitter above looks for the ball to turn around, and on a
+ * side-on camera that works. It fails on the shot that crosses TOWARD the
+ * lens, because moving down the picture also means getting closer, and
+ * that apparent descent swamps the ball's real rise off the table. Julian's
+ * point 75 is the case Adil brought: a serve whose second bounce lifts the
+ * ball exactly two pixels, between frames falling at sixteen and twenty-
+ * three. Nothing looking for a reversal will ever see it.
+ *
+ * Read the same frames as speed instead of position and it is obvious.
+ * The ball falls at 16-23 px per frame, then 2, then 5, 8, 12, 16 building
+ * back up. Gravity only ever ADDS downward speed. Losing it means
+ * something touched the ball, and that statement survives the perspective
+ * problem completely, because it does not care how far the ball moved.
+ *
+ * Measured against the bounces the worker's own detector found, over both
+ * matches: a reversal catches 71% of them, this catches 83%. It is also
+ * much less specific — 43% of what it flags is a bounce the worker agrees
+ * with — so it is a way of PROPOSING bounces, never of confirming one.
+ * What confirms it is the sequence, the same as everywhere else here.
+ */
+
+/** Downward speed lost, in pixels per second, before a frame is an event. */
+export const SEG_MIN_KICK_PX_S = 105;
+/** Frames each side used to measure the speed. */
+const KICK_LEG = 3;
+/** Two flags this close together are one impulse seen twice. */
+const KICK_MERGE_S = 0.12;
+
+export interface Impulse {
+  /** Source seconds. */
+  t: number;
+  x: number;
+  y: number;
+  /** Table metres, valid only if this really is a bounce. */
+  u: number;
+  v: number;
+  /** How much downward speed was lost, px/s. Bigger is more certain. */
+  kick: number;
+}
+
+export function impulsesOf(
+  track: readonly (readonly number[])[] | null,
+  clipT0: number | null,
+  source: { width: number; height: number } | null,
+  geo: SegGeometry | null,
+  minKick = SEG_MIN_KICK_PX_S,
+  minConf = SEG_MIN_CONF,
+): Impulse[] {
+  if (!track || clipT0 === null || !source || !geo) return [];
+  const pts = track
+    .filter((q) => q[3] >= minConf)
+    .map((q) => ({
+      t: clipT0 + q[0], x: q[1] * source.width, y: q[2] * source.height,
+    }))
+    .sort((a, b) => a.t - b.t);
+  const out: Impulse[] = [];
+  for (let i = KICK_LEG; i < pts.length - KICK_LEG; i++) {
+    // Never measure a speed across a hole: the frames either side of one
+    // are not one flight and the difference between them is not physics.
+    let continuous = true;
+    for (let k = i - KICK_LEG; k < i + KICK_LEG; k++) {
+      if (pts[k + 1].t - pts[k].t > 0.06) continuous = false;
+    }
+    if (!continuous) continue;
+    const before = (pts[i].y - pts[i - KICK_LEG].y) / (pts[i].t - pts[i - KICK_LEG].t);
+    const after = (pts[i + KICK_LEG].y - pts[i].y) / (pts[i + KICK_LEG].t - pts[i].t);
+    const kick = before - after;
+    // The ball has to have been falling for stopping to mean anything.
+    if (before <= 0 || kick < minKick) continue;
+    const [u, v] = geo.toTable(pts[i].x, pts[i].y);
+    const found: Impulse = { t: pts[i].t, x: pts[i].x, y: pts[i].y, u, v, kick };
+    const last = out[out.length - 1];
+    if (last && found.t - last.t < KICK_MERGE_S) {
+      // One bounce spreads over several frames. Keep the sharpest, which
+      // is the frame nearest the moment of contact.
+      if (found.kick > last.kick) out[out.length - 1] = found;
+      continue;
+    }
+    out.push(found);
+  }
+  return out;
+}
