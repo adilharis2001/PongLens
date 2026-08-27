@@ -102,6 +102,11 @@ NEAR_TABLE_FACTOR = 1.1
 # frame contributes no sample for that end. The guard runs before any
 # appearance is read.
 AMBIGUOUS_FACTOR = 0.6
+# Two candidates at one end whose heights are within this ratio are
+# treated as indistinguishable. 0.85 keeps a genuine doubles pair or a
+# bystander standing level with the player ambiguous, while letting a
+# clearly-smaller onlooker behind the player be passed over.
+AMBIGUOUS_SIZE_RATIO = 0.85
 # Minimum per-joint confidence for a torso corner to count. Detection
 # gives real person crops, so the v1 floor is kept.
 TORSO_MIN_CONF = 0.3
@@ -434,18 +439,36 @@ def choose_players(
         seen.append(record)
     result: dict[str, Any] = {}
     for side in ("near", "far"):
-        ranked = sorted(candidates[side], key=lambda c: c[0])
+        # Ranked by SIZE, not by nearness to the end line. Whoever is
+        # playing at an end is the closest person to the camera at that
+        # end and therefore the tallest in pixels; onlookers stand behind
+        # them and read smaller. Distance ranking cannot see that and in
+        # a busy hall keeps changing its mind — measured 2026-08-26 over
+        # 252 frames from six matches, as how much the chosen person's
+        # height wobbles across the frames of a single point:
+        #
+        #     match       by distance   by size
+        #     LYTTC             0.226     0.101
+        #     a52a6612          0.222     0.096
+        #     cebaa6d4          0.152     0.052
+        #     PingPod           0.071     0.071
+        #
+        # Steadier by more than double wherever a crowd exists, and
+        # unchanged where there are only two people to choose from.
+        ranked = sorted(candidates[side], key=lambda c: -c[1])
         result[f"{side}_candidates"] = len(ranked)
         if not ranked:
             result[side] = None
             result[f"{side}_ambiguous"] = False
             continue
+        # Ambiguity is now a question about size too: two people of
+        # nearly the same height at one end are genuinely hard to tell
+        # apart (doubles, or someone standing level with the player).
+        # Someone clearly smaller is behind, and is not a rival for the
+        # role.
         ambiguous = False
         if len(ranked) > 1:
-            tallest = max(ranked[0][1], ranked[1][1])
-            ambiguous = (
-                ranked[1][0] - ranked[0][0] <= AMBIGUOUS_FACTOR * tallest
-            )
+            ambiguous = ranked[1][1] >= AMBIGUOUS_SIZE_RATIO * ranked[0][1]
         result[side] = None if ambiguous else ranked[0][2]
         result[f"{side}_ambiguous"] = ambiguous
         # The best candidate REGARDLESS of the guard. Never used for
