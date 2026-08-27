@@ -104,6 +104,7 @@ async function readMatchJson(path: string | null) {
       calibration?: {
         ok?: boolean;
         source?: string;
+        note?: string;
         table_corners_px?: Record<string, [number, number]>;
       };
       source?: { width: number; height: number; fps: number };
@@ -159,9 +160,26 @@ export default async function ServeAccuracyPage() {
       gameIndexByPoint,
       serving,
     });
+    // The shared diagnosis refuses the whole match when nobody recorded
+    // which end the uploader was on, which is right for a placement map and
+    // wrong here: the touches, the table and the ball track are all still
+    // real, and this page exists to look at them. So the row list is every
+    // live point, and a diagnosis is merged in wherever there is one.
+    const diagnosed = new Map(diagnoses.map((d) => [d.pointId, d]));
+    const entries = visible.map(
+      (p) =>
+        diagnosed.get(p.id) ?? {
+          pointId: p.id,
+          gameIndex: gameIndexByPoint.get(p.id) ?? 0,
+          server: serving.get(p.id)?.server ?? null,
+          observation: null,
+          finalLanding: null,
+          rejection: null,
+        },
+    );
     const byId = new Map(visible.map((p) => [p.id, p]));
 
-    const rows: ServeAccuracyRow[] = diagnoses.map((d) => {
+    const rows: ServeAccuracyRow[] = entries.map((d) => {
       const point = byId.get(d.pointId);
       const placement = point?.placement;
       const v3 =
@@ -273,7 +291,13 @@ export default async function ServeAccuracyPage() {
       opponent: match.opponent_name ?? entry.label,
       corners: matchJson?.calibration?.table_corners_px ?? null,
       source: matchJson?.source ?? null,
-      calibrationSource: matchJson?.calibration?.source ?? null,
+      // Vision-proposed quads from before the ladder was named write only a
+      // note, so reading `source` alone reports the table as unrecorded on
+      // two of the six matches when it is nothing of the sort.
+      calibrationSource:
+        matchJson?.calibration?.source
+        ?? matchJson?.calibration?.note?.split(",")[0]
+        ?? null,
       userSide: match.user_side ?? null,
       // The column is optional on the type, so `!== null` would count every
       // row on a match that predates it.

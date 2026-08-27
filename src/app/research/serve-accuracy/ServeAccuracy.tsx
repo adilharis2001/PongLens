@@ -1136,9 +1136,15 @@ function Row({
           </div>
         );
       })()}
-      {row.serve === null && row.rejection !== null && (
+      {row.serve === null && (
         <p className="mt-1 text-xs text-amber-300/80">
-          No serve drawn. {REJECTION_COPY[row.rejection]}
+          No serve drawn.{" "}
+          {row.rejection !== null
+            ? REJECTION_COPY[row.rejection]
+            : row.userPhysicalSide === null
+              ? "This match never recorded which end you were on, so a "
+                + "bounce cannot be given to a player."
+              : "The reconstruction gave no reason."}
           {serve?.recovered != null && (
             <span className="text-cyan-glow">
               {" The ball's own flight supplies the missing bounce, and the "}
