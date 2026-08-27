@@ -494,12 +494,186 @@ def _box_overlaps_quad(box: list[float], quad: np.ndarray) -> bool:
         return False
 
 
+# --- appearance descriptors -------------------------------------------------
+#
+# The median BGR of the torso's bounding RECTANGLE was the whole identity
+# signal until 2026-08-27, and measurement said it was the limiter: 15.3%
+# of all points were thrown away because the NEAR player's signature would
+# not hold still across seven frames of one rally, and matches where the
+# two players wear similar dark tops produced no usable margin at all.
+#
+# Both failures have the same two causes. A rectangle around the shoulders
+# and hips is mostly NOT the player — it catches floor, wall and barrier
+# through the gap under the arms, and how much it catches changes every
+# time they move. And a median of raw BGR is a measure of brightness at
+# least as much as of colour, so the same shirt reads differently at the
+# two ends of a table lit from one side, which is exactly the comparison
+# a changeover forces.
+#
+# So every descriptor below is computed on a MASKED polygon rather than a
+# rectangle, and the colour ones are built to separate hue from
+# brightness. They are all computed in one pass and all stored: which one
+# to use is a question for the corpus, not for an opinion, and re-running
+# pose over fifty matches to try the next idea costs two hours.
+
+TORSO_POLYGON = (5, 6, 12, 11)      # L shoulder, R shoulder, R hip, L hip
+LEGS_POLYGON = (11, 12, 14, 13)     # L hip, R hip, R knee, L knee
+REGION_SHRINK = 0.82                # toward the centroid, to shed background
+HS_BINS = (6, 6)
+
+
+def _region_pixels(
+    image: np.ndarray,
+    keypoints: np.ndarray,
+    scores: np.ndarray,
+    joints: tuple[int, ...],
+) -> np.ndarray | None:
+    """BGR pixels inside a keypoint polygon, shrunk toward its centre.
+
+    Every joint must be confident: a polygon completed from a guessed hip
+    is a polygon over the floor. Shrinking is the cheap standard
+    alternative to a segmentation model — the border of any person region
+    is where the background is, and pulling the outline in by a fifth
+    removes most of it while costing only clothing that the middle of the
+    region already represents.
+    """
+    points = []
+    for index in joints:
+        if float(scores[index]) < TORSO_MIN_CONF:
+            return None
+        points.append([float(keypoints[index][0]), float(keypoints[index][1])])
+    polygon = np.asarray(points, dtype=np.float32)
+    centre = polygon.mean(axis=0)
+    polygon = centre + (polygon - centre) * REGION_SHRINK
+    x0 = max(0, int(math.floor(polygon[:, 0].min())))
+    x1 = min(image.shape[1], int(math.ceil(polygon[:, 0].max())) + 1)
+    y0 = max(0, int(math.floor(polygon[:, 1].min())))
+    y1 = min(image.shape[0], int(math.ceil(polygon[:, 1].max())) + 1)
+    if x1 - x0 < 4 or y1 - y0 < 4:
+        return None
+    mask = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
+    cv2.fillConvexPoly(
+        mask, (polygon - [x0, y0]).astype(np.int32), 255)
+    pixels = image[y0:y1, x0:x1][mask > 0]
+    if pixels.shape[0] < 12:
+        return None
+    return pixels.reshape(-1, 3).astype(np.float32)
+
+
+def _shades_of_grey(pixels: np.ndarray, power: int = 6) -> np.ndarray:
+    """Minkowski-norm colour constancy, the standard cheap illuminant fix.
+
+    Estimates the illuminant as the p-norm of each channel and divides it
+    out, so the same shirt under a warm lamp and under a window lands in
+    the same place. p=6 is the value the colour-constancy literature
+    settled on as the best single compromise between grey-world (p=1) and
+    white-patch (p=inf).
+    """
+    scale = np.power(np.mean(np.power(pixels, power), axis=0), 1.0 / power)
+    scale = np.maximum(scale, 1e-3)
+    scale = scale / (np.linalg.norm(scale) / math.sqrt(3.0))
+    return np.clip(pixels / scale, 0.0, 255.0)
+
+
+def _chromaticity(pixels: np.ndarray) -> list[float]:
+    """Median of two of the three normalized colour coordinates.
+
+    b/(b+g+r) and g/(b+g+r) discard overall intensity outright, which is
+    the crudest and most reliable illumination invariant there is. Two
+    numbers, and the third is 1 minus their sum, so nothing is lost.
+    """
+    total = np.maximum(pixels.sum(axis=1, keepdims=True), 1e-3)
+    normalized = pixels / total
+    return [float(v) for v in np.median(normalized[:, :2], axis=0)]
+
+
+def _lab_ab(pixels: np.ndarray) -> list[float]:
+    """Median a*,b* in CIELab, with L* deliberately discarded.
+
+    L* is lightness; a* and b* are where the colour lives. Dropping L* is
+    the standard way to compare an appearance at one end of the table with
+    the same appearance at the other, where the light is not the same.
+    Scaled to roughly 0..1 so it sits on the same ruler as the others.
+    """
+    patch = np.clip(pixels, 0, 255).astype(np.uint8).reshape(-1, 1, 3)
+    lab = cv2.cvtColor(patch, cv2.COLOR_BGR2LAB).reshape(-1, 3)
+    ab = np.median(lab[:, 1:].astype(np.float32), axis=0)
+    return [float(v / 255.0) for v in ab]
+
+
+def _hs_histogram(pixels: np.ndarray) -> list[float]:
+    """Square-rooted, L2-normalized hue-saturation histogram.
+
+    A histogram survives a stray arm across the shirt where a median of a
+    rectangle does not: one region of the body changing hand only moves
+    weight between bins. Storing the SQUARE ROOT of the normalized
+    histogram means the ordinary Euclidean distance between two of these
+    IS the Hellinger distance, so the rest of the system compares them
+    correctly without knowing they are histograms.
+
+    Very dark and blown-out pixels are dropped first: hue is meaningless
+    where there is no light and where the sensor has clipped, and a black
+    shirt is otherwise a random hue reading.
+    """
+    patch = np.clip(pixels, 0, 255).astype(np.uint8).reshape(-1, 1, 3)
+    hsv = cv2.cvtColor(patch, cv2.COLOR_BGR2HSV).reshape(-1, 3)
+    keep = hsv[(hsv[:, 2] > 25) & (hsv[:, 2] < 250) & (hsv[:, 1] > 20)]
+    if keep.shape[0] < 8:
+        keep = hsv
+    hist = cv2.calcHist(
+        [keep.reshape(-1, 1, 3).astype(np.uint8)], [0, 1], None,
+        list(HS_BINS), [0, 180, 0, 256]).flatten()
+    total = float(hist.sum())
+    if total <= 0:
+        return [0.0] * (HS_BINS[0] * HS_BINS[1])
+    root = np.sqrt(hist / total)
+    return [round(float(v), 4) for v in root]
+
+
+def player_descriptors(
+    image: np.ndarray,
+    keypoints: np.ndarray,
+    scores: np.ndarray,
+) -> dict[str, list[float]] | None:
+    """Every candidate appearance signature for one player in one frame.
+
+    Returns None when the torso itself cannot be located, which is the
+    only hard requirement — legs are frequently behind the table and their
+    descriptors are simply absent when they are.
+    """
+    torso = _region_pixels(image, keypoints, scores, TORSO_POLYGON)
+    if torso is None:
+        return None
+    corrected = _shades_of_grey(torso)
+    out = {
+        "bgr": [round(float(v), 4)
+                for v in np.median(torso, axis=0) / 255.0],
+        "bgr_cc": [round(float(v), 4)
+                   for v in np.median(corrected, axis=0) / 255.0],
+        "rg": [round(v, 4) for v in _chromaticity(torso)],
+        "lab": [round(v, 4) for v in _lab_ab(torso)],
+        "lab_cc": [round(v, 4) for v in _lab_ab(corrected)],
+        "hs": _hs_histogram(torso),
+        "hs_cc": _hs_histogram(corrected),
+    }
+    legs = _region_pixels(image, keypoints, scores, LEGS_POLYGON)
+    if legs is not None:
+        out["legs_lab"] = [round(v, 4) for v in _lab_ab(legs)]
+        out["legs_rg"] = [round(v, 4) for v in _chromaticity(legs)]
+        out["legs_hs"] = _hs_histogram(legs)
+    return out
+
+
 def torso_signature_v2(
     image: np.ndarray,
     keypoints: np.ndarray,
     scores: np.ndarray,
 ) -> list[float] | None:
-    """Normalized median BGR of the shoulders/hips crop (COCO 5,6,11,12)."""
+    """Normalized median BGR of the shoulders/hips crop (COCO 5,6,11,12).
+
+    Kept as it was so v2 evidence stays reproducible; player_descriptors
+    is what the extractor now stores.
+    """
     torso_points = [
         keypoints[index]
         for index in (5, 6, 11, 12)
@@ -601,6 +775,8 @@ def extract_side_change_evidence(
             raise RuntimeError(f"could not open pose source clip: {clip}")
         frames_requested += len(requested)
         raw_samples: dict[str, list[list[float]]] = {"near": [], "far": []}
+        raw_bank: dict[str, list[dict[str, list[float]]]] = {
+            "near": [], "far": []}
         candidate_stats: dict[str, list[int]] = {"near": [], "far": []}
         ambiguous_frames = 0
         try:
@@ -638,6 +814,13 @@ def extract_side_change_evidence(
                     )
                     keypoints, scores = pose_model(image, bboxes=bboxes)
                     for position, side in enumerate(sides):
+                        bank = player_descriptors(
+                            image,
+                            keypoints[position],
+                            scores[position],
+                        )
+                        if bank is not None:
+                            raw_bank[side].append(bank)
                         signature = torso_signature_v2(
                             image,
                             keypoints[position],
@@ -654,6 +837,12 @@ def extract_side_change_evidence(
             "t1": float(point["t1"]),
             "near": summarize_point_side(raw_samples["near"], spread_max),
             "far": summarize_point_side(raw_samples["far"], spread_max),
+            # Every candidate descriptor for every frame, so the choice
+            # between them is a sweep over stored numbers rather than
+            # another two hours of pose inference per idea.
+            "bank": {
+                side: raw_bank[side] for side in ("near", "far")
+            },
             "anchor": anchor,
             "ambiguous_frames": ambiguous_frames,
             "candidates": {

@@ -77,6 +77,14 @@ class PairVerdict(unittest.TestCase):
 
 
 class DetectSideChanges(unittest.TestCase):
+    """The labelling model, exercised on the cases that shaped it.
+
+    v3 stopped asking "is this pair swapped, with N clean pairs either
+    side" and started asking "what single explanation of the whole match
+    costs least". These tests are written against that: what must be
+    found, what must not, and what an ambiguous rally is allowed to do.
+    """
+
     def test_clean_flip_confirms_one_change(self):
         result = detect_side_changes(sequence(8, flip_at=4))
         self.assertEqual(result["status"], "ready")
@@ -90,52 +98,70 @@ class DetectSideChanges(unittest.TestCase):
         result = detect_side_changes(sequence(8))
         self.assertEqual(result["side_changes"], [])
 
-    def test_flip_without_post_stability_is_unconfirmed(self):
-        # The swap is the LAST pair — nothing after it persists, so this
-        # must not confirm (a player leaning into the far region on the
-        # final rally must not mint a boundary).
-        points = sequence(5, flip_at=4)
-        result = detect_side_changes(points)
-        self.assertEqual(result["status"], "ready")
+    def test_flip_at_the_very_end_is_not_confirmed(self):
+        # The swap is the last rally: nothing after it persists, so there
+        # is no evidence the new arrangement held. A player leaning into
+        # the far region on the final point must not mint a boundary.
+        result = detect_side_changes(sequence(6, flip_at=5))
         self.assertTrue(
             all(not c["confirmed"] for c in result["side_changes"])
         )
 
-    def test_flip_without_pre_stability_is_unconfirmed(self):
-        result = detect_side_changes(sequence(5, flip_at=1))
+    def test_flip_at_the_very_start_is_not_confirmed(self):
+        result = detect_side_changes(sequence(6, flip_at=1))
         self.assertTrue(
             all(not c["confirmed"] for c in result["side_changes"])
         )
 
-    def test_uncertain_neighbour_breaks_confirmation(self):
-        points = sequence(8, flip_at=4)
-        # Make the pair right after the flip uncertain: point 4 keeps the
-        # swapped layout but point 5's shirts read nearly identical.
+    def test_one_ambiguous_rally_does_not_veto_the_change(self):
+        # THE Ishan case (d59d7610), in miniature. Under v2 a single
+        # 'uncertain' pair beside the flip zeroed a stability run and the
+        # boundary was refused; three real boundaries were lost to it.
+        # Ambiguous evidence should be outvoted, not obeyed.
+        points = sequence(10, flip_at=5)
         points[5] = point(5, [0.5, 0.5, 0.5], [0.5, 0.52, 0.5])
         result = detect_side_changes(points)
-        self.assertTrue(
-            all(not c["confirmed"] for c in result["side_changes"])
-        )
+        confirmed = [c for c in result["side_changes"] if c["confirmed"]]
+        self.assertEqual(len(confirmed), 1)
 
-    def test_flip_budget_withholds_everything(self):
+    def test_messy_changeover_is_still_one_changeover(self):
+        # Two junk rallies in the middle of the break, one of which
+        # happens to read 'same'. v2 split this into two halves with
+        # settled ground on one side each and refused both.
+        points = sequence(12, flip_at=6)
+        points[5] = point(5, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        points[6] = point(6, [0.45, 0.5, 0.55], [0.5, 0.5, 0.45])
+        result = detect_side_changes(points)
+        confirmed = [c for c in result["side_changes"] if c["confirmed"]]
+        self.assertEqual(len(confirmed), 1)
+
+    def test_change_budget_withholds_everything(self):
         points = []
         for i in range(14):
-            if i % 2 == 0:
-                points.append(point(i, RED, BLUE))
-            else:
-                points.append(point(i, BLUE, RED))
+            points.append(point(i, *((RED, BLUE) if i % 2 == 0
+                                     else (BLUE, RED))))
         result = detect_side_changes(points)
         self.assertEqual(result["status"], "withheld")
         self.assertEqual(result["side_changes"], [])
 
+    def test_indistinguishable_players_withhold_everything(self):
+        # Prabhas (9e15ed10): both players in dark tops under gym light,
+        # measured 0.147 apart. Every margin in such a match is noise, so
+        # the honest answer is nothing rather than a lower bar.
+        points = []
+        for i in range(12):
+            a, b = [0.30, 0.31, 0.33], [0.32, 0.30, 0.31]
+            points.append(point(i, *((a, b) if i < 6 else (b, a))))
+        result = detect_side_changes(points)
+        self.assertEqual(result["status"], "withheld")
+        self.assertIn("apart", result["reason"])
+
     def test_flip_reaches_across_transition_cards(self):
-        # The changeover itself gets cut into junk cards — a player
-        # fetching the ball or a drink, with nobody at one end — so the
-        # last rally of a game and the first of the next are rarely
-        # neighbours. Reaching across them is the point: requiring
-        # adjacency threw away 8 of 11 real changeovers on the corpus
-        # (2026-08-26). The boundary is reported after the last
-        # qualified point, which is where the game actually ended.
+        # The changeover gets cut into junk cards — a player fetching the
+        # ball or a drink, with nobody at one end — so the last rally of a
+        # game and the first of the next are rarely neighbours. The
+        # boundary is reported after the last qualified point, which is
+        # where the game actually ended.
         points = sequence(9, flip_at=5)
         points[4]["near"]["ok"] = False
         result = detect_side_changes(points)
@@ -145,62 +171,75 @@ class DetectSideChanges(unittest.TestCase):
         self.assertEqual(confirmed[0]["before_idx"], 5)
         self.assertEqual(confirmed[0]["components"]["bridged"], 1)
 
-    def test_reach_stops_at_the_bridge_limit(self):
-        # Four unqualified points in a row is not a changeover, it is a
-        # blind spot; no pair spans it, so nothing confirms.
-        points = sequence(14, flip_at=8)
-        for i in range(4, 8):
+    def test_reach_stops_at_the_link_limit(self):
+        # A long blind stretch is not a changeover. With link_max_skip
+        # set below the hole, no comparison spans it and the two halves
+        # are unconnected, so no change can be claimed across it.
+        points = sequence(16, flip_at=9)
+        for i in range(4, 9):
             points[i]["near"]["ok"] = False
-        result = detect_side_changes(points, {"bridge_max": 3})
+        result = detect_side_changes(points, {"link_max_skip": 3})
         self.assertTrue(
             all(not c["confirmed"] for c in result["side_changes"])
         )
 
-    def test_double_flip_and_back_is_not_confirmed(self):
-        # One point played from the wrong ends (or a tracker glitch) then
-        # back: neither flip has post/pre stability on its far side.
-        points = sequence(9, flip_at=4)
-        for i in range(5, 9):
-            points[i] = point(i, RED, BLUE)
+    def test_single_rally_glitch_does_not_confirm(self):
+        # One rally played from the wrong ends, then back. Paying the
+        # switch penalty twice for one rally's worth of evidence is not
+        # worth it, so the winning labelling has no change at all.
+        points = sequence(12)
+        points[6] = point(6, BLUE, RED)
         result = detect_side_changes(points)
         self.assertTrue(
             all(not c["confirmed"] for c in result["side_changes"])
         )
 
-    def test_gap_bonus_rewards_long_break(self):
-        near_zero_gap = detect_side_changes(sequence(8, flip_at=4))
-        spread_out = sequence(8, flip_at=4)
-        # Insert a 30s dead gap at the flip.
-        for i, p in enumerate(spread_out):
-            if i >= 4:
-                p["t0"] += 30.0
-                p["t1"] += 30.0
-        with_gap = detect_side_changes(spread_out)
-        base = [c for c in near_zero_gap["side_changes"] if c["confirmed"]]
-        bonus = [c for c in with_gap["side_changes"] if c["confirmed"]]
-        self.assertEqual(len(base), 1)
-        self.assertEqual(len(bonus), 1)
-        self.assertGreater(bonus[0]["confidence"], base[0]["confidence"])
+    def test_a_long_break_makes_a_change_cheaper(self):
+        tight = detect_side_changes(sequence(10, flip_at=5))
+        spread = sequence(10, flip_at=5)
+        for i, p in enumerate(spread):
+            if i >= 5:
+                p["t0"] += 40.0
+                p["t1"] += 40.0
+        loose = detect_side_changes(spread)
+        self.assertEqual(len(tight["side_changes"]), 1)
+        self.assertEqual(len(loose["side_changes"]), 1)
+        self.assertLess(
+            loose["side_changes"][0]["components"]["switch_cost"],
+            tight["side_changes"][0]["components"]["switch_cost"],
+        )
+
+    def test_histogram_signatures_are_accepted(self):
+        # Signatures are no longer three numbers: the descriptor may be a
+        # 36-bin hue-saturation histogram. Nothing in the state machine
+        # should care how wide a signature is.
+        left = [0.0] * 18 + [1.0] + [0.0] * 17
+        right = [1.0] + [0.0] * 35
+        points = [
+            point(i, *((left, right) if i < 5 else (right, left)))
+            for i in range(10)
+        ]
+        result = detect_side_changes(points)
+        confirmed = [c for c in result["side_changes"] if c["confirmed"]]
+        self.assertEqual(len(confirmed), 1)
 
 
 class MergeConfig(unittest.TestCase):
     def test_ignores_unknown_and_junk_values(self):
         merged = merge_config(
             {
-                "margin_threshold": 0.12,
-                "max_flips": 4,
+                "switch_penalty": 0.55,
+                "max_changes": 4,
                 "unknown_key": 1.0,
                 "spread_max": "junk",
-                "pre_stable_pairs": -3,
+                "link_span": -3,
             }
         )
-        self.assertEqual(merged["margin_threshold"], 0.12)
-        self.assertEqual(merged["max_flips"], 4)
+        self.assertEqual(merged["switch_penalty"], 0.55)
+        self.assertEqual(merged["max_changes"], 4)
         self.assertNotIn("unknown_key", merged)
         self.assertEqual(merged["spread_max"], DEFAULT_CONFIG["spread_max"])
-        self.assertEqual(
-            merged["pre_stable_pairs"], DEFAULT_CONFIG["pre_stable_pairs"]
-        )
+        self.assertEqual(merged["link_span"], DEFAULT_CONFIG["link_span"])
 
 
 

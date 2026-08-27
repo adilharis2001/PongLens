@@ -41,6 +41,9 @@ from pathlib import Path
 import psycopg2
 import psycopg2.extras
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from worker import game_truth
+
 REPO = Path(__file__).resolve().parent
 DEFAULT_WORKDIR = Path.home() / "ponglens-research-work" / "game-end-eval"
 RTMPOSE_PY = Path(
@@ -51,9 +54,8 @@ RTMPOSE_MODEL = Path(
 )
 EXTRACTOR = REPO / "extract_side_changes_rtmpose.py"
 MATCH_PAD_S = 3.0
-
-GAME_TARGET, CLEAR_BY = 11, 2
-
+# How many rallies of scoring drift a hit may forgive; see score_match.
+TOLERANCE_RALLIES = 3
 
 def keychain(service: str) -> str:
     return subprocess.check_output(
@@ -83,45 +85,13 @@ def parse_r2(path: str) -> tuple[str, str]:
 
 
 # --- ground truth -----------------------------------------------------------
-
-def game_winner(you: int, them: int) -> str | None:
-    if max(you, them) < GAME_TARGET or abs(you - them) < CLEAR_BY:
-        return None
-    return "user" if you > them else "opponent"
-
-
-def walk_boundaries(points: list[dict]) -> list[dict]:
-    """Eval-only port of gameScore.ts stepBoundaryWalk.
-
-    The TS walk is the single boundary authority for product surfaces;
-    this port exists so a Python harness can read the same truth, and any
-    drift between the two shows up as eval noise, not user-facing state.
-    Returns the closing point rows.
-    """
-    you = them = 0
-    open_hold = False
-    closing = []
-    for p in points:
-        winner = p["confirmed_winner"] if not p["is_let"] else None
-        if winner == "user":
-            you += 1
-        elif winner == "opponent":
-            them += 1
-        override = p["game_end_override"]
-        if override == "end":
-            ends = True
-        elif override == "continue":
-            open_hold = True
-            ends = False
-        elif open_hold or winner is None:
-            ends = False
-        else:
-            ends = game_winner(you, them) is not None
-        if ends:
-            closing.append(p)
-            you = them = 0
-            open_hold = False
-    return closing
+#
+# The walk itself lives in game_truth.py, which reads truth per GAME rather
+# than per match. The old rule here — trust a match only if every non-let
+# point in it carries a winner — was a match-level gate on a point-level
+# fact, and it threw away most of the corpus: a player scores two games
+# carefully then stops, and the two proven boundaries go with the rest.
+# Per-game truth takes the corpus from 57 boundaries to 122.
 
 
 def load_truth(cur, match_id: str) -> dict:
@@ -129,47 +99,24 @@ def load_truth(cur, match_id: str) -> dict:
         """
         select p.id, p.idx, p.t0::float as t0, p.t1::float as t1,
                coalesce(p.is_let, false) as is_let,
-               p.confirmed_winner, p.game_end_override
+               p.confirmed_winner, p.game_end_override,
+               coalesce(p.deleted, false) as deleted
         from public.points p
-        where p.match_id = %s and coalesce(p.deleted, false) = false
+        where p.match_id = %s
         order by p.t0 nulls last, p.idx
         """,
         (match_id,),
     )
-    points = [dict(r) for r in cur.fetchall()]
-    scored = [p for p in points if not p["is_let"]]
-    fully = bool(scored) and all(
-        p["confirmed_winner"] is not None for p in scored
-    )
-    closing = walk_boundaries(points)
-    boundaries = []
-    for close in closing:
-        if not fully and close["game_end_override"] != "end":
-            continue  # auto boundaries are unreliable on partial scoring
-        after = [
-            p for p in points
-            if p["t0"] is not None
-            and close["t1"] is not None
-            and p["t0"] > close["t1"]
-        ]
-        nxt = after[0] if after else None
-        if nxt is None:
-            # The final game's close has no following point — there is no
-            # after-configuration to observe, so a side-swap detector
-            # cannot see it even in principle. Not part of the truth.
-            continue
-        boundaries.append(
-            {
-                "point_id": str(close["id"]),
-                "idx": close["idx"],
-                "gap_t0": float(close["t1"]) if close["t1"] is not None else None,
-                "gap_t1": float(nxt["t0"]) if nxt["t0"] is not None else None,
-            }
-        )
+    rows = [dict(r) for r in cur.fetchall()]
+    live = [r for r in rows if not r["deleted"]]
+    deleted = [r for r in rows if r["deleted"]]
+    truth = game_truth.boundaries(live, deleted)
     return {
-        "points": points,
-        "fully_scored": fully,
-        "boundaries": [b for b in boundaries if b["gap_t0"] is not None],
+        "points": live,
+        "deleted": deleted,
+        "fully_scored": truth["fully_scored"],
+        "games": truth["games"],
+        "boundaries": truth["boundaries"],
     }
 
 
@@ -200,62 +147,137 @@ def fetch_match_media(client, match: dict, dest: Path) -> Path | None:
 
 # --- scoring ----------------------------------------------------------------
 
-def score_match(evidence: dict, truth: dict) -> dict:
+def _rally_order(evidence: dict) -> tuple[dict[int, dict], dict[int, int]]:
+    by_idx = {int(p["idx"]): p for p in evidence.get("points") or []}
+    order = sorted(by_idx)
+    return by_idx, {idx: position for position, idx in enumerate(order)}
+
+
+def _gap_after(by_idx: dict, order: list[int], position: int) -> float | None:
+    """The break after the rally at `position`, on the DETECTOR's clock."""
+    if position is None or position + 1 >= len(order):
+        return None
+    before, after = by_idx[order[position]], by_idx[order[position + 1]]
+    if before.get("t1") is None or after.get("t0") is None:
+        return None
+    return float(after["t0"]) - float(before["t1"])
+
+
+def score_match(
+    evidence: dict,
+    truth: dict,
+    tolerance_rallies: int = TOLERANCE_RALLIES,
+) -> dict:
+    """Hits, misses and false positives, scored two ways.
+
+    STRICT is time overlap: the detected gap and the truth gap must touch.
+    That is the honest default and the number to quote.
+
+    TOLERANT forgives an offset of a few rallies, but only in the one
+    direction the video supports. Measured 2026-08-27 over 49 confirmed
+    fires: 33 land exactly on the scored boundary, 6 land one to four
+    rallies early, and 6 are plainly wrong (26 to 46 rallies away). Every
+    one of the six near misses fired on a LONGER break than the scored
+    boundary had — 22.5s against 1.2s, 34.0s against 9.7s, 57.5s against
+    3.5s. Players walking round a table take longer than a second, so a
+    "boundary" with a one-second gap is not where the game ended; the
+    owner's score drifted by a rally or two and the detector found the
+    actual changeover. game_end_override is defined as the video's visible
+    side switch (migration 021), so that IS the thing being detected.
+
+    The `gap_fire >= gap_truth` condition is what keeps this from being a
+    free pass: an offset is only forgiven when the physical evidence says
+    the score, not the detector, is the thing that moved.
+    """
     detected = [
         c for c in evidence.get("side_changes") or [] if c.get("confirmed")
     ]
-    by_idx = {int(p["idx"]): p for p in evidence.get("points") or []}
-    intervals = []
+    by_idx, position_of = _rally_order(evidence)
+    order = sorted(by_idx)
+    fires = []
     for change in detected:
         a = by_idx.get(int(change["after_idx"]))
         b = by_idx.get(int(change["before_idx"]))
         if not a or not b:
             continue
-        intervals.append(
+        position = position_of.get(int(change["after_idx"]))
+        fires.append(
             {
                 "t0": float(a["t1"]) - MATCH_PAD_S,
                 "t1": float(b["t0"]) + MATCH_PAD_S,
+                "position": position,
+                "gap": _gap_after(by_idx, order, position),
                 "change": change,
             }
         )
-    hits, false_pos = [], []
-    matched_truth = set()
-    for interval in intervals:
-        hit = None
-        for i, boundary in enumerate(truth["boundaries"]):
-            # Interval overlap, not midpoint: the truth gap runs to the
-            # next VISIBLE point while the evidence may end at a since-
-            # deleted junk card inside the same break, so the two windows
-            # describe one gap at different lengths.
-            b0 = boundary["gap_t0"]
-            b1 = boundary["gap_t1"] if boundary["gap_t1"] is not None else b0
-            if interval["t0"] <= b1 and b0 <= interval["t1"]:
-                hit = i
+    targets = []
+    for boundary in truth["boundaries"]:
+        position = position_of.get(int(boundary["idx"]))
+        targets.append(
+            {
+                "b0": boundary["gap_t0"],
+                "b1": boundary["gap_t1"]
+                if boundary["gap_t1"] is not None else boundary["gap_t0"],
+                "position": position,
+                "gap": _gap_after(by_idx, order, position),
+                "boundary": boundary,
+            }
+        )
+
+    taken: dict[int, str] = {}
+    verdicts = []
+    for fire in fires:
+        hit, how = None, None
+        for i, target in enumerate(targets):
+            if i in taken:
+                continue
+            if fire["t0"] <= target["b1"] and target["b0"] <= fire["t1"]:
+                hit, how = i, "strict"
                 break
+        if hit is None:
+            for i, target in enumerate(targets):
+                if i in taken or target["position"] is None:
+                    continue
+                if fire["position"] is None:
+                    continue
+                if abs(target["position"] - fire["position"]) > tolerance_rallies:
+                    continue
+                if (
+                    fire["gap"] is not None
+                    and target["gap"] is not None
+                    and fire["gap"] >= target["gap"]
+                ):
+                    hit, how = i, "drift"
+                    break
         if hit is not None:
-            matched_truth.add(hit)
-            hits.append(interval)
-        else:
-            false_pos.append(interval)
+            taken[hit] = how
+        verdicts.append((fire, hit, how))
+
+    strict_hits = sum(1 for h in taken.values() if h == "strict")
+    drift_hits = sum(1 for h in taken.values() if h == "drift")
+    false_pos = [f for f, hit, _ in verdicts if hit is None]
     misses = [
-        b for i, b in enumerate(truth["boundaries"])
-        if i not in matched_truth
+        t["boundary"] for i, t in enumerate(targets) if i not in taken
     ]
     return {
-        "true_boundaries": len(truth["boundaries"]),
-        "detected_confirmed": len(intervals),
-        "hits": len(hits),
+        "true_boundaries": len(targets),
+        "detected_confirmed": len(fires),
+        "hits": strict_hits,
+        "drift_hits": drift_hits,
+        "hits_tolerant": strict_hits + drift_hits,
         "false_positives": [
             {
-                "gap": [round(i["t0"] + MATCH_PAD_S, 1),
-                        round(i["t1"] - MATCH_PAD_S, 1)],
-                "confidence": i["change"]["confidence"],
-                "components": i["change"]["components"],
+                "gap": [round(f["t0"] + MATCH_PAD_S, 1),
+                        round(f["t1"] - MATCH_PAD_S, 1)],
+                "gap_s": round(f["gap"], 1) if f["gap"] is not None else None,
+                "confidence": f["change"]["confidence"],
+                "components": f["change"]["components"],
             }
-            for i in false_pos
+            for f in false_pos
         ],
         "misses": [
-            {"idx": m["idx"], "gap_t0": m["gap_t0"], "gap_t1": m["gap_t1"]}
+            {"idx": m["idx"], "tier": m["tier"],
+             "gap_t0": m["gap_t0"], "gap_t1": m["gap_t1"]}
             for m in misses
         ],
     }
@@ -503,8 +525,11 @@ def main() -> None:
         r for r in results if not r.get("fully_scored") and "hits" in r
     ]
     tp = sum(r["hits"] for r in fully)
+    tp_tol = sum(r["hits_tolerant"] for r in fully)
     fp = sum(len(r["false_positives"]) for r in fully)
     fn = sum(r["true_boundaries"] - r["hits"] for r in fully)
+    fn_tol = sum(r["true_boundaries"] - r["hits_tolerant"] for r in fully)
+    fp_tol = sum(len(r["false_positives"]) for r in fully)
     unverified = sum(len(r["false_positives"]) for r in pins)
     pin_tp = sum(r["hits"] for r in pins)
     pin_total = sum(r["true_boundaries"] for r in pins)
@@ -514,6 +539,12 @@ def main() -> None:
         print(f"  precision={tp / (tp + fp):.2%}", end="  ")
     if tp + fn:
         print(f"recall={tp / (tp + fn):.2%}")
+    print(f"  tolerant (forgiving <=3 rallies of scoring drift): "
+          f"TP={tp_tol} FP={fp_tol} FN={fn_tol}", end="  ")
+    if tp_tol + fp_tol:
+        print(f"precision={tp_tol / (tp_tol + fp_tol):.2%}", end="  ")
+    if tp_tol + fn_tol:
+        print(f"recall={tp_tol / (tp_tol + fn_tol):.2%}")
     print("== pin-only matches (recall on pins; extra fires unverified) ==")
     print(
         f"  matches={len(pins)}  pins hit={pin_tp}/{pin_total}  "
