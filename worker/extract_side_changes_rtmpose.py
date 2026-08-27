@@ -529,6 +529,11 @@ def _box_overlaps_quad(box: list[float], quad: np.ndarray) -> bool:
 # is a question for the corpus, not for an opinion, and re-running pose
 # over fifty matches to try the next idea costs an hour and a half.
 
+# Which of the stored descriptors becomes the point's signature. Every
+# candidate is stored either way; this only names the one the state
+# machine sees without a rescore. Moved by worker/sweep_descriptors.py.
+DEFAULT_DESCRIPTOR: str | None = None
+
 STRIP_W, STRIP_H = 24, 64
 STRIP_U0, STRIP_U1 = 0.10, 1.75      # in torso lengths below the shoulders
 STRIP_HALF_W = 0.40                  # of shoulder width, either side
@@ -1031,6 +1036,28 @@ def torso_signature_v2(
     return [round(float(value), 4) for value in median]
 
 
+def _chosen_samples(
+    frames: Sequence[Mapping[str, Any]],
+    descriptor: str | None,
+) -> list[list[float]]:
+    """One named descriptor's vectors, from frames the chooser committed to.
+
+    Frames where two people at one end were within 15% of each other's
+    size are stored but not used here: they are for the sweep to decide
+    about, not for the extractor to quietly include.
+    """
+    if not descriptor:
+        return []
+    out = []
+    for frame in frames:
+        if (frame.get("_amb") or [0.0])[0] > 0.5:
+            continue
+        vector = frame.get(descriptor)
+        if vector:
+            out.append(list(vector))
+    return out
+
+
 def _clip_or_none(clips_dir: Path, point: Mapping[str, Any]) -> Path | None:
     try:
         return _clip_path(clips_dir, point)
@@ -1127,6 +1154,7 @@ def extract_side_change_evidence(
     samples: int = SAMPLE_FRAMES,
     pose_model: Any | None = None,
     det_model_instance: Any | None = None,
+    descriptor: str | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     match = json.loads(match_json_path.read_text())
@@ -1183,6 +1211,7 @@ def extract_side_change_evidence(
 
     cfg = merge_config(config)
     spread_max = float(cfg["spread_max"])
+    descriptor = descriptor or DEFAULT_DESCRIPTOR
     point_summaries: list[dict[str, Any]] = []
     inference_s = 0.0
     decode_s = 0.0
@@ -1294,8 +1323,12 @@ def extract_side_change_evidence(
             "idx": idx,
             "t0": float(point["t0"]),
             "t1": float(point["t1"]),
-            "near": summarize_point_side(raw_samples["near"], spread_max),
-            "far": summarize_point_side(raw_samples["far"], spread_max),
+            "near": summarize_point_side(
+                _chosen_samples(raw_bank["near"], descriptor)
+                or raw_samples["near"], spread_max),
+            "far": summarize_point_side(
+                _chosen_samples(raw_bank["far"], descriptor)
+                or raw_samples["far"], spread_max),
             # Every candidate descriptor for every frame, so the choice
             # between them is a sweep over stored numbers rather than
             # another two hours of pose inference per idea.
@@ -1424,6 +1457,9 @@ def main() -> None:
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--samples", type=int, default=SAMPLE_FRAMES)
     parser.add_argument(
+        "--descriptor", default=DEFAULT_DESCRIPTOR,
+        help="which stored descriptor becomes the point signature")
+    parser.add_argument(
         "--config",
         type=str,
         default=None,
@@ -1441,6 +1477,7 @@ def main() -> None:
         det_model=args.det_model,
         config=overrides,
         samples=args.samples,
+        descriptor=args.descriptor,
     )
     confirmed = [
         change

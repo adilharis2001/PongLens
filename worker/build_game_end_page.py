@@ -29,8 +29,8 @@ from typing import Any
 
 DEFAULT_CACHE = Path.home() / "ponglens-research-work" / "game-end-eval"
 DUMP = DEFAULT_CACHE / "page-data.json"
-FRAME_W = 380
-JPEG_QUALITY = 70
+FRAME_W = 330
+JPEG_QUALITY = 66
 
 
 # --- pass one: truth, scores and what to show -------------------------------
@@ -75,10 +75,21 @@ def dump(cache: Path, out: Path, config: dict | None) -> None:
         # Pair each fire and each boundary with the two rallies a reviewer
         # has to look at, in match.json's own numbering — never the
         # database's, which on a reprocessed match names other rallies.
+        wrong_gaps = {
+            tuple(f["gap"]) for f in score["false_positives"]
+        }
         cases = []
         for change in fired:
+            after = by_idx.get(int(change["after_idx"])) or {}
+            before = by_idx.get(int(change["before_idx"])) or {}
+            gap = (round(float(after.get("t1", 0)), 1),
+                   round(float(before.get("t0", 0)), 1))
             cases.append({
-                "kind": "fire",
+                # A fire that matched a scored boundary is shown as a hit;
+                # one that did not is shown as wrong. Both get frames,
+                # because "wrong" here sometimes means the scoring drifted
+                # and the detector found the real changeover.
+                "kind": "wrong" if gap in wrong_gaps else "hit",
                 "after_idx": int(change["after_idx"]),
                 "before_idx": int(change["before_idx"]),
                 "confidence": change.get("confidence"),
@@ -198,9 +209,16 @@ def render(cache: Path, data: dict, out: Path, limit_cases: int) -> None:
 
     blocks = []
     shown = 0
+    # Failures first: a page that opens on forty correct answers buries
+    # the only part anyone can act on.
+    order = {"wrong": 0, "miss": 1, "hit": 2}
+    matches = sorted(matches, key=lambda m: min(
+        (order.get(c["kind"], 9) for c in m["cases"]), default=9))
     for m in matches:
         if not m["cases"]:
             continue
+        m = {**m, "cases": sorted(
+            m["cases"], key=lambda c: order.get(c["kind"], 9))}
         match_json = cache / m["match"] / "match.json"
         if not match_json.exists():
             continue
@@ -214,11 +232,13 @@ def render(cache: Path, data: dict, out: Path, limit_cases: int) -> None:
             before = clip_for(folder, parsed, case["before_idx"])
             case_id = f'{m["match"][:8]}@{case["after_idx"]}'
             kind = case["kind"]
-            head = (
-                f'fired, confidence {case.get("confidence")}'
-                if kind == "fire" else
-                f'MISSED a {case.get("tier")} boundary'
-            )
+            head = {
+                "hit": f'found it — confidence {case.get("confidence")}',
+                "wrong": f'fired here, and your scoring has no game '
+                         f'ending — confidence {case.get("confidence")}',
+                "miss": f'your scoring says a game ended here and the '
+                        f'detector said nothing ({case.get("tier")})',
+            }.get(kind, kind)
             detail = json.dumps(
                 case.get("components") or {"gap": case.get("gap")},
                 default=str)
@@ -283,12 +303,14 @@ tr.part td:nth-child(7) {{ color:#e0c46a; }}
 .case {{ border:1px solid #26262c; border-radius:14px; padding:16px 18px;
   margin:16px 0; background:#141418; }}
 .case.miss {{ border-color:#4a3030; }}
+.case.wrong {{ border-color:#4a3a20; }}
 .case header {{ display:flex; gap:14px; align-items:baseline; flex-wrap:wrap;
   margin-bottom:12px; }}
 .tag {{ font-size:11px; text-transform:uppercase; letter-spacing:.06em;
   padding:2px 8px; border-radius:999px; }}
-.tag.fire {{ background:#1d3a29; color:#8fe0b0; }}
 .tag.miss {{ background:#3a1d1d; color:#e0a08f; }}
+.tag.hit {{ background:#1d3a29; color:#8fe0b0; }}
+.tag.wrong {{ background:#3a3018; color:#e0c46a; }}
 .head {{ color:#9a9aa2; font-size:13px; }}
 .pair {{ display:flex; gap:20px; flex-wrap:wrap; }}
 .frames {{ display:flex; gap:8px; }}
@@ -331,10 +353,12 @@ the players walk round the table and swap ends. Nothing here is in the app.</p>
 </table>
 
 <h2>Look for yourself</h2>
-<p class="lede">Green is a boundary the detector called. Red is one it
-missed. Each shows the last rally before the break and the first one
-after. If the players are at opposite ends between the two, it was a real
-changeover. Tap a verdict and send me the block at the bottom.</p>
+<p class="lede">Each block shows the last rally before a break and the
+first one after it. If the two players are at opposite ends between them,
+a game ended there. Amber blocks are where the detector fired and your
+scoring disagrees; red is where your scoring says a game ended and the
+detector stayed quiet. Those two are the ones worth your time. Tap a
+verdict and send me the block from the corner.</p>
 {cases}
 
 <div id="out">
