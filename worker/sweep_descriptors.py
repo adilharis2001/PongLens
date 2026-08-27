@@ -88,8 +88,55 @@ def _compose(frame: dict, name: str) -> list[float] | None:
     return frame.get(name)
 
 
+def align_ends(points: list[dict]) -> list[dict]:
+    """Remove the average difference between the two ends of the table.
+
+    The second answer to the illumination problem, and the one that needs
+    no table quad. Pool every near-end signature in the match and every
+    far-end signature, and subtract each pool's own mean: whatever is
+    systematically different about standing at the far end comes out, and
+    the difference between the two PLAYERS stays, because over a match
+    with at least one changeover both of them appear in both pools.
+
+    The bias to respect, stated plainly: this is only clean if the two
+    players spend comparable time at each end. A match whose first game
+    ran to 11-2 and whose second went to deuce loads one pool more than
+    the other, and some real between-player difference is removed with
+    the end effect. It is a candidate to measure, not a free win.
+    """
+    pools: dict[str, list[list[float]]] = {"near": [], "far": []}
+    for point in points:
+        for side in ("near", "far"):
+            summary = point.get(side)
+            if summary and summary.get("ok"):
+                pools[side].append(summary["sig"])
+    if len(pools["near"]) < 4 or len(pools["far"]) < 4:
+        return points
+    width = min(len(v) for side in pools for v in pools[side])
+    means = {
+        side: [
+            sum(v[d] for v in vectors) / len(vectors)
+            for d in range(width)
+        ]
+        for side, vectors in pools.items()
+    }
+    middle = [(means["near"][d] + means["far"][d]) / 2.0
+              for d in range(width)]
+    for point in points:
+        for side in ("near", "far"):
+            summary = point.get(side)
+            if not summary:
+                continue
+            summary["sig"] = [
+                summary["sig"][d] - means[side][d] + middle[d]
+                for d in range(width)
+            ]
+    return points
+
+
 def rebuild(evidence: dict, name: str, spread_max: float,
-            allow_ambiguous: bool = False) -> dict:
+            allow_ambiguous: bool = False,
+            aligned: bool = False) -> dict:
     points = []
     for point in evidence.get("points") or []:
         bank = point.get("bank") or {}
@@ -111,6 +158,8 @@ def rebuild(evidence: dict, name: str, spread_max: float,
             and rebuilt["near"]["ok"] and rebuilt["far"]["ok"]
         )
         points.append(rebuilt)
+    if aligned:
+        points = align_ends(points)
     return {**evidence, "points": points}
 
 
@@ -154,14 +203,15 @@ def scales(cache: dict, name: str,
 
 
 def evaluate(cache: dict, name: str, config: dict,
-             allow_ambiguous: bool = False) -> dict:
+             allow_ambiguous: bool = False,
+             aligned: bool = False) -> dict:
     tp = fp = fn = drift = 0
     qualified = total = 0
     withheld = 0
     detail = []
     for match_id, (evidence, truth) in cache.items():
         rebuilt = rebuild(evidence, name, float(config["spread_max"]),
-                          allow_ambiguous)
+                          allow_ambiguous, aligned)
         points = rebuilt["points"]
         qualified += sum(1 for p in points if p["qualified"])
         total += len(points)
@@ -222,6 +272,9 @@ def main() -> None:
     parser.add_argument(
         "--ambiguous", action="store_true",
         help="also use frames the player chooser would not commit to")
+    parser.add_argument(
+        "--align", action="store_true",
+        help="subtract each end's own mean signature before comparing")
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
 
@@ -250,7 +303,8 @@ def main() -> None:
                         "verify_margin": ruler["apart_p50"] * 0.1,
                         "confidence_scale": penalty * 2.0,
                     })
-                    outcome = evaluate(cache, name, config, args.ambiguous)
+                    outcome = evaluate(
+                        cache, name, config, args.ambiguous, args.align)
                     if best is None or outcome["f1"] > best["f1"]:
                         best = outcome
         results.append(best)
