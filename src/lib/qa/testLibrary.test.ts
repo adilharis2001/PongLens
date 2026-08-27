@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
   AREA_TITLE,
   TEST_AREAS,
+  TEST_SURFACES,
   casesAtDepth,
   casesByArea,
   testCaseSearchText,
@@ -36,7 +37,7 @@ test("every case is executable by someone who did not build this", () => {
     assert.ok(c.title.trim().length > 10, `${c.id} has no real title`);
     assert.ok(c.steps.length > 0, `${c.id} has no steps`);
     assert.ok(c.expected.length > 0, `${c.id} has no expected result`);
-    assert.ok(c.devices.length > 0, `${c.id} names no devices`);
+    assert.ok(c.surfaces.length > 0, `${c.id} names no surfaces`);
 
     // The point of the library is the product knowledge a new tester
     // lacks. A one-line "so it works" why is the failure mode this guards.
@@ -122,6 +123,67 @@ test("the area vocabulary matches the qa_bugs check constraint", () => {
     assert.ok(
       constraint.includes(`'${area}'`),
       `qa_bugs.area rejects "${area}", which the library uses`,
+    );
+  }
+});
+
+test("every case names surfaces that exist", () => {
+  const keys = TEST_SURFACES.map((s) => s.key);
+  for (const c of testCases) {
+    for (const surface of c.surfaces) {
+      assert.ok(
+        keys.includes(surface),
+        `${c.id} names an unknown surface "${surface}"`,
+      );
+    }
+    assert.equal(
+      new Set(c.surfaces).size,
+      c.surfaces.length,
+      `${c.id} names a surface twice`,
+    );
+  }
+});
+
+test("iOS and Android carry the same cases", () => {
+  // They are one product with two builds. A case that applies to one and
+  // not the other is almost always a tag someone forgot to widen, and it
+  // would show up as a phantom gap in the Android column.
+  const ios = testCases.filter((c) => c.surfaces.includes("ios")).map((c) => c.id);
+  const android = testCases
+    .filter((c) => c.surfaces.includes("android"))
+    .map((c) => c.id);
+  assert.deepEqual(ios, android);
+});
+
+test("no surface opens with an empty release set", () => {
+  // The cadence cards are the first thing on the page. A surface whose
+  // release set is empty reads as "nothing to do here", which is never
+  // what it means.
+  for (const s of TEST_SURFACES) {
+    const release = testCases.filter(
+      (c) => c.depth === "smoke" && c.surfaces.includes(s.key),
+    );
+    assert.ok(release.length > 0, `${s.title} has no release cases`);
+  }
+});
+
+test("the surface vocabulary matches the qa_case_results check constraint", () => {
+  // Same trap as the area constraint above: 142 stores the surface as text
+  // with a check constraint, and a mark against a surface the table
+  // rejects fails to save. The library is where the vocabulary is decided,
+  // so the migration has to agree with it rather than the other way round.
+  const sql = readFileSync(
+    join(
+      import.meta.dirname,
+      "../../../supabase/migrations/142_qa_case_surfaces.sql",
+    ),
+    "utf8",
+  );
+  const constraint = sql.slice(sql.indexOf("qa_case_results_surface_check"));
+  for (const s of TEST_SURFACES) {
+    assert.ok(
+      constraint.includes(`'${s.key}'`),
+      `qa_case_results.surface rejects "${s.key}", which the library uses`,
     );
   }
 });

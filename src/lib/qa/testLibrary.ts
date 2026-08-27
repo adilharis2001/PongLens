@@ -40,7 +40,23 @@ export const TEST_AREAS = [
 ] as const;
 
 export type TestArea = (typeof TEST_AREAS)[number]["key"];
-export type TestDevice = "desktop" | "ios" | "android";
+/**
+ * Where a case is run. Four surfaces, because a pass on one says nothing
+ * about the others: the responsive web app and the native app are separate
+ * builds, and desktop and phone are separate layouts inside the web one.
+ *
+ * There is no Android build yet, so that surface reads zero until there
+ * is. It is tagged anyway — the cases would be the same ones, and the day
+ * the app exists the tracking is already here.
+ */
+export type TestSurface = "web-desktop" | "web-mobile" | "ios" | "android";
+
+export const TEST_SURFACES = [
+  { key: "web-desktop", title: "Web desktop", short: "Desktop" },
+  { key: "web-mobile", title: "Web mobile", short: "Mobile web" },
+  { key: "ios", title: "iOS app", short: "iOS" },
+  { key: "android", title: "Android app", short: "Android" },
+] as const satisfies readonly { key: TestSurface; title: string; short: string }[];
 export type TestDepth = "smoke" | "core" | "edge";
 
 /**
@@ -86,15 +102,31 @@ export interface TestCase {
   needs?: string[];
   steps: string[];
   expected: string[];
-  devices: TestDevice[];
+  /**
+   * Which surfaces this case is worth running on.
+   *
+   * Two questions decide it, and both must be yes: does the feature exist
+   * there, and could running it there give a different answer. That second
+   * one is why the cut, the arithmetic and the emails are tagged web only
+   * — whether a rally survived the cut is a fact about the video, and
+   * asking it four times on four screens returns the same answer four
+   * times. Interface cases go everywhere the interface does.
+   */
+  surfaces: TestSurface[];
   depth: TestDepth;
   /** Set when the case cannot be run yet, with the reason. */
   blocked?: string;
 }
 
-const ALL: TestDevice[] = ["desktop", "ios", "android"];
-const PHONE: TestDevice[] = ["ios", "android"];
-const DESKTOP: TestDevice[] = ["desktop"];
+const ALL: TestSurface[] = ["web-desktop", "web-mobile", "ios", "android"];
+/** Both web layouts. Most of the library: the app defers to the site. */
+const WEB: TestSurface[] = ["web-desktop", "web-mobile"];
+/** Anything held in one hand, whichever build it is running. */
+const PHONE: TestSurface[] = ["web-mobile", "ios", "android"];
+/** Needs a window you can resize, or a keyboard. */
+const WEB_DESKTOP: TestSurface[] = ["web-desktop"];
+/** A browser on a phone, which the app is not. */
+const WEB_MOBILE: TestSurface[] = ["web-mobile"];
 
 export const testCases: TestCase[] = [
   // -------------------------------------------------------------------------
@@ -115,7 +147,7 @@ export const testCases: TestCase[] = [
       "Each video plays without a download error and without stretching or squashing the picture.",
       "Nothing scrolls sideways. The page never becomes wider than the screen.",
     ],
-    devices: ALL,
+    surfaces: WEB,
     depth: "smoke",
   },
   {
@@ -132,7 +164,7 @@ export const testCases: TestCase[] = [
       "The retention answer matches what the privacy page says.",
       "No answer describes a feature you cannot find in the app.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -148,7 +180,7 @@ export const testCases: TestCase[] = [
       "The page renders fully signed out.",
       "The call to action leads to a sign-in or setup page rather than an error.",
     ],
-    devices: ALL,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -164,7 +196,7 @@ export const testCases: TestCase[] = [
       "Both pages render with their full text.",
       "The retention table on Privacy names the same time periods as the FAQ.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -177,7 +209,7 @@ export const testCases: TestCase[] = [
       "The app's own styled not-found page appears.",
       "No stack trace, no framework default error screen.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -193,7 +225,7 @@ export const testCases: TestCase[] = [
       "Each one either shows not-found or sends you back to your dashboard.",
       "None of them says you lack permission, and none shows any of its content.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -210,7 +242,7 @@ export const testCases: TestCase[] = [
       "A preview card appears with a title and an image.",
       "The title describes the match rather than saying PongLens alone.",
     ],
-    devices: PHONE,
+    surfaces: WEB_MOBILE,
     depth: "edge",
   },
 
@@ -231,7 +263,7 @@ export const testCases: TestCase[] = [
       "The email arrives within a minute or two and comes from a ponglens.com address.",
       "Following the same link a second time does not sign you in again silently.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -244,7 +276,7 @@ export const testCases: TestCase[] = [
       "You land on the dashboard signed in.",
       "Your name and avatar appear in the top right.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -257,7 +289,7 @@ export const testCases: TestCase[] = [
       "Sign in when asked.",
     ],
     expected: ["After signing in you land on /journal, not on the dashboard."],
-    devices: ALL,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -276,7 +308,7 @@ export const testCases: TestCase[] = [
       "Skipping is allowed and does not block the app.",
       "The second sign-in goes straight to the dashboard.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -289,7 +321,7 @@ export const testCases: TestCase[] = [
       "Open /dashboard, /matches, /journal and /account in turn.",
     ],
     expected: ["Each one sends you to the login page rather than rendering."],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "smoke",
   },
   {
@@ -306,7 +338,7 @@ export const testCases: TestCase[] = [
       "Back does not reveal the signed-in page.",
       "/dashboard sends you to login.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -322,7 +354,7 @@ export const testCases: TestCase[] = [
       "A readable message explains the link is no longer valid and offers a new one.",
       "No raw error text or blank page.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
 
@@ -340,7 +372,7 @@ export const testCases: TestCase[] = [
       "The current tab is visibly the current one.",
       "No tab is cut off by the phone's home indicator.",
     ],
-    devices: PHONE,
+    surfaces: PHONE,
     depth: "smoke",
   },
   {
@@ -353,7 +385,7 @@ export const testCases: TestCase[] = [
       "The header carries Home, Upload, Matches and Journal. Upload is desktop only, on purpose: the floating upload button sits outside the reading column on a wide monitor and gets missed.",
       "The bell and avatar sit at the top right.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB_DESKTOP,
     depth: "core",
   },
   {
@@ -368,7 +400,7 @@ export const testCases: TestCase[] = [
       "Opening a notification takes you to the thing it is about.",
       "The count drops once read.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -385,7 +417,7 @@ export const testCases: TestCase[] = [
       "No control appears twice.",
       "No sound continues from a player you can no longer see.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB_DESKTOP,
     depth: "core",
   },
   {
@@ -401,7 +433,7 @@ export const testCases: TestCase[] = [
       "Back closes the sheet, then the point, then returns to the match list.",
       "Back never leaves the app while an overlay is open.",
     ],
-    devices: PHONE,
+    surfaces: WEB_MOBILE,
     depth: "core",
   },
 
@@ -425,7 +457,7 @@ export const testCases: TestCase[] = [
       "The screen confirms the upload and says processing has started.",
       "The match appears in your library straight away, before processing finishes.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -443,7 +475,7 @@ export const testCases: TestCase[] = [
       "The match lands in your library when the fetch completes.",
       "A link that is not a YouTube video is rejected with a readable message.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -462,7 +494,7 @@ export const testCases: TestCase[] = [
       "Placement carries a note that it adds processing time.",
       "Each control keeps its setting when you leave and reopen the sheet.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -479,7 +511,7 @@ export const testCases: TestCase[] = [
       "The Loose version starts earlier before the serve and runs longer after the point ends.",
       "Neither version cuts off the start of the serve or the end of the rally.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
   {
@@ -495,7 +527,7 @@ export const testCases: TestCase[] = [
       "A confirmation asks whether you really want to leave.",
       "Staying keeps the upload running from where it was.",
     ],
-    devices: ALL,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -508,7 +540,7 @@ export const testCases: TestCase[] = [
       "The file is refused with a message naming the accepted formats.",
       "Nothing uploads and no match row is created.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -524,7 +556,7 @@ export const testCases: TestCase[] = [
       "The match fails with a plain message saying it does not look like table tennis.",
       "Nothing is charged against your processing minutes for the rejected video.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -538,7 +570,7 @@ export const testCases: TestCase[] = [
       "The refusal names the limit you reached.",
       "It says what to do next rather than only saying no.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
   {
@@ -553,7 +585,7 @@ export const testCases: TestCase[] = [
       "A message says processing needs more minutes than you have.",
       "The library entry can be opened and watched.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -566,7 +598,7 @@ export const testCases: TestCase[] = [
       "Complete the upload and open the match.",
     ],
     expected: ["All three values appear on the match when it opens."],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -582,7 +614,7 @@ export const testCases: TestCase[] = [
       "The upload either continued or resumed rather than starting over.",
       "The progress indicator reflects reality.",
     ],
-    devices: PHONE,
+    surfaces: PHONE,
     depth: "core",
   },
   {
@@ -595,7 +627,7 @@ export const testCases: TestCase[] = [
       "Either both uploads run and both matches appear, or the second is refused with a reason.",
       "Neither upload corrupts the other's progress display.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
 
@@ -615,7 +647,7 @@ export const testCases: TestCase[] = [
       "The card shows a processing state with a percentage that advances.",
       "It reaches ready without the page being reloaded by hand.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -628,7 +660,7 @@ export const testCases: TestCase[] = [
       "An email arrives when the match is ready.",
       "Its link opens that match, signing in if needed.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "smoke",
   },
   {
@@ -646,7 +678,7 @@ export const testCases: TestCase[] = [
       "No rally starts after the serve has already been struck.",
       "No rally is cut off before the ball goes dead.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "smoke",
   },
   {
@@ -663,7 +695,7 @@ export const testCases: TestCase[] = [
       "Each clip contains one rally and one only.",
       "The clips are in the order the points were played.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "smoke",
   },
   {
@@ -677,7 +709,7 @@ export const testCases: TestCase[] = [
       "Ball retrieval and between-game breaks are largely gone.",
       "What remains between points is short.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -692,7 +724,7 @@ export const testCases: TestCase[] = [
       "The message says what went wrong in ordinary language.",
       "There is a way to delete it or try again.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -706,7 +738,7 @@ export const testCases: TestCase[] = [
       "The video plays before processing.",
       "Processing can be started and moves the match into a processing state.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -724,7 +756,7 @@ export const testCases: TestCase[] = [
       "The point count is plausible for the length of the session.",
       "The over-limit one is turned away with a message naming the 45 minute limit, and says so before it wastes an upload rather than after.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
 
@@ -743,7 +775,7 @@ export const testCases: TestCase[] = [
       "Playback starts within a couple of seconds and audio is present.",
       "The point list is below the video.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -760,7 +792,7 @@ export const testCases: TestCase[] = [
       "Once playing, the browser's controls appear and our overlays get out of the way.",
       "Nothing of ours sits on top of the scrubber along the bottom edge.",
     ],
-    devices: PHONE,
+    surfaces: PHONE,
     depth: "core",
   },
   {
@@ -775,7 +807,7 @@ export const testCases: TestCase[] = [
       "Every point opens and plays.",
       "The numbering runs in order with no gaps.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -794,7 +826,7 @@ export const testCases: TestCase[] = [
       "The clip does not jump back to the start.",
       "Seeking is quick rather than stalling for seconds.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -813,7 +845,7 @@ export const testCases: TestCase[] = [
       "Every control stays on screen and in a sensible place.",
       "Leaving fullscreen returns you to the same point, still at the same moment.",
     ],
-    devices: PHONE,
+    surfaces: PHONE,
     depth: "core",
   },
   {
@@ -831,7 +863,7 @@ export const testCases: TestCase[] = [
       "You never hear two at once.",
       "Leaving a point stops its clip rather than leaving it playing.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -844,7 +876,7 @@ export const testCases: TestCase[] = [
       "Use the bottom bar to move to Journal without pausing first.",
     ],
     expected: ["The sound stops immediately on leaving."],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -857,7 +889,7 @@ export const testCases: TestCase[] = [
       "The clip plays at the chosen speed.",
       "The speed carries to the next clip rather than resetting.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -870,7 +902,7 @@ export const testCases: TestCase[] = [
       "Each press moves to the following point and starts its clip.",
       "The control is not offered on the last point, or does nothing harmful there.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -883,7 +915,7 @@ export const testCases: TestCase[] = [
       "The new name shows on the match page and on the library card.",
       "It survives a page reload.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -900,7 +932,7 @@ export const testCases: TestCase[] = [
       "The tag is created once and offered again on later points.",
       "All three tagged points are found together.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -919,7 +951,7 @@ export const testCases: TestCase[] = [
       "The raw export is the original upload, uncut.",
       "Each file plays after downloading.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -933,7 +965,7 @@ export const testCases: TestCase[] = [
       "The scoreboard advances in step with the points.",
       "The final score matches the scorecard in the app.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -947,7 +979,7 @@ export const testCases: TestCase[] = [
       "The match is gone from the library after a reload.",
       "Storage used in Account drops accordingly.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
 
@@ -970,7 +1002,7 @@ export const testCases: TestCase[] = [
       "Finishing returns you to the match with the score in place.",
       "Back in the library, the card shows GAMES won, not points. It stays 0-0 until somebody actually finishes a game, which takes 11 points with two clear, so scoring five points and seeing 0-0 is correct.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -985,7 +1017,7 @@ export const testCases: TestCase[] = [
       "It is not asked again later in the same match.",
       "The answer can be corrected afterwards.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1003,7 +1035,7 @@ export const testCases: TestCase[] = [
       "From ten all it changes on every point.",
       "The server shown matches who actually serves in the clip.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1018,7 +1050,7 @@ export const testCases: TestCase[] = [
       "Deuce games end with a two point gap.",
       "The next game starts from zero zero.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1036,7 +1068,7 @@ export const testCases: TestCase[] = [
       "The match result changes to match.",
       "The correction survives a reload.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1051,7 +1083,7 @@ export const testCases: TestCase[] = [
       "The running score and everything derived from it update.",
       "The change survives a reload.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1066,7 +1098,7 @@ export const testCases: TestCase[] = [
       "Any score shown is clearly based only on what you confirmed.",
       "No invented score appears for the unscored points.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1080,7 +1112,7 @@ export const testCases: TestCase[] = [
       "Come back and start scoring again.",
     ],
     expected: ["Scoring resumes at the first unscored point, not at the beginning."],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1097,7 +1129,7 @@ export const testCases: TestCase[] = [
       "Skipping is possible and moves on.",
       "The recorded reason appears on the point afterwards.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1111,7 +1143,7 @@ export const testCases: TestCase[] = [
       "Keys answer who won and advance to the next point.",
       "No key press scrolls the page instead of scoring.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB_DESKTOP,
     depth: "edge",
   },
 
@@ -1129,7 +1161,7 @@ export const testCases: TestCase[] = [
       "A map of where the ball landed is shown.",
       "A match uploaded without placement shows no maps and does not pretend to.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1146,7 +1178,7 @@ export const testCases: TestCase[] = [
       "Marks fall on the correct half and the correct side of the table.",
       "The number of marks is close to the number of bounces in the rally.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1160,7 +1192,7 @@ export const testCases: TestCase[] = [
       "It shows more marks than any single point.",
       "Filters, if any, change what is shown.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1174,7 +1206,7 @@ export const testCases: TestCase[] = [
       "A report can be submitted against that specific point.",
       "It is acknowledged on screen.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "edge",
   },
   {
@@ -1188,7 +1220,7 @@ export const testCases: TestCase[] = [
       "The point opens normally and the clip plays.",
       "The empty map is handled with a short line rather than an error.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
 
@@ -1206,7 +1238,7 @@ export const testCases: TestCase[] = [
       "The note is there after reopening.",
       "The point shows an indicator that it carries a note.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -1217,7 +1249,7 @@ export const testCases: TestCase[] = [
     needs: ["A processed match"],
     steps: ["Write an overall note on the match.", "Reload."],
     expected: ["The note persists and is clearly about the match, not a point."],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1237,7 +1269,7 @@ export const testCases: TestCase[] = [
       "The edited transcript persists.",
       "The audio can be played back.",
     ],
-    devices: PHONE,
+    surfaces: PHONE,
     depth: "core",
   },
   {
@@ -1250,7 +1282,7 @@ export const testCases: TestCase[] = [
       "A message explains the microphone is unavailable.",
       "Typing a note still works.",
     ],
-    devices: PHONE,
+    surfaces: PHONE,
     depth: "edge",
   },
   {
@@ -1264,7 +1296,7 @@ export const testCases: TestCase[] = [
       "The edit persists after a reload.",
       "The deleted note is gone and its indicator disappears from the point.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1278,7 +1310,7 @@ export const testCases: TestCase[] = [
       "The drawing appears on the saved note.",
       "It survives a reload and opens at full size.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "edge",
   },
 
@@ -1296,7 +1328,7 @@ export const testCases: TestCase[] = [
       "Notes written on points and matches appear here.",
       "Each says which match it came from and links back to it.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -1306,7 +1338,7 @@ export const testCases: TestCase[] = [
     why: "Not everything worth recording comes from a video. Practice entries are how a training session gets captured.",
     steps: ["Create a new practice entry, write text, save.", "Reload the journal."],
     expected: ["The entry appears in the feed and opens with its text intact."],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1319,7 +1351,7 @@ export const testCases: TestCase[] = [
       "The lesson is saved with its coach name.",
       "Its takeaways are listed separately rather than as one paragraph.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1332,7 +1364,7 @@ export const testCases: TestCase[] = [
       "The photo is attached and opens.",
       "If text is offered from the image, it is roughly right and editable.",
     ],
-    devices: PHONE,
+    surfaces: PHONE,
     depth: "edge",
   },
   {
@@ -1346,7 +1378,7 @@ export const testCases: TestCase[] = [
       "The list filters as you type.",
       "Nothing is sent anywhere until you deliberately ask a question.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1361,7 +1393,7 @@ export const testCases: TestCase[] = [
       "The filtered list underneath is not disturbed by asking.",
       "Asking repeatedly eventually hits a limit and says so plainly.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1375,7 +1407,7 @@ export const testCases: TestCase[] = [
       "Adding a duplicate is refused with a short message.",
       "Removing it takes it off the list.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1390,7 +1422,7 @@ export const testCases: TestCase[] = [
       "Adding it puts it on Working on, and says so if it is already there.",
       "A dismissed card does not come straight back.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "edge",
   },
 
@@ -1408,7 +1440,7 @@ export const testCases: TestCase[] = [
       "The sections render with real numbers.",
       "With fewer scored matches, the section is absent rather than empty.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1422,7 +1454,7 @@ export const testCases: TestCase[] = [
       "Add up the same figures from the individual matches.",
     ],
     expected: ["The totals match. No off-by-one, no double counting."],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1436,7 +1468,7 @@ export const testCases: TestCase[] = [
       "Serve and receive points add up to the total points.",
       "The split is consistent with the servers shown on individual points.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1450,7 +1482,7 @@ export const testCases: TestCase[] = [
       "The reasons shown are ones you recorded.",
       "Points with no reason are not silently counted as one.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
   {
@@ -1464,7 +1496,7 @@ export const testCases: TestCase[] = [
       "Each opponent is listed once with a record.",
       "The same name is not split across two rows by capitalisation or spacing.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
 
@@ -1486,7 +1518,7 @@ export const testCases: TestCase[] = [
       "No notes, no scorecard and no placement maps are visible.",
       "There is no way to reach the rest of the account from that page.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "smoke",
   },
   {
@@ -1500,7 +1532,7 @@ export const testCases: TestCase[] = [
       "The cut video plays.",
       "No point list appears.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1515,7 +1547,7 @@ export const testCases: TestCase[] = [
       "Reload the shared link.",
     ],
     expected: ["The newly starred point now appears in the shared view."],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
   {
@@ -1533,7 +1565,7 @@ export const testCases: TestCase[] = [
       "The page no longer shows the video.",
       "It says the link is off rather than showing an error.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1543,7 +1575,7 @@ export const testCases: TestCase[] = [
     why: "If a wrong token said not found and a revoked one said turned off, the difference would tell a stranger which links exist.",
     steps: ["Open a share URL with random characters in place of the token."],
     expected: ["The same minimal page appears as for a revoked link."],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
   {
@@ -1560,7 +1592,7 @@ export const testCases: TestCase[] = [
       "The invite is accepted and the player appears in the coach's app.",
       "The coach can open the matches that were shared.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1579,7 +1611,7 @@ export const testCases: TestCase[] = [
       "None of the player's own data can be changed by the coach.",
       "The player sees the coach's note and gets a notification about it.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1594,7 +1626,7 @@ export const testCases: TestCase[] = [
       "The player disappears from the coach's list.",
       "Notes the coach already wrote remain visible to the player.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
 
@@ -1612,7 +1644,7 @@ export const testCases: TestCase[] = [
       "The page renders with the coach's name, photo and offerings.",
       "Prices and turnaround times are shown.",
     ],
-    devices: ALL,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1625,7 +1657,7 @@ export const testCases: TestCase[] = [
       "Open one that exists but is not published.",
     ],
     expected: ["Both show the same not-found response."],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1644,7 +1676,7 @@ export const testCases: TestCase[] = [
       "The public page reflects what was entered.",
       "Publishing is a deliberate action, not automatic.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1661,7 +1693,7 @@ export const testCases: TestCase[] = [
       "The offering appears publicly with the exact price entered.",
       "The turnaround shown matches what was set.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1678,7 +1710,7 @@ export const testCases: TestCase[] = [
       "The new price shows publicly.",
       "The hidden offering is gone from the public page and cannot be bought.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1693,7 +1725,7 @@ export const testCases: TestCase[] = [
       "Both appear on the public page.",
       "A file that is too large is refused with a readable message.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1707,7 +1739,7 @@ export const testCases: TestCase[] = [
       "The hub says payouts are unfinished and offers the next step.",
       "The public page does not offer a working buy button.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1721,7 +1753,7 @@ export const testCases: TestCase[] = [
       "The page no longer offers a purchase.",
       "Orders already in flight are unaffected.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
 
@@ -1745,7 +1777,7 @@ export const testCases: TestCase[] = [
       "The order is visibly a test order.",
       "No real charge appears anywhere.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1763,7 +1795,7 @@ export const testCases: TestCase[] = [
       "The coach sees it in their queue.",
       "The match is viewable by the coach.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1781,7 +1813,7 @@ export const testCases: TestCase[] = [
       "Delivering notifies the student.",
       "The student can read every section.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1798,7 +1830,7 @@ export const testCases: TestCase[] = [
       "The student is notified and can reply.",
       "The coach sees the answer and can continue.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
   {
@@ -1813,7 +1845,7 @@ export const testCases: TestCase[] = [
       "The coach sees it as completed.",
       "The student can still read the review afterwards.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1827,7 +1859,7 @@ export const testCases: TestCase[] = [
       "The student sees it declined with the coach's message.",
       "The refund is reflected on the order.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1844,7 +1876,7 @@ export const testCases: TestCase[] = [
       "The first cancels and refunds.",
       "The second does not offer cancellation.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1858,7 +1890,7 @@ export const testCases: TestCase[] = [
       "Both see a plain description of the state.",
       "No internal state name such as awaiting_submission is shown.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1872,7 +1904,7 @@ export const testCases: TestCase[] = [
       "The message is a plain not-found rather than an error about billing modes.",
       "No order row is created.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -1883,7 +1915,7 @@ export const testCases: TestCase[] = [
     needs: ["A coach account with an offering"],
     steps: ["Signed in as the coach, try to buy your own offering."],
     expected: ["The purchase is refused."],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
 
@@ -1903,7 +1935,7 @@ export const testCases: TestCase[] = [
       "The figure drops after the deletion.",
       "The limit shown matches what uploads actually enforce.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1920,7 +1952,7 @@ export const testCases: TestCase[] = [
       "The balance drops by roughly the length of the source video.",
       "The balance never goes below zero.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1930,7 +1962,7 @@ export const testCases: TestCase[] = [
     why: "Handedness, grip and rubbers are what a coach reads before watching. They are entered at onboarding and must remain editable.",
     steps: ["Change your handedness and rubbers.", "Reload."],
     expected: ["The changes persist."],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1943,7 +1975,7 @@ export const testCases: TestCase[] = [
       "Every row opens the page it names.",
       "Nothing 404s and nothing loops back to Account.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -1956,7 +1988,7 @@ export const testCases: TestCase[] = [
       "Each pack shows what you get and what it costs.",
       "Buying one runs in test mode from your account.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
   {
@@ -1969,7 +2001,7 @@ export const testCases: TestCase[] = [
       "The address is on the ponglens.com domain.",
       "The message does not bounce.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
   {
@@ -1983,7 +2015,7 @@ export const testCases: TestCase[] = [
       "It requires a deliberate confirmation step.",
       "Backing out leaves the account untouched.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
 
@@ -2002,7 +2034,7 @@ export const testCases: TestCase[] = [
       "Replying addresses the support mailbox.",
       "A reply is actually received.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -2017,7 +2049,7 @@ export const testCases: TestCase[] = [
       "Nothing overflows the width on a phone.",
       "Every link works.",
     ],
-    devices: ALL,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -2030,7 +2062,7 @@ export const testCases: TestCase[] = [
       "Two emails arrive, each naming its own match.",
       "Each link opens the match it names.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -2044,7 +2076,7 @@ export const testCases: TestCase[] = [
       "A notification appears naming the coach and the match.",
       "Opening it goes to that point.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -2054,7 +2086,7 @@ export const testCases: TestCase[] = [
     why: "Duplicate mail is how a sender's reputation gets damaged, and it usually comes from a job being retried.",
     steps: ["Watch the inbox for a day of normal testing."],
     expected: ["No event produces the same email twice."],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "edge",
   },
 
@@ -2080,7 +2112,7 @@ export const testCases: TestCase[] = [
       "The item appears on the board with the author's first name.",
       "The confirmation says it was posted and others can upvote it.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -2099,7 +2131,7 @@ export const testCases: TestCase[] = [
       "The normal player cannot see your item anywhere on the board.",
       "Your item carries a marker that it is not on the board, and offers no vote control.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -2117,7 +2149,7 @@ export const testCases: TestCase[] = [
       "The count moves by exactly one each time.",
       "The count after a reload matches what was shown.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -2134,7 +2166,7 @@ export const testCases: TestCase[] = [
       "The author sees their screenshot.",
       "Another player sees the item without the screenshot.",
     ],
-    devices: DESKTOP,
+    surfaces: WEB,
     depth: "core",
   },
   {
@@ -2151,7 +2183,7 @@ export const testCases: TestCase[] = [
       "The form opens already knowing which match you came from.",
       "The submitted report is tied to that match.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "core",
   },
   {
@@ -2168,7 +2200,7 @@ export const testCases: TestCase[] = [
       "The new status shows on your item.",
       "Done and declined items move into the collapsed section rather than vanishing.",
     ],
-    devices: ALL,
+    surfaces: ALL,
     depth: "edge",
   },
 ];

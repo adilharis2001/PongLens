@@ -14,12 +14,17 @@ import {
   csvList,
   csvNumberedList,
 } from "@/lib/qa/csv";
-import { AREA_TITLE, testCases } from "@/lib/qa/testLibrary";
+import {
+  AREA_TITLE,
+  TEST_SURFACES,
+  testCases,
+  type TestSurface,
+} from "@/lib/qa/testLibrary";
 
 export const runtime = "nodejs";
 
 /**
- * GET /api/qa/export?what=library|bugs|template
+ * GET /api/qa/export?what=library|bugs|template[&surface=]
  *
  * Three files, all CSV, because Sheets and Excel both open it and it costs
  * no dependency.
@@ -27,14 +32,20 @@ export const runtime = "nodejs";
  *  library  — the test cases. This is the one that matters day to day: run
  *             tracking lives in the tester's own sheet, and this is the
  *             file that sheet is built from. Two empty columns are left at
- *             the end for their result and notes.
+ *             the end for their result and notes. &surface= narrows it to
+ *             the cases worth running on one of them, so a sheet for the
+ *             app does not open with the paid review flow in it.
  *  bugs     — everything currently in the queue, worst first.
  *  template — the shape a bug import expects, with worked examples. The
  *             import itself is not built yet, so this is here to settle the
  *             columns before anyone starts filling one in.
  */
 
-function libraryCsv() {
+function libraryCsv(surface: TestSurface | null) {
+  const cases = surface
+    ? testCases.filter((c) => c.surfaces.includes(surface))
+    : testCases;
+
   return csvDocument(
     [
       "case_id",
@@ -45,14 +56,14 @@ function libraryCsv() {
       "needs",
       "steps",
       "expected",
-      "devices",
+      "surfaces",
       "blocked",
       // Left empty on purpose. This is where a run gets recorded, in the
       // tester's own copy, which is why the file exists at all.
       "result",
       "notes",
     ],
-    testCases.map((c) => [
+    cases.map((c) => [
       c.id,
       AREA_TITLE[c.area],
       c.depth,
@@ -61,7 +72,9 @@ function libraryCsv() {
       csvList(c.needs),
       csvNumberedList(c.steps),
       csvList(c.expected),
-      c.devices.join(", "),
+      TEST_SURFACES.filter((s) => c.surfaces.includes(s.key))
+        .map((s) => s.title)
+        .join(", "),
       c.blocked ?? "",
       "",
       "",
@@ -194,7 +207,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const what = new URL(req.url).searchParams.get("what") ?? "library";
+  const params = new URL(req.url).searchParams;
+  const what = params.get("what") ?? "library";
+  const asked = params.get("surface");
+  const surface = TEST_SURFACES.find((s) => s.key === asked)?.key ?? null;
 
   let body: string;
   let name: string;
@@ -216,8 +232,12 @@ export async function GET(req: Request) {
     body = templateCsv();
     name = "ponglens-bug-template.csv";
   } else {
-    body = libraryCsv();
-    name = "ponglens-test-library.csv";
+    body = libraryCsv(surface);
+    // A separate filename per surface, so four downloads do not overwrite
+    // each other in the same Downloads folder.
+    name = surface
+      ? `ponglens-test-library-${surface}.csv`
+      : "ponglens-test-library.csv";
   }
 
   return new NextResponse(body, {

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { AppShell } from "@/components/AppShell";
+import { TEST_SURFACES } from "@/lib/qa/testLibrary";
 import { requireTesting } from "../requireTesting";
 import { ReportForm, type MatchOption } from "./ReportForm";
 
@@ -28,9 +29,9 @@ export const metadata: Metadata = {
 export default async function ReportBugPage({
   searchParams,
 }: {
-  searchParams: Promise<{ case?: string; match?: string }>;
+  searchParams: Promise<{ case?: string; match?: string; surface?: string }>;
 }) {
-  const { case: caseId, match } = await searchParams;
+  const { case: caseId, match, surface } = await searchParams;
   const { supabase, user, avatarUrl } = await requireTesting("/testing/report");
 
   const [{ data: mode }, { data: matches }] = await Promise.all([
@@ -52,6 +53,9 @@ export default async function ReportBugPage({
         userId={user.id}
         initialCaseId={caseId ?? ""}
         initialMatchId={match ?? ""}
+        initialSurface={
+          TEST_SURFACES.find((s) => s.key === surface)?.key ?? null
+        }
         matches={(matches ?? []) as MatchOption[]}
         buildSha={process.env.VERCEL_GIT_COMMIT_SHA ?? null}
         billingMode={mode === "test" || mode === "live" ? mode : null}

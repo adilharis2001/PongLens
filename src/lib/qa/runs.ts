@@ -18,9 +18,17 @@
  * literally what "every release" means, but this project ships several
  * times a day, and a checklist that empties itself hourly is one nobody
  * fills in.
+ *
+ * Since 142 a result is also stored against a *surface*. The same case in
+ * the same week carries a separate answer on the site at desktop width, on
+ * the site on a phone, and in the app, because those are separate layouts
+ * and separate builds and a pass on one proves nothing about the others.
+ * Every function below that answers "how are we doing" therefore takes a
+ * surface; the one that does not is latestPerSurface, whose whole job is
+ * to compare them.
  */
 
-import type { TestDepth } from "./testLibrary.ts";
+import { TEST_SURFACES, type TestDepth, type TestSurface } from "./testLibrary.ts";
 
 export type RunStatus = "pass" | "fail" | "blocked" | "skipped";
 
@@ -34,6 +42,8 @@ export const RUN_STATUS_LABEL: Record<RunStatus, string> = {
 export interface CaseResult {
   case_id: string;
   period: string;
+  /** Where it was run. Part of the key since 142, so four can coexist. */
+  surface: TestSurface;
   status: RunStatus;
   note: string;
   marked_by: string;
@@ -78,9 +88,11 @@ export function currentResults(
   results: CaseResult[],
   depthById: Map<string, TestDepth>,
   now: Date,
+  surface: TestSurface,
 ): Map<string, CaseResult> {
   const out = new Map<string, CaseResult>();
   for (const result of results) {
+    if (result.surface !== surface) continue;
     const depth = depthById.get(result.case_id);
     if (!depth) continue; // a case that has since been renamed or removed
     if (result.period !== periodFor(depth, now)) continue;
@@ -126,10 +138,12 @@ export function standings(
   results: CaseResult[],
   depthById: Map<string, TestDepth>,
   now: Date,
+  surface: TestSurface,
   fixedAt?: Map<string, string>,
 ): Map<string, CaseStanding> {
   const latest = new Map<string, CaseResult>();
   for (const result of results) {
+    if (result.surface !== surface) continue;
     if (!depthById.has(result.case_id)) continue;
     const held = latest.get(result.case_id);
     if (!held || result.updated_at > held.updated_at) {
@@ -176,4 +190,62 @@ export function progressFor(
     if (result.status === "fail") failed += 1;
   }
   return { total: caseIds.length, run, passed, failed };
+}
+
+/**
+ * The latest mark for every case on every surface, so a row can say what
+ * the other three found.
+ *
+ * That line is the reason this is one library with a switch rather than
+ * four separate pages. A case that passes on the site and fails in the app
+ * is the most interesting result the tester can produce, and it is only
+ * visible if both answers are on the same screen. Four pages would each
+ * hold half the finding.
+ */
+export function latestPerSurface(
+  results: CaseResult[],
+  depthById: Map<string, TestDepth>,
+): Map<string, Map<TestSurface, CaseResult>> {
+  const out = new Map<string, Map<TestSurface, CaseResult>>();
+  for (const result of results) {
+    if (!depthById.has(result.case_id)) continue;
+    let bySurface = out.get(result.case_id);
+    if (!bySurface) {
+      bySurface = new Map();
+      out.set(result.case_id, bySurface);
+    }
+    const held = bySurface.get(result.surface);
+    if (!held || result.updated_at > held.updated_at) {
+      bySurface.set(result.surface, result);
+    }
+  }
+  return out;
+}
+
+export interface OtherSurface {
+  surface: TestSurface;
+  title: string;
+  /** Null when the case applies there but has never been run there. */
+  result: CaseResult | null;
+}
+
+/**
+ * What the other surfaces found for one case, in library order.
+ *
+ * Only surfaces the case actually applies to. Saying "Paid reviews: not
+ * run on iOS" would be noise about something that was never in the app.
+ */
+export function otherSurfaces(
+  latest: Map<string, Map<TestSurface, CaseResult>>,
+  testCase: { id: string; surfaces: TestSurface[] },
+  surface: TestSurface,
+): OtherSurface[] {
+  const bySurface = latest.get(testCase.id);
+  return TEST_SURFACES.filter(
+    (s) => s.key !== surface && testCase.surfaces.includes(s.key),
+  ).map((s) => ({
+    surface: s.key,
+    title: s.short,
+    result: bySurface?.get(s.key) ?? null,
+  }));
 }

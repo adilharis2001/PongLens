@@ -11,7 +11,11 @@ import {
   type BugKind,
   type BugSeverity,
 } from "@/lib/qa/bugs";
-import { TEST_AREAS, testCases } from "@/lib/qa/testLibrary";
+import {
+  TEST_AREAS,
+  testCases,
+  type TestSurface,
+} from "@/lib/qa/testLibrary";
 import { matchOptionLabel, parseMatchRef } from "@/lib/qa/matchRef";
 
 const MAX_ATTACHMENTS = 6;
@@ -45,7 +49,16 @@ interface Pending {
 const ACCEPT_TYPES =
   "image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime";
 
-/** A readable guess at the device, which the tester can correct. */
+/**
+ * A readable guess at the device, which the tester can correct.
+ *
+ * The surface the report was opened from wins over the user agent, because
+ * they disagree exactly when it matters: the library is opened on a
+ * desktop browser to read a case, the case is run on the phone, and the
+ * user agent would file an app bug as "Windows PC". Only the two app
+ * surfaces override — for the web ones the user agent is the better
+ * answer, since it names the actual machine.
+ */
 function guessDevice(): string {
   if (typeof navigator === "undefined") return "";
   const ua = navigator.userAgent;
@@ -120,6 +133,7 @@ export function ReportForm({
   userId,
   initialCaseId,
   initialMatchId,
+  initialSurface,
   matches,
   buildSha,
   billingMode,
@@ -127,6 +141,8 @@ export function ReportForm({
   userId: string;
   initialCaseId: string;
   initialMatchId: string;
+  /** The library surface the report was opened from, when it was. */
+  initialSurface: TestSurface | null;
   matches: MatchOption[];
   buildSha: string | null;
   billingMode: "live" | "test" | null;
@@ -166,11 +182,17 @@ export function ReportForm({
   // does not have to classify a bug in a part of the app they are still
   // learning.
   useEffect(() => {
-    setDevice(guessDevice());
+    setDevice(
+      initialSurface === "ios"
+        ? "iOS app"
+        : initialSurface === "android"
+          ? "Android app"
+          : guessDevice(),
+    );
     if (!initialCaseId) return;
     const found = testCases.find((c) => c.id === initialCaseId);
     if (found) setArea(found.area);
-  }, [initialCaseId]);
+  }, [initialCaseId, initialSurface]);
 
   const upload = useCallback(async (files: File[]) => {
     const room = MAX_ATTACHMENTS - attachments.length;

@@ -7,6 +7,8 @@ import { createClient } from "@/lib/supabase/client";
 import {
   RUN_STATUS_LABEL,
   currentResults,
+  latestPerSurface,
+  otherSurfaces,
   periodFor,
   periodLabel,
   progressFor,
@@ -18,10 +20,12 @@ import {
   AREA_TITLE,
   DEPTH_META,
   TEST_AREAS,
+  TEST_SURFACES,
   testCaseSearchText,
   testCases,
   type TestArea,
   type TestDepth,
+  type TestSurface,
 } from "@/lib/qa/testLibrary";
 
 const DEPTHS: { key: TestDepth | "all"; label: string }[] = [
@@ -71,9 +75,60 @@ const RUN_CHIP: Record<RunStatus, string> = {
 
 const DEPTHS_IN_ORDER: TestDepth[] = ["smoke", "core", "edge"];
 
-export function LibraryBrowser({ userId }: { userId: string }) {
+/**
+ * How a case's mark on the other surfaces reads. Only surfaces that have
+ * actually been run: three trailing "not run"s under every row would bury
+ * the one line worth seeing, which is the surface that disagrees.
+ */
+function Elsewhere({
+  entries,
+}: {
+  entries: { surface: TestSurface; title: string; result: CaseResult | null }[];
+}) {
+  const marked = entries.filter((e) => e.result !== null);
+  if (marked.length === 0) return null;
+  return (
+    <span className="mt-1 block text-[11px] text-zinc-500">
+      {marked.map((e, i) => (
+        <span key={e.surface}>
+          {i > 0 && " · "}
+          {e.title}{" "}
+          <span
+            className={
+              e.result!.status === "pass"
+                ? "font-semibold text-emerald-400/90"
+                : e.result!.status === "fail"
+                  ? "font-semibold text-red-400/90"
+                  : "font-semibold text-zinc-400"
+            }
+          >
+            {RUN_STATUS_LABEL[e.result!.status].toLowerCase()}
+          </span>{" "}
+          {new Date(e.result!.updated_at).toLocaleDateString(undefined, {
+            day: "numeric",
+            month: "short",
+          })}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+export function LibraryBrowser({
+  userId,
+  surface: initialSurface,
+}: {
+  userId: string;
+  surface: TestSurface;
+}) {
+  const [surface, setSurface] = useState<TestSurface>(initialSurface);
   const [area, setArea] = useState<TestArea | "all">("all");
-  const [depth, setDepth] = useState<TestDepth | "all">("all");
+  // Anywhere but the desktop browser opens on the release set. A full
+  // weekly sweep of all four surfaces is around 370 marks, and a list that
+  // long on a phone is one nobody starts. One tap widens it.
+  const [depth, setDepth] = useState<TestDepth | "all">(
+    initialSurface === "web-desktop" ? "all" : "smoke",
+  );
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [notRun, setNotRun] = useState(false);
@@ -95,13 +150,40 @@ export function LibraryBrowser({ userId }: { userId: string }) {
   // what a person scanning the list actually wants, and it never goes
   // blank just because the calendar moved.
   const current = useMemo(
-    () => currentResults(results, depthById, now),
-    [results, depthById, now],
+    () => currentResults(results, depthById, now, surface),
+    [results, depthById, now, surface],
   );
   const standing = useMemo(
-    () => standings(results, depthById, now, fixedAt),
-    [results, depthById, now, fixedAt],
+    () => standings(results, depthById, now, surface, fixedAt),
+    [results, depthById, now, surface, fixedAt],
   );
+  // Every surface's latest mark, which is the one thing on this page that
+  // deliberately ignores the switch: it exists to compare across it.
+  const latest = useMemo(
+    () => latestPerSurface(results, depthById),
+    [results, depthById],
+  );
+
+  // The cases this surface is about. Everything counted on the page reads
+  // from here rather than from testCases, so a percentage is never quietly
+  // measured against work that was never going to be done here.
+  const applies = useMemo(
+    () => testCases.filter((c) => c.surfaces.includes(surface)),
+    [surface],
+  );
+
+  const switchSurface = useCallback((next: TestSurface) => {
+    setSurface(next);
+    setOpenId(null);
+    setDepth(next === "web-desktop" ? "all" : "smoke");
+    // Native history rather than router.replace: this keeps the URL
+    // bookmarkable, which is the whole point of it being in the URL, while
+    // avoiding a server round trip that would refetch every mark to render
+    // a list already in memory.
+    const url = new URL(window.location.href);
+    url.searchParams.set("surface", next);
+    window.history.replaceState(null, "", url);
+  }, []);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -142,65 +224,113 @@ export function LibraryBrowser({ userId }: { userId: string }) {
       setBusyId(caseId);
       const supabase = createClient();
 
+      // Every one of these three has to name the surface. Miss it on the
+      // delete and clearing a mark on the app would clear the web one too.
+      const mine = (r: CaseResult) =>
+        r.case_id === caseId && r.period === period && r.surface === surface;
+
       if (status === null) {
-        setResults((prev) =>
-          prev.filter((r) => !(r.case_id === caseId && r.period === period)),
-        );
+        setResults((prev) => prev.filter((r) => !mine(r)));
         await supabase
           .from("qa_case_results")
           .delete()
           .eq("case_id", caseId)
-          .eq("period", period);
+          .eq("period", period)
+          .eq("surface", surface);
       } else {
         const row: CaseResult = {
           case_id: caseId,
           period,
+          surface,
           status,
           note: "",
           marked_by: userId,
           updated_at: new Date().toISOString(),
         };
-        setResults((prev) => [
-          ...prev.filter((r) => !(r.case_id === caseId && r.period === period)),
-          row,
-        ]);
+        setResults((prev) => [...prev.filter((r) => !mine(r)), row]);
         // Upsert on the composite key: marking the same case twice in a
         // week is a correction, not a second run.
         const { error } = await supabase
           .from("qa_case_results")
-          .upsert(row, { onConflict: "case_id,period" });
+          .upsert(row, { onConflict: "case_id,period,surface" });
         if (error) await load();
       }
       setBusyId(null);
     },
-    [now, userId, load],
+    [now, surface, userId, load],
   );
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return testCases.filter((c) => {
+    return applies.filter((c) => {
       if (area !== "all" && c.area !== area) return false;
       if (depth !== "all" && c.depth !== depth) return false;
       if (notRun && current.has(c.id)) return false;
       if (q && !testCaseSearchText(c).includes(q)) return false;
       return true;
     });
-  }, [area, depth, query, notRun, current]);
+  }, [applies, area, depth, query, notRun, current]);
 
   // Grouped so the list reads as a walk through the product rather than a
   // flat wall of cases.
   const grouped = useMemo(() => {
-    const out: { area: TestArea; cases: typeof testCases }[] = [];
+    const out: {
+      area: TestArea;
+      cases: typeof testCases;
+      /** How many of the area's cases apply here, and how many exist. */
+      applicable: number;
+      total: number;
+    }[] = [];
     for (const a of TEST_AREAS) {
       const cases = visible.filter((c) => c.area === a.key);
-      if (cases.length) out.push({ area: a.key, cases });
+      if (!cases.length) continue;
+      out.push({
+        area: a.key,
+        cases,
+        applicable: applies.filter((c) => c.area === a.key).length,
+        total: testCases.filter((c) => c.area === a.key).length,
+      });
     }
     return out;
-  }, [visible]);
+  }, [visible, applies]);
 
   return (
     <div>
-      <div className="mt-6 flex flex-col gap-3">
+      {/* The switch. It sits above everything because it changes what
+          everything below means: which cases are listed, which marks are
+          shown, and what the counters are counting. */}
+      <div className="mt-6 flex flex-wrap items-center gap-2">
+        {TEST_SURFACES.map((s) => {
+          const on = surface === s.key;
+          return (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => switchSurface(s.key)}
+              aria-pressed={on}
+              className={`rounded-full border px-4 py-1.5 text-sm font-semibold transition-colors ${
+                on
+                  ? "border-cyan-glow/50 bg-cyan-glow/10 text-cyan-glow"
+                  : "border-edge text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {s.title}
+            </button>
+          );
+        })}
+        <span className="ml-1 text-xs text-zinc-500">
+          {applies.length} of {testCases.length} cases apply here
+        </span>
+      </div>
+
+      {surface === "android" && (
+        <p className="mt-3 text-sm text-zinc-500">
+          There is no Android build yet, so nothing here has been run. The
+          cases are the same ones as the iOS app.
+        </p>
+      )}
+
+      <div className="mt-5 flex flex-col gap-3">
         <input
           type="search"
           value={query}
@@ -234,7 +364,7 @@ export function LibraryBrowser({ userId }: { userId: string }) {
           "which ones still need testing", so it sits above the list. */}
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         {DEPTHS_IN_ORDER.map((d) => {
-          const ids = testCases.filter((c) => c.depth === d).map((c) => c.id);
+          const ids = applies.filter((c) => c.depth === d).map((c) => c.id);
           const p = progressFor(ids, current);
           const done = p.run === p.total;
           return (
@@ -305,6 +435,13 @@ export function LibraryBrowser({ userId }: { userId: string }) {
           <section key={group.area}>
             <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
               {AREA_TITLE[group.area]}
+              {/* Said out loud so a short list reads as "the rest are not
+                  in this build" rather than as something missing. */}
+              {group.applicable < group.total && (
+                <span className="ml-2 font-normal normal-case tracking-normal text-zinc-600">
+                  {group.applicable} of {group.total} apply here
+                </span>
+              )}
             </h2>
             <ul className="mt-3 overflow-hidden rounded-2xl border border-edge bg-surface">
               {group.cases.map((c) => {
@@ -347,6 +484,9 @@ export function LibraryBrowser({ userId }: { userId: string }) {
                               </span>
                             )}
                           </span>
+                          <Elsewhere
+                            entries={otherSurfaces(latest, c, surface)}
+                          />
                           {stand?.retest && (
                             <span className="mt-1.5 inline-block rounded-full border border-cyan-glow/40 bg-cyan-glow/10 px-2.5 py-0.5 text-[11px] font-semibold text-cyan-glow">
                               Fixed since you failed it. Worth re-running.
@@ -442,13 +582,18 @@ export function LibraryBrowser({ userId }: { userId: string }) {
 
                         <div className="mt-4 flex flex-wrap items-center gap-3">
                           <Link
-                            href={`/testing/report?case=${encodeURIComponent(c.id)}`}
+                            href={`/testing/report?case=${encodeURIComponent(c.id)}&surface=${surface}`}
                             className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-cyan-glow"
                           >
                             Something broke here
                           </Link>
                           <span className="text-xs text-zinc-600">
-                            Run on: {c.devices.join(", ")}
+                            Run on:{" "}
+                            {TEST_SURFACES.filter((s) =>
+                              c.surfaces.includes(s.key),
+                            )
+                              .map((s) => s.title)
+                              .join(", ")}
                           </span>
                         </div>
 
