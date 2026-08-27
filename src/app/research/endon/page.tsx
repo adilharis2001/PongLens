@@ -145,8 +145,8 @@ export default async function EndOnPage() {
       intro={
         <div>
         <p className="mt-2 max-w-prose text-sm text-zinc-400">
-          Every match Thanakorn and Guillaume have uploaded, plus the four of
-          yours against Gui, re-run through the pipeline as it stands now with
+          Every match Thanakorn, Guillaume and Anton have uploaded, plus the
+          four of yours against Gui, re-run through the pipeline as it stands now with
           the end-on fallback switched on. Nothing here was written back to
           anyone&apos;s account, so the scoring and notes on these matches are
           untouched and no one was told this ran. The blue lane is the cards
