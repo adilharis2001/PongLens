@@ -13,7 +13,6 @@ import {
   productPrefill,
   refusalText,
   serveWindow,
-  shouldBlind,
   summarize,
   type QueueFilter,
   type SpinMatchRow,
@@ -114,12 +113,12 @@ export function SpinReview({
     "any" | "top" | "back" | "none" | "unmeasurable"
   >("any");
   const [pointId, setPointId] = useState<string | null>(null);
-  // Predictions are OFF by default. Measured 2026-08-26: the estimator is
-  // wrong more often than it is right on real serves, and a wrong call on
-  // screen is worse than no call — it argues with the labeler and biases
-  // the very labels it needs. Reveal is a deliberate act, for reviewing
-  // agreement after the fact.
-  const [showPredictions, setShowPredictions] = useState(false);
+  // Predictions are shown. They are wrong more often than they are right
+  // today, and the bias argument for hiding them is real — but the person
+  // labeling reads spin better than the estimator does, and seeing the
+  // call is how he can tell at a glance where it fails. Adil's decision,
+  // 2026-08-26. The toggle hides them for anyone who wants a clean read.
+  const [showPredictions, setShowPredictions] = useState(true);
   const [rate, setRate] = useState<number>(0.5);
   const [url, setUrl] = useState<string | null>(null);
   const [videoState, setVideoState] = useState<"loading" | "idle" | "error">(
@@ -163,10 +162,7 @@ export function SpinReview({
 
   // The prediction stays hidden on the blind slice until a spin label is
   // committed; the label row records which mode it was saved under.
-  const blindNow = point
-    ? !showPredictions ||
-      (shouldBlind(point.pointId, prediction) && !labeled(note))
-    : false;
+  const blindNow = point ? !showPredictions : false;
 
   useEffect(() => {
     setNoteDraft(note?.note ?? "");
@@ -262,10 +258,7 @@ export function SpinReview({
         predicted_spin: pred?.predicted_spin ?? null,
         predicted_confidence: pred?.confidence ?? null,
         algo: pred?.algo ?? null,
-        blind:
-          prev.spin !== null
-            ? prev.blind
-            : !showPredictions || shouldBlind(p.pointId, pred),
+        blind: prev.spin !== null ? prev.blind : !showPredictions,
       };
       setNotes((map) => new Map(map).set(p.pointId, next));
       setSaveState("saving");
@@ -373,10 +366,9 @@ export function SpinReview({
       <h1 className="text-2xl font-semibold text-white">Serve spin</h1>
       <p className="mt-1 max-w-3xl text-sm text-zinc-400">
         Watch the serve, say what spin it carried. The estimator&apos;s call
-        is hidden while you label, because right now it is wrong more often
-        than it is right, and a wrong guess on screen is worse than none.
-        Your answers stand on their own; the estimator gets scored against
-        them afterwards.
+        sits under the video with the bounce ratio behind it. It is wrong
+        more often than it is right at the moment, so treat it as something
+        to correct rather than confirm.
       </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-zinc-300">
@@ -693,10 +685,9 @@ export function SpinReview({
                   </span>
                   <span className="flex-1 text-xs text-zinc-400">
                     {pr && pr.predicted_spin !== "unmeasurable"
-                      ? !showPredictions ||
-                        (shouldBlind(p.pointId, pr) && !labeled(n))
-                        ? ""
-                        : `pred ${pr.predicted_spin === "none" ? "flat" : pr.predicted_spin}`
+                      ? showPredictions
+                        ? `pred ${pr.predicted_spin === "none" ? "flat" : pr.predicted_spin}`
+                        : ""
                       : ""}
                   </span>
 
