@@ -295,9 +295,35 @@ def rescore_from_summaries(evidence: dict, config: dict | None) -> dict:
         summarize_point_side,
     )
 
-    cfg = merge_config(config)
+    from worker.sweep_descriptors import compose
+
+    options = dict(config or {})
+    descriptor = options.pop("descriptor", None)
+    allow_ambiguous = bool(options.pop("allow_ambiguous", False))
+    cfg = merge_config(options)
     points = json.loads(json.dumps(evidence.get("points") or []))
     for p in points:
+        # A named descriptor is rebuilt from the stored bank; without one
+        # the point's own stored samples are re-summarised, which is what
+        # keeps a threshold-only sweep honest.
+        if descriptor:
+            bank = p.get("bank") or {}
+            for side in ("near", "far"):
+                frames = [
+                    vector for vector in (
+                        compose(frame, descriptor, allow_ambiguous)
+                        for frame in bank.get(side) or []
+                    ) if vector
+                ]
+                p[side] = (
+                    summarize_point_side(frames, float(cfg["spread_max"]))
+                    if frames else None
+                )
+            p["qualified"] = bool(
+                p.get("near") and p.get("far")
+                and p["near"]["ok"] and p["far"]["ok"]
+            )
+            continue
         for side in ("near", "far"):
             summary = p.get(side)
             if not summary:

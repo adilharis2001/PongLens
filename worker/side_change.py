@@ -147,6 +147,49 @@ def _channel_median(samples: Sequence[Sequence[float]]) -> list[float]:
     ]
 
 
+def _looks_like_root_histogram(samples: Sequence[Sequence[float]]) -> bool:
+    """Are these square-rooted, unit-norm histograms?
+
+    The histogram descriptors are stored square-rooted so that the plain
+    Euclidean distance used everywhere else IS the Hellinger distance.
+    That leaves a recognisable shape — non-negative, and a sum of squares
+    of one — and recognising it matters because such vectors must be
+    combined by pooling their counts, not by taking a per-dimension
+    median of several already-normalised histograms.
+    """
+    for sample in samples:
+        if len(sample) < 8:
+            return False
+        if any(value < -1e-6 for value in sample):
+            return False
+        if abs(sum(value * value for value in sample) - 1.0) > 0.02:
+            return False
+    return True
+
+
+def _pool(samples: Sequence[Sequence[float]]) -> list[float]:
+    """One signature from several frames of the same player.
+
+    A torso 40 pixels tall carries a few hundred usable pixels, which is
+    already the small-sample regime for a 64-bin histogram. Adding the
+    counts from seven frames together and normalising once gives seven
+    times the sample; taking the median of seven separately-normalised
+    histograms throws that away and is not itself a histogram. For
+    everything else — medians, quantiles, log contrasts, body ratios —
+    the per-dimension median is the robust choice and pooling would be
+    meaningless.
+    """
+    if _looks_like_root_histogram(samples):
+        totals = [0.0] * min(len(sample) for sample in samples)
+        for sample in samples:
+            for index in range(len(totals)):
+                totals[index] += sample[index] * sample[index]
+        mass = sum(totals)
+        if mass > 0:
+            return [math.sqrt(value / mass) for value in totals]
+    return _channel_median(samples)
+
+
 def summarize_point_side(
     samples: Sequence[Sequence[float]],
     spread_max: float,
@@ -179,7 +222,7 @@ def summarize_point_side(
     center = _channel_median(usable)
     ranked = sorted(usable, key=lambda sample: _distance(sample, center))
     kept = ranked if len(ranked) <= 3 else ranked[: max(3, len(ranked) - 2)]
-    medians = _channel_median(kept)
+    medians = _pool(kept)
     raw_spread = signature_spread(usable) if len(usable) > 1 else 0.0
     spread = signature_spread(kept) if len(kept) > 1 else 0.0
     ok = len(kept) >= 2 and (spread is None or spread <= spread_max)

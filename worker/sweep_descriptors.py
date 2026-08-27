@@ -54,7 +54,24 @@ NAMES = (
 )
 
 
-def compose(frame: dict, name: str) -> list[float] | None:
+def compose(
+    frame: dict,
+    name: str,
+    allow_ambiguous: bool = False,
+) -> list[float] | None:
+    """One frame's vector, or None when the frame should not be used.
+
+    A frame the chooser would not commit to — two people at one end of
+    nearly the same size — is skipped unless the sweep asks for it. That
+    gate is worth about a tenth of all points and used to be decided at
+    extraction time; it is a filter now so its cost is measurable.
+    """
+    if not allow_ambiguous and (frame.get("_amb") or [0.0])[0] > 0.5:
+        return None
+    return _compose(frame, name)
+
+
+def _compose(frame: dict, name: str) -> list[float] | None:
     """One frame's vector for a named descriptor, including joins.
 
     A '+' joins two regions into one vector. Both halves must be present:
@@ -71,7 +88,8 @@ def compose(frame: dict, name: str) -> list[float] | None:
     return frame.get(name)
 
 
-def rebuild(evidence: dict, name: str, spread_max: float) -> dict:
+def rebuild(evidence: dict, name: str, spread_max: float,
+            allow_ambiguous: bool = False) -> dict:
     points = []
     for point in evidence.get("points") or []:
         bank = point.get("bank") or {}
@@ -80,7 +98,8 @@ def rebuild(evidence: dict, name: str, spread_max: float) -> dict:
             frames = [
                 vector
                 for vector in (
-                    compose(frame, name) for frame in bank.get(side) or []
+                    compose(frame, name, allow_ambiguous)
+                    for frame in bank.get(side) or []
                 )
                 if vector
             ]
@@ -95,7 +114,8 @@ def rebuild(evidence: dict, name: str, spread_max: float) -> dict:
     return {**evidence, "points": points}
 
 
-def scales(cache: dict, name: str) -> dict[str, float]:
+def scales(cache: dict, name: str,
+           allow_ambiguous: bool = False) -> dict[str, float]:
     """The descriptor's own rulers, read off the corpus.
 
     within: how far apart two frames of ONE player in ONE rally sit. The
@@ -112,7 +132,8 @@ def scales(cache: dict, name: str) -> dict[str, float]:
             for side in ("near", "far"):
                 vectors = [
                     v for v in (
-                        compose(f, name) for f in bank.get(side) or []
+                        compose(f, name, allow_ambiguous)
+                        for f in bank.get(side) or []
                     ) if v
                 ]
                 if len(vectors) < 2:
@@ -132,13 +153,15 @@ def scales(cache: dict, name: str) -> dict[str, float]:
     }
 
 
-def evaluate(cache: dict, name: str, config: dict) -> dict:
+def evaluate(cache: dict, name: str, config: dict,
+             allow_ambiguous: bool = False) -> dict:
     tp = fp = fn = drift = 0
     qualified = total = 0
     withheld = 0
     detail = []
     for match_id, (evidence, truth) in cache.items():
-        rebuilt = rebuild(evidence, name, float(config["spread_max"]))
+        rebuilt = rebuild(evidence, name, float(config["spread_max"]),
+                          allow_ambiguous)
         points = rebuilt["points"]
         qualified += sum(1 for p in points if p["qualified"])
         total += len(points)
@@ -196,6 +219,9 @@ def main() -> None:
     parser.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR)
     parser.add_argument("--descriptor", nargs="*", default=list(NAMES))
     parser.add_argument("--detail", action="store_true")
+    parser.add_argument(
+        "--ambiguous", action="store_true",
+        help="also use frames the player chooser would not commit to")
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
 
@@ -207,7 +233,7 @@ def main() -> None:
 
     results = []
     for name in args.descriptor:
-        ruler = scales(cache, name)
+        ruler = scales(cache, name, args.ambiguous)
         if not ruler["samples"]:
             print(f"{name}: not present in the evidence")
             continue
@@ -224,7 +250,7 @@ def main() -> None:
                         "verify_margin": ruler["apart_p50"] * 0.1,
                         "confidence_scale": penalty * 2.0,
                     })
-                    outcome = evaluate(cache, name, config)
+                    outcome = evaluate(cache, name, config, args.ambiguous)
                     if best is None or outcome["f1"] > best["f1"]:
                         best = outcome
         results.append(best)

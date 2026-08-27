@@ -301,3 +301,229 @@ withholding rather than guessing; and thresholds overridable through
 The product-side files (`matchStructure.ts` resolver, both dividers,
 `ios/.../Core/MatchStructure.swift`) were removed in the strip commit;
 git history has them if the feature earns its way back.
+
+---
+
+# 2026-08-27 — the rewrite
+
+Four things changed on 2026-08-27, and only one of them was a threshold.
+
+## Truth was the first problem, not the detector
+
+The harness trusted a match only when EVERY non-let live point in it
+carried a confirmed winner. That is a match-level gate on a point-level
+fact, and it discarded most of the evidence available: a player scores
+two games carefully and gets bored, and the two provable boundaries in
+that match go into the bin with the rest of it.
+
+`worker/game_truth.py` reads truth per GAME instead. A game closes as
+**proven** when it reaches 11 with a clear two and every non-let point
+inside it is scored; as **pinned** when the owner pressed the positional
+`game_end_override='end'` control, which by design marks the video's
+visible side switch (migration 021). Scoring that goes quiet latches a
+`dirty` flag, and only a pin clears it, because a running count missing a
+rally can reach 11 a point early or late and every automatic close after
+that is a guess.
+
+| | boundaries | matches |
+| --- | --- | --- |
+| old, match-level | 57 | 27 |
+| new, per game | **122** (85 proven, 37 pinned) | 52 |
+
+## Twelve matches had no table at all
+
+Twelve of those 52 carried `calibration: {"ok": false}` and nothing else.
+They were processed when the only calibrator was the retired pink-rim
+one, and their raw uploads were swept at 30 days, so the normal retry
+path — which needs the raw video and its BlurBall detections — cannot
+run on them.
+
+The clips can stand in for the raw. The camera does not move during a
+match, so a frame from the middle of a rally shows the same table in the
+same place, and the keypoint detector only ever looked at single frames.
+`worker/recalibrate_from_clips.py` takes one frame from each of sixteen
+clips spread across the match, encodes them into a throwaway reel, and
+hands it to `table_keypoints.py` **unchanged** — sixteen filtered-then-
+pooled frames is the measured rule and reimplementing the pooling to feed
+it loose frames would be a second, unmeasured copy of it.
+
+**Twelve of thirteen recovered**, most at 15/16 or 16/16 agreement with
+sub-pixel spread. The thirteenth declined because the frames split evenly
+between two tables, which is the detector working.
+
+## The state machine was asking the wrong question
+
+v2 decided one pair at a time — is this pair 'swapped', with N clean
+pairs either side — and patched the decisions together with stability
+runs. That cannot express "a changeover happened around here". Ishan
+(`d59d7610`) is the case: three real boundaries, four candidates found,
+every one refused because a single pair in the middle of a changeover
+read 'same' and split the transition into two halves with settled ground
+on one side each.
+
+v3 labels the whole match at once. Each qualified point holds one of two
+configurations; every comparison between two points is evidence about
+whether they agree; the cheapest single explanation of all of it wins,
+with a fixed penalty per state change so changes have to earn their
+place. Two consequences no threshold could buy:
+
+- **Non-adjacent evidence counts.** Each point is compared with the next
+  three qualified points, so point 28 is compared directly with point 31,
+  straight across the mess — usually the cleanest comparison available.
+- **An ambiguous pair is outvoted rather than obeyed.** Under v2 one
+  'uncertain' verdict zeroed a stability run.
+
+The optimisation is exact, not a search: a Viterbi pass whose state is
+the last three labels plus a minimum-run countdown returns the global
+optimum in one sweep.
+
+Three guards, each earning its place on a case that failed without it:
+
+- **A run of one configuration must last at least three points.** Without
+  it, one rally with the players mixed up is explained by paying the
+  switch penalty twice, which strongly-coloured shirts easily cover.
+- **Every candidate is verified a second way**, against the median
+  signature of the settled runs either side with the immediate neighbours
+  dropped. That is evidence the transition itself cannot reach, and it is
+  what refuses a one-rally glitch.
+- **If the winning labelling still contradicts more than 30% of its own
+  comparisons, the match is withheld whole.** Not how many changes were
+  found — how much evidence had to be ignored to find them.
+
+## Gap length is a real prior. Deleted points are not.
+
+Both were measured over 3,573 gaps between consecutive live points on the
+52 scored matches.
+
+| | at a true boundary | everywhere else |
+| --- | --- | --- |
+| median gap | **17.6s** | 4.0s |
+| p75 / p99 | 28.0s | 7.0s / 21.5s |
+| contains a deleted point | 37.7% | 14.6% |
+
+Gap length alone is worth 77% precision at 25% recall (`gap >= 30s`), so
+it now discounts the switch penalty smoothly — never to zero, because
+recordings paused between games produce real boundaries with no gap at
+all (p10 of true boundary gaps is 2.0s).
+
+Deleted points are a real 2.6x enrichment and far too weak to detect
+with, and they do not exist on a fresh unscored match, which is the only
+case the product cares about. **Adil deletes junk cards generally, not
+changeovers specifically** — 62% of true boundaries have no deleted point
+in them at all.
+
+## Scoring drift is real and is not detector error
+
+Of 49 confirmed fires, 33 land exactly on the scored boundary, 6 land one
+to four rallies early, and 6 are plainly wrong (26 to 46 rallies away).
+
+Every one of the six near misses fired on a **longer break** than the
+scored boundary had:
+
+| match | fired at a gap of | scored boundary's gap |
+| --- | --- | --- |
+| `cebaa6d4` | 22.5s | 1.2s |
+| `cebaa6d4` | 18.3s | 1.0s |
+| `d4592913` | 57.5s | 3.5s |
+| `86f880b9` | 34.0s | 9.7s |
+| `5bd279f4` | 21.0s | 4.5s |
+| `1466e3c3` | 26.0s | 1.5s |
+
+Players walking round a table take longer than a second. A "boundary"
+with a 1.0s gap is one rally following another; the score drifted by a
+rally or two and the detector found the actual changeover. Since
+`game_end_override` is defined as the video's visible side switch, that
+is the thing being detected.
+
+`score_match` therefore forgives up to three rallies of offset, but only
+when the fire sits on a gap at least as long as the boundary's own. The
+condition is what stops it being a free pass: an offset is forgiven only
+in the direction the physical evidence supports. Both numbers are
+reported.
+
+## What the measurement then said the limiter was
+
+With v3 and the expanded truth, on the 31 matches that had evidence at
+that point:
+
+| qualification coverage | recall | precision |
+| --- | --- | --- |
+| **>= 70%** | **78%** (35 of 45) | **92%** |
+| 40-70% | 17% (3 of 18) | 60% |
+| < 40% | 12% (2 of 17) | 33% |
+
+The model works when it can see both players. Sweeping every threshold —
+switch penalty, confidence floor, separability floor — moved the corpus
+figure between 84% precision at 51% recall and 87% at 50%, and no
+combination did better. **The thresholds were not the limiter; the
+evidence was.**
+
+Where the evidence goes, over 2,926 points:
+
+| | share |
+| --- | --- |
+| qualified | 58.4% |
+| NEAR player's signature unstable across frames | **15.3%** |
+| no NEAR player found | 9.8% |
+| FAR player's signature unstable | 8.0% |
+| both unstable | 4.3% |
+| no FAR player found | 2.8% |
+| nobody found at all | 1.4% |
+
+The NEAR player is the biggest, closest, easiest person in the frame, and
+it is the one whose signature will not hold still. That is a descriptor
+problem, not a detection one.
+
+## The descriptor bank
+
+`player_descriptors` now computes ten candidate signatures in one pass
+and stores every one, so choosing between them is a sweep over stored
+numbers rather than an hour and a half of pose inference per idea
+(`worker/sweep_descriptors.py`).
+
+Three defects were named by the literature sweep and all three are real:
+
+1. **A bounding rectangle is mostly not the player.** It catches floor and
+   wall through the gap under the arms, and how much it catches changes
+   with every movement — the instability the spread gate was rejecting
+   points for. Regions are now masked polygons warped into one fixed
+   24x64 body frame anchored on the shoulder and hip midpoints, so
+   "chest" is the same rows for a 300px near player and a 40px far one.
+2. **A median is the wrong statistic for the case that fails.** Two
+   players in black tops have near-identical medians by construction —
+   that is what 0.147 means. What separates them is what the median
+   discards: a collar, a printed panel, a lighter waistband. `lab_q`
+   stores five quantiles per Lab channel per band; the 50th percentile is
+   the old number, so it is a strict superset.
+3. **Raw BGR reads brightness as much as colour**, and comparing a player
+   at one end against themselves at the other is exactly what a
+   changeover forces. Three independent answers now ride along: the
+   **table as a calibration target** (one uniform surface photographed in
+   both lights in every frame, so the ratio of its two halves is the
+   illuminant difference); **inter-band log contrast** (a change of light
+   is additive in log space, so subtracting two bands of the same player
+   in the same frame cancels it exactly, gamma included); and **body
+   proportions**, which never look at colour.
+
+The hue histogram had a plain bug for the failing case: it discarded
+every pixel under a saturation of 20 or a value of 25, which on a dark
+top is most of the shirt, so it was computed on noise exactly where it
+was needed. Pixels are now weighted by saturation rather than thresholded
+on it, and soft-binned.
+
+Rejected, with reasons: learned re-ID embeddings (cheap enough at 4-8ms a
+crop, but standard backbones collapse at 40px person height and the good
+weights carry no licence), CLIP/DINOv2/SigLIP (worse transfer at ten
+times the cost), YCrCb (1.90% rank-1 against HSV's 11.07% under a fixed
+protocol), 512-bin joint histograms (0.23 samples per bin on our crops),
+per-crop grey-world (forces a mostly-shirt region's mean to grey, which
+is normalising away the signal), and van de Weijer's colour-name lookup
+table (no stated licence — the 16-colour palette is built here instead).
+
+**Thresholds do not transfer between descriptors.** A Hellinger distance
+lives in [0, 1.41] and a 60-float quantile vector compared with L2 does
+not. Every sweep fits each descriptor's grid to its own measured
+distribution — the spread gate from how far apart two frames of one
+player sit, the switch penalty from how far apart the two players sit.
+Comparing descriptors at one shared literal threshold would be comparing
+tunings, and it would look like a result.

@@ -1238,10 +1238,17 @@ def extract_side_change_evidence(
                     ]
                 )
                 chosen = choose_players(boxes, corners)
+                # Descriptors are computed for the PROPOSED player even
+                # when the chooser refuses to commit, and the refusal
+                # rides along as a flag. The ambiguity gate is worth
+                # roughly a tenth of all points and it was decided at
+                # extraction time, where it cost an hour and a half of
+                # pose inference to question. It is now a filter the
+                # sweep can move.
                 sides = [
                     side
                     for side in ("near", "far")
-                    if chosen.get(side) is not None
+                    if chosen.get(f"{side}_proposed") is not None
                 ]
                 if chosen.get("near_ambiguous") or chosen.get(
                     "far_ambiguous"
@@ -1253,7 +1260,8 @@ def extract_side_change_evidence(
                     )
                 if sides:
                     bboxes = np.asarray(
-                        [chosen[side] for side in sides], dtype=np.float32
+                        [chosen[f"{side}_proposed"] for side in sides],
+                        dtype=np.float32,
                     )
                     keypoints, scores = pose_model(image, bboxes=bboxes)
                     reference = table_half_reference(image, corners)
@@ -1266,8 +1274,12 @@ def extract_side_change_evidence(
                             scores[position],
                             end_correction(reference, side),
                         )
+                        committed = chosen.get(side) is not None
                         if bank is not None:
+                            bank["_amb"] = [0.0 if committed else 1.0]
                             raw_bank[side].append(bank)
+                        if not committed:
+                            continue
                         signature = torso_signature_v2(
                             image,
                             keypoints[position],
