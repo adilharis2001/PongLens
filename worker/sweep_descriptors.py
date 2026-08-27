@@ -137,10 +137,19 @@ def align_ends(points: list[dict]) -> list[dict]:
 def rebuild(evidence: dict, name: str, spread_max: float,
             allow_ambiguous: bool = False,
             aligned: bool = False) -> dict:
+    """One descriptor's evidence, summarised per point.
+
+    Deliberately built ONCE per descriptor and then re-gated, because the
+    signature and the spread do not depend on spread_max — only the
+    pass/fail flag does. Rebuilding for every threshold in the grid meant
+    walking the whole corpus eight hundred times to answer a question the
+    first pass had already answered.
+    """
     points = []
     for point in evidence.get("points") or []:
         bank = point.get("bank") or {}
         rebuilt = dict(point)
+        rebuilt.pop("bank", None)
         for side in ("near", "far"):
             frames = [
                 vector
@@ -153,18 +162,39 @@ def rebuild(evidence: dict, name: str, spread_max: float,
             rebuilt[side] = (
                 summarize_point_side(frames, spread_max) if frames else None
             )
-        rebuilt["qualified"] = bool(
-            rebuilt["near"] and rebuilt["far"]
-            and rebuilt["near"]["ok"] and rebuilt["far"]["ok"]
-        )
         points.append(rebuilt)
     if aligned:
         points = align_ends(points)
+    for point in points:
+        point["qualified"] = bool(
+            point["near"] and point["far"]
+            and point["near"]["ok"] and point["far"]["ok"]
+        )
     return {**evidence, "points": points}
 
 
-def scales(cache: dict, name: str,
-           allow_ambiguous: bool = False) -> dict[str, float]:
+def regate(prepared: dict, spread_max: float) -> list[dict]:
+    """The same summaries, re-judged against a different spread gate."""
+    points = []
+    for point in prepared["points"]:
+        copy = dict(point)
+        for side in ("near", "far"):
+            summary = copy.get(side)
+            if not summary:
+                continue
+            summary = dict(summary)
+            spread = summary.get("spread")
+            summary["ok"] = summary.get("frames", 0) >= 2 and (
+                spread is None or float(spread) <= spread_max)
+            copy[side] = summary
+        copy["qualified"] = bool(
+            copy["near"] and copy["far"]
+            and copy["near"]["ok"] and copy["far"]["ok"])
+        points.append(copy)
+    return points
+
+
+def scales(prepared: dict) -> dict[str, float]:
     """The descriptor's own rulers, read off the corpus.
 
     within: how far apart two frames of ONE player in ONE rally sit. The
@@ -172,64 +202,52 @@ def scales(cache: dict, name: str,
             qualifies.
     apart:  how far apart the two DIFFERENT players sit. The switch
             penalty has to sit below this or nothing ever fires.
+
+    Thresholds do not transfer between descriptors — a Hellinger distance
+    and a sixty-float quantile vector are not on the same ruler — so every
+    grid is fitted here rather than shared. Sweeping two descriptors
+    against one literal threshold would be comparing tunings.
     """
     within, apart = [], []
-    for evidence, _ in cache.values():
-        for point in evidence.get("points") or []:
-            bank = point.get("bank") or {}
-            medians = {}
-            for side in ("near", "far"):
-                vectors = [
-                    v for v in (
-                        compose(f, name, allow_ambiguous)
-                        for f in bank.get(side) or []
-                    ) if v
-                ]
-                if len(vectors) < 2:
-                    continue
-                summary = summarize_point_side(vectors, 99.0)
-                medians[side] = summary["sig"]
-                within.append(summary["spread_raw"])
-            if len(medians) == 2:
-                apart.append(_distance(medians["near"], medians["far"]))
+    for evidence in prepared.values():
+        for point in evidence["points"]:
+            near, far = point.get("near"), point.get("far")
+            for summary in (near, far):
+                if summary and summary.get("spread") is not None:
+                    within.append(float(summary["spread_raw"]))
+            if near and far:
+                apart.append(_distance(near["sig"], far["sig"]))
     return {
         "within_p50": statistics.median(within) if within else 0.0,
-        "within_p75": (
-            statistics.quantiles(within, n=4)[2] if len(within) > 3 else 0.0
-        ),
         "apart_p50": statistics.median(apart) if apart else 0.0,
         "samples": len(within),
     }
 
 
-def evaluate(cache: dict, name: str, config: dict,
-             allow_ambiguous: bool = False,
-             aligned: bool = False) -> dict:
+def evaluate(prepared: dict, truths: dict, config: dict) -> dict:
     tp = fp = fn = drift = 0
-    qualified = total = 0
-    withheld = 0
+    qualified = total = withheld = 0
     detail = []
-    for match_id, (evidence, truth) in cache.items():
-        rebuilt = rebuild(evidence, name, float(config["spread_max"]),
-                          allow_ambiguous, aligned)
-        points = rebuilt["points"]
+    for match_id, evidence in prepared.items():
+        points = regate(evidence, float(config["spread_max"]))
         qualified += sum(1 for p in points if p["qualified"])
         total += len(points)
-        result = {**rebuilt, **detect_side_changes(points, config)}
+        result = {**evidence, "points": points,
+                  **detect_side_changes(points, config)}
         if result.get("status") != "ready":
             withheld += 1
+        truth = truths[match_id]
         score = score_match(result, truth)
         hits = score["hits_tolerant"]
-        misses = score["true_boundaries"] - hits
-        wrong = len(score["false_positives"])
         drift += score["drift_hits"]
         tp += hits
-        fn += misses
+        fn += score["true_boundaries"] - hits
         if truth["fully_scored"]:
-            fp += wrong
+            fp += len(score["false_positives"])
         detail.append({
             "match": match_id[:8], "truth": score["true_boundaries"],
-            "hits": hits, "fp": wrong, "status": result.get("status"),
+            "hits": hits, "fp": len(score["false_positives"]),
+            "status": result.get("status"),
             "coverage": f"{sum(1 for p in points if p['qualified'])}/"
                         f"{len(points)}",
             "separability": result.get("separability"),
@@ -239,8 +257,8 @@ def evaluate(cache: dict, name: str, config: dict,
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
     return {
-        "descriptor": name, "tp": tp, "fp": fp, "fn": fn,
-        "drift_hits": drift, "withheld_matches": withheld,
+        "tp": tp, "fp": fp, "fn": fn, "drift_hits": drift,
+        "withheld_matches": withheld,
         "precision": precision, "recall": recall,
         "f1": (2 * precision * recall / (precision + recall)
                if precision + recall else 0.0),
@@ -281,20 +299,26 @@ def main() -> None:
     conn = psycopg2.connect(keychain("ponglens-db-url"))
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cache = load_cache(args.workdir, cur)
+    truths = {mid: truth for mid, (_, truth) in cache.items()}
     boundaries = sum(len(t["boundaries"]) for _, t in cache.values())
     print(f"{len(cache)} matches, {boundaries} scored boundaries\n")
 
     results = []
     for name in args.descriptor:
-        ruler = scales(cache, name, args.ambiguous)
+        prepared = {
+            match_id: rebuild(evidence, name, 1e9,
+                              args.ambiguous, args.align)
+            for match_id, (evidence, _) in cache.items()
+        }
+        ruler = scales(prepared)
         if not ruler["samples"]:
             print(f"{name}: not present in the evidence")
             continue
         best = None
-        for spread in (ruler["within_p50"] * m for m in (0.8, 1.2, 1.8, 2.6)):
-            for penalty in (
-                ruler["apart_p50"] * m for m in (0.2, 0.35, 0.5, 0.7, 1.0)
-            ):
+        for spread in (ruler["within_p50"] * m
+                       for m in (0.8, 1.2, 1.8, 2.6)):
+            for penalty in (ruler["apart_p50"] * m
+                            for m in (0.2, 0.35, 0.5, 0.7, 1.0)):
                 for floor in (0.0, ruler["apart_p50"] * 0.55):
                     config = merge_config({
                         "spread_max": spread,
@@ -303,17 +327,17 @@ def main() -> None:
                         "verify_margin": ruler["apart_p50"] * 0.1,
                         "confidence_scale": penalty * 2.0,
                     })
-                    outcome = evaluate(
-                        cache, name, config, args.ambiguous, args.align)
+                    outcome = evaluate(prepared, truths, config)
                     if best is None or outcome["f1"] > best["f1"]:
-                        best = outcome
+                        best = {**outcome, "descriptor": name}
         results.append(best)
         print(
-            f"{name:<14} P={best['precision']:6.1%} R={best['recall']:6.1%} "
+            f"{name:<16} P={best['precision']:6.1%} R={best['recall']:6.1%} "
             f"F1={best['f1']:.3f}  TP={best['tp']:3d} FP={best['fp']:3d} "
             f"FN={best['fn']:3d}  coverage={best['coverage']:5.1%} "
             f"withheld={best['withheld_matches']:2d}  "
-            f"(within {ruler['within_p50']:.3f}, apart {ruler['apart_p50']:.3f})",
+            f"(within {ruler['within_p50']:.3f}, "
+            f"apart {ruler['apart_p50']:.3f})",
             flush=True,
         )
 
