@@ -632,3 +632,81 @@ comparable.
   rallies while every fire sits on a break four to twenty times longer.
   Judged by the video the detector looks right; judged by the score it is
   wrong on three of four.
+
+---
+
+# 2026-08-27, later — judged by eye
+
+Adil reviewed 110 of the 141 cases on `gameend.html` — every fire that
+disagreed with his scoring, every miss shown, and most of the hits —
+answering one question per case: did the two players swap ends between
+these rallies. Verdicts are kept in
+`docs/research/2026-08-27-game-end-verdicts.json`.
+
+The result changes what the earlier numbers mean.
+
+| the detector | you said swapped | you said same | couldn't tell |
+| --- | --- | --- | --- |
+| fired, scoring agreed | 49 | **0** | 1 |
+| fired, scoring DISAGREED | **20** | **0** | 1 |
+| stayed quiet | 22 | **16** | 1 |
+
+**Not one fire out of seventy was wrong.** Every single one — including
+all twenty-one the harness had been charging as a false positive — is a
+real changeover on the video. The eleven "wrong" fires in the score-based
+figure were the score being wrong, not the detector.
+
+**And sixteen of the thirty-nine judged misses have no changeover in them
+at all.** The scoring says a game ended; the video shows the same two
+players staying where they were.
+
+Corrected, over the whole corpus:
+
+| | score as truth | video as truth |
+| --- | --- | --- |
+| precision | 87% | **100%** (98 fires, 0 false) |
+| recall | 67% | **80%** (98 of ~122 real changeovers) |
+
+The score-based figures were not wrong to compute — they were the only
+truth available before this review — but they were measuring the
+agreement between two imperfect records, and charging every disagreement
+to the detector.
+
+### Where the scoring says a game ended and the video does not
+
+`cebaa6d4` (Rowel) x3, `57237caf` (Chris, practice) x3, `6a3777db`
+(Yilin) x2, `efff9208` (Alex) x2, and one each on six more.
+
+`cebaa6d4` is now fully explained: three confident fires, three scored
+boundaries three to four rallies later, and the video agrees with the
+detector on all three. It was never a detector failure.
+
+The practice matches are the other clean story. Players often do not
+change ends in practice, so a pinned game end there is real and invisible
+— which is why `SIDE_CHANGE_SKIP_TYPES` excluding drills and practice was
+right for a reason nobody had written down.
+
+### The 22 real changeovers still missed
+
+| match | missed | both players seen |
+| --- | --- | --- |
+| `c27e196d` Ch (practice) | 3 | 92% |
+| `4c138aa1` Ishan | 2 | 53% |
+| `617a2067` Jacky | 2 | 52% |
+| `7e02fbb9` / `81b609e6` Julian (same match, twice) | 2 each | 80% |
+| `98be5eb5` Patricia | 2 | 47% |
+| `a0fb8f44` Gui | 2 | 64% |
+| nine more | 1 each | 45-88% |
+
+Half of these sit below 65% coverage, which is the familiar story. But
+`c27e196d` at 92% and the Julian pair at 80% are not — those are cases
+where the players were seen perfectly well and the change was still not
+called, and they are the ones worth opening next.
+
+### A caveat on corpus size
+
+Three matches are in the corpus twice, and one three times: Chris
+(`345ce4fb`, `86f880b9`, `ec6490f4`), Julian (`7e02fbb9`, `81b609e6`) and
+Alex (`1c7eb2b8`, `efff9208`). Four uploads of three matches. They do not
+bias precision or recall — both copies behave the same way — but the
+corpus is 47 distinct matches, not 51.
