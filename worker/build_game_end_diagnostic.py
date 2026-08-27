@@ -42,7 +42,7 @@ if __package__:
     )
     from .extract_side_changes_rtmpose import (
         DET_MODEL_URL, NEAR_TABLE_FACTOR, TORSO_MIN_CONF, _create_det_model,
-        _named_corners, choose_players, dedupe_boxes, point_sample_frames,
+        _named_corners, choose_players, dedupe_boxes, point_frames,
         torso_signature_v2,
     )
     from .side_change import DEFAULT_CONFIG, summarize_point_side
@@ -53,7 +53,7 @@ else:
     )
     from extract_side_changes_rtmpose import (
         DET_MODEL_URL, NEAR_TABLE_FACTOR, TORSO_MIN_CONF, _create_det_model,
-        _named_corners, choose_players, dedupe_boxes, point_sample_frames,
+        _named_corners, choose_players, dedupe_boxes, point_frames,
         torso_signature_v2,
     )
     from side_change import DEFAULT_CONFIG, summarize_point_side
@@ -168,7 +168,7 @@ def run(cache: Path, wanted: list[str], per_match: int) -> list[dict]:
                 cal = {**cal, "size": [int(src.get("width") or width),
                                        int(src.get("height") or height)]}
             corners = _scaled_corners(cal, width, height)
-            frames = point_sample_frames(count, 3)
+            frames, anchor = point_frames(point, count, fps, 3)
             cap = cv2.VideoCapture(str(clip))
             shots, crops = [], {"near": [], "far": []}
             try:
@@ -225,6 +225,7 @@ def run(cache: Path, wanted: list[str], per_match: int) -> list[dict]:
             out.append({
                 "match": folder.name, "idx": idx, "shots": shots,
                 "crops": crops,
+                "anchor": anchor,
                 "qualified": stored.get("qualified"),
                 "near": stored.get("near"), "far": stored.get("far"),
                 "coverage": (evidence or {}).get("coverage"),

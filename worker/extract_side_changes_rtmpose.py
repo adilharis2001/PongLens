@@ -110,14 +110,81 @@ TORSO_MIN_CONF = 0.3
 def sample_fractions(count: int) -> list[float]:
     """Evenly spaced fractions across the played middle of the clip.
 
-    Clips carry roughly 1.2s of head pad and 1.3s of tail pad around a
-    median 3.8s of play, so the outer ~20% of a typical clip is dead
-    time where a player may already be walking. Sampling 0.2..0.8 keeps
-    every frame inside the rally, when each player is at their own end.
+    The fallback for points with no serve anchor. Clips carry roughly
+    1.2s of head pad and 1.3s of tail pad around a median 3.8s of play,
+    so the outer ~20% of a typical clip is dead time where a player may
+    already be walking. Sampling 0.2..0.8 keeps frames inside the rally.
     """
     if count <= 1:
         return [0.5]
     return [0.2 + 0.6 * i / (count - 1) for i in range(count)]
+
+
+# Seconds AFTER serve contact to read the players from. Anchoring to the
+# serve rather than to fractions of the clip keeps every sample inside
+# real play: clip fractions drift into the pads, into a fused
+# neighbouring rally, or onto a player walking off to fetch the ball,
+# and an appearance comparison should never be asked to read those.
+#
+# It starts after contact, not on it, and that was measured rather than
+# assumed. Centring the window on contact (-0.7 to +1.8) took the median
+# spread from 0.077 down to 0.065 but coverage from 83% to 68%: the
+# SERVER's torso turns through the toss and swing, so the serving side
+# becomes the least readable moment in the rally, not the most. Waiting
+# for the swing to finish keeps the stability and gives the coverage
+# back — 82% at 0.067 on 86f880b9, 106 points.
+SERVE_WINDOW = (0.4, 3.2)
+
+
+def serve_offsets(count: int) -> list[float]:
+    """Offsets from serve contact, in seconds, for `count` samples."""
+    lo, hi = SERVE_WINDOW
+    if count <= 1:
+        return [0.0]
+    return [lo + (hi - lo) * i / (count - 1) for i in range(count)]
+
+
+def serve_anchor_local_s(point: Mapping[str, Any]) -> float | None:
+    """Serve contact as seconds into this point's CLIP, or None.
+
+    `serve_s` is written by the v2 assembler in SOURCE seconds, and
+    `clip_t0` is where the padded clip starts in the same clock, so the
+    difference is the offset within the clip. v1 matches carry neither
+    and fall back to fractions of the clip.
+    """
+    serve_s = point.get("serve_s")
+    clip_t0 = point.get("clip_t0")
+    if serve_s is None or clip_t0 is None:
+        return None
+    local = float(serve_s) - float(clip_t0)
+    return local if math.isfinite(local) and local >= 0 else None
+
+
+def point_frames(
+    point: Mapping[str, Any],
+    frame_count: int,
+    fps: float,
+    samples: int,
+) -> tuple[list[int], str]:
+    """Frame indices to read this point at, and where they came from.
+
+    Serve-anchored when the assembler found a serve; otherwise spread
+    across the played middle of the clip.
+    """
+    if frame_count <= 0:
+        return [], "none"
+    last = frame_count - 1
+    anchor = serve_anchor_local_s(point)
+    if anchor is not None and fps > 0:
+        wanted = {
+            min(last, max(0, int(round((anchor + offset) * fps))))
+            for offset in serve_offsets(samples)
+        }
+        # A serve close to either edge of the clip collapses the window
+        # onto one frame; that is worse than no anchor at all.
+        if len(wanted) >= max(2, samples - 2):
+            return sorted(wanted), "serve"
+    return point_sample_frames(frame_count, samples), "clip"
 
 
 def point_sample_frames(frame_count: int, samples: int) -> list[int]:
@@ -265,6 +332,16 @@ def _quad_distance(
     )
 
 
+def _line_y_at(x: float, a: list[float], b: list[float]) -> float:
+    """y of the segment a-b at horizontal position x (clamped)."""
+    ax, ay = a
+    bx, by = b
+    if abs(bx - ax) < 1e-6:
+        return (ay + by) / 2.0
+    t = max(0.0, min(1.0, (x - ax) / (bx - ax)))
+    return ay + t * (by - ay)
+
+
 def choose_players(
     boxes: list[list[float]],
     corners: Mapping[str, Any],
@@ -314,7 +391,42 @@ def choose_players(
         d_far = _segment_distance(anchor_x, anchor_y, *far_line)
         record["d_near"] = round(d_near, 1)
         record["d_far"] = round(d_far, 1)
-        side = "near" if d_near <= d_far else "far"
+        # WHICH SIDE of each end line they stand on, not merely how close
+        # they are to it. Distance alone cannot tell a player standing in
+        # front of their own end line from a bystander standing behind
+        # the table, and in pixels the bystander often wins: measured at
+        # LYTTC 2026-08-26, a 62px onlooker beyond the table outranked
+        # the real 247px near player for the near end. The near end line
+        # is lower in the frame on 44 of 44 calibration frames, so the
+        # near player is BELOW A-B and the far player ABOVE C-D.
+        below_near = anchor_y > _line_y_at(anchor_x, *near_line)
+        above_far = anchor_y < _line_y_at(anchor_x, *far_line)
+        record["below_near_line"] = below_near
+        record["above_far_line"] = above_far
+        # Split on the NEAR line only. Requiring the far player to be
+        # beyond C-D as well is the obvious symmetric rule and it is
+        # wrong: a far player standing close to the table has their legs
+        # hidden by it, so the box bottom lands ON the table, between the
+        # two lines. That rule scored 0 of 106 points at PingPod while
+        # fixing LYTTC — it rejected every far player in the corpus's
+        # healthiest match. One line, two sides.
+        #
+        # This leaves a MEASURED tension, not a solved problem
+        # (2026-08-26, and `above_far` is still recorded so the next
+        # attempt has the number to hand):
+        #
+        #     rule                      PingPod        LYTTC
+        #     both lines (strict)        0 / 106      38 / 102
+        #     near line only (this)     87 / 106       2 / 102
+        #
+        # Neither rule reads both venues. The strict rule excludes the
+        # onlookers standing beyond a busy club's table; the loose rule
+        # is the only one that keeps a far player whose legs the table
+        # hides. What separates them is almost certainly SIZE — at LYTTC
+        # the real near player measures 232-341px against bystanders at
+        # 36-115, a 2-3x gap that nothing here currently reads. That is
+        # the next thing to try, and it wants measuring, not assuming.
+        side = "near" if below_near else "far"
         record["side"] = side
         record["verdict"] = f"candidate for {side}"
         candidates[side].append((d_near if side == "near" else d_far,
@@ -466,7 +578,7 @@ def extract_side_change_evidence(
         clip = _clip_path(clips_dir, point)
         fps, frame_count, width, height = _clip_metadata(clip)
         corners = _scaled_corners(calibration, width, height)
-        requested = point_sample_frames(frame_count, samples)
+        requested, anchor = point_frames(point, frame_count, fps, samples)
         capture = cv2.VideoCapture(str(clip))
         if not capture.isOpened():
             raise RuntimeError(f"could not open pose source clip: {clip}")
@@ -525,6 +637,7 @@ def extract_side_change_evidence(
             "t1": float(point["t1"]),
             "near": summarize_point_side(raw_samples["near"], spread_max),
             "far": summarize_point_side(raw_samples["far"], spread_max),
+            "anchor": anchor,
             "ambiguous_frames": ambiguous_frames,
             "candidates": {
                 side: max(values) if values else 0
@@ -568,7 +681,13 @@ def extract_side_change_evidence(
         "pairs": detection["pairs"],
         "side_changes": detection["side_changes"],
         "flips_total": detection["flips_total"],
-        "coverage": {"total": len(point_summaries), "qualified": qualified},
+        "coverage": {
+            "total": len(point_summaries),
+            "qualified": qualified,
+            "serve_anchored": sum(
+                1 for p in point_summaries if p.get("anchor") == "serve"
+            ),
+        },
         "config": detection["config"],
         "compute": {
             "elapsed_s": round(elapsed_s, 6),
