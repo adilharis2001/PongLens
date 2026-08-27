@@ -114,7 +114,12 @@ export function SpinReview({
     "any" | "top" | "back" | "none" | "unmeasurable"
   >("any");
   const [pointId, setPointId] = useState<string | null>(null);
-  const [forceShow, setForceShow] = useState(false);
+  // Predictions are OFF by default. Measured 2026-08-26: the estimator is
+  // wrong more often than it is right on real serves, and a wrong call on
+  // screen is worse than no call — it argues with the labeler and biases
+  // the very labels it needs. Reveal is a deliberate act, for reviewing
+  // agreement after the fact.
+  const [showPredictions, setShowPredictions] = useState(false);
   const [rate, setRate] = useState<number>(0.5);
   const [url, setUrl] = useState<string | null>(null);
   const [videoState, setVideoState] = useState<"loading" | "idle" | "error">(
@@ -159,7 +164,8 @@ export function SpinReview({
   // The prediction stays hidden on the blind slice until a spin label is
   // committed; the label row records which mode it was saved under.
   const blindNow = point
-    ? shouldBlind(point.pointId, prediction) && !forceShow && !labeled(note)
+    ? !showPredictions ||
+      (shouldBlind(point.pointId, prediction) && !labeled(note))
     : false;
 
   useEffect(() => {
@@ -259,7 +265,7 @@ export function SpinReview({
         blind:
           prev.spin !== null
             ? prev.blind
-            : shouldBlind(p.pointId, pred) && !forceShow,
+            : !showPredictions || shouldBlind(p.pointId, pred),
       };
       setNotes((map) => new Map(map).set(p.pointId, next));
       setSaveState("saving");
@@ -282,7 +288,7 @@ export function SpinReview({
       }
       setSaveState("saved");
     },
-    [notes, predMap, supabase, forceShow],
+    [notes, predMap, supabase, showPredictions],
   );
 
   const step = useCallback((delta: number) => {
@@ -367,9 +373,10 @@ export function SpinReview({
       <h1 className="text-2xl font-semibold text-white">Serve spin</h1>
       <p className="mt-1 max-w-3xl text-sm text-zinc-400">
         Watch the serve, say what spin it carried. The estimator&apos;s call
-        sits under the video; on a fixed fifth of points it stays hidden
-        until you have answered, and only those blind answers make the
-        honest accuracy number.
+        is hidden while you label, because right now it is wrong more often
+        than it is right, and a wrong guess on screen is worse than none.
+        Your answers stand on their own; the estimator gets scored against
+        them afterwards.
       </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-zinc-300">
@@ -396,14 +403,14 @@ export function SpinReview({
         )}
         <button
           type="button"
-          onClick={() => setForceShow((v) => !v)}
+          onClick={() => setShowPredictions((v) => !v)}
           className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-            forceShow
+            showPredictions
               ? "border-amber-400/60 bg-amber-500/15 text-amber-100"
               : "border-edge text-zinc-400 hover:border-zinc-500"
           }`}
         >
-          {forceShow ? "Blind holdout OFF" : "Blind holdout on"}
+          {showPredictions ? "Predictions shown" : "Predictions hidden"}
         </button>
       </div>
 
@@ -533,9 +540,11 @@ export function SpinReview({
 
               <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
                 {blindNow ? (
-                  <span className="rounded-full border border-zinc-600 border-dashed px-3 py-1 text-zinc-400">
-                    prediction hidden until you answer
-                  </span>
+                  !showPredictions ? null : (
+                    <span className="rounded-full border border-zinc-600 border-dashed px-3 py-1 text-zinc-400">
+                      prediction hidden until you answer
+                    </span>
+                  )
                 ) : prediction && prediction.predicted_spin !== "unmeasurable" ? (
                   <span
                     className={`rounded-full border px-3 py-1 ${PRED_TONE[prediction.predicted_spin]}`}
@@ -684,16 +693,13 @@ export function SpinReview({
                   </span>
                   <span className="flex-1 text-xs text-zinc-400">
                     {pr && pr.predicted_spin !== "unmeasurable"
-                      ? shouldBlind(p.pointId, pr) && !forceShow && !labeled(n)
-                        ? "prediction hidden"
+                      ? !showPredictions ||
+                        (shouldBlind(p.pointId, pr) && !labeled(n))
+                        ? ""
                         : `pred ${pr.predicted_spin === "none" ? "flat" : pr.predicted_spin}`
-                      : "—"}
+                      : ""}
                   </span>
-                  {shouldBlind(p.pointId, pr) && (
-                    <span className="text-[10px] uppercase tracking-wide text-zinc-600">
-                      blind
-                    </span>
-                  )}
+
                   <span
                     className={`h-2 w-2 rounded-full ${
                       labeled(n)
