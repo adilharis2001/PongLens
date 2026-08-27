@@ -60,6 +60,10 @@ DEFAULT_CONFIG = {
     # one of them had exactly one point in between. Reaching three covers
     # the longer transitions the same footage produces.
     "bridge_max": 3,
+    # Longest burst of consecutive disagreeing pairs still read as one
+    # changeover rather than as noise. A real transition is the players
+    # walking round the table, two or three cards' worth.
+    "max_transition_pairs": 4,
     # Gap length only shapes confidence (recordings paused between games
     # produce real boundaries with near-zero gaps — measured 2026-08-26:
     # p25 of true boundary gaps is 6.7s and the minimum is 0.0s).
@@ -447,30 +451,79 @@ def detect_side_changes(
             "flips_total": len(flips),
             "config": cfg,
         }
+    # Collapse a BURST of flips into the one transition it is.
+    #
+    # A changeover is not a single gap between two rallies; it is the
+    # players walking round the table, and the cutter makes cards out of
+    # that. Those cards are often QUALIFIED — two people are visible,
+    # just mid-walk and at the wrong ends — so bridging unqualified
+    # points does not reach them. Compared pair by pair they read as
+    # several flips in a row, each with another flip beside it instead
+    # of stable ground, and every one is refused.
+    #
+    # Prabhas (9e15ed10, LYTTC) is the case: a real boundary after point
+    # 31, and swapped pairs at 30->31, 32->33 and 33->34 straddling it,
+    # all three thrown away. Runs of consecutive non-'same' pairs are
+    # now treated as one transition and judged end to end — the last
+    # settled point before it against the first settled point after.
+    runs: list[tuple[int, int]] = []
+    i = 0
+    while i < len(pairs):
+        if pairs[i]["verdict"] == "same":
+            i += 1
+            continue
+        j = i
+        while j + 1 < len(pairs) and pairs[j + 1]["verdict"] != "same":
+            j += 1
+        runs.append((i, j))
+        i = j + 1
+
+    by_idx = {int(point["idx"]): point for point in points}
+    max_run = int(cfg.get("max_transition_pairs", 4))
     changes = []
-    for i in flips:
-        pre_run = _stable_run(pairs, i - 1, -1)
-        post_run = _stable_run(pairs, i + 1, +1)
-        confidence, components = _confidence(pairs[i], pre_run, post_run, cfg)
+    for start, end in runs:
+        if end - start + 1 > max_run:
+            continue
+        a_idx = int(pairs[start]["a_idx"])
+        b_idx = int(pairs[end]["b_idx"])
+        before, after = by_idx.get(a_idx), by_idx.get(b_idx)
+        if not before or not after:
+            continue
+        if not (point_qualified(before) and point_qualified(after)):
+            continue
+        verdict = pair_verdict(before, after, float(cfg["margin_threshold"]))
+        if verdict["verdict"] != "swapped":
+            continue
+        pre_run = _stable_run(pairs, start - 1, -1)
+        post_run = _stable_run(pairs, end + 1, +1)
+        gap = None
+        if before.get("t1") is not None and after.get("t0") is not None:
+            gap = round(float(after["t0"]) - float(before["t1"]), 2)
+        spanning = {
+            "a_idx": a_idx, "b_idx": b_idx, "gap_s": gap,
+            "adjacent": end == start, "bridged": b_idx - a_idx - 1,
+            **verdict,
+        }
+        confidence, components = _confidence(
+            spanning, pre_run, post_run, cfg)
         confirmed = (
             pre_run >= int(cfg["pre_stable_pairs"])
             and post_run >= int(cfg["post_stable_pairs"])
             and confidence >= float(cfg["min_confidence"])
         )
-        changes.append(
-            {
-                "kind": "side_change",
-                "after_idx": pairs[i]["a_idx"],
-                "before_idx": pairs[i]["b_idx"],
-                "confidence": confidence,
-                "confirmed": confirmed,
-                "components": {
-                    **components,
-                    "margin": pairs[i]["margin"],
-                    "bridged": pairs[i].get("bridged", 0),
-                },
-            }
-        )
+        changes.append({
+            "kind": "side_change",
+            "after_idx": a_idx,
+            "before_idx": b_idx,
+            "confidence": confidence,
+            "confirmed": confirmed,
+            "components": {
+                **components,
+                "margin": spanning["margin"],
+                "bridged": spanning["bridged"],
+                "transition_pairs": end - start + 1,
+            },
+        })
     return {
         "status": "ready",
         "side_changes": changes,
