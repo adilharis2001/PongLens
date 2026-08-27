@@ -424,18 +424,26 @@ def main() -> None:
         for spread in (ruler["within_p50"] * m
                        for m in (0.8, 1.2, 1.8, 2.6)):
             for penalty in (ruler["apart_p50"] * m
-                            for m in (0.2, 0.35, 0.5, 0.7, 1.0)):
+                            for m in (0.1, 0.2, 0.35, 0.5, 0.7, 1.0)):
+                # verify_margin is in the grid rather than fixed at a
+                # tenth of `apart`. That fixed ratio was the OLD tight
+                # bar; leaving it there scored every descriptor at a
+                # tuning the shipped one no longer uses, and read
+                # lab+legs_lab ten points below what it actually does.
                 for floor in (0.0, ruler["apart_p50"] * 0.55):
-                    config = merge_config({
-                        "spread_max": spread,
-                        "switch_penalty": penalty,
-                        "min_separability": floor,
-                        "verify_margin": ruler["apart_p50"] * 0.1,
-                        "confidence_scale": penalty * 2.0,
-                    })
-                    outcome = evaluate(prepared, truths, config, args.judged)
-                    if best is None or outcome["f1"] > best["f1"]:
-                        best = {**outcome, "descriptor": name}
+                    for margin in (ruler["apart_p50"] * m
+                                   for m in (0.026, 0.05, 0.1)):
+                        config = merge_config({
+                            "spread_max": spread,
+                            "switch_penalty": penalty,
+                            "min_separability": floor,
+                            "verify_margin": margin,
+                            "confidence_scale": penalty * 2.0,
+                        })
+                        outcome = evaluate(
+                            prepared, truths, config, args.judged)
+                        if best is None or outcome["f1"] > best["f1"]:
+                            best = {**outcome, "descriptor": name}
         results.append(best)
         print(
             f"{name:<16} P={best['precision']:6.1%} R={best['recall']:6.1%} "

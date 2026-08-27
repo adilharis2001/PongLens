@@ -879,3 +879,86 @@ frames of the two matches where the far player was supposedly missing:
 74/75 to 75/75 on one, 74/75 to 75/75 on the other. One frame in 150.
 Not worth doubling detection time for, and the reason it is not worth it
 is that the problem it was built for did not exist.
+
+### The corpus answered: the shoes lose, and the tables were the win
+
+Whole corpus re-extracted with the new descriptors and the fourteen
+corrected quads — 61 of 62 matches, the last having no calibration at
+all. Every descriptor fitted to its own ruler, scored against the 93
+boundaries Adil confirmed by eye.
+
+| descriptor | recall | precision | within | apart |
+| --- | --- | --- | --- | --- |
+| `lab+legs_lab` (shipped) | **89.2%** | 100% | 0.049 | 0.078 |
+| `lab` alone | 77.4% | 100% | 0.034 | 0.047 |
+| `lab+legs_lab+shoe_lab` | 63.4% | 100% | 0.197 | 0.183 |
+| `lab+legs_lab+shins_lab` | 61.3% | 100% | 0.093 | 0.103 |
+| `lab+legs_lab+shoe_lab+stature_rel` | 60.2% | 100% | 0.445 | 0.318 |
+| `lab+legs_lab+stature_rel` | 50.5% | 100% | 0.420 | 0.230 |
+| `shoe_lab` alone | 37.6% | 100% | 0.184 | 0.138 |
+| `stature_rel` alone | 25.8% | 100% | 0.427 | 0.184 |
+
+**Shoes are a worse signal than the shirt, and the two ruler columns say
+exactly why.** `within` is how far apart two frames of ONE player in ONE
+rally sit; `apart` is how far apart the two DIFFERENT players sit. For
+the torso, 0.049 against 0.078: the players differ more than one player
+wobbles. For shoes, 0.197 against 0.183 — **one player's shoes vary more
+between frames of a single rally than the two players' shoes differ from
+each other.** Feet move fastest, blur most, and go behind the table and
+come back. The colour difference Adil can see in a still frame is real;
+it is just buried under the frame-to-frame noise of the fastest-moving
+part of the body.
+
+Stature is worse again (0.427 against 0.230) and withholds twenty matches
+on top of it. The residual perspective bias between the two ends is
+larger than the difference between two people's heights, and dividing
+each end by its own median removes the bias without recovering the
+signal.
+
+None of it is wasted: every one of these is stored in the bank, so the
+next idea costs a rescore rather than another pose run. But nothing here
+replaces four numbers off the torso and the shorts.
+
+**The tables were the actual win.** Same descriptor, same thresholds,
+before and after the fourteen quads were replaced:
+
+| | recall | precision | coverage |
+| --- | --- | --- | --- |
+| before recalibration | 86.0% | 100% | — |
+| after | **87.1%** | 100% | 93.5% |
+| after, `spread_max` 0.089 | **89.2%** | 100% | 88.4% |
+
+`98be5eb5` and `a0fb8f44` came back purely from having the table in the
+right place — two matches where the "cause" recorded against them was
+`look-alike`.
+
+The last row is not shipped. `spread_max` 0.130 was set as 2.6x the
+median frame-to-frame spread, and that median has not moved (0.050 to
+0.049), so 0.089 is not the ruler moving — it is a number fitted to 93
+boundaries. It recovers two known changeovers and adds three fires nobody
+has looked at, which is the same trade the verification bar presented
+this morning, and it gets settled the same way: by showing him the three.
+
+### What is left, and it is now a short list
+
+Ten boundaries at the shipped setting, twelve including the two the
+tighter gate would recover:
+
+| | count | cases |
+| --- | --- | --- |
+| two players genuinely hard to tell apart | 5 | `2f7168db@19` `98be5eb5@54` `9e15ed10@69` `c27e196d@37` `c27e196d@59` |
+| a long break with no play in the cards either side | 3 | `4c138aa1@79` `617a2067@36` `d59d7610@89` |
+| other | 2 | `51625364@38` `617a2067@62` |
+
+The look-alike five are all matches where both players wear the same dark
+top, which is the tournament-shirt problem Adil named. The honest state
+of it: it is real, shoes do not solve it, and nothing measured so far
+does.
+
+The long-break three are the ones his notes describe best — "they just
+took a very long break, and then our cut was bad". His suggestion was to
+wait for ball activity to resume. `placement.candidates` carries exactly
+that, bounces and bat contacts per point, and it is present on **none of
+those three matches**: they were processed before placement ran. The idea
+is right and the data is not there, which is a reason to revisit it on
+newer footage rather than to build it against nothing.

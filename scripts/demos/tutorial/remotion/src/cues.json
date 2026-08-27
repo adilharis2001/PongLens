@@ -1,15 +1,15 @@
 {
-  "chapter": "intro-mobile",
-  "video": "tut-intro-mobile.mp4",
+  "chapter": "mobile",
+  "video": "tut-mobile.mp4",
   "viewport": {
     "w": 390,
     "h": 844,
     "dsf": 2
   },
-  "duration": 200.549,
+  "duration": 174.982,
   "cues": [
     {
-      "t": 17.72,
+      "t": 13.804,
       "kind": "box",
       "label": "From your phone",
       "rect": {
@@ -18,22 +18,21 @@
         "w": 350,
         "h": 497
       },
-      "end": 20.016
+      "end": 17.202
     },
     {
-      "t": 20.372,
+      "t": 17.204,
       "kind": "box",
-      "label": "Or a YouTube link",
       "rect": {
-        "x": 20,
-        "y": 464,
-        "w": 350,
-        "h": 260.8515625
+        "x": 41,
+        "y": 300,
+        "w": 308,
+        "h": 187
       },
-      "end": 23.292
+      "end": 20.553
     },
     {
-      "t": 51.743,
+      "t": 58.176,
       "kind": "box",
       "label": "Draw on this frame",
       "rect": {
@@ -42,58 +41,34 @@
         "w": 152.0390625,
         "h": 30
       },
-      "end": 56.612
+      "end": 62.008
     },
     {
-      "t": 69.678,
+      "t": 82.975,
       "kind": "box",
       "label": "How the match swung",
       "rect": {
         "x": 16,
         "y": 153.75,
         "w": 307.875,
-        "h": 665
+        "h": 588
       },
-      "end": 74.065
+      "end": 86.758
     },
     {
-      "t": 74.97,
+      "t": 87.662,
       "kind": "box",
-      "label": "Where it turned",
+      "label": "Why you lost",
       "rect": {
         "x": 40.875,
         "y": 153.75,
         "w": 307.875,
-        "h": 665
+        "h": 588
       },
-      "end": 77.928
+      "end": 91.566
     },
     {
-      "t": 93.339,
-      "kind": "box",
-      "label": "Share it with your coach",
-      "rect": {
-        "x": 17,
-        "y": 256.75,
-        "w": 356,
-        "h": 52
-      },
-      "end": 95.838
-    },
-    {
-      "t": 98.352,
-      "kind": "box",
-      "label": "Drawn on the frame",
-      "rect": {
-        "x": 27.50950050354004,
-        "y": 423.5390625,
-        "w": 340,
-        "h": 192.59375
-      },
-      "end": 100.735
-    },
-    {
-      "t": 116.293,
+      "t": 107.154,
       "kind": "box",
       "label": "One point or the whole match",
       "rect": {
@@ -102,77 +77,55 @@
         "w": 356,
         "h": 52
       },
-      "end": 118.692
+      "end": 108.999
     },
     {
-      "t": 123.22,
+      "t": 114.963,
       "kind": "box",
-      "label": "Score on the picture",
+      "label": "Score burned in",
       "rect": {
         "x": 12,
         "y": 491.296875,
-        "w": 73.2109375,
+        "w": 87.625,
         "h": 28.390625
       },
-      "end": 124.084
+      "end": 118.14
     },
     {
-      "t": 145.23,
+      "t": 118.392,
       "kind": "box",
-      "label": "Stripe pays your bank",
+      "label": "A link anyone can watch",
       "rect": {
-        "x": 20,
-        "y": 420.5,
-        "w": 350,
-        "h": 116
+        "x": 17,
+        "y": 204.75,
+        "w": 356,
+        "h": 52
       },
-      "end": 149.095
+      "end": 120.692
     },
     {
-      "t": 152.048,
+      "t": 125.261,
       "kind": "box",
-      "label": "What they asked for",
+      "label": "Share it with your coach",
       "rect": {
-        "x": 20,
-        "y": 208,
-        "w": 350,
-        "h": 308
+        "x": 17,
+        "y": 256.75,
+        "w": 356,
+        "h": 52
       },
-      "end": 156.546
+      "end": 127.66
     },
     {
-      "t": 176.437,
+      "t": 130.299,
       "kind": "box",
+      "label": "Drawn on the frame",
       "rect": {
-        "x": 334,
-        "y": 129.75,
-        "w": 36,
-        "h": 36
+        "x": 30.207996368408203,
+        "y": 469.0390625,
+        "w": 340,
+        "h": 192.59375
       },
-      "end": 179.136
-    },
-    {
-      "t": 176.438,
-      "kind": "box",
-      "rect": {
-        "x": 334,
-        "y": 349.75,
-        "w": 36,
-        "h": 36
-      },
-      "end": 179.136
-    },
-    {
-      "t": 180.34,
-      "kind": "box",
-      "label": "Checked before it goes",
-      "rect": {
-        "x": 41,
-        "y": 477.25,
-        "w": 308,
-        "h": 91.5
-      },
-      "end": 182.392
+      "end": 134.385
     }
   ]
 }

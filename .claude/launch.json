@@ -2,22 +2,24 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "commerce-preview",
-      "runtimeExecutable": "bash",
+      "name": "web",
+      "runtimeExecutable": "npm",
       "runtimeArgs": [
-        "-lc",
-        "STRIPE_FAKE=1 SUPABASE_SERVICE_ROLE_KEY=$(security find-generic-password -a openclaw -s ponglens-service-role -w) npx next dev -p 3457"
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "3111"
       ],
-      "port": 3457
+      "port": 3111
     },
     {
-      "name": "ponglens-dev",
-      "runtimeExecutable": "bash",
+      "name": "web2",
+      "runtimeExecutable": "npm",
       "runtimeArgs": [
-        "-lc",
-        "SUPABASE_SERVICE_ROLE_KEY=$(security find-generic-password -a openclaw -s ponglens-service-role -w) npx next dev"
+        "run",
+        "dev"
       ],
-      "port": 3000,
       "autoPort": true
     }
   ]
