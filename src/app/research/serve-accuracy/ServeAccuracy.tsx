@@ -314,8 +314,14 @@ function TouchStrip({
   }
   const named = touches.some((t) => t.fromServer);
   return (
-    <div className="mt-2">
-      <div className="flex gap-1.5 overflow-x-auto pb-1">
+    // min-w-0 on both, or this strip stops scrolling and starts shoving.
+    // A grid or flex child defaults to min-width:auto, meaning it refuses to
+    // shrink below its content's natural width — and these chips are
+    // shrink-0 with whitespace-nowrap, so that width is the whole rally laid
+    // end to end. Without it the column grew to ~1400px, overflow-x never
+    // engaged, and the video (w-full of that column) rendered off-screen.
+    <div className="mt-2 min-w-0">
+      <div className="flex min-w-0 gap-1.5 overflow-x-auto pb-1">
         {touches.map((t, i) => (
           <button
             key={t.event.id}
@@ -948,7 +954,12 @@ function Row({
       </div>
 
       <div className="mt-3 grid gap-3 md:grid-cols-[1fr_170px]">
-        <div>
+        {/* min-w-0: the 1fr track would otherwise be sized by its widest
+            content rather than by the space available, and anything that
+            can't wrap in here takes the video off the screen with it. The
+            usual minmax(0,1fr) fix can't be used — Tailwind won't generate
+            an arbitrary value containing a comma. */}
+        <div className="min-w-0">
           {url ? (
             <Clip
               url={url}
@@ -1413,7 +1424,13 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
   );
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-8">
+    // w-full is load-bearing beside mx-auto. This main is a flex item, and
+    // auto side margins stop a flex item stretching — it becomes fit-content
+    // instead, which is at least its min-content, so the reason tables'
+    // min-w-[520px] pushed the whole page wider than the screen and took the
+    // clip off the side with it. w-full makes the width the space available,
+    // so the tables scroll inside their own wrapper the way they were meant to.
+    <main className="mx-auto w-full max-w-5xl px-4 py-8">
       <h1 className="text-2xl font-bold">Serve accuracy</h1>
       <p className="mt-2 max-w-3xl text-sm text-zinc-400">
         Every point from every match in one list, grouped by what happened at
