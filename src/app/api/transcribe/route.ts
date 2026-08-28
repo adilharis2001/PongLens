@@ -19,6 +19,10 @@ export const runtime = "nodejs";
  * Voice audio always lives under the AUTHOR's folder; /api/media-url
  * enforces that when streaming it back.
  *
+ * This is the only speech-to-text call in the app, so lesson dictation,
+ * journal dictation, match voice notes and coach findings all share the
+ * Deepgram settings below, TT_KEYTERMS included.
+ *
  * `tier=review` (paid review findings) stores under review/<userId>/
  * instead of voice/<userId>/ — the review prefix has NO retention sweep,
  * because a paid deliverable must outlive the 90-day voice tier. Those
@@ -26,6 +30,98 @@ export const runtime = "nodejs";
  */
 
 const MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Table-tennis vocabulary handed to Deepgram as keyterm prompts.
+ *
+ * Nova-3 lets a caller name terms it should expect to hear, which lifts them
+ * out of the general-English model that otherwise decides what a word was.
+ * Measured in one real coaching lesson, the general model produced: pips as
+ * "picks", "Pipps", "tips", "pit bull" and "punches"; forehands as "forehead",
+ * "4 hamsters" and "four handed"; underspin as "odor spin"; topspin as
+ * "Tom Smith"; dead serve as "dead surf"; twiddle as "twittle". Those are the
+ * words a lesson is actually about, so a note distilled from that transcript
+ * is wrong in exactly the places that mattered.
+ *
+ * What is in the list: terms whose sound is unusual in general English —
+ * jargon (chiquita, twiddle, penhold), compounds (topspin, counterloop,
+ * multiball) and phrases (dead serve, third ball, half-long).
+ *
+ * What is deliberately NOT in the list: bare everyday words. "table", "ball",
+ * "point", "serve", "block" and "push" all mean something specific here, but
+ * boosting a word the model already knows well does not make it more accurate
+ * — it makes the model reach for that word when it hears something else, and
+ * these are common enough that the reaching would be constant. The domain
+ * still comes through: "table tennis" carries "table" without putting a thumb
+ * on the bare noun, and "chop block" and "punch block" cover the block
+ * vocabulary that is actually ambiguous.
+ *
+ * Deepgram advises 20-50 focused terms and caps the whole set at 500 tokens.
+ * This is 39 terms, about 60 words, so there is room. Do not treat the room
+ * as an invitation: every added term is another word the recogniser can
+ * reach for wrongly, and the cap is not the limit that matters.
+ */
+const TT_KEYTERMS = [
+  "table tennis",
+  "ping pong",
+  "topspin",
+  "backspin",
+  "underspin",
+  "sidespin",
+  "no-spin",
+  "anti-spin",
+  "pips",
+  "long pips",
+  "short pips",
+  "twiddle",
+  "penhold",
+  "shakehand",
+  "blade",
+  "rubber",
+  "forehand",
+  "backhand",
+  "counterloop",
+  "loop drive",
+  "banana flick",
+  "chiquita",
+  "chop block",
+  "punch block",
+  "chopper",
+  "dead serve",
+  "short serve",
+  "half-long",
+  "pendulum serve",
+  "reverse pendulum",
+  "tomahawk serve",
+  "third ball",
+  "footwork",
+  "ready position",
+  "bat angle",
+  "crosscourt",
+  "down the line",
+  "multiball",
+  "deuce",
+];
+
+/**
+ * Built once at module load; the query string is the same on every request.
+ *
+ * encodeURIComponent rather than URLSearchParams: URLSearchParams writes a
+ * space as "+", and only %20 is read the same way by every query parser.
+ * Most of the list is multi-word, so this is not a detail.
+ *
+ * mip_opt_out keeps recordings out of Deepgram's model-improvement program —
+ * the Privacy Policy promises audio is transcribed and nothing more, and this
+ * flag is what makes that promise true.
+ */
+const DEEPGRAM_URL =
+  "https://api.deepgram.com/v1/listen?" +
+  [
+    "model=nova-3",
+    "smart_format=true",
+    "mip_opt_out=true",
+    ...TT_KEYTERMS.map((term) => `keyterm=${encodeURIComponent(term)}`),
+  ].join("&");
 
 const AUDIO_TYPES: Record<string, string> = {
   "audio/webm": ".webm",
@@ -113,20 +209,14 @@ export async function POST(req: Request) {
       }
     }
 
-    const dgRes = await fetch(
-      // mip_opt_out keeps recordings out of Deepgram's model-improvement
-      // program — the Privacy Policy promises audio is transcribed and
-      // nothing more, and this flag is what makes that promise true.
-      "https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true&mip_opt_out=true",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Token ${apiKey}`,
-          "Content-Type": mime,
-        },
-        body: bytes,
-      }
-    );
+    const dgRes = await fetch(DEEPGRAM_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Token ${apiKey}`,
+        "Content-Type": mime,
+      },
+      body: bytes,
+    });
     if (!dgRes.ok) {
       const text = await dgRes.text();
       console.error(`transcribe: Deepgram ${dgRes.status}: ${text.slice(0, 300)}`);
@@ -139,6 +229,11 @@ export async function POST(req: Request) {
     await recordUsage(deepgramUsageEvents({
       response: dg,
       operation: "voice_note_transcription",
+      // Keyterm prompting is a paid add-on on top of the nova-3 base rate.
+      // Derived from the list rather than written as `true` so emptying the
+      // list stops the charge being recorded, instead of leaving the
+      // dashboard billing for something the request no longer asks for.
+      keyterms: TT_KEYTERMS.length > 0,
     }));
     const transcript: string =
       dg?.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? "";

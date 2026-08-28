@@ -30,6 +30,12 @@ export interface DeepgramUsageArgs {
   response: unknown;
   operation: string;
   occurredAt?: string;
+  /**
+   * Whether the request carried keyterm prompts. Deepgram bills those as a
+   * per-minute add-on on top of the model, so a request with them costs more
+   * than one without and the ledger has to be able to tell them apart.
+   */
+  keyterms?: boolean;
 }
 
 type UsageTransport = (events: NormalizedUsageEvent[]) => Promise<void>;
@@ -174,6 +180,16 @@ export function openAIUsageEvents(args: OpenAIUsageArgs): UsageEvent[] {
   return candidates.filter((event) => event.quantity > 0);
 }
 
+/**
+ * Keyterm prompting is priced as its own line rather than folded into a
+ * higher nova-3 rate. Deepgram bills it that way ($0.0013/min on top of the
+ * $0.0077/min model), and so should the dashboard: the base rate stays equal
+ * to Deepgram's published price for the model, and what the table-tennis
+ * vocabulary costs is a number someone can actually read, rather than a
+ * silent 17% on the transcription line.
+ */
+const DEEPGRAM_KEYTERM_SKU = "nova-3-keyterm";
+
 export function deepgramUsageEvents(args: DeepgramUsageArgs): UsageEvent[] {
   const response = object(args.response);
   const metadata = object(response.metadata);
@@ -193,7 +209,7 @@ export function deepgramUsageEvents(args: DeepgramUsageArgs): UsageEvent[] {
     sku: "nova-3",
   };
   if (duration > 0) {
-    return [
+    const events: UsageEvent[] = [
       {
         ...base,
         quantity: duration,
@@ -201,7 +217,23 @@ export function deepgramUsageEvents(args: DeepgramUsageArgs): UsageEvent[] {
         idempotencyKey: `deepgram:${requestId}:${operationKey}:audio`,
       },
     ];
+    // The add-on is billed over the same seconds as the model, so it rides
+    // the same duration under its own sku.
+    if (args.keyterms) {
+      events.push({
+        ...base,
+        sku: DEEPGRAM_KEYTERM_SKU,
+        quantity: duration,
+        unit: "audio_second",
+        idempotencyKey: `deepgram:${requestId}:${operationKey}:keyterm`,
+      });
+    }
+    return events;
   }
+  // No duration means Deepgram told us nothing to price, so this branch
+  // counts requests rather than inventing seconds. The keyterm add-on is
+  // per-minute too, so there is nothing to bill it against either; adding a
+  // second unpriced row would only make the same gap look like two.
   return [
     {
       ...base,
