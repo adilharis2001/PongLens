@@ -20,6 +20,7 @@ import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { CoachCta } from "@/components/reviews/CoachCta";
+import { OriginalVideoButton } from "@/components/OriginalVideo";
 import {
   computeMatchScore,
   sortPoints,
@@ -267,25 +268,39 @@ function useIsDesktop() {
 }
 
 /**
- * Full-video card: the Player's poster (the ONLY match-footage video)
- * plus ONE header action — the ↓ icon for the owner (downloads the cut
- * video directly), a plain Download button for coach viewers. Everything
+ * Full-video card: the Player's poster plus the actions that are about
+ * the match's FOOTAGE — watch the original, download the cut. Everything
  * else (score, share, coach, export) lives in the Tools card below.
  * Tapping the poster opens the Player takeover in watch mode.
  *
+ * The rule here used to be "ONE header action", and the card used to be
+ * the only match-footage video on the page. Both were retired by the
+ * Original pill, and the narrower rule that replaces them still does the
+ * work the old one did: THIS CARD HOLDS THE MATCH'S VIDEOS, ONE SHORTCUT
+ * EACH; ACTIONS LIVE IN TOOLS. Placement and Match analysis are not
+ * videos and still have no business here.
+ *
+ * The Original pill cannot live in Tools, which is why it is here: Tools
+ * is `{isOwner && (`, and a coach looking at a poor cut wants the
+ * original for the same reason the player does.
+ *
  * The ↓ stays as a one-tap shortcut for the plain full-match (no-score)
  * download — the most common export. The Tools "Export" row opens the full
- * menu (full match with/without score, starred points, raw upload); this
+ * menu (full match with/without score, starred points, the original); this
  * quick affordance is deliberately kept alongside it.
  */
 function DownloadCard({
   matchId,
   isOwner,
+  hasOriginal,
   children,
 }: {
   matchId: string;
   /** Owner gets the quiet ↓ icon; coach viewers the plain Download pill. */
   isOwner: boolean;
+  /** Is there an original upload left to watch? Server-resolved, so the
+   *  pill is correct at first paint rather than appearing a beat late. */
+  hasOriginal: boolean;
   /** The Player (poster preview while closed). */
   children: React.ReactNode;
 }) {
@@ -323,6 +338,7 @@ function DownloadCard({
           <p className="text-xs text-zinc-500">Playtime only</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {hasOriginal && <OriginalVideoButton matchId={matchId} />}
           {isOwner ? (
             <button
               type="button"
@@ -411,6 +427,7 @@ export function MatchView({
   placementServesOnly = false,
   gameEndDetection = false,
   ends = { tapEnd: false },
+  hasOriginal = false,
 }: {
   match: Match;
   initialPoints: Point[];
@@ -451,6 +468,11 @@ export function MatchView({
    *  (unscored_rally_end, 143). Both read on the server, so the match
    *  page and the share link cannot disagree about the same match. */
   ends?: EndOptions;
+  /** Is there an original upload left to watch? Resolved on the server
+   *  from matches.raw_path, falling back to the source job's input_path
+   *  for rows that predate the column — so the pill is right at first
+   *  paint instead of appearing a beat later and shifting the layout. */
+  hasOriginal?: boolean;
 }) {
   const [points, setPoints] = useState<Point[]>(initialPoints);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -2724,7 +2746,11 @@ export function MatchView({
           control-panel grid below. Mobile / portrait: stacked, Tools a list. */}
       <div>
         <div className="mt-4 flex min-w-0 flex-wrap items-start gap-3">
-          <DownloadCard matchId={match.id} isOwner={isOwner}>
+          <DownloadCard
+            matchId={match.id}
+            isOwner={isOwner}
+            hasOriginal={hasOriginal}
+          >
             <Player
               ref={playerRef}
               matchId={match.id}

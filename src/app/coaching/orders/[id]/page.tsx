@@ -20,6 +20,7 @@ import {
 } from "@/lib/config";
 import type { Point } from "@/lib/types";
 import { CoachOrder, type WorkspacePoint } from "./CoachOrder";
+import { hasOriginalVideo } from "@/lib/originalVideo";
 
 export const metadata: Metadata = {
   title: "Review order",
@@ -100,7 +101,7 @@ export default async function CoachOrderPage({
       ? supabase
           .from("matches")
           .select(
-            "id, opponent_name, venue, played_at, status, user_side, clip_pads",
+            "id, opponent_name, venue, played_at, status, user_side, clip_pads, raw_path",
           )
           .eq("id", detail.match_id)
           .maybeSingle()
@@ -174,6 +175,9 @@ export default async function CoachOrderPage({
         links={links}
         attachments={(attachments ?? []) as ReviewAttachmentRow[]}
         match={match ?? null}
+        hasOriginal={hasOriginalVideo(
+          (match as { raw_path?: string | null } | null)?.raw_path,
+        )}
         points={((points ?? []) as WorkspacePoint[])
           .filter((p) => !p.deleted)
           // Ranked display numbers, matching the match page (idx skips

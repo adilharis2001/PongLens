@@ -25,6 +25,7 @@ import { DictateButton } from "@/components/DictateButton";
 import { FindingEditor } from "./FindingEditor";
 import { UpLink } from "@/components/UpLink";
 import { AutoTextarea } from "@/components/AutoTextarea";
+import { OriginalVideoButton } from "@/components/OriginalVideo";
 
 export interface WorkspacePoint {
   id: string;
@@ -69,6 +70,7 @@ export function CoachOrder({
   skipSpans = [],
   userId,
   sponsored = false,
+  hasOriginal = false,
 }: {
   detail: ReviewOrderDetail;
   messages: ReviewMessageRow[];
@@ -83,6 +85,10 @@ export function CoachOrder({
   userId: string;
   /** funding = 'sponsored' (096): the coach covers this one. */
   sponsored?: boolean;
+  /** Is there an original upload behind this match? Server-resolved from
+   *  matches.raw_path, which the retention sweep never expires while the
+   *  library row lives. */
+  hasOriginal?: boolean;
 }) {
   const router = useRouter();
   const s = detail.status;
@@ -241,6 +247,7 @@ export function CoachOrder({
           skipSpans={skipSpans}
           messages={messages}
           matchId={match?.id ?? null}
+          hasOriginal={hasOriginal}
           onChanged={() => router.refresh()}
         />
       </div>
@@ -451,6 +458,7 @@ function Workspace({
   skipSpans,
   messages,
   matchId,
+  hasOriginal,
   onChanged,
 }: {
   /** Desktop only: the picture takes the whole column, everything else
@@ -469,6 +477,9 @@ function Workspace({
   skipSpans: { start: number; end: number }[];
   messages: ReviewMessageRow[];
   matchId: string | null;
+  /** Is there an original upload behind this match? Resolved on the
+   *  server, so the pill is right at first paint. */
+  hasOriginal: boolean;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -701,13 +712,27 @@ function Workspace({
         <div className="mt-8 lg:mt-6">
           <div className="flex items-baseline justify-between gap-4">
             <h2 className="text-lg font-semibold tracking-tight">The points</h2>
-            <button
-              type="button"
-              onClick={() => onFocus(!focus)}
-              className="hidden shrink-0 rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white lg:inline-flex"
-            >
-              {focus ? "Split view" : "Full width"}
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {/* The uncut upload, in the one place a coach actually
+                  works. The player below is the CUT, and when the cut
+                  came out poor — a rally clipped, a point dropped — the
+                  original is the only honest answer. It opens in its own
+                  full-screen player rather than repointing this one:
+                  FindingEditor hands a single <video> element to every
+                  finding card for frame capture, and a drawing grabbed
+                  from the original would be filed against a point whose
+                  cut_t0 belongs to the other file. */}
+              {hasOriginal && matchId && (
+                <OriginalVideoButton matchId={matchId} />
+              )}
+              <button
+                type="button"
+                onClick={() => onFocus(!focus)}
+                className="hidden shrink-0 rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-white lg:inline-flex"
+              >
+                {focus ? "Split view" : "Full width"}
+              </button>
+            </div>
           </div>
           <FindingEditor
             orderId={detail.id}

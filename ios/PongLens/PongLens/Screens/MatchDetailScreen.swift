@@ -279,6 +279,27 @@ final class MatchDetailModel {
         return res?.url.flatMap(URL.init)
     }
 
+    /// Streamable link to the ORIGINAL upload — the file as it came off
+    /// the phone, before the dead time was cut out. Offered when the cut
+    /// came out poor.
+    ///
+    /// Minted on tap rather than alongside the cut in `load`: it is a
+    /// six-hour presigned URL, and signing one on every open of every
+    /// match, for a control most people never press, buys nothing.
+    ///
+    /// Nil means the file is genuinely gone — only possible on matches
+    /// processed before mid-August 2026, since the retention sweep never
+    /// expires an original a library row still points at.
+    func originalURL(_ match: MatchRow) async -> URL? {
+        struct Req: Encodable { let matchId: String; let rawPreview: Bool }
+        struct Res: Decodable { let url: String? }
+        let res: Res? = try? await API.post(
+            "api/media-url",
+            Req(matchId: match.id.uuidString.lowercased(), rawPreview: true)
+        )
+        return res?.url.flatMap(URL.init)
+    }
+
     /// Optimistic column-scoped patch with rollback — the whole scorer
     /// write surface goes through here. Returns false on a failed save so
     /// callers can flash "Couldn't save. Tap again." the way the web does.
@@ -426,9 +447,20 @@ struct MatchDetailScreen: View {
         let url: URL
         let startAt: Double?
         let mode: PlayerMode
+        /// Which file this URL points at. `.original` stands down every
+        /// position the player knows, because they are all cut seconds
+        /// and the original does not share that clock. Defaulted so the
+        /// six existing call sites keep saying what they already said.
+        var source: PlayerSource = .cut
     }
 
     @State private var playerRequest: PlayerRequest?
+    /// The Original pill is mid-flight (the presigned URL is a round trip).
+    @State private var openingOriginal = false
+    /// The original could not be reached. Only possible on matches
+    /// processed before mid-August 2026: since then the retention sweep
+    /// skips any upload a library row still points at.
+    @State private var originalMissing = false
     @State private var pointSheetOpen = false
     /// Where Keep score should resume when a point opened FROM the pad is
     /// closed. Nil for a point opened from the list, which has no pad to
@@ -740,6 +772,11 @@ struct MatchDetailScreen: View {
             guard watchKick > 0 else { return }
             await watchProcessing()
         }
+        .alert("The original is no longer available", isPresented: $originalMissing) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("This match was processed before we started keeping originals. The full video still plays.")
+        }
         .fullScreenCover(item: $playerRequest) { request in
             PlayerTakeover(
                 match: current,
@@ -748,6 +785,7 @@ struct MatchDetailScreen: View {
                 videoURL: request.url,
                 startAt: request.startAt,
                 mode: request.mode,
+                source: request.source,
                 reasonsStore: reasonsStore,
                 notesStore: notesStore,
                 tagsStore: tagsStore,
@@ -1070,6 +1108,35 @@ struct MatchDetailScreen: View {
                         .foregroundStyle(PL.text500)
                 }
                 Spacer()
+                // The uncut upload, for when the cut came out poor. Beside
+                // the download rather than in Tools, because Tools is
+                // `if isOwner` and a coach looking at a bad cut wants the
+                // original for the same reason the player does. Labelled
+                // "Original" rather than repeating "Full video", which the
+                // caption two inches left already says about the cut.
+                if current.status == .ready, hasOriginal {
+                    Button {
+                        Task { await openOriginal() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            if openingOriginal {
+                                ProgressView().controlSize(.mini).tint(PL.text300)
+                            } else {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 11, weight: .semibold))
+                            }
+                            Text("Original")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundStyle(PL.text300)
+                        .padding(.horizontal, 14)
+                        .frame(height: 38)
+                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(openingOriginal)
+                    .accessibilityLabel("Watch the original video")
+                }
                 if current.status == .ready {
                     Button {
                         Task {
@@ -1104,6 +1171,32 @@ struct MatchDetailScreen: View {
     /// by deleting the file, keeping only the match so the uploader can
     /// read why. Matches the web's RawMatchView, which hides its player
     /// and its process card on the same condition.
+    /// Is there an original upload left to watch? raw_path is set at
+    /// upload and never cleared on the success path, and r2_raw_sweep
+    /// skips any object a live library row points at — so for anything
+    /// uploaded since the commerce flip this is simply true, for good.
+    /// Rows older than that read null; their originals are on the ordinary
+    /// 30-day clock and mostly gone already.
+    private var hasOriginal: Bool {
+        current.rawPath?.hasPrefix("r2://ponglens-raw/") == true
+    }
+
+    /// Mint the six-hour streaming link and open the takeover on it. On
+    /// tap, not on load: signing one for every viewer of every match, for
+    /// a button most never press, buys nothing.
+    private func openOriginal() async {
+        guard !openingOriginal else { return }
+        openingOriginal = true
+        defer { openingOriginal = false }
+        if let url = await model.originalURL(current) {
+            playerRequest = PlayerRequest(
+                url: url, startAt: nil, mode: .watch, source: .original
+            )
+        } else {
+            originalMissing = true
+        }
+    }
+
     private var sourceGone: Bool {
         current.status == .failed && current.rawPath == nil
     }

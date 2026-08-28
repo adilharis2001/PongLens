@@ -1002,10 +1002,17 @@ export const Player = forwardRef<
       const doc = document as Document & {
         webkitFullscreenElement?: Element | null;
       };
-      const active = !!(
-        document.fullscreenElement ?? doc.webkitFullscreenElement
-      );
-      setFsActive(active);
+      const current = document.fullscreenElement ?? doc.webkitFullscreenElement;
+      const active = !!current;
+      // Whose fullscreen? fullscreenchange is a DOCUMENT event, so this
+      // hears every other player's too. This used to skip the identity
+      // check on the grounds that Player is the only one of its kind on
+      // the page — see the same check in useVideoFullscreen, which says
+      // exactly that. The Original overlay retired that premise: it runs
+      // ClipPlayer, which offers its own landscape fullscreen, over this
+      // very page. Without the check, expanding the original would size
+      // the closed poster underneath as though IT had gone fullscreen.
+      setFsActive(active && current === rootRef.current);
       if (!active) {
         try {
           (
@@ -1024,7 +1031,11 @@ export const Player = forwardRef<
     };
   }, []);
 
-  // Closing the takeover ends both fullscreen flavours with it.
+  // Closing the takeover ends both fullscreen flavours with it — but only
+  // OUR fullscreen. Same reasoning as the identity check above: the
+  // Original overlay can be expanded over this page, and an unconditional
+  // exit here would drop it back out of fullscreen the moment anything
+  // re-ran this effect.
   useEffect(() => {
     if (open) return;
     setFakeFs(false);
@@ -1032,7 +1043,8 @@ export const Player = forwardRef<
       webkitFullscreenElement?: Element | null;
       webkitExitFullscreen?: () => void;
     };
-    if (document.fullscreenElement ?? doc.webkitFullscreenElement) {
+    const current = document.fullscreenElement ?? doc.webkitFullscreenElement;
+    if (current && current === rootRef.current) {
       if (document.exitFullscreen)
         void document.exitFullscreen().catch(() => undefined);
       else doc.webkitExitFullscreen?.();

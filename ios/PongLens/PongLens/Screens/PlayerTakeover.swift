@@ -6,6 +6,34 @@ enum PlayerMode {
     case watch, score
 }
 
+/// WHICH FILE is on screen, which is not the same question as what the
+/// viewer is doing with it (`PlayerMode`).
+///
+/// `.cut` is the processed video every other entry point opens: dead time
+/// removed, and every point's `cutT0` is a position in it.
+///
+/// `.original` is the file the player uploaded, offered when the cut came
+/// out poor. It shares no clock with the cut at all — the same rally sits
+/// at a different second in each — so every position this player knows is
+/// meaningless against it and must stand down. Four of them, and only the
+/// first is obvious:
+///
+///  1. `points` empties, which stands down the flanks, the score bug, the
+///     chip strip, the grid, tap and let spans, replay and the auto-pause.
+///  2. `deadSpans` empties SEPARATELY. It reads `model.points`, not
+///     `points`, so emptying the array leaves every deleted-rally span in
+///     place and merely removes the clamp that bounded them — the spans
+///     come out WIDER. Its seek runs in both modes with no guard, and 20
+///     of the 71 matches this feature reaches have a deleted rally in the
+///     first half second, so the playhead would jump on the first tick of
+///     playback and keep jumping. It would read as a corrupt file.
+///  3. `startAt` is ignored. Every caller mints it from a `cutT0`.
+///  4. `highlightPicks` is refused. It is its own array of points with its
+///     own boundary observer and three more seek paths.
+enum PlayerSource {
+    case cut, original
+}
+
 enum ScorePhase {
     case play, summary, review
 }
@@ -72,6 +100,9 @@ struct PlayerTakeover: View {
     let videoURL: URL
     var startAt: Double?
     var mode: PlayerMode = .watch
+    /// Which file `videoURL` points at. `.original` stands down everything
+    /// that resolves a position against the cut — see PlayerSource.
+    var source: PlayerSource = .cut
     /// The pad's Analysis panel needs the owner's own reason pills.
     var reasonsStore: CustomReasonsStore?
     /// Quick notes from the player write through the match's own store.
@@ -123,6 +154,14 @@ struct PlayerTakeover: View {
     /// Boundary observer at each highlight pick's end (highlights mode
     /// only) — the frame-accurate half of the tape's jump.
     @State var tapeObserver: Any?
+    /// AVPlayer refuses the file. Until this existed the takeover showed a
+    /// black rectangle and said nothing: nothing observed the item's
+    /// status, and the load path's own catch is a comment reading
+    /// "playback reports its own error", which it did not. It matters most
+    /// on the original, the one source that can be a link the retention
+    /// sweep outlived.
+    @State var itemStatus: NSKeyValueObservation?
+    @State var loadFailed = false
 
     /// The network fell behind. Named on screen, because without it a
     /// choppy connection reads as the app freezing — the picture stops and
@@ -241,13 +280,18 @@ struct PlayerTakeover: View {
     // and the chip strip must read the real match even on the highlights
     // tape (a walk over only the picks would print a fiction). Which
     // rallies PLAY is highlightSpans' business, in tick().
-    var points: [MatchPoint] { model.visible }
-    var isHighlights: Bool { highlightPicks != nil }
+    /// Empty on the original: every one of these carries a `cutT0`, which
+    /// is a second in the OTHER file.
+    var points: [MatchPoint] { source == .original ? [] : model.visible }
+    /// Highlights are a list of cut positions, so they cannot describe the
+    /// original. Refused here rather than at the call site so no future
+    /// caller can combine the two by accident.
+    var isHighlights: Bool { source == .cut && highlightPicks != nil }
 
     /// The picks' spans on the cut timeline. Everything outside them is
     /// dead footage in highlights mode, the same shape as deadSpans.
     var highlightSpans: [TimeSpan]? {
-        guard let picks = highlightPicks else { return nil }
+        guard source == .cut, let picks = highlightPicks else { return nil }
         return picks.compactMap { p in
             guard let c = p.cutT0,
                   let end = effectiveEnd(p, pad, app.endOptions)
@@ -317,8 +361,19 @@ struct PlayerTakeover: View {
     /// Footage extents, recomputed off the model rather than cached: the
     /// list is short and a stale span is a playhead that jumps somewhere
     /// the user can see is wrong.
+    ///
+    /// The `source` guard is NOT redundant with `points` being empty, and
+    /// this is the trap in the whole feature. `deletedSpans` builds its
+    /// spans from `all:` — `model.points`, the unfiltered list — and uses
+    /// `visible:` only to clamp where each span ENDS. So on the original,
+    /// an empty `points` would leave every deleted-rally span standing and
+    /// take away the clamp, making them wider than they are on the cut.
+    /// The skip that reads this runs in watch mode as well as score mode,
+    /// on every tick, and 20 of the 71 matches this can open have a
+    /// deleted rally inside the first half second.
     var deadSpans: [TimeSpan] {
-        deletedSpans(all: model.points, visible: points, pad: pad)
+        guard source == .cut else { return [] }
+        return deletedSpans(all: model.points, visible: points, pad: pad)
     }
 
     /// Tap-trimmed dead zones (2026-08-25): footage between a scored
@@ -482,6 +537,7 @@ struct PlayerTakeover: View {
         .onDisappear {
             if let observer { player.removeTimeObserver(observer) }
             if let tapeObserver { player.removeTimeObserver(tapeObserver) }
+            itemStatus?.invalidate()
             player.pause()
             releaseForcedLandscape()
         }
@@ -650,6 +706,30 @@ struct PlayerTakeover: View {
 
             if let flash {
                 PLToast(message: flash)
+            }
+
+            // The file will not load. Said out loud, over the black, with
+            // a way out: a takeover that shows nothing and explains
+            // nothing reads as the app having frozen.
+            if loadFailed {
+                VStack(spacing: 10) {
+                    Text(source == .original
+                         ? "This video couldn't be loaded."
+                         : "This video couldn't be played.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.text300)
+                    Text(source == .original
+                         ? "The original may no longer be available. The full video still plays."
+                         : "Check your connection and open it again.")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
+                        .multilineTextAlignment(.center)
+                    Button("Close") { dismiss() }
+                        .buttonStyle(PLSecondaryButtonStyle())
+                        .padding(.top, 4)
+                }
+                .padding(28)
+                .frame(maxWidth: 320)
             }
 
             #if DEBUG
@@ -2809,10 +2889,24 @@ struct PlayerTakeover: View {
     // MARK: - Playback plumbing
 
     func start() async {
+        // Keep score writes scored_at_cut_s straight off this player's
+        // clock, so scoring against the original would file every rally at
+        // a second in the wrong file. Both call sites open the original in
+        // watch mode; this catches a future one that forgets.
+        assert(
+            source == .cut || mode == .watch,
+            "the original has no cut clock to score against"
+        )
         try? AVAudioSession.sharedInstance().setCategory(.playback)
         try? AVAudioSession.sharedInstance().setActive(true)
 
-        player.replaceCurrentItem(with: AVPlayerItem(url: videoURL))
+        let item = AVPlayerItem(url: videoURL)
+        player.replaceCurrentItem(with: item)
+        itemStatus = item.observe(\.status, options: [.new]) { item, _ in
+            Task { @MainActor in
+                if item.status == .failed { loadFailed = true }
+            }
+        }
         NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player.currentItem, queue: .main
@@ -2879,7 +2973,11 @@ struct PlayerTakeover: View {
                 showToast(resume)
                 pendingResumeToast = nil
             }
-        } else if let startAt {
+        } else if let startAt, source == .cut {
+            // Cut seconds, every caller of them: a rally's cutT0, a
+            // highlight pick's, a resume point. None of them means
+            // anything in the original's clock, so the original always
+            // opens at the top of the file.
             seek(to: snapLanding(
                 startAt, spans: deadSpans, firstPointStart: firstPointStart,
                 alwaysToFirst: false

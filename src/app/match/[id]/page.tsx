@@ -19,6 +19,7 @@ import {
   getUnscoredRallyEndBufferS,
 } from "@/lib/config";
 import { RAW_BUCKET, presignGet } from "@/lib/r2";
+import { hasOriginalVideo } from "@/lib/originalVideo";
 import { MatchView } from "./MatchView";
 import { RawMatchView } from "./RawMatchView";
 
@@ -177,6 +178,12 @@ export default async function MatchPage({
     if (s) strictness = s;
   }
 
+  // Is there an original upload left to watch? Read off a column already
+  // on the row, so the pill is correct at first paint and costs nothing.
+  // See hasOriginalVideo for why raw_path alone, and why the download's
+  // job fallback would put a dead button on legacy matches.
+  const hasOriginal = hasOriginalVideo(matchRes.data.raw_path);
+
   // Owner's handedness labels the FH/BH corners of their half on the
   // serve map. RLS: readable by the owner and their accepted coaches.
   const { data: ownerProfile } = await supabase
@@ -260,6 +267,7 @@ export default async function MatchPage({
               bufferS: await getUnscoredRallyEndBufferS(),
             },
           }}
+          hasOriginal={hasOriginal}
           initialPointTags={(pointTagsRes.data ?? []).map(
             (r) =>
               ({
