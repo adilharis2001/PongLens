@@ -54,6 +54,12 @@ BOUNCE_REVERSAL_PX = 1.0
 # --- serve motif ---
 PAIR_MAX_S = 1.60        # a serve's two bounces are close together
 NET_MARGIN_M = 0.20      # clearly one side of the net
+# The same question asked of a BOUNCE rather than of the flying ball. Kept
+# separate because NET_MARGIN_M above also drives the crossing detector, and
+# moving it there changes rally extents, card boundaries and the assembler
+# route — 0.20 -> 0.10 adds 8% more crossings on the review corpus. This one
+# touches nothing but whether a serve's two bounces are on opposite halves.
+SERVE_NET_MARGIN_M = 0.20
 BACKTRACK_MAX_M = 0.50   # tolerated backward travel between the bounces
 APEX_MIN_PX = 8.0        # the ball must leave the table between them
 CONTACT_LOOKBACK_S = 0.81  # first bounce - K = contact (physical, not tuned)
@@ -341,7 +347,13 @@ def crossings(track, H, fps):
     return out
 
 
-def serve_motifs(track, bnc, H, fps, scale=1.0, cross=()):
+def _note(reject, fps, f0, f1, gate):
+    """Append one refused pair to the diagnostic sink. See serve_motifs."""
+    if reject is not None:
+        reject.append((round(f0 / fps, 3), round(f1 / fps, 3), gate))
+
+
+def serve_motifs(track, bnc, H, fps, scale=1.0, cross=(), reject=None):
     """Bounce pairs that only a serve produces -> [dict].
 
     Pair rules, in the order they earn their keep:
@@ -352,6 +364,15 @@ def serve_motifs(track, bnc, H, fps, scale=1.0, cross=()):
          to the server bounces on both halves and is otherwise perfect
       5. it does not travel backwards on the way (no bat in between)
       6. no rally was already running when it started
+
+    `reject` is an optional list. Pass one and every pair this function turns
+    down is appended to it as (first-bounce-s, second-bounce-s, gate-name),
+    and every bounce dropped for being off the surface as (t, None, ...).
+    It is a diagnostic sink and nothing else reads it: a card with no serve
+    otherwise leaves no record of WHICH rule refused, so every question about
+    the misses has to be answered by re-deriving the rule somewhere else, and
+    a copy of a rule can be right about a decision the shipped code does not
+    make. Collecting it here keeps the answer and the behaviour the same code.
     """
     cross = np.asarray(cross, float)
     proj = {}
@@ -360,6 +381,12 @@ def serve_motifs(track, bnc, H, fps, scale=1.0, cross=()):
         if p:
             proj[f] = p
     marked = [(f, proj.get(f)) for f, _x, _y in bnc]
+    if reject is not None:
+        for f, p in marked:
+            if not p:
+                reject.append((round(f / fps, 3), None, "no_table_coords"))
+            elif not on_surface(p):
+                reject.append((round(f / fps, 3), None, "bounce_off_surface"))
     marked = [(f, p) for f, p in marked if p and on_surface(p)]
     out = []
     for i, (f0, p0) in enumerate(marked):
@@ -369,22 +396,28 @@ def serve_motifs(track, bnc, H, fps, scale=1.0, cross=()):
             if dt <= 0.05:
                 continue
             if dt > PAIR_MAX_S:
+                _note(reject, fps, f0, f1, "pair_too_far_apart")
                 break
             s1 = 1 if p1[1] > NET_V else -1
             if s1 == s0:
+                _note(reject, fps, f0, f1, "same_side_of_net")
                 continue
-            if (abs(p0[1] - NET_V) < NET_MARGIN_M
-                    or abs(p1[1] - NET_V) < NET_MARGIN_M):
+            if (abs(p0[1] - NET_V) < SERVE_NET_MARGIN_M
+                    or abs(p1[1] - NET_V) < SERVE_NET_MARGIN_M):
+                _note(reject, fps, f0, f1, "bounce_too_near_net")
                 continue
             span = [f for f in track if f0 < f < f1]
             if len(span) < 2:
+                _note(reject, fps, f0, f1, "ball_untracked_between")
                 continue
             ys = [track[f][1] for f in span]
             apex = min(ys)
             if min(track[f0][1], track[f1][1]) - apex < APEX_MIN_PX * scale:
+                _note(reject, fps, f0, f1, "no_apex")
                 continue
             vs = [proj[f][1] for f in span if f in proj]
             if not vs:
+                _note(reject, fps, f0, f1, "no_table_coords_between")
                 continue
             direction = 1 if p1[1] > p0[1] else -1
             back, run = 0.0, p0[1]
@@ -394,10 +427,12 @@ def serve_motifs(track, bnc, H, fps, scale=1.0, cross=()):
                     back = max(back, -d)
                 run = v
             if back > BACKTRACK_MAX_M:
+                _note(reject, fps, f0, f1, "travelled_backwards")
                 continue
             t0 = f0 / fps
             if len(cross) and int(((cross >= t0 - PRIOR_CROSS_WINDOW_S)
                                    & (cross < t0 - 0.05)).sum()) > PRIOR_CROSS_MAX:
+                _note(reject, fps, f0, f1, "rally_already_running")
                 continue
             out.append({
                 "bounce1_s": round(t0, 3),

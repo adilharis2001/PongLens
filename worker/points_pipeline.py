@@ -2427,6 +2427,7 @@ def build_placement_v3(
     fps,
     width,
     audio_impacts=None,
+    serve_s=None,
 ):
     """Build both physical-server reconstructions without attributing server."""
 
@@ -2441,6 +2442,7 @@ def build_placement_v3(
         fps,
         width,
         audio_impacts=audio_impacts or [],
+        serve_s=serve_s,
     )
 
 
@@ -2938,6 +2940,11 @@ def cmd_points(args):
             # Empty input keeps visual-only processing identical in
             # availability; reviewed audio timestamps can be supplied later
             # without changing the v3 contract.
+            # v2_serves is keyed by the card's start frame, exactly as the
+            # `serve_s` written onto the point below. Passing it is the whole
+            # fix: placement used to re-derive the start of the point from the
+            # first bounce in the window, and that bounce is often the server
+            # tapping the ball on the table before serving.
             placement = build_placement_v3(
                 det,
                 H,
@@ -2949,6 +2956,9 @@ def cmd_points(args):
                 fps,
                 meta["width"],
                 audio_impacts=[],
+                serve_s=(v2_serves.get(a)
+                         if getattr(args, "placement_serve_seed", False)
+                         else None),
             )
 
         # clip with context padding (CLIP_PADS, clamped). The tail uses
@@ -3129,6 +3139,13 @@ def main():
                         "describe one serve, and the earlier is kept "
                         f"(points_v2 default {points_v2.CLUSTER_S}); "
                         "production passes app_config.serve_merge_s")
+    p.add_argument("--placement-serve-seed", action="store_true",
+                   help="let placement start its walk at the serve the "
+                        "assembler already found, instead of re-deriving the "
+                        "start of the point from the first bounce in the "
+                        "card. Off by default so an unflagged run is "
+                        "unchanged; production passes "
+                        "app_config.placement_serve_seed")
     p.add_argument("--endon-fallback", action="store_true",
                    help="allow the end-on assembler (points_endon) for a "
                         "match whose serve rate is below its threshold; "

@@ -35,12 +35,17 @@ from unittest import mock
 # imports table_coordinates as a top-level module — can find its neighbours.
 # Inserting the worker directory at the front instead shadows the package and
 # breaks the import below.
+# Import worker.py through the package BEFORE putting worker/ on the path.
+# Both are needed — the modules under worker/ import each other flat — but
+# once worker/ is on the path, worker.py is also a top-level module named
+# `worker`, and a real module beats the namespace package of the same name.
+# Importing it first binds the right one and the append is then harmless.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from worker import worker  # noqa: E402,F401
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 import points_v2  # noqa: E402
 from points_v2 import homography_from_corners, serve_motifs  # noqa: E402
-from worker import worker  # noqa: E402
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "serve_slack.json")
 W_M, L_M = points_v2.W_M, points_v2.L_M

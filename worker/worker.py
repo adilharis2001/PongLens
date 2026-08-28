@@ -4205,6 +4205,26 @@ def serve_motif_settings(conn) -> tuple[str, str]:
             read("serve_merge_s", SERVE_MERGE_S_DEFAULT))
 
 
+def placement_serve_seed_enabled(conn) -> bool:
+    """Whether placement starts its walk at the serve the assembler found:
+    app_config.placement_serve_seed.
+
+    Placement used to re-derive the start of the point from the first bounce
+    inside the card, and that bounce is very often the server tapping the ball
+    on the table before serving — so the serve's own two bounces were two
+    events too late to be chosen. The serve time was already computed and
+    written onto the point; it simply was never handed over.
+
+    Read per job like the switches above. A read that errors leaves placement
+    on the path it takes today, because a config outage must not quietly
+    change how a match is reconstructed.
+    """
+    try:
+        return get_config(conn, "placement_serve_seed") == "on"
+    except Exception:
+        return False
+
+
 def run_points_subprocess(
     input_video: str,
     blurball_out: str,
@@ -4215,6 +4235,7 @@ def run_points_subprocess(
     endon_fallback: bool = False,
     serve_surface_pad: str = SERVE_SURFACE_PAD_DEFAULT,
     serve_merge_s: str = SERVE_MERGE_S_DEFAULT,
+    placement_serve_seed: bool = False,
     attempt_key: str = "manual",
 ) -> str:
     """The points pipeline in plays cut mode, run BEFORE the cut so the
@@ -4240,6 +4261,8 @@ def run_points_subprocess(
             cmd.append("--endon-fallback")
     if options.get("placement"):
         cmd.append("--placement")
+        if placement_serve_seed:
+            cmd.append("--placement-serve-seed")
     log.info("  points pipeline (strictness=%s placement=%s cut=plays "
              "pipeline=%s)…",
              strictness, bool(options.get("placement")), pipeline)
@@ -6911,6 +6934,7 @@ def process_job(conn, msg) -> None:
                     endon_fallback=endon_fallback_enabled(conn),
                     serve_surface_pad=serve_pad,
                     serve_merge_s=serve_merge,
+                    placement_serve_seed=placement_serve_seed_enabled(conn),
                     attempt_key=attempt_key)
                 mj = os.path.join(outdir, "match.json")
                 with open(mj) as fh:
