@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -63,7 +64,11 @@ from worker.extract_side_changes_rtmpose import (  # noqa: E402
 # break between games from costing forty times a normal one.
 SAMPLE_HZ = 2.0
 MAX_FRAMES = 90
-MIN_BREAK_S = 4.0
+# Four seconds is the floor for a corpus, but some matches are cut so
+# that consecutive rallies are barely a second apart — the dead time
+# lives INSIDE the rally bounds rather than between them. Lowering the
+# floor is how you look at those at all.
+MIN_BREAK_S = float(os.environ.get("PONGLENS_MIN_BREAK_S", "4.0"))
 # Bands as fractions of box height, and the central slice of the width
 # that is mostly person rather than background behind them.
 BANDS = (

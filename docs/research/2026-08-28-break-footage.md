@@ -163,6 +163,74 @@ that survived; where the raw still exists, the source is a far better
 input, and 9 of 9 is not a marginal difference. This is unrelated to
 changeovers and worth acting on separately.
 
+## Julian's match, and which body parts actually carry identity
+
+The match this was all started for (9ef09000, both players in black tee
+and black shorts) was not in the corpus above — it was uploaded the day
+after the review. Measured on its own afterwards:
+
+**There is barely any break footage in it.** 12.4 minutes of video, 72%
+of it inside a rally, and the longest gap between two rallies is 9.6
+seconds against roughly 18 for a real changeover elsewhere. Whatever the
+answer is for this match, watching the gaps is not it.
+
+**Separability by body band on that match** — the two players' distance
+apart over one player's own frame-to-frame wobble, so above ~1.2 is
+tellable apart and below 1.0 is lost in the noise:
+
+| band | chroma only | with luminance |
+| --- | --- | --- |
+| head | 0.35 | 0.54 |
+| torso | 0.70 | 2.06 |
+| shorts | 0.64 | 2.39 |
+| torso + shorts (what ships) | 0.64 | 2.11 |
+| shoes | 2.27 | 2.49 |
+| legs | 1.79 | 0.61 |
+
+The luminance column looks like the answer and is not. A separability
+ratio only says two groups differ, and near and far differ in distance,
+lighting and how much of the body the table hides — a channel can score
+well by measuring the position and nothing about the man.
+
+### The test that settles it
+
+Across a real changeover, a channel carrying IDENTITY makes the near
+end's own signature change; a channel carrying POSITION leaves it alone.
+Over 57 confirmed changeovers against 328 breaks the score proves were
+quiet:
+
+| channel | changeover | quiet | AUC |
+| --- | --- | --- | --- |
+| torso + shorts, chroma — what ships | 8.6 | 5.8 | **0.629** |
+| head, chroma | 3.0 | 1.7 | 0.626 |
+| shoes, chroma | 3.4 | 2.1 | 0.615 |
+| shoes + legs, chroma | 6.8 | 4.6 | 0.574 |
+| torso + shorts, **with luminance** | 28.4 | 26.4 | **0.567** |
+
+**Luminance is position, not identity.** Adding it makes the signal
+worse and raises the quiet-break baseline from 5.8 to 26.4. Discarding
+it, which the shipped descriptor already does, is correct and is now
+measured rather than assumed. The same reading explains shoes at 2.27
+and legs at 1.79 on Julian's match: the table cuts the far player's box,
+so those bands sample the table rather than the player.
+
+**Shoes carry real identity — just not more than the torso.** 0.615
+against 0.629 is the same signal, not a better one, which is why
+swapping the descriptor to shoes cost 26 points of whole-corpus accuracy
+earlier (89% to 63%). The head is the same story at 0.626, and on
+Julian's match specifically it is 0.35, so the headband that is visible
+to a person is not visible to this measurement.
+
+### Why none of them stack
+
+Every channel here is a colour statistic of a region of clothing. When
+the clothing is identical they do not fail independently — they fail
+together, which is why combining them buys nothing. That is the same
+conclusion the sports re-identification literature reaches for teams in
+matching kit, and its answer there is a trained embedding rather than a
+better hand-made statistic. **That is the one avenue this project has
+not tried.**
+
 ## Verdict
 
 Do not build a break-footage detector. The break carries a weak signal,
