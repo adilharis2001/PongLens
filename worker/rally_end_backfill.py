@@ -1,0 +1,193 @@
+"""Fill points.rally_end_cut_s on matches processed before 143.
+
+New matches get this from points_v2.rally_end_ev, which reads the bounce
+list its own detector built. A match already in the database has no cards
+left to ask, so this recovers the same quantity from what WAS stored: the
+placement candidates, which are the projected bounces with their table
+coordinates already on them.
+
+The two are not the same detector — placement_reconstruction's bounce test
+is stricter than points_v2.bounces — so a backfilled value is an
+approximation of what a reprocess would produce. It is a close one: over
+423 points on six matches the gap from the last on-table candidate to t1
+has a median of 2.57s, and TAIL_AFTER_BOUNCE is 2.6. That is the padding
+this whole change exists to remove, recovered to within 3 hundredths.
+
+Nothing here decodes video or calls a model. Reads placement and the
+stored cut segments, writes one numeric column.
+
+  python -m worker.rally_end_backfill --match <uuid> [--match <uuid> ...]
+  python -m worker.rally_end_backfill --all-v2 --limit 20
+  python -m worker.rally_end_backfill --match <uuid> --dry-run
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+
+# The playing surface plus the tolerance placement itself allows, in
+# metres. A rally ends on the table; retrieval bounces on the floor beside
+# it, and the floor is three quarters of a metre below the plane the
+# homography describes, so it projects far outside this box.
+TABLE_W_M = 1.525
+TABLE_L_M = 2.74
+EDGE_PAD_M = 0.15
+
+
+def on_table(candidate: dict) -> bool:
+    u, v = candidate.get("u"), candidate.get("v")
+    if not isinstance(u, (int, float)) or not isinstance(v, (int, float)):
+        return False
+    return (-EDGE_PAD_M <= u <= TABLE_W_M + EDGE_PAD_M
+            and -EDGE_PAD_M <= v <= TABLE_L_M + EDGE_PAD_M)
+
+
+def cut_position(segments, offsets, t: float) -> float:
+    """Where source-time t lands in the cut. Mirrors points_pipeline."""
+    for (s0, s1), off in zip(segments, offsets):
+        if t < s0:
+            return off
+        if t <= s1:
+            return off + (t - s0)
+    if not segments:
+        return 0.0
+    return offsets[-1] + (segments[-1][1] - segments[-1][0])
+
+
+def rally_end_for_point(placement, t0: float, t1: float) -> float | None:
+    """Source seconds of the last bounce on the table inside this point.
+
+    Bounded by t0/t1 on purpose: clips overlap by design, so a candidate
+    list can carry the tail of the previous rally and the server bouncing
+    the ball before the next one. A bounce outside the card is not this
+    rally's ending.
+    """
+    if not placement or placement.get("v") != 3:
+        return None
+    hits = [c for c in (placement.get("candidates") or [])
+            if on_table(c) and isinstance(c.get("t"), (int, float))
+            and t0 <= c["t"] <= t1]
+    if not hits:
+        return None
+    return float(max(c["t"] for c in hits))
+
+
+def backfill_match(conn, match_id: str, dry_run: bool = False) -> dict:
+    from .worker import r2, R2_MEDIA_BUCKET
+
+    cur = conn.cursor()
+    cur.execute("select match_json_path from public.matches where id=%s",
+                (match_id,))
+    row = cur.fetchone()
+    if row is None or not row[0]:
+        return {"match": match_id, "skipped": "no match.json"}
+    key = row[0].replace(f"r2://{R2_MEDIA_BUCKET}/", "")
+    try:
+        body = r2().get_object(Bucket=R2_MEDIA_BUCKET, Key=key)["Body"].read()
+        mj = json.loads(body)
+    except Exception as exc:                       # noqa: BLE001
+        return {"match": match_id, "skipped": f"match.json unreadable: {exc}"}
+
+    segments = [tuple(s) for s in (mj.get("cut_segments") or [])]
+    if not segments:
+        # A spans-mode or pre-plays match: without the segment list there
+        # is no way to put a source second on the cut clock, and a guess
+        # here would stop playback in the wrong place.
+        return {"match": match_id, "skipped": "no cut_segments"}
+    offsets, acc = [], 0.0
+    for s0, s1 in segments:
+        offsets.append(acc)
+        acc += s1 - s0
+
+    cur.execute("""select id, idx, t0, t1, placement, rally_end_cut_s
+                   from public.points
+                   where match_id=%s and deleted is not true
+                   order by idx""", (match_id,))
+    rows = cur.fetchall()
+    written = no_bounce = outside = already = 0
+    for pid, _idx, t0, t1, placement, existing in rows:
+        if existing is not None:
+            already += 1
+            continue
+        if t0 is None or t1 is None:
+            no_bounce += 1
+            continue
+        end_s = rally_end_for_point(placement, float(t0), float(t1))
+        if end_s is None:
+            no_bounce += 1
+            continue
+        cut_s = round(cut_position(segments, offsets, end_s), 2)
+        # The clip runs from cut_t0; an ending the clip does not contain
+        # cannot end it. Refusing is right — the column stays null and the
+        # point keeps today's behaviour.
+        cur.execute("select cut_t0 from public.points where id=%s", (pid,))
+        cut_t0 = cur.fetchone()[0]
+        if cut_t0 is None or cut_s < float(cut_t0):
+            outside += 1
+            continue
+        if not dry_run:
+            cur.execute("update public.points set rally_end_cut_s=%s where id=%s",
+                        (cut_s, pid))
+        written += 1
+    return {"match": match_id, "points": len(rows), "written": written,
+            "no_bounce": no_bounce, "outside_clip": outside,
+            "already_set": already}
+
+
+def main(argv=None) -> None:
+    from .worker import connect
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--match", action="append", default=[],
+                    help="match id; repeatable")
+    ap.add_argument("--all-v2", action="store_true",
+                    help="every ready match whose points carry v3 placement")
+    ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--dry-run", action="store_true")
+    args = ap.parse_args(argv)
+
+    conn = connect()
+    ids = list(args.match)
+    if args.all_v2:
+        cur = conn.cursor()
+        cur.execute("""
+            select m.id::text
+            from public.matches m
+            where m.status = 'ready'
+              and exists (select 1 from public.points p
+                          where p.match_id = m.id
+                            and p.deleted is not true
+                            and p.placement->>'v' = '3')
+              and exists (select 1 from public.points p
+                          where p.match_id = m.id
+                            and p.deleted is not true
+                            and p.rally_end_cut_s is null)
+            order by m.created_at desc
+        """)
+        ids += [r[0] for r in cur.fetchall()]
+    if args.limit:
+        ids = ids[:args.limit]
+    if not ids:
+        print("nothing to do")
+        return
+
+    totals = {"points": 0, "written": 0, "no_bounce": 0, "outside_clip": 0}
+    for mid in ids:
+        res = backfill_match(conn, mid, dry_run=args.dry_run)
+        if "skipped" in res:
+            print(f"{mid[:8]}  skipped: {res['skipped']}")
+            continue
+        for k in totals:
+            totals[k] += res.get(k, 0)
+        print(f"{mid[:8]}  {res['written']:4d}/{res['points']:4d} written  "
+              f"(no bounce {res['no_bounce']}, outside clip "
+              f"{res['outside_clip']}, already set {res['already_set']})")
+    print(f"\n{'DRY RUN, nothing written' if args.dry_run else 'written'}: "
+          f"{totals['written']} of {totals['points']} points across "
+          f"{len(ids)} match(es); {totals['no_bounce']} had no bounce on the "
+          f"table, {totals['outside_clip']} landed outside their clip")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
