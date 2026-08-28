@@ -680,10 +680,19 @@ struct MatchDetailScreen: View {
                 onFirstServer: { _ in
                     // Repaint from the row rather than patching a copy: the
                     // serve rotation shows up on this screen too.
+                    //
+                    // The LIBRARY is reloaded as well, the way the details
+                    // editor does it. This screen holds a MatchRow value
+                    // captured when the list handed it over, and the list
+                    // only refreshes itself on a 30s poll — so leaving to
+                    // the list and coming straight back in re-entered the
+                    // pad on a row that still said nobody knew, and the
+                    // sheet asked a question that had just been answered.
                     Task {
                         if let fresh = await model.refetchMatch(current.id) {
                             live = fresh
                         }
+                        await library.load()
                     }
                 },
                 onOpenPoint: { i in

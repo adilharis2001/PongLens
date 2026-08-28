@@ -146,6 +146,9 @@ struct PlayerTakeover: View {
     @State var lastPlayAt = Date.distantPast
     @State var undoStack: [ScoreUndo] = []
     @State var setupOpen = false
+    /// One of the sheet's own buttons closed it, so onDismiss must not
+    /// treat the close as a decline. Reset as the sheet goes away.
+    @State var setupAnswered = false
     @State var reviewQueue: [UUID] = []
     @State var reviewIndex = 0
     /// The one line of teaching on screen, and whether the score hint has
@@ -498,11 +501,18 @@ struct PlayerTakeover: View {
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $setupOpen) {
+        // Every way out of this sheet has to record something. It used to
+        // be freely swipe-dismissible with no onDismiss, so a flick took
+        // the question away, wrote nothing, remembered nothing and left
+        // the video frozen — and the pad asked again on every single
+        // entry, forever. The three buttons are the exits now, one of
+        // which is an explicit decline; onDismiss is the backstop for a
+        // close nobody asked for.
+        .sheet(isPresented: $setupOpen, onDismiss: { setupClosed() }) {
             setupSheet
                 .presentationDetents([.height(setupSheetHeight)])
                 .presentationBackground(PL.surface)
-                .presentationDragIndicator(.visible)
+                .interactiveDismissDisabled()
         }
         .fullScreenCover(item: $modifyPoint) { point in
             ModifySheet(

@@ -502,8 +502,31 @@ extension PlayerTakeover {
         firstServerGuess(points, userSide: match.userSide) == nil ? 272 : 300
     }
 
+    /// One of the sheet's buttons was pressed. The resume toast and the
+    /// play both happen in setupClosed, so the answered path and the
+    /// dismissed path cannot drift apart.
     func dismissSetup() {
+        setupAnswered = true
         setupOpen = false
+    }
+
+    /// The sheet is gone, however it went.
+    ///
+    /// A close that answered nothing is a decline and is remembered as
+    /// one. Not because a swipe means "never ask me again", but because
+    /// the alternative is what shipped: the question returns on every
+    /// entry to the pad for the rest of the match's life, which is the
+    /// bug this exists to close. The serve balls on the pad set the
+    /// server afterwards either way, and they re-anchor the whole
+    /// rotation.
+    ///
+    /// And playback resumes on EVERY path. A sheet that closes leaving
+    /// the picture frozen reads as the app having hung.
+    func setupClosed() {
+        if !setupAnswered {
+            FirstServerPrompt.markSkipped(match.id)
+        }
+        setupAnswered = false
         if let resume = pendingResumeToast {
             showToast(resume)
             pendingResumeToast = nil
