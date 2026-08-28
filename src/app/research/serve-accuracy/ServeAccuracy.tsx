@@ -8,12 +8,18 @@ import { netSegment } from "./netDeath";
 import { findNoReturn, noReturnLoser } from "./noReturn";
 import {
   readPoint,
-  readingIsWrong,
   rulesDisagree,
   type PointReading,
   type Tracks,
 } from "./pointReading";
 import { isRecovered } from "./segments";
+import {
+  classify,
+  outcomeTotals,
+  reasonSummary,
+  type Bucketed,
+  type Outcome,
+} from "./buckets";
 import { recoverServe, serverSideFor, type ServePair } from "./serveRepair";
 import { finalExits, inPrism, prismPolygon, type Pt } from "./prism";
 import {
@@ -1080,31 +1086,12 @@ function Row({
   );
 }
 
-type Outcome = "right" | "wrong" | "unchecked" | "nocall";
-
 /** One point, with the reading already made and bucketed. */
 interface Entry {
   match: ServeAccuracyMatch;
   row: ServeAccuracyRow;
   read: PointReading;
-  outcome: Outcome;
-  /** The ending it named, or the reason it refused. One string either way,
-   *  because a point is always in exactly one of the two. */
-  reason: string;
-}
-
-/**
- * The ending, as a bucket name.
- *
- * "turned 0.42 m from the net and died there" carries a measurement, so
- * left alone it would make one bucket per point instead of one per kind.
- */
-function endingLabel(read: PointReading): string {
-  const why = read.why ?? "";
-  const tidy = /^turned .* died there$/.test(why)
-    ? "turned at the net and died there"
-    : why;
-  return `${read.rule} — ${tidy}`;
+  bucket: Bucketed;
 }
 
 const OUTCOME_COPY: Record<Outcome, string> = {
@@ -1164,21 +1151,7 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
       const tracks = tracksBySlug[m.slug] ?? null;
       for (const row of m.rows) {
         const read = reading(row, m.corners, tracks, m.source);
-        const called = read.winner !== null;
-        const outcome: Outcome = !called
-          ? "nocall"
-          : row.winner === null
-            ? "unchecked"
-            : read.winner === row.winner
-              ? "right"
-              : "wrong";
-        out.push({
-          match: m,
-          row,
-          read,
-          outcome,
-          reason: called ? endingLabel(read) : read.refusal ?? "no reason given",
-        });
+        out.push({ match: m, row, read, bucket: classify(row, read) });
       }
     }
     return out;
@@ -1212,40 +1185,17 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
 
   const shown = useMemo(
     () => pool.filter(
-      (e) => (reason === null || e.reason === reason)
-        && (outcome === "all" || e.outcome === outcome)),
+      (e) => (reason === null || e.bucket.reason === reason)
+        && (outcome === "all" || e.bucket.outcome === outcome)),
     [pool, reason, outcome],
   );
 
-  const totals = useMemo(() => {
-    const t = { all: pool.length, right: 0, wrong: 0, unchecked: 0, nocall: 0 };
-    for (const e of pool) t[e.outcome] += 1;
-    return t;
-  }, [pool]);
+  const totals = useMemo(
+    () => outcomeTotals(pool.map((e) => e.bucket)), [pool]);
 
   /** One line per ending we call, and one per reason we refuse. */
-  const byReason = useMemo(() => {
-    type Cell = {
-      reason: string; points: number;
-      right: number; wrong: number; unchecked: number; called: boolean;
-    };
-    const map = new Map<string, Cell>();
-    for (const e of pool) {
-      let c = map.get(e.reason);
-      if (!c) {
-        c = { reason: e.reason, points: 0, right: 0, wrong: 0, unchecked: 0,
-              called: e.outcome !== "nocall" };
-        map.set(e.reason, c);
-      }
-      c.points += 1;
-      if (e.outcome !== "nocall") c[e.outcome] += 1;
-    }
-    const all = [...map.values()].sort((a, b) => b.points - a.points);
-    return {
-      called: all.filter((c) => c.called),
-      refused: all.filter((c) => !c.called),
-    };
-  }, [pool]);
+  const byReason = useMemo(
+    () => reasonSummary(pool.map((e) => e.bucket)), [pool]);
 
   const flagCounts = useMemo(() => {
     const base = entries.filter(
