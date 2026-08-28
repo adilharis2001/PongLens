@@ -160,3 +160,36 @@ export const getPlacementServesOnly = cache(async (): Promise<boolean> => {
 export const getTapEndPlayback = cache(async (): Promise<boolean> => {
   return (await getConfigValue("tap_end_playback")) === "on";
 });
+
+/**
+ * UNSCORED points end when the rally was last observed (2026-08-27).
+ *
+ * The sibling of the rule above, for the matches nobody scores. The worker
+ * records points.rally_end_cut_s — the last bounce on the user's own table
+ * — and t1 pads it by 2.6s so a winner tap would land inside. No tap is
+ * coming on an unscored match, so that padding is ball retrieval. The tap
+ * still wins wherever one exists; this only fills the gap where none does.
+ *
+ * Off — or on any fetch failure — playback is exactly the padded-end
+ * behaviour this replaced. Read time again, so it covers every match with
+ * the column backfilled and rollback is one UPDATE.
+ * docs/superpowers/specs/2026-08-27-unscored-rally-end.md
+ */
+export const getUnscoredRallyEnd = cache(async (): Promise<boolean> => {
+  return (await getConfigValue("unscored_rally_end")) === "on";
+});
+
+/**
+ * Seconds kept after the observed rally end before playback stops.
+ *
+ * A config row rather than a constant because it is not calibrated yet:
+ * 0.5 is deliberately aggressive so the trims can be judged by eye, and
+ * widening it must not need a deploy. A missing or unparseable value reads
+ * as the default rather than as zero — zero would be the most dangerous
+ * setting, and a failed fetch must never select it.
+ */
+export const getUnscoredRallyEndBufferS = cache(async (): Promise<number> => {
+  const raw = await getConfigValue("unscored_rally_end_buffer_s");
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 0.5;
+});

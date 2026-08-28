@@ -39,7 +39,9 @@ import { usePlacementLifecycle } from "./usePlacementLifecycle";
 import { AnalysisCards } from "./AnalysisCards";
 import { computeMatchAnalysis } from "./matchAnalysis";
 import { computeMatchStats, statsRowSummary } from "./matchStats";
-import { paddedEnd } from "./playhead";
+import { paddedEnd,
+  type EndOptions,
+} from "./playhead";
 import { clipPad } from "./clipEdit";
 import { adjustPatch, runJoinPlan, runSplitPlan } from "./modifyOps";
 import { Player, type PlayerHandle } from "./Player";
@@ -402,7 +404,7 @@ export function MatchView({
   initialPointTags,
   initialLossReasonLabels = [],
   placementServesOnly = false,
-  tapEnd = false,
+  ends = { tapEnd: false },
 }: {
   match: Match;
   initialPoints: Point[];
@@ -433,9 +435,12 @@ export function MatchView({
    *  match page and the share link cannot disagree about what the maps
    *  show for the same match. */
   placementServesOnly?: boolean;
-  /** app_config tap_end_playback: scored points end at the winner tap
-   *  plus half a second (playhead.effectiveEnd). Read on the server. */
-  tapEnd?: boolean;
+  /** Which endings trim a point (playhead.effectiveEnd): the winner tap
+   *  plus half a second on a scored point (tap_end_playback, 138), the
+   *  observed rally end plus its buffer on an unscored one
+   *  (unscored_rally_end, 143). Both read on the server, so the match
+   *  page and the share link cannot disagree about the same match. */
+  ends?: EndOptions;
 }) {
   const [points, setPoints] = useState<Point[]>(initialPoints);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -2683,7 +2688,7 @@ export function MatchView({
               serving={serving}
               score={score}
               pad={pad}
-              tapEnd={tapEnd}
+              ends={ends}
               deletedSpans={deletedSpans}
               onDeletePoint={(p) => void deletePointQuiet(p)}
               onUndoDelete={(id) => void undoDelete(id)}
@@ -2799,7 +2804,7 @@ export function MatchView({
                 matchId={match.id}
                 points={visiblePoints}
                 pad={pad}
-                tapEnd={tapEnd}
+                ends={ends}
                 onPlay={(ids, onDownload) =>
                   playerRef.current?.openHighlights(ids, onDownload)
                 }

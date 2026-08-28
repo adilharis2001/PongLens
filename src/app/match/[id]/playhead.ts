@@ -60,35 +60,89 @@ export function paddedEnd(p: Point, pad: ClipPad): number | null {
  *  so half a second stays on before the cut. */
 const TAP_END_GUARD_S = 0.5;
 
+/** app_config.unscored_rally_end and its buffer, threaded from the server
+ *  the same way tapEnd is. Absent means off. */
+export type RallyEndConfig = { on: boolean; bufferS: number };
+
+/**
+ * Which endings are allowed to shorten a point.
+ *
+ * An object rather than a second boolean: there are ten call sites, and a
+ * positional flag that quietly means one thing at some of them and another
+ * at the rest is how the surfaces drift apart. Naming both forces every
+ * caller to say what it wants.
+ */
+export type EndOptions = {
+  /** app_config.tap_end_playback. */
+  tapEnd: boolean;
+  rallyEnd?: RallyEndConfig | null;
+};
+
 /**
  * Where a point's footage EFFECTIVELY ends, for playback and renders.
  *
- * When the owner scored the point in Keep score's flowing session,
- * scored_at_cut_s is the playhead at the winner tap — a human saying
- * "decided by here" (067). Everything after tap + 0.5s is ball retrieval
- * and walking: median 1.4s per point, ~25% of a scored match's cut
- * (docs/research/2026-08-25-tap-end-shave.md).
+ * Two endings can shorten a point, and they are ranked, not combined.
  *
- * A CLAMP, never an extension: min(paddedEnd, tap + 0.5s). The tap is
- * ignored — the padded end stands — when
- *   - `on` is false (app_config.tap_end_playback, the kill switch),
- *   - the point was hand-edited: the clip editor is explicit intent
- *     about boundaries and the tap predates the edit,
- *   - the tap lands before its own clip's start, which describes no
- *     point that can happen (a stale or slipped tap).
+ * 1. THE TAP. When the owner scored the point in Keep score's flowing
+ *    session, scored_at_cut_s is the playhead at the winner tap — a human
+ *    saying "decided by here" (067). Everything after tap + 0.5s is ball
+ *    retrieval and walking: median 1.4s per point, ~25% of a scored
+ *    match's cut (docs/research/2026-08-25-tap-end-shave.md).
+ *
+ * 2. THE RALLY. When nobody scored, points.rally_end_cut_s holds the last
+ *    moment the rally was observed — the last bounce on the user's own
+ *    table, which worker/points_v2.py has always computed and t1 pads by
+ *    2.6s precisely so a winner tap would land inside. No tap is coming on
+ *    an unscored match, so that padding is ball retrieval too
+ *    (docs/superpowers/specs/2026-08-27-unscored-rally-end.md).
+ *
+ * The tap WINS wherever it exists. It is a person watching the point; the
+ * bounce is a detector that can miss the last shot of a rally that ended
+ * off the table. Falling back to the bounce on a scored point would trade
+ * better evidence for worse.
+ *
+ * A CLAMP, never an extension, at every rung: the result can only be
+ * earlier than paddedEnd, never later. Both are ignored when
+ *   - the flag is off (each has its own kill switch),
+ *   - the point was hand-edited: the clip editor is explicit intent about
+ *     boundaries and both signals predate the edit,
+ *   - the mark lands before its own clip's start, which describes no
+ *     point that can happen (a stale or slipped value).
  */
 export function effectiveEnd(
   p: Point,
   pad: ClipPad,
-  on: boolean
+  opts: EndOptions
 ): number | null {
   const padded = paddedEnd(p, pad);
-  if (padded === null || !on) return padded;
-  const tap = p.scored_at_cut_s;
-  if (tap === null || tap === undefined || p.edited) return padded;
+  if (padded === null) return null;
   if (p.cut_t0 === null || p.cut_t0 === undefined) return padded;
-  if (Number(tap) < Number(p.cut_t0)) return padded;
-  return Math.min(padded, Number(tap) + TAP_END_GUARD_S);
+  // A hand edit outranks every automatic ending, so this test comes before
+  // either rung rather than inside both.
+  if (p.edited) return padded;
+  const start = Number(p.cut_t0);
+
+  // A SCORED point is settled here either way. If the tap is usable and
+  // its flag is on, it trims; otherwise the padded end stands. It never
+  // falls through to the rally, and that is the point of testing for the
+  // tap's existence rather than for its flag: switching tap trimming off
+  // must not quietly hand these points to a weaker signal, and a tap that
+  // slipped is not evidence that a detector should be trusted instead.
+  const tap = p.scored_at_cut_s;
+  if (tap !== null && tap !== undefined) {
+    if (opts.tapEnd && Number(tap) >= start) {
+      return Math.min(padded, Number(tap) + TAP_END_GUARD_S);
+    }
+    return padded;
+  }
+
+  const rally = p.rally_end_cut_s;
+  if (opts.rallyEnd?.on && rally !== null && rally !== undefined) {
+    if (Number(rally) >= start) {
+      return Math.min(padded, Number(rally) + opts.rallyEnd.bufferS);
+    }
+  }
+  return padded;
 }
 
 /**
@@ -132,8 +186,9 @@ export function tapeMove(
  * plain union for players that only ever watch:
  *
  *   - every deleted card's footage, clamped to the next visible start
- *   - with tapEnd on, every tap-trimmed tail (effectiveEnd → next
- *     visible start; the last rally's tail runs only to its padded end)
+ *   - every trimmed tail, whether the trim came from the winner tap or
+ *     from the observed rally end (effectiveEnd → next visible start; the
+ *     last rally's tail runs only to its padded end)
  *
  * `rows` is EVERY point with cut offsets, deleted included, in timeline
  * order. Overlaps are merged. A player jumps a span's footage while
@@ -142,7 +197,7 @@ export function tapeMove(
 export function skipSpans(
   rows: Point[],
   pad: ClipPad,
-  tapEnd: boolean
+  opts: EndOptions
 ): { start: number; end: number }[] {
   const withCut = rows.filter(
     (p) => p.cut_t0 !== null && p.cut_t0 !== undefined
@@ -157,11 +212,14 @@ export function skipSpans(
     if (next && end > Number(next.cut_t0)) end = Number(next.cut_t0);
     if (end > start) spans.push({ start, end });
   }
-  if (tapEnd) {
+  // Either ending shortens a point, so either one leaves a tail to jump.
+  // Asking effectiveEnd rather than re-deriving the trim is what keeps the
+  // skipped footage and the stopping point the same number.
+  if (opts.tapEnd || opts.rallyEnd?.on) {
     for (let i = 0; i < visible.length; i++) {
       const p = visible[i];
       const padded = paddedEnd(p, pad);
-      const eff = effectiveEnd(p, pad, true);
+      const eff = effectiveEnd(p, pad, opts);
       if (padded === null || eff === null || eff >= padded) continue;
       const next =
         i + 1 < visible.length ? Number(visible[i + 1].cut_t0) : padded;

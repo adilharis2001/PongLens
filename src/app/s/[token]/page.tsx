@@ -6,6 +6,8 @@ import {
   getPlacementServesOnly,
   getSupportEmail,
   getTapEndPlayback,
+  getUnscoredRallyEnd,
+  getUnscoredRallyEndBufferS,
 } from "@/lib/config";
 import { Logo } from "@/components/Logo";
 import { computeMatchScore } from "@/app/match/[id]/gameScore";
@@ -107,11 +109,18 @@ const resolveShareSkips = cache(
     visible: Point[]
   ): Promise<{ start: number; end: number }[]> => {
     const supabase = await createClient();
-    const [removedRes, padsRes, tapEnd] = await Promise.all([
-      supabase.rpc("resolve_share_removed", { p_token: token }),
-      supabase.rpc("resolve_share_clip_pads", { p_token: token }),
-      getTapEndPlayback(),
-    ]);
+    const [removedRes, padsRes, tapEnd, rallyOn, rallyBuffer] =
+      await Promise.all([
+        supabase.rpc("resolve_share_removed", { p_token: token }),
+        supabase.rpc("resolve_share_clip_pads", { p_token: token }),
+        getTapEndPlayback(),
+        getUnscoredRallyEnd(),
+        getUnscoredRallyEndBufferS(),
+      ]);
+    const ends = {
+      tapEnd,
+      rallyEnd: { on: rallyOn, bufferS: rallyBuffer },
+    };
     const removed = ((removedRes.data ?? []) as ResolvedShareRemoved[]).map(
       (r) =>
         ({
@@ -140,7 +149,7 @@ const resolveShareSkips = cache(
         Number(a.cut_t0 ?? Number.POSITIVE_INFINITY) -
         Number(b.cut_t0 ?? Number.POSITIVE_INFINITY)
     );
-    return skipSpans(rows, pad, tapEnd);
+    return skipSpans(rows, pad, ends);
   }
 );
 

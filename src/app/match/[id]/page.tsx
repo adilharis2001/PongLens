@@ -14,6 +14,8 @@ import {
   getCommerceEnabled,
   getPlacementServesOnly,
   getTapEndPlayback,
+  getUnscoredRallyEnd,
+  getUnscoredRallyEndBufferS,
 } from "@/lib/config";
 import { RAW_BUCKET, presignGet } from "@/lib/r2";
 import { MatchView } from "./MatchView";
@@ -249,7 +251,13 @@ export default async function MatchPage({
             (lossReasonLabels ?? []) as { id: string; label: string }[]
           }
           placementServesOnly={await getPlacementServesOnly()}
-          tapEnd={await getTapEndPlayback()}
+          ends={{
+            tapEnd: await getTapEndPlayback(),
+            rallyEnd: {
+              on: await getUnscoredRallyEnd(),
+              bufferS: await getUnscoredRallyEndBufferS(),
+            },
+          }}
           initialPointTags={(pointTagsRes.data ?? []).map(
             (r) =>
               ({

@@ -6,6 +6,8 @@ import { pickHighlights, HIGHLIGHT_BUDGETS_S } from "./highlights.ts";
 import { clipPad } from "./clipEdit.ts";
 import { sortPoints } from "./gameScore.ts";
 
+const TAP = { tapEnd: true };
+const OFF = { tapEnd: false };
 const PAD = clipPad("normal", null);
 
 let seq = 0;
@@ -227,14 +229,14 @@ test("the committed parity fixture matches this module's output", () => {
   );
   for (const kind of Object.keys(HIGHLIGHT_BUDGETS_S) as
     (keyof typeof HIGHLIGHT_BUDGETS_S)[]) {
-    const on = pickHighlights(tPoints, tpad, HIGHLIGHT_BUDGETS_S[kind], true);
+    const on = pickHighlights(tPoints, tpad, HIGHLIGHT_BUDGETS_S[kind], TAP);
     assert.deepEqual(
       on.picks.map((p) => p.id),
       fx.tapped.expected[kind].ids,
       `tapped ${kind} on: fixture is stale — rerun scripts/highlights-fixture.ts`
     );
     assert.equal(on.totalS, fx.tapped.expected[kind].totalS);
-    const off = pickHighlights(tPoints, tpad, HIGHLIGHT_BUDGETS_S[kind], false);
+    const off = pickHighlights(tPoints, tpad, HIGHLIGHT_BUDGETS_S[kind], OFF);
     assert.deepEqual(
       off.picks.map((p) => p.id),
       fx.tapped.expected_off[kind].ids,
@@ -268,13 +270,13 @@ test("the winner tap trims a pick's cost, and the budget buys more rallies", () 
       placement: null,
     }) as unknown as Point;
   const untapped = [mk(1, null), mk(2, null), mk(3, null)];
-  assert.equal(pickHighlights(untapped, PAD, 30, true).picks.length, 2);
+  assert.equal(pickHighlights(untapped, PAD, 30, TAP).picks.length, 2);
   // Tapped 9s into each clip: 9.5s each, all three fit.
   const tapped = [mk(1, 50 + 9), mk(2, 100 + 9), mk(3, 150 + 9)];
-  assert.equal(pickHighlights(tapped, PAD, 30, true).picks.length, 3);
-  assert.equal(pickHighlights(tapped, PAD, 30, true).totalS, 28.5);
+  assert.equal(pickHighlights(tapped, PAD, 30, TAP).picks.length, 3);
+  assert.equal(pickHighlights(tapped, PAD, 30, TAP).totalS, 28.5);
   // The flag off ignores the taps entirely.
-  assert.equal(pickHighlights(tapped, PAD, 30, false).picks.length, 2);
+  assert.equal(pickHighlights(tapped, PAD, 30, OFF).picks.length, 2);
 });
 
 test("a tap never extends a pick past its padded length", () => {
@@ -299,5 +301,5 @@ test("a tap never extends a pick past its padded length", () => {
     suggestion: null,
     placement: null,
   } as unknown as Point;
-  assert.equal(pickHighlights([p], PAD, 60, true).totalS, 12.6);
+  assert.equal(pickHighlights([p], PAD, 60, TAP).totalS, 12.6);
 });

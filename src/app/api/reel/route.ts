@@ -7,8 +7,12 @@ import {
   stepBoundaryWalk,
 } from "@/app/match/[id]/gameScore";
 import { clipPad } from "@/app/match/[id]/clipEdit";
-import { effectiveEnd } from "@/app/match/[id]/playhead";
-import { getTapEndPlayback } from "@/lib/config";
+import { effectiveEnd, type EndOptions } from "@/app/match/[id]/playhead";
+import {
+  getTapEndPlayback,
+  getUnscoredRallyEnd,
+  getUnscoredRallyEndBufferS,
+} from "@/lib/config";
 import {
   HIGHLIGHT_BUDGETS_S,
   pickHighlights,
@@ -238,12 +242,19 @@ export async function POST(req: Request) {
     .eq("deleted", false);
   const ordered = sortPoints((points ?? []) as Point[]);
 
-  // app_config.tap_end_playback (138): scored points end at the winner
-  // tap plus half a second. The SAME value must reach the picker and the
-  // segment math below, and it is the value the players and the Tools
-  // row read — one flag, every surface, or the row promises one cut and
-  // the render delivers another.
-  const tapEnd = await getTapEndPlayback();
+  // Which endings trim a point: the winner tap plus half a second (138),
+  // and on an unscored point the observed rally end plus its buffer (143).
+  // The SAME object must reach the picker and the segment math below, and
+  // it is what the players and the Tools row read — one set of flags,
+  // every surface, or the row promises one cut and the render delivers
+  // another.
+  const ends: EndOptions = {
+    tapEnd: await getTapEndPlayback(),
+    rallyEnd: {
+      on: await getUnscoredRallyEnd(),
+      bufferS: await getUnscoredRallyEndBufferS(),
+    },
+  };
 
   // Automatic highlights: the picker decides membership, everything after
   // this treats the picks like any other included set.
@@ -253,7 +264,7 @@ export async function POST(req: Request) {
       ordered,
       pad,
       HIGHLIGHT_BUDGETS_S[hlKind],
-      tapEnd
+      ends
     ).picks) {
       hlIds.add(p.id);
     }
@@ -318,14 +329,16 @@ export async function POST(req: Request) {
       // t0 - TIGHT_PAD (split_point RPC / migration 023), so a full pre
       // here would overshoot the child's clip span by pre - 0.3.
       // The end goes through playhead.effectiveEnd — paddedEnd exactly,
-      // unless the owner's winner tap trims it (tap + 0.5s, clamped,
-      // never extended; 138). The device renderer mirrors this same
-      // pair of lines in SharePointSheet.swift — keep them rule-identical.
+      // unless a trim shortens it: the owner's winner tap (tap + 0.5s;
+      // 138) or, on an unscored point, the observed rally end plus its
+      // buffer (143). Clamped, never extended. The device renderer mirrors
+      // this same pair of lines in SharePointSheet.swift — keep them
+      // rule-identical.
       let segStart: number | null = null;
       let segEnd: number | null = null;
       if (p.cut_t0 !== null && p.t0 !== null && p.t1 !== null) {
         segStart = round2(Math.max(0, Number(p.cut_t0)));
-        const end = effectiveEnd(p, pad, tapEnd);
+        const end = effectiveEnd(p, pad, ends);
         segEnd = end === null ? null : round2(end);
       }
       manifestPoints.push({

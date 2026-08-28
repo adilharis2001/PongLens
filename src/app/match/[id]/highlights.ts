@@ -1,5 +1,5 @@
 import { effectivePad } from "./clipEdit.ts";
-import { effectiveEnd } from "./playhead.ts";
+import { effectiveEnd, type EndOptions } from "./playhead.ts";
 import type { Point } from "../../../lib/types.ts";
 
 /** What clipPad() returns — the pads a clip was actually cut with. */
@@ -88,12 +88,13 @@ export function pickHighlights(
   ordered: Point[],
   pad: ClipPad,
   budgetS: number,
-  /** app_config.tap_end_playback: clip lengths end at the winner tap
-   *  plus half a second (playhead.effectiveEnd), so the budget buys real
-   *  play instead of ball retrieval — and more rallies fit. Every caller
-   *  of this picker must pass the same value the players use, or the
-   *  preview, the tape and the render disagree about the same match. */
-  tapEnd = false
+  /** Which endings trim a clip (playhead.effectiveEnd): the winner tap
+   *  plus half a second, and on unscored points the observed rally end
+   *  plus its buffer. Either way the budget buys real play instead of
+   *  ball retrieval, and more rallies fit. Every caller of this picker
+   *  must pass the same options the players use, or the preview, the tape
+   *  and the render disagree about the same match. */
+  ends: EndOptions = { tapEnd: false }
 ): HighlightPicks {
   const eligible: {
     p: Point;
@@ -107,11 +108,12 @@ export function pickHighlights(
     const eff = effectivePad(pad, p.tight_start, p.tight_end);
     const rallyLen = Number(p.t1) - Number(p.t0);
     let s = round2(rallyLen + eff.pre + eff.post);
-    // The tap trims the clip (never extends it): its cost against the
+    // A trim shortens the clip (never extends it): its cost against the
     // budget and its watchable length are the trimmed one. Legacy points
     // without cut offsets keep the pad formula.
-    if (tapEnd && p.cut_t0 !== null && p.cut_t0 !== undefined) {
-      const end = effectiveEnd(p, pad, true);
+    if ((ends.tapEnd || ends.rallyEnd?.on)
+        && p.cut_t0 !== null && p.cut_t0 !== undefined) {
+      const end = effectiveEnd(p, pad, ends);
       if (end !== null) s = round2(Math.min(s, end - Number(p.cut_t0)));
     }
     if (s <= 0) continue;

@@ -368,6 +368,12 @@ export interface Point {
   // not, and only the meta distinguishes them.
   serve_start_at_cut_s?: number | null;
   serve_start_meta?: ServeStartMeta | null;
+  // Cut-video position of the last moment the RALLY was observed: the last
+  // bounce on the user's own table (143). Measured by the worker, never by
+  // a person, and null wherever it was not seen. t1 pads it by 2.6s so a
+  // winner tap lands inside; an unscored point has no tap coming, so this
+  // is where its playback can stop instead.
+  rally_end_cut_s?: number | null;
   confirmed_how: string | null;
   // Tactical placement of the deciding ball on the opponent's side:
   // forehand / backhand / middle (the crossover). Optional; may later be

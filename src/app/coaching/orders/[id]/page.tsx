@@ -13,7 +13,11 @@ import { createClient } from "@/lib/supabase/server";
 import { clipPad } from "@/app/match/[id]/clipEdit";
 import { skipSpans } from "@/app/match/[id]/playhead";
 import { sortPoints } from "@/app/match/[id]/gameScore";
-import { getTapEndPlayback } from "@/lib/config";
+import {
+  getTapEndPlayback,
+  getUnscoredRallyEnd,
+  getUnscoredRallyEndBufferS,
+} from "@/lib/config";
 import type { Point } from "@/lib/types";
 import { CoachOrder, type WorkspacePoint } from "./CoachOrder";
 
@@ -130,10 +134,12 @@ export default async function CoachOrderPage({
     (user.user_metadata?.picture as string | undefined) ??
     null;
 
-  // Dead footage the workspace player jumps: deleted cards, and — with
-  // tap_end_playback on (138) — the tail after each winner tap. Computed
-  // here because the client only ever sees the visible, re-numbered
-  // points; the full rows with the deleted cards live on this side.
+  // Dead footage the workspace player jumps: deleted cards, the tail
+  // after each winner tap (tap_end_playback, 138) and — on points nobody
+  // scored — the tail after the rally itself ended (unscored_rally_end,
+  // 143). Computed here because the client only ever sees the visible,
+  // re-numbered points; the full rows with the deleted cards live on
+  // this side.
   const deadSpans = skipSpans(
     sortPoints((points ?? []) as unknown as Point[]),
     clipPad(
@@ -141,7 +147,13 @@ export default async function CoachOrderPage({
       (match as { clip_pads?: { pre: number; post: number } | null } | null)
         ?.clip_pads ?? null,
     ),
-    await getTapEndPlayback(),
+    {
+      tapEnd: await getTapEndPlayback(),
+      rallyEnd: {
+        on: await getUnscoredRallyEnd(),
+        bufferS: await getUnscoredRallyEndBufferS(),
+      },
+    },
   );
 
   const { data: fundingRow } = await supabase

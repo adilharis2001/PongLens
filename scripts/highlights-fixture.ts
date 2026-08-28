@@ -71,7 +71,7 @@ function mapRows(rows: Record<string, unknown>[]): Point[] {
 function expectations(
   points: Point[],
   pad: { pre: number; post: number },
-  tapEnd: boolean,
+  ends: EndOptions,
   label: string
 ) {
   const out: Record<string, { ids: unknown[]; totalS: number }> = {};
@@ -80,7 +80,7 @@ function expectations(
       points,
       pad,
       HIGHLIGHT_BUDGETS_S[kind],
-      tapEnd
+      ends
     );
     out[kind] = { ids: picks.map((p) => p.id), totalS };
     console.log(

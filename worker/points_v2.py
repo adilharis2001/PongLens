@@ -519,12 +519,34 @@ def rally_end(E, contact_s):
     return rally_end_ev(E, contact_s)[0]
 
 
+def clamp_evidence(card):
+    """Keep a card's evidence end inside the card it belongs to.
+
+    Every function below moves t0 or t1 — resolve trims a tail to make room
+    for the next serve, merge_continuous joins two rallies, split_long cuts
+    one in half. An evidence end outside its own card describes nothing, so
+    each of them ends by calling this rather than reasoning about it in
+    place. Returns the card for chaining.
+    """
+    ev = card.get("end_evidence_s")
+    if ev is None:
+        return card
+    if ev > card["t1"] or ev < card["t0"]:
+        card["end_evidence_s"] = None if ev < card["t0"] else card["t1"]
+    return card
+
+
 def serve_points(E):
     """One card per accepted serve, opening HEAD_LEAD before contact.
 
     The skip test runs against the previous rally's EVIDENCE end, not its
     padded end: a serve after the last observed rally event is a new
     point, whatever the padding says.
+
+    The evidence end is also KEPT here, on the card. t1 pads it by
+    TAIL_AFTER_BOUNCE so a winner tap lands inside; a match nobody scores
+    has no tap to catch, and playback can stop at the rally instead. See
+    docs/superpowers/specs/2026-08-27-unscored-rally-end.md.
     """
     out, open_ev = [], -1e9
     for c in E.serves:
@@ -532,9 +554,10 @@ def serve_points(E):
             continue                      # inside the previous rally itself
         end, ev = rally_end_ev(E, c)
         end = min(end, c + MAX_RALLY_S)
-        out.append({"t0": max(0.0, c - HEAD_LEAD),
-                    "t1": min(E.duration, end),
-                    "serve_s": c, "why": "serve"})
+        out.append(clamp_evidence({"t0": max(0.0, c - HEAD_LEAD),
+                                   "t1": min(E.duration, end),
+                                   "serve_s": c, "why": "serve",
+                                   "end_evidence_s": ev}))
         open_ev = min(ev, end)
     return out
 
@@ -565,10 +588,18 @@ def fallback_points(E, taken):
             continue
         head = (float(cr[0]) - HEAD_LEAD_CROSS if len(cr)
                 else a - HEAD_LEAD_BALL)
-        end = rally_end(E, b) if len(cr) else b + 1.6
-        out.append({"t0": max(0.0, min(head, a)),
-                    "t1": min(E.duration, max(end, b)),
-                    "serve_s": None, "why": "no serve seen"})
+        # No crossing chain means no rally to bound, so `b + 1.6` is a pad
+        # around a burst of motion rather than a measured ending. That gets
+        # NO evidence end: missing has to stay missing, or a guess ends up
+        # trimming a point it never actually watched.
+        if len(cr):
+            end, ev = rally_end_ev(E, b)
+        else:
+            end, ev = b + 1.6, None
+        out.append(clamp_evidence({"t0": max(0.0, min(head, a)),
+                                   "t1": min(E.duration, max(end, b)),
+                                   "serve_s": None, "why": "no serve seen",
+                                   "end_evidence_s": ev}))
     return out
 
 
@@ -617,6 +648,13 @@ def merge_continuous(E, cards):
         if len(a) and len(b) and float(b[0]) - float(a[-1]) <= CROSS_GAP_S:
             prev["t1"] = max(prev["t1"], c["t1"])
             prev["why"] += " + continued"
+            # One rally now, so it ends where the LATER half ended. Taking
+            # the earlier card's evidence end would stop playback in the
+            # middle of the very rally this merge exists to keep whole.
+            evs = [e for e in (prev.get("end_evidence_s"),
+                               c.get("end_evidence_s")) if e is not None]
+            prev["end_evidence_s"] = max(evs) if evs else None
+            clamp_evidence(prev)
         else:
             out.append(dict(c))
     return out
@@ -633,6 +671,10 @@ def resolve(cards):
         c["t0"], c["t1"] = float(c["t0"]), float(c["t1"])
         if c.get("serve_s") is not None:
             c["serve_s"] = float(c["serve_s"])
+        # rally_end_ev's evidence end can be a crossing time, and E.cross is
+        # a numpy array — so this one needs the same coercion as the rest.
+        if c.get("end_evidence_s") is not None:
+            c["end_evidence_s"] = float(c["end_evidence_s"])
     cards = sorted(cards, key=lambda c: (c["t0"], c["serve_s"] is None))
     out = []
     for c in cards:
@@ -670,12 +712,22 @@ def resolve(cards):
                 else:
                     if c["t1"] <= prev["t1"] + MIN_DEAD_S:
                         prev["t1"] = max(prev["t1"], c["t1"])
+                        # Absorbed: the survivor covers both, so it ends
+                        # at the later of the two observed endings.
+                        evs = [e for e in (prev.get("end_evidence_s"),
+                                           c.get("end_evidence_s"))
+                               if e is not None]
+                        prev["end_evidence_s"] = max(evs) if evs else None
+                        clamp_evidence(prev)
                         continue
                     c["t0"] = prev["t1"] + MIN_DEAD_S
                     if c["t1"] - c["t0"] < MIN_CARD_S:
                         continue
         out.append(c)
-    return [c for c in out if c["t1"] - c["t0"] >= MIN_CARD_S]
+    # Every branch above may have moved a boundary; one sweep at the end is
+    # cheaper to keep right than a clamp beside each assignment.
+    return [clamp_evidence(c) for c in out
+            if c["t1"] - c["t0"] >= MIN_CARD_S]
 
 
 def on_own_table(E, cards):
@@ -699,16 +751,22 @@ def split_long(E, cards):
         k = (int(np.argmin(np.convolve(seg, np.ones(6) / 6, "same")))
              if len(seg) else 0)
         cut = c["t0"] + (mid - win + k) * TICK
-        out.append({**c, "t1": cut - MIN_DEAD_S / 2})
-        out.append({**c, "t0": cut + MIN_DEAD_S / 2, "serve_s": None,
-                    "why": c["why"] + " (long card split)"})
+        # The evidence end described the whole card, so it belongs to
+        # whichever half now contains it — the first half is a stretch of
+        # play whose ending was never observed, and gets None.
+        out.append(clamp_evidence({**c, "t1": cut - MIN_DEAD_S / 2,
+                                   "end_evidence_s": None}))
+        out.append(clamp_evidence({**c, "t0": cut + MIN_DEAD_S / 2,
+                                   "serve_s": None,
+                                   "why": c["why"] + " (long card split)"}))
     return out
 
 
 def build_cards(cand, corners_px, gate_bbox, fps, duration, width):
     """The whole assembly. Returns (cards, evidence).
 
-    cards: [{t0, t1, serve_s, why}] in SOURCE seconds, sorted, disjoint,
+    cards: [{t0, t1, serve_s, why, end_evidence_s}] in SOURCE seconds,
+    sorted, disjoint,
     with at least MIN_DEAD_S of dead space between consecutive cards.
     """
     E = Evidence(cand, corners_px, gate_bbox, fps, duration, width)

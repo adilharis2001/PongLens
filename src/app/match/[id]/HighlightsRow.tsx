@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import type { Point } from "@/lib/types";
+import type { EndOptions } from "./playhead";
 import {
   HIGHLIGHT_BUDGETS_S,
   pickHighlights,
@@ -35,7 +36,7 @@ export function HighlightsRow({
   matchId,
   points,
   pad,
-  tapEnd,
+  ends,
   onPlay,
 }: {
   matchId: string;
@@ -43,7 +44,7 @@ export function HighlightsRow({
   pad: ClipPad;
   /** app_config.tap_end_playback — must match what the player and the
    *  reel route use, so the row, the tape and the render agree. */
-  tapEnd: boolean;
+  ends: EndOptions;
   onPlay: (pointIds: string[], onDownload: () => void) => void;
 }) {
   const [chooserOpen, setChooserOpen] = useState(false);
@@ -51,8 +52,8 @@ export function HighlightsRow({
     null
   );
 
-  const short = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.reel, tapEnd);
-  const long = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.long, tapEnd);
+  const short = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.reel, ends);
+  const long = pickHighlights(points, pad, HIGHLIGHT_BUDGETS_S.long, ends);
   const longWorthIt = long.totalS > short.totalS + 1;
 
   const summary =

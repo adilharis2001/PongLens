@@ -2605,6 +2605,12 @@ def cmd_points(args):
     # failure mode is the old behaviour, never a worse one.
     v2_cards = None
     v2_serves = {}
+    # Where each v2 card's rally was last actually observed, keyed the same
+    # way as v2_serves. t1 pads this by TAIL_AFTER_BOUNCE so a winner tap
+    # lands inside the clip; an unscored match has no tap to catch, so
+    # playback can stop here instead. Empty for v1 and for end-on cards,
+    # which do not compute it.
+    v2_rally_ends = {}
     if getattr(args, "pipeline", "v1") == "v2":
         why_not = None
         if getattr(args, "cut_mode", "spans") != "plays":
@@ -2688,7 +2694,10 @@ def cmd_points(args):
             plays.append((a, b, nearest_span(c["t0"])))
             if c.get("serve_s") is not None:
                 v2_serves[a] = round(float(c["serve_s"]), 2)
-        print(f"{len(plays)} points from v2 cards")
+            if c.get("end_evidence_s") is not None:
+                v2_rally_ends[a] = round(float(c["end_evidence_s"]), 2)
+        print(f"{len(plays)} points from v2 cards "
+              f"({len(v2_rally_ends)} with an observed rally end)")
     else:
         for si, (t0, t1) in enumerate(spans):
             f0, f1 = int(t0 * fps), int(t1 * fps)
@@ -2942,6 +2951,26 @@ def cmd_points(args):
         else:
             s0, s1 = spans[si]
             cut_t0 = cut_offsets[si] + (min(max(c0, s0), s1) - s0)
+        # Where the rally itself was last observed, on both clocks. Stored
+        # pre-converted for the same reason point_boundaries pre-converts
+        # its own: every reader would otherwise redo this arithmetic, and
+        # the cut/source mix-up is the mistake this codebase makes most.
+        # Clamped inside the clip, so a reader can trust it without
+        # re-checking, and dropped entirely if it lands outside — an end
+        # the clip does not contain cannot end that clip.
+        rally_end_s = v2_rally_ends.get(a)
+        rally_end_cut_s = None
+        if rally_end_s is not None and c0 <= rally_end_s <= c1:
+            if cut_segments is not None:
+                rally_end_cut_s = round(
+                    cut_position(cut_segments, seg_offsets, rally_end_s), 2)
+            else:
+                s0, s1 = spans[si]
+                rally_end_cut_s = round(
+                    cut_offsets[si] + (min(max(rally_end_s, s0), s1) - s0), 2)
+        elif rally_end_s is not None:
+            rally_end_s = None
+
         clip_name = f"{idx:02d}.mp4"
         clip_path = os.path.join(clips_dir, clip_name)
         if not args.no_clips:
@@ -2966,6 +2995,11 @@ def cmd_points(args):
             # v2 only, additive: where its detector put serve contact, in
             # source seconds. None on fallback cards and every v1 point.
             "serve_s": v2_serves.get(a),
+            # v2 only, additive: the last moment the rally itself was
+            # observed, on both clocks. None wherever it was not observed —
+            # a missing ending must never read as an early one.
+            "rally_end_s": rally_end_s,
+            "rally_end_cut_s": rally_end_cut_s,
             "suggestion": suggestion,
             "placement": placement,
         })

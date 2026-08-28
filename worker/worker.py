@@ -2250,6 +2250,7 @@ def validate_backfill_output(record: dict, output: dict) -> dict[int, dict]:
 # drifted and the guard is either too tight or too loose.
 DATABASE_SYNCED_POINT_FIELDS = frozenset({
     "t0", "t1", "cut_t0", "server", "suggestion", "placement",
+    "rally_end_cut_s",
 })
 
 
@@ -3796,14 +3797,15 @@ def insert_points(
             point_id = str(uuid.uuid4())
             cur.execute(
                 "insert into public.points (id, match_id, idx, t0, t1, "
-                "clip_path, server, placement, suggestion, cut_t0) "
-                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "clip_path, server, placement, suggestion, cut_t0, "
+                "rally_end_cut_s) "
+                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (point_id, match_id, p["idx"], p["t0"], p["t1"],
                  f"{prefix}/{p['clip']}", p.get("server"),
                  json.dumps(p["placement"]) if p.get("placement") else None,
                  json.dumps(p["suggestion"]) if p.get("suggestion")
                  else None,
-                 p.get("cut_t0")),
+                 p.get("cut_t0"), p.get("rally_end_cut_s")),
             )
             inserted[int(p["idx"])] = {
                 "id": point_id,
