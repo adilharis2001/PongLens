@@ -32,6 +32,7 @@ test("the research catalog contains every current research page", () => {
       { title: "Serve calls", href: "/research/serves" },
       { title: "Full-match signals", href: "/research/fullmatch" },
       { title: "End-on cards", href: "/research/endon" },
+      { title: "Crossing cards", href: "/research/crossings" },
       { title: "Score gaps", href: "/research/scores" },
       { title: "Side-on cameras", href: "/research/sidecam" },
       { title: "Point recall", href: "/research/recall" },
@@ -44,7 +45,7 @@ test("the research catalog contains every current research page", () => {
       },
     ],
   );
-  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 16);
+  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 17);
   for (const page of RESEARCH_PAGES) {
     assert.ok(page.category.length > 0);
     assert.ok(page.description.length > 0);

@@ -80,6 +80,14 @@ export const RESEARCH_PAGES = [
     accent: "magenta",
   },
   {
+    title: "Crossing cards",
+    category: "Model evaluation",
+    description:
+      "The cards the serve detector never anchored, with the ball track and the table on the picture, so you can see whether each one holds junk, a point the serve decided, or two rallies the fallback could not separate.",
+    href: "/research/crossings",
+    accent: "magenta",
+  },
+  {
     title: "Score gaps",
     category: "Model evaluation",
     description:

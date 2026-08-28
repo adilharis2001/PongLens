@@ -120,7 +120,13 @@ def convert(blob, taps=None):
         "dense": blob["dense"],
         # crossed over on purpose — see the module docstring
         "cards": [[t0, t1, None] for t0, t1 in blob["prod_cards"]],
-        "newcards": [[c[0], c[1]] for c in blob["cards"]],
+        # The third element is where this run's serve detector put
+        # contact, or None where it found none. Dropping it was invisible
+        # on the end-on page — that assembler never looks for a serve, so
+        # every card is None there anyway — and made every card on a
+        # serve-anchored match read as unanchored.
+        "newcards": [[c[0], c[1], (c[2] if len(c) > 2 else None)]
+                     for c in blob["cards"]],
         # no person detector on this path; the page draws an empty lane
         "presence": [],
         # the owner's own winner calls, on the source clock
@@ -143,6 +149,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--workroot", required=True)
     ap.add_argument("--no-upload", action="store_true")
+    ap.add_argument("--prefix", default=PREFIX,
+                    help="R2 key prefix to publish under "
+                         f"(default {PREFIX}); must match the prefix the "
+                         "reprocess run wrote its dump to")
     ap.add_argument("ids", nargs="*",
                     help="only these match ids; default is every one found")
     args = ap.parse_args()
@@ -168,7 +178,7 @@ def main():
         with open(dest, "w") as fh:
             json.dump(page, fh, separators=(",", ":"))
         if s3:
-            s3.upload_file(dest, MEDIA_BUCKET, f"{PREFIX}/{name}.page.json",
+            s3.upload_file(dest, MEDIA_BUCKET, f"{args.prefix}/{name}.page.json",
                            ExtraArgs={"ContentType": "application/json"})
         m = page["meta"]
         rows.append((name, m, page))

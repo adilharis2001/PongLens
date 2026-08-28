@@ -48,6 +48,11 @@ POINTS_PIPELINE = os.path.join(
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MEDIA_BUCKET = "ponglens-media"
+# Where a run publishes. `research/endon` is the original set and the
+# default, so every existing invocation keeps writing where it always did.
+# A second page reviewing a different question wants its own prefix rather
+# than a flag on the row: /research/endon discovers its matches by listing
+# the bucket, so anything dropped beside them silently joins that page.
 PREFIX = "research/endon"
 REVIEW_W = 960
 
@@ -138,7 +143,8 @@ def review_video(src, dest):
         check=True)
 
 
-def run_one(conn, s3, env, match_id, workroot, skip_video=False):
+def run_one(conn, s3, env, match_id, workroot, skip_video=False,
+            prefix=PREFIX):
     info = resolve(conn, match_id)
     work = os.path.join(workroot, match_id)
     os.makedirs(work, exist_ok=True)
@@ -184,7 +190,7 @@ def run_one(conn, s3, env, match_id, workroot, skip_video=False):
     with open(dump, "w") as fh:
         json.dump(blob, fh, separators=(",", ":"))
 
-    s3.upload_file(dump, MEDIA_BUCKET, f"{PREFIX}/{match_id}.json",
+    s3.upload_file(dump, MEDIA_BUCKET, f"{prefix}/{match_id}.json",
                    ExtraArgs={"ContentType": "application/json"})
 
     if not skip_video:
@@ -192,7 +198,7 @@ def run_one(conn, s3, env, match_id, workroot, skip_video=False):
         if not os.path.exists(mp4):
             print("  encoding the review video…")
             review_video(raw, mp4)
-        s3.upload_file(mp4, MEDIA_BUCKET, f"{PREFIX}/{match_id}.mp4",
+        s3.upload_file(mp4, MEDIA_BUCKET, f"{prefix}/{match_id}.mp4",
                        ExtraArgs={"ContentType": "video/mp4"})
         print(f"  uploaded review.mp4 ({os.path.getsize(mp4) / 1e6:.0f} MB)")
 
@@ -212,6 +218,9 @@ def main():
     ap.add_argument("--ids-file")
     ap.add_argument("--workroot", default=None)
     ap.add_argument("--skip-video", action="store_true")
+    ap.add_argument("--prefix", default=PREFIX,
+                    help="R2 key prefix to publish under "
+                         f"(default {PREFIX})")
     args = ap.parse_args()
 
     ids = list(args.ids)
@@ -234,7 +243,8 @@ def main():
             print(f"[{i}/{len(ids)}] {mid}")
             try:
                 results.append(run_one(conn, s3, env, mid, workroot,
-                                       skip_video=args.skip_video))
+                                       skip_video=args.skip_video,
+                                       prefix=args.prefix))
             except Exception as e:                       # noqa: BLE001
                 print(f"  !! failed: {e}")
                 results.append({"id": mid, "ok": False, "error": str(e)})

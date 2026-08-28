@@ -59,7 +59,7 @@ interface FullData {
   dense: number[][]; // [t0, t1]
   cards: (number | null)[][]; // [t0, t1, serve_s|null]
   /** The global-segmentation cards, held out from their own tuning. */
-  newcards?: number[][]; // [t0, t1]
+  newcards?: number[][]; // [t0, t1, serve_s|null]
   newscore?: {
     n: number; clean: number; clipped: number;
     fused: number; split: number; lost: number;
@@ -94,17 +94,23 @@ const TITLES: Record<string, string> = {
 const RATES = [0.25, 0.5, 1, 1.5] as const;
 
 /** What playback is allowed to occupy. */
-type PlayMode = "all" | "new" | "mine";
+type PlayMode = "all" | "new" | "mine" | "crossing";
 const MODES: [PlayMode, string][] = [
   ["all", "Whole match"],
   ["new", "New cards only"],
   ["mine", "My points only"],
 ];
+/** Only offered where the page is about the crossing fallback. On an
+ *  end-on match every card is serve-less, so the mode would just be
+ *  "all cards" wearing a misleading name. */
+const CROSSING_MODE: [PlayMode, string] = ["crossing", "Crossing cards only"];
 /** Who took the point. Blue stays the uploader everywhere on this page,
  *  which is also what the "now" lane already meant. */
 const WON_ME = "#5a8cff";
 const WON_OPP = "#f59e0b";
 const UNSCORED = "#6a6a74";
+/** A card the serve detector never anchored. */
+const CROSSING = "#ff9f1c";
 
 function mmss(t: number): string {
   const m = Math.floor(t / 60);
@@ -210,6 +216,7 @@ function drawZoom(
   t: number,
   labels: readonly FullMatchLabel[] = [],
   score: MatchScoring | null = null,
+  crossingFocus = false,
 ) {
   const ctx = cv.getContext("2d");
   if (!ctx) return;
@@ -280,6 +287,26 @@ function drawZoom(
       }
     }
   }
+  // Cards the serve detector never anchored, marked under the lane that
+  // drew them. It goes here rather than inside either branch above
+  // because the "now" lane is drawn from the SCORING once a match is
+  // scored, and the scoring carries no serve information — so tinting it
+  // there would silently do nothing on exactly the matches worth reading.
+  if (crossingFocus) {
+    // From `newcards`, not `cards`: the ball track and bounces drawn on
+    // the picture come from the re-run, so its own cards are the only set
+    // whose serve anchors agree with what is on screen. `cards` is the
+    // production point rows, which carry no serve information at all.
+    for (const [a, b, sv] of d.newcards ?? d.cards) {
+      if (sv != null) continue;
+      const x0 = a as number;
+      const x1 = b as number;
+      if (x1 < t0 || x0 > t0 + ZOOM_S) continue;
+      ctx.fillStyle = CROSSING;
+      ctx.fillRect(X(x0), 24, Math.max(2, X(x1) - X(x0)), 3);
+    }
+  }
+
   // the new segmentation's cards, and whether the owner's own scoring
   // landed inside each one
   const taps = d.taps ?? [];
@@ -525,6 +552,7 @@ function MatchPanel({
   active,
   onActivate,
   score,
+  crossingFocus,
 }: {
   dataUrl: string;
   video: string;
@@ -544,6 +572,8 @@ function MatchPanel({
   onActivate: () => void;
   /** the owner's scoring, when this match has any */
   score: MatchScoring | null;
+  /** mark and isolate the cards with no serve anchor */
+  crossingFocus: boolean;
 }) {
   const [d, setD] = useState<FullData | null>(null);
   const ref = useRef<HTMLVideoElement | null>(null);
@@ -562,6 +592,14 @@ function MatchPanel({
     if (mode === "new") {
       const cs = (d?.newcards ?? []).filter(([a, b]) => b > a);
       return cs.length ? cs.map(([a, b]) => [a, b]) : null;
+    }
+    if (mode === "crossing") {
+      const cs = (d?.newcards ?? d?.cards ?? []).filter(
+        ([a, b, sv]) => sv == null && (b as number) > (a as number),
+      );
+      return cs.length
+        ? cs.map(([a, b]) => [a as number, b as number])
+        : null;
     }
     if (mode === "mine") {
       const sv = labels
@@ -637,13 +675,14 @@ function MatchPanel({
         }
         setT(v.currentTime);
         if (d && zoomRef.current)
-          drawZoom(zoomRef.current, d, v.currentTime, labels, score);
+          drawZoom(zoomRef.current, d, v.currentTime, labels, score,
+                   crossingFocus);
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [d, labels, score]);
+  }, [d, labels, score, crossingFocus]);
 
   // Marking keys, Keep-score muscle memory: B = serve start, arrows call
   // the winner (which is also the point's end), E = end with no winner,
@@ -783,6 +822,13 @@ function MatchPanel({
             {d.crossings.length} crossings · {d.bounces.length} bounces
           </span>
         ) : null}
+        {d && crossingFocus ? (
+          <span className="text-xs" style={{ color: CROSSING }}>
+            {(d.newcards ?? d.cards).filter(([, , sv]) => sv == null).length}{" "}
+            of {(d.newcards ?? d.cards).length} cards were built without a
+            serve
+          </span>
+        ) : null}
         {d?.newscore ? (
           <span className="text-xs text-violet-300">
             new cards: {d.newscore.clean}/{d.newscore.n} on their own (
@@ -858,7 +904,8 @@ function MatchPanel({
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        {MODES.map(([m, label]) => (
+        {(crossingFocus ? [...MODES, CROSSING_MODE] : MODES).map(
+          ([m, label]) => (
           <button
             key={m}
             type="button"
@@ -872,7 +919,8 @@ function MatchPanel({
           >
             {label}
           </button>
-        ))}
+          ),
+        )}
         {segments ? (
           <span className="flex items-center gap-2">
             <button
@@ -1082,6 +1130,7 @@ export function FullMatch({
   panels,
   heading = "Full-match signals",
   intro,
+  crossingFocus = false,
 }: {
   videos: Record<string, string>;
   initialNotes: readonly FullMatchNote[];
@@ -1093,6 +1142,10 @@ export function FullMatch({
   panels?: readonly FullMatchPanel[];
   heading?: string;
   intro?: ReactNode;
+  /** Mark the cards the serve detector never anchored, and offer a
+   *  playback mode that visits only those. Off everywhere else, because
+   *  on an end-on match every card qualifies. */
+  crossingFocus?: boolean;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [labels, setLabels] = useState<FullMatchLabel[]>([...initialLabels]);
@@ -1269,6 +1322,7 @@ export function FullMatch({
             video={video}
             title={title}
             score={score ?? null}
+            crossingFocus={crossingFocus}
             note={notes[`${k}@full`] ?? ""}
             onNote={(v) => onNote(k, v)}
             state={state[`${k}@full`] ?? "idle"}
