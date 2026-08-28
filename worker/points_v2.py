@@ -61,14 +61,41 @@ CONTACT_LOOKBACK_S = 0.81  # first bounce - K = contact (physical, not tuned)
 # deliberately generous; a bounce is a contact and has to be on the surface.
 # Three of the pairs Adil picked out by eye were a floor, a barrier and a
 # shoe (2026-08-17 notes analysis).
-PAIR_SURFACE_PAD_M = 0.15
+#
+# But "on the surface" is only ever known to within the error this pipeline
+# carries, and 0.15 was smaller than that error. Two things stack inside it.
+# The homography maps the CENTRE of the tracked ball onto the table plane
+# and the centre sits a ball radius above it, so a contact always projects
+# outward — worst at the far end, where the camera's ray onto the table is
+# flattest. And the quad's own corners are a few pixels out, which displaces
+# the mapping in whatever direction they happen to be wrong.
+#
+# Only the first of those has a direction, which is why widening the far end
+# alone looked like the careful fix. It is not: measured over 11 matches,
+# far-end-only recovered 21 cards and all four sides recovered 47, while the
+# signal that would expose a wider net catching the neighbouring table's ball
+# — detections landing outside every card — went from 2 to 3. Widened
+# 2026-08-28, after a person watched every card it adds: 48 right, 4 wrong. Do not narrow this back on the geometric argument alone —
+# the geometry is right about the far end and wrong about the total.
+#
+# It travels with CLUSTER_S below. Alone it lets all 7 of those mistakes
+# through; the merge is what caps them at 4.
+# Record: docs/superpowers/specs/2026-08-28-serve-surface-slack-design.md
+PAIR_SURFACE_PAD_M = 0.45
 # Crossings in the 1.5s before the first bounce. Two means a rally was
 # already running and this pair is two shots of it. One is allowed because
 # the crossing detector fires on noise often enough that demanding zero
 # costs 47 real serves their head.
 PRIOR_CROSS_WINDOW_S = 1.5
 PRIOR_CROSS_MAX = 1
-CLUSTER_S = 1.5          # pairs this close together describe one serve
+# Pairs this close together describe one serve, and the earliest is kept.
+# Nobody serves twice inside 2.5s, so a second reading in that window is
+# either the same serve found again or a receiver's return mistaken for one.
+# Raised from 1.5 with PAIR_SURFACE_PAD_M above and measured with it: on its
+# own it drops 25 detections and one card's anchor for nothing, because most
+# of what it merges was already inside a single card and a card is only
+# anchored once.
+CLUSTER_S = 2.5
 # NOTE deliberately absent: ranking a cluster by the turn angle between its
 # bounces. Strongest single signal in the corpus (17° on a real serve, 132°
 # mid-rally) and measured WORSE as a chooser — the old first-of-cluster rule
@@ -236,7 +263,14 @@ def in_corridor(u, v):
     return -0.7 <= u <= W_M + 0.7 and -1.5 <= v <= L_M + 1.5
 
 
-def on_surface(p, pad=PAIR_SURFACE_PAD_M):
+def on_surface(p, pad=None):
+    # The tolerance is read at call time rather than bound as a default
+    # argument. cmd_points overrides PAIR_SURFACE_PAD_M from app_config
+    # before the assembler runs, and Python evaluates a default once at
+    # import — so `pad=PAIR_SURFACE_PAD_M` would have frozen the old value
+    # and left the config key doing nothing at all, silently.
+    if pad is None:
+        pad = PAIR_SURFACE_PAD_M
     return bool(-pad <= p[0] <= W_M + pad and -pad <= p[1] <= L_M + pad)
 
 

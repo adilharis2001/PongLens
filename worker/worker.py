@@ -4164,6 +4164,47 @@ def endon_fallback_enabled(conn) -> bool:
         return False
 
 
+# The pre-2026-08-28 serve tolerances. These are deliberately the OLD numbers
+# rather than a mirror of what points_v2 now says: a missing config row, or a
+# config read that fails, has to reproduce the behaviour a match would have
+# had yesterday. That is what makes deploying the code and flipping the
+# setting two separate events, and what makes the rollback one UPDATE.
+SERVE_SURFACE_PAD_DEFAULT = "0.15"
+SERVE_MERGE_S_DEFAULT = "1.5"
+
+
+def serve_motif_settings(conn) -> tuple[str, str]:
+    """How much slack a serve's two bounces get, and how close together two
+    readings have to be to count as one serve: app_config.serve_surface_pad_m
+    and app_config.serve_merge_s.
+
+    Read per job like the switches above, so retuning either is one UPDATE
+    with no deploy and no restart.
+
+    A value that is not a number falls back and logs rather than raising. A
+    typo in one config row should cost the tolerance it was meant to set, not
+    every upload on the platform — and the fallback is the rule the match
+    would have got anyway.
+    """
+    def read(key: str, fallback: str) -> str:
+        try:
+            value = get_config(conn, key)
+        except Exception:
+            return fallback
+        if value is None:
+            return fallback
+        try:
+            float(value)
+        except (TypeError, ValueError):
+            log.warning("app_config.%s is not a number (%r) — using %s",
+                        key, value, fallback)
+            return fallback
+        return value
+
+    return (read("serve_surface_pad_m", SERVE_SURFACE_PAD_DEFAULT),
+            read("serve_merge_s", SERVE_MERGE_S_DEFAULT))
+
+
 def run_points_subprocess(
     input_video: str,
     blurball_out: str,
@@ -4172,6 +4213,8 @@ def run_points_subprocess(
     *,
     pipeline: str = "v1",
     endon_fallback: bool = False,
+    serve_surface_pad: str = SERVE_SURFACE_PAD_DEFAULT,
+    serve_merge_s: str = SERVE_MERGE_S_DEFAULT,
     attempt_key: str = "manual",
 ) -> str:
     """The points pipeline in plays cut mode, run BEFORE the cut so the
@@ -4190,7 +4233,9 @@ def run_points_subprocess(
         # needs a table and candidate detections) and notes the fallback
         # in match.json when it cannot; match.json's "pipeline" key is the
         # truth about what happened.
-        cmd += ["--pipeline", "v2"]
+        cmd += ["--pipeline", "v2",
+                "--serve-surface-pad", str(serve_surface_pad),
+                "--serve-merge-s", str(serve_merge_s)]
         if endon_fallback:
             cmd.append("--endon-fallback")
     if options.get("placement"):
@@ -6859,10 +6904,13 @@ def process_job(conn, msg) -> None:
             update_job(conn, job_id, progress=45)
             segments_json = None
             try:
+                serve_pad, serve_merge = serve_motif_settings(conn)
                 outdir = run_points_subprocess(
                     local_input, blurball_out, workdir, options,
                     pipeline=points_pipeline_version(conn),
                     endon_fallback=endon_fallback_enabled(conn),
+                    serve_surface_pad=serve_pad,
+                    serve_merge_s=serve_merge,
                     attempt_key=attempt_key)
                 mj = os.path.join(outdir, "match.json")
                 with open(mj) as fh:

@@ -2622,6 +2622,16 @@ def cmd_points(args):
             if cand is None:
                 why_not = "detections carry no candidates (pre-patch blurball)"
         if why_not is None:
+            # The two serve-motif tolerances are settings, not constants:
+            # the worker reads them from app_config so they can be retuned
+            # without a deploy. Assigned onto the module because that is
+            # where serve_motifs reads them, and both are read at CALL time
+            # — see the note on on_surface, where a default argument would
+            # have frozen the import-time value and made this a no-op.
+            if getattr(args, "serve_surface_pad", None) is not None:
+                points_v2.PAIR_SURFACE_PAD_M = float(args.serve_surface_pad)
+            if getattr(args, "serve_merge_s", None) is not None:
+                points_v2.CLUSTER_S = float(args.serve_merge_s)
             v2_out, v2_E = points_v2.build_cards(
                 cand, calib["corners_px"], gate["bbox"] if gate else None,
                 fps, dur, meta["width"])
@@ -2663,11 +2673,17 @@ def cmd_points(args):
                     else:
                         notes.append("end-on assembler produced no cards; "
                                      "kept the serve-anchored ones")
+            # The tolerances go in the note for the same reason the serve
+            # rate does: when a match is argued about weeks later, the
+            # settings it was built under have to be readable off the match
+            # rather than inferred from a config table that has moved since.
             notes.append(f"points v2: {len(v2_cards)} cards, "
                          f"{len(v2_E.serves)} serves, "
                          f"{len(v2_E.cross)} crossings, "
                          f"camera {v2_E.shape:.2f}, "
-                         f"serves/min {v2_rate:.2f}, route {route}")
+                         f"serves/min {v2_rate:.2f}, route {route}, "
+                         f"surface pad {points_v2.PAIR_SURFACE_PAD_M:.2f}, "
+                         f"merge {points_v2.CLUSTER_S:.1f}s")
             print(f"points v2: {len(v2_cards)} cards "
                   f"({len(v2_E.serves)} serves, {len(v2_E.cross)} "
                   f"crossings, camera shape {v2_E.shape:.2f}, "
@@ -3095,6 +3111,24 @@ def main():
                    help="write every assembler signal to PATH as JSON, for "
                         "a research review page. Diagnostic only: nothing "
                         "in the production path reads it.")
+    # Both default to None, meaning "whatever points_v2 says". The module
+    # is the statement of the shipped rule, so a research script that runs
+    # this pipeline unflagged diagnoses against what production actually
+    # does. Production still passes both explicitly, from app_config, and
+    # those config reads fall back to the pre-2026-08-28 values — which is
+    # what keeps a deploy inert until the config rows are inserted.
+    p.add_argument("--serve-surface-pad", type=float, default=None,
+                   metavar="M",
+                   help="how far past the table's edge a bounce may project "
+                        "and still count as a contact, in metres "
+                        f"(points_v2 default {points_v2.PAIR_SURFACE_PAD_M}); "
+                        "production passes app_config.serve_surface_pad_m")
+    p.add_argument("--serve-merge-s", type=float, default=None,
+                   metavar="S",
+                   help="two accepted serves closer together than this "
+                        "describe one serve, and the earlier is kept "
+                        f"(points_v2 default {points_v2.CLUSTER_S}); "
+                        "production passes app_config.serve_merge_s")
     p.add_argument("--endon-fallback", action="store_true",
                    help="allow the end-on assembler (points_endon) for a "
                         "match whose serve rate is below its threshold; "
