@@ -10,6 +10,43 @@ struct CountRow: Codable, Hashable {
     let count: Int
 }
 
+/// The slice of matches.match_structure (051) the app reads.
+///
+/// Mirrors src/lib/types.ts MatchStructureEvidence, cut down to what a
+/// screen renders: the per-point summaries and pair verdicts are
+/// diagnostics and ride to R2 beside match.json instead. Every field is
+/// optional because this column has carried three different shapes — the
+/// retired RTMPose v1 experiment, the v2 detector, and null — and a match
+/// that fails to decode is a match that will not open.
+struct MatchStructure: Codable, Hashable {
+    let status: String?
+    let sideChanges: [SideChange]?
+
+    /// One detection: between these two rallies the players swapped ends.
+    /// `confirmed` is the detector's own precision gate — anything else is
+    /// diagnostics and must never reach a screen.
+    struct SideChange: Codable, Hashable {
+        let afterPointId: UUID?
+        /// End of the rally before the gap, in SOURCE seconds. Carried so
+        /// a detection still has a position when its rally is deleted.
+        let gapT0: Double?
+        let confidence: Double?
+        let confirmed: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case confidence, confirmed
+            case afterPointId = "after_point_id"
+            case gapT0 = "gap_t0"
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case sideChanges = "side_changes"
+    }
+}
+
+
 struct MatchRow: Codable, Identifiable, Hashable {
     let id: UUID
     let userId: UUID
@@ -28,6 +65,9 @@ struct MatchRow: Codable, Identifiable, Hashable {
     let firstServer: String?
     let clipPads: ClipPad?
     let placementStatus: String?
+    /// The game-end detector's evidence (140/146). Optional and defaulted
+    /// so every construction of MatchRow in tests and previews stands.
+    var matchStructure: MatchStructure? = nil
     let createdAt: String
     let points: [CountRow]?
 
@@ -49,11 +89,17 @@ struct MatchRow: Codable, Identifiable, Hashable {
         case firstServer = "first_server"
         case clipPads = "clip_pads"
         case placementStatus = "placement_status"
+        case matchStructure = "match_structure"
         case createdAt = "created_at"
     }
 
     static let librarySelect =
         "id,user_id,job_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,first_server,clip_pads,placement_status,created_at,points(count)"
+
+    /// One match, opened. Adds the game-end detector's evidence, which the
+    /// library list has no use for — it is a JSONB blob per row and the
+    /// list fetches every match the player owns.
+    static let detailSelect = librarySelect + ",match_structure"
 }
 
 
@@ -87,6 +133,16 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     var tightEnd: Bool
     var gameEndOverride: GameEndOverride?
     var gameWinnerOverride: Winner?
+    /// Owner hid the detected side-change marker that sits after this
+    /// point (146). Display only — never read by the boundary walk.
+    ///
+    /// OPTIONAL rather than `Bool = false`, and the default is not the
+    /// reason: Swift's synthesized Decodable init does not use property
+    /// defaults, so a non-optional Bool throws keyNotFound on any payload
+    /// without the key — which is every fixture, every preview, and any
+    /// select that has not been updated yet. Optional decodes to nil and
+    /// reads as false at the one place that asks.
+    var sideChangeDismissed: Bool? = nil
     var scoredAtCutS: Double?
     /// Admin serve-start label (089). Read so the pad's control can show
     /// which rallies already carry one; the time itself never goes on the
@@ -138,6 +194,7 @@ struct MatchPoint: Codable, Identifiable, Hashable {
         case tightEnd = "tight_end"
         case gameEndOverride = "game_end_override"
         case gameWinnerOverride = "game_winner_override"
+        case sideChangeDismissed = "side_change_dismissed"
         case scoredAtCutS = "scored_at_cut_s"
         case serveStartAtCutS = "serve_start_at_cut_s"
         case rallyEndCutS = "rally_end_cut_s"
@@ -152,7 +209,7 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     }
 
     static let matchSelect =
-        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,scored_at_cut_s,serve_start_at_cut_s,loss_reasons,direction,misread_kind,serve_spin,serve_sidespin,serve_length,placement_flagged,clip_path,placement,suggestion"
+        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,side_change_dismissed,scored_at_cut_s,serve_start_at_cut_s,loss_reasons,direction,misread_kind,serve_spin,serve_sidespin,serve_length,placement_flagged,clip_path,placement,suggestion"
 
     /// Duration of the rally itself, in seconds.
     var rallySeconds: Double? {

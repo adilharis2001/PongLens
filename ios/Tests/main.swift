@@ -10,6 +10,7 @@ runStarredTests()
 runHighlightsParityChecks()
 runCameraGuideGateChecks()
 runRallyEndParityChecks()
+runSideChangeParityChecks()
 
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {

@@ -30,6 +30,10 @@ struct MatchJob: Decodable, Equatable {
 final class MatchDetailModel {
     var points: [MatchPoint] = []
     var videoURL: URL?
+    /// The game-end detector's evidence for this match (140/146), or nil
+    /// when it has none — every match processed before the stage existed,
+    /// and every one the detector refused.
+    var matchStructure: MatchStructure?
     var loaded = false
     var error: String?
     var job: MatchJob?
@@ -149,6 +153,25 @@ final class MatchDetailModel {
         } catch {
             // Hero stays a poster; playback reports its own error.
         }
+        // The game-end detector's evidence, read here rather than off the
+        // MatchRow the list handed over: that row comes from librarySelect,
+        // which deliberately leaves this column out (a JSONB blob on every
+        // row of a list that fetches the whole library). Fetched on load
+        // rather than on one of the refetch paths, so a match shows its
+        // markers the moment it opens rather than after the first edit.
+        struct StructureRow: Decodable { let matchStructure: MatchStructure?
+            enum CodingKeys: String, CodingKey {
+                case matchStructure = "match_structure"
+            } }
+        let row: StructureRow? = try? await supa
+            .from("matches")
+            .select("match_structure")
+            .eq("id", value: match.id.uuidString.lowercased())
+            .single()
+            .execute()
+            .value
+        matchStructure = row?.matchStructure
+
         loaded = true
     }
 
@@ -194,7 +217,7 @@ final class MatchDetailModel {
     func refetchMatch(_ id: UUID) async -> MatchRow? {
         try? await supa
             .from("matches")
-            .select(MatchRow.librarySelect)
+            .select(MatchRow.detailSelect)
             .eq("id", value: id.uuidString.lowercased())
             .single()
             .execute()
