@@ -41,11 +41,14 @@ values
   -- The kill switch. Ships off: the column has to be backfilled and the
   -- buffer calibrated against hand-marked endings before anyone sees this.
   ('unscored_rally_end', 'off'),
-  -- Seconds added to the observed ending before playback stops. 0.5 is a
-  -- starting point chosen to be visibly aggressive so the trims can be
-  -- judged by eye, NOT a calibrated value. Raising it is one UPDATE and
-  -- needs no deploy, which is the whole reason it is a config row.
-  ('unscored_rally_end_buffer_s', '0.5')
+  -- Seconds added to the observed ending before playback stops. Started
+  -- at 0.5 to make the trims visibly aggressive for review; Adil watched
+  -- them and called it too tight, so 1.25. Still a judgement from footage
+  -- rather than a calibrated number - the spec's 60-point hand-marking is
+  -- what would make it one. Changing it is one UPDATE and needs no
+  -- deploy, which is the whole reason it is a config row and not a
+  -- constant.
+  ('unscored_rally_end_buffer_s', '1.25')
 on conflict (key) do nothing;
 
 -- The anon read allow-list, restated in full. 107 made app_config
