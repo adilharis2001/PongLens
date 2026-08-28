@@ -187,6 +187,8 @@ struct PlayerTakeover: View {
     @State var prevGamesCount = -1
     @State var winnerAsk: WinnerAsk?
     @State var gameBreak: GameBreak?
+    /// The detected side-change marker tapped in the ticker (146).
+    @State var sideChangeBreak: MatchPoint?
 
     // The Why fast lane: score them and say why, in one tap.
     @State var whyPoint: MatchPoint?
@@ -492,6 +494,12 @@ struct PlayerTakeover: View {
         .sheet(item: $gameBreak) { brk in
             gameBreakSheet(brk)
                 .presentationDetents([.height(gameBreakSheetHeight(brk))])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $sideChangeBreak) { point in
+            sideChangeSheet(point)
+                .presentationDetents([.height(300)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
@@ -1988,6 +1996,15 @@ struct PlayerTakeover: View {
     func chipStrip(targetId: UUID?) -> some View {
         let full = fullScore
         let removed = removedDots
+        // Once for the strip, not once per chip: the rule walks every
+        // visible rally, and it is read inside a ForEach body.
+        let markers = SideChanges.byPoint(
+            evidence: model.matchStructure,
+            visiblePoints: points,
+            boundaryAfter: Set(full.boundaryAfter.keys),
+            enabled: app.gameEndDetection,
+            scoredType: tracksServe
+        )
         return ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -2019,6 +2036,8 @@ struct PlayerTakeover: View {
                             .id(p.id)
                             if let ends = full.boundaryAfter[p.id] {
                                 gameDivider(p, ends)
+                            } else if markers[p.id] != nil {
+                                sideChangeDivider(p)
                             }
                         }
                     }
@@ -2118,6 +2137,36 @@ struct PlayerTakeover: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Game \(ends.game) ended here at \(ends.you)-\(ends.them) — tap to change")
+    }
+
+    /// The video saw them swap ends and the score has not said so.
+    ///
+    /// Dashed all through: the divider beside it means "a game ended here
+    /// and the score proves it", and this is a different claim. "ends" is
+    /// what the strip can afford — the score divider's pill holds four
+    /// characters at 9pt, and anything longer changes the rhythm and
+    /// pushes chips off a 390pt phone. The sentence lives in the dialog.
+    func sideChangeDivider(_ p: MatchPoint) -> some View {
+        Button { sideChangeBreak = p } label: {
+            VStack(spacing: 3) {
+                // Drawn horizontally at its natural length, then turned:
+                // PLDash puts its line across the rect, so a 1pt-wide
+                // frame would give a 1pt dash rather than a vertical rule.
+                PLDash().stroke(PL.text600, style: PLDash.style)
+                    .frame(width: 10, height: 1)
+                    .rotationEffect(.degrees(90))
+                    .frame(width: 1, height: 10)
+                Text(SideChanges.shortLabel)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(PL.text400)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .overlay(Capsule().strokeBorder(
+                        PL.text600, style: PLDash.style))
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("The players changed ends here — tap to answer")
     }
 
     func openPoint(_ p: MatchPoint) {

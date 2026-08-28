@@ -529,3 +529,21 @@ struct PLToast: View {
             .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
     }
 }
+
+
+/// A dashed hairline.
+///
+/// The solid rule between two point cards means "a game ended here and the
+/// score proves it". A detected side change (140/146) is a different claim
+/// and must not borrow the settled one's appearance — dashed is already
+/// this product's mark for something not yet answered.
+struct PLDash: Shape {
+    static let style = StrokeStyle(lineWidth: 1, dash: [3, 3])
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.midY))
+        return path
+    }
+}

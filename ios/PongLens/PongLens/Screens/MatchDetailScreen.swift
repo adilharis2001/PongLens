@@ -457,6 +457,8 @@ struct MatchDetailScreen: View {
     @State private var shareOpen = false
     @State private var deleteAsk = false
     @State private var deleting = false
+    /// The detected side-change marker the owner tapped in the point list.
+    @State private var sideChangeSheet: MatchPoint?
 
     private let pointsPreview = 10
 
@@ -496,6 +498,50 @@ struct MatchDetailScreen: View {
             model.visible,
             firstServer: current.firstServer.flatMap(Winner.init(rawValue:))
         )
+    }
+
+    /// Where the video says the players swapped ends and the score has
+    /// not said so yet (140/146). Marker only — never folded into the
+    /// boundary walk, so nothing about the score changes. Fades as the
+    /// match gets scored: a real boundary within three rallies silences
+    /// its detection. See Core/SideChanges.swift.
+    private var sideChanges: [UUID: SideChanges.Marker] {
+        SideChanges.byPoint(
+            evidence: model.matchStructure,
+            visiblePoints: model.visible,
+            boundaryAfter: Set(score.boundaryAfter.keys),
+            enabled: app.gameEndDetection,
+            scoredType: tracksServe
+        )
+    }
+
+    /// The video saw them swap ends and the score has not said so.
+    /// Dashed, because the solid line means "a game ended here and the
+    /// score proves it" and this is a different claim.
+    @ViewBuilder
+    private func sideChangeDivider(_ point: MatchPoint) -> some View {
+        let label = Text(SideChanges.label)
+            .font(.plCaption)
+            .foregroundStyle(isOwner ? PL.text400 : PL.text500)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .overlay(Capsule().strokeBorder(PL.edge, style: PLDash.style))
+        let row = HStack(spacing: 8) {
+            PLDash().stroke(PL.edge, style: PLDash.style)
+                .frame(height: 1).frame(maxWidth: .infinity)
+            label
+            PLDash().stroke(PL.edge, style: PLDash.style)
+                .frame(height: 1).frame(maxWidth: .infinity)
+        }
+        if isOwner {
+            Button { sideChangeSheet = point } label: { row }
+                .buttonStyle(.plain)
+                .padding(.vertical, 2)
+                .accessibilityLabel(
+                    "The players changed ends here — tap to answer")
+        } else {
+            row.padding(.vertical, 2)
+        }
     }
 
     private var filteredPoints: [MatchPoint] {
@@ -796,6 +842,29 @@ struct MatchDetailScreen: View {
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+        }
+        // Two answers and a way out. "Game ended here" writes the SAME
+        // override the owner could pin by hand, so a game ended from a
+        // marker is indistinguishable afterwards from one ended any other
+        // way — the detector never gets a private path into the score.
+        .confirmationDialog(
+            "The players changed ends here",
+            isPresented: Binding(
+                get: { sideChangeSheet != nil },
+                set: { if !$0 { sideChangeSheet = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: sideChangeSheet
+        ) { point in
+            Button("Game ended here") {
+                Task { await model.setBoundary(point, next: .end) }
+            }
+            Button("They just changed ends") {
+                Task { await model.dismissSideChange(point) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This usually means the game ended.")
         }
         .alert("Delete this match?", isPresented: $deleteAsk) {
             Button("Delete", role: .destructive) {
@@ -1379,6 +1448,10 @@ struct MatchDetailScreen: View {
                     .plCard(padding: 24)
             } else {
                 let shown = (pointsExpanded || filtersActive) ? all : Array(all.prefix(pointsPreview))
+                // Once for the list, not once per row: `sideChanges` walks
+                // every visible point, and a computed property read inside
+                // a ForEach body is read for every row that renders.
+                let markers = sideChanges
                 VStack(spacing: 10) {
                     ForEach(shown) { point in
                         let number = (model.visible.firstIndex(of: point) ?? 0) + 1
@@ -1410,6 +1483,19 @@ struct MatchDetailScreen: View {
                                 .foregroundStyle(PL.text500)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 2)
+                        } else if tracksServe, !filtersActive,
+                                  markers[point.id] != nil {
+                            // The video saw them swap and the score has
+                            // not said so. Dashed, because the line above
+                            // means "a game ended here and the score
+                            // proves it" and this is a different claim.
+                            //
+                            // filtersActive is excluded for the same
+                            // reason as the line above: with a filter on,
+                            // the neighbouring card is not the
+                            // neighbouring rally, so a between-rallies
+                            // marker lies about what sits either side.
+                            sideChangeDivider(point)
                         }
                     }
                 }

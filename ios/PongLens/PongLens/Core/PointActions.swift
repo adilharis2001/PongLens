@@ -262,6 +262,17 @@ extension MatchDetailModel {
             if next != .end { $0.gameWinnerOverride = nil }
         }
     }
+
+    /// Hide the detected side-change marker that sits after this point
+    /// (146). Display only, and deliberately NOT a 'continue' override:
+    /// that suppresses the automatic 11-clear-by-2 rule from here on,
+    /// which is a real change to the score. Saying "they just changed
+    /// ends" must cost the owner nothing.
+    func dismissSideChange(_ point: MatchPoint) async {
+        await patch(point, fields: ["side_change_dismissed": .bool(true)]) {
+            $0.sideChangeDismissed = true
+        }
+    }
 }
 
 /// Notes for one match, plus author display names.
