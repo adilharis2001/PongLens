@@ -20,7 +20,6 @@ import {
   REJECTION_COPY,
   TABLE_L_M,
   TABLE_W_M,
-  summarise,
   type DetectedEvent,
   type ServeAccuracyMatch,
   type ServeAccuracyRow,
@@ -224,90 +223,13 @@ function serveOf(
   return made;
 }
 
-/** A serve that only exists because a bounce was put back. */
-function serveWasRecovered(
-  row: ServeAccuracyRow,
-  corners: Corners,
-  tracks: Tracks | null,
-  source: SourceDims,
-): boolean {
-  return serveOf(row, corners, tracks, source)?.recovered != null;
-}
 
-function ruleVerdict(
-  row: ServeAccuracyRow,
-  corners: Corners,
-  tracks: Tracks | null,
-  source: SourceDims,
-): "user" | "opponent" | null {
-  return reading(row, corners, tracks, source).winner;
-}
 
-/** Which rule made the call, for grouping the mistakes by author. */
-function decidingRule(
-  row: ServeAccuracyRow,
-  corners: Corners,
-  tracks: Tracks | null,
-  source: SourceDims,
-): string | null {
-  return reading(row, corners, tracks, source).rule;
-}
 
-/**
- * Why no call was made, in the words the row already shows. One bucket per
- * distinct reason, so the biggest pile can be opened on its own instead of
- * being scrolled past inside a single "held back" list.
- */
-function noCallReason(
-  row: ServeAccuracyRow,
-  corners: Corners,
-  tracks: Tracks | null,
-  source: SourceDims,
-): string | null {
-  return reading(row, corners, tracks, source).refusal;
-}
 
-/** Fired, the point is scored, and it named the wrong player. */
-function ruleIsWrong(
-  row: ServeAccuracyRow,
-  corners: Corners,
-  tracks: Tracks | null,
-  source: SourceDims,
-): boolean {
-  return readingIsWrong(row, reading(row, corners, tracks, source));
-}
 
-/** Two rules both spoke and named different winners. */
-function disagrees(
-  row: ServeAccuracyRow,
-  corners: Corners,
-  tracks: Tracks | null,
-  source: SourceDims,
-): boolean {
-  return rulesDisagree(reading(row, corners, tracks, source));
-}
 
-/** A call that only exists because the flights put a missing event back. */
-function ruleWasRepaired(
-  row: ServeAccuracyRow,
-  corners: Corners,
-  tracks: Tracks | null,
-  source: SourceDims,
-): boolean {
-  const r = reading(row, corners, tracks, source);
-  return r.winner !== null && r.recovered.length > 0;
-}
 
-/** The off-table read found something and then refused to call it. */
-function ruleHeldBack(
-  row: ServeAccuracyRow,
-  corners: Corners,
-  tracks: Tracks | null,
-  source: SourceDims,
-): boolean {
-  const r = reading(row, corners, tracks, source);
-  return r.winner === null && r.refusal !== null && r.refusal !== "nothing to go on";
-}
 
 function Legend() {
   return (
@@ -883,7 +805,8 @@ function Row({
     <div className="rounded-xl border border-edge bg-surface p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <p className="text-sm font-semibold text-zinc-100">
-          Point {row.idx}
+          <span className="text-cyan-glow">{match.label}</span>
+          <span className="ml-2">point {row.idx}</span>
           <span className="ml-2 font-normal text-zinc-500">game {row.game}</span>
         </p>
         <p className="text-xs text-zinc-400">
@@ -1157,372 +1080,486 @@ function Row({
   );
 }
 
+type Outcome = "right" | "wrong" | "unchecked" | "nocall";
+
+/** One point, with the reading already made and bucketed. */
+interface Entry {
+  match: ServeAccuracyMatch;
+  row: ServeAccuracyRow;
+  read: PointReading;
+  outcome: Outcome;
+  /** The ending it named, or the reason it refused. One string either way,
+   *  because a point is always in exactly one of the two. */
+  reason: string;
+}
+
+/**
+ * The ending, as a bucket name.
+ *
+ * "turned 0.42 m from the net and died there" carries a measurement, so
+ * left alone it would make one bucket per point instead of one per kind.
+ */
+function endingLabel(read: PointReading): string {
+  const why = read.why ?? "";
+  const tidy = /^turned .* died there$/.test(why)
+    ? "turned at the net and died there"
+    : why;
+  return `${read.rule} — ${tidy}`;
+}
+
+const OUTCOME_COPY: Record<Outcome, string> = {
+  right: "matched your tap",
+  wrong: "named the other player",
+  unchecked: "called, but you never scored the point",
+  nocall: "no call",
+};
+
+/**
+ * Everything measured about every point, on one page.
+ *
+ * Organised by REASON rather than by match, because the reason is what you
+ * are investigating and the match is an accident of which day it was. A
+ * question like "what do we get wrong when the ball leaves the table" was
+ * previously six tabs and six counts to add up by hand; here it is one row
+ * of a table.
+ *
+ * The tables are the drill-down: a reason's name filters to that reason,
+ * and its right/wrong counts filter to that reason AND that outcome, so
+ * "show me the ones we got wrong here" is one click on the number.
+ */
 export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
-  const [active, setActive] = useState(matches[0].matchId);
-  const [only, setOnly] = useState<
-    string
-  >("all");
-  const match = matches.find((m) => m.matchId === active) ?? matches[0];
-  // The verdict counts need every point's track, not just the open clip's,
-  // so the whole match loads at once. Switching matches swaps the object,
-  // which is also what invalidates the reading cache — it is keyed on the
-  // track file itself, so a row cannot keep the answer it computed before
-  // its own track arrived.
-  const [allTracks, setAllTracks] = useState<Tracks | null>(null);
+  const [reason, setReason] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<Outcome | "all">("all");
+  const [matchId, setMatchId] = useState<string | null>(null);
+  const [flag, setFlag] = useState<string | null>(null);
+
+  /**
+   * Every match's tracks, not just the open one's.
+   *
+   * Pooling the points means every verdict has to exist at once, so all six
+   * files load together — about two megabytes, in parallel, once. The page
+   * counts nothing until they are all in rather than showing numbers that
+   * climb as they arrive, which would read as a bug.
+   */
+  const [tracksBySlug, setTracksBySlug] =
+    useState<Partial<Record<TrackSlug, Tracks>> | null>(null);
+  const slugKey = matches.map((m) => m.slug).join(",");
   useEffect(() => {
     let live = true;
-    setAllTracks(null);
-    void loadTracks(match.slug).then((t) => {
-      if (live) setAllTracks(t);
+    void Promise.all(
+      matches.map((m) => loadTracks(m.slug).then((t) => [m.slug, t] as const)),
+    ).then((pairs) => {
+      if (live) setTracksBySlug(Object.fromEntries(pairs));
     });
     return () => {
       live = false;
     };
-  }, [match.slug]);
-  const stats = useMemo(() => summarise(match.rows), [match]);
-  const rows = useMemo(
-    () =>
-      match.rows.filter((r) =>
-        only === "all" ? true
-          : only === "drawn" ? r.serve !== null
-            : only === "refused" ? r.serve === null
-              : only === "deadrun"
-                ? decidingRule(r, match.corners, allTracks, match.source) === "ball died"
-                : only === "offtable"
-                  ? decidingRule(r, match.corners, allTracks, match.source) === "off table"
-                  : only === "noreturn"
-                    ? decidingRule(r, match.corners, allTracks, match.source) === "no return"
-                  : only === "repaired"
-                    ? ruleWasRepaired(r, match.corners, allTracks, match.source)
-                  : only === "serverepair"
-                    ? serveWasRecovered(r, match.corners, allTracks, match.source)
-                  : only === "disagree"
-                    ? disagrees(r, match.corners, allTracks, match.source)
-                  : only.startsWith("wrongby:")
-                    ? ruleIsWrong(r, match.corners, allTracks, match.source)
-                      && decidingRule(r, match.corners, allTracks, match.source)
-                        === only.slice(8)
-                  : only.startsWith("why:")
-                    ? noCallReason(r, match.corners, allTracks, match.source)
-                      === only.slice(4)
-                  : only === "wrong"
-                    ? ruleIsWrong(r, match.corners, allTracks, match.source)
-                    : only === "heldback"
-                      ? ruleHeldBack(r, match.corners, allTracks, match.source)
-                      : only === "nocall"
-                        ? ruleVerdict(r, match.corners, allTracks, match.source) === null
-                      : r.winner !== null
-                        && r.computed?.winner != null
-                        && r.computed.winner !== r.winner,
-      ),
-    [match, only, allTracks],
-  );
-  const disagreed = stats.callCompared - stats.callAgreed;
-  const serveRecovered = useMemo(
-    () => match.rows.filter(
-      (r) => serveWasRecovered(r, match.corners, allTracks, match.source),
-    ).length,
-    [match, allTracks],
-  );
-  const repairedCount = useMemo(
-    () => match.rows.filter(
-      (r) => ruleWasRepaired(r, match.corners, allTracks, match.source),
-    ).length,
-    [match, allTracks],
-  );
-  const ruleWrong = useMemo(
-    () => match.rows.filter(
-      (r) => ruleIsWrong(r, match.corners, allTracks, match.source),
-    ).length,
-    [match, allTracks],
-  );
-  const heldBack = useMemo(
-    () => match.rows.filter(
-      (r) => ruleHeldBack(r, match.corners, allTracks, match.source),
-    ).length,
-    [match, allTracks],
-  );
-  const disagreeCount = useMemo(
-    () => match.rows.filter(
-      (r) => disagrees(r, match.corners, allTracks, match.source),
-    ).length,
-    [match, allTracks],
-  );
-  /** The mistakes, grouped by the rule that made them. */
-  const wrongByRule = useMemo(() => {
-    const out = new Map<string, number>();
-    for (const r of match.rows) {
-      if (!ruleIsWrong(r, match.corners, allTracks, match.source)) continue;
-      const who = decidingRule(r, match.corners, allTracks, match.source);
-      if (who) out.set(who, (out.get(who) ?? 0) + 1);
-    }
-    return [...out.entries()].sort((a, b) => b[1] - a[1]);
-  }, [match, allTracks]);
-  /** Every reason a point went uncalled, biggest pile first. */
-  const noCallReasons = useMemo(() => {
-    const out = new Map<string, number>();
-    for (const r of match.rows) {
-      const why = noCallReason(r, match.corners, allTracks, match.source);
-      if (why) out.set(why, (out.get(why) ?? 0) + 1);
-    }
-    return [...out.entries()].sort((a, b) => b[1] - a[1]);
-  }, [match, allTracks]);
-  const noCall = useMemo(
-    () => match.rows.filter(
-      (r) => ruleVerdict(r, match.corners, allTracks, match.source) === null,
-    ).length,
-    [match, allTracks],
-  );
-  /**
-   * How each rule scores against Adil's own taps, on the points it decides.
-   *
-   * One pass over the readings rather than three re-derivations of the
-   * chain, so a repaired call is counted by the rule that made it and the
-   * chips add up to the verdict the row shows.
-   */
-  const scores = useMemo(() => {
-    const zero = () => ({ fires: 0, right: 0, workerRight: 0, byTurn: 0, repaired: 0 });
-    const out: Record<string, ReturnType<typeof zero>> = {
-      "ball died": zero(), "off table": zero(), "no return": zero(),
-    };
-    for (const r of match.rows) {
-      const read = reading(r, match.corners, allTracks, match.source);
-      if (read.rule === null || r.winner === null) continue;
-      const s = out[read.rule];
-      s.fires += 1;
-      if (read.winner === r.winner) s.right += 1;
-      if (r.computed?.winner === r.winner) s.workerRight += 1;
-      if (read.recovered.length) s.repaired += 1;
-      if (read.rule === "ball died") {
-        const died = findBallDied(read.events, allTracks?.[r.pointId] ?? null,
-          match.corners, r.clipT0, match.source, r.userPhysicalSide);
-        if (died?.via === "turn") s.byTurn += 1;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slugKey]);
+
+  const entries = useMemo<Entry[]>(() => {
+    if (!tracksBySlug) return [];
+    const out: Entry[] = [];
+    for (const m of matches) {
+      const tracks = tracksBySlug[m.slug] ?? null;
+      for (const row of m.rows) {
+        const read = reading(row, m.corners, tracks, m.source);
+        const called = read.winner !== null;
+        const outcome: Outcome = !called
+          ? "nocall"
+          : row.winner === null
+            ? "unchecked"
+            : read.winner === row.winner
+              ? "right"
+              : "wrong";
+        out.push({
+          match: m,
+          row,
+          read,
+          outcome,
+          reason: called ? endingLabel(read) : read.refusal ?? "no reason given",
+        });
       }
     }
     return out;
-  }, [match, allTracks]);
-  const runScore = scores["ball died"];
-  const offScore = scores["off table"];
-  const noReturnScore = scores["no return"];
-  const repairedTotal = runScore.repaired + offScore.repaired + noReturnScore.repaired;
+  }, [matches, tracksBySlug]);
+
+  /** Does this point carry the extra flag currently selected. */
+  const hasFlag = useCallback((e: Entry) => {
+    if (flag === null) return true;
+    if (flag === "repaired") return e.read.recovered.length > 0;
+    if (flag === "serverecovered") {
+      return serveOf(e.row, e.match.corners,
+        tracksBySlug?.[e.match.slug] ?? null, e.match.source)?.recovered != null;
+    }
+    if (flag === "disagree") return rulesDisagree(e.read);
+    if (flag === "workerwrong") {
+      return e.row.winner !== null && e.row.computed?.winner != null
+        && e.row.computed.winner !== e.row.winner;
+    }
+    if (flag === "servedrawn") return e.row.serve !== null;
+    return true;
+  }, [flag, tracksBySlug]);
+
+  /** The population the TABLES describe: narrowed by match and flag, but
+   *  not by reason or outcome, or picking one would empty the table that
+   *  the pick was made from. */
+  const pool = useMemo(
+    () => entries.filter(
+      (e) => (matchId === null || e.match.matchId === matchId) && hasFlag(e)),
+    [entries, matchId, hasFlag],
+  );
+
+  const shown = useMemo(
+    () => pool.filter(
+      (e) => (reason === null || e.reason === reason)
+        && (outcome === "all" || e.outcome === outcome)),
+    [pool, reason, outcome],
+  );
+
+  const totals = useMemo(() => {
+    const t = { all: pool.length, right: 0, wrong: 0, unchecked: 0, nocall: 0 };
+    for (const e of pool) t[e.outcome] += 1;
+    return t;
+  }, [pool]);
+
+  /** One line per ending we call, and one per reason we refuse. */
+  const byReason = useMemo(() => {
+    type Cell = {
+      reason: string; points: number;
+      right: number; wrong: number; unchecked: number; called: boolean;
+    };
+    const map = new Map<string, Cell>();
+    for (const e of pool) {
+      let c = map.get(e.reason);
+      if (!c) {
+        c = { reason: e.reason, points: 0, right: 0, wrong: 0, unchecked: 0,
+              called: e.outcome !== "nocall" };
+        map.set(e.reason, c);
+      }
+      c.points += 1;
+      if (e.outcome !== "nocall") c[e.outcome] += 1;
+    }
+    const all = [...map.values()].sort((a, b) => b.points - a.points);
+    return {
+      called: all.filter((c) => c.called),
+      refused: all.filter((c) => !c.called),
+    };
+  }, [pool]);
+
+  const flagCounts = useMemo(() => {
+    const base = entries.filter(
+      (e) => matchId === null || e.match.matchId === matchId);
+    const n = (f: string) => {
+      const keep = (e: Entry) =>
+        f === "repaired" ? e.read.recovered.length > 0
+          : f === "serverecovered"
+            ? serveOf(e.row, e.match.corners,
+                tracksBySlug?.[e.match.slug] ?? null, e.match.source)?.recovered != null
+            : f === "disagree" ? rulesDisagree(e.read)
+              : f === "workerwrong"
+                ? e.row.winner !== null && e.row.computed?.winner != null
+                  && e.row.computed.winner !== e.row.winner
+                : f === "servedrawn" ? e.row.serve !== null : false;
+      return base.filter(keep).length;
+    };
+    return {
+      repaired: n("repaired"), serverecovered: n("serverecovered"),
+      disagree: n("disagree"), workerwrong: n("workerwrong"),
+      servedrawn: n("servedrawn"),
+    };
+  }, [entries, matchId, tracksBySlug]);
+
+  /** Cautions only for the matches actually in view. */
+  const cautions = useMemo(
+    () => matches.filter(
+      (m) => m.caution && (matchId === null || m.matchId === matchId)),
+    [matches, matchId],
+  );
+
+  const loading = tracksBySlug === null;
+  const clear = () => { setReason(null); setOutcome("all"); setFlag(null); };
+  const filtered = reason !== null || outcome !== "all" || flag !== null
+    || matchId !== null;
+
+  const pill = (on: boolean, tone: "cyan" | "amber" = "cyan") =>
+    `rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+      on
+        ? tone === "amber"
+          ? "border-amber-300/60 bg-amber-300/15 text-amber-200"
+          : "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
+        : "border-edge bg-surface-2/40 text-zinc-400 hover:text-zinc-200"
+    }`;
+
+  const num = (v: number, on: boolean, tone: "cyan" | "amber" | "zinc",
+               onClick: () => void) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={v === 0}
+      className={`w-full rounded px-2 py-0.5 text-right tabular-nums transition-colors ${
+        v === 0
+          ? "cursor-default text-zinc-600"
+          : on
+            ? tone === "amber"
+              ? "bg-amber-300/20 text-amber-200"
+              : "bg-cyan-glow/20 text-cyan-glow"
+            : tone === "amber"
+              ? "text-amber-300/90 hover:bg-amber-300/10"
+              : tone === "cyan"
+                ? "text-cyan-glow/90 hover:bg-cyan-glow/10"
+                : "text-zinc-300 hover:bg-surface-2"
+      }`}
+    >
+      {v}
+    </button>
+  );
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
       <h1 className="text-2xl font-bold">Serve accuracy</h1>
       <p className="mt-2 max-w-3xl text-sm text-zinc-400">
-        Everything measured about each point, beside the video it was measured
-        from. The pink outline is where the table was calibrated to. Rings on
-        the clip are detected touches as they happen, and the yellow trail is
-        the ball itself. On the small court every bounce that projected onto
-        the table is plotted, with the serve&apos;s two in colour. Production
-        stores only the touches it decided on, so the trail comes from
-        re-running BlurBall over these clips: it is a fresh track, not the one
-        the reconstruction actually read.
+        Every point from every match in one list, grouped by what happened at
+        the end of it rather than by which match it came from. The tables
+        below are the filters: a reason narrows to that reason, and the
+        numbers beside it narrow to that reason and that outcome together.
       </p>
 
-      <div className="mt-5 flex flex-wrap gap-2">
-        {matches.map((m) => (
-          <button
-            key={m.matchId}
-            type="button"
-            onClick={() => setActive(m.matchId)}
-            className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors ${
-              m.matchId === active
-                ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                : "border-edge bg-surface-2/40 text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            {m.label}
-            <span className="ml-2 text-xs font-normal opacity-60 tabular-nums">
-              {m.rows.length}
-            </span>
-            {m.caution && <span className="ml-1.5 text-amber-300">•</span>}
-          </button>
-        ))}
-      </div>
-
-      <p className="mt-3 text-xs text-zinc-500">
-        {match.rows.length} points ·{" "}
-        {match.calibrationSource
-          ? `table found by ${match.calibrationSource}`
-          : "table source unrecorded"}{" "}
-        ·{" "}
-        {match.serveAnchored > 0
-          ? `${match.serveAnchored} points bounded by a serve tap`
-          : "points bounded by the winner tap only"}{" "}
-        ·{" "}
-        {match.userSide
-          ? `uploader on the ${match.userSide} end in game one`
-          : "end never recorded"}
-        {allTracks === null && " · loading ball tracks"}
-      </p>
-
-      {match.caution && (
-        <p className="mt-3 rounded-xl border border-amber-300/30 bg-amber-300/5 px-4 py-3 text-sm text-amber-100/90">
-          {match.caution}
+      {loading ? (
+        <p className="mt-6 text-sm text-zinc-500">
+          Reading the ball tracks for all {matches.length} matches…
         </p>
-      )}
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border border-edge bg-surface p-4">
-          <p className="text-sm text-zinc-200">
-            Serves drawn for {stats.drawn} of {stats.total}. A rally ending for{" "}
-            {stats.withFinal}. {stats.events} touches detected in all.
-          </p>
-          <p className="mt-2 text-sm text-zinc-200">
-            The worker&apos;s own call matched your tap on{" "}
-            <span className="tabular-nums">{stats.callAgreed}</span> of{" "}
-            <span className="tabular-nums">{stats.callCompared}</span> scored
-            points.
-          </p>
-          <p className="mt-2 text-sm text-zinc-200">
-            Serve speed measurable on{" "}
-            <span className="tabular-nums">{stats.speedCount}</span>, median{" "}
-            <span className="tabular-nums">
-              {stats.speedMedian ? `${stats.speedMedian.toFixed(0)} km/h` : "n/a"}
-            </span>
-            .
-          </p>
-          <p className="mt-2 text-sm text-zinc-200">
-            The ball died on the table on{" "}
-            <span className="tabular-nums">{runScore.fires}</span> scored
-            points, and the side it died on lost it{" "}
-            <span className="tabular-nums">{runScore.right}</span> times. The
-            worker was right on{" "}
-            <span className="tabular-nums">{runScore.workerRight}</span> of the
-            same points. Its bounces were the witness on all but{" "}
-            <span className="tabular-nums">{runScore.byTurn}</span>, where the
-            ball turned at the net and dropped only twice.
-          </p>
-          <p className="mt-2 text-sm text-zinc-200">
-            The ball left the table on{" "}
-            <span className="tabular-nums">{offScore.fires}</span> more, where
-            the ball&rsquo;s path into that last shot was clean enough to
-            follow, and that named the winner right{" "}
-            <span className="tabular-nums">{offScore.right}</span> times
-            against the worker&rsquo;s{" "}
-            <span className="tabular-nums">{offScore.workerRight}</span>.
-          </p>
-          <p className="mt-2 text-sm text-zinc-200">
-            And on{" "}
-            <span className="tabular-nums">{noReturnScore.fires}</span> more
-            the track shows the ball never coming back over the net after the
-            last landing, which named the winner right{" "}
-            <span className="tabular-nums">{noReturnScore.right}</span> times
-            against the worker&rsquo;s{" "}
-            <span className="tabular-nums">{noReturnScore.workerRight}</span>.
-          </p>
-          <p className="mt-2 text-sm text-zinc-200">
-            <span className="tabular-nums">{repairedTotal}</span> of those
-            calls only exist because the ball&rsquo;s track was read as
-            flights and the events it was missing were put back. Where the
-            rules answer from what the worker recorded, nothing is repaired,
-            so no call already being made can change.
-          </p>
-          <p className="mt-2 text-[11px] text-zinc-500">
-            Calibration: {match.calibrationSource ?? "unknown"}.
-          </p>
-        </div>
-        <div className="rounded-xl border border-edge bg-surface p-4">
-          <p className="text-sm text-zinc-200">Why a serve was not drawn</p>
-          <ul className="mt-2 space-y-1">
-            {stats.reasons.map(([reason, count]) => (
-              <li key={reason} className="text-xs text-zinc-500">
-                <span className="tabular-nums text-zinc-400">{count}</span>
-                {" · "}
-                {REJECTION_COPY[reason]}
-              </li>
+      ) : (
+        <>
+          <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-5">
+            {(
+              [
+                ["all", "points", totals.all, "zinc"],
+                ["right", "we got right", totals.right, "cyan"],
+                ["wrong", "we got wrong", totals.wrong, "amber"],
+                ["nocall", "no call at all", totals.nocall, "zinc"],
+                ["unchecked", "called, never scored", totals.unchecked, "zinc"],
+              ] as const
+            ).map(([key, label, value, tone]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setOutcome(key === "all" ? "all" : key as Outcome)}
+                className={`rounded-xl border p-3 text-left transition-colors ${
+                  (key === "all" ? outcome === "all" : outcome === key)
+                    ? "border-cyan-glow/60 bg-cyan-glow/10"
+                    : "border-edge bg-surface hover:border-zinc-600"
+                }`}
+              >
+                <span className={`block text-xl font-semibold tabular-nums ${
+                  tone === "amber" ? "text-amber-300"
+                    : tone === "cyan" ? "text-cyan-glow" : "text-zinc-100"
+                }`}>
+                  {value}
+                </span>
+                <span className="text-[11px] text-zinc-500">{label}</span>
+              </button>
             ))}
-          </ul>
-        </div>
-      </div>
+          </div>
 
-      <div className="mt-3">
-        <Legend />
-      </div>
+          <h2 className="mt-7 text-sm font-semibold text-zinc-200">
+            Endings we call
+          </h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            Click a reason for all of its points, or a number for just those.
+          </p>
+          <div className="mt-2 overflow-x-auto rounded-xl border border-edge">
+            <table className="w-full min-w-[520px] text-sm">
+              <thead className="bg-surface-2/40 text-[11px] uppercase tracking-wide text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">how it ended</th>
+                  <th className="px-2 py-2 text-right font-medium">points</th>
+                  <th className="px-2 py-2 text-right font-medium">right</th>
+                  <th className="px-2 py-2 text-right font-medium">wrong</th>
+                  <th className="px-2 py-2 text-right font-medium">not scored</th>
+                  <th className="px-3 py-2 text-right font-medium">accuracy</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byReason.called.map((c) => {
+                  const judged = c.right + c.wrong;
+                  const on = reason === c.reason;
+                  return (
+                    <tr key={c.reason}
+                        className={`border-t border-edge ${on ? "bg-cyan-glow/5" : ""}`}>
+                      <td className="px-3 py-1.5">
+                        <button
+                          type="button"
+                          onClick={() => { setReason(on ? null : c.reason); setOutcome("all"); }}
+                          className={`text-left transition-colors ${
+                            on ? "text-cyan-glow" : "text-zinc-200 hover:text-cyan-glow"}`}
+                        >
+                          {c.reason}
+                        </button>
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {num(c.points, on && outcome === "all", "zinc",
+                          () => { setReason(c.reason); setOutcome("all"); })}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {num(c.right, on && outcome === "right", "cyan",
+                          () => { setReason(c.reason); setOutcome("right"); })}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {num(c.wrong, on && outcome === "wrong", "amber",
+                          () => { setReason(c.reason); setOutcome("wrong"); })}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {num(c.unchecked, on && outcome === "unchecked", "zinc",
+                          () => { setReason(c.reason); setOutcome("unchecked"); })}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-zinc-400">
+                        {judged ? `${Math.round((100 * c.right) / judged)}%` : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {byReason.called.length === 0 && (
+                  <tr><td colSpan={6} className="px-3 py-3 text-xs text-zinc-500">
+                    No calls in this selection.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {(
-          [
-            ["all", `All ${match.rows.length}`],
-            ["drawn", `Serve drawn ${stats.drawn}`],
-            ["refused", `Refused ${match.rows.length - stats.drawn}`],
-            ["disagreed", `Worker disagreed ${disagreed}`],
-            ["deadrun", `Ball died ${runScore.fires}`],
-            ["offtable", `Off table ${offScore.fires}`],
-            ["wrong", `We called it wrong ${ruleWrong}`],
-            ["disagree", `Rules disagree ${disagreeCount}`],
-            ["repaired", `Repaired ${repairedCount}`],
-            ["serverepair", `Serve recovered ${serveRecovered}`],
-            ["heldback", `Held back ${heldBack}`],
-            ["noreturn", `No return ${noReturnScore.fires}`],
-            ["nocall", `No call ${noCall}`],
-          ] as const
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setOnly(key)}
-            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-              only === key
-                ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                : "border-edge bg-surface-2/40 text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
+          <h2 className="mt-7 text-sm font-semibold text-zinc-200">
+            Why we make no call
+          </h2>
+          <p className="mt-1 text-xs text-zinc-500">
+            The population to shrink. Each of these is a point we could not
+            name a winner for.
+          </p>
+          <div className="mt-2 overflow-x-auto rounded-xl border border-edge">
+            <table className="w-full min-w-[420px] text-sm">
+              <thead className="bg-surface-2/40 text-[11px] uppercase tracking-wide text-zinc-500">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">why it said nothing</th>
+                  <th className="px-2 py-2 text-right font-medium">points</th>
+                  <th className="px-3 py-2 text-right font-medium">share</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byReason.refused.map((c) => {
+                  const on = reason === c.reason;
+                  return (
+                    <tr key={c.reason}
+                        className={`border-t border-edge ${on ? "bg-cyan-glow/5" : ""}`}>
+                      <td className="px-3 py-1.5">
+                        <button
+                          type="button"
+                          onClick={() => { setReason(on ? null : c.reason); setOutcome("all"); }}
+                          className={`text-left transition-colors ${
+                            on ? "text-cyan-glow" : "text-zinc-200 hover:text-cyan-glow"}`}
+                        >
+                          {c.reason}
+                        </button>
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {num(c.points, on, "zinc",
+                          () => { setReason(c.reason); setOutcome("all"); })}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-zinc-400">
+                        {totals.nocall
+                          ? `${Math.round((100 * c.points) / totals.nocall)}%` : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {byReason.refused.length === 0 && (
+                  <tr><td colSpan={3} className="px-3 py-3 text-xs text-zinc-500">
+                    Every point in this selection got a call.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
-      {wrongByRule.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wide text-zinc-500">
-            Which rule got it wrong
-          </span>
-          {wrongByRule.map(([name, count]) => (
-            <button
-              key={name}
-              type="button"
-              onClick={() => setOnly(`wrongby:${name}`)}
-              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                only === `wrongby:${name}`
-                  ? "border-amber-300/60 bg-amber-300/15 text-amber-200"
-                  : "border-edge bg-surface-2/40 text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              {name} {count}
+          <div className="mt-6 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] uppercase tracking-wide text-zinc-500">
+              Match
+            </span>
+            <button type="button" onClick={() => setMatchId(null)}
+                    className={pill(matchId === null)}>
+              All {matches.length}
             </button>
-          ))}
-        </div>
-      )}
+            {matches.map((m) => (
+              <button key={m.matchId} type="button"
+                      onClick={() => setMatchId(matchId === m.matchId ? null : m.matchId)}
+                      className={pill(matchId === m.matchId)}>
+                {m.label}
+                <span className="ml-2 font-normal opacity-60 tabular-nums">
+                  {m.rows.length}
+                </span>
+                {m.caution && <span className="ml-1.5 text-amber-300">•</span>}
+              </button>
+            ))}
+          </div>
 
-      {noCallReasons.length > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wide text-zinc-500">
-            Why it made no call
-          </span>
-          {noCallReasons.map(([why, count]) => (
-            <button
-              key={why}
-              type="button"
-              onClick={() => setOnly(`why:${why}`)}
-              className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                only === `why:${why}`
-                  ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-                  : "border-edge bg-surface-2/40 text-zinc-400 hover:text-zinc-200"
-              }`}
-            >
-              {why} {count}
-            </button>
-          ))}
-        </div>
-      )}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] uppercase tracking-wide text-zinc-500">
+              Also
+            </span>
+            {(
+              [
+                ["servedrawn", "Serve drawn", flagCounts.servedrawn],
+                ["repaired", "Repaired", flagCounts.repaired],
+                ["serverecovered", "Serve recovered", flagCounts.serverecovered],
+                ["disagree", "Rules disagree", flagCounts.disagree],
+                ["workerwrong", "Worker disagreed", flagCounts.workerwrong],
+              ] as const
+            ).map(([key, label, count]) => (
+              <button key={key} type="button"
+                      onClick={() => setFlag(flag === key ? null : key)}
+                      className={pill(flag === key)}>
+                {label} <span className="tabular-nums opacity-70">{count}</span>
+              </button>
+            ))}
+          </div>
 
-      <div className="mt-4 space-y-3">
-        {rows.map((row) => (
-          <Row key={row.pointId} row={row} match={match} tracks={allTracks} />
-        ))}
-      </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-edge pt-3">
+            <p className="text-sm text-zinc-300">
+              Showing <span className="tabular-nums text-zinc-100">{shown.length}</span>
+              {" "}of {totals.all}
+              {reason !== null && <> · <span className="text-cyan-glow">{reason}</span></>}
+              {outcome !== "all" && <> · {OUTCOME_COPY[outcome]}</>}
+              {matchId !== null && <> · {matches.find((m) => m.matchId === matchId)?.label}</>}
+            </p>
+            {filtered && (
+              <button type="button" onClick={() => { clear(); setMatchId(null); }}
+                      className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-400 hover:text-zinc-200">
+                Clear filters
+              </button>
+            )}
+          </div>
+
+          {cautions.map((m) => (
+            <p key={m.matchId}
+               className="mt-3 rounded-xl border border-amber-300/30 bg-amber-300/5 px-4 py-3 text-sm text-amber-100/90">
+              <span className="font-semibold">{m.label}:</span> {m.caution}
+            </p>
+          ))}
+
+          <div className="mt-3">
+            <Legend />
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {shown.map((e) => (
+              <Row key={e.row.pointId} row={e.row} match={e.match}
+                   tracks={tracksBySlug?.[e.match.slug] ?? null} />
+            ))}
+            {shown.length === 0 && (
+              <p className="rounded-xl border border-edge bg-surface p-4 text-sm text-zinc-500">
+                Nothing matches those filters.
+              </p>
+            )}
+          </div>
+        </>
+      )}
     </main>
   );
 }
