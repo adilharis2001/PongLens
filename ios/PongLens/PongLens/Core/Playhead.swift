@@ -67,6 +67,15 @@ func paddedEnd(_ p: MatchPoint, _ pad: ClipPad) -> Double? {
 /// so half a second stays on before the cut.
 let TAP_END_GUARD_S = 0.5
 
+/// How far the point's own end may sit past the observed ending before the
+/// ending is refused. points_v2.rally_end_ev sets a card's end to
+/// min(lastBounce + 2.6, ...), so when the bounce ended the card the gap
+/// cannot exceed TAIL_AFTER_BOUNCE. A bigger gap proves the end came from
+/// elsewhere and the "ending" is just the last bounce the detector managed
+/// to see — which can be most of a rally early. Mirrors
+/// RALLY_END_MAX_TAIL_S in playhead.ts.
+let RALLY_END_MAX_TAIL_S = 2.7
+
 /// app_config.unscored_rally_end and its buffer (143).
 struct RallyEndConfig {
     let on: Bool
@@ -123,7 +132,10 @@ func effectiveEnd(_ p: MatchPoint, _ pad: ClipPad, _ ends: EndOptions) -> Double
         return padded
     }
     if let rally = ends.rallyEnd, rally.on,
-       let observed = p.rallyEndCutS, observed >= cutT0 {
+       let observed = p.rallyEndCutS, observed >= cutT0,
+       // The ending must explain where this point already ends. When it
+       // does not, the detector lost the ball rather than watched it stop.
+       let own = rallyEnd(p, pad), own - observed <= RALLY_END_MAX_TAIL_S {
         return min(padded, observed + rally.bufferS)
     }
     return padded

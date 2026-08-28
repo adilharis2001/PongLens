@@ -182,6 +182,48 @@
       }
     },
     {
+      "name": "ending does not explain the point's end",
+      "point": {
+        "cut_t0": 50,
+        "t0": 100,
+        "t1": 104,
+        "edited": false,
+        "tight_start": false,
+        "tight_end": false,
+        "scored_at_cut_s": null,
+        "rally_end_cut_s": 51
+      },
+      "padded_end": 56.5,
+      "ends": {
+        "off": 56.5,
+        "tapOnly": 56.5,
+        "rallyOnly": 56.5,
+        "both": 56.5,
+        "bothWide": 56.5
+      }
+    },
+    {
+      "name": "ending explains it, just",
+      "point": {
+        "cut_t0": 50,
+        "t0": 100,
+        "t1": 104,
+        "edited": false,
+        "tight_start": false,
+        "tight_end": false,
+        "scored_at_cut_s": null,
+        "rally_end_cut_s": 52.6
+      },
+      "padded_end": 56.5,
+      "ends": {
+        "off": 56.5,
+        "tapOnly": 56.5,
+        "rallyOnly": 53.1,
+        "both": 53.1,
+        "bothWide": 54.1
+      }
+    },
+    {
       "name": "both present, tap later",
       "point": {
         "cut_t0": 50,

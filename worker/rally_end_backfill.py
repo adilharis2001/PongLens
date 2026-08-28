@@ -34,6 +34,19 @@ TABLE_W_M = 1.525
 TABLE_L_M = 2.74
 EDGE_PAD_M = 0.15
 
+# points_v2.rally_end_ev ends a card at min(last_bounce + TAIL_AFTER_BOUNCE,
+# ...), so a card whose end was set by its last bounce sits at most 2.6s
+# past it. Further than that and the end came from the crossing chain, the
+# rally cap, or a bounce this detector never found — and the "ending" is
+# then just the last bounce it happened to see.
+#
+# It matters more here than in the pipeline: placement's bounce test is
+# stricter than points_v2's, so a backfilled point can be missing the
+# bounce that actually ended the rally. The first row of the review page
+# was a 16.5s rally with ONE bounce found, at 2.2s. 19% of points fail this
+# and keep today's behaviour.
+MAX_TAIL_AFTER_ENDING_S = 2.7
+
 
 def on_table(candidate: dict) -> bool:
     u, v = candidate.get("u"), candidate.get("v")
@@ -105,7 +118,7 @@ def backfill_match(conn, match_id: str, dry_run: bool = False) -> dict:
                    where match_id=%s and deleted is not true
                    order by idx""", (match_id,))
     rows = cur.fetchall()
-    written = no_bounce = outside = already = 0
+    written = no_bounce = outside = already = unexplained = 0
     for pid, _idx, t0, t1, placement, existing in rows:
         if existing is not None:
             already += 1
@@ -116,6 +129,9 @@ def backfill_match(conn, match_id: str, dry_run: bool = False) -> dict:
         end_s = rally_end_for_point(placement, float(t0), float(t1))
         if end_s is None:
             no_bounce += 1
+            continue
+        if float(t1) - end_s > MAX_TAIL_AFTER_ENDING_S:
+            unexplained += 1
             continue
         cut_s = round(cut_position(segments, offsets, end_s), 2)
         # The clip runs from cut_t0; an ending the clip does not contain
@@ -132,7 +148,7 @@ def backfill_match(conn, match_id: str, dry_run: bool = False) -> dict:
         written += 1
     return {"match": match_id, "points": len(rows), "written": written,
             "no_bounce": no_bounce, "outside_clip": outside,
-            "already_set": already}
+            "unexplained": unexplained, "already_set": already}
 
 
 def main(argv=None) -> None:
@@ -172,7 +188,8 @@ def main(argv=None) -> None:
         print("nothing to do")
         return
 
-    totals = {"points": 0, "written": 0, "no_bounce": 0, "outside_clip": 0}
+    totals = {"points": 0, "written": 0, "no_bounce": 0, "outside_clip": 0,
+              "unexplained": 0}
     for mid in ids:
         res = backfill_match(conn, mid, dry_run=args.dry_run)
         if "skipped" in res:
@@ -181,12 +198,15 @@ def main(argv=None) -> None:
         for k in totals:
             totals[k] += res.get(k, 0)
         print(f"{mid[:8]}  {res['written']:4d}/{res['points']:4d} written  "
-              f"(no bounce {res['no_bounce']}, outside clip "
-              f"{res['outside_clip']}, already set {res['already_set']})")
+              f"(no bounce {res['no_bounce']}, does not explain t1 "
+              f"{res['unexplained']}, outside clip {res['outside_clip']}, "
+              f"already set {res['already_set']})")
     print(f"\n{'DRY RUN, nothing written' if args.dry_run else 'written'}: "
           f"{totals['written']} of {totals['points']} points across "
           f"{len(ids)} match(es); {totals['no_bounce']} had no bounce on the "
-          f"table, {totals['outside_clip']} landed outside their clip")
+          f"table, {totals['unexplained']} had one that does not explain "
+          f"where the point ends, {totals['outside_clip']} landed outside "
+          f"their clip")
 
 
 if __name__ == "__main__":

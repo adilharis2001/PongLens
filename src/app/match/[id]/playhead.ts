@@ -65,6 +65,24 @@ const TAP_END_GUARD_S = 0.5;
 export type RallyEndConfig = { on: boolean; bufferS: number };
 
 /**
+ * How far the point's own end may sit past the observed ending before the
+ * ending is refused.
+ *
+ * points_v2.rally_end_ev sets a card's end to min(lastBounce + 2.6, ...),
+ * so when the bounce is what ended the card the gap CANNOT exceed
+ * TAIL_AFTER_BOUNCE. A bigger gap is proof the end came from somewhere
+ * else — the crossing chain, the rally cap, or a bounce the detector never
+ * found — and the "ending" is then just the last bounce it happened to
+ * see, which can be most of a rally early.
+ *
+ * This is not hypothetical. On the review page the very first row was a
+ * 16.5s Chris rally with ONE bounce detected, at 2.2s: trimming to it
+ * would have thrown away thirteen seconds of live play. 19% of backfilled
+ * points fail this test, and every one of them keeps today's behaviour.
+ */
+const RALLY_END_MAX_TAIL_S = 2.7;
+
+/**
  * Which endings are allowed to shorten a point.
  *
  * An object rather than a second boolean: there are ten call sites, and a
@@ -137,10 +155,16 @@ export function effectiveEnd(
   }
 
   const rally = p.rally_end_cut_s;
-  if (opts.rallyEnd?.on && rally !== null && rally !== undefined) {
-    if (Number(rally) >= start) {
-      return Math.min(padded, Number(rally) + opts.rallyEnd.bufferS);
-    }
+  const own = rallyEnd(p, pad);
+  if (
+    opts.rallyEnd?.on
+    && rally !== null && rally !== undefined
+    && Number(rally) >= start
+    // The ending must explain where this point already ends. When it does
+    // not, the detector lost the ball rather than watched it stop.
+    && own !== null && own - Number(rally) <= RALLY_END_MAX_TAIL_S
+  ) {
+    return Math.min(padded, Number(rally) + opts.rallyEnd.bufferS);
   }
   return padded;
 }

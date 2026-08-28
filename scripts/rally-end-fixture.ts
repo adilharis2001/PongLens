@@ -48,6 +48,12 @@ const CASES: { name: string; point: Partial<Point> }[] = [
   { name: "rally observed", point: { rally_end_cut_s: 53.9 } },
   { name: "rally near the clip end", point: { rally_end_cut_s: 56.4 } },
   { name: "rally before its own clip", point: { rally_end_cut_s: 49.0 } },
+  // The point's own end is 55.2. An ending 4.2s before that cannot be what
+  // set it, so it is the last bounce the detector managed to see, not the
+  // moment the rally stopped.
+  { name: "ending does not explain the point's end", point: { rally_end_cut_s: 51.0 } },
+  // 2.6s earlier is exactly TAIL_AFTER_BOUNCE: the boundary case, kept.
+  { name: "ending explains it, just", point: { rally_end_cut_s: 52.6 } },
   {
     name: "both present, tap later",
     point: { scored_at_cut_s: 54.8, rally_end_cut_s: 53.9 },

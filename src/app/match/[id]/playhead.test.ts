@@ -276,3 +276,14 @@ test("skipSpans jumps a rally-trimmed tail, not only a tapped one", () => {
   // Off, there is nothing to jump.
   assert.deepEqual(skipSpans([a, b], PAD, OFF), []);
 });
+
+test("an ending that cannot explain the point's own end is refused", () => {
+  // pt(): the rally ends at 55.2 in cut seconds. An "ending" at 51.0 is
+  // 4.2s before that, so it did not set this point's end — the detector
+  // lost the ball. This is the 16.5s Chris rally with one bounce found.
+  const lost = pt({ rally_end_cut_s: 51.0 });
+  assert.equal(effectiveEnd(lost, PAD, RALLY), paddedEnd(lost, PAD));
+  // 2.6s before is TAIL_AFTER_BOUNCE exactly: the ending explains the end.
+  const good = pt({ rally_end_cut_s: 52.6 });
+  assert.equal(effectiveEnd(good, PAD, RALLY), 53.1);
+});
