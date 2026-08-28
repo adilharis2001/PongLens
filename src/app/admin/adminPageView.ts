@@ -8,6 +8,7 @@ export const ADMIN_PAGES = [
   { key: "backlog", href: "/admin/backlog", title: "Backlog" },
   { key: "storage", href: "/admin/storage", title: "Storage" },
   { key: "players", href: "/admin/players", title: "Players" },
+  { key: "uploads", href: "/admin/uploads", title: "Uploads" },
   { key: "costs", href: "/admin/costs", title: "Platform costs" },
   { key: "reviews", href: "/admin/reviews", title: "Paid reviews" },
   { key: "commerce", href: "/admin/commerce", title: "Commerce" },
@@ -83,6 +84,11 @@ export function hubDetail(
     case "players":
       return {
         text: `${counts.players} players · ${counts.matches} matches`,
+        attention: false,
+      };
+    case "uploads":
+      return {
+        text: `${counts.matches} uploads`,
         attention: false,
       };
     case "costs":

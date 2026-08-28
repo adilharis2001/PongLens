@@ -1,11 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { formatCost } from "@/lib/costs/calculations";
 import { AdminHeader } from "../../AdminHeader";
-import { CutVideo } from "./CutVideo";
-import { PointBreakdown } from "./PointBreakdown";
 import {
   countLabel,
   durationsLabel,
@@ -171,50 +170,20 @@ function StatTile({
   );
 }
 
+/**
+ * One upload in the roster. Everything about HOW it was processed — the
+ * table, the assembler, the cards, both videos — lives on its own page
+ * now; this row is a summary and a way in. It used to carry three video
+ * buttons and an inline point breakdown, which put a 590px-wide row on a
+ * 393px phone with its controls off the side of the screen.
+ */
 function UploadRow({ match }: { match: PlayerMatchRow }) {
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [videoKind, setVideoKind] = useState<"cut" | "raw">("cut");
-  const [loading, setLoading] = useState<"cut" | "raw" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [showPoints, setShowPoints] = useState(false);
-
-  // One player, two sources: the cut and the ORIGINAL upload. Grading
-  // the cut means checking what it removed, which only the raw shows.
-  const watch = async (kind: "cut" | "raw") => {
-    if (videoUrl && videoKind === kind) {
-      setVideoUrl(null);
-      return;
-    }
-    setLoading(kind);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/media-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          kind === "raw" ? { matchId: match.id, raw: true } : { matchId: match.id }
-        ),
-      });
-      const body = (await res.json()) as { url?: string; error?: string };
-      if (!res.ok || !body.url) {
-        setError(body.error ?? "Could not load the video.");
-        return;
-      }
-      setVideoKind(kind);
-      setVideoUrl(body.url);
-    } catch {
-      setError("Could not load the video.");
-    } finally {
-      setLoading(null);
-    }
-  };
-
   const durations = durationsLabel(match.src_duration_s, match.cut_duration_s);
   const retention = retentionLabel(match.src_duration_s, match.cut_duration_s);
   const trouble =
     match.status !== "ready"
       ? match.job_error || `Status: ${match.status}`
-      : match.placement_status === "failed"
+      : match.placement_status === "final_failed"
         ? "Placement failed"
         : null;
 
@@ -245,50 +214,16 @@ function UploadRow({ match }: { match: PlayerMatchRow }) {
             )}
           </p>
         </div>
-        {match.points > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowPoints((open) => !open)}
-            className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white"
-          >
-            {showPoints ? "Hide points" : "Points"}
-          </button>
-        )}
-        {match.has_cut && (
-          <button
-            type="button"
-            onClick={() => void watch("cut")}
-            disabled={loading !== null}
-            className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white disabled:opacity-60"
-          >
-            {loading === "cut"
-              ? "Loading…"
-              : videoUrl && videoKind === "cut"
-                ? "Close"
-                : "Watch"}
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={() => void watch("raw")}
-          disabled={loading !== null}
-          title="The original upload, uncut (kept 30 days)"
-          className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white disabled:opacity-60"
+        <Link
+          href={`/admin/uploads/${match.id}`}
+          className="shrink-0 rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white"
         >
-          {loading === "raw"
-            ? "Loading…"
-            : videoUrl && videoKind === "raw"
-              ? "Close"
-              : "Original"}
-        </button>
+          Open
+        </Link>
       </div>
 
       <p className="mt-2 text-xs text-zinc-500">{facts.join(" · ")}</p>
       {trouble && <p className="mt-1 text-xs text-amber-300">{trouble}</p>}
-      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-
-      {videoUrl && <CutVideo url={videoUrl} />}
-      {showPoints && <PointBreakdown matchId={match.id} />}
     </li>
   );
 }
