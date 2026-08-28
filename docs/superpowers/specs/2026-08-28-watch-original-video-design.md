@@ -1,8 +1,12 @@
 # Watching the original upload
 
-**Status:** proposed, not built. Second revision, after Adil confirmed the
-Cloudflare lifecycle rules and decided that coaches may watch the original
-too. Both of those changed the design.
+**Status:** BUILT and verified, commit `e212dee3`. Not yet deployed.
+
+Adil settled the two open questions — the Cloudflare lifecycle rules are
+harmless, and coaches may watch the original — and then chose the placement:
+a small pill beside the download control rather than a row in Tools, on the
+match card and again in the coach workspace. What follows is the record of
+how it was decided, then what shipped.
 
 Measured against production: 140 processed matches, a full listing of the
 live `ponglens-raw` bucket, `ffprobe` over all 86 distinct originals, and
@@ -139,7 +143,30 @@ same at `MatchDetailScreen.swift:145-151`.
 So this is not a new category. It is the *ready-match* case of something that
 already ships.
 
-### Recommendation: a second row inside the video card
+### What shipped: a pill beside the download control
+
+Adil's call, and it is the right one for the same reason a Tools row was
+wrong: the card is the only container both a player and a coach see. A pill
+rather than a second row keeps the card the height it already was, which
+turned out to matter — the second row would have pushed Tools off the bottom
+of a 393x660 phone, and the pill does not.
+
+    [ poster, tap to play the cut ]
+    ---------------------------------------
+    Full video          [> Original]  [v]
+    Playtime only
+
+**It says "Original", not "Full video".** Adil described it as the full
+video, which is what it is, but the caption two inches to its left already
+reads "Full video / Playtime only" about the cut. Two identical labels on
+one card would be broken. "Original" is also already this product's word for
+the file: an unprocessed match's card says "Original video / As uploaded"
+today.
+
+The rest of this section is the reasoning that led there, kept because it is
+what rules out the alternatives.
+
+### Considered: a second row inside the video card
 
 The one container that already renders for owner and coach alike, on iPhone,
 desktop and mobile web, is the video card itself.
@@ -232,32 +259,34 @@ Both came from deliberately trying to refute the design. Both were right.
 
 ### 1. `raw_path` alone hides a live original on 19% of matches
 
-The first draft said: show the row when `matches.raw_path` is set, because
+The first draft said: show the pill when `matches.raw_path` is set, because
 that field is already loaded and costs nothing.
 
 That is a *sufficient* signal (all 71 such objects are alive) but not a
 *necessary* one. **27 of 140 processed matches have `raw_path` null and an
-original that is still in R2**, HEAD-verified, 17 distinct objects of 247 MB
-to 966 MB. A row gated on `raw_path` shows nothing on all 27, for owner and
-coach alike — while the Export sheet's download button, which resolves
-through `jobs.input_path`, works fine on the same matches. Two controls for
-one file, disagreeing on the same page.
+original that is still in R2**, HEAD-verified. So the correction was to add
+the `jobs.input_path` fallback that migration 144 already wrote for the admin
+route.
 
-The product already solved this once. Migration 144 replaced
-`admin_match_raw_path` for precisely this reason and its replacement
-(`144_admin_upload_detail.sql:57-68`) is a three-way coalesce: `raw_path`,
-then `jobs.input_path` by `job_id`, then by `options->>'match_id'`.
+**And then building it proved the correction wrong.** With the fallback in,
+all three demo matches drew a pill, and every one of them opened on "The
+original is no longer available" — their July jobs had already been swept.
+The two signals are not the same kind of answer: `raw_path` means the sweep
+is *protecting* the object; `input_path` only means a job once pointed there,
+and those files are on the ordinary 30-day clock. Making the fallback honest
+would need an R2 HEAD on every match page load, to serve a set that empties
+itself around 2026-09-12.
 
-**Corrected rule:** show the row when `raw_path` is set **or**
-`jobs.input_path` starts with `r2://ponglens-raw/`. Resolved server-side, one
-extra column in a select that already happens. No probe, no R2 HEAD, no
-layout shift at the fold.
+**What shipped is `raw_path` alone**, which makes the pill's presence a
+guarantee rather than a guess. The Export sheet keeps its own fallback,
+because a download that turns out to be unavailable has a row to say so in
+and this pill does not. The consequence is a fortnight in which Export offers
+a download of the original on 27 matches that have no pill. That is mildly
+inconsistent and it resolves itself.
 
-On tap, mint the URL. `/api/media-url` already HEAD-checks and answers
-`{ available: false }`, so the rare dead case says **"The original is no
-longer available."** rather than opening a broken player. All 27 of those
-matches also have `duration_s` null, so their subtitle reads just "As
-uploaded".
+The lesson worth keeping: *a probe you have not run is not the same as a
+guarantee you have*, and the difference only showed up when the thing was on
+screen.
 
 ### 2. On iOS, emptying the points array is NOT enough
 
