@@ -18,6 +18,8 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import urllib.error
+import urllib.request
 
 CLIP_PRE_DEFAULT = 1.2
 CLIP_POST_DEFAULT = 1.3
@@ -82,10 +84,15 @@ def collect(conn, match_id: str, buffer_s: float) -> dict | None:
             continue
         rally_in_clip = float(end_s) - c0
         trimmed = rally_in_clip + buffer_s
+        # points.clip_path stores the full r2:// URI, not the object key.
+        # Signing the URI signs a key that does not exist, and presigning
+        # never checks — every URL comes back looking perfectly normal and
+        # 400s on first byte.
+        clip_key = clip.replace(f"r2://{R2_MEDIA_BUCKET}/", "", 1)
         try:
             url = r2().generate_presigned_url(
                 "get_object",
-                Params={"Bucket": R2_MEDIA_BUCKET, "Key": clip,
+                Params={"Bucket": R2_MEDIA_BUCKET, "Key": clip_key,
                         "ResponseContentDisposition": "inline"},
                 ExpiresIn=7 * 86400,
             )
@@ -152,12 +159,16 @@ PAGE = """<!doctype html>
  .tag {{ display:inline-block; border:1px solid var(--edge); border-radius:999px;
          padding:2px 9px; font-size:11px; color:var(--dim); margin-right:6px; }}
  .big {{ color:var(--amber); }}
+ .stopped {{ color:var(--cyan); font-size:12px; margin-left:8px; }}
  h2 {{ font-size:17px; margin:34px 0 4px; }}
  .mnote {{ color:var(--dim); font-size:13px; margin:0 0 14px; }}
 </style>
 <main>
 <h1>Rally-end trim review</h1>
-<p class="sub">Every point ends today at the padded clip end, which carries
+<p class="sub">Each clip starts four seconds before the proposed end and
+stops there, so what you are judging is the last moment of the rally. Press
+the button to watch the whole clip instead. Every point ends today at the
+padded clip end, which carries
 2.6 seconds after the last bounce on the table so a winner tap lands inside
 it. On a match nobody scores there is no tap coming. Each row below plays
 its clip and stops where the trim would, with a {buffer}s buffer after the
@@ -172,27 +183,37 @@ with a ball hit long or wide, which never touches the table again.</p>
 {body}
 </main>
 <script>
-const BUF = {buffer};
+// preload="metadata" often finishes BEFORE this script runs, so waiting on
+// loadedmetadata alone silently never seeks and every clip starts at zero.
+function whenReady(v, fn) {{
+  if (v.readyState >= 1) fn();
+  else v.addEventListener('loadedmetadata', fn, {{ once: true }});
+}}
 document.querySelectorAll('video').forEach(v => {{
   const end = parseFloat(v.dataset.end);
   const from = Math.max(0, end - 4);
-  v.addEventListener('loadedmetadata', () => {{ v.currentTime = from; }});
+  const label = v.closest('.row').querySelector('.stopped');
+  whenReady(v, () => {{ v.currentTime = from; }});
+  v.addEventListener('play', () => {{ if (label) label.hidden = true; }});
   v.addEventListener('timeupdate', () => {{
     if (v.dataset.mode === 'trim' && v.currentTime >= end) {{
       v.pause();
       v.currentTime = end;
+      if (label) label.hidden = false;
     }}
   }});
 }});
 document.querySelectorAll('[data-toggle]').forEach(b => {{
   b.addEventListener('click', () => {{
     const v = document.getElementById(b.dataset.toggle);
-    v.dataset.mode = v.dataset.mode === 'trim' ? 'full' : 'trim';
-    b.textContent = v.dataset.mode === 'trim'
-      ? 'Playing trimmed' : 'Playing full';
-    b.classList.toggle('on', v.dataset.mode === 'trim');
-    v.currentTime = Math.max(0, parseFloat(v.dataset.end) - 4);
-    v.play();
+    const trim = v.dataset.mode !== 'trim';
+    v.dataset.mode = trim ? 'trim' : 'full';
+    b.textContent = trim ? 'Stopping at the trim' : 'Playing the whole clip';
+    b.classList.toggle('on', trim);
+    whenReady(v, () => {{
+      v.currentTime = trim ? Math.max(0, parseFloat(v.dataset.end) - 4) : 0;
+      v.play();
+    }});
   }});
 }});
 document.querySelectorAll('[data-filter]').forEach(b => {{
@@ -264,7 +285,8 @@ def render(matches: list[dict], buffer_s: float) -> str:
       <span>Dropped</span><span class="{big.strip()}">{p['saved']:.2f}s</span>
       <span>Bounces counted</span><span>{p['bounces']}</span>
     </div>
-    <p><button data-toggle="v{p['id']}" class="on">Playing trimmed</button></p>
+    <p><button data-toggle="v{p['id']}" class="on">Stopping at the trim</button>
+       <span class="stopped" hidden>stopped at the proposed end</span></p>
   </div>
 </div>""")
 
@@ -277,6 +299,26 @@ def render(matches: list[dict], buffer_s: float) -> str:
             f" · {m['played']}</p>")
     return PAGE.format(buffer=buffer_s, stats=stats, filters=filters,
                        body="".join(rows))
+
+
+def first_byte_ok(url: str) -> tuple[bool, str]:
+    """Fetch one byte, so a page of dead links cannot ship again.
+
+    Presigning does not check that the key exists, so a wrong key produces
+    URLs that look perfectly normal and 400 the moment a browser asks for
+    video. The only way to know is to ask for some.
+    """
+    req = urllib.request.Request(url, headers={"Range": "bytes=0-99"})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            body = r.read(100)
+            if not body:
+                return False, "empty body"
+            return True, f"{r.status}, {r.headers.get('Content-Type')}"
+    except urllib.error.HTTPError as e:
+        return False, f"HTTP {e.code}"
+    except Exception as exc:                       # noqa: BLE001
+        return False, str(exc)
 
 
 def main(argv=None) -> None:
@@ -298,9 +340,19 @@ def main(argv=None) -> None:
         print(f"{mid[:8]}  {m['opponent']:14s} {len(m['points']):4d} points, "
               f"{sum(p['saved'] for p in m['points']) / 60:.1f} min dropped")
         matches.append(m)
+    probe = next((p for m in matches for p in m["points"]), None)
+    if probe is None:
+        print("no points to show")
+        return
+    ok, detail = first_byte_ok(probe["url"])
+    print(f"\nclip URL check: {'OK' if ok else 'FAILED'} ({detail})")
+    if not ok:
+        raise SystemExit(
+            "refusing to write a page whose videos will not play")
+
     with open(args.out, "w") as fh:
         fh.write(render(matches, args.buffer))
-    print(f"\n-> {args.out}")
+    print(f"-> {args.out}")
 
 
 if __name__ == "__main__":
