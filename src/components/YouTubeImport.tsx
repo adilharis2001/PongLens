@@ -8,6 +8,7 @@ import type { MatchServer } from "@/app/match/[id]/serving";
 import { userFirstServerUpdate } from "@/app/match/[id]/matchStructure";
 import { FirstServerPicker } from "@/components/FirstServerPicker";
 import { createClient } from "@/lib/supabase/client";
+import { tracksServe } from "@/lib/matchTitle";
 import { youtubeThumbnail, youtubeVideoId } from "@/lib/youtube";
 
 /**
@@ -586,15 +587,19 @@ export function YouTubeImport({
             )}
 
             {/* Who served first? — answering here retires the question on
-                the match page and in the scoring pad. Skippable. */}
-            <FirstServerPicker
-              value={form.firstServer}
-              opponentName={form.opponent}
-              onPick={(v) => {
-                setField("firstServer", v, true);
-                void persistFirstServer(v);
-              }}
-            />
+                the match page and in the scoring pad. Skippable, and
+                absent entirely on practice and drills, which have no serve
+                rotation to anchor. */}
+            {tracksServe(form.matchType || null) && (
+              <FirstServerPicker
+                value={form.firstServer}
+                opponentName={form.opponent}
+                onPick={(v) => {
+                  setField("firstServer", v, true);
+                  void persistFirstServer(v);
+                }}
+              />
+            )}
 
             <div
               className={`divide-y divide-edge/60 rounded-xl border border-edge bg-surface-2/40 ${

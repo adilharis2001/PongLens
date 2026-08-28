@@ -3109,8 +3109,11 @@ export function MatchView({
           </section>
         )}
 
-      {/* first server: anchors the ITTF serve rotation for every point */}
-      {isOwner && firstServer === null && visiblePoints.length > 0 && (
+      {/* first server: anchors the ITTF serve rotation for every point —
+          so it is only a question where a rotation exists. `scored` is
+          tracksServe on the live type, which means changing a match to
+          Practice takes the prompt away without a reload. */}
+      {isOwner && scored && firstServer === null && visiblePoints.length > 0 && (
         <div className="mt-6 rounded-2xl border border-cyan-glow/30 bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>

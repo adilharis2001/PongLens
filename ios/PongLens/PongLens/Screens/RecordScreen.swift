@@ -1250,6 +1250,11 @@ struct MatchDetailsSheet: View {
             let tracked = MatchTitle.tracksServe(next)
             processOn = tracked ? settingsProcessDefault : false
             placementOn = tracked ? settingsPlacementDefault : false
+            // Answering "who served first" and THEN switching to Practice
+            // hid the section but kept the answer, so the row was written
+            // with a first server that nothing will ever read. Drop it
+            // with the question.
+            if !tracked { draft.firstServer = nil }
         }
         // A recording still merging when the sheet opened enqueues late;
         // re-apply the choices the moment its rows exist.
