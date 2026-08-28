@@ -93,9 +93,11 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     /// pad, since the scrubber already shows a clock and two clocks that can
     /// disagree read as a bug.
     var serveStartAtCutS: Double?
-    /// Where the RALLY was last observed, in cut seconds (143): the last
-    /// bounce on the user's own table. Measured by the worker, never by a
-    /// person, and nil wherever it was not seen. t1 pads it by 2.6s so a
+    /// The last moment the ball was PLAYED, in cut seconds (143): the last
+    /// bounce on the user's own table, or a bat touch after it when there
+    /// is one — a defender standing metres back means the ball is in the
+    /// air for over a second between the two. Measured by the worker, never
+    /// by a person, and nil wherever nothing was seen. t1 pads it so a
     /// winner tap lands inside; an unscored point has no tap coming, so
     /// this is where its playback can stop instead.
     var rallyEndCutS: Double?

@@ -368,9 +368,11 @@ export interface Point {
   // not, and only the meta distinguishes them.
   serve_start_at_cut_s?: number | null;
   serve_start_meta?: ServeStartMeta | null;
-  // Cut-video position of the last moment the RALLY was observed: the last
-  // bounce on the user's own table (143). Measured by the worker, never by
-  // a person, and null wherever it was not seen. t1 pads it by 2.6s so a
+  // Cut-video position of the last moment the ball was PLAYED (143): the
+  // last bounce on the user's own table, or a bat touch after it when
+  // there is one — a defender standing metres back means the ball is in
+  // the air for over a second between the two. Measured by the worker,
+  // never by a person, and null wherever nothing was seen. t1 pads it so a
   // winner tap lands inside; an unscored point has no tap coming, so this
   // is where its playback can stop instead.
   rally_end_cut_s?: number | null;

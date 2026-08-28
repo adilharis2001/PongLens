@@ -108,10 +108,11 @@ export type EndOptions = {
  *    match's cut (docs/research/2026-08-25-tap-end-shave.md).
  *
  * 2. THE RALLY. When nobody scored, points.rally_end_cut_s holds the last
- *    moment the rally was observed — the last bounce on the user's own
- *    table, which worker/points_v2.py has always computed and t1 pads by
- *    2.6s precisely so a winner tap would land inside. No tap is coming on
- *    an unscored match, so that padding is ball retrieval too
+ *    moment the ball was played — the last bounce on the user's own table,
+ *    or a bat touch after it, since a defender standing metres back leaves
+ *    the ball in the air for over a second between the two. t1 pads that
+ *    by 2.6s precisely so a winner tap would land inside, and no tap is
+ *    coming on an unscored match, so the padding is ball retrieval
  *    (docs/superpowers/specs/2026-08-27-unscored-rally-end.md).
  *
  * The tap WINS wherever it exists. It is a person watching the point; the

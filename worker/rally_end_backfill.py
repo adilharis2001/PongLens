@@ -69,21 +69,43 @@ def cut_position(segments, offsets, t: float) -> float:
 
 
 def rally_end_for_point(placement, t0: float, t1: float) -> float | None:
-    """Source seconds of the last bounce on the table inside this point.
+    """Source seconds of the last moment the ball was PLAYED in this point.
+
+    The last bounce on the table, or a bat touch after it when there is
+    one. The touch matters and a constant buffer cannot stand in for it: a
+    defensive player stands two metres back, so the ball spends over a
+    second in the air between the bounce and their chop. A tail measured
+    from the bounce cuts that flight in half.
+
+    Measured on 1288 points: a touch follows the last table bounce on 33%
+    of them, a median of 0.23s later but 1.73s at the 95th and 2.36s at
+    the worst. Ending on the bounce plus 1.25s cut 57 of the 73 rallies
+    whose touch lands a second or more out; ending on the touch instead
+    cuts none of them, and saves MORE time overall, because the 67% with
+    nothing after the bounce no longer have to carry a tail sized for the
+    third that do.
+
+    (points_v2 reaches the same place by a different road: rally_end_ev
+    already returns max(last bounce, last crossing in the chain), and a
+    crossing after the last bounce is the same ball still in play. This
+    only has to catch up because placement stores contacts, not
+    crossings.)
 
     Bounded by t0/t1 on purpose: clips overlap by design, so a candidate
     list can carry the tail of the previous rally and the server bouncing
-    the ball before the next one. A bounce outside the card is not this
-    rally's ending.
+    the ball before the next one. Neither is this rally's ending.
     """
     if not placement or placement.get("v") != 3:
         return None
-    hits = [c for c in (placement.get("candidates") or [])
-            if on_table(c) and isinstance(c.get("t"), (int, float))
-            and t0 <= c["t"] <= t1]
-    if not hits:
+    cands = [c for c in (placement.get("candidates") or [])
+             if isinstance(c.get("t"), (int, float)) and t0 <= c["t"] <= t1]
+    bounces = [c["t"] for c in cands if on_table(c)]
+    if not bounces:
         return None
-    return float(max(c["t"] for c in hits))
+    last_bounce = float(max(bounces))
+    touches = [c["t"] for c in cands
+               if c.get("kind") == "contact" and c["t"] > last_bounce]
+    return float(max(touches)) if touches else last_bounce
 
 
 def backfill_match(conn, match_id: str, dry_run: bool = False) -> dict:

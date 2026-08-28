@@ -25,11 +25,15 @@ alter table public.points
   add column if not exists rally_end_cut_s numeric;
 
 comment on column public.points.rally_end_cut_s is
-  'Cut-seconds position of the last observed moment of the rally: the last '
-  'bounce on the user''s own table inside the point''s crossing chain. Null '
-  'when no such bounce was seen. Worker-written, client-read — it is '
-  'deliberately absent from the authenticated UPDATE grants. Used to end '
-  'playback on UNSCORED points, where there is no winner tap to clamp to.';
+  'Cut-seconds position of the last moment the ball was PLAYED in this 
+  point: the last bounce on the user''s own table, or a bat touch after 
+  it when there is one. The touch matters because a defensive player 
+  stands metres back, so the ball spends over a second in the air between 
+  the bounce and their chop, and a tail measured from the bounce would 
+  cut that flight in half. Null when nothing was observed. 
+  Worker-written, client-read - deliberately absent from the 
+  authenticated UPDATE grants. Used to end playback on UNSCORED points, 
+  where there is no winner tap to clamp to.';
 
 -- Deliberately NO grant for authenticated UPDATE. Every column the client
 -- writes needs one (see 129), and every column it must NOT write needs the

@@ -69,13 +69,18 @@ def collect(conn, match_id: str, buffer_s: float) -> dict | None:
         # the mistake this codebase makes most, so nothing here touches it.
         c0 = max(0.0, t0 - pre)
         clip_len = (t1 + post) - c0
-        cands = (placement or {}).get("candidates") or []
-        hits = [c for c in cands
-                if on_table(c) and isinstance(c.get("t"), (int, float))
-                and t0 <= c["t"] <= t1]
-        end_s = max((c["t"] for c in hits), default=None)
-        if end_s is None:
+        cands = [c for c in (placement or {}).get("candidates") or []
+                 if isinstance(c.get("t"), (int, float)) and t0 <= c["t"] <= t1]
+        hits = [c for c in cands if on_table(c)]
+        if not hits:
             continue
+        last_bounce = float(max(c["t"] for c in hits))
+        # A bat touch after the last bounce is the ball still being played
+        # — the defender two metres back who has not reached it yet.
+        touches = [c["t"] for c in cands
+                   if c.get("kind") == "contact" and c["t"] > last_bounce]
+        end_s = float(max(touches)) if touches else last_bounce
+        played_on = bool(touches)
         # The same guard the players apply: an ending that does not explain
         # where the point already ends is the last bounce the detector
         # managed to see, not the moment the rally stopped. Showing those
@@ -105,7 +110,8 @@ def collect(conn, match_id: str, buffer_s: float) -> dict | None:
             "trimmedEnd": round(min(trimmed, clip_len), 2),
             "saved": round(max(0.0, clip_len - trimmed), 2),
             "winner": winner, "isLet": bool(is_let),
-            "bounces": len(hits),
+            "bounces": len(hits), "playedOn": played_on,
+            "lastBounce": round(last_bounce - c0, 2),
         })
     return {
         "id": match_id, "opponent": opponent or "—", "venue": venue or "—",
@@ -280,7 +286,9 @@ def render(matches: list[dict], buffer_s: float) -> str:
     <p class="legend">Cyan is kept, amber is dropped.</p>
     <div class="kv">
       <span>Clip today</span><span>{p['clipLen']:.2f}s</span>
-      <span>Last bounce on the table</span><span>{p['rallyEnd']:.2f}s</span>
+      <span>Last bounce on the table</span><span>{p['lastBounce']:.2f}s</span>
+      <span>Last touch of the ball</span><span>{p['rallyEnd']:.2f}s{
+          ' (played on after the bounce)' if p['playedOn'] else ''}</span>
       <span>Proposed end</span><span>{p['trimmedEnd']:.2f}s</span>
       <span>Dropped</span><span class="{big.strip()}">{p['saved']:.2f}s</span>
       <span>Bounces counted</span><span>{p['bounces']}</span>
