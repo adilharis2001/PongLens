@@ -40,8 +40,39 @@ from worker.eval_side_changes import (  # noqa: E402
     DEFAULT_WORKDIR, EXTRACTOR, RTMPOSE_MODEL, RTMPOSE_PY,
     fetch_match_media, keychain, persist_evidence, r2_client,
 )
+from worker.side_change import assert_aligned  # noqa: E402
 
 SKIP_TYPES = ("drills", "practice")
+
+
+def cache_is_current(cur, match_id: str, cached: Path) -> bool:
+    """Does this cached evidence still describe the match as it is now?
+
+    A reprocess or a reclip moves every rally's t0/t1, and evidence taken
+    before it describes a different cut. assert_aligned already refuses to
+    pin such evidence to point ids — a marker on the wrong rally is worse
+    than no marker — but a cache that can never be persisted is not a
+    cache, it is a permanent hole: the match keeps its stale file, the
+    extract pass skips it for having one, and it never gets evidence at
+    all. Seven matches were sitting in exactly that state on 2026-08-28,
+    every one of them named "recut" or "new pipeline".
+    """
+    cur.execute(
+        "select id, idx, t0::float as t0, t1::float as t1 "
+        "from public.points where match_id = %s",
+        (match_id,),
+    )
+    points = {
+        int(r["idx"]): {"id": r["id"], "t0": r["t0"], "t1": r["t1"]}
+        for r in cur.fetchall()
+    }
+    if not points:
+        return True
+    try:
+        assert_aligned(json.loads(cached.read_text()), points)
+        return True
+    except Exception:                                        # noqa: BLE001
+        return False
 
 
 def eligible(cur, limit: int | None, only: list[str]) -> list[dict]:
@@ -102,6 +133,19 @@ def main() -> None:
         cached = folder / args.evidence
         if not cached.is_file():
             cached = folder / "evidence.json"
+
+        # A cache that cannot be persisted is worse than none: it makes the
+        # extract pass skip the match forever. Move it aside and rebuild.
+        if cached.is_file() and not cache_is_current(cur, match_id, cached):
+            conn.commit()
+            if not args.extract:
+                print(f"{match_id[:8]} cache is stale (match was recut); "
+                      f"re-run with --extract", flush=True)
+                continue
+            cached.rename(cached.with_suffix(".stale.json"))
+            print(f"{match_id[:8]} cache was stale, rebuilding", flush=True)
+            cached = folder / args.evidence
+        conn.commit()
 
         if not cached.is_file():
             if not args.extract:
