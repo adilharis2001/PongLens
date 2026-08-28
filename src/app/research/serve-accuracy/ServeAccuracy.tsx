@@ -21,6 +21,7 @@ import {
   type Outcome,
 } from "./buckets";
 import { recoverServe, serverSideFor, type ServePair } from "./serveRepair";
+import { activeTouch, touchList, type Touch } from "./touches";
 import { finalExits, inPrism, prismPolygon, type Pt } from "./prism";
 import {
   REJECTION_COPY,
@@ -282,6 +283,79 @@ function toneFor(e: DetectedEvent) {
   return (e.role && ROLE_TONE[e.role]) || KIND_TONE[e.kind] || "#94a3b8";
 }
 
+const HALF_COPY: Record<"yours" | "theirs", string> = {
+  yours: "your half",
+  theirs: "their half",
+};
+
+/**
+ * The point's touches as a strip under the clip, lit as the video plays.
+ *
+ * The canvas already rings a touch for a third of a second as the playhead
+ * passes it, which tells you something happened and not what. This says
+ * which touch it is, keeps the one you are watching lit, and seeks back to
+ * any of them so a bounce can be replayed without hunting the scrubber.
+ */
+function TouchStrip({
+  touches,
+  active,
+  onSeek,
+}: {
+  touches: readonly Touch[];
+  active: number;
+  onSeek: (at: number) => void;
+}) {
+  if (touches.length === 0) {
+    return (
+      <p className="mt-2 text-xs text-zinc-500">
+        No touches were detected in this point.
+      </p>
+    );
+  }
+  const named = touches.some((t) => t.fromServer);
+  return (
+    <div className="mt-2">
+      <div className="flex gap-1.5 overflow-x-auto pb-1">
+        {touches.map((t, i) => (
+          <button
+            key={t.event.id}
+            type="button"
+            onClick={() => t.at !== null && onSeek(t.at)}
+            disabled={t.at === null}
+            className={
+              "shrink-0 rounded-lg border px-2 py-1 text-left text-[11px] "
+              + "transition-colors disabled:cursor-default "
+              + (i === active
+                ? "border-cyan-glow/70 bg-cyan-glow/10 text-zinc-100"
+                : "border-edge text-zinc-300 hover:border-zinc-600")
+            }
+          >
+            <span className="flex items-center gap-1.5">
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ background: toneFor(t.event) }}
+              />
+              <span className="whitespace-nowrap font-medium">{t.label}</span>
+            </span>
+            <span className="mt-0.5 block whitespace-nowrap tabular-nums text-zinc-500">
+              {t.half ? HALF_COPY[t.half] : "not on the table"}
+              {t.at !== null ? ` · ${t.at.toFixed(2)}s` : " · no clip time"}
+            </span>
+          </button>
+        ))}
+      </div>
+      <p className="mt-1 text-[11px] text-zinc-500">
+        Which half a bounce landed on comes from the ball and the end you
+        were on, so it holds whatever the rotation thinks.
+        {named
+          ? " The word “serve” comes from the rotation, so those two names"
+            + " move with it."
+          : ""}
+      </p>
+    </div>
+  );
+}
+
 /** The clip with the calibrated table drawn on it and the touches marked. */
 function Clip({
   url,
@@ -300,6 +374,50 @@ function Clip({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [showQuad, setShowQuad] = useState(true);
   const [showPrism, setShowPrism] = useState(true);
+  // Which touch the playhead is on. Held in a ref as well as state so the
+  // draw loop can compare without re-rendering: this runs every frame, and
+  // setting state 60 times a second to store the same number would restart
+  // the loop for nothing.
+  const [activeTouchIdx, setActiveTouchIdx] = useState(-1);
+  const activeTouchRef = useRef(-1);
+
+  const touches = useMemo(
+    () => touchList(row.events, row.userPhysicalSide),
+    [row.events, row.userPhysicalSide],
+  );
+
+  // The draw loop below keeps the strip in step at frame rate, but it is a
+  // requestAnimationFrame loop and the browser stops those whenever the
+  // document is hidden — a background tab, or the embedded preview pane,
+  // where the video plays on with the strip frozen. The video's own events
+  // fire either way, so they carry the highlight and the loop only makes it
+  // smooth. Seeking while paused arrives here too, which rAF alone misses.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const sync = () => {
+      const lit = activeTouch(touches, video.currentTime);
+      if (lit === activeTouchRef.current) return;
+      activeTouchRef.current = lit;
+      setActiveTouchIdx(lit);
+    };
+    const events = ["timeupdate", "seeked", "play", "pause", "loadedmetadata"];
+    sync();
+    for (const name of events) video.addEventListener(name, sync);
+    return () => {
+      for (const name of events) video.removeEventListener(name, sync);
+    };
+  }, [touches]);
+
+  const seek = useCallback((at: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    // Land a beat early: the ring holds for a third of a second either
+    // side, so arriving just before it means watching it appear rather
+    // than finding it already faded.
+    video.currentTime = Math.max(0, at - 0.35);
+    void video.play().catch(() => {});
+  }, []);
 
   const prism = useMemo<Pt[] | null>(
     () => (corners ? prismPolygon(corners) : null),
@@ -386,6 +504,12 @@ function Clip({
 
       const now = video.currentTime;
 
+      const lit = activeTouch(touches, now);
+      if (lit !== activeTouchRef.current) {
+        activeTouchRef.current = lit;
+        setActiveTouchIdx(lit);
+      }
+
       // The ball itself, the half second behind the playhead. Fractions of
       // the frame rather than pixels, so it survives any element size.
       if (track) {
@@ -439,7 +563,7 @@ function Clip({
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [row.events, corners, source, showQuad, showPrism, prism, track]);
+  }, [row.events, corners, source, showQuad, showPrism, prism, track, touches]);
 
   return (
     <div>
@@ -457,6 +581,7 @@ function Clip({
           className="pointer-events-none absolute inset-0 h-full w-full"
         />
       </div>
+      <TouchStrip touches={touches} active={activeTouchIdx} onSeek={seek} />
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -971,7 +1096,18 @@ function Row({
             {row.server === null
               ? "unknown — no first server on this match"
               : `${row.server === "user" ? "you" : opponent} · `
-                + `game ${row.game} of the rotation`}
+                + `counted out from game ${row.game}`}
+            {row.server !== null && (
+              <>
+                {" · "}
+                <a
+                  href={`/match/${match.matchId}`}
+                  className="text-sky-300/80 underline decoration-dotted hover:text-sky-200"
+                >
+                  fix it on the match
+                </a>
+              </>
+            )}
           </dd>
         </div>
         <div>
@@ -1461,10 +1597,15 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
           </div>
 
           <p className="mt-2 text-xs text-zinc-500">
-            Every row&apos;s server comes from the ITTF rotation: who served
-            point one, then the score. Nothing in the video is consulted, so
-            the rotation is only as good as its first answer — and a wrong
-            one flips every point on that match at once.
+            Every row&apos;s server is counted out, not seen: who served point
+            one, then two serves each, swapping first server at every game.
+            Nothing in the video is consulted. So it drifts two ways — a wrong
+            first server flips the whole match at once, and a game that ends
+            in the wrong place flips everything after it, which is why the
+            first point of a game is where a wrong name usually shows up. The
+            right and wrong counts above do not depend on any of this: the
+            three rules read the ball against the end you were on and never
+            ask who served.
             {" "}
             {matches.filter((m) => m.firstServerSource !== "user").length > 0 && (
               <span className="text-amber-300">
