@@ -52,7 +52,7 @@ values
   -- what would make it one. Changing it is one UPDATE and needs no
   -- deploy, which is the whole reason it is a config row and not a
   -- constant.
-  ('unscored_rally_end_buffer_s', '1.25')
+  ('unscored_rally_end_buffer_s', '1.75')
 on conflict (key) do nothing;
 
 -- The anon read allow-list, restated in full. 107 made app_config
