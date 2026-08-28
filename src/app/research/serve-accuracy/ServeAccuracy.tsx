@@ -816,7 +816,9 @@ function Row({
           <span className="ml-2 font-normal text-zinc-500">game {row.game}</span>
         </p>
         <p className="text-xs text-zinc-400">
-          {row.server === "user" ? "You" : opponent} served
+          {row.server === null
+            ? "server unknown"
+            : `${row.server === "user" ? "You" : opponent} served`}
         </p>
       </div>
 
@@ -961,6 +963,15 @@ function Row({
               : `${runVerdict === "user" ? "you" : opponent} won · `
                 + `${runVerdict === "user" ? opponent : "you"} `
                 + ballDiedReasonCopy(died)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-zinc-500">Server</dt>
+          <dd className={row.server === null ? "text-amber-300" : "text-zinc-200"}>
+            {row.server === null
+              ? "unknown — no first server on this match"
+              : `${row.server === "user" ? "you" : opponent} · `
+                + `game ${row.game} of the rotation`}
           </dd>
         </div>
         <div>
@@ -1448,6 +1459,22 @@ export function ServeAccuracy({ matches }: { matches: ServeAccuracyMatch[] }) {
               </button>
             ))}
           </div>
+
+          <p className="mt-2 text-xs text-zinc-500">
+            Every row&apos;s server comes from the ITTF rotation: who served
+            point one, then the score. Nothing in the video is consulted, so
+            the rotation is only as good as its first answer — and a wrong
+            one flips every point on that match at once.
+            {" "}
+            {matches.filter((m) => m.firstServerSource !== "user").length > 0 && (
+              <span className="text-amber-300">
+                Nobody confirmed who served first on{" "}
+                {matches.filter((m) => m.firstServerSource !== "user")
+                  .map((m) => m.label).join(" and ")}
+                , so those rotations start from a guess.
+              </span>
+            )}
+          </p>
 
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <span className="text-[11px] uppercase tracking-wide text-zinc-500">

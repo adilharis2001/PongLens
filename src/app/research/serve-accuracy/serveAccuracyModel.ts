@@ -123,6 +123,13 @@ export interface ServeAccuracyMatch {
   userSide: "near" | "far" | null;
   /** How many points were bounded by a real serve tap. */
   serveAnchored: number;
+  /** Who served point one, and whether a person said so. The whole serve
+   *  rotation is arithmetic on these two, so a match where nobody answered
+   *  has a rotation built on a guess — and it is wrong for every point at
+   *  once when the guess is wrong, which reads as a finding rather than a
+   *  bug. */
+  firstServer: "user" | "opponent" | null;
+  firstServerSource: "user" | "detected" | null;
   /**
    * What is known to be untrustworthy about THIS match, in plain words.
    *

@@ -304,6 +304,8 @@ export default async function ServeAccuracyPage() {
       serveAnchored: all.filter(
         (p) => !p.deleted && typeof p.serve_start_at_cut_s === "number",
       ).length,
+      firstServer: match.first_server,
+      firstServerSource: match.first_server_source,
       caution: entry.caution,
       rows,
     });
