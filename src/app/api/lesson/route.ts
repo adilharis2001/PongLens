@@ -281,11 +281,24 @@ export async function POST(req: Request) {
   if (lessonId) {
     const { data: row } = await supabase
       .from("lessons")
-      .select("id, transcript")
+      .select("id, transcript, takeaways")
       .eq("id", lessonId)
       .maybeSingle();
     if (!row) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    // Retry means "distillation produced nothing, try again", so a row
+    // that already has notes has nothing to retry. It matters more than
+    // tidiness: notes can now be corrected by hand, and running the model
+    // over the transcript again would replace those corrections with a
+    // fresh reading of the same speech. The reply would look like every
+    // other success, so the writer would find out by noticing their fix
+    // had gone.
+    if (row.takeaways) {
+      return NextResponse.json(
+        { error: "This entry already has notes. Edit them instead." },
+        { status: 409 },
+      );
     }
     transcript = row.transcript;
   } else {
@@ -361,16 +374,26 @@ async function distillAndFinish(
 }
 
 /**
- * PATCH /api/lesson — edit an entry's words, kind, or coach.
+ * PATCH /api/lesson — edit the words of an entry that has no notes.
  *
  *   { lessonId, transcript, kind, coachName?, summarize } ->
  *   { id, status, takeaways? }
  *
- * The words are the entry, so changing them re-runs everything derived
- * from them: takeaways are re-distilled (or cleared, when the writer opts
- * out of condensing), and Recollect is re-enqueued — its content-hash
- * uniqueness makes an edited transcript a new extraction job and an
- * unchanged one a free no-op. Ask needs nothing: it reads these rows live.
+ * This is the editor for entries whose words ARE the note: the short ones,
+ * and the ones saved with condensing turned off. The words are the entry,
+ * so changing them re-runs everything derived from them: takeaways are
+ * distilled (or left off, when the writer opts out of condensing), and
+ * Recollect is re-enqueued — its content-hash uniqueness makes an edited
+ * transcript a new extraction job and an unchanged one a free no-op. Ask
+ * needs nothing: it reads these rows live.
+ *
+ * Once an entry HAS notes, this route stops being the way to edit it and
+ * PATCH /api/lesson/note takes over. The route refuses those entries
+ * rather than merely discouraging them, because it clears takeaways and
+ * distils again from scratch: running it over an entry someone has
+ * corrected by hand would throw the corrections away without saying so.
+ * From that point the transcript is the record of what was said, and it is
+ * read-only.
  *
  * The attached photo is deliberately not editable here; it rides along
  * unchanged. RLS scopes both the read and the update to the author.
@@ -410,11 +433,24 @@ export async function PATCH(req: Request) {
   // never a hint that it exists.
   const { data: row } = await supabase
     .from("lessons")
-    .select("id")
+    .select("id, takeaways")
     .eq("id", lessonId)
     .maybeSingle();
   if (!row) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  // The narrowing above, in code rather than only in the comment. An entry
+  // with notes is edited through PATCH /api/lesson/note; arriving here
+  // instead would clear those notes and distil the transcript again, and a
+  // hand-corrected note would be gone with nothing to say it had been.
+  if (row.takeaways) {
+    return NextResponse.json(
+      {
+        error:
+          "This entry already has notes. Edit the notes instead of the transcript.",
+      },
+      { status: 409 },
+    );
   }
 
   const plain = !summarize || transcript.length < MIN_DISTILL_CHARS;

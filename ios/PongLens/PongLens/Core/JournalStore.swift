@@ -59,6 +59,28 @@ struct LessonRow: Codable, Identifiable, Hashable {
         case imagePath = "image_path"
         case createdAt = "created_at"
     }
+
+    /// A copy carrying a hand-edited note. Everything else rides across
+    /// untouched on purpose: editing a note writes the note and the
+    /// coach's name, and must never disturb the words, the kind or the
+    /// status.
+    func withNote(_ takeaways: LessonTakeaways?, coachName: String?) -> LessonRow {
+        LessonRow(
+            id: id, userId: userId, transcript: transcript, takeaways: takeaways,
+            status: status, kind: kind, coachName: coachName,
+            imagePath: imagePath, createdAt: createdAt
+        )
+    }
+
+    /// A copy carrying rewritten words. Only reachable for an entry that
+    /// never had a note, where the words are the note.
+    func withWords(_ transcript: String, coachName: String?) -> LessonRow {
+        LessonRow(
+            id: id, userId: userId, transcript: transcript, takeaways: takeaways,
+            status: status, kind: kind, coachName: coachName,
+            imagePath: imagePath, createdAt: createdAt
+        )
+    }
 }
 
 struct TagStatRow: Codable, Identifiable, Hashable {
@@ -251,8 +273,6 @@ final class JournalStore {
         return false
     }
 
-    /// Saves a new entry (or edits) through /api/lesson so distillation and
-    /// Recollect side effects run — never a direct table write.
     /// Distil a transcript without saving it, so the recorder can show the
     /// notes before anyone commits to an entry.
     func previewTakeaways(transcript: String) async -> LessonTakeaways? {
@@ -266,28 +286,133 @@ final class JournalStore {
         return res?.takeaways
     }
 
+    /// Saves a NEW entry through /api/lesson so distillation and the
+    /// Recollect side effects run — never a direct table write.
+    ///
+    /// Creating only. Correcting an existing entry goes through
+    /// `saveNote` or `saveWords`, which is why there is no longer a
+    /// lessonId here: POST with one is the route's re-distil retry, and
+    /// running it over an entry somebody has hand-edited would quietly
+    /// throw their edit away.
     func saveEntry(
-        transcript: String, kind: String, coachName: String?,
-        summarize: Bool, editing: LessonRow?
+        transcript: String, kind: String, coachName: String?, summarize: Bool
     ) async -> Bool {
         struct Req: Encodable {
             let transcript: String
             let kind: String
             let coachName: String?
             let summarize: Bool
-            let lessonId: String?
         }
         struct Res: Decodable {
             let id: String?
             let status: String?
         }
         let req = Req(
-            transcript: transcript, kind: kind, coachName: coachName,
-            summarize: summarize, lessonId: editing?.id.uuidString.lowercased()
+            transcript: transcript, kind: kind, coachName: coachName, summarize: summarize
         )
-        let res: Res? = try? await API.request(
-            "api/lesson", method: editing == nil ? "POST" : "PATCH", body: req
-        )
+        let res: Res? = try? await API.post("api/lesson", req)
         return res?.id != nil
+    }
+
+    /// Saves a hand-edited note. Returns nil when it lands, or the
+    /// sentence to show when it does not.
+    ///
+    /// This writes the note and nothing else. The words the note came
+    /// from are not touched, so nothing is re-distilled and Recollect is
+    /// left alone — it reads the transcript, and the transcript did not
+    /// change.
+    ///
+    /// Applied locally first so the card behind the sheet is already
+    /// right when it closes, then replaced with what the server stored:
+    /// it trims and caps, and the card should show what is actually in
+    /// the row rather than what was typed. A refusal puts the old row
+    /// back.
+    func saveNote(
+        lesson: LessonRow, takeaways: LessonTakeaways, coachName: String?
+    ) async -> String? {
+        struct Req: Encodable {
+            let lessonId: String
+            let takeaways: LessonTakeaways
+            let coachName: String?
+
+            enum CodingKeys: String, CodingKey { case lessonId, takeaways, coachName }
+
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(lessonId, forKey: .lessonId)
+                try c.encode(takeaways, forKey: .takeaways)
+                // Encoded even when nil, because null is how the coach's
+                // name is cleared. The synthesised encoder would drop the
+                // key entirely and the old name would survive the save.
+                try c.encode(coachName, forKey: .coachName)
+            }
+        }
+        struct Res: Decodable {
+            let id: String
+            let takeaways: LessonTakeaways?
+        }
+
+        let previous = lesson
+        apply(lesson.withNote(takeaways, coachName: coachName))
+        do {
+            let res: Res = try await API.request(
+                "api/lesson/note", method: "PATCH",
+                body: Req(
+                    lessonId: lesson.id.uuidString.lowercased(),
+                    takeaways: takeaways, coachName: coachName
+                )
+            )
+            if let stored = res.takeaways {
+                apply(lesson.withNote(stored, coachName: coachName))
+            }
+            return nil
+        } catch {
+            apply(previous)
+            return (error as? APIError)?.errorDescription
+                ?? "Couldn't save it. Your note is still here, so try again."
+        }
+    }
+
+    /// Saves the words of an entry that never had a note. Returns nil when
+    /// it lands, or the sentence to show when it does not.
+    ///
+    /// PATCH /api/lesson is now only for these. Condensing is sent off
+    /// deliberately: the edit sheet does not ask the question, and an
+    /// entry kept as plain words should not quietly turn into a written-up
+    /// note because a correction pushed it past the length threshold.
+    /// The kind is the row's own, carried across so the route does not
+    /// default a practice entry into a lesson.
+    func saveWords(lesson: LessonRow, transcript: String, coachName: String?) async -> String? {
+        struct Req: Encodable {
+            let lessonId: String
+            let transcript: String
+            let kind: String
+            let coachName: String?
+            let summarize = false
+        }
+        struct Res: Decodable { let id: String? }
+
+        let previous = lesson
+        apply(lesson.withWords(transcript, coachName: coachName))
+        do {
+            let _: Res = try await API.request(
+                "api/lesson", method: "PATCH",
+                body: Req(
+                    lessonId: lesson.id.uuidString.lowercased(),
+                    transcript: transcript, kind: lesson.kind, coachName: coachName
+                )
+            )
+            return nil
+        } catch {
+            apply(previous)
+            return (error as? APIError)?.errorDescription
+                ?? "Couldn't save it. Your words are still here, so try again."
+        }
+    }
+
+    /// Swap a row in the feed for a newer copy of itself.
+    private func apply(_ row: LessonRow) {
+        guard let i = lessons.firstIndex(where: { $0.id == row.id }) else { return }
+        lessons[i] = row
     }
 }

@@ -660,8 +660,7 @@ struct LessonRecordScreen: View {
             kind: "lesson",
             coachName: coachName.trimmingCharacters(in: .whitespaces).isEmpty
                 ? nil : coachName.trimmingCharacters(in: .whitespaces),
-            summarize: true,
-            editing: nil
+            summarize: true
         )
         saving = false
         guard ok else {

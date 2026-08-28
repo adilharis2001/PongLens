@@ -79,7 +79,7 @@ export function LessonCard({
   onUpdated: (lesson: Lesson) => void;
   /** Removes the lesson from the feed after a delete. */
   onDeleted: (id: string) => void;
-  /** Opens the capture sheet prefilled with this entry. */
+  /** Opens the note editor on this entry. */
   onEdit: (lesson: Lesson) => void;
 }) {
   const [showTranscript, setShowTranscript] = useState(false);
@@ -312,14 +312,19 @@ export function LessonCard({
               </button>
             )}
             {/* Same idiom as a match note's footer: Edit beside Delete,
-                the whole row in the card's quiet text-button register. */}
-            <button
-              type="button"
-              onClick={() => onEdit(lesson)}
-              className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
-            >
-              Edit
-            </button>
+                the whole row in the card's quiet text-button register.
+                Not offered while the entry is still being read: the
+                takeaways land on the row when that finishes, and an edit
+                saved in the meantime would be overwritten by them. */}
+            {lesson.status !== "queued" && (
+              <button
+                type="button"
+                onClick={() => onEdit(lesson)}
+                className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
+              >
+                Edit
+              </button>
+            )}
             <span className="ml-auto">
               <button
                 type="button"

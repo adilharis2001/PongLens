@@ -24,6 +24,7 @@ import { TagGlyph } from "@/app/match/[id]/Tags";
 import { FabButton } from "@/components/Fab";
 import { journalTagsForOwner } from "@/lib/journal/tags";
 import { JournalEditor } from "./JournalEditor";
+import { NoteEditor } from "./NoteEditor";
 import { AskPanel, MAX_QUESTION_CHARS, askable } from "./AskPanel";
 import { askExamples, topOpponentFromNotes } from "@/lib/ask/examples";
 import { Recollect } from "./Recollect";
@@ -203,8 +204,10 @@ export function NotesFeed({
   const [tagStats, setTagStats] = useState<TagStat[]>([]);
   const [activeTag, setActiveTag] = useState<RailTag | null>(null);
   const [composeOpen, setComposeOpen] = useState(false);
-  // The entry the capture sheet is editing; null means it composes new.
-  const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
+  // The entry open in the note editor. Separate from the capture sheet on
+  // purpose: writing an entry and correcting one are different jobs, and
+  // sharing a surface is what made Edit reopen the raw transcript.
+  const [noteEditing, setNoteEditing] = useState<Lesson | null>(null);
   const [cap, setCap] = useState(FEED_CAP);
   const [lessons, setLessons] = useState<Lesson[]>([]);
   // point rows for the active tag; null while loading
@@ -689,10 +692,7 @@ export function NotesFeed({
         setLessons((ls) => ls.map((x) => (x.id === u.id ? u : x)))
       }
       onDeleted={(id) => setLessons((ls) => ls.filter((x) => x.id !== id))}
-      onEdit={(lesson) => {
-        setEditingLesson(lesson);
-        setComposeOpen(true);
-      }}
+      onEdit={setNoteEditing}
     />
   );
 
@@ -728,25 +728,13 @@ export function NotesFeed({
       <FabButton label="New" onClick={() => setComposeOpen(true)} />
       <JournalEditor
         open={composeOpen}
-        onClose={() => {
-          setComposeOpen(false);
-          // Cleared on close so the next New starts blank, not on the
-          // last thing edited.
-          setEditingLesson(null);
-        }}
+        onClose={() => setComposeOpen(false)}
         userId={userId}
         vocab={sortedVocab}
         coachNames={coachNames}
-        editing={editingLesson}
         createTag={createTag}
         onSaved={(lesson, tags) => {
-          // One rule for both modes: a known id is replaced in place, a
-          // new one joins at the top.
-          setLessons((ls) =>
-            ls.some((x) => x.id === lesson.id)
-              ? ls.map((x) => (x.id === lesson.id ? lesson : x))
-              : [lesson, ...ls]
-          );
+          setLessons((ls) => [lesson, ...ls]);
           if (tags.length > 0) {
             const now = new Date().toISOString();
             setEntryTags((ets) => [
@@ -760,6 +748,14 @@ export function NotesFeed({
             ]);
           }
         }}
+      />
+      <NoteEditor
+        lesson={noteEditing}
+        coachNames={coachNames}
+        onClose={() => setNoteEditing(null)}
+        onSaved={(lesson) =>
+          setLessons((ls) => ls.map((x) => (x.id === lesson.id ? lesson : x)))
+        }
       />
 
       {/* One search across everything the journal holds — and the same

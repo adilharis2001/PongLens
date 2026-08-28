@@ -21,9 +21,17 @@ struct JournalScreen: View {
         let id = UUID()
         var kind = "practice"
         var text = ""
-        var editing: LessonRow?
     }
     @State private var composerRequest: ComposerRequest?
+
+    /// The entry being corrected. Its own presentation, because editing
+    /// is its own screen now: the composer makes entries, the note editor
+    /// fixes them, and neither has the other's controls on it.
+    struct EditRequest: Identifiable {
+        let id = UUID()
+        let lesson: LessonRow
+    }
+    @State private var editRequest: EditRequest?
     @State private var ask = AskState()
 
     private let feedCap = 30
@@ -132,13 +140,19 @@ struct JournalScreen: View {
         // recorded lesson opened as an empty practice note.
         .sheet(item: $composerRequest) { request in
             JournalComposer(
-                store: store, editing: request.editing,
-                initialKind: request.kind, initialText: request.text
+                store: store, initialKind: request.kind, initialText: request.text
             ) {
                 Task { await store.load(userId: app.userId) }
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+        }
+        // No drag indicator: this sheet blocks the swipe once there are
+        // changes on it, and a grip that does nothing reads as a stuck
+        // screen. Cancel and Save are the way out.
+        .sheet(item: $editRequest) { request in
+            JournalNoteEditor(lesson: request.lesson, store: store)
+                .presentationDetents([.large])
         }
     }
 
@@ -308,9 +322,7 @@ struct JournalScreen: View {
                 SectionHeading("Entries")
                 ForEach(entries) { lesson in
                     LessonCardView(lesson: lesson, store: store, onEdit: {
-                        composerRequest = ComposerRequest(
-                            kind: lesson.kind, editing: lesson
-                        )
+                        editRequest = EditRequest(lesson: lesson)
                     })
                 }
             }
@@ -439,9 +451,7 @@ struct JournalScreen: View {
                 case .note(let note): NoteCardView(note: note, store: store)
                 case .lesson(let lesson):
                     LessonCardView(lesson: lesson, store: store, onEdit: {
-                        composerRequest = ComposerRequest(
-                            kind: lesson.kind, editing: lesson
-                        )
+                        editRequest = EditRequest(lesson: lesson)
                     })
                 }
             }
@@ -1072,13 +1082,18 @@ struct LessonCardView: View {
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(PL.text100)
                 }
-                ForEach(takeaways.themes ?? [], id: \.name) { theme in
+                // Keyed by position, not by the text. A hand-edited note
+                // can hold two headings named the same or two identical
+                // points, and identity by content makes those one row:
+                // SwiftUI drops the duplicate and the card silently shows
+                // less than the note contains.
+                ForEach(Array((takeaways.themes ?? []).enumerated()), id: \.offset) { _, theme in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(theme.name.uppercased())
                             .font(.plSection)
                             .tracking(0.6)
                             .foregroundStyle(PL.cyan)
-                        ForEach(theme.points, id: \.self) { point in
+                        ForEach(Array(theme.points.enumerated()), id: \.offset) { _, point in
                             HStack(alignment: .top, spacing: 8) {
                                 Circle().fill(PL.text600).frame(width: 4, height: 4)
                                     .padding(.top, 7)
@@ -1209,9 +1224,11 @@ struct NewEntrySheet: View {
     }
 }
 
+/// The sheet that makes a new entry. Correcting one that already exists
+/// is `JournalNoteEditor`: it edits the written-up note rather than the
+/// raw words, so this no longer has an editing mode at all.
 struct JournalComposer: View {
     let store: JournalStore
-    let editing: LessonRow?
     let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -1247,17 +1264,15 @@ struct JournalComposer: View {
 
     init(
         store: JournalStore,
-        editing: LessonRow?,
         initialKind: String = "practice",
         initialText: String = "",
         onSaved: @escaping () -> Void
     ) {
         self.store = store
-        self.editing = editing
         self.onSaved = onSaved
-        _kind = State(initialValue: editing?.kind ?? initialKind)
-        _coachName = State(initialValue: editing?.coachName ?? "")
-        _body_ = State(initialValue: editing?.transcript ?? initialText)
+        _kind = State(initialValue: initialKind)
+        _coachName = State(initialValue: "")
+        _body_ = State(initialValue: initialText)
     }
 
     var body: some View {
@@ -1276,23 +1291,6 @@ struct JournalComposer: View {
             onDone: { Task { await save() } }
         ) {
             Form {
-                // Only when correcting an existing entry. A new one was
-                // asked which kind it is before this sheet opened, and the
-                // title says the answer — repeating the question inside
-                // the form is a decision presented twice. Editing has no
-                // chooser in front of it, and a note filed under the wrong
-                // kind should cost one tap to fix.
-                if editing != nil {
-                    Section {
-                        Picker("Kind", selection: $kind) {
-                            Text("Practice").tag("practice")
-                            Text("Lesson").tag("lesson")
-                        }
-                        .pickerStyle(.segmented)
-                        .listRowInsets(EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))
-                    }
-                }
-
                 if kind == "lesson" {
                     Section {
                         TextField("Who taught it?", text: $coachName)
@@ -1379,8 +1377,7 @@ struct JournalComposer: View {
     /// The kind is settled before this opens, so the bar says which one
     /// this is instead of asking again.
     private var title: String {
-        let noun = kind == "lesson" ? "lesson" : "practice note"
-        return editing == nil ? "New \(noun)" : "Edit \(noun)"
+        kind == "lesson" ? "New lesson" : "New practice note"
     }
 
     /// Photographed pages, in the same section as dictation because they
@@ -1590,8 +1587,7 @@ struct JournalComposer: View {
             kind: kind,
             coachName: kind == "lesson" && !coachName.trimmingCharacters(in: .whitespaces).isEmpty
                 ? coachName.trimmingCharacters(in: .whitespaces) : nil,
-            summarize: summarize,
-            editing: editing
+            summarize: summarize
         )
         saving = false
         if ok {

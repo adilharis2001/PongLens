@@ -15,6 +15,13 @@ import { PointTags } from "@/app/match/[id]/Tags";
  *
  * Match notes are NOT created here — they are born inside matches, where
  * the footage is.
+ *
+ * This sheet only ever creates. Editing an existing entry is NoteEditor's
+ * job, because what you want to fix afterwards is the note, not the
+ * speech-to-text underneath it. That also puts the kind tab and the
+ * condense choice where they belong: both are decisions about an entry
+ * being written, and neither can be re-asked later without rewriting what
+ * the entry already is.
  */
 export function JournalEditor({
   open,
@@ -22,19 +29,12 @@ export function JournalEditor({
   userId,
   vocab,
   coachNames = [],
-  editing = null,
   createTag,
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   userId: string;
-  /** An existing entry to edit. The same sheet serves both jobs so
-   *  editing looks and behaves exactly like writing did — one surface to
-   *  learn. Tags and the photo are absent in edit mode: tags are already
-   *  live-editable on the card itself, and the photo rides along
-   *  unchanged. */
-  editing?: Lesson | null;
   /** Owner's tag vocabulary, recent-first (shared with points). */
   vocab: Tag[];
   /** Coach names already used on this journal, for the suggestion list.
@@ -70,31 +70,22 @@ export function JournalEditor({
     checking: boolean;
   } | null>(null);
 
-  // Seed the fields from the entry being edited, once per open. Keyed on
-  // the open transition so reopening always starts from the row as it is
-  // now, and typing is never clobbered mid-session.
-  const seededFor = useRef<string | null>(null);
+  // Start blank on every open, so the next entry never opens on the last
+  // one. Keyed on the open transition rather than run on every render, or
+  // typing would be wiped mid-session.
+  const seeded = useRef(false);
   useEffect(() => {
     if (!open) {
-      seededFor.current = null;
+      seeded.current = false;
       return;
     }
-    const key = editing?.id ?? "new";
-    if (seededFor.current === key) return;
-    seededFor.current = key;
-    if (editing) {
-      setKind(editing.kind);
-      setText(editing.transcript);
-      setCoachName(editing.coach_name ?? "");
-      // Their last choice, inferred: an entry with takeaways was condensed.
-      setSummarize(Boolean(editing.takeaways));
-    } else {
-      setKind("practice");
-      setText("");
-      setCoachName("");
-      setSummarize(true);
-    }
-  }, [open, editing]);
+    if (seeded.current) return;
+    seeded.current = true;
+    setKind("practice");
+    setText("");
+    setCoachName("");
+    setSummarize(true);
+  }, [open]);
 
   /** Downscale to <=1600px JPEG: smaller uploads, cheaper vision calls. */
   const shrink = (file: File): Promise<Blob> =>
@@ -275,14 +266,13 @@ export function JournalEditor({
     setError(null);
     try {
       const res = await fetch("/api/lesson", {
-        method: editing ? "PATCH" : "POST",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...(editing ? { lessonId: editing.id } : {}),
           transcript,
           kind,
           summarize,
-          ...(editing ? {} : { imagePath: photo?.path ?? null }),
+          imagePath: photo?.path ?? null,
           // Only a lesson has a coach. Switching back to Practice after
           // typing a name must not smuggle it through.
           coachName: kind === "lesson" ? coachName.trim() || null : null,
@@ -291,9 +281,8 @@ export function JournalEditor({
       const data = res.ok ? await res.json() : null;
       if (!data?.id) throw new Error("no id");
       // Tags chosen while composing attach once the entry exists. A
-      // failure here loses only the tags, never the words. (Edit mode has
-      // no tag section — tags live on the card.)
-      if (!editing && selectedTags.length > 0) {
+      // failure here loses only the tags, never the words.
+      if (selectedTags.length > 0) {
         const supabase = createClient();
         await supabase.from("entry_tags").insert(
           selectedTags.map((t) => ({
@@ -307,18 +296,16 @@ export function JournalEditor({
         {
           id: data.id,
           user_id: userId,
-          match_id: editing?.match_id ?? null,
+          match_id: null,
           transcript,
           takeaways: data.takeaways ?? null,
           status: data.status === "ready" ? "ready" : "failed",
           kind,
           coach_name: kind === "lesson" ? coachName.trim() || null : null,
-          // An edit keeps the photo and the original date; only the words
-          // and their derivations moved.
-          image_path: editing ? editing.image_path : (photo?.path ?? null),
-          created_at: editing?.created_at ?? new Date().toISOString(),
+          image_path: photo?.path ?? null,
+          created_at: new Date().toISOString(),
         } as Lesson,
-        editing ? [] : selectedTags
+        selectedTags
       );
       setText("");
       setCoachName("");
@@ -463,9 +450,7 @@ export function JournalEditor({
 
         {/* photos: scanned pages become editable text (and are not
             kept); an attached photo is checked, then stored with the
-            entry. Absent in edit mode: the photo rides along unchanged. */}
-        {!editing && (
-        <>
+            entry. */}
         <div className="mt-2.5 flex flex-wrap items-center gap-2">
           <input
             ref={scanInputRef}
@@ -568,13 +553,8 @@ export function JournalEditor({
             )}
           </div>
         )}
-        </>
-        )}
 
-        {/* Tags travel with the entry — same picker as a point's.
-            Absent in edit mode: the card already edits them live, and a
-            second copy here would be a second source of truth. */}
-        {!editing && (
+        {/* Tags travel with the entry — same picker as a point's. */}
         <div className="mt-3">
           <PointTags
             pointLabel="New entry"
@@ -598,8 +578,6 @@ export function JournalEditor({
             }
           />
         </div>
-
-        )}
 
         <div className="mt-3">
           <label className="flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
@@ -628,9 +606,7 @@ export function JournalEditor({
             ? summarize
               ? "Reading it through…"
               : "Saving…"
-            : editing
-              ? "Save changes"
-              : "Save entry"}
+            : "Save entry"}
         </button>
         {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
       </div>
