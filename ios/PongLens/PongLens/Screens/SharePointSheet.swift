@@ -55,12 +55,13 @@ struct SharePointSheet: View {
         let eff = effectivePad(pad, tightStart: point.tightStart,
                                tightEnd: point.tightEnd)
         var s = max(0, t1 - t0) + eff.pre + eff.post
-        // The winner tap trims what actually renders (138), so the gate
-        // must measure the trimmed file — a rally that only fits a Story
+        // A trim changes what actually renders — the winner tap (138) or,
+        // on an unscored point, the observed rally end (143) — so the gate
+        // must measure the trimmed file: a rally that only fits a Story
         // because of the trim should be offered as one. Legacy points
         // without cut offsets keep the pad formula.
-        if app.tapEndPlayback, let c = point.cutT0,
-           let end = effectiveEnd(point, pad, on: true) {
+        if app.tapEndPlayback || app.unscoredRallyEnd, let c = point.cutT0,
+           let end = effectiveEnd(point, pad, app.endOptions) {
             s = min(s, end - c)
         }
         return s
@@ -169,7 +170,7 @@ struct SharePointSheet: View {
     private func runShare(to destination: InstagramShare.Destination?) async {
         guard let url = await model.prepare(
             match: match, point: point, points: points, pad: pad,
-            tapEnd: app.tapEndPlayback,
+            ends: app.endOptions,
             showNames: showNames, showScore: showScore,
             showLogo: showLogo)
         else { return }
@@ -247,7 +248,7 @@ final class StoryShareModel {
     }
 
     func prepare(match: MatchRow, point: MatchPoint,
-                 points: [MatchPoint], pad: ClipPad, tapEnd: Bool,
+                 points: [MatchPoint], pad: ClipPad, ends: EndOptions,
                  showNames: Bool = true, showScore: Bool = true,
                  showLogo: Bool = true) async -> URL? {
         guard !busy else { return nil }
@@ -265,7 +266,7 @@ final class StoryShareModel {
         if await renderPath() == "device" {
             if let local = await prepareOnDevice(
                 match: match, point: point, points: points, pad: pad,
-                tapEnd: tapEnd,
+                ends: ends,
                 showNames: showNames, showScore: showScore,
                 showLogo: showLogo) {
                 return local
@@ -333,7 +334,7 @@ final class StoryShareModel {
 
     private func prepareOnDevice(match: MatchRow, point: MatchPoint,
                                  points: [MatchPoint], pad: ClipPad,
-                                 tapEnd: Bool,
+                                 ends: EndOptions,
                                  showNames: Bool,
                                  showScore: Bool,
                                  showLogo: Bool) async -> URL? {
@@ -381,7 +382,7 @@ final class StoryShareModel {
         // Playhead.effectiveEnd, the same maths route.ts's segment block
         // runs — the same rally must render identically whichever path
         // app_config.instagram_render picks (136/138).
-        let segEnd = effectiveEnd(point, pad, on: tapEnd)
+        let segEnd = effectiveEnd(point, pad, ends)
             ?? cutT0 + max(0, t1 - t0) + eff.pre + eff.post
 
         // Score ENTERING this rally, and the games already completed. A

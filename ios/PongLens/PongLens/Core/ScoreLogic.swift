@@ -120,7 +120,7 @@ func isUnscored(_ p: MatchPoint) -> Bool {
 /// (chevron, chip, answer-advance) never holds: you are watching the new
 /// one.
 func targetAt(
-    _ ps: [MatchPoint], at t: Double, pad: ClipPad, tapEnd: Bool,
+    _ ps: [MatchPoint], at t: Double, pad: ClipPad, ends: EndOptions,
     hold: Bool, runStart: Double?, firedId: UUID?
 ) -> MatchPoint? {
     let cur = playingPointId(ps, at: t).flatMap { id in ps.first { $0.id == id } }
@@ -133,7 +133,7 @@ func targetAt(
     guard prev.id != firedId else { return cur }
     let stop = isUnscored(prev)
         ? pauseEnd(prev, pad, nextStart: nextCutStart(ps, after: prev))
-        : effectiveEnd(prev, pad, on: tapEnd)
+        : effectiveEnd(prev, pad, ends)
     guard let stop, let rEnd = rallyEnd(prev, pad), t < stop else { return cur }
     guard let runStart, runStart < rEnd else { return cur }
     return prev
@@ -181,9 +181,9 @@ enum AdvanceMove: Equatable {
 /// moment of the answer.
 func advanceMove(
     from p: MatchPoint, now: Double, nextStart: Double?, pad: ClipPad,
-    tapEnd: Bool
+    ends: EndOptions
 ) -> AdvanceMove {
-    if let own = effectiveEnd(p, pad, on: tapEnd), own - now > TAIL_WATCH_S {
+    if let own = effectiveEnd(p, pad, ends), own - now > TAIL_WATCH_S {
         return .playTail(end: own)
     }
     guard let next = nextStart else { return .stay }
@@ -223,13 +223,13 @@ func tapeMove(_ spans: [TimeSpan], at t: Double) -> TapeMove {
 /// visible start, the last rally's tail only to its own padded end.
 /// The Swift twin of playhead.ts skipSpans; `all` is every point with
 /// offsets, deleted included, in timeline order. Overlaps merge.
-func skipSpans(all: [MatchPoint], pad: ClipPad, tapEnd: Bool) -> [TimeSpan] {
+func skipSpans(all: [MatchPoint], pad: ClipPad, ends: EndOptions) -> [TimeSpan] {
     let visible = all.filter { !$0.deleted && $0.cutT0 != nil }
     var spans = deletedSpans(all: all, visible: visible, pad: pad)
-    if tapEnd {
+    if ends.tapEnd || ends.rallyEnd?.on == true {
         for (i, p) in visible.enumerated() {
             guard let padded = paddedEnd(p, pad),
-                  let eff = effectiveEnd(p, pad, on: true), eff < padded
+                  let eff = effectiveEnd(p, pad, ends), eff < padded
             else { continue }
             let next = i + 1 < visible.count
                 ? (visible[i + 1].cutT0 ?? padded) : padded

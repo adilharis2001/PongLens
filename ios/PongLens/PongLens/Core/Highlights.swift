@@ -48,14 +48,14 @@ enum Highlights {
     }
 
     /// `ordered` must be the match's VISIBLE points in timeline order.
-    /// Lets are never picked. `tapEnd` is app_config.tap_end_playback:
+    /// Lets are never picked. `ends` is which endings trim a clip:
     /// clip lengths end at the winner tap plus half a second
     /// (Playhead.effectiveEnd), so the budget buys real play instead of
     /// ball retrieval — every caller must pass the same value the
     /// players use, or the row, the tape and the render disagree.
     static func pick(
         _ ordered: [MatchPoint], pad: ClipPad, budgetS: Double,
-        tapEnd: Bool = false
+        ends: EndOptions = .off
     ) -> Picks {
         struct Candidate {
             let p: MatchPoint
@@ -75,8 +75,8 @@ enum Highlights {
             // The tap trims the clip (never extends): its cost against
             // the budget and its watchable length are the trimmed one.
             // Legacy points without cut offsets keep the pad formula.
-            if tapEnd, let c = p.cutT0,
-               let end = effectiveEnd(p, pad, on: true) {
+            if ends.tapEnd || ends.rallyEnd?.on == true, let c = p.cutT0,
+               let end = effectiveEnd(p, pad, ends) {
                 s = round2(min(s, end - c))
             }
             if s <= 0 { continue }

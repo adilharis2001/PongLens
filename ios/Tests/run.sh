@@ -20,5 +20,6 @@ swiftc -O -o "$OUT" \
   "$CORE/Highlights.swift" \
   "$CORE/CameraGuideGate.swift" \
   ScoreLogicTests.swift ServePlacementTests.swift StarredTests.swift \
-  HighlightsTests.swift CameraGuideGateTests.swift main.swift
+  HighlightsTests.swift CameraGuideGateTests.swift \
+  RallyEndTests.swift main.swift
 "$OUT"

@@ -84,12 +84,37 @@ final class AppState {
     /// build before the flag existed.
     var tapEndPlayback = false
 
+    /// app_config unscored_rally_end (143): a point NOBODY scored ends at
+    /// the observed rally end plus a buffer, instead of at the padding that
+    /// exists to catch a winner tap. Ranked below the tap, never combined
+    /// with it. False on any failure, same reasoning as above.
+    var unscoredRallyEnd = false
+
+    /// app_config unscored_rally_end_buffer_s. A server value rather than a
+    /// constant because it is not calibrated yet, and widening it must not
+    /// need a build. An unreadable value falls back to the default rather
+    /// than to zero — zero is the most dangerous setting there is.
+    var unscoredRallyEndBufferS = 0.5
+
+    /// What the players and the picker pass to Playhead.effectiveEnd.
+    var endOptions: EndOptions {
+        EndOptions(
+            tapEnd: tapEndPlayback,
+            rallyEnd: unscoredRallyEnd
+                ? RallyEndConfig(on: true, bufferS: unscoredRallyEndBufferS)
+                : nil
+        )
+    }
+
     func refreshConfigFlags() async {
         struct ConfigRow: Decodable { let key: String?; let value: String? }
         let rows: [ConfigRow]? = try? await supa
             .from("app_config")
             .select("key,value")
-            .in("key", values: ["placement_serves_only", "tap_end_playback"])
+            .in("key", values: [
+                "placement_serves_only", "tap_end_playback",
+                "unscored_rally_end", "unscored_rally_end_buffer_s",
+            ])
             .execute().value
         placementServesOnly = (rows?.first {
             $0.key == "placement_serves_only"
@@ -97,6 +122,12 @@ final class AppState {
         tapEndPlayback = rows?.first {
             $0.key == "tap_end_playback"
         }?.value == "on"
+        unscoredRallyEnd = rows?.first {
+            $0.key == "unscored_rally_end"
+        }?.value == "on"
+        unscoredRallyEndBufferS = rows?.first {
+            $0.key == "unscored_rally_end_buffer_s"
+        }?.value.flatMap(Double.init).map { max(0, $0) } ?? 0.5
     }
 
     func metadataFlag(_ key: String) -> Bool {

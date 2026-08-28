@@ -99,7 +99,7 @@ func runHighlightsParityChecks() {
         // reproduce the pinned picks — the flag is a no-op without data.
         for tapEnd in [false, true] {
             let got = Highlights.pick(ordered, pad: pad, budgetS: budget,
-                                      tapEnd: tapEnd)
+                                      ends: EndOptions(tapEnd: tapEnd))
             check(got.points.map(\.id) == want.ids,
                   "\(kind) tapEnd=\(tapEnd): same rallies as the web picker")
             check(abs(got.totalS - want.totalS) < 0.01,
@@ -124,13 +124,13 @@ func runHighlightsParityChecks() {
                 continue
             }
             let gotOn = Highlights.pick(tOrdered, pad: tpad, budgetS: budget,
-                                        tapEnd: true)
+                                        ends: EndOptions(tapEnd: true))
             check(gotOn.points.map(\.id) == on.ids,
                   "tapped \(kind) on: same rallies as the web picker")
             check(abs(gotOn.totalS - on.totalS) < 0.01,
                   "tapped \(kind) on: same total seconds (\(gotOn.totalS) vs \(on.totalS))")
             let gotOff = Highlights.pick(tOrdered, pad: tpad, budgetS: budget,
-                                         tapEnd: false)
+                                         ends: EndOptions.off)
             check(gotOff.points.map(\.id) == off.ids,
                   "tapped \(kind) off: same rallies as the web picker")
             check(abs(gotOff.totalS - off.totalS) < 0.01,

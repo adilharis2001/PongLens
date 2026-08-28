@@ -27,11 +27,11 @@ struct HighlightsSheet: View {
     }
     private var reel: Highlights.Picks {
         Highlights.pick(model.visible, pad: pad, budgetS: Highlights.reelBudgetS,
-                        tapEnd: app.tapEndPlayback)
+                        ends: app.endOptions)
     }
     private var long: Highlights.Picks {
         Highlights.pick(model.visible, pad: pad, budgetS: Highlights.longBudgetS,
-                        tapEnd: app.tapEndPlayback)
+                        ends: app.endOptions)
     }
     /// The long cut earns its row only when it actually shows more.
     private var longWorthIt: Bool {
@@ -147,7 +147,7 @@ struct HighlightsShareSheet: View {
         Highlights.pick(points,
                         pad: clipPad(strictness: nil, stored: match.clipPads),
                         budgetS: Highlights.storyBudgetS,
-                        tapEnd: app.tapEndPlayback)
+                        ends: app.endOptions)
     }
 
     var body: some View {

@@ -30,6 +30,7 @@ import {
 import { clipPad } from "../src/app/match/[id]/clipEdit.ts";
 import { sortPoints } from "../src/app/match/[id]/gameScore.ts";
 import type { Point } from "../src/lib/types.ts";
+import type { EndOptions } from "../src/app/match/[id]/playhead.ts";
 
 const path = new URL("../ios/Tests/fixtures/highlights-parity.json", import.meta.url);
 const fx = JSON.parse(readFileSync(path, "utf8"));
@@ -92,14 +93,14 @@ function expectations(
 
 const pad = clipPad(fx.strictness, fx.clip_pads);
 fx.pad = pad;
-fx.expected = expectations(mapRows(fx.points), pad, true, "legacy");
+fx.expected = expectations(mapRows(fx.points), pad, { tapEnd: true }, "legacy");
 
 if (fx.tapped) {
   const tpad = clipPad(null, fx.tapped.clip_pads);
   fx.tapped.pad = tpad;
   const pts = mapRows(fx.tapped.points);
-  fx.tapped.expected = expectations(pts, tpad, true, "tapped(on)");
-  fx.tapped.expected_off = expectations(pts, tpad, false, "tapped(off)");
+  fx.tapped.expected = expectations(pts, tpad, { tapEnd: true }, "tapped(on)");
+  fx.tapped.expected_off = expectations(pts, tpad, { tapEnd: false }, "tapped(off)");
 }
 
 writeFileSync(path, JSON.stringify(fx, null, 1) + "\n");

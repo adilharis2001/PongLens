@@ -67,25 +67,66 @@ func paddedEnd(_ p: MatchPoint, _ pad: ClipPad) -> Double? {
 /// so half a second stays on before the cut.
 let TAP_END_GUARD_S = 0.5
 
+/// app_config.unscored_rally_end and its buffer (143).
+struct RallyEndConfig {
+    let on: Bool
+    let bufferS: Double
+}
+
+/// Which endings are allowed to shorten a point. Mirrors EndOptions in
+/// playhead.ts; a struct rather than a second Bool for the same reason —
+/// eleven call sites, and a flag that quietly means one thing at some of
+/// them is how the two platforms drift apart.
+struct EndOptions {
+    let tapEnd: Bool
+    var rallyEnd: RallyEndConfig? = nil
+
+    static let off = EndOptions(tapEnd: false)
+}
+
 /// Where a point's footage EFFECTIVELY ends, for playback and renders.
 ///
-/// scoredAtCutS is the playhead at the winner tap — the owner saying
-/// "decided by here" (067). Everything past tap + 0.5s is ball retrieval
-/// and walking: ~25% of a scored match's cut
-/// (docs/research/2026-08-25-tap-end-shave.md).
+/// Two endings can shorten a point, and they are ranked, not combined.
 ///
-/// A CLAMP, never an extension: min(paddedEnd, tap + 0.5s). The tap is
-/// ignored — the padded end stands — when `on` is false
-/// (app_config.tap_end_playback, the kill switch), on hand-edited points
-/// (the clip editor is explicit intent about boundaries and the tap
-/// predates the edit), and when the tap lands before its own clip start
-/// (a slipped or stale tap describes no point that can happen). Mirrors
-/// playhead.ts effectiveEnd — the two must stay rule-identical.
-func effectiveEnd(_ p: MatchPoint, _ pad: ClipPad, on: Bool) -> Double? {
+/// 1. THE TAP. scoredAtCutS is the playhead at the winner tap — the owner
+///    saying "decided by here" (067). Everything past tap + 0.5s is ball
+///    retrieval and walking: ~25% of a scored match's cut
+///    (docs/research/2026-08-25-tap-end-shave.md).
+///
+/// 2. THE RALLY. rallyEndCutS is the last moment the rally was observed —
+///    the last bounce on the user's own table, which points_v2.py has
+///    always computed and t1 pads by 2.6s precisely so a winner tap would
+///    land inside. No tap is coming on an unscored match, so that padding
+///    is ball retrieval too (143).
+///
+/// The tap WINS wherever it exists, and a scored point never falls through
+/// to the rally even with tap trimming switched off: the tap is a person
+/// watching the point, the bounce is a detector that can miss the last
+/// shot of a rally that ended off the table.
+///
+/// A CLAMP, never an extension, at every rung. Both are ignored on
+/// hand-edited points (the clip editor is explicit intent about boundaries
+/// and both signals predate the edit) and when the mark lands before its
+/// own clip start (a slipped or stale value describes no point that can
+/// happen). Mirrors playhead.ts effectiveEnd — the two must stay
+/// rule-identical, and ios/Tests/fixtures/rally-end-parity.json is what
+/// proves it.
+func effectiveEnd(_ p: MatchPoint, _ pad: ClipPad, _ ends: EndOptions) -> Double? {
     guard let padded = paddedEnd(p, pad) else { return nil }
-    guard on, !p.edited, let tap = p.scoredAtCutS, let cutT0 = p.cutT0,
-          tap >= cutT0 else { return padded }
-    return min(padded, tap + TAP_END_GUARD_S)
+    guard let cutT0 = p.cutT0 else { return padded }
+    guard !p.edited else { return padded }
+
+    if let tap = p.scoredAtCutS {
+        if ends.tapEnd, tap >= cutT0 {
+            return min(padded, tap + TAP_END_GUARD_S)
+        }
+        return padded
+    }
+    if let rally = ends.rallyEnd, rally.on,
+       let observed = p.rallyEndCutS, observed >= cutT0 {
+        return min(padded, observed + rally.bufferS)
+    }
+    return padded
 }
 
 /// Inverse of the anchoring fact: the SOURCE-video time for cut time T

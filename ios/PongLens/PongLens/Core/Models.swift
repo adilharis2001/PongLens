@@ -93,6 +93,12 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     /// pad, since the scrubber already shows a clock and two clocks that can
     /// disagree read as a bug.
     var serveStartAtCutS: Double?
+    /// Where the RALLY was last observed, in cut seconds (143): the last
+    /// bounce on the user's own table. Measured by the worker, never by a
+    /// person, and nil wherever it was not seen. t1 pads it by 2.6s so a
+    /// winner tap lands inside; an unscored point has no tap coming, so
+    /// this is where its playback can stop instead.
+    var rallyEndCutS: Double?
     var lossReasons: [String]?
     var direction: String?
     var misreadKind: String?
@@ -132,6 +138,7 @@ struct MatchPoint: Codable, Identifiable, Hashable {
         case gameWinnerOverride = "game_winner_override"
         case scoredAtCutS = "scored_at_cut_s"
         case serveStartAtCutS = "serve_start_at_cut_s"
+        case rallyEndCutS = "rally_end_cut_s"
         case lossReasons = "loss_reasons"
         case misreadKind = "misread_kind"
         case serveSpin = "serve_spin"

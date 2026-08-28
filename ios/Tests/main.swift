@@ -9,6 +9,7 @@ runPlacementHeatMapChecks()
 runStarredTests()
 runHighlightsParityChecks()
 runCameraGuideGateChecks()
+runRallyEndParityChecks()
 
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {

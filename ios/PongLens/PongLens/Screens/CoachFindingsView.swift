@@ -555,13 +555,14 @@ private struct CutPlayerView: View {
     }
 
     /// Dead footage the player jumps: deleted cards and, with the
-    /// tap-end flag on (138), the tail after each winner tap. Recomputed
+    /// tap-end flag on (138), the tail after each winner tap, and on an
+    /// unscored point the tail after the rally ended (143). Recomputed
     /// off the store like the takeover's deadSpans — the list is short.
     private var deadSpans: [TimeSpan] {
         skipSpans(
             all: store.allPoints.map(\.playheadPoint),
             pad: clipPad(strictness: nil, stored: store.match?.clipPads),
-            tapEnd: app.tapEndPlayback
+            ends: app.endOptions
         )
     }
 

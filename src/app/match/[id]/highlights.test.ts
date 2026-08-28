@@ -207,7 +207,7 @@ test("the committed parity fixture matches this module's output", () => {
         points,
         pad,
         HIGHLIGHT_BUDGETS_S[kind],
-        tapEnd
+        { tapEnd }
       );
       assert.deepEqual(
         picks.map((p) => p.id),

@@ -248,7 +248,7 @@ struct PlayerTakeover: View {
         guard let picks = highlightPicks else { return nil }
         return picks.compactMap { p in
             guard let c = p.cutT0,
-                  let end = effectiveEnd(p, pad, on: app.tapEndPlayback)
+                  let end = effectiveEnd(p, pad, app.endOptions)
             else { return nil }
             return TimeSpan(start: max(0, c), end: end)
         }
@@ -271,7 +271,7 @@ struct PlayerTakeover: View {
             return reviewing
         }
         return targetAt(
-            points, at: t, pad: pad, tapEnd: app.tapEndPlayback,
+            points, at: t, pad: pad, ends: app.endOptions,
             hold: mode == .score && phase == .play,
             runStart: runStartT, firedId: endPauseBlockedId
         )
@@ -333,7 +333,7 @@ struct PlayerTakeover: View {
         var out: [TimeSpan] = []
         for (i, p) in cut.enumerated() {
             guard let padded = paddedEnd(p, pad),
-                  let eff = effectiveEnd(p, pad, on: true),
+                  let eff = effectiveEnd(p, pad, app.endOptions),
                   eff < padded else { continue }
             let next = i + 1 < cut.count ? (cut[i + 1].cutT0 ?? padded) : padded
             let end = max(next, eff)
@@ -2133,7 +2133,7 @@ struct PlayerTakeover: View {
         // Playback progress through the current point's padded span.
         let progress: Double = {
             guard isCurrent, let cutT0 = p.cutT0,
-                  let end = effectiveEnd(p, pad, on: app.tapEndPlayback),
+                  let end = effectiveEnd(p, pad, app.endOptions),
                   end > cutT0 else { return 0 }
             return min(1, max(0, (currentT - cutT0) / (end - cutT0)))
         }()
@@ -2564,7 +2564,7 @@ struct PlayerTakeover: View {
         switch advanceMove(
             from: p, now: currentT,
             nextStart: nextCutStart(points, after: p), pad: pad,
-            tapEnd: app.tapEndPlayback
+            ends: app.endOptions
         ) {
         case .playTail(let end):
             playTail = PlayTail(id: p.id, end: end)
@@ -2940,7 +2940,7 @@ struct PlayerTakeover: View {
             // Review clips stop at the reviewed rally's effective end.
             if reviewQueue.indices.contains(reviewIndex),
                let p = points.first(where: { $0.id == reviewQueue[reviewIndex] }),
-               let end = effectiveEnd(p, pad, on: app.tapEndPlayback), t >= end {
+               let end = effectiveEnd(p, pad, app.endOptions), t >= end {
                 player.pause()
                 showChrome(autoHide: false)
             }
@@ -3001,7 +3001,7 @@ struct PlayerTakeover: View {
     func stopAt(_ p: MatchPoint) -> Double? {
         isUnscored(p)
             ? pauseEnd(p, pad, nextStart: nextCutStart(points, after: p))
-            : effectiveEnd(p, pad, on: app.tapEndPlayback)
+            : effectiveEnd(p, pad, app.endOptions)
     }
 
     /// A game just closed under a live answer. The result is an announcement,
