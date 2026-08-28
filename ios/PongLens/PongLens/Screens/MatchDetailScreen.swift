@@ -520,9 +520,14 @@ struct MatchDetailScreen: View {
     /// score proves it" and this is a different claim.
     @ViewBuilder
     private func sideChangeDivider(_ point: MatchPoint) -> some View {
+        // fixedSize, or the two flexible rules either side squeeze the
+        // capsule until "Players changed ends" wraps onto two lines. The
+        // text takes what it needs and the rules take the rest.
         let label = Text(SideChanges.label)
             .font(.plCaption)
             .foregroundStyle(isOwner ? PL.text400 : PL.text500)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .overlay(Capsule().strokeBorder(PL.edge, style: PLDash.style))
