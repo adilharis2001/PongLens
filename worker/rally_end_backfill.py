@@ -124,6 +124,17 @@ def backfill_match(conn, match_id: str, dry_run: bool = False) -> dict:
     except Exception as exc:                       # noqa: BLE001
         return {"match": match_id, "skipped": f"match.json unreadable: {exc}"}
 
+    # The end-on assembler sets a card's end from a fixed pad, not from the
+    # last bounce, so the guard below has no premise there: it tests that
+    # the ending explains t1, and on this route nothing ever does. The
+    # pipeline already excludes these matches by never producing an ending
+    # for them (points_endon.build_cards has no end_evidence_s), and a
+    # backfill that quietly reached them anyway would make that assurance
+    # false. Detected from the route the pipeline recorded at the time.
+    notes = " ".join(mj.get("notes") or [])
+    if "route end-on" in notes:
+        return {"match": match_id, "skipped": "end-on route"}
+
     segments = [tuple(s) for s in (mj.get("cut_segments") or [])]
     if not segments:
         # A spans-mode or pre-plays match: without the segment list there
