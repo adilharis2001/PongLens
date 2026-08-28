@@ -20,11 +20,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
  * and proxying a few hundred megabytes of MP4 through a route handler to
  * gain nothing would be silly.
  *
- * The prefix is a parameter because the same bundle shape now backs two
- * pages that ask different questions of it. Written once so a fix to the
- * access check cannot land on one page and miss the other.
+ * The prefix and suffix are parameters because several pages now read
+ * different dumps out of the same bucket. Written once so a fix to the
+ * access check cannot land on one page and miss the others.
  */
-export async function evidenceBundle(prefix: string, id: string) {
+export async function evidenceBundle(
+  prefix: string,
+  id: string,
+  suffix = ".page.json",
+) {
   if (!UUID.test(id)) {
     return NextResponse.json({ error: "bad id" }, { status: 400 });
   }
@@ -37,7 +41,7 @@ export async function evidenceBundle(prefix: string, id: string) {
   const { data: isAdmin } = await supabase.rpc("is_admin");
   if (!isAdmin) return NextResponse.json({ error: "no" }, { status: 404 });
 
-  const signed = await presignGet(MEDIA_BUCKET, `${prefix}/${id}.page.json`, {
+  const signed = await presignGet(MEDIA_BUCKET, `${prefix}/${id}${suffix}`, {
     expiresSeconds: 120,
   });
   const res = await fetch(signed);

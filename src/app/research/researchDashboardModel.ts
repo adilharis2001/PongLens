@@ -88,6 +88,14 @@ export const RESEARCH_PAGES = [
     accent: "magenta",
   },
   {
+    title: "Serve misses",
+    category: "Model evaluation",
+    description:
+      "The same cards one at a time, with the bounces on the table and the rule that turned each pair away, so you can see why the serve was never found.",
+    href: "/research/serve-misses",
+    accent: "magenta",
+  },
+  {
     title: "Score gaps",
     category: "Model evaluation",
     description:
