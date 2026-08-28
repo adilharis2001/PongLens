@@ -143,7 +143,16 @@ def main() -> None:
                       f"re-run with --extract", flush=True)
                 continue
             cached.rename(cached.with_suffix(".stale.json"))
-            print(f"{match_id[:8]} cache was stale, rebuilding", flush=True)
+            # And the match.json with it. fetch_match_media only downloads
+            # when the file is absent, so re-extracting from the stale copy
+            # reproduces the stale TIMES exactly and fails alignment again
+            # by the same 1-3 seconds. The rally boundaries live in
+            # match.json; the evidence is only as current as that file is.
+            stale_match = folder / "match.json"
+            if stale_match.is_file():
+                stale_match.rename(folder / "match.stale.json")
+            print(f"{match_id[:8]} cache was stale, rebuilding from a "
+                  f"fresh match.json", flush=True)
             cached = folder / args.evidence
         conn.commit()
 
