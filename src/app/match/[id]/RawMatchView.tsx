@@ -96,6 +96,10 @@ export function RawMatchView({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** Is the process card open? Closed on a fresh upload; a failed one
+   *  opens itself, because its reason and its retry are why anyone is
+   *  looking at this screen. */
+  const [processOpen, setProcessOpen] = useState(match.status === "failed");
   /** The browser refused the raw file (usually HEVC in a .mov). */
   const [undecodable, setUndecodable] = useState(false);
 
@@ -430,19 +434,57 @@ export function RawMatchView({
           details for one release and the scrolling was the first thing
           anyone noticed. */}
       {isOwner && !jobRunning && commerceEnabled && !sourceGone && (
-        <section className="mt-4 rounded-2xl border border-edge bg-surface p-5">
-          <h2 className="text-base font-semibold text-zinc-100">
-            Break it into points
-          </h2>
+        <section className="mt-4 overflow-hidden rounded-2xl border border-edge bg-surface">
+          {/* Closed by default. This screen's job is "watch this and
+              decide", and it used to open on a trim bar, two settings and
+              a price. Closed it states the offer and the cost in one line;
+              the controls are one click down for whoever wants them. Same
+              shape as the details card below. A FAILED match opens itself,
+              because its reason and its retry are the whole point. */}
+          <button
+            type="button"
+            onClick={() => setProcessOpen((v) => !v)}
+            aria-expanded={processOpen}
+            className="flex w-full items-center gap-3 p-5 text-left transition-colors hover:bg-ink/20"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-base font-semibold text-zinc-100">
+                Break it into points
+              </span>
+              <span className="mt-0.5 block text-xs text-zinc-500">
+                Every rally as its own clip
+              </span>
+            </span>
+            {charge != null && (
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-300">
+                {charge} min
+              </span>
+            )}
+            <svg
+              viewBox="0 0 24 24"
+              className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${
+                processOpen ? "rotate-180" : ""
+              }`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+
           {match.status === "failed" && (
-            <p className="mt-2 text-sm text-amber-300/90">
+            <p className="px-5 pb-5 text-sm text-amber-300/90">
               {job?.user_message ??
                 "Processing failed, and your minutes came back."}
             </p>
           )}
 
+          {processOpen && (
+          <div className="border-t border-edge/60 p-5">
           {duration == null ? (
-            <p className="mt-2 text-sm text-zinc-400">
+            <p className="text-sm text-zinc-400">
               Play the video once so we can read its length.
             </p>
           ) : (
@@ -451,7 +493,10 @@ export function RawMatchView({
                   under itself and the two buttons say what they do, so a
                   sentence explaining them only pushes the handles further
                   from the picture they are cut against. */}
-              <div className="mt-4" />
+              <p className="text-sm font-medium text-zinc-200">
+                What to process
+              </p>
+              <div className="mt-3" />
               <TrimBar
                 duration={duration}
                 start={trimStart}
@@ -515,9 +560,9 @@ export function RawMatchView({
                         key={s}
                         onClick={() => setStrictness(s)}
                         aria-pressed={strictness === s}
-                        className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                        className={`rounded-md px-3 py-1.5 text-sm font-semibold transition-colors ${
                           strictness === s
-                            ? "bg-cyan-glow/15 text-cyan-glow"
+                            ? "bg-cyan-glow text-ink"
                             : "text-zinc-400 hover:text-zinc-200"
                         }`}
                       >
@@ -532,25 +577,32 @@ export function RawMatchView({
                 </div>
               </div>
 
-              <div className="mt-5 flex flex-wrap items-center gap-3">
+              {/* Full width, with the balance under it rather than
+                  floating alongside. A hugging pill beside a loose
+                  sentence was the scrappiest thing on this screen. */}
+              <div className="mt-6">
                 <button
                   onClick={process}
                   disabled={busy || !enough}
-                  className="rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-zinc-950 disabled:opacity-40"
+                  className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink transition-opacity disabled:opacity-40 sm:max-w-xs"
                 >
-                  {charge != null
-                    ? `Process · ${formatMinutes(charge)}`
-                    : "Process"}
+                  {charge != null ? `Process · ${charge} min` : "Process"}
                 </button>
                 {minutesBalance != null && (
-                  <span className="text-sm text-zinc-400">
-                    You have {formatMinutes(minutesBalance)}.
-                  </span>
+                  <p
+                    className={`mt-2 w-full text-center text-xs sm:max-w-xs ${
+                      enough ? "text-zinc-500" : "text-amber-300/90"
+                    }`}
+                  >
+                    {enough
+                      ? `${formatMinutes(minutesBalance)} left`
+                      : `Not enough minutes. You have ${formatMinutes(minutesBalance)}.`}
+                  </p>
                 )}
                 {charge != null && minutesBalance != null && !enough && (
                   <a
                     href="/account"
-                    className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-200 hover:border-zinc-500"
+                    className="mx-auto mt-3 block w-fit rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-200 hover:border-zinc-500"
                   >
                     Get more minutes
                   </a>
@@ -559,6 +611,8 @@ export function RawMatchView({
             </>
           )}
           {error && <p className="mt-3 text-sm text-amber-300/90">{error}</p>}
+          </div>
+          )}
         </section>
       )}
 

@@ -485,6 +485,9 @@ struct MatchDetailScreen: View {
     @State private var strictness = "normal"
     @State private var processBusy = false
     @State private var processError: String?
+    /// Is the process card open? Closed on a fresh upload, open on a
+    /// failed one — see processCard.
+    @State private var processOpen = false
     @State private var detailsOpen = false
     @State private var shareOpen = false
     @State private var deleteAsk = false
@@ -745,6 +748,9 @@ struct MatchDetailScreen: View {
             await reasonsStore.load(ownerId: match.userId)
             if match.status != .ready {
                 await model.loadRawState(match)
+                // A failed match opens itself: the reason and the retry
+                // are why anyone is on this screen.
+                if match.status == .failed { processOpen = true }
                 watchKick += 1
             }
             if let pointId = openPointId,
@@ -1295,92 +1301,187 @@ struct MatchDetailScreen: View {
 
 
 
+    /// Turning the upload into points: the primary decision on this
+    /// screen, and the only one that spends minutes.
+    ///
+    /// COLLAPSED BY DEFAULT. It used to sit permanently open, so a screen
+    /// whose job is "watch this and decide" led with a trim bar, two
+    /// settings and a price. Closed it states the offer and the cost in
+    /// one line and gets out of the way; the controls are one tap down for
+    /// the person who actually wants them. Same shape as the details card
+    /// below it.
+    ///
+    /// The exception is a match that FAILED. Its reason and its retry are
+    /// the whole point of the screen, so that one opens itself.
     private var processCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Break it into points")
-                .font(.plCardTitle)
-                .foregroundStyle(PL.text100)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.22)) { processOpen.toggle() }
+            } label: {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Break it into points")
+                            .font(.plCardTitle)
+                            .foregroundStyle(PL.text100)
+                        Text("Every rally as its own clip")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                    }
+                    Spacer(minLength: 8)
+                    // The price, before the tap. It is what decides whether
+                    // anyone opens this at all.
+                    if let charge = minutesCharge {
+                        Text("\(charge) min")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(PL.text300)
+                            .monospacedDigit()
+                    }
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(PL.text500)
+                        .rotationEffect(.degrees(processOpen ? 180 : 0))
+                }
+                .padding(20)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            // Outside the fold: a failure is the reason someone opened this
+            // screen, and hiding it behind a chevron would be a lie of
+            // omission.
             if current.status == .failed {
                 Text(model.job?.userMessage ?? "Processing failed, and your minutes came back.")
                     .font(.plBody)
                     .foregroundStyle(PL.warningText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
             }
-            if let duration = current.durationS, duration > 10 {
-                RawTrimBar(
-                    duration: duration,
-                    start: $trimStart,
-                    end: Binding(
-                        get: { trimEnd ?? duration },
-                        set: { trimEnd = $0 }
-                    )
-                )
-                if trimmed {
-                    Button("Reset trim") {
-                        trimStart = 0
-                        trimEnd = nil
-                    }
-                    .buttonStyle(PLSecondaryButtonStyle())
-                }
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Toggle("Placement maps", isOn: $placementOn)
-                    .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
-                    .tint(PL.cyan.opacity(0.6))
-                Text("Where every ball landed. Adds processing time.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Cut strictness")
-                    .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
-                Text("How much room to leave around each point.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-                HStack(spacing: 4) {
-                    ForEach(["tight", "normal", "loose"], id: \.self) { level in
-                        let active = strictness == level
-                        Button(level.capitalized) { strictness = level }
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(active ? PL.cyan : PL.text400)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(
-                                active ? PL.cyan.opacity(0.15) : .clear,
-                                in: RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
+
+            if processOpen {
+                Rectangle().fill(PL.edge).frame(height: 1)
+
+                VStack(alignment: .leading, spacing: 18) {
+                    if let duration = current.durationS, duration > 10 {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("What to process")
+                                    .font(.plRowTitle)
+                                    .foregroundStyle(PL.text100)
+                                Spacer()
+                                if trimmed {
+                                    Button("Reset") {
+                                        trimStart = 0
+                                        trimEnd = nil
+                                    }
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(PL.cyan)
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            RawTrimBar(
+                                duration: duration,
+                                start: $trimStart,
+                                end: Binding(
+                                    get: { trimEnd ?? duration },
+                                    set: { trimEnd = $0 }
+                                )
                             )
-                            .buttonStyle(.plain)
+                        }
                     }
+
+                    Divider().overlay(PL.edge)
+
+                    // One shape for both settings: name on the left, the
+                    // control on the right, the sentence underneath. They
+                    // used to be built differently from each other, which
+                    // is most of why the card read as unfinished.
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(isOn: $placementOn) {
+                            Text("Placement maps")
+                                .font(.plRowTitle)
+                                .foregroundStyle(PL.text100)
+                        }
+                        .tint(PL.cyan)
+                        Text("Where each serve landed. Adds processing time.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                    }
+
+                    Divider().overlay(PL.edge)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Cut strictness")
+                            .font(.plRowTitle)
+                            .foregroundStyle(PL.text100)
+                        Text("How much room to leave around each point.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                        HStack(spacing: 4) {
+                            ForEach(["tight", "normal", "loose"], id: \.self) { level in
+                                let active = strictness == level
+                                Button(level.capitalized) {
+                                    withAnimation(.easeOut(duration: 0.15)) { strictness = level }
+                                }
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(active ? PL.ink : PL.text400)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 9)
+                                .background(
+                                    active ? PL.cyan : .clear,
+                                    in: RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
+                                )
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(3)
+                        .background(PL.ink.opacity(0.5), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                        .padding(.top, 8)
+                    }
+
+                    if let processError {
+                        Text(processError)
+                            .font(.plCaption)
+                            .foregroundStyle(PL.warningText)
+                    }
+
+                    // Full width, with the balance under it rather than
+                    // floating alongside. A hugging pill beside a loose
+                    // sentence was the single scrappiest thing on this
+                    // screen.
+                    VStack(spacing: 8) {
+                        Button {
+                            Task { await runProcess() }
+                        } label: {
+                            // The width has to be on the LABEL, not on the
+                            // Button: PLPrimaryButtonStyle paints its
+                            // capsule around whatever the label measures,
+                            // so a frame outside the style stretches the
+                            // tap target and leaves the pill hugging in
+                            // the middle. That was the "not optimised"
+                            // look — a small capsule adrift in a wide card.
+                            Text(processBusy ? "Starting…" : chargeLabel)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(PLPrimaryButtonStyle())
+                        .disabled(processBusy || !enoughMinutes)
+                        if let balance = model.minutesBalance {
+                            Text(
+                                enoughMinutes
+                                    ? "\(balance) minutes left"
+                                    : "Not enough minutes. You have \(balance)."
+                            )
+                            .font(.plCaption)
+                            .foregroundStyle(enoughMinutes ? PL.text500 : PL.warningText)
+                        }
+                    }
+                    .padding(.top, 2)
                 }
-                .padding(3)
-                .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                        .strokeBorder(PL.edge, lineWidth: 1)
-                )
-                .padding(.top, 5)
-            }
-            if let processError {
-                Text(processError)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.warningText)
-            }
-            HStack(spacing: 12) {
-                Button(processBusy ? "Starting…" : chargeLabel) {
-                    Task { await runProcess() }
-                }
-                .buttonStyle(PLPrimaryButtonStyle())
-                .disabled(processBusy || !enoughMinutes)
-                if let balance = model.minutesBalance {
-                    Text("You have \(balance).")
-                        .font(.plCaption)
-                        .foregroundStyle(enoughMinutes ? PL.text400 : PL.warningText)
-                }
+                .padding(20)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .plCard()
+        .plCard(padding: 0)
     }
 
     /// The kept window's length — what the charge is quoted on. The
