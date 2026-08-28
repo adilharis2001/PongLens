@@ -427,6 +427,10 @@ export interface Point {
   // rule can't prove because a cut ate points (a game pinned closed at
   // 10-7 counted for nobody). Cleared with the 'end' it belongs to.
   game_winner_override: "user" | "opponent" | null;
+  // Owner hid the detected side-change marker that sits after this point
+  // (146). DISPLAY ONLY — never read by the boundary walk in gameScore.ts
+  // and never part of a score. See sideChanges.ts.
+  side_change_dismissed: boolean;
 }
 
 // Returned by the player_coach_links() RPC (player's own sharing links,

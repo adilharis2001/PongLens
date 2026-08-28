@@ -157,6 +157,12 @@ export function sharePointsAsPoints(
         : Number(r.scored_at_cut_s),
     game_end_override: r.game_end_override,
     game_winner_override: r.game_winner_override,
+    // The detected side-change marker (146) is a control, and a stranger
+    // has no answer to give. The share RPC does not select
+    // match_structure either, so nothing on this page can draw one
+    // whatever this says — false is the honest default rather than a
+    // hidden dismissal.
+    side_change_dismissed: false,
   }));
 }
 

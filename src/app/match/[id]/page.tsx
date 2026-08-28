@@ -12,6 +12,7 @@ import type {
 } from "@/lib/types";
 import {
   getCommerceEnabled,
+  getGameEndDetection,
   getPlacementServesOnly,
   getTapEndPlayback,
   getUnscoredRallyEnd,
@@ -251,6 +252,7 @@ export default async function MatchPage({
             (lossReasonLabels ?? []) as { id: string; label: string }[]
           }
           placementServesOnly={await getPlacementServesOnly()}
+          gameEndDetection={await getGameEndDetection()}
           ends={{
             tapEnd: await getTapEndPlayback(),
             rallyEnd: {

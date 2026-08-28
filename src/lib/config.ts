@@ -162,6 +162,22 @@ export const getTapEndPlayback = cache(async (): Promise<boolean> => {
 });
 
 /**
+ * The game-end indicator (2026-08-26, 140).
+ *
+ * On, a marker is drawn between two rallies where the video shows the
+ * players swapping ends — in Keep score's strip and in the point list.
+ * Off, or on any fetch failure, there is no marker anywhere and every
+ * match scores exactly as it did. Applied at read time, so it covers
+ * matches processed before the flag existed and rollback is one UPDATE.
+ *
+ * The marker never changes a score by itself. Tapping it can, because
+ * that writes the same game_end_override the owner could pin by hand.
+ */
+export const getGameEndDetection = cache(async (): Promise<boolean> => {
+  return (await getConfigValue("game_end_detection")) === "on";
+});
+
+/**
  * UNSCORED points end when the rally was last observed (2026-08-27).
  *
  * The sibling of the rule above, for the matches nobody scores. The worker

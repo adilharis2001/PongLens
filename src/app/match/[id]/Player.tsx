@@ -25,6 +25,7 @@ import {
   type GameSummary,
   type MatchScore,
 } from "./gameScore";
+import type { SideChangeMarker } from "./sideChanges.ts";
 import { KeyCap } from "@/components/KeyCap";
 import { Annotator } from "./Annotator";
 import { NoteComposer, PointNoteThread } from "./Notes";
@@ -715,6 +716,14 @@ export const Player = forwardRef<
     onSetServer: (point: Point, value: "user" | "opponent") => void;
     /** Pin/clear a game boundary after a point (game_end_override). */
     onSetGameOverride: (point: Point, value: GameEndOverride) => void;
+    /**
+     * Detected side changes (140/146), keyed by the rally they follow.
+     * Marker only: it never reaches the score except through the owner
+     * tapping "Game ended here", which pins the ordinary override.
+     */
+    sideChanges?: ReadonlyMap<string, SideChangeMarker>;
+    /** Hide a marker (146). Absent means the feature is off. */
+    onDismissSideChange?: (point: Point) => void;
     /** Name/clear the winner of the game ending at a point (099) — for
      *  pinned ends the score can't prove (points lost to a cut). */
     onSetGameWinner?: (
@@ -824,6 +833,8 @@ export const Player = forwardRef<
     onSetServer,
     onSetGameOverride,
     onSetGameWinner,
+  sideChanges,
+  onDismissSideChange,
     onToggleStar,
     onSplit,
     onUnsplit,
@@ -1222,6 +1233,10 @@ export const Player = forwardRef<
   }, [corsOff]);
   // Point picker (watch mode): jump straight to any rally in the match.
   const [pointPicker, setPointPicker] = useState(false);
+  /** The detected side-change marker tapped in the strip (146). */
+  const [sideChangeBreak, setSideChangeBreak] = useState<{
+    pointId: string;
+  } | null>(null);
   /** The game end tapped in the chip strip, offered for removal. */
   const [gameBreak, setGameBreak] = useState<{
     pointId: string;
@@ -3970,6 +3985,28 @@ export const Player = forwardRef<
     [applyGameOverride, askWinnerIfUnproven]
   );
 
+  /** The strip marker's "Game ended here". Routes through pinEndAt rather
+   *  than pinning the override itself: pinEndAt also suppresses the "did
+   *  it though?" overlay for an end the user asked for, stamps the score
+   *  flash, and asks who won when the closed score cannot say. Two of
+   *  those four are easy to forget, which is how a second path drifts. */
+  const confirmSideChangeEnd = useCallback(() => {
+    const id = sideChangeBreak?.pointId;
+    setSideChangeBreak(null);
+    const p = pointsRef.current.find((pt) => pt.id === id);
+    if (p) pinEndAt(p);
+  }, [sideChangeBreak, pinEndAt]);
+
+  /** The strip marker's "They just changed ends": hide it and nothing
+   *  else. Never a 'continue' override — that would suppress the
+   *  automatic boundary rule and change the score. */
+  const hideSideChange = useCallback(() => {
+    const id = sideChangeBreak?.pointId;
+    setSideChangeBreak(null);
+    const p = pointsRef.current.find((pt) => pt.id === id);
+    if (p) onDismissSideChange?.(p);
+  }, [sideChangeBreak, onDismissSideChange]);
+
   /** Boundary overlay's "Didn't end?": the auto boundary fired where the
    *  video says the game kept going — hold it open ('continue'), dismiss
    *  the overlay, keep counting in the same game. */
@@ -5782,6 +5819,11 @@ export const Player = forwardRef<
                 // count to eleven — and a run of chips reads as a game
                 // instead of one undifferentiated line of numbers.
                 const ends = score.boundaryAfter.get(p.id);
+                // The video saw them swap and the score has not said so.
+                // Never both: sideChanges.ts already silences a detection
+                // within three rallies of a real boundary, and the guard
+                // here says so in the code as well as in the rule.
+                const changed = ends ? undefined : sideChanges?.get(p.id);
                 // The playing chip counts itself down: the ring is the
                 // point's own footage running out, so "how much of this
                 // rally is left" (and a fused clip that goes on far too
@@ -5938,6 +5980,29 @@ export const Player = forwardRef<
                           the phone this is used on has no hover at all. */}
                       <span className="block rounded-full border border-zinc-600 bg-ink/60 px-1.5 py-0.5 text-[9px] font-semibold leading-none tabular-nums text-zinc-400 transition-colors group-hover:border-cyan-glow/50 group-hover:text-zinc-200 group-active:border-cyan-glow group-active:text-cyan-glow">
                         {ends.you}-{ends.them}
+                      </span>
+                    </button>
+                  )}
+                  {changed && onDismissSideChange && (
+                    // Dashed, all through: the solid divider beside it
+                    // means "a game ended here and the score proves it",
+                    // and this is a different claim. Dashed is already
+                    // this strip's word for not-yet-answered — the
+                    // unscored chips carry it.
+                    <button
+                      type="button"
+                      onClick={() => setSideChangeBreak({ pointId: p.id })}
+                      aria-label="The players changed ends here — tap to answer"
+                      title="Players changed ends"
+                      className="group flex h-8 shrink-0 flex-col items-center justify-center gap-1 rounded px-1"
+                    >
+                      <span className="block h-3 w-px border-l border-dashed border-zinc-600" />
+                      {/* "ends" is what the strip can afford. The divider
+                          beside it holds four characters at 9px; anything
+                          longer changes the rhythm and pushes chips off a
+                          390px phone. The sentence lives in the sheet. */}
+                      <span className="block rounded-full border border-dashed border-zinc-600 bg-ink/60 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-zinc-400 transition-colors group-hover:border-cyan-glow/50 group-hover:text-zinc-200 group-active:border-cyan-glow group-active:text-cyan-glow">
+                        ends
                       </span>
                     </button>
                   )}
@@ -6923,6 +6988,47 @@ export const Player = forwardRef<
             >
               Not sure
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* The detected side change, tapped in the strip. Two answers and a
+          way out. "Game ended here" runs the ordinary pin, so a game ended
+          from a marker is indistinguishable afterwards from one ended by
+          the flag button — the detector never gets a private path into
+          the score. */}
+      {open && sideChangeBreak && (
+        <div className="absolute inset-0 z-20 flex items-end justify-center bg-ink/70 p-4 backdrop-blur-sm sm:items-center">
+          <div className="ks-fade w-full rounded-2xl border border-edge bg-surface p-5 sm:max-w-xs">
+            <h2 className="text-base font-semibold">
+              The players changed ends here
+            </h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              This usually means the game ended.
+            </p>
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={confirmSideChangeEnd}
+                className="rounded-full border border-cyan-glow/40 bg-cyan-glow/10 px-4 py-2.5 text-sm font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/20"
+              >
+                Game ended here
+              </button>
+              <button
+                type="button"
+                onClick={hideSideChange}
+                className="rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:text-white"
+              >
+                They just changed ends
+              </button>
+              <button
+                type="button"
+                onClick={() => setSideChangeBreak(null)}
+                className="rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

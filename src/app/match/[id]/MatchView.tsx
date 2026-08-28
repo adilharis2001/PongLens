@@ -63,6 +63,11 @@ import {
 } from "./matchStructure";
 import { normalizeCustomReasonLabel } from "./scorecard";
 import {
+  SIDE_CHANGE_LABEL,
+  sideChangesByPoint,
+  type SideChangeMarker,
+} from "./sideChanges.ts";
+import {
   placementNoticeForViewer,
   scrollToReadyPlacement,
   showPlacementDeepDive,
@@ -404,6 +409,7 @@ export function MatchView({
   initialPointTags,
   initialLossReasonLabels = [],
   placementServesOnly = false,
+  gameEndDetection = false,
   ends = { tapEnd: false },
 }: {
   match: Match;
@@ -435,6 +441,10 @@ export function MatchView({
    *  match page and the share link cannot disagree about what the maps
    *  show for the same match. */
   placementServesOnly?: boolean;
+  /** app_config game_end_detection (140). Draws a marker between two
+   *  rallies where the video shows the players swapping ends. Read on the
+   *  server; off means no marker anywhere and no behaviour change at all. */
+  gameEndDetection?: boolean;
   /** Which endings trim a point (playhead.effectiveEnd): the winner tap
    *  plus half a second on a scored point (tap_end_playback, 138), the
    *  observed rally end plus its buffer on an unscored one
@@ -448,6 +458,8 @@ export function MatchView({
   const [pointTags, setPointTags] = useState<PointTag[]>(initialPointTags);
   // Timeline tagging: which point's picker is open (the star's sibling).
   const [tagPickerPoint, setTagPickerPoint] = useState<Point | null>(null);
+  /** The detected side-change marker the owner tapped in the point list. */
+  const [sideChangeSheet, setSideChangeSheet] = useState<Point | null>(null);
   const [opponentName, setOpponentName] = useState(match.opponent_name ?? "");
   const [userSide, setUserSide] = useState<Side | null>(match.user_side);
   const [nearName, setNearName] = useState(match.player_near_name ?? "");
@@ -1260,6 +1272,30 @@ export function MatchView({
     return out;
   }, [visiblePoints, score]);
   /**
+   * Where the video says the players swapped ends and the score has not
+   * said so yet (140/146). Purely a marker: it is never folded into the
+   * boundary walk, so nothing below this line changes what a match scores.
+   * Fades as the match gets scored — see sideChanges.ts.
+   */
+  const sideChanges = useMemo(
+    () =>
+      sideChangesByPoint({
+        evidence: match.match_structure,
+        visiblePoints,
+        boundaryAfter: score.boundaryAfter,
+        enabled: gameEndDetection,
+        scoredType: scored,
+      }),
+    [
+      match.match_structure,
+      visiblePoints,
+      score.boundaryAfter,
+      gameEndDetection,
+      scored,
+    ]
+  );
+
+  /**
    * The match split into games — the same boundary walk the score uses, so
    * "Game 3" here is the Game 3 everywhere else. Feeds the unscore picker,
    * which needs each game's points, its score, and whether it finished.
@@ -1616,6 +1652,23 @@ export function MatchView({
         .update({ game_winner_override: next })
         .eq("id", point.id);
       if (error) updatePoint(point.id, { game_winner_override: prev });
+    },
+    [updatePoint]
+  );
+
+  // Hide a detected side-change marker (146). Display only, and
+  // deliberately NOT a 'continue' override: 'continue' suppresses the
+  // automatic 11-clear-by-2 rule from here on, which is a real change to
+  // the score, and saying "they just changed ends" must cost nothing.
+  const dismissSideChange = useCallback(
+    async (point: Point) => {
+      updatePoint(point.id, { side_change_dismissed: true });
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ side_change_dismissed: true })
+        .eq("id", point.id);
+      if (error) updatePoint(point.id, { side_change_dismissed: false });
     },
     [updatePoint]
   );
@@ -2705,6 +2758,12 @@ export function MatchView({
               onSetServer={(p, v) => void setServerOverride(p, v)}
               onSetGameOverride={(p, v) => void setGameEndOverride(p, v)}
               onSetGameWinner={(p, v) => void setGameWinnerOverride(p, v)}
+              sideChanges={sideChanges}
+              onDismissSideChange={
+                gameEndDetection && isOwner
+                  ? (p) => void dismissSideChange(p)
+                  : undefined
+              }
               onToggleStar={(p) => void toggleStar(p)}
               onSplit={(parent, patch, child) => {
                 updatePoint(parent.id, patch);
@@ -3640,6 +3699,32 @@ export function MatchView({
                         can nudge it a point up/down when a rally landed in
                         the wrong game (score ran past 11). Scored types
                         only — games are a score construct. */}
+                    {/* The video saw them swap ends and the score has not
+                        said so. Dashed, because the solid rule above means
+                        "a game ended here and the score proves it" and this
+                        is a different claim — dashed is already this page's
+                        vocabulary for not-yet-answered. Never both: a
+                        boundary within three rallies silences this one. */}
+                    {scored && !pfActive && nextGame === undefined &&
+                      sideChanges.has(point.id) && (
+                      <div className="mt-3 flex items-center gap-3">
+                        <span className="h-px flex-1 border-t border-dashed border-edge" />
+                        {isOwner ? (
+                          <button
+                            type="button"
+                            onClick={() => setSideChangeSheet(point)}
+                            className="rounded-full border border-dashed border-edge px-3 py-1 text-xs font-semibold uppercase tracking-wider text-zinc-500 transition-colors hover:border-cyan-glow/50 hover:text-zinc-300"
+                          >
+                            {SIDE_CHANGE_LABEL}
+                          </button>
+                        ) : (
+                          <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                            {SIDE_CHANGE_LABEL}
+                          </span>
+                        )}
+                        <span className="h-px flex-1 border-t border-dashed border-edge" />
+                      </div>
+                    )}
                     {scored && !pfActive && nextGame !== undefined && (
                       <div className="mt-3 flex items-center gap-3">
                         <span className="h-px flex-1 bg-edge" />
@@ -4363,6 +4448,55 @@ export function MatchView({
           onCreate={(label) => void createTag(tagPickerPoint.id, label)}
           onClose={() => setTagPickerPoint(null)}
         />
+      )}
+
+      {/* The detected side change, tapped in the point list. Two answers
+          and a way out. "Game ended here" writes the SAME override the
+          owner could pin by hand, so a game ended from a marker is
+          indistinguishable afterwards from one ended any other way — the
+          detector never gets its own private path into the score. */}
+      {sideChangeSheet && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center">
+          <div className="w-full max-w-sm rounded-2xl border border-edge bg-surface p-6">
+            <h3 className="text-lg font-semibold text-zinc-100">
+              The players changed ends here
+            </h3>
+            <p className="mt-1 text-sm text-zinc-400">
+              This usually means the game ended.
+            </p>
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const point = sideChangeSheet;
+                  setSideChangeSheet(null);
+                  void setGameEndOverride(point, "end");
+                }}
+                className="rounded-full border border-cyan-glow/40 bg-cyan-glow/10 px-4 py-2.5 text-sm font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/20"
+              >
+                Game ended here
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const point = sideChangeSheet;
+                  setSideChangeSheet(null);
+                  void dismissSideChange(point);
+                }}
+                className="rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:text-white"
+              >
+                They just changed ends
+              </button>
+              <button
+                type="button"
+                onClick={() => setSideChangeSheet(null)}
+                className="rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Unscore confirmation. Spells out both sides of the line, because
