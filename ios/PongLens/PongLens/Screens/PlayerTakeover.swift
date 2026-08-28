@@ -2978,7 +2978,21 @@ struct PlayerTakeover: View {
             // Crossing a DIFFERENT rally's boundary retires the consumed
             // one — its end can stop the video again on a later replay.
             if p.id != endPauseBlockedId { endPauseBlockedId = nil }
-            guard !guarded,
+            // ...and the blocked one does NOT stop us. advance() sets this
+            // when it plays out an answered rally's tail, saying "its own
+            // end must not stop us here" — but nothing read it back, so the
+            // flag and its comment were doing nothing at all.
+            //
+            // What that cost: answering early moves the rally's boundary to
+            // the tap plus TAP_END_GUARD_S, half a second on. The tail then
+            // runs straight over the line the tap had just drawn, and the
+            // video stopped a beat after the answer. Whether it did was a
+            // coin toss, because that half second is also the length of the
+            // `guarded` grace period below and both start at the same tap —
+            // so it stopped at 1x roughly half the time, never at 2x, and
+            // always at 0.5x. Port omission: Player.tsx has this same
+            // condition, and it is what makes the flag mean anything.
+            guard endPauseBlockedId != p.id, !guarded,
                   runWatched(p, points: points, runStart: runStartT, pad: pad)
             else { continue }
             endPauseBlockedId = p.id
