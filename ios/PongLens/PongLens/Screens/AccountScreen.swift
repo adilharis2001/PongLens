@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 import Supabase
 
@@ -7,6 +8,7 @@ struct AccountScreen: View {
     @Environment(AppState.self) private var app
     @Environment(CoachingStore.self) private var coaching
     @State private var store = AccountStore()
+    @State private var purchases = PurchaseStore()
     @State private var editingName = false
     @State private var nameDraft = ""
     @State private var linksOpen = false
@@ -84,6 +86,12 @@ struct AccountScreen: View {
                     if store.commerceEnabled {
                         minutesSection
                         storageSection
+                        if let message = purchases.errorMessage {
+                            Text(message)
+                                .font(.plCaption)
+                                .foregroundStyle(PL.text400)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
 
                     group("Support") {
@@ -136,6 +144,16 @@ struct AccountScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .plKeyboardDismiss()
         .task { await store.load(userId: app.userId) }
+        .task {
+            // The balance on screen has to move when a purchase lands,
+            // including one that completes minutes later through an
+            // approved Ask to Buy.
+            purchases.onGranted = { [weak store] in
+                await store?.load(userId: app.userId)
+            }
+            await purchases.load()
+            purchases.startListening()
+        }
         .sheet(isPresented: $linksOpen) {
             ShareLinksManager(store: store)
                 .presentationDetents([.medium, .large])
@@ -330,6 +348,41 @@ struct AccountScreen: View {
                     .lineSpacing(3)
             }
             .padding(16)
+            packRows(purchases.minutePacks)
+        }
+    }
+
+    /// The buy rows under a balance. Empty unless in-app purchase is
+    /// switched on server-side AND Apple returned the products, so a
+    /// half-configured store shows nothing rather than a button that
+    /// cannot work.
+    @ViewBuilder
+    private func packRows(_ packs: [BuyablePack]) -> some View {
+        ForEach(packs) { pack in
+            if let product = purchases.products[pack.productId] {
+                rowDivider
+                HStack(spacing: 12) {
+                    Text(pack.label)
+                        .font(.plRowTitle)
+                        .foregroundStyle(PL.text100)
+                    Spacer()
+                    Button {
+                        Task { await purchases.buy(pack) }
+                    } label: {
+                        // Apple's own price string: already localised, in
+                        // the customer's currency, and the number the
+                        // payment sheet will actually show.
+                        Text(purchases.busyKey == pack.key ? "…" : product.displayPrice)
+                            .font(.plButtonSecondary)
+                            .monospacedDigit()
+                    }
+                    .buttonStyle(PLSecondaryButtonStyle())
+                    .disabled(purchases.busyKey != nil)
+                    .opacity(purchases.busyKey != nil && purchases.busyKey != pack.key ? 0.5 : 1)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
         }
     }
 
@@ -363,6 +416,7 @@ struct AccountScreen: View {
                     .lineSpacing(3)
             }
             .padding(16)
+            packRows(purchases.storagePacks)
         }
     }
 

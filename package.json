@@ -28,6 +28,7 @@
     "test:starred": "node --test --experimental-strip-types src/app/starred/starred.test.ts"
   },
   "dependencies": {
+    "@apple/app-store-server-library": "^3.1.0",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.7",
     "@uppy/aws-s3": "^5.1.0",
