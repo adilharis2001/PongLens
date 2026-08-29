@@ -98,6 +98,22 @@ struct ThemeGallery: View {
                         .background(Color.black)
                         .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
 
+                        SectionHeading("Recording badge (5 min in)")
+                        // Shown over a stand-in for the viewfinder, since
+                        // the point is that the picture stays readable
+                        // behind it.
+                        ZStack {
+                            LinearGradient(
+                                colors: [Color(hex: 0x1B2430),
+                                         Color(hex: 0x0B0E13)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing)
+                            RecordingBadge()
+                        }
+                        .frame(height: 300)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+
                         SectionHeading("Live check, filming a screen")
                         // The refusal the monitor test produces: geometry
                         // fine under some lens, refused under the real

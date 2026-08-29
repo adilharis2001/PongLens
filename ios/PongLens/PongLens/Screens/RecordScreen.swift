@@ -128,6 +128,65 @@ enum RecordOrientation {
     }
 }
 
+/// The badge that tells the room what is going on.
+///
+/// A phone on a tripod films the table with its screen facing back down
+/// the hall, so the screen is a sign nobody was reading. Five minutes in
+/// — long enough that the setup fiddling is over and this is a real match
+/// — it becomes one.
+///
+/// Deliberately small and deliberately centred: the controls live on the
+/// trailing edge, the banners at the top, the uploads shelf at the
+/// bottom, so the middle is the one region nothing else claims. It is
+/// also inert (`allowsHitTesting(false)` where it is placed), so even if
+/// a future layout moves a control underneath it, the control still wins.
+struct RecordingBadge: View {
+    /// Drives the dot only. The badge itself must not pulse — a sign that
+    /// breathes reads as a notification, not a status.
+    @State private var live = false
+
+    var body: some View {
+        // Logo and wordmark share a row. The badge only ever appears in
+        // landscape — recording is landscape-only — and a stacked lockup
+        // ate half the height of a 402 pt screen for no extra legibility.
+        VStack(spacing: 12) {
+            HStack(spacing: 12) {
+                LogoMark(size: 46)
+                HStack(spacing: 0) {
+                    Text("Pong").foregroundStyle(.white)
+                    Text("Lens").foregroundStyle(PL.cyan)
+                }
+                .font(.system(size: 30, weight: .semibold))
+                .tracking(-0.8)
+            }
+
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(PL.dangerFill)
+                    .frame(width: 7, height: 7)
+                    .opacity(live ? 0.35 : 1)
+                    .animation(.easeInOut(duration: 1.1)
+                        .repeatForever(autoreverses: true), value: live)
+                Text("Recording in progress")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+        }
+        .padding(.horizontal, 30)
+        .padding(.vertical, 22)
+        .background(.ultraThinMaterial, in: RoundedRectangle(
+            cornerRadius: 30, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+        )
+        // The picture behind stays the point; the badge sits on it rather
+        // than replacing it.
+        .shadow(color: .black.opacity(0.35), radius: 24, y: 8)
+        .onAppear { live = true }
+    }
+}
+
 struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     /// Fired with the rotation the preview settles on, so the table
@@ -257,6 +316,10 @@ struct RecordScreen: View {
     @State private var revealed = false
     /// The zoom a pinch started from, so the gesture is relative.
     @State private var zoomStart: Double?
+    /// True once the recording has run long enough for the badge. Held in
+    /// state rather than computed inline so the fade has something to
+    /// animate, and so it cannot flicker on the second the clock crosses.
+    @State private var showBadge = false
     /// "right" or "left" from the profile, nil until it answers (or if it
     /// never does — everything here degrades to the old behaviour).
     @State private var handedness: String?
@@ -310,6 +373,13 @@ struct RecordScreen: View {
                     portraitChrome(sideways: heldSideways(screenIsPortrait: true))
                 } else {
                     landscapeChrome(sideways: heldSideways(screenIsPortrait: false))
+                }
+
+                if showBadge {
+                    RecordingBadge()
+                        .transition(.opacity.combined(
+                            with: .scale(scale: 0.97)))
+                        .allowsHitTesting(false)
                 }
 
                 if !revealed {
@@ -413,7 +483,10 @@ struct RecordScreen: View {
         .onChange(of: ghostSideChosen) { _, _ in syncExpectedSide() }
         .onChange(of: recorder.state) { _, newState in
             finder?.recording = (newState == .recording)
+            if newState != .recording { setBadge(false) }
         }
+        .onChange(of: recorder.sessionElapsed) { _, _ in refreshBadge() }
+        .onChange(of: recorder.isPaused) { _, _ in refreshBadge() }
         .onChange(of: overlay) { _, mode in
             syncPreviewTap(mode)
         }
@@ -819,6 +892,21 @@ struct RecordScreen: View {
         #else
         return level.motionAvailable ? level.sideways : !screenIsPortrait
         #endif
+    }
+
+    /// Five minutes of actual recording, and not while paused: the badge
+    /// says "recording in progress" and must not be able to say it over a
+    /// stopped picture. Reads the session clock rather than `elapsed`,
+    /// which resets to zero every time the file rolls at 45 minutes.
+    private func refreshBadge() {
+        setBadge(recorder.state == .recording
+                 && !recorder.isPaused
+                 && recorder.sessionElapsed >= 300)
+    }
+
+    private func setBadge(_ on: Bool) {
+        guard showBadge != on else { return }
+        withAnimation(.easeOut(duration: on ? 0.7 : 0.25)) { showBadge = on }
     }
 
     /// The profile's handedness, fetched once per open. RLS scopes the

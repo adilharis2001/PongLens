@@ -23,6 +23,14 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
 
     var state: State = .idle
     var elapsed: TimeInterval = 0
+    /// Seconds recorded since the shutter, across segment rolls.
+    ///
+    /// `elapsed` is the CURRENT segment's clock and goes back to zero
+    /// every 45 minutes when the file rolls, which is right for the
+    /// countdown banner and wrong for anything asking "how long has this
+    /// been running". Kept separate rather than derived, because a wall
+    /// clock would keep counting through a pause and this must not.
+    var sessionElapsed: TimeInterval = 0
     /// 1-based segment of this session — "Part 2" after a 45-minute roll.
     var segment = 1
     /// Recording, but held between points: the current file is closed and
@@ -282,6 +290,7 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         interruptionNote = nil
         segment = 1
         elapsed = 0
+        sessionElapsed = 0
         chunks = []
         beginChunk()
         UIApplication.shared.isIdleTimerDisabled = true
@@ -316,6 +325,7 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
             || ProcessInfo.processInfo.thermalState == .critical
         guard state == .recording, !isPaused else { return }
         elapsed += 1
+        sessionElapsed += 1
         // The cap: finalize this file and keep rolling into the next one.
         if elapsed >= Self.maxSegmentS, !rollPending, !stopRequested, !pausePending, !cancelPending {
             rollPending = true
