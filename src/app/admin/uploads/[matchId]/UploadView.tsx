@@ -30,6 +30,7 @@ import {
   type UploadDetail,
   type UploadPointRow,
 } from "../uploadView";
+import type { CardReading, ReadingSummary } from "../pointReadings";
 import {
   cutOffsetFor,
   missForPoint,
@@ -39,6 +40,7 @@ import {
   refusedCards,
   type ServeMissData,
 } from "../serveMiss";
+import { CardFacts } from "./CardFacts";
 import { CardReview, type Theme } from "./CardReview";
 import { PointCard } from "./PointCard";
 import { ServeMissView } from "./ServeMissView";
@@ -88,12 +90,16 @@ export function UploadView({
   detail,
   matchJson,
   serveMisses,
+  readings,
+  readingSummary,
   themes: initialThemes,
   ends,
 }: {
   detail: UploadDetail;
   matchJson: MatchJson | null;
   serveMisses: ServeMissData | null;
+  readings: CardReading[];
+  readingSummary: ReadingSummary | null;
   themes: Theme[];
   ends: EndOptions;
 }) {
@@ -109,6 +115,12 @@ export function UploadView({
   // takeover. Nothing else changes between them.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const isDesktop = useIsDesktop();
+  // The pane scrolls itself now, so a card picked while it was scrolled
+  // down would open halfway through its own analysis.
+  const paneRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    paneRef.current?.scrollTo({ top: 0 });
+  }, [selectedId]);
 
   // The operator's review, held here rather than inside each card so the
   // pane and the list agree the moment either changes, and so a theme
@@ -150,6 +162,10 @@ export function UploadView({
   });
 
   const rows = useMemo(() => buildPointRows(detail.points), [detail.points]);
+  const readingFor = useMemo(
+    () => new Map(readings.map((r) => [r.pointId, r])),
+    [readings]
+  );
   const table = useMemo(
     () => readTable(matchJson, match.story_crop),
     [matchJson, match.story_crop]
@@ -455,6 +471,7 @@ export function UploadView({
         </dl>
 
         <DetectorCounts assembly={assembly} />
+        <RuleScore summary={readingSummary} />
 
         <p className="mt-4 text-sm text-zinc-500">
           {/* Both gates fail open — a missing key, a timeout or a malformed
@@ -592,7 +609,23 @@ export function UploadView({
           </p>
         ) : (
           <div className="mt-4 flex flex-col gap-6 lg:flex-row lg:items-start">
-            <ul className="space-y-1.5 lg:w-[19rem] lg:shrink-0 xl:w-[21rem]">
+            {/* Each column scrolls itself on a laptop.
+                The list runs to five thousand pixels on a long match, and
+                a sticky pane can only pin its TOP — so the bottom of the
+                pane (the map, the rules, the note box) was reachable only
+                by scrolling past every card first. Capping both to the
+                window below the nav and letting each scroll on its own is
+                the whole fix.
+
+                The 73px is the sticky nav's 65 plus a gap, measured, not
+                guessed; the 89 is that plus the same gap at the bottom.
+                Subtracting the offset a box actually has is exact — unlike
+                subtracting a guess at surrounding chrome, which is the
+                thing that goes wrong on a short window.
+
+                Mobile keeps one page scroll. A nested scroll box on a
+                phone is how the point list ended up unusable once before. */}
+            <ul className="space-y-1.5 lg:sticky lg:top-[73px] lg:max-h-[calc(100dvh-89px)] lg:w-[19rem] lg:shrink-0 lg:overflow-y-auto lg:pr-2 xl:w-[21rem]">
               {rows.map((row) => (
                 <PointCard
                   key={row.id}
@@ -607,6 +640,7 @@ export function UploadView({
                   onPlay={() => pickCard(row.id)}
                   miss={missForPoint(serveMisses, row)}
                   missData={serveMisses}
+                  reading={readingFor.get(row.id) ?? null}
                   cutOffset={cutOffsetFor(
                     row,
                     effectivePad(pad, row.tight_start, row.tight_end).pre
@@ -626,7 +660,10 @@ export function UploadView({
             </ul>
 
             {isDesktop && (
-              <aside className="sticky top-6 min-w-0 flex-1">
+              <aside
+                ref={paneRef}
+                className="sticky top-[73px] max-h-[calc(100dvh-89px)] min-w-0 flex-1 overflow-y-auto"
+              >
                 <CardPane
                   row={rows.find((r) => r.id === selectedId) ?? null}
                   serve={selectedId ? serving.get(selectedId) ?? null : null}
@@ -634,6 +671,9 @@ export function UploadView({
                   pad={pad}
                   ends={ends}
                   serveMisses={serveMisses}
+                  reading={
+                    selectedId ? readingFor.get(selectedId) ?? null : null
+                  }
                   videoUrl={cutUrl}
                   onFullScreen={() => selectedId && openCutAt(selectedId)}
                   review={selectedId ? reviewFor(selectedId) : null}
@@ -681,6 +721,7 @@ function CardPane({
   pad,
   ends,
   serveMisses,
+  reading,
   videoUrl,
   onFullScreen,
   review,
@@ -695,6 +736,7 @@ function CardPane({
   pad: ClipPad;
   ends: EndOptions;
   serveMisses: ServeMissData | null;
+  reading: CardReading | null;
   videoUrl: string | null;
   onFullScreen: () => void;
   review: { note: string; themeIds: string[] } | null;
@@ -770,6 +812,8 @@ function CardPane({
           </span>
         ))}
       </p>
+
+      {reading && <CardFacts reading={reading} names={names} />}
 
       {miss && serveMisses ? (
         <ServeMissView
@@ -944,6 +988,103 @@ function RouteLine({
  * never looks for a serve, so "0 serves" is its design and not a failure,
  * and reading it as a failure is the mistake this panel exists to prevent.
  */
+/**
+ * How the three winner rules did over this match.
+ *
+ * Read against the owner's own taps, and beside the worker's suggestion on
+ * the same points — a rule that is right 80% of the time means nothing
+ * until you know what it is beating. The per-rule split matters more than
+ * the total: they run as a ladder, so the first one to answer makes the
+ * call, and a rule that is often right but rarely first is a different
+ * thing from one that is usually wrong.
+ */
+function RuleScore({ summary }: { summary: ReadingSummary | null }) {
+  if (!summary || summary.points === 0) return null;
+  const pct = (n: number, d: number) =>
+    d === 0 ? null : Math.round((100 * n) / d);
+  const mine = pct(summary.agreed, summary.compared);
+  const worker = pct(summary.workerAgreed, summary.workerCompared);
+
+  return (
+    <div className="mt-6 rounded-2xl border border-edge bg-surface p-4">
+      <h3 className="text-sm font-medium text-zinc-200">
+        What the winner rules read
+      </h3>
+      <p className="mt-1 text-sm text-zinc-500">
+        {summary.called} of {summary.points} cards got a call
+        {summary.compared > 0 && mine !== null && (
+          <>
+            , and {mine}% of the {summary.compared} you had scored named the
+            player you did
+          </>
+        )}
+        {worker !== null && summary.workerCompared > 0 && (
+          <>
+            . The worker&rsquo;s own suggestion scores {worker}% over{" "}
+            {summary.workerCompared}
+          </>
+        )}
+        .
+      </p>
+
+      <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {summary.byRule.map((r) => (
+          <Counted
+            key={r.name}
+            label={r.name}
+            value={r.called}
+            detail={
+              r.compared > 0
+                ? `${pct(r.agreed, r.compared)}% right of ${r.compared}`
+                : "none scored"
+            }
+          />
+        ))}
+        <Counted
+          label="Rules disagreed"
+          value={summary.disagreements}
+          detail={
+            summary.disagreements > 0 ? "two rules, two players" : null
+          }
+        />
+        <Counted
+          label="Repaired first"
+          value={summary.repaired}
+          detail="events the flights put back"
+        />
+        <Counted
+          label="Median serve speed"
+          value={
+            summary.speeds.medianKmh !== null
+              ? `${summary.speeds.medianKmh} km/h`
+              : "—"
+          }
+          detail={
+            summary.speeds.count > 0
+              ? `over ${summary.speeds.count} serves, fastest ${summary.speeds.maxKmh} km/h`
+              : "no serve had both its bounces"
+          }
+        />
+      </dl>
+
+      {summary.withTrack === 0 ? (
+        <p className="mt-3 text-xs text-zinc-600">
+          No usable ball track is stored for this match, so the net read, the
+          no-return read and the repair pass could not run. What is above is
+          what the touches alone support.
+        </p>
+      ) : (
+        summary.withTrack < summary.points && (
+          <p className="mt-3 text-xs text-zinc-600">
+            {summary.points - summary.withTrack} of {summary.points} cards have
+            no ball track, so two of the three rules could not run on them.
+          </p>
+        )
+      )}
+    </div>
+  );
+}
+
 function DetectorCounts({
   assembly,
 }: {

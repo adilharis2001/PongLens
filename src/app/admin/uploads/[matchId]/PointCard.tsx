@@ -16,6 +16,8 @@ import {
   type UploadPointRow,
 } from "../uploadView";
 import { reasonShort, reasonTone, type MissCard, type ServeMissData } from "../serveMiss";
+import type { CardReading } from "../pointReadings";
+import { CardFacts } from "./CardFacts";
 import { CardReview, type Theme } from "./CardReview";
 import { ServeMissView } from "./ServeMissView";
 
@@ -48,6 +50,7 @@ export function PointCard({
   onPlay,
   miss,
   missData,
+  reading,
   cutOffset,
   videoUrl,
   review,
@@ -81,6 +84,9 @@ export function PointCard({
    *  and on every match with no diagnosis written for it. */
   miss?: MissCard | null;
   missData?: ServeMissData | null;
+  /** Every rule's answer for this card. Null on a match with no placement,
+   *  or one processed before any of it was recorded. */
+  reading?: CardReading | null;
   cutOffset?: number | null;
   videoUrl?: string | null;
   /** The operator's note and themes for this card. Only rendered where the
@@ -247,6 +253,7 @@ export function PointCard({
           </button>
           {openMiss && (
             <>
+              {reading && <CardFacts reading={reading} names={names} />}
               {miss && missData && (
                 <ServeMissView
                   data={missData}

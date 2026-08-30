@@ -3831,7 +3831,8 @@ def merge_card_audio(input_video: str, outdir: str) -> int:
 
 def publish_card_diagnosis(outdir: str, key_prefix: str,
                            serve_pad: str | None = None,
-                           serve_merge: str | None = None) -> int:
+                           serve_merge: str | None = None,
+                           blurball_out: str | None = None) -> int:
     """Distil the assembler's evidence dump into the portal's per-card view.
 
     Returns the bytes uploaded, or 0 when there was nothing to publish —
@@ -3849,7 +3850,7 @@ def publish_card_diagnosis(outdir: str, key_prefix: str,
     if not os.path.exists(dump):
         return 0
     import points_v2
-    from publish_card_diagnosis import trim_for_transport
+    from publish_card_diagnosis import trim_for_transport, write_point_tracks
     from research_serve_misses import build as build_card_diagnosis
 
     # The serve rule reads two of its constants from app_config per job, so
@@ -3882,6 +3883,20 @@ def publish_card_diagnosis(outdir: str, key_prefix: str,
     size = os.path.getsize(dest)
     r2().upload_file(dest, R2_MEDIA_BUCKET, f"{key_prefix}/serves.json",
                      ExtraArgs={"ContentType": "application/json"})
+
+    # The undecimated track, for the winner rules. Read on the server and
+    # never sent to a browser, which is why it can be full rate where
+    # serves.json cannot. Built from the same dump, so the two cannot
+    # describe different cards.
+    # BlurBall's own detections, confidence and all. Without them the two
+    # rules that read the track cannot be trusted and the reader ignores it.
+    tracks = write_point_tracks(
+        blob, outdir,
+        blurball_out if blurball_out and os.path.exists(blurball_out) else None)
+    size += os.path.getsize(tracks)
+    r2().upload_file(tracks, R2_MEDIA_BUCKET, f"{key_prefix}/tracks.json",
+                     ExtraArgs={"ContentType": "application/json"})
+
     anchored = sum(1 for c in page["cards"] if c.get("serve_s") is not None)
     log.info("  card diagnosis: %d cards (%d with a serve), %.0f KB",
              len(page["cards"]), anchored, size / 1024)
@@ -4538,7 +4553,7 @@ def run_points_stage(
                 log.warning("  card audio skipped", exc_info=True)
             diag_pad, diag_merge = serve_motif_settings(conn)
             other_bytes += publish_card_diagnosis(
-                outdir, key_prefix, diag_pad, diag_merge)
+                outdir, key_prefix, diag_pad, diag_merge, blurball_out)
         except Exception:                                   # noqa: BLE001
             log.warning("  card diagnosis skipped", exc_info=True)
 

@@ -11,6 +11,7 @@ import { requireAdmin } from "../../requireAdmin";
 import { UploadView } from "./UploadView";
 import type { MatchJson, UploadDetail } from "../uploadView";
 import type { ServeMissData } from "../serveMiss";
+import { readCards, type TrackArtifact } from "../pointReadings";
 
 export const metadata: Metadata = {
   title: "Upload",
@@ -85,6 +86,34 @@ async function readServeMisses(
   return null;
 }
 
+/**
+ * The undecimated ball track, read on the SERVER and never sent on.
+ *
+ * Written beside serves.json by the same publisher, so the two always
+ * describe the same cards. About 400 KB a match — fine for one server-side
+ * fetch, and the reason the winner rules run here rather than in the
+ * browser. Absent on any match diagnosed before the worker wrote it, which
+ * costs the two rules that need a track and nothing else.
+ */
+async function readTracks(
+  matchJsonPath: string | null
+): Promise<TrackArtifact | null> {
+  const prefix = `r2://${MEDIA_BUCKET}/`;
+  if (!matchJsonPath?.startsWith(prefix)) return null;
+  const key = matchJsonPath
+    .slice(prefix.length)
+    .replace(/match\.json$/, "tracks.json");
+  try {
+    const object = await getObject(MEDIA_BUCKET, key);
+    if (!object) return null;
+    return JSON.parse(
+      new TextDecoder().decode(object.body)
+    ) as TrackArtifact;
+  } catch {
+    return null;
+  }
+}
+
 export default async function AdminUploadPage({
   params,
 }: {
@@ -93,11 +122,13 @@ export default async function AdminUploadPage({
   const { matchId } = await params;
   const { supabase, avatarUrl } = await requireAdmin();
 
-  const [{ data, error }, themesRes] = await Promise.all([
+  const [{ data, error }, themesRes, evidenceRes] = await Promise.all([
     supabase.rpc("admin_upload_detail", { p_match_id: matchId }),
     // The shared vocabulary, fetched once for the page rather than per
     // card — every card's picker offers the same list.
     supabase.rpc("admin_themes_list"),
+    // The touches and the worker's own call, for the winner rules (151).
+    supabase.rpc("admin_point_evidence", { p_match_id: matchId }),
   ]);
   if (error || !data) notFound();
   const detail = data as UploadDetail;
@@ -111,14 +142,25 @@ export default async function AdminUploadPage({
   // the match page reads them. Hardcoding them would make the admin watch
   // different boundaries from the owner, which is the one thing this page
   // must not do.
-  const [matchJson, serveMisses, tapEnd, rallyEndOn, rallyEndBufferS] =
+  const [matchJson, serveMisses, tracks, tapEnd, rallyEndOn, rallyEndBufferS] =
     await Promise.all([
       readMatchJson(detail.match.match_json_path),
       readServeMisses(detail.match.match_json_path, matchId),
+      readTracks(detail.match.match_json_path),
       getTapEndPlayback(),
       getUnscoredRallyEnd(),
       getUnscoredRallyEndBufferS(),
     ]);
+
+  // The three winner rules, asked here rather than in the browser: the
+  // candidates and the track together are most of a megabyte, and only the
+  // verdicts are worth sending.
+  const { readings, summary } = readCards({
+    detail,
+    evidence: evidenceRes.data ?? [],
+    matchJson,
+    tracks,
+  });
 
   return (
     <>
@@ -133,6 +175,8 @@ export default async function AdminUploadPage({
           detail={detail}
           matchJson={matchJson}
           serveMisses={serveMisses}
+          readings={readings}
+          readingSummary={summary}
           themes={themes.map((t) => ({ id: t.id, label: t.label }))}
           ends={{
             tapEnd,

@@ -1,4 +1,4 @@
-import type { DetectedEvent } from "./serveAccuracyModel";
+import type { DetectedEvent } from "./serveAccuracyModel.ts";
 
 /**
  * The other way a point ends: the ball never comes down on the table again.

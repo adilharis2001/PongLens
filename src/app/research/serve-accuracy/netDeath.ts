@@ -1,4 +1,4 @@
-import type { DetectedEvent } from "./serveAccuracyModel";
+import type { DetectedEvent } from "./serveAccuracyModel.ts";
 
 /**
  * The third way to see a point end: the ball turns round at the net.

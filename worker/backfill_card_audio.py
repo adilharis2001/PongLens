@@ -41,7 +41,9 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import psycopg2  # noqa: E402
-from publish_card_diagnosis import owner_of, trim_for_transport  # noqa: E402
+from publish_card_diagnosis import (  # noqa: E402
+    owner_of, trim_for_transport, write_point_tracks,
+)
 from research_reprocess import (  # noqa: E402
     CARD_AUDIO, MEDIA_BUCKET, VENV_PY, config, download, resolve, run_one,
     s3_client, trim_as_production_did,
@@ -126,8 +128,11 @@ def publish(s3, conn, match_id, work):
     dest = os.path.join(work, "serves.json")
     with open(dest, "w") as fh:
         json.dump(page, fh, separators=(",", ":"))
-    key = f"points/{owner_of(conn, match_id)}/{match_id}/serves.json"
-    s3.upload_file(dest, MEDIA_BUCKET, key,
+    tracks = write_point_tracks(blob, work)
+    prefix = f"points/{owner_of(conn, match_id)}/{match_id}"
+    s3.upload_file(dest, MEDIA_BUCKET, f"{prefix}/serves.json",
+                   ExtraArgs={"ContentType": "application/json"})
+    s3.upload_file(tracks, MEDIA_BUCKET, f"{prefix}/tracks.json",
                    ExtraArgs={"ContentType": "application/json"})
     heard = sum(len((c.get("audio") or {}).get("impacts") or [])
                 for c in page["cards"])
@@ -207,7 +212,8 @@ def main():
             finally:
                 # Never leave a raw behind: thirty-six of them is 23 GB.
                 for junk in os.listdir(work):
-                    if junk not in ("evidence.json", "serves.json"):
+                    if junk not in ("evidence.json", "serves.json",
+                                    "tracks.json"):
                         path = os.path.join(work, junk)
                         subprocess.run(["rm", "-rf", path], check=False)
 
