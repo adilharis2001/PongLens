@@ -14,7 +14,9 @@ import { computeServing, type ServeInfo } from "../../../match/[id]/serving";
 import {
   buildPointRows,
   formatClock,
+  gapLabel,
   gbLabel,
+  pointFlags,
   readAssembly,
   readTable,
   retentionPct,
@@ -241,7 +243,7 @@ export function UploadView({
   const playable = rows.filter((r) => r.cut_t0 !== null);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pt-6 sm:px-6 lg:max-w-6xl">
+    <div className="mx-auto w-full max-w-3xl px-4 pt-6 sm:px-6 lg:max-w-none lg:px-8">
       {/* Who and what */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -539,7 +541,7 @@ export function UploadView({
           </p>
         ) : (
           <div className="mt-4 flex flex-col gap-6 lg:flex-row lg:items-start">
-            <ul className="min-w-0 flex-1 space-y-2">
+            <ul className="space-y-1.5 lg:w-[19rem] lg:shrink-0 xl:w-[21rem]">
               {rows.map((row) => (
                 <PointCard
                   key={row.id}
@@ -550,6 +552,7 @@ export function UploadView({
                   ends={ends}
                   playable={row.cut_t0 !== null && !!cutUrl}
                   selected={isDesktop && row.id === selectedId}
+                  compact={isDesktop}
                   onPlay={() => pickCard(row.id)}
                   miss={missForPoint(serveMisses, row)}
                   missData={serveMisses}
@@ -567,7 +570,7 @@ export function UploadView({
             </ul>
 
             {isDesktop && (
-              <aside className="sticky top-6 w-[26rem] shrink-0">
+              <aside className="sticky top-6 min-w-0 flex-1">
                 <CardPane
                   row={rows.find((r) => r.id === selectedId) ?? null}
                   serve={selectedId ? serving.get(selectedId) ?? null : null}
@@ -665,11 +668,37 @@ function CardPane({
           Full screen
         </button>
       </div>
-      {serve?.server && (
-        <p className="mt-0.5 text-xs text-zinc-500">
-          {serve.server === "user" ? names.user : names.opponent} served
-        </p>
-      )}
+      {/* Everything the compact card in the list drops. It has to live
+          somewhere, and beside the footage is where it can be read against
+          the footage. */}
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+        {serve?.server && (
+          <span>
+            {serve.server === "user" ? names.user : names.opponent} served
+          </span>
+        )}
+        <span className="tabular-nums">{row.lengthS.toFixed(1)}s</span>
+        {gapLabel(row.gapBeforeS) && (
+          <span className="tabular-nums">{gapLabel(row.gapBeforeS)}</span>
+        )}
+        {row.notes > 0 && (
+          <span>
+            {row.notes} {row.notes === 1 ? "note" : "notes"}
+          </span>
+        )}
+        {pointFlags(row).map((f) => (
+          <span
+            key={f.label}
+            className={
+              f.tone === "warn"
+                ? "rounded border border-amber-400/40 px-1.5 py-px text-amber-300"
+                : "rounded border border-edge px-1.5 py-px text-zinc-500"
+            }
+          >
+            {f.label}
+          </span>
+        ))}
+      </p>
 
       {miss && serveMisses ? (
         <ServeMissView

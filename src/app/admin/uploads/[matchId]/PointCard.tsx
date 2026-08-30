@@ -42,6 +42,7 @@ export function PointCard({
   ends,
   playable,
   selected = false,
+  compact = false,
   showAnalysis = true,
   onPlay,
   miss,
@@ -60,6 +61,11 @@ export function PointCard({
   playable: boolean;
   /** Drawn as the current card, when a pane beside the list is showing it. */
   selected?: boolean;
+  /** The list is an INDEX, not the work: beside a pane that repeats every
+   *  fact in full, a card only needs enough to pick it out. Dropping the
+   *  gap and the flags here takes a card from four wrapped lines to two,
+   *  which is the difference between seeing three cards and seeing eight. */
+  compact?: boolean;
   /** Whether this card may expand its own evidence. False on a laptop,
    *  where the pane beside the list owns it — two players of the same
    *  rally, side by side, is the failure mode. */
@@ -100,14 +106,18 @@ export function PointCard({
         type="button"
         onClick={onPlay}
         disabled={!playable}
-        className={`flex w-full items-center gap-3 rounded-2xl border bg-surface p-4 text-left transition-colors ${
+        className={`flex w-full items-center gap-2.5 rounded-xl border bg-surface text-left transition-colors ${
+          compact ? "px-3 py-2" : "p-4"
+        } ${
           selected ? "border-cyan-glow/70" : "border-edge"
         } ${playable && !selected ? "hover:border-cyan-glow/40" : ""} ${
           playable ? "" : "cursor-default"
         } ${row.deleted ? "opacity-60" : ""}`}
       >
         <span
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-medium tabular-nums ${
+          className={`flex shrink-0 items-center justify-center rounded-full font-medium tabular-nums ${
+            compact ? "h-6 w-6 text-xs" : "h-9 w-9 text-sm"
+          } ${
             row.deleted
               ? "bg-surface-2 text-zinc-600"
               : "bg-surface-2 text-zinc-300"
@@ -119,16 +129,24 @@ export function PointCard({
         <span className="min-w-0 flex-1">
           {/* What the owner sees */}
           <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className={`text-sm font-medium ${outcome.tone}`}>
+            <span
+              className={`font-medium ${compact ? "text-xs" : "text-sm"} ${outcome.tone}`}
+            >
               {outcome.label}
             </span>
             {serve?.server && (
-              <span className="text-sm text-zinc-500">
+              <span
+                className={`truncate text-zinc-500 ${compact ? "text-xs" : "text-sm"}`}
+              >
                 {serve.server === "user" ? names.user : names.opponent} served
               </span>
             )}
-            {row.starred && <span className="text-sm text-cyan-glow">★</span>}
-            {row.notes > 0 && (
+            {row.starred && (
+              <span className={compact ? "text-xs text-cyan-glow" : "text-sm text-cyan-glow"}>
+                ★
+              </span>
+            )}
+            {row.notes > 0 && !compact && (
               <span className="text-sm text-zinc-500">
                 {row.notes} {row.notes === 1 ? "note" : "notes"}
               </span>
@@ -142,8 +160,8 @@ export function PointCard({
               {formatClock(row.t0)} → {formatClock(row.t1)}
             </span>
             <span className="tabular-nums">{row.lengthS.toFixed(1)}s</span>
-            {gap && <span className="tabular-nums">{gap}</span>}
-            {trimmedS >= 0.1 && (
+            {gap && !compact && <span className="tabular-nums">{gap}</span>}
+            {trimmedS >= 0.1 && !compact && (
               <span className="tabular-nums text-cyan-glow/80">
                 {trimmedS.toFixed(1)}s trimmed
               </span>
@@ -164,7 +182,7 @@ export function PointCard({
                   no serve: {reasonShort(miss.why.reason)}
                 </span>
               ))}
-            {flags.map((f) => (
+            {(compact ? [] : flags).map((f) => (
               <span
                 key={f.label}
                 className={
@@ -179,7 +197,7 @@ export function PointCard({
           </span>
         </span>
 
-        {playable && (
+        {playable && !compact && (
           <svg
             viewBox="0 0 24 24"
             className="h-5 w-5 shrink-0 text-zinc-600"

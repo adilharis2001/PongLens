@@ -179,6 +179,8 @@ export function ServeMissView({
 
   return (
     <div className="mt-3 rounded-2xl border border-edge bg-surface-2/40 p-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
+      <div className="min-w-0 lg:flex-[2]">
       {/* Sized on the div, never the video: a media element has no
           intrinsic size until metadata arrives, and the canvas measures
           the video, so a self-sized video makes the overlay jump. */}
@@ -243,8 +245,10 @@ export function ServeMissView({
         </span>
       </div>
 
-      <div className="mt-3 flex flex-row gap-3">
-        <div className="w-24 shrink-0 sm:w-32">
+      </div>
+
+      <div className="flex min-w-0 flex-row gap-3 lg:flex-1">
+        <div className="w-24 shrink-0 sm:w-32 lg:w-40">
           <Court card={card} t={t} />
         </div>
         <div className="min-w-0 flex-1">
@@ -294,6 +298,7 @@ export function ServeMissView({
             </ul>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
