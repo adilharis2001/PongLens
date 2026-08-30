@@ -198,6 +198,62 @@ def anchored_serve_times(blob, H):
     return sorted({round(m["contact_s"], 2) for m in motifs})
 
 
+def tracked_runs(track, t0, t1, fps):
+    """Stretches inside the card where the ball was actually being tracked.
+
+    The card's own `track` is decimated on the way out, so counting its
+    points is not a reading of how well the ball was held — every third
+    frame looks like a gap that is not there. These runs are computed from
+    the undecimated track and shipped separately.
+
+    A run breaks on a gap of more than four frames, which is a seventh of a
+    second at 30fps: long enough that a couple of dropped detections in a
+    fast rally stay one bar, short enough that losing the ball behind a
+    player shows up as the break it is.
+    """
+    max_gap = 4.0 / max(fps, 1.0)
+    runs, start, last = [], None, None
+    for t, _x, _y in track:
+        if t < t0:
+            continue
+        if t > t1:
+            break
+        if start is None:
+            start, last = t, t
+        elif t - last > max_gap:
+            runs.append([round(start, 2), round(last, 2)])
+            start = t
+        last = t
+    if start is not None:
+        runs.append([round(start, 2), round(last, 2)])
+    return runs
+
+
+def card_audio_slice(audio, t0, t1):
+    """The envelope and the impacts that fall inside one card.
+
+    Sliced rather than shipped whole: a match is mostly not cards, and the
+    portal only ever draws the audio under a card it is showing.
+
+    `t0` is the time of the FIRST bin returned, not the card's start. The
+    bins are on the file's own grid and a card does not begin on one, so a
+    reader that assumed otherwise would draw the envelope up to a bin early.
+    """
+    if not audio:
+        return None
+    bin_s = float(audio["bin_s"])
+    wave = audio["wave"]
+    i0 = max(0, int(t0 / bin_s))
+    i1 = min(len(wave), int(t1 / bin_s) + 1)
+    return {
+        "t0": round(i0 * bin_s, 3),
+        "bin": round(bin_s, 3),
+        "wave": wave[i0:i1],
+        "impacts": [[round(t, 2), c] for t, c in audio["impacts"]
+                    if t0 <= t <= t1],
+    }
+
+
 def build(blob, include_all=False):
     """Per-card evidence for one match.
 
@@ -252,6 +308,12 @@ def build(blob, include_all=False):
             } for t, x, y, p, on_tbl in proj],
             "crossings": [round(float(s), 2) for s in blob["crossings"]
                           if t0 <= s <= t1],
+            # Where the ball was held, from the undecimated track.
+            "seen": tracked_runs(track, t0, t1, float(blob["fps"])),
+            # What the microphone heard. Absent on every match processed
+            # before the worker learned to listen, which the page shows as
+            # "not measured" rather than as silence.
+            "audio": card_audio_slice(blob.get("audio"), t0, t1),
             "why": res,
         })
     return {

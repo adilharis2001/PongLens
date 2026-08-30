@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { CardTimeline } from "./CardTimeline";
 import {
   TABLE_L_M,
   TABLE_W_M,
@@ -244,6 +245,18 @@ export function ServeMissView({
           {Math.max(0, t - card.t0).toFixed(1)}s / {card.dur.toFixed(1)}s
         </span>
       </div>
+
+      {/* What each sensor recorded across the same seconds. Under the
+          picture rather than beside it: the rows and the video share an
+          x axis only if they share a width. */}
+      <CardTimeline
+        card={card}
+        t={t}
+        onSeek={(sourceSeconds) => {
+          const v = videoRef.current;
+          if (v) v.currentTime = sourceSeconds + cutOffset;
+        }}
+      />
 
       </div>
 

@@ -14,6 +14,7 @@ import { computeServing, type ServeInfo } from "../../../match/[id]/serving";
 import {
   buildPointRows,
   formatClock,
+  fpsLabel,
   gapLabel,
   gbLabel,
   pointFlags,
@@ -281,6 +282,7 @@ export function UploadView({
   };
 
   const src = matchJson?.source;
+  const fps = fpsLabel(src?.fps);
   const retention = retentionPct(totals.src_duration_s, totals.cut_duration_s);
   const playable = rows.filter((r) => r.cut_t0 !== null);
 
@@ -419,9 +421,16 @@ export function UploadView({
             detail={totals.starred > 0 ? `${totals.starred} starred` : null}
           />
           <Fact
-            label="Source"
+            label="Resolution"
             value={src?.width ? `${src.width}×${src.height}` : "Not recorded"}
-            detail={src?.fps ? `${src.fps.toFixed(2)} fps` : null}
+            detail={
+              src?.duration ? `${formatClock(src.duration)} processed` : null
+            }
+          />
+          <Fact
+            label="Frame rate"
+            value={fps.value}
+            detail={fps.detail}
           />
           <Fact
             label="Placement"

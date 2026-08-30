@@ -481,6 +481,37 @@ export function retentionPct(
   return Math.min(100, Math.round((cutSeconds / srcSeconds) * 100));
 }
 
+/**
+ * The frame rate a phone actually recorded at, and the measured number.
+ *
+ * Nothing arrives at a round rate: 29.976, 29.986, 29.999 and 30.0 all
+ * appear across the last twenty-five uploads and every one of them is a
+ * 30 fps recording. The rate people mean is the standard one, so that is
+ * what the value says, with what was measured underneath.
+ *
+ * Snapped to the nearest of the rates cameras actually shoot, and only
+ * when it is genuinely close — anything else is reported as it was
+ * measured rather than rounded into a category it does not belong to.
+ *
+ * Read from match.json, which the pipeline probes on the file it was
+ * handed. A trim is a stream copy, so a trimmed job's rate is still the
+ * uploaded one.
+ */
+const STANDARD_FPS = [24, 25, 30, 48, 50, 60, 120, 240];
+
+export function fpsLabel(
+  fps: number | null | undefined
+): { value: string; detail: string | null } {
+  if (fps == null || !Number.isFinite(fps) || fps <= 0) {
+    return { value: "Not recorded", detail: null };
+  }
+  const near = STANDARD_FPS.find((r) => Math.abs(fps - r) <= r * 0.02);
+  return {
+    value: near ? `${near} fps` : `${fps.toFixed(2)} fps`,
+    detail: near && Math.abs(fps - near) > 0.005 ? `${fps.toFixed(3)} measured` : null,
+  };
+}
+
 export function gbLabel(bytes: number): string {
   const gb = bytes / 1024 ** 3;
   if (gb >= 1) {

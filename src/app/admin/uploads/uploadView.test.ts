@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildPointRows,
   formatClock,
+  fpsLabel,
   gapLabel,
   gbLabel,
   pointFlags,
@@ -430,4 +431,29 @@ test("an unprocessed upload is explained, not shown as broken", () => {
   const lines = troubleLines(detail({ status: "uploaded", has_cut: false }));
   assert.equal(lines[0].tone, "amber");
   assert.equal(lines[0].title, "Not processed yet");
+});
+
+test("every rate a phone reports for 30 fps reads as 30", () => {
+  // All four of these appear across the last twenty-five uploads.
+  for (const measured of [29.976, 29.986, 29.999, 30.0]) {
+    assert.equal(fpsLabel(measured).value, "30 fps");
+  }
+  assert.equal(fpsLabel(59.94).value, "60 fps");
+  assert.equal(fpsLabel(23.976).value, "24 fps");
+});
+
+test("the measured rate is kept underneath, and dropped when it adds nothing", () => {
+  assert.equal(fpsLabel(29.976).detail, "29.976 measured");
+  assert.equal(fpsLabel(30).detail, null);
+});
+
+test("a rate near nothing standard is reported, not rounded into a category", () => {
+  assert.equal(fpsLabel(45).value, "45.00 fps");
+  assert.equal(fpsLabel(45).detail, null);
+});
+
+test("a missing frame rate is not recorded, never zero", () => {
+  assert.equal(fpsLabel(null).value, "Not recorded");
+  assert.equal(fpsLabel(undefined).value, "Not recorded");
+  assert.equal(fpsLabel(0).value, "Not recorded");
 });

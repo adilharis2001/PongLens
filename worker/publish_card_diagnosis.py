@@ -26,7 +26,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from research_reprocess import MEDIA_BUCKET, config, s3_client  # noqa: E402
-from research_serve_misses import build  # noqa: E402
+from research_serve_misses import apply_shipped_settings, build  # noqa: E402
 
 import psycopg2  # noqa: E402
 
@@ -79,6 +79,12 @@ def main():
     args = ap.parse_args()
 
     env = config()
+    # The serve rule's two tunable constants come from app_config per job.
+    # Building at the module defaults instead is how the research page
+    # silently drifted from production once already.
+    pad, merge = apply_shipped_settings(env)
+    print(f"serve rule at the shipped settings: surface pad {pad} m, "
+          f"merge {merge} s")
     s3 = None if args.no_upload else s3_client(env)
     done = failed = 0
 

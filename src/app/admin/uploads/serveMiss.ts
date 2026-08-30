@@ -40,6 +40,28 @@ export interface MissWhy {
   detail: [number, number, string][];
 }
 
+/**
+ * What the microphone heard across one card.
+ *
+ * The same 10 kHz-high-pass detector the research pilot runs, measured on
+ * the file the ASSEMBLER saw — so these times are on the same clock as the
+ * ball track beside them and need the same one conversion to reach the
+ * video. It hears the room as well as the table: three to five impacts a
+ * second while a rally is running and barely fewer between points, which
+ * is why this is drawn rather than believed.
+ */
+export interface MissAudio {
+  /** Source seconds at the FIRST bin. The bins are on the file's own grid
+   *  and a card does not start on one, so this is not the card's start. */
+  t0: number;
+  /** Seconds per bin. */
+  bin: number;
+  /** Loudness per bin, 0-100, against the match's 99.5th percentile. */
+  wave: number[];
+  /** [source seconds, how far over the adaptive threshold it peaked] */
+  impacts: [number, number][];
+}
+
 export interface MissCard {
   t0: number;
   t1: number;
@@ -51,6 +73,20 @@ export interface MissCard {
   track: [number, number, number][];
   bounces: MissBounce[];
   crossings: number[];
+  /**
+   * Stretches where the ball detector was actually holding the ball, as
+   * [start, end] pairs in source seconds.
+   *
+   * Not derivable from `track`, which is thinned to every third frame on
+   * the way out — counting its points would report a break every tenth of
+   * a second that is not there. Computed in the worker from the full-rate
+   * track, breaking on a gap of more than four frames.
+   *
+   * Absent on any match diagnosed before the worker started recording it.
+   */
+  seen?: [number, number][];
+  /** Absent, or null, on any match processed before the worker listened. */
+  audio?: MissAudio | null;
   why: MissWhy;
 }
 

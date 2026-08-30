@@ -80,6 +80,10 @@ VENV_PY = f"{TTVID}/vendor/venv/bin/python"          # numpy+cv2 (+torch)
 BLURBALL_INFER = f"{TTVID}/vendor/blurball_infer.py"
 POINTS_PIPELINE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "points_pipeline.py")
+# Also under VENV_PY: it needs scipy, which the worker's own venv does not
+# carry and should not start carrying for one diagnostic row.
+CARD_AUDIO = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "card_audio.py")
 MATCH_STRUCTURE_SCRIPT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "extract_match_structure_rtmpose.py",
@@ -3785,7 +3789,49 @@ def extract_thumb(clip_path: str, out_path: str, seek_s: float) -> bool:
                 pass
 
 
-def publish_card_diagnosis(outdir: str, key_prefix: str) -> int:
+def merge_card_audio(input_video: str, outdir: str) -> int:
+    """Add what the microphone heard to the assembler's evidence dump.
+
+    The portal draws four rows under each card — the ear, the ball
+    detector, the bounces it called, the serve it anchored. The last three
+    are already in the dump; this is the first, and it has to be measured
+    here because nothing downstream still has the audio on the assembler's
+    clock.
+
+    Handed `input_video`, which is the file the assembler was handed:
+    trimmed exactly as it was. Reading the stored raw instead would put
+    every impact `trim_start` seconds early on a trimmed upload, and the
+    error is invisible — the row simply lines up with the wrong rally.
+
+    About four seconds for a half-hour match, and no bearing on anything
+    the player sees, so a failure is logged and dropped. Returns the number
+    of impacts found, or 0.
+    """
+    dump = os.path.join(outdir, "evidence.json")
+    if not os.path.exists(dump):
+        return 0
+    out = os.path.join(outdir, "audio.json")
+    # The vendor interpreter, where scipy lives — the same one that runs
+    # blurball and the points pipeline. The worker's own environment has
+    # never carried the scientific stack and does not start here.
+    subprocess.run([VENV_PY, CARD_AUDIO, "--video", input_video,
+                    "--out", out], check=True, timeout=1800)
+    with open(out) as fh:
+        audio = json.load(fh)
+    with open(dump) as fh:
+        blob = json.load(fh)
+    blob["audio"] = audio
+    with open(dump, "w") as fh:
+        json.dump(blob, fh, separators=(",", ":"))
+    rate = len(audio["impacts"]) / max(audio["duration"], 1)
+    log.info("  card audio: %d impacts over %.0fs (%.1f/s)",
+             len(audio["impacts"]), audio["duration"], rate)
+    return len(audio["impacts"])
+
+
+def publish_card_diagnosis(outdir: str, key_prefix: str,
+                           serve_pad: str = SERVE_SURFACE_PAD_DEFAULT,
+                           serve_merge: str = SERVE_MERGE_S_DEFAULT) -> int:
     """Distil the assembler's evidence dump into the portal's per-card view.
 
     Returns the bytes uploaded, or 0 when there was nothing to publish —
@@ -3802,8 +3848,18 @@ def publish_card_diagnosis(outdir: str, key_prefix: str) -> int:
     dump = os.path.join(outdir, "evidence.json")
     if not os.path.exists(dump):
         return 0
+    import points_v2
     from publish_card_diagnosis import trim_for_transport
     from research_serve_misses import build as build_card_diagnosis
+
+    # The serve rule reads two of its constants from app_config per job, so
+    # importing the detector gives its module defaults rather than what this
+    # match was actually cut with. Pin them to the job's own values: a page
+    # that recomputes the verdict at different settings than production used
+    # disagrees with the cards it is drawn on top of, and reads as evidence
+    # while doing it. The research page learned this the expensive way.
+    points_v2.PAIR_SURFACE_PAD_M = float(serve_pad)
+    points_v2.CLUSTER_S = float(serve_merge)
 
     with open(dump) as fh:
         blob = json.load(fh)
@@ -4468,7 +4524,16 @@ def run_points_stage(
         # an internal diagnostic got written, so nothing in this block may
         # fail the job.
         try:
-            other_bytes += publish_card_diagnosis(outdir, key_prefix)
+            # Two steps, two try blocks: no audio is a missing row on one
+            # page, and it must not cost the ball track and the bounces
+            # that were already measured.
+            try:
+                merge_card_audio(input_video, outdir)
+            except Exception:                               # noqa: BLE001
+                log.warning("  card audio skipped", exc_info=True)
+            diag_pad, diag_merge = serve_motif_settings(conn)
+            other_bytes += publish_card_diagnosis(
+                outdir, key_prefix, diag_pad, diag_merge)
         except Exception:                                   # noqa: BLE001
             log.warning("  card diagnosis skipped", exc_info=True)
 
