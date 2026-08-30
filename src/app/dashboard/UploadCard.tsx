@@ -1533,10 +1533,20 @@ export function UploadCard({
                     : "cursor-not-allowed opacity-40"
                 }`}
               >
-                <span
-                  className={`text-sm ${autoProcess && !committed ? "text-zinc-200" : "text-zinc-500"}`}
-                >
-                  Trim it first
+                <span className="min-w-0">
+                  <span
+                    className={`block text-sm ${autoProcess && !committed ? "text-zinc-200" : "text-zinc-500"}`}
+                  >
+                    Trim it first
+                  </span>
+                  {/* The row worked from the day it shipped; nothing told
+                    anyone why they would open it. Same hint line the two
+                    rows above carry, and the reason 18 of the jobs that
+                    carried a window had cut their head off by hand. */}
+                  <span className="mt-0.5 block text-xs text-zinc-500">
+                    Most videos open with a warm-up. Trim it off and it will
+                    not be processed.
+                  </span>
                 </span>
                 <span className="flex shrink-0 items-center gap-1.5 text-sm text-zinc-400">
                   {trimmed && trimEnd != null

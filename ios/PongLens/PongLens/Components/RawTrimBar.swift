@@ -100,7 +100,11 @@ struct RawTrimBar: View {
             .offset(x: x - 6)
     }
 
-    private func clock(_ seconds: Double) -> String {
+    private func clock(_ seconds: Double) -> String { Self.clock(seconds) }
+
+    /// Shared so a caller's own summary of the window reads in the same
+    /// units as the bar's clocks. Stating it twice is how the two drift.
+    static func clock(_ seconds: Double) -> String {
         let t = max(0, Int(seconds.rounded()))
         let h = t / 3600
         let m = (t % 3600) / 60

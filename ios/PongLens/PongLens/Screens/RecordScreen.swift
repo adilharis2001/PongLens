@@ -1106,6 +1106,15 @@ struct MatchDetailsSheet: View {
     @State private var processOn: Bool
     @State private var placementOn: Bool
     @State private var minutesBalance: Int?
+    /// The warm-up cut. Closed and meaning "the whole video" until the
+    /// owner opens it, which is the honest default — most footage does not
+    /// need it, and 18 of the 106 web jobs that carried a window used one.
+    @State private var trimOpen = false
+    @State private var trimStart: Double = 0
+    @State private var trimEnd: Double?
+    /// The frame under the bar, refreshed as the start handle moves.
+    @State private var trimFrame: UIImage?
+    @State private var trimFrameTask: Task<Void, Never>?
 
     private var queue: RecordingQueue { RecordingQueue.shared }
 
@@ -1171,6 +1180,17 @@ struct MatchDetailsSheet: View {
                     Text("Processing")
                 } footer: {
                     Text(processingFootnote)
+                }
+
+                // Only once there is a length to draw against. A trim bar
+                // over an unknown duration is a control that cannot be
+                // honest about what it is keeping.
+                if processOn, let duration = firstItemDuration, duration > 10 {
+                    Section {
+                        trimRow(duration: duration)
+                    } footer: {
+                        Text("Most videos open with a warm-up. Trim it off and it will not be processed.")
+                    }
                 }
 
                 Section {
@@ -1260,12 +1280,149 @@ struct MatchDetailsSheet: View {
         queue.items.count { $0.sessionId == sessionId }
     }
 
+    // MARK: - Trim
+
+    /// The session's first file — the only one a warm-up can be at the
+    /// front of. A 45-minute roll makes each part its own match, so a
+    /// window set here must never reach part 2.
+    private var firstItem: QueuedRecording? {
+        queue.items
+            .filter { $0.sessionId == sessionId }
+            .min { $0.capturedAtMs < $1.capturedAtMs }
+    }
+
+    private var firstItemDuration: Double? {
+        guard let d = firstItem?.durationS, d.isFinite, d > 0 else { return nil }
+        return d
+    }
+
+    /// What the collapsed row says on its right. "Whole video" until the
+    /// handles have actually been moved off the ends.
+    private func trimSummary(duration: Double) -> String {
+        guard trimmed(duration: duration) else { return "Whole video" }
+        return "\(RawTrimBar.clock((trimEnd ?? duration) - trimStart)) kept"
+    }
+
+    /// Half a second of slack at each end, so a handle nudged and put back
+    /// does not count as a trim and bill against a window nobody chose.
+    private func trimmed(duration: Double) -> Bool {
+        trimStart > 0.5 || ((trimEnd ?? duration) < duration - 0.5)
+    }
+
+    @ViewBuilder
+    private func trimRow(duration: Double) -> some View {
+        DisclosureGroup(isExpanded: $trimOpen) {
+            VStack(alignment: .leading, spacing: 10) {
+                // Where processing will start. A still rather than a
+                // player: this question is "which frame", the picture
+                // follows the handle exactly as the web's does, and
+                // nothing is left playing when the sheet goes away.
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(PL.ink.opacity(0.5))
+                    if let trimFrame {
+                        Image(uiImage: trimFrame)
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    } else {
+                        ProgressView().tint(PL.cyan)
+                    }
+                }
+                .aspectRatio(posterAspect, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+
+                RawTrimBar(
+                    duration: duration,
+                    start: $trimStart,
+                    end: Binding(
+                        get: { trimEnd ?? duration },
+                        set: { trimEnd = $0 }
+                    )
+                )
+
+                if trimmed(duration: duration) {
+                    Button("Use the whole video") {
+                        trimStart = 0
+                        trimEnd = nil
+                    }
+                    .buttonStyle(PLSecondaryButtonStyle())
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.vertical, 6)
+        } label: {
+            HStack {
+                Text("Trim it first")
+                Spacer()
+                Text(trimSummary(duration: duration))
+                    .foregroundStyle(PL.text400)
+                    .monospacedDigit()
+            }
+        }
+        .onChange(of: trimStart) {
+            refreshTrimFrame()
+            pushTrim(duration: duration)
+        }
+        .onChange(of: trimOpen) { _, open in if open { refreshTrimFrame() } }
+        .onChange(of: trimEnd) { pushTrim(duration: duration) }
+    }
+
+    /// Only a window the owner actually chose travels. Otherwise nil, so
+    /// an untrimmed job's options look exactly as they did before this
+    /// feature existed.
+    private func pushTrim(duration: Double) {
+        let on = trimmed(duration: duration)
+        queue.updateTrim(
+            sessionId: sessionId,
+            start: on ? trimStart : nil,
+            end: on ? (trimEnd ?? duration) : nil
+        )
+    }
+
+    /// Generous tolerance on purpose. A scrub that demands exact frames
+    /// issues a seek per drag tick and takes the app down with no crash
+    /// report — and the worker's own cut is a stream copy that lands on a
+    /// keyframe anyway, so a keyframe-accurate preview is the honest one.
+    private func refreshTrimFrame() {
+        trimFrameTask?.cancel()
+        let at = trimStart
+        guard let item = firstItem else { return }
+        let url = queue.fileURL(item)
+        trimFrameTask = Task {
+            try? await Task.sleep(for: .milliseconds(120))
+            if Task.isCancelled { return }
+            let asset = AVURLAsset(url: url)
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 900, height: 900)
+            generator.requestedTimeToleranceBefore = CMTime(seconds: 1, preferredTimescale: 600)
+            generator.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
+            guard let cg = try? await generator.image(
+                at: CMTime(seconds: at, preferredTimescale: 600)
+            ).image else { return }
+            if Task.isCancelled { return }
+            trimFrame = UIImage(cgImage: cg)
+        }
+    }
+
     private var processingFootnote: String {
         if !processOn {
             return "The video just lands in your library. You can process it any time from the match page."
         }
         let session = queue.items.filter { $0.sessionId == sessionId }
-        let charge = session.reduce(0) { $0 + max(1, Int(ceil($1.durationS / 60))) }
+        // Billable length per file, which is the trim window where one was
+        // chosen. Quoting the raw duration here would name a number the
+        // invoice does not match, on the one screen that promises it.
+        let charge = session.reduce(0) { total, item in
+            let kept: Double
+            if let t1 = item.trimEndS {
+                kept = max(0, t1 - (item.trimStartS ?? 0))
+            } else {
+                kept = item.durationS
+            }
+            return total + max(1, Int(ceil(kept / 60)))
+        }
         var text = charge > 0
             ? "Uses \(charge) minute\(charge == 1 ? "" : "s") of your balance."
             : "Its length in minutes comes off your balance."

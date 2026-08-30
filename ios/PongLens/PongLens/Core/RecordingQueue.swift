@@ -57,6 +57,14 @@ struct QueuedRecording: Codable, Identifiable, Equatable {
     var metadata = RecordingMetadata()
     var processOn = true
     var placementOn = false
+    /// The window the worker should process, in this file's own seconds.
+    /// nil means the whole thing. Only ever set on the FIRST file of a
+    /// session: a warm-up is at the front of the match, not at the front
+    /// of part 3 after a 45-minute roll, and each file becomes its own
+    /// match. Set it on every item and a long match loses its head three
+    /// times over.
+    var trimStartS: Double?
+    var trimEndS: Double?
     // Multipart bookkeeping.
     var key: String?
     var uploadId: String?
@@ -201,6 +209,30 @@ final class RecordingQueue: NSObject {
             update(item.id) {
                 $0.processOn = process
                 $0.placementOn = placement
+            }
+        }
+    }
+
+    /// The trim window, like the processing decision, can change while the
+    /// upload runs and takes effect when `complete` fires.
+    ///
+    /// Applied to the earliest file of the session and no other. `nil`
+    /// clears it back to the whole video.
+    func updateTrim(sessionId: UUID, start: Double?, end: Double?) {
+        let session = items
+            .filter { $0.sessionId == sessionId && $0.state != .done }
+            .sorted { $0.capturedAtMs < $1.capturedAtMs }
+        guard let first = session.first else { return }
+        update(first.id) {
+            $0.trimStartS = start
+            $0.trimEndS = end
+        }
+        // A roll that landed after the window was chosen must not inherit
+        // it. Cheap to reassert, and it keeps the invariant local.
+        for item in session.dropFirst() {
+            update(item.id) {
+                $0.trimStartS = nil
+                $0.trimEndS = nil
             }
         }
     }
@@ -385,11 +417,21 @@ final class RecordingQueue: NSObject {
                     let points = true
                     let placement: Bool
                     let strictness = "normal"
+                    // The warm-up cut. Omitted entirely when the owner kept
+                    // the whole video, so an untrimmed job's options stay
+                    // exactly as they were before this existed.
+                    let trimStartS: Double?
+                    let trimEndS: Double?
                 }
                 struct ProcessRes: Decodable { let code: String? }
                 let _: ProcessRes? = try? await API.post(
                     "api/process",
-                    ProcessReq(matchId: matchId.uuidString.lowercased(), placement: item.placementOn)
+                    ProcessReq(
+                        matchId: matchId.uuidString.lowercased(),
+                        placement: item.placementOn,
+                        trimStartS: item.trimStartS,
+                        trimEndS: item.trimEndS
+                    )
                 )
             }
             update(id) {
