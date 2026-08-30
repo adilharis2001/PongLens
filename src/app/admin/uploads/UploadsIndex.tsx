@@ -44,6 +44,14 @@ export function UploadsIndex({
   return (
     <>
       <AdminHeader title="Uploads" backHref="/admin" />
+      <p className="mt-3">
+        <Link
+          href="/admin/uploads/themes"
+          className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white"
+        >
+          Review themes
+        </Link>
+      </p>
       {error && <p className="mt-6 text-sm text-red-400">{error}</p>}
       {rows.length === 0 && !error ? (
         <p className="mt-6 text-sm text-zinc-500">No uploads yet.</p>

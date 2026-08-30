@@ -16,6 +16,7 @@ import {
   type UploadPointRow,
 } from "../uploadView";
 import { reasonShort, reasonTone, type MissCard, type ServeMissData } from "../serveMiss";
+import { CardReview, type Theme } from "./CardReview";
 import { ServeMissView } from "./ServeMissView";
 
 /**
@@ -49,6 +50,11 @@ export function PointCard({
   missData,
   cutOffset,
   videoUrl,
+  review,
+  vocabulary,
+  onNoteChange,
+  onThemeToggle,
+  onThemeCreated,
 }: {
   row: UploadPointRow;
   serve: ServeInfo | null;
@@ -77,6 +83,13 @@ export function PointCard({
   missData?: ServeMissData | null;
   cutOffset?: number | null;
   videoUrl?: string | null;
+  /** The operator's note and themes for this card. Only rendered where the
+   *  list owns the expansion — on a laptop the pane holds it instead. */
+  review?: { note: string; themeIds: string[] } | null;
+  vocabulary?: Theme[];
+  onNoteChange?: (pointId: string, body: string) => void;
+  onThemeToggle?: (pointId: string, themeId: string, on: boolean) => void;
+  onThemeCreated?: (theme: Theme) => void;
 }) {
   const [openMiss, setOpenMiss] = useState(false);
   const flags = pointFlags(row);
@@ -139,6 +152,14 @@ export function PointCard({
                 className={`truncate text-zinc-500 ${compact ? "text-xs" : "text-sm"}`}
               >
                 {serve.server === "user" ? names.user : names.opponent} served
+              </span>
+            )}
+            {review && (review.note || review.themeIds.length > 0) && (
+              <span
+                className={compact ? "text-xs text-cyan-glow" : "text-sm text-cyan-glow"}
+                title="Reviewed"
+              >
+                ✎
               </span>
             )}
             {row.starred && (
@@ -209,7 +230,7 @@ export function PointCard({
         )}
       </button>
 
-      {showAnalysis && miss && missData && (
+      {showAnalysis && (
         <div className="mt-1">
           <button
             type="button"
@@ -217,18 +238,36 @@ export function PointCard({
             className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
           >
             {openMiss
-              ? "Hide the evidence"
-              : typeof miss.serve_s === "number"
-                ? "Show the ball"
-                : "Why no serve"}
+              ? "Close"
+              : miss && missData
+                ? typeof miss.serve_s === "number"
+                  ? "Show the ball"
+                  : "Why no serve"
+                : "Add a note"}
           </button>
           {openMiss && (
-            <ServeMissView
-              data={missData}
-              card={miss}
-              cutOffset={cutOffset ?? 0}
-              videoUrl={videoUrl ?? null}
-            />
+            <>
+              {miss && missData && (
+                <ServeMissView
+                  data={missData}
+                  card={miss}
+                  cutOffset={cutOffset ?? 0}
+                  videoUrl={videoUrl ?? null}
+                />
+              )}
+              {review && vocabulary && onNoteChange && onThemeToggle &&
+                onThemeCreated && (
+                  <CardReview
+                    pointId={row.id}
+                    note={review.note}
+                    themeIds={review.themeIds}
+                    vocabulary={vocabulary}
+                    onNoteChange={onNoteChange}
+                    onThemeToggle={onThemeToggle}
+                    onThemeCreated={onThemeCreated}
+                  />
+                )}
+            </>
           )}
         </div>
       )}

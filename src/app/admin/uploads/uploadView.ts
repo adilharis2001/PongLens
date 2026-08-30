@@ -98,6 +98,10 @@ export interface AdminUploadPoint {
   placement_status: string | null;
   placement_flagged: boolean;
   notes: number;
+  /** The OPERATOR's own review (150). Distinct from `notes`, which counts
+   *  the player's own notes on their point. */
+  admin_note: string | null;
+  admin_theme_ids: string[];
 }
 
 export interface UploadDetail {

@@ -93,11 +93,19 @@ export default async function AdminUploadPage({
   const { matchId } = await params;
   const { supabase, avatarUrl } = await requireAdmin();
 
-  const { data, error } = await supabase.rpc("admin_upload_detail", {
-    p_match_id: matchId,
-  });
+  const [{ data, error }, themesRes] = await Promise.all([
+    supabase.rpc("admin_upload_detail", { p_match_id: matchId }),
+    // The shared vocabulary, fetched once for the page rather than per
+    // card — every card's picker offers the same list.
+    supabase.rpc("admin_themes_list"),
+  ]);
   if (error || !data) notFound();
   const detail = data as UploadDetail;
+  const themes = (themesRes.data ?? []) as {
+    id: string;
+    label: string;
+    points: number;
+  }[];
 
   // The three playback flags come from app_config on the server, exactly as
   // the match page reads them. Hardcoding them would make the admin watch
@@ -125,6 +133,7 @@ export default async function AdminUploadPage({
           detail={detail}
           matchJson={matchJson}
           serveMisses={serveMisses}
+          themes={themes.map((t) => ({ id: t.id, label: t.label }))}
           ends={{
             tapEnd,
             rallyEnd: { on: rallyEndOn, bufferS: rallyEndBufferS },

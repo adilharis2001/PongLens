@@ -48,6 +48,8 @@ function point(overrides: Partial<AdminUploadPoint>): AdminUploadPoint {
     placement_status: null,
     placement_flagged: false,
     notes: 0,
+    admin_note: null,
+    admin_theme_ids: [],
     ...overrides,
   };
 }

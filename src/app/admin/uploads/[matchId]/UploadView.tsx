@@ -38,6 +38,7 @@ import {
   refusedCards,
   type ServeMissData,
 } from "../serveMiss";
+import { CardReview, type Theme } from "./CardReview";
 import { PointCard } from "./PointCard";
 import { ServeMissView } from "./ServeMissView";
 import { TableQuad } from "./TableQuad";
@@ -86,11 +87,13 @@ export function UploadView({
   detail,
   matchJson,
   serveMisses,
+  themes: initialThemes,
   ends,
 }: {
   detail: UploadDetail;
   matchJson: MatchJson | null;
   serveMisses: ServeMissData | null;
+  themes: Theme[];
   ends: EndOptions;
 }) {
   const { match, owner, job, totals } = detail;
@@ -105,6 +108,45 @@ export function UploadView({
   // takeover. Nothing else changes between them.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const isDesktop = useIsDesktop();
+
+  // The operator's review, held here rather than inside each card so the
+  // pane and the list agree the moment either changes, and so a theme
+  // created on card 40 is offered on card 41 without a reload.
+  const [vocabulary, setVocabulary] = useState<Theme[]>(initialThemes);
+  const [reviewNotes, setReviewNotes] = useState<Map<string, string>>(
+    () => new Map(detail.points.map((p) => [p.id, p.admin_note ?? ""]))
+  );
+  const [reviewThemes, setReviewThemes] = useState<Map<string, string[]>>(
+    () => new Map(detail.points.map((p) => [p.id, p.admin_theme_ids ?? []]))
+  );
+
+  const setNote = useCallback((pointId: string, body: string) => {
+    setReviewNotes((m) => new Map(m).set(pointId, body));
+  }, []);
+  const toggleTheme = useCallback(
+    (pointId: string, themeId: string, on: boolean) => {
+      setReviewThemes((m) => {
+        const next = new Map(m);
+        const cur = next.get(pointId) ?? [];
+        next.set(
+          pointId,
+          on ? [...cur, themeId] : cur.filter((id) => id !== themeId)
+        );
+        return next;
+      });
+    },
+    []
+  );
+  const addTheme = useCallback((theme: Theme) => {
+    setVocabulary((v) =>
+      v.some((t) => t.id === theme.id) ? v : [...v, theme]
+    );
+  }, []);
+
+  const reviewFor = (pointId: string) => ({
+    note: reviewNotes.get(pointId) ?? "",
+    themeIds: reviewThemes.get(pointId) ?? [],
+  });
 
   const rows = useMemo(() => buildPointRows(detail.points), [detail.points]);
   const table = useMemo(
@@ -565,6 +607,11 @@ export function UploadView({
                   // expanded one inside the list would put a second video of
                   // the same rally beside the first.
                   showAnalysis={!isDesktop}
+                  review={reviewFor(row.id)}
+                  vocabulary={vocabulary}
+                  onNoteChange={setNote}
+                  onThemeToggle={toggleTheme}
+                  onThemeCreated={addTheme}
                 />
               ))}
             </ul>
@@ -580,6 +627,11 @@ export function UploadView({
                   serveMisses={serveMisses}
                   videoUrl={cutUrl}
                   onFullScreen={() => selectedId && openCutAt(selectedId)}
+                  review={selectedId ? reviewFor(selectedId) : null}
+                  vocabulary={vocabulary}
+                  onNoteChange={setNote}
+                  onThemeToggle={toggleTheme}
+                  onThemeCreated={addTheme}
                 />
               </aside>
             )}
@@ -622,6 +674,11 @@ function CardPane({
   serveMisses,
   videoUrl,
   onFullScreen,
+  review,
+  vocabulary,
+  onNoteChange,
+  onThemeToggle,
+  onThemeCreated,
 }: {
   row: UploadPointRow | null;
   serve: ServeInfo | null;
@@ -631,6 +688,11 @@ function CardPane({
   serveMisses: ServeMissData | null;
   videoUrl: string | null;
   onFullScreen: () => void;
+  review: { note: string; themeIds: string[] } | null;
+  vocabulary: Theme[];
+  onNoteChange: (pointId: string, body: string) => void;
+  onThemeToggle: (pointId: string, themeId: string, on: boolean) => void;
+  onThemeCreated: (theme: Theme) => void;
 }) {
   if (!row) {
     return (
@@ -713,6 +775,18 @@ function CardPane({
           videoUrl={videoUrl}
           pad={pad}
           ends={ends}
+        />
+      )}
+
+      {review && (
+        <CardReview
+          pointId={row.id}
+          note={review.note}
+          themeIds={review.themeIds}
+          vocabulary={vocabulary}
+          onNoteChange={onNoteChange}
+          onThemeToggle={onThemeToggle}
+          onThemeCreated={onThemeCreated}
         />
       )}
     </div>
