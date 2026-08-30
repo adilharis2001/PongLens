@@ -198,7 +198,16 @@ def anchored_serve_times(blob, H):
     return sorted({round(m["contact_s"], 2) for m in motifs})
 
 
-def build(blob):
+def build(blob, include_all=False):
+    """Per-card evidence for one match.
+
+    `include_all` is what the admin portal asks for. The research page wants
+    only the cards with no serve, because its question is why the detector
+    refused; the portal's question is broader — was the placement right, was
+    the FIRST bounce right — and that has to be answerable on a card whose
+    serve was found. Same walk either way, so the two views can never
+    disagree about a card they both show.
+    """
     quad_d = blob.get("quad")
     if not quad_d:
         raise ValueError("no table quad; nothing to project against")
@@ -214,7 +223,10 @@ def build(blob):
     cards = []
     for card in blob["cards"]:
         t0, t1 = float(card[0]), float(card[1])
-        if any(t0 <= s <= t1 for s in serves):
+        # Recomputed against today's constants, not the value frozen into
+        # the bundle — see anchored_serve_times.
+        inside = [s for s in serves if t0 <= s <= t1]
+        if inside and not include_all:
             continue
         res, proj = walk_rules(t0, t1, bnc, track, times,
                                blob["crossings"], H)
@@ -223,6 +235,10 @@ def build(blob):
         cards.append({
             "t0": round(t0, 2), "t1": round(t1, 2),
             "dur": round(t1 - t0, 2),
+            # Where the detector put bat on ball, or null when it found
+            # none. The portal reads this to tell an anchored card from a
+            # refused one; the research page only ever gets nulls.
+            "serve_s": round(inside[0], 2) if inside else None,
             # fractions of the frame, so the overlay survives any size
             "track": [[round(t, 2), round(x / w, 5), round(y / h, 5)]
                       for t, x, y in track[ia:ib]],

@@ -3785,6 +3785,47 @@ def extract_thumb(clip_path: str, out_path: str, seek_s: float) -> bool:
                 pass
 
 
+def publish_card_diagnosis(outdir: str, key_prefix: str) -> int:
+    """Distil the assembler's evidence dump into the portal's per-card view.
+
+    Returns the bytes uploaded, or 0 when there was nothing to publish —
+    which is the ordinary case for a v1 match, an uncalibrated one, or any
+    upload whose assembler declined to run. Callers treat a missing file as
+    "no diagnosis for this match", never as a failure.
+
+    Deliberately the same builder the research page uses
+    (research_serve_misses.build), with include_all so the portal gets the
+    cards that DID find a serve too — the question there is whether the
+    placement and the first bounce are right, which only makes sense on a
+    card that has one.
+    """
+    dump = os.path.join(outdir, "evidence.json")
+    if not os.path.exists(dump):
+        return 0
+    from research_serve_misses import build as build_card_diagnosis
+
+    with open(dump) as fh:
+        blob = json.load(fh)
+    blob.setdefault("match_id", key_prefix.rsplit("/", 1)[-1])
+    try:
+        page = build_card_diagnosis(blob, include_all=True)
+    except ValueError as e:
+        # No table quad; there is nothing to project bounces against.
+        log.info("  card diagnosis skipped: %s", e)
+        return 0
+
+    dest = os.path.join(outdir, "serves.json")
+    with open(dest, "w") as fh:
+        json.dump(page, fh, separators=(",", ":"))
+    size = os.path.getsize(dest)
+    r2().upload_file(dest, R2_MEDIA_BUCKET, f"{key_prefix}/serves.json",
+                     ExtraArgs={"ContentType": "application/json"})
+    anchored = sum(1 for c in page["cards"] if c.get("serve_s") is not None)
+    log.info("  card diagnosis: %d cards (%d with a serve), %.0f KB",
+             len(page["cards"]), anchored, size / 1024)
+    return size
+
+
 def insert_points(
     conn,
     match_id: str,
@@ -4256,7 +4297,16 @@ def run_points_subprocess(
         # truth about what happened.
         cmd += ["--pipeline", "v2",
                 "--serve-surface-pad", str(serve_surface_pad),
-                "--serve-merge-s", str(serve_merge_s)]
+                "--serve-merge-s", str(serve_merge_s),
+                # Every signal the assembler saw, kept so the admin portal
+                # can show per-card evidence — the ball, the bounces, and
+                # the rule that accepted or refused each serve pair. None
+                # of it is otherwise recoverable: it lives for seconds
+                # inside the assembler and is discarded, and getting it
+                # back later costs a full re-run of blurball over the
+                # video. Written to the workdir and never shipped whole;
+                # publish_card_diagnosis distils it to ~120 KB.
+                "--evidence-dump", os.path.join(outdir, "evidence.json")]
         if endon_fallback:
             cmd.append("--endon-fallback")
     if options.get("placement"):
@@ -4407,6 +4457,20 @@ def run_points_stage(
             f"{key_prefix}/match.json",
             ExtraArgs={"ContentType": "application/json"},
         )
+        # Per-card evidence for the admin portal: the ball track, the
+        # bounces and the rule that accepted or refused each serve pair,
+        # for EVERY card. Distilled from the evidence dump the points run
+        # just wrote, which stays in the workdir — the dump is megabytes of
+        # raw track, this is ~120 KB.
+        #
+        # Best effort on purpose. A player's match is ready whether or not
+        # an internal diagnostic got written, so nothing in this block may
+        # fail the job.
+        try:
+            other_bytes += publish_card_diagnosis(outdir, key_prefix)
+        except Exception:                                   # noqa: BLE001
+            log.warning("  card diagnosis skipped", exc_info=True)
+
         calib_dbg = os.path.join(outdir, "calib_debug.jpg")
         if os.path.exists(calib_dbg):
             other_bytes += os.path.getsize(calib_dbg)

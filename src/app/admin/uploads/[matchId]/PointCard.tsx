@@ -148,17 +148,22 @@ export function PointCard({
                 {trimmedS.toFixed(1)}s trimmed
               </span>
             )}
-            {miss && (
-              <span
-                className="rounded border px-1.5 py-px"
-                style={{
-                  borderColor: `${reasonTone(miss.why.reason)}66`,
-                  color: reasonTone(miss.why.reason),
-                }}
-              >
-                no serve: {reasonShort(miss.why.reason)}
-              </span>
-            )}
+            {miss &&
+              (typeof miss.serve_s === "number" ? (
+                <span className="rounded border border-edge px-1.5 py-px text-zinc-400">
+                  serve +{(miss.serve_s - row.t0).toFixed(1)}s
+                </span>
+              ) : (
+                <span
+                  className="rounded border px-1.5 py-px"
+                  style={{
+                    borderColor: `${reasonTone(miss.why.reason)}66`,
+                    color: reasonTone(miss.why.reason),
+                  }}
+                >
+                  no serve: {reasonShort(miss.why.reason)}
+                </span>
+              ))}
             {flags.map((f) => (
               <span
                 key={f.label}
@@ -193,7 +198,11 @@ export function PointCard({
             onClick={() => setOpenMiss((v) => !v)}
             className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
           >
-            {openMiss ? "Hide the evidence" : "Why no serve"}
+            {openMiss
+              ? "Hide the evidence"
+              : typeof miss.serve_s === "number"
+                ? "Show the ball"
+                : "Why no serve"}
           </button>
           {openMiss && (
             <ServeMissView

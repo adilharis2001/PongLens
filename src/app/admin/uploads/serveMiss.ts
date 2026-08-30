@@ -44,6 +44,10 @@ export interface MissCard {
   t0: number;
   t1: number;
   dur: number;
+  /** Where the detector put bat on ball, or null when it found none.
+   *  Null on every card the research page publishes; set on the anchored
+   *  cards the admin portal additionally carries. */
+  serve_s?: number | null;
   track: [number, number, number][];
   bounces: MissBounce[];
   crossings: number[];
@@ -123,6 +127,25 @@ export function cutOffsetFor(
     return null;
   }
   return Number(point.cut_t0) + effectivePre - Number(point.t0);
+}
+
+/**
+ * The cards with no serve.
+ *
+ * The portal's artifact carries EVERY card so the placement and the first
+ * bounce can be judged on an anchored one too, so "how many did the
+ * detector refuse" is now a filter rather than a length. Reading
+ * `cards.length` as the refusal count is the mistake this exists to stop.
+ */
+export function refusedCards(data: ServeMissData | null): MissCard[] {
+  if (!data) return [];
+  return data.cards.filter((c) => c.serve_s === null || c.serve_s === undefined);
+}
+
+/** The cards the detector anchored on a serve it found. */
+export function anchoredCards(data: ServeMissData | null): MissCard[] {
+  if (!data) return [];
+  return data.cards.filter((c) => typeof c.serve_s === "number");
 }
 
 /** How many cards each rule accounts for, commonest first. */

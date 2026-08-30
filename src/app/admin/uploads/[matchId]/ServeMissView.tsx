@@ -248,9 +248,18 @@ export function ServeMissView({
           <Court card={card} t={t} />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-zinc-300">
-            {data.reasons[why.reason] ?? reasonShort(why.reason)}
-          </p>
+          {typeof card.serve_s === "number" ? (
+            <p className="text-sm text-zinc-300">
+              Serve found {(card.serve_s - card.t0).toFixed(2)}s into the
+              card. The rings are every bounce the detector saw — green on
+              the playing surface, red off it — so the first bounce and
+              where it landed can be checked against the picture.
+            </p>
+          ) : (
+            <p className="text-sm text-zinc-300">
+              {data.reasons[why.reason] ?? reasonShort(why.reason)}
+            </p>
+          )}
           <p className="mt-1 text-xs text-zinc-500">
             {why.bounces} bounce{why.bounces === 1 ? "" : "s"} in the card,{" "}
             {why.on_surface} on the table surface, {why.pairs} pair

@@ -57,3 +57,9 @@ scripts/demos/raw/
 # Coach outreach worker logs and rotation state
 scripts/marketing/logs/
 scripts/marketing/outreach-state.json
+
+# Serve-diagnosis backfill: the work directory holds a raw upload and a
+# blurball jsonl per match while it runs, and the state file is just which
+# ids this machine has already published.
+.backfill-work/
+worker/backfill-serve-misses.state
