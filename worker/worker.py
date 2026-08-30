@@ -3830,8 +3830,8 @@ def merge_card_audio(input_video: str, outdir: str) -> int:
 
 
 def publish_card_diagnosis(outdir: str, key_prefix: str,
-                           serve_pad: str = SERVE_SURFACE_PAD_DEFAULT,
-                           serve_merge: str = SERVE_MERGE_S_DEFAULT) -> int:
+                           serve_pad: str | None = None,
+                           serve_merge: str | None = None) -> int:
     """Distil the assembler's evidence dump into the portal's per-card view.
 
     Returns the bytes uploaded, or 0 when there was nothing to publish —
@@ -3858,8 +3858,13 @@ def publish_card_diagnosis(outdir: str, key_prefix: str,
     # that recomputes the verdict at different settings than production used
     # disagrees with the cards it is drawn on top of, and reads as evidence
     # while doing it. The research page learned this the expensive way.
-    points_v2.PAIR_SURFACE_PAD_M = float(serve_pad)
-    points_v2.CLUSTER_S = float(serve_merge)
+    # Defaulted HERE and not in the signature: the constants are defined
+    # further down this file, and a default argument is evaluated at import,
+    # so naming them up there takes the whole worker down on startup.
+    points_v2.PAIR_SURFACE_PAD_M = float(
+        serve_pad if serve_pad is not None else SERVE_SURFACE_PAD_DEFAULT)
+    points_v2.CLUSTER_S = float(
+        serve_merge if serve_merge is not None else SERVE_MERGE_S_DEFAULT)
 
     with open(dump) as fh:
         blob = json.load(fh)
