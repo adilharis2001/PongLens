@@ -3802,13 +3802,14 @@ def publish_card_diagnosis(outdir: str, key_prefix: str) -> int:
     dump = os.path.join(outdir, "evidence.json")
     if not os.path.exists(dump):
         return 0
+    from publish_card_diagnosis import trim_for_transport
     from research_serve_misses import build as build_card_diagnosis
 
     with open(dump) as fh:
         blob = json.load(fh)
     blob.setdefault("match_id", key_prefix.rsplit("/", 1)[-1])
     try:
-        page = build_card_diagnosis(blob, include_all=True)
+        page = trim_for_transport(build_card_diagnosis(blob, include_all=True))
     except ValueError as e:
         # No table quad; there is nothing to project bounces against.
         log.info("  card diagnosis skipped: %s", e)

@@ -31,6 +31,35 @@ from research_serve_misses import build  # noqa: E402
 import psycopg2  # noqa: E402
 
 
+# The trail fades over half a second, so it needs about five points to read
+# as a line. The dump carries every detected frame — 30 a second — which on
+# a 128-card match is half a megabyte of JSON the phone has to download to
+# draw the same picture. Every third frame and four decimals (a thousandth
+# of the frame, well under a pixel) is visually identical and about a third
+# the size.
+TRACK_STRIDE = 3
+COORD_DP = 4
+
+
+def trim_for_transport(page):
+    """Shrink the payload without changing what it draws."""
+    for card in page.get("cards", []):
+        track = card.get("track") or []
+        # Keep the last point whatever the stride, so the trail always ends
+        # where the ball actually was rather than up to two frames short.
+        kept = track[::TRACK_STRIDE]
+        if track and kept and kept[-1] is not track[-1]:
+            kept.append(track[-1])
+        card["track"] = [
+            [round(t, 2), round(x, COORD_DP), round(y, COORD_DP)]
+            for t, x, y in kept
+        ]
+        for b in card.get("bounces") or []:
+            b["x"] = round(b["x"], COORD_DP)
+            b["y"] = round(b["y"], COORD_DP)
+    return page
+
+
 def owner_of(conn, match_id):
     """The match's user id, which is the middle of its R2 prefix."""
     with conn.cursor() as cur:
@@ -63,8 +92,20 @@ def main():
             with open(src) as fh:
                 blob = json.load(fh)
             blob.setdefault("match_id", name)
+
+            # Explain the cards the PLAYER has, not the ones this re-run
+            # happened to draw. A reprocess runs today's constants over the
+            # same video and lands on different boundaries — 154 cards where
+            # production shipped 128 on the first match backfilled — so
+            # diagnosing its own cards would key every overlay to a rally
+            # the library does not contain. research_reprocess already
+            # carries the production spans; use them and the walk lines up
+            # with the points table by construction.
+            prod = blob.get("prod_cards")
+            if prod:
+                blob["cards"] = prod
             try:
-                page = build(blob, include_all=True)
+                page = trim_for_transport(build(blob, include_all=True))
             except ValueError as e:
                 print(f"{name[:8]}  skipped: {e}")
                 failed += 1
