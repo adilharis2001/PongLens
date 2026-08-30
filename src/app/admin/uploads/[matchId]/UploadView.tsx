@@ -1,11 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Point } from "@/lib/types";
-import type { EndOptions } from "../../../match/[id]/playhead";
+import {
+  effectiveEnd,
+  paddedEnd,
+  type ClipPad,
+  type EndOptions,
+} from "../../../match/[id]/playhead";
 import { clipPad, effectivePad } from "../../../match/[id]/clipEdit";
-import { computeServing } from "../../../match/[id]/serving";
+import { computeServing, type ServeInfo } from "../../../match/[id]/serving";
 import {
   buildPointRows,
   formatClock,
@@ -31,11 +36,32 @@ import {
   type ServeMissData,
 } from "../serveMiss";
 import { PointCard } from "./PointCard";
+import { ServeMissView } from "./ServeMissView";
 import { TableQuad } from "./TableQuad";
 import { UploadTape } from "./UploadTape";
 
 /** Sentinel for "the tape is showing the original, not a card". */
 const RAW_TAPE = "__raw__";
+
+/**
+ * lg and up gets the side-by-side.
+ *
+ * matchMedia in state rather than a Tailwind `lg:hidden` twin, so only ONE
+ * branch is ever mounted. Rendering both and hiding one with display:none
+ * is the trap this codebase keeps falling into: the hidden branch still
+ * runs, and its <video> still plays. Same approach as MatchView.
+ */
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return isDesktop;
+}
 
 /**
  * One upload, opened up.
@@ -72,6 +98,10 @@ export function UploadView({
   const [loadingRaw, setLoadingRaw] = useState(false);
   const [tapeAt, setTapeAt] = useState<string | null>(null);
   const [tapeSource, setTapeSource] = useState<"cut" | "raw">("cut");
+  // Desktop selects a card into a pane beside the list; a phone opens the
+  // takeover. Nothing else changes between them.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const isDesktop = useIsDesktop();
 
   const rows = useMemo(() => buildPointRows(detail.points), [detail.points]);
   const table = useMemo(
@@ -175,6 +205,16 @@ export function UploadView({
     setTapeAt(pointId);
   };
 
+  // One tap, two meanings by width. On a phone the screen is too small to
+  // hold a list and a player at once, so a card opens the takeover. On a
+  // laptop there is room for both and losing the list to a full-screen
+  // player every time you check a card is the wrong trade — the whole
+  // point of the page is comparing cards.
+  const pickCard = (pointId: string) => {
+    if (isDesktop) setSelectedId(pointId);
+    else openCutAt(pointId);
+  };
+
   // Park the still frame inside the first rally rather than at zero, where
   // a match that opens on an empty hall shows no table at all.
   const firstWithCut = rows.find((r) => !r.deleted && r.cut_t0 !== null);
@@ -200,7 +240,7 @@ export function UploadView({
   const playable = rows.filter((r) => r.cut_t0 !== null);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pt-6 sm:px-6">
+    <div className="mx-auto w-full max-w-3xl px-4 pt-6 sm:px-6 lg:max-w-6xl">
       {/* Who and what */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -413,6 +453,22 @@ export function UploadView({
           <p className="mt-1 text-sm text-zinc-500">{timelineSummary(rows)}</p>
         )}
 
+        {!serveMisses && assembly.cardsWithoutServe ? (
+          <div className="mt-3 rounded-2xl border border-edge bg-surface p-4">
+            <p className="text-sm text-zinc-300">
+              {assembly.cardsWithoutServe} of{" "}
+              {(assembly.cardsWithServe ?? 0) + assembly.cardsWithoutServe}{" "}
+              cards were built without a serve, but no diagnosis has been
+              generated for this upload, so there is nothing to open.
+            </p>
+            <p className="mt-1 text-sm text-zinc-500">
+              The per-card evidence — the ball, the bounces and the rule that
+              turned each pair away — comes from a separate pass over the same
+              match. Only the matches that pass has run on carry it.
+            </p>
+          </div>
+        ) : null}
+
         {serveMisses && serveMisses.cards.length > 0 && (
           <div className="mt-3 rounded-2xl border border-edge bg-surface p-4">
             <p className="text-sm text-zinc-300">
@@ -472,27 +528,49 @@ export function UploadView({
             No cards were made from this upload.
           </p>
         ) : (
-          <ul className="mt-4 space-y-2">
-            {rows.map((row) => (
-              <PointCard
-                key={row.id}
-                row={row}
-                serve={serving.get(row.id) ?? null}
-                names={names}
-                pad={pad}
-                ends={ends}
-                playable={row.cut_t0 !== null && !!cutUrl}
-                onPlay={() => openCutAt(row.id)}
-                miss={missForPoint(serveMisses, row)}
-                missData={serveMisses}
-                cutOffset={cutOffsetFor(
-                  row,
-                  effectivePad(pad, row.tight_start, row.tight_end).pre
-                )}
-                videoUrl={cutUrl}
-              />
-            ))}
-          </ul>
+          <div className="mt-4 flex flex-col gap-6 lg:flex-row lg:items-start">
+            <ul className="min-w-0 flex-1 space-y-2">
+              {rows.map((row) => (
+                <PointCard
+                  key={row.id}
+                  row={row}
+                  serve={serving.get(row.id) ?? null}
+                  names={names}
+                  pad={pad}
+                  ends={ends}
+                  playable={row.cut_t0 !== null && !!cutUrl}
+                  selected={isDesktop && row.id === selectedId}
+                  onPlay={() => pickCard(row.id)}
+                  miss={missForPoint(serveMisses, row)}
+                  missData={serveMisses}
+                  cutOffset={cutOffsetFor(
+                    row,
+                    effectivePad(pad, row.tight_start, row.tight_end).pre
+                  )}
+                  videoUrl={cutUrl}
+                  // The pane owns the analysis on a laptop. A card that also
+                  // expanded one inside the list would put a second video of
+                  // the same rally beside the first.
+                  showAnalysis={!isDesktop}
+                />
+              ))}
+            </ul>
+
+            {isDesktop && (
+              <aside className="sticky top-6 w-[26rem] shrink-0">
+                <CardPane
+                  row={rows.find((r) => r.id === selectedId) ?? null}
+                  serve={selectedId ? serving.get(selectedId) ?? null : null}
+                  names={names}
+                  pad={pad}
+                  ends={ends}
+                  serveMisses={serveMisses}
+                  videoUrl={cutUrl}
+                  onFullScreen={() => selectedId && openCutAt(selectedId)}
+                />
+              </aside>
+            )}
+          </div>
         )}
       </section>
 
@@ -515,6 +593,164 @@ export function UploadView({
 }
 
 /** The tape opens on a card id, so "from the top" needs one too. */
+/**
+ * The selected card, beside the list rather than on top of it.
+ *
+ * Desktop only. It plays the card's own span of the cut and, where a
+ * diagnosis exists, shows the same evidence the phone shows inline — so
+ * the two widths differ in where the analysis sits, never in what it says.
+ */
+function CardPane({
+  row,
+  serve,
+  names,
+  pad,
+  ends,
+  serveMisses,
+  videoUrl,
+  onFullScreen,
+}: {
+  row: UploadPointRow | null;
+  serve: ServeInfo | null;
+  names: { user: string; opponent: string };
+  pad: ClipPad;
+  ends: EndOptions;
+  serveMisses: ServeMissData | null;
+  videoUrl: string | null;
+  onFullScreen: () => void;
+}) {
+  if (!row) {
+    return (
+      <div className="rounded-2xl border border-dashed border-edge p-6">
+        <p className="text-sm text-zinc-400">
+          Pick a card to watch it here.
+        </p>
+        <p className="mt-1 text-sm text-zinc-600">
+          The list stays where it is, so you can work down it.
+        </p>
+      </div>
+    );
+  }
+
+  const miss = missForPoint(serveMisses, row);
+  const cutOffset = cutOffsetFor(
+    row,
+    effectivePad(pad, row.tight_start, row.tight_end).pre
+  );
+
+  return (
+    <div className="rounded-2xl border border-edge bg-surface p-4">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-sm font-medium text-zinc-200">
+          {row.displayNo ? `Card ${row.displayNo}` : "Removed card"}
+          <span className="ml-2 font-normal tabular-nums text-zinc-500">
+            {formatClock(row.t0)} → {formatClock(row.t1)}
+          </span>
+        </p>
+        <button
+          type="button"
+          onClick={onFullScreen}
+          className="shrink-0 rounded-full border border-edge px-3 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
+        >
+          Full screen
+        </button>
+      </div>
+      {serve?.server && (
+        <p className="mt-0.5 text-xs text-zinc-500">
+          {serve.server === "user" ? names.user : names.opponent} served
+        </p>
+      )}
+
+      {miss && serveMisses ? (
+        <ServeMissView
+          data={serveMisses}
+          card={miss}
+          cutOffset={cutOffset ?? 0}
+          videoUrl={videoUrl}
+        />
+      ) : (
+        <PlainCardClip
+          row={row}
+          videoUrl={videoUrl}
+          pad={pad}
+          ends={ends}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A card with no diagnosis: just its footage, bounded to the card.
+ *
+ * Deliberately the same box and the same transport as the diagnosed view,
+ * so moving down the list does not change shape under the cursor whenever
+ * a card happens to carry a serve.
+ */
+function PlainCardClip({
+  row,
+  videoUrl,
+  pad,
+  ends,
+}: {
+  row: UploadPointRow;
+  videoUrl: string | null;
+  pad: ClipPad;
+  ends: EndOptions;
+}) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+  const start = row.cut_t0 === null ? null : Number(row.cut_t0);
+  const stop =
+    effectiveEnd(row as unknown as Point, pad, ends) ??
+    paddedEnd(row as unknown as Point, pad);
+
+  useEffect(() => {
+    const v = ref.current;
+    if (!v || start === null) return;
+    const seek = () => {
+      v.currentTime = start;
+    };
+    if (v.readyState >= 1) seek();
+    else v.addEventListener("loadedmetadata", seek, { once: true });
+    return () => {
+      // A <video> removed from the document keeps playing, with sound.
+      v.pause();
+    };
+  }, [start]);
+
+  if (!videoUrl || start === null) {
+    return (
+      <p className="mt-3 text-sm text-zinc-500">
+        This card has no place in the cut file, so there is nothing to play.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-3">
+      <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
+        <video
+          ref={ref}
+          src={videoUrl}
+          preload="metadata"
+          playsInline
+          controls
+          onTimeUpdate={(e) => {
+            const v = e.currentTarget;
+            if (stop !== null && v.currentTime >= stop && !v.paused) {
+              v.pause();
+            }
+          }}
+          className="absolute inset-0 h-full w-full"
+        />
+      </div>
+      <p className="mt-2 text-xs text-zinc-600">
+        Stops where the player&rsquo;s own playback stops.
+      </p>
+    </div>
+  );
+}
+
 function firstPlayableId(rows: UploadPointRow[]): string | null {
   return rows.find((r) => !r.deleted && r.cut_t0 !== null)?.id ?? null;
 }

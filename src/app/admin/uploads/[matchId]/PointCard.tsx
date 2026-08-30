@@ -41,6 +41,8 @@ export function PointCard({
   pad,
   ends,
   playable,
+  selected = false,
+  showAnalysis = true,
   onPlay,
   miss,
   missData,
@@ -56,6 +58,12 @@ export function PointCard({
   pad: ClipPad;
   ends: EndOptions;
   playable: boolean;
+  /** Drawn as the current card, when a pane beside the list is showing it. */
+  selected?: boolean;
+  /** Whether this card may expand its own evidence. False on a laptop,
+   *  where the pane beside the list owns it — two players of the same
+   *  rally, side by side, is the failure mode. */
+  showAnalysis?: boolean;
   onPlay: () => void;
   /** Why this card was built with no serve. Absent on a card that has one,
    *  and on every match with no diagnosis written for it. */
@@ -92,8 +100,10 @@ export function PointCard({
         type="button"
         onClick={onPlay}
         disabled={!playable}
-        className={`flex w-full items-center gap-3 rounded-2xl border border-edge bg-surface p-4 text-left transition-colors ${
-          playable ? "hover:border-cyan-glow/40" : "cursor-default"
+        className={`flex w-full items-center gap-3 rounded-2xl border bg-surface p-4 text-left transition-colors ${
+          selected ? "border-cyan-glow/70" : "border-edge"
+        } ${playable && !selected ? "hover:border-cyan-glow/40" : ""} ${
+          playable ? "" : "cursor-default"
         } ${row.deleted ? "opacity-60" : ""}`}
       >
         <span
@@ -176,7 +186,7 @@ export function PointCard({
         )}
       </button>
 
-      {miss && missData && (
+      {showAnalysis && miss && missData && (
         <div className="mt-1">
           <button
             type="button"
