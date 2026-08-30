@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { listObjects, MEDIA_BUCKET, presignGetBatch } from "@/lib/r2";
 import { createClient } from "@/lib/supabase/server";
+import labels from "./labels.json";
 import { ServeMisses, type MissMatch } from "./ServeMisses";
 
 export const dynamic = "force-dynamic";
@@ -77,5 +78,5 @@ export default async function ServeMissesPage() {
     };
   });
 
-  return <ServeMisses matches={matches} />;
+  return <ServeMisses matches={matches} labels={labels} />;
 }

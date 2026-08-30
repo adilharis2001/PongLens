@@ -29,9 +29,43 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from points_v2 import (  # noqa: E402
     APEX_MIN_PX, BACKTRACK_MAX_M, NET_MARGIN_M, NET_V, PAIR_MAX_S,
     PRIOR_CROSS_MAX, PRIOR_CROSS_WINDOW_S, homography_from_corners,
-    on_surface, project,
+    on_surface, project, serve_motifs,
 )
+import points_v2  # noqa: E402
 from research_reprocess import MEDIA_BUCKET, PREFIX, config, s3_client  # noqa: E402
+
+
+def apply_shipped_settings(env, pad=None, merge=None):
+    """Match the constants production is actually running.
+
+    Two of the serve rule's constants are read per job from app_config
+    (`serve_surface_pad_m`, `serve_merge_s`) rather than fixed in the source,
+    so importing points_v2 gives the module DEFAULTS, not what shipped. This
+    page was generated that way and drifted the moment those settings moved:
+    after the 2026-08-28 widening it went on reporting 216 cards with no serve
+    where production had 175. That is exactly what this file's own docstring
+    warns about - a page built on drifted numbers reads as evidence.
+    """
+    if pad is None or merge is None:
+        try:
+            import psycopg2
+            with psycopg2.connect(env["DATABASE_URL"]) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "select key, value from public.app_config where key "
+                        "in ('serve_surface_pad_m','serve_merge_s')")
+                    got = dict(cur.fetchall())
+            pad = pad if pad is not None else float(got["serve_surface_pad_m"])
+            merge = merge if merge is not None else float(got["serve_merge_s"])
+        except Exception as e:
+            # Fail LOUD. Silently generating at the defaults is how this page
+            # drifted in the first place.
+            raise SystemExit(
+                f"could not read the shipped serve settings: {e}\n"
+                "pass --serve-surface-pad and --serve-merge-s to run anyway")
+    points_v2.PAIR_SURFACE_PAD_M = float(pad)
+    points_v2.CLUSTER_S = float(merge)
+    return float(pad), float(merge)
 
 CORNER_ORDER = ["A_near_1", "B_near_2", "C_far_2", "D_far_1"]
 
@@ -138,6 +172,32 @@ def walk_rules(t0, t1, bnc, track, times, crossings, H):
     return res, proj
 
 
+def anchored_serve_times(blob, H):
+    """Which serves the detector finds NOW, not when the bundle was written.
+
+    Each stored card carries the serve time the reprocess run found, and this
+    file used to select "cards with no serve" by testing that value for None.
+    That value froze at whatever constants were live that day, so after the
+    2026-08-28 widening the page went on showing 41 cards whose serve
+    production had since learned to find. Recomputing costs milliseconds.
+    """
+    fps = float(blob["fps"])
+    track = {}
+    for t, x, y in blob["track"]:
+        track[int(round(t * fps))] = (float(x), float(y))
+    bounces = []
+    for t, _on_table in blob["bounces"]:
+        f = int(round(t * fps))
+        if f in track:
+            bounces.append((f, track[f][0], track[f][1]))
+    # serve_motifs measures the apex in PIXELS and scales it by video width; a
+    # 640-wide match judged at 1.0 loses real serves silently.
+    scale = float(blob["w"]) / 1920.0
+    motifs = serve_motifs(track, sorted(bounces), H, fps, scale,
+                          [float(t) for t in blob.get("crossings") or []])
+    return sorted({round(m["contact_s"], 2) for m in motifs})
+
+
 def build(blob):
     quad_d = blob.get("quad")
     if not quad_d:
@@ -150,12 +210,12 @@ def build(blob):
 
     track, times, bnc = bounce_pixels(blob)
     w, h = float(blob["w"]), float(blob["h"])
+    serves = anchored_serve_times(blob, H)
     cards = []
     for card in blob["cards"]:
-        serve_s = card[2] if len(card) > 2 else None
-        if serve_s is not None:
-            continue
         t0, t1 = float(card[0]), float(card[1])
+        if any(t0 <= s <= t1 for s in serves):
+            continue
         res, proj = walk_rules(t0, t1, bnc, track, times,
                                blob["crossings"], H)
         ia = bisect.bisect_left(times, t0)
@@ -201,10 +261,19 @@ def main():
     ap.add_argument("--workroot", required=True)
     ap.add_argument("--prefix", default=PREFIX)
     ap.add_argument("--no-upload", action="store_true")
+    ap.add_argument("--serve-surface-pad", type=float, default=None,
+                    help="override app_config.serve_surface_pad_m")
+    ap.add_argument("--serve-merge-s", type=float, default=None,
+                    help="override app_config.serve_merge_s")
     ap.add_argument("ids", nargs="*")
     args = ap.parse_args()
 
-    s3 = None if args.no_upload else s3_client(config())
+    env = config()
+    pad, merge = apply_shipped_settings(env, args.serve_surface_pad,
+                                        args.serve_merge_s)
+    print(f"serve rule at the shipped settings: surface pad {pad} m, "
+          f"merge {merge} s")
+    s3 = None if args.no_upload else s3_client(env)
     for name in sorted(os.listdir(args.workroot)):
         if args.ids and name not in args.ids:
             continue
@@ -218,6 +287,10 @@ def main():
         except ValueError as e:
             print(f"{name[:8]}  skipped: {e}")
             continue
+        # Stamped so the page can say which settings produced it. A number
+        # with no provenance is what made this page wrong for a fortnight.
+        page["meta"]["serve_surface_pad_m"] = pad
+        page["meta"]["serve_merge_s"] = merge
         dest = os.path.join(args.workroot, name, "serves.json")
         with open(dest, "w") as fh:
             json.dump(page, fh, separators=(",", ":"))

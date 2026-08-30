@@ -40,6 +40,59 @@ export interface MissMatch {
   dataUrl: string;
 }
 
+/** What Adil said about a card, watching it. Keyed `<match8>:<t0 to 2dp>`. */
+export interface CardLabel {
+  /** "missed" | "fair" | "unclear" — a plain string so the generated
+   *  labels.json widens cleanly without a cast. */
+  verdict: string;
+  serve_at?: number;
+  server?: string;
+  outcome?: string;
+  bounce_where?: string;
+  ball_visible?: string;
+  points_in_clip?: string;
+  tracker?: string;
+  note?: string;
+}
+
+export interface MatchFacts {
+  cards: number;
+  noServe: number;
+  anchored: number;
+  quad: string | null;
+  neighbour: string | null;
+}
+
+export interface Labels {
+  cards: Record<string, CardLabel>;
+  matches: Record<string, MatchFacts>;
+  counts: {
+    labelled: number;
+    described: number;
+    missed: number;
+    fair: number;
+    noPoint: number;
+  };
+}
+
+/** Adil's words for each outcome, so the page says what he saw. */
+const OUTCOME: Record<string, string> = {
+  rally: "served, came back, point played out",
+  net_back: "service fault — hit the net, fell back on the server's side",
+  net_over: "clipped the net but went over",
+  long: "went off the far end without bouncing",
+  wide: "went off the side",
+  volleyed: "receiver hit it before it bounced",
+  double_own: "bounced twice on the server's own half",
+  toss_miss: "server tossed and missed the ball",
+  knockup: "not a point — knock-up or warm-up",
+  mid_rally: "no serve — clip opens mid-rally",
+  retrieval: "no serve — the ball being passed between points",
+  unsure: "he could not tell",
+};
+
+const NO_POINT = new Set(["retrieval", "knockup", "mid_rally"]);
+
 interface MissData {
   key: string;
   w: number;
@@ -351,7 +404,66 @@ function Court({ card, t }: { card: MissCard; t: number }) {
   );
 }
 
-function Row({ d, card, n }: { d: MissData; card: MissCard; n: number }) {
+/** What Adil said about this card, watching it. Absent on most cards. */
+function Verdict({ lab }: { lab?: CardLabel }) {
+  if (!lab) return null;
+  const noPoint = lab.outcome ? NO_POINT.has(lab.outcome) : false;
+  const tint = noPoint
+    ? { border: "#f59e0b", color: "#fbbf24", bg: "#f59e0b1a" }
+    : lab.verdict === "missed"
+      ? { border: "#4ade80", color: "#86efac", bg: "#4ade801a" }
+      : lab.verdict === "fair"
+        ? { border: "#f87171", color: "#fca5a5", bg: "#f871711a" }
+        : { border: "#71717a", color: "#a1a1aa", bg: "#71717a1a" };
+  const headline = noPoint
+    ? "No point here at all"
+    : lab.verdict === "missed"
+      ? "A real serve the detector should have found"
+      : lab.verdict === "fair"
+        ? "Rightly refused"
+        : "He could not tell";
+  const bits: string[] = [];
+  if (lab.outcome) bits.push(OUTCOME[lab.outcome] ?? lab.outcome);
+  if (lab.server && lab.server !== "unsure")
+    bits.push(`the ${lab.server} player served`);
+  if (typeof lab.serve_at === "number")
+    bits.push(`bat on ball ${lab.serve_at.toFixed(2)}s into the clip`);
+  if (lab.ball_visible === "faint") bits.push("ball only faintly visible");
+  if (lab.ball_visible === "occluded") bits.push("ball hidden behind a player");
+  if (lab.points_in_clip === "two_plus") bits.push("two or more points in the clip");
+  if (lab.tracker && lab.tracker !== "fine" && lab.tracker !== "unsure")
+    bits.push(`ball trail: ${lab.tracker.replace(/_/g, " ")}`);
+  return (
+    <div
+      className="mt-3 rounded-md border px-3 py-2"
+      style={{ borderColor: tint.border, background: tint.bg }}
+    >
+      <p className="text-xs font-semibold" style={{ color: tint.color }}>
+        {headline}
+      </p>
+      {bits.length > 0 && (
+        <p className="mt-1 text-xs text-zinc-300">{bits.join(" · ")}</p>
+      )}
+      {lab.note && (
+        <p className="mt-1.5 text-xs italic leading-relaxed text-zinc-400">
+          &ldquo;{lab.note}&rdquo;
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Row({
+  d,
+  card,
+  n,
+  lab,
+}: {
+  d: MissData;
+  card: MissCard;
+  n: number;
+  lab?: CardLabel;
+}) {
   const [t, setT] = useState(card.t0);
   const why = card.why;
   const label = d.reasons[why.reason] ?? why.reason;
@@ -397,6 +509,7 @@ function Row({ d, card, n }: { d: MissData; card: MissCard; n: number }) {
           </div>
         </div>
       )}
+      <Verdict lab={lab} />
     </section>
   );
 }
@@ -430,10 +543,11 @@ function PictureWithClock({
   );
 }
 
-function MatchBlock({ m }: { m: MissMatch }) {
+function MatchBlock({ m, labels }: { m: MissMatch; labels: Labels }) {
   const [d, setD] = useState<MissData | null>(null);
   const [filter, setFilter] = useState<string>("all");
   const [open, setOpen] = useState(false);
+  const facts = labels.matches[m.key.slice(0, 8)];
 
   useEffect(() => {
     if (!open || d) return;
@@ -477,6 +591,20 @@ function MatchBlock({ m }: { m: MissMatch }) {
             {open ? "loading…" : "open"}
           </span>
         )}
+        {facts && (
+          <span className="text-xs text-zinc-500">
+            · {facts.anchored}% anchored
+            {facts.quad && facts.quad !== "good" && (
+              <span className="text-amber-400">
+                {" "}
+                · table drawn wrong ({facts.quad.replace(/_/g, " ")})
+              </span>
+            )}
+            {facts.neighbour && facts.neighbour !== "none" && (
+              <span> · {facts.neighbour} neighbouring table in shot</span>
+            )}
+          </span>
+        )}
       </button>
 
       {d && (
@@ -514,7 +642,13 @@ function MatchBlock({ m }: { m: MissMatch }) {
       {d && (
         <div className="mt-4 space-y-5">
           {shown.map((c, i) => (
-            <Row key={`${c.t0}-${c.t1}`} d={d} card={c} n={i + 1} />
+            <Row
+              key={`${c.t0}-${c.t1}`}
+              d={d}
+              card={c}
+              n={i + 1}
+              lab={labels.cards[`${m.key.slice(0, 8)}:${c.t0.toFixed(2)}`]}
+            />
           ))}
         </div>
       )}
@@ -522,7 +656,13 @@ function MatchBlock({ m }: { m: MissMatch }) {
   );
 }
 
-export function ServeMisses({ matches }: { matches: MissMatch[] }) {
+export function ServeMisses({
+  matches,
+  labels,
+}: {
+  matches: MissMatch[];
+  labels: Labels;
+}) {
   return (
     <main className="mx-auto max-w-5xl px-5 py-8">
       <h1 className="text-xl font-semibold text-zinc-100">Serve misses</h1>
@@ -532,24 +672,93 @@ export function ServeMisses({ matches }: { matches: MissMatch[] }) {
         so a card with no serve is a card where no pair passed. Six rules can
         turn a pair away, and the chip on each card names the one that did.
       </p>
-      <p className="mt-3 max-w-prose text-sm text-zinc-400">
+
+      <section className="mt-6 rounded-lg border border-zinc-700 bg-zinc-900/60 p-4">
+        <h2 className="text-sm font-semibold text-zinc-100">
+          What we learned by watching these, 28–29 August
+        </h2>
+        <p className="mt-2 max-w-prose text-sm text-zinc-400">
+          Adil watched all {labels.counts.labelled} of these cards and said, for
+          each, whether a serve was really there:{" "}
+          <b className="text-zinc-200">{labels.counts.missed}</b> yes,{" "}
+          <b className="text-zinc-200">{labels.counts.fair}</b> rightly refused.
+          He then described {labels.counts.described} of them in detail, marking
+          the exact moment of bat-on-ball and who served. Those answers are on
+          the cards below, and they overturned two things everyone believed.
+        </p>
+        <ul className="mt-3 max-w-prose space-y-2.5 text-sm text-zinc-400">
+          <li>
+            <b className="text-zinc-200">
+              It is the serve&apos;s OWN first bounce that goes missing, not the
+              second.
+            </b>{" "}
+            On the 28 cards where he named the server, 17 are missing the bounce
+            on the server&apos;s own half. Everyone had assumed the opposite —
+            that serves went long and never landed on the receiver&apos;s side.
+            This matters beyond the clip: the placement map draws the second
+            bounce but refuses to draw anything unless it also sees the first,
+            so this exact bounce is what stops a dot appearing.
+          </li>
+          <li>
+            <b className="text-zinc-200">
+              A quarter of these cards contain no point at all.
+            </b>{" "}
+            They are the ball being lobbed back between points, or a player
+            wiping the table. A lobbed ball bounces twice on opposite halves and
+            looks exactly like a serve, which is why loosening any rule picks
+            them up. Counting only cards that hold a real point, anchoring is
+            about <b className="text-zinc-200">80%</b>, not the 75% this page
+            used to imply.
+          </li>
+          <li>
+            <b className="text-zinc-200">
+              The &ldquo;ball travelled backwards&rdquo; rule measures how HIGH
+              the ball went.
+            </b>{" "}
+            It works on a flat map of the table, and a ball in the air projects
+            to a nonsense position, so a high toss reads as the ball flying
+            backwards. Low serves score 0.09 m of &ldquo;backward travel&rdquo;;
+            high ones score 1.17 m, against a 0.50 m limit.
+          </li>
+          <li>
+            <b className="text-zinc-200">
+              The reason chip is a rough sort, not a diagnosis.
+            </b>{" "}
+            It names the rule that refused the pair which got furthest through
+            the six tests, and that pair is often not the serve — on the
+            &ldquo;rally already running&rdquo; cards it sat a median of four
+            seconds into the card. Trust the green and red panels below the
+            chip; treat the chip itself as a filter.
+          </li>
+        </ul>
+        <p className="mt-3 max-w-prose text-xs text-zinc-500">
+          Eight of the nine tables were confirmed correctly drawn by eye. Only
+          74542390 has its far end line too close to the camera, and it is the
+          worst match here. Only 840b4635 has a whole neighbouring table in
+          shot, and it is the best — so a bounce landing sideways off the table
+          is, on seven of nine matches, not somebody else&apos;s ball.
+        </p>
+      </section>
+
+      <p className="mt-6 max-w-prose text-sm text-zinc-400">
         On the picture: the table in pink, the net through the quad&apos;s true
         centre in white, the play prism in cyan, the ball in yellow, and every
         bounce ringed green where it landed on the playing surface and red
-        where it did not. The map beside it is the same bounces looking down
-        on the table, numbered in order, so &quot;both on the same half&quot;
-        is something you can see rather than take on trust.
+        where it did not. The map beside it is the same bounces looking down on
+        the table, numbered in order, so &quot;both on the same half&quot; is
+        something you can see rather than take on trust.
       </p>
       <p className="mt-3 max-w-prose text-sm text-zinc-400">
         The rules and their constants are imported from the detector rather
-        than copied, so this cannot drift from what actually shipped. What
-        would help most: for a card where you can see a real serve in the
-        footage, whether the bounce the rule wanted is missing from the
-        picture altogether, or present and being read in the wrong place.
+        than copied, and the list of cards is recomputed at the settings
+        production is running right now rather than read from what was stored
+        when the bundle was written. Before 29 August it was read from the
+        bundle, so this page went on showing 41 cards whose serve production had
+        already learned to find.
       </p>
       <div className="mt-6 space-y-6">
         {matches.map((m) => (
-          <MatchBlock key={m.key} m={m} />
+          <MatchBlock key={m.key} m={m} labels={labels} />
         ))}
       </div>
     </main>
