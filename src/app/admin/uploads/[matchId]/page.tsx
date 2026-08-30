@@ -10,6 +10,7 @@ import { MEDIA_BUCKET, getObject } from "@/lib/r2";
 import { requireAdmin } from "../../requireAdmin";
 import { UploadView } from "./UploadView";
 import type { MatchJson, UploadDetail } from "../uploadView";
+import type { ServeMissData } from "../serveMiss";
 
 export const metadata: Metadata = {
   title: "Upload",
@@ -46,6 +47,44 @@ async function readMatchJson(path: string | null): Promise<MatchJson | null> {
   }
 }
 
+/**
+ * The per-card serve diagnosis, if one has been written for this match.
+ *
+ * Two places, in order. Production writes it beside match.json, so a match
+ * processed since the worker learned to keeps its own copy. The research
+ * prefix is where the earlier offline pass left eleven of them, and reading
+ * it means those matches show the diagnosis today rather than after a
+ * reprocess.
+ *
+ * Absent is the ordinary case, not an error: the page simply does not offer
+ * the section.
+ */
+async function readServeMisses(
+  matchJsonPath: string | null,
+  matchId: string
+): Promise<ServeMissData | null> {
+  const prefix = `r2://${MEDIA_BUCKET}/`;
+  const keys: string[] = [];
+  if (matchJsonPath?.startsWith(prefix)) {
+    keys.push(
+      matchJsonPath.slice(prefix.length).replace(/match\.json$/, "serves.json")
+    );
+  }
+  keys.push(`research/crossings/${matchId}.serves.json`);
+  for (const key of keys) {
+    try {
+      const object = await getObject(MEDIA_BUCKET, key);
+      if (!object) continue;
+      return JSON.parse(
+        new TextDecoder().decode(object.body)
+      ) as ServeMissData;
+    } catch {
+      // A malformed or unreadable diagnosis costs the section, not the page.
+    }
+  }
+  return null;
+}
+
 export default async function AdminUploadPage({
   params,
 }: {
@@ -64,12 +103,14 @@ export default async function AdminUploadPage({
   // the match page reads them. Hardcoding them would make the admin watch
   // different boundaries from the owner, which is the one thing this page
   // must not do.
-  const [matchJson, tapEnd, rallyEndOn, rallyEndBufferS] = await Promise.all([
-    readMatchJson(detail.match.match_json_path),
-    getTapEndPlayback(),
-    getUnscoredRallyEnd(),
-    getUnscoredRallyEndBufferS(),
-  ]);
+  const [matchJson, serveMisses, tapEnd, rallyEndOn, rallyEndBufferS] =
+    await Promise.all([
+      readMatchJson(detail.match.match_json_path),
+      readServeMisses(detail.match.match_json_path, matchId),
+      getTapEndPlayback(),
+      getUnscoredRallyEnd(),
+      getUnscoredRallyEndBufferS(),
+    ]);
 
   return (
     <>
@@ -83,6 +124,7 @@ export default async function AdminUploadPage({
         <UploadView
           detail={detail}
           matchJson={matchJson}
+          serveMisses={serveMisses}
           ends={{
             tapEnd,
             rallyEnd: { on: rallyEndOn, bufferS: rallyEndBufferS },

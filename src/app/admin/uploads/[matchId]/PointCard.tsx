@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { Point } from "@/lib/types";
 import type { ServeInfo } from "../../../match/[id]/serving";
 import {
@@ -14,6 +15,8 @@ import {
   pointFlags,
   type UploadPointRow,
 } from "../uploadView";
+import { reasonShort, reasonTone, type MissCard, type ServeMissData } from "../serveMiss";
+import { ServeMissView } from "./ServeMissView";
 
 /**
  * One card, as the owner sees it plus what the machine did to make it.
@@ -39,6 +42,10 @@ export function PointCard({
   ends,
   playable,
   onPlay,
+  miss,
+  missData,
+  cutOffset,
+  videoUrl,
 }: {
   row: UploadPointRow;
   serve: ServeInfo | null;
@@ -50,7 +57,14 @@ export function PointCard({
   ends: EndOptions;
   playable: boolean;
   onPlay: () => void;
+  /** Why this card was built with no serve. Absent on a card that has one,
+   *  and on every match with no diagnosis written for it. */
+  miss?: MissCard | null;
+  missData?: ServeMissData | null;
+  cutOffset?: number | null;
+  videoUrl?: string | null;
 }) {
+  const [openMiss, setOpenMiss] = useState(false);
   const flags = pointFlags(row);
   const gap = gapLabel(row.gapBeforeS);
 
@@ -124,6 +138,17 @@ export function PointCard({
                 {trimmedS.toFixed(1)}s trimmed
               </span>
             )}
+            {miss && (
+              <span
+                className="rounded border px-1.5 py-px"
+                style={{
+                  borderColor: `${reasonTone(miss.why.reason)}66`,
+                  color: reasonTone(miss.why.reason),
+                }}
+              >
+                no serve: {reasonShort(miss.why.reason)}
+              </span>
+            )}
             {flags.map((f) => (
               <span
                 key={f.label}
@@ -150,6 +175,26 @@ export function PointCard({
           </svg>
         )}
       </button>
+
+      {miss && missData && (
+        <div className="mt-1">
+          <button
+            type="button"
+            onClick={() => setOpenMiss((v) => !v)}
+            className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
+          >
+            {openMiss ? "Hide the evidence" : "Why no serve"}
+          </button>
+          {openMiss && (
+            <ServeMissView
+              data={missData}
+              card={miss}
+              cutOffset={cutOffset ?? 0}
+              videoUrl={videoUrl ?? null}
+            />
+          )}
+        </div>
+      )}
     </li>
   );
 }

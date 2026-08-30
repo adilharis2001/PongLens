@@ -311,6 +311,12 @@ export interface AssemblyReading {
   cards: number | null;
   serves: number | null;
   crossings: number | null;
+  /** Cards the assembler managed to anchor on a detected serve, and the
+   *  ones it could not. Counted from the cards themselves rather than from
+   *  the notes line, so they are right even where the sentence is not. Null
+   *  when the file predates per-card serve marks. */
+  cardsWithServe: number | null;
+  cardsWithoutServe: number | null;
   /** Why v2 was asked for and did not run. */
   fallbackReason: string | null;
   /** The router's own threshold, for explaining the decision. */
@@ -353,11 +359,23 @@ export function readAssembly(matchJson: MatchJson | null): AssemblyReading {
     cards: null,
     serves: null,
     crossings: null,
+    cardsWithServe: null,
+    cardsWithoutServe: null,
     fallbackReason: null,
     threshold: SERVE_RATE_MIN,
   };
   if (!matchJson) return base;
   base.pipeline = matchJson.pipeline ?? null;
+
+  // Per-card serve coverage, straight from the cards. A v1 match has no
+  // serve marks at all, so counting there would report every card as a
+  // miss; only v2 files are asked.
+  const cardList = matchJson.points;
+  if (base.pipeline === "v2" && Array.isArray(cardList) && cardList.length) {
+    const withServe = cardList.filter((c) => typeof c.serve_s === "number").length;
+    base.cardsWithServe = withServe;
+    base.cardsWithoutServe = cardList.length - withServe;
+  }
 
   // 1. The structured block, once the worker writes one.
   const structured = matchJson.assembly;
@@ -370,6 +388,8 @@ export function readAssembly(matchJson: MatchJson | null): AssemblyReading {
       servesPerMin: structured.serves_per_min ?? null,
       cameraShape: structured.camera_shape ?? null,
       cards: structured.cards ?? null,
+      cardsWithServe: base.cardsWithServe,
+      cardsWithoutServe: base.cardsWithoutServe,
     };
   }
 
