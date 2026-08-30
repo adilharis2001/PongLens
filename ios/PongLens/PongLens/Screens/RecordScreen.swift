@@ -1182,10 +1182,15 @@ struct MatchDetailsSheet: View {
                     Text(processingFootnote)
                 }
 
-                // Only once there is a length to draw against. A trim bar
-                // over an unknown duration is a control that cannot be
-                // honest about what it is keeping.
-                if processOn, let duration = firstItemDuration, duration > 10 {
+                // Only once there is a length to draw against, and only
+                // when the bar could actually keep a window inside it. The
+                // threshold is the bar's own floor rather than a number
+                // invented here: a made-up 10s floor meant a short clip
+                // silently had no trim row, which read as "recording does
+                // not get this feature" when it was really "this video was
+                // eight seconds long".
+                if processOn, let duration = firstItemDuration,
+                   duration > RawTrimBar.minWindow {
                     Section {
                         trimRow(duration: duration)
                     } footer: {

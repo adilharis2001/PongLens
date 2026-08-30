@@ -21,7 +21,14 @@ struct RawTrimBar: View {
     @State private var dragging: Edge?
 
     private enum Edge { case start, end }
-    private let minWindow: Double = 5
+    private var minWindow: Double { Self.minWindow }
+
+    /// The shortest window the bar will keep. A caller deciding whether to
+    /// offer trimming at all must ask the bar rather than pick its own
+    /// number: a floor invented at the call site is how the row came to be
+    /// present on one video and absent on a shorter one with nothing
+    /// saying why.
+    static let minWindow: Double = 5
 
     var body: some View {
         VStack(spacing: 6) {

@@ -113,6 +113,15 @@ mid-upload — so scrubbing is instant and offline.
 If the duration is missing or zero the row does not appear at all. A trim
 bar over an unknown length is a control that cannot be honest.
 
+**The floor is `RawTrimBar.minWindow`, not a number chosen here.** The
+first cut of this used an invented 10-second floor, and an 8-second clip
+therefore had no trim row — which read as "recording does not get this
+feature" when it was really "this video was eight seconds long". The row
+now appears whenever the bar could keep a window inside the video, which
+is the only condition that actually decides whether trimming is possible.
+A floor invented at the call site is how one door silently behaves
+differently from another.
+
 ### Cost
 
 `processingFootnote` currently charges from raw duration. It must charge
