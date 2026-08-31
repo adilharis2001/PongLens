@@ -2,6 +2,11 @@ const TABLE_WIDTH_M = 1.525;
 const TABLE_LENGTH_M = 2.74;
 const NET_V_M = TABLE_LENGTH_M / 2;
 const NET_HEIGHT_M = 0.1525;
+const DISPLAY_U_MIN = -0.45;
+const DISPLAY_U_MAX = 1.975;
+const DISPLAY_V_MIN = -0.7;
+const DISPLAY_V_MAX = 3.44;
+const MAX_HORIZONTAL_SPEED_MPS = 35;
 const EPSILON = 1e-10;
 
 export interface EstimatedTrajectoryPoint {
@@ -276,13 +281,12 @@ export function reconstructBallTrajectory(
   const representedCrossings = crossings.filter((time) =>
     allSamples.some((sample) => Math.abs(sample.t - time) <= 1e-6)
   );
-  const trajectories = cameras.map((camera) => {
+  const trajectories = cameras.flatMap((camera) => {
     const lifted = allSamples.map((sample): EstimatedTrajectoryPoint => {
       const z = heightAt(sample.t, anchors);
       const point = liftAlongRay(sample.u0, sample.v0, z, camera);
       return { t: sample.t, u: point.u, v: point.v, z };
     });
-    const cost = trajectoryCost(lifted, bounces, representedCrossings);
     const points = lifted.slice();
     for (const bounce of bounces) {
       const index = points.findIndex(
@@ -297,18 +301,145 @@ export function reconstructBallTrajectory(
         };
       }
     }
-    return {
-      cost,
-      points: removeIsolatedTeleports(
-        points.sort((left, right) => left.t - right.t),
-        [...anchors.map((anchor) => anchor.t), ...representedCrossings]
-      ),
-    };
+    const supported = stabilizeSupportedTrajectory(
+      points.sort((left, right) => left.t - right.t),
+      anchors
+    );
+    if (!supported) return [];
+    return [{
+      cost:
+        bounceProjectionCost(lifted, bounces) +
+        trajectoryCost(supported, [], representedCrossings),
+      points: supported,
+    }];
   });
+
+  if (trajectories.length === 0) return [];
 
   return trajectories.reduce((best, candidate) =>
     candidate.cost < best.cost ? candidate : best
   ).points;
+}
+
+/**
+ * Keep only event-bounded flights. Observations which cannot participate in a
+ * physically plausible, monotone flight are missing data; their timestamps are
+ * retained and their horizontal position is interpolated between supported
+ * points so the renderer receives one continuous estimate.
+ */
+function stabilizeSupportedTrajectory(
+  points: readonly EstimatedTrajectoryPoint[],
+  anchors: readonly HeightAnchor[]
+): EstimatedTrajectoryPoint[] | null {
+  const output: EstimatedTrajectoryPoint[] = [];
+  for (let anchorIndex = 1; anchorIndex < anchors.length; anchorIndex += 1) {
+    const startTime = anchors[anchorIndex - 1].t;
+    const endTime = anchors[anchorIndex].t;
+    const flight = points.filter(
+      (point) => point.t >= startTime - 1e-6 && point.t <= endTime + 1e-6
+    );
+    const start = flight.find((point) => Math.abs(point.t - startTime) <= 1e-6);
+    const end = flight.find((point) => Math.abs(point.t - endTime) <= 1e-6);
+    if (!start || !end || !isInsideDisplay(start) || !isInsideDisplay(end)) {
+      return null;
+    }
+
+    const minimumV = Math.min(start.v, end.v) - 1e-6;
+    const maximumV = Math.max(start.v, end.v) + 1e-6;
+    const candidates = flight.filter(
+      (point) =>
+        point === start ||
+        point === end ||
+        (isInsideDisplay(point) && point.v >= minimumV && point.v <= maximumV)
+    );
+    const previous = new Array<number>(candidates.length).fill(-1);
+    const retained = new Array<number>(candidates.length).fill(
+      Number.NEGATIVE_INFINITY
+    );
+    retained[0] = 1;
+    const direction = Math.sign(end.v - start.v);
+    for (let right = 1; right < candidates.length; right += 1) {
+      for (let left = 0; left < right; left += 1) {
+        if (!Number.isFinite(retained[left])) continue;
+        const deltaV = candidates[right].v - candidates[left].v;
+        const followsFlight =
+          direction === 0
+            ? Math.abs(deltaV) <= 1e-6
+            : direction * deltaV >= -1e-6;
+        if (
+          followsFlight &&
+          horizontalSpeed(candidates[left], candidates[right]) <=
+            MAX_HORIZONTAL_SPEED_MPS
+        ) {
+          const score = retained[left] + 1;
+          if (score > retained[right]) {
+            retained[right] = score;
+            previous[right] = left;
+          }
+        }
+      }
+    }
+    const endIndex = candidates.length - 1;
+    if (!Number.isFinite(retained[endIndex])) return null;
+
+    const supportedIndices: number[] = [];
+    for (let index = endIndex; index >= 0; index = previous[index]) {
+      supportedIndices.push(index);
+      if (index === 0) break;
+    }
+    supportedIndices.reverse();
+    const supported = supportedIndices.map((index) => candidates[index]);
+    let supportedIndex = 1;
+    for (const point of flight) {
+      while (
+        supportedIndex < supported.length - 1 &&
+        point.t > supported[supportedIndex].t + 1e-9
+      ) {
+        supportedIndex += 1;
+      }
+      const left = supported[supportedIndex - 1];
+      const right = supported[supportedIndex];
+      const duration = right.t - left.t;
+      const ratio = duration <= EPSILON ? 1 : (point.t - left.t) / duration;
+      const stabilized = supported.some(
+        (candidate) => Math.abs(candidate.t - point.t) <= 1e-9
+      )
+        ? point
+        : {
+            ...point,
+            u: left.u + ratio * (right.u - left.u),
+            v: left.v + ratio * (right.v - left.v),
+          };
+      if (
+        output.length === 0 ||
+        Math.abs(output[output.length - 1].t - stabilized.t) > 1e-9
+      ) {
+        output.push(stabilized);
+      }
+    }
+  }
+  return output.length >= 2 ? output : null;
+}
+
+function isInsideDisplay(point: Pick<EstimatedTrajectoryPoint, "u" | "v">) {
+  return (
+    point.u >= DISPLAY_U_MIN &&
+    point.u <= DISPLAY_U_MAX &&
+    point.v >= DISPLAY_V_MIN &&
+    point.v <= DISPLAY_V_MAX
+  );
+}
+
+function bounceProjectionCost(
+  points: readonly EstimatedTrajectoryPoint[],
+  bounces: readonly TrajectoryBounce[]
+) {
+  return bounces.reduce((cost, bounce) => {
+    const point = points.find(
+      (candidate) => Math.abs(candidate.t - bounce.t) <= 1e-6
+    );
+    return point ? cost + 1_000 * horizontalDistance(point, bounce) ** 2 : cost;
+  }, 0);
 }
 
 function liftAlongRay(
@@ -455,20 +586,19 @@ function trajectoryCost(
     if (
       index > 0 &&
       index < points.length - 1 &&
-      (point.u < -0.45 ||
-        point.u > 1.975 ||
-        point.v < -0.75 ||
-        point.v > 3.49)
+      !isInsideDisplay(point)
     ) {
       cost +=
         100 +
         100 *
-          (distanceOutside(point.u, -0.45, 1.975) ** 2 +
-            distanceOutside(point.v, -0.75, 3.49) ** 2);
+          (distanceOutside(point.u, DISPLAY_U_MIN, DISPLAY_U_MAX) ** 2 +
+            distanceOutside(point.v, DISPLAY_V_MIN, DISPLAY_V_MAX) ** 2);
     }
     if (index > 0) {
       const speed = horizontalSpeed(points[index - 1], point);
-      if (speed > 35) cost += 10 * (speed - 35) ** 2;
+      if (speed > MAX_HORIZONTAL_SPEED_MPS) {
+        cost += 10 * (speed - MAX_HORIZONTAL_SPEED_MPS) ** 2;
+      }
     }
     if (index > 1) {
       const before = points[index - 2];
@@ -492,22 +622,6 @@ function trajectoryCost(
     }
   }
   return cost;
-}
-
-function removeIsolatedTeleports(
-  points: readonly EstimatedTrajectoryPoint[],
-  protectedTimes: readonly number[]
-): EstimatedTrajectoryPoint[] {
-  return points.filter((point, index) => {
-    if (index === 0 || index === points.length - 1) return true;
-    if (protectedTimes.some((time) => Math.abs(time - point.t) <= 1e-6)) {
-      return true;
-    }
-    const incoming = horizontalSpeed(points[index - 1], point);
-    const outgoing = horizontalSpeed(point, points[index + 1]);
-    const bridged = horizontalSpeed(points[index - 1], points[index + 1]);
-    return !(incoming > 35 && outgoing > 35 && bridged <= 35);
-  });
 }
 
 function horizontalSpeed(

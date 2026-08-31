@@ -110,6 +110,51 @@ const jumpFixture: BallTrajectoryInput = {
   serveTime: null,
 };
 
+const sustainedHorizonFixture: BallTrajectoryInput = {
+  ...youngServeFixture,
+  quad: syntheticQuad,
+  track: [
+    [1, 0.519631243, 0.520105665],
+    [1.1, 0.509599491, 0.512453352],
+    [1.2, 0.725848296, 0.472965114],
+    [1.3, 0.734101995, 0.471704323],
+    [1.4, 0.742226646, 0.470463245],
+    [1.5, 0.491606442, 0.498728087],
+    [1.6, 0.480137084, 0.491266315],
+  ],
+  bounces: [
+    { t: 1, u: 0.4, v: 0.3 },
+    { t: 1.6, u: 0.8, v: 2 },
+  ],
+  contacts: [],
+  crossings: [],
+  serveTime: null,
+  seen: [[1, 1.6]],
+};
+
+const falseCrossingFixture: BallTrajectoryInput = {
+  ...youngServeFixture,
+  quad: syntheticQuad,
+  track: [
+    [2, 0.519631243, 0.520105665],
+    [2.1, 0.342886719, 0.445613466],
+    [2.2, 0.342886719, 0.445613466],
+    [2.3, 0.519631243, 0.520105665],
+    [2.4, 0.519631243, 0.520105665],
+    [2.5, 0.342886719, 0.445613466],
+    [2.6, 0.342886719, 0.445613466],
+    [2.7, 0.519631243, 0.520105665],
+  ],
+  bounces: [
+    { t: 2, u: 0.4, v: 0.3 },
+    { t: 2.7, u: 0.4, v: 0.3 },
+  ],
+  contacts: [],
+  crossings: [],
+  serveTime: null,
+  seen: [[2, 2.7]],
+};
+
 const missedBounceFixture: BallTrajectoryInput = {
   ...youngServeFixture,
   quad: syntheticQuad,
@@ -146,6 +191,15 @@ function closeTo(actual: number, expected: number, tolerance: number) {
     Math.abs(actual - expected) <= tolerance,
     `expected ${actual} to be within ${tolerance} of ${expected}`
   );
+}
+
+function countNetCrossings(
+  points: ReturnType<typeof reconstructBallTrajectory>
+) {
+  return points.slice(1).filter((point, index) => {
+    const previous = points[index];
+    return (previous.v - 1.37) * (point.v - 1.37) < 0;
+  }).length;
 }
 
 test("height correction keeps a bounce fixed and returns the serve contact to its lateral source", () => {
@@ -215,7 +269,58 @@ test("an out-of-range bounce never overwrites a sampled trajectory point", () =>
     ],
   });
   assert.equal(result.some((point) => point.t === 345.5), false);
-  assert.equal(result.at(-1)?.t, 344.077);
+  assert.equal(result.at(-1)?.t, 344.0103);
+});
+
+test("trajectory excludes observations before and after its event-supported flights", () => {
+  const result = reconstructBallTrajectory(youngServeFixture);
+  assert.equal(result[0]?.t, 342.63);
+  assert.equal(result.at(-1)?.t, 344.0103);
+});
+
+test("every returned estimate remains inside the approved display margin", () => {
+  const result = reconstructBallTrajectory(youngServeFixture);
+  assert.equal(
+    result.every(
+      (point) =>
+        point.u >= -0.45 &&
+        point.u <= 1.975 &&
+        point.v >= -0.7 &&
+        point.v <= 3.44
+    ),
+    true
+  );
+});
+
+test("a sustained horizon-corrupted run is treated as missing and interpolated", () => {
+  const result = reconstructBallTrajectory(sustainedHorizonFixture);
+  assert.deepEqual(
+    result.map((point) => point.t),
+    [1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6]
+  );
+  assert.equal(
+    result.every(
+      (point) =>
+        point.u >= -0.45 &&
+        point.u <= 1.975 &&
+        point.v >= -0.7 &&
+        point.v <= 3.44
+    ),
+    true
+  );
+});
+
+test("selected bounce anchors remain exact after rejecting corrupt observations", () => {
+  const result = reconstructBallTrajectory(youngServeFixture);
+  for (const expected of youngServeFixture.bounces) {
+    const actual = result.find((point) => point.t === expected.t);
+    assert.deepEqual(actual, { ...expected, z: 0 });
+  }
+});
+
+test("same-side flights do not invent repeated net crossings", () => {
+  const result = reconstructBallTrajectory(falseCrossingFixture);
+  assert.equal(countNetCrossings(result), 0);
 });
 
 test("crossing evidence inserts exact net-time estimates for candidate scoring", () => {
