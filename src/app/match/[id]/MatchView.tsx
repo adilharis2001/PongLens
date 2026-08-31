@@ -2142,6 +2142,69 @@ export function MatchView({
     );
   }, []);
 
+  /**
+   * Add a card for a rally the cut missed.
+   *
+   * insert_point (101) does the whole thing in one statement: creates the
+   * card, trims each neighbour only where the new window overlapped it, and
+   * clears the serve corrections after it — an insert changes the rotation
+   * from here on, so a correction downstream was answering a rotation that
+   * no longer exists.
+   *
+   * The rotation itself needs nothing else. It is a COUNT of cards, so
+   * restoring the beat fixes who served every later point, the score, the
+   * deuce switch and the game boundaries at once, with no correction at all.
+   */
+  const insertMissingPoint = useCallback(
+    async (
+      prevPoint: Point | null,
+      nextPoint: Point | null,
+      t0: number,
+      t1: number,
+      cutT0: number,
+      winner: "user" | "opponent" | null
+    ): Promise<boolean> => {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("insert_point", {
+        p_prev_id: prevPoint?.id ?? null,
+        p_next_id: nextPoint?.id ?? null,
+        p_t0: t0,
+        p_t1: t1,
+        p_cut_t0: cutT0,
+      });
+      if (error || !data) return false;
+      const created = data as Point;
+      addSplitPoint(created);
+      // Mirror what the RPC did to the neighbours and to any stale
+      // corrections, so the strip is truthful before any refetch.
+      if (prevPoint && prevPoint.t1 !== null && Number(prevPoint.t1) > t0) {
+        updatePoint(prevPoint.id, { t1: t0, edited: true });
+      }
+      if (nextPoint && nextPoint.t0 !== null && Number(nextPoint.t0) < t1) {
+        updatePoint(nextPoint.id, { t0: t1, edited: true });
+      }
+      for (const p of visiblePoints) {
+        if (p.server_override === null) continue;
+        if (p.t0 !== null && Number(p.t0) > t0) {
+          updatePoint(p.id, { server_override: null });
+        }
+      }
+      // The clip has to be cut from the raw: this footage is either missing
+      // from the cut video entirely or shared with a neighbour that just
+      // gave it up.
+      scheduleReclip();
+      if (winner) void setWinner(created, winner);
+      return true;
+    },
+    [
+      addSplitPoint,
+      updatePoint,
+      visiblePoints,
+      scheduleReclip,
+      setWinner,
+    ]
+  );
+
   // The Adjust save — ONE timing write for both surfaces (the pad's Modify
   // and the point view's). Tight flags dissolve when their edge moved
   // (adjustPatch), unless the undo path pins them back explicitly. A DB
@@ -2807,6 +2870,7 @@ export function MatchView({
               }
               onSetSkipped={(p, v) => void setSkipped(p, v)}
               onSetServer={(p, v) => void setServerOverride(p, v)}
+              onInsertPoint={isOwner ? insertMissingPoint : undefined}
               onSetGameOverride={(p, v) => void setGameEndOverride(p, v)}
               onSetGameWinner={(p, v) => void setGameWinnerOverride(p, v)}
               sideChanges={sideChanges}

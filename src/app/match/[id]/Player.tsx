@@ -57,6 +57,8 @@ import { GesturesButton } from "./GesturesSheet";
 import { hintEligible, markHintDone, markHintShown } from "./gestureHints";
 import { tapZone } from "./tapZone";
 import type { MatchServer, ServeInfo } from "./serving";
+import { InsertPoint } from "./InsertPoint";
+import { gapWorthOffering } from "./insertGeometry";
 import {
   NORMAL_SPEED_IDX,
   SPEEDS as SPEED_VALUES,
@@ -714,6 +716,18 @@ export const Player = forwardRef<
     /** Mark/unmark a point skipped (is_let column). */
     onSetSkipped: (point: Point, value: boolean) => void;
     onSetServer: (point: Point, value: "user" | "opponent") => void;
+    /**
+     * Add a card for a rally the cut missed, between two neighbours.
+     * Owner-only: absent for a coach, which is also what hides the "+".
+     */
+    onInsertPoint?: (
+      prev: Point | null,
+      next: Point | null,
+      t0: number,
+      t1: number,
+      cutT0: number,
+      winner: "user" | "opponent" | null
+    ) => Promise<boolean>;
     /** Pin/clear a game boundary after a point (game_end_override). */
     onSetGameOverride: (point: Point, value: GameEndOverride) => void;
     /**
@@ -831,6 +845,7 @@ export const Player = forwardRef<
     onSetServeStart,
     onSetSkipped,
     onSetServer,
+    onInsertPoint,
     onSetGameOverride,
     onSetGameWinner,
   sideChanges,
@@ -3948,6 +3963,65 @@ export const Player = forwardRef<
     [currentRallyId, server, onSetServer, showFlash, themLabel, youLabel]
   );
 
+  // ------------------------------------------------- missing rallies
+
+  /** The seam the "Add a missing rally" sheet is open on. */
+  const [insertSeam, setInsertSeam] = useState<{
+    prev: Point;
+    next: Point;
+  } | null>(null);
+  const [insertBusy, setInsertBusy] = useState(false);
+
+  /**
+   * Where the strip offers a "+".
+   *
+   * Only where the video actually SKIPS — measured over 9,433 seams in
+   * production, 19% of them run more than eight seconds, which is about a
+   * rally plus the pauses either side of it. Offering one between every
+   * pair of chips would turn a 72-point strip into 71 buttons and say
+   * nothing; offering it only at the skips makes the strip read as "the
+   * video jumped here", which is exactly the thing being fixed.
+   */
+  const insertOffers = useMemo(() => {
+    const out = new Map<string, { prev: Point; next: Point }>();
+    if (!onInsertPoint) return out;
+    const withClips = points.filter((p) => p.cut_t0 !== null);
+    for (let i = 1; i < withClips.length; i++) {
+      const prev = withClips[i - 1];
+      const next = withClips[i];
+      if (gapWorthOffering(prev, next, pad)) out.set(next.id, { prev, next });
+    }
+    return out;
+  }, [points, pad, onInsertPoint]);
+
+  const doInsert = useCallback(
+    async (
+      t0: number,
+      t1: number,
+      cutT0: number,
+      winner: "user" | "opponent" | null
+    ) => {
+      if (!insertSeam || !onInsertPoint || insertBusy) return;
+      setInsertBusy(true);
+      const ok = await onInsertPoint(
+        insertSeam.prev,
+        insertSeam.next,
+        t0,
+        t1,
+        cutT0,
+        winner
+      );
+      setInsertBusy(false);
+      if (!ok) {
+        showToast("Couldn't add that rally. Try again.");
+        return;
+      }
+      setInsertSeam(null);
+      showFlash("Rally added. Serve rotation updated.");
+    },
+    [insertSeam, onInsertPoint, insertBusy, showToast, showFlash]
+  );
+
   // ------------------------------------------- game-boundary overrides
 
   /** Push an undo entry and write a boundary override on one point. */
@@ -5863,11 +5937,44 @@ export const Player = forwardRef<
                       )
                     )
                   : null;
+                const offer = insertOffers.get(p.id);
                 return (
                   <Fragment key={p.id}>
                   {dots.map((d) => (
                     <RemovedDot key={d.id} onRestore={() => onUndoDelete(d.id)} />
                   ))}
+                  {offer && (
+                    // The video skips here by more than a rally's worth, so
+                    // a rally may be missing. Dashed and quiet: it marks a
+                    // hole in the strip rather than competing with the
+                    // chips, and it only appears where there IS a hole.
+                    <button
+                      type="button"
+                      onClick={() => {
+                        videoRef.current?.pause();
+                        setInsertSeam(offer);
+                      }}
+                      title={`The video skips ${Math.round(
+                        Number(offer.next.t0) - Number(offer.prev.t1)
+                      )}s here. Add a missing rally.`}
+                      aria-label={`The video skips ${Math.round(
+                        Number(offer.next.t0) - Number(offer.prev.t1)
+                      )} seconds here. Add a missing rally.`}
+                      className="flex h-8 w-6 shrink-0 items-center justify-center rounded-full border border-dashed border-zinc-600 text-zinc-500 transition-colors hover:border-cyan-glow/60 hover:text-cyan-glow"
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        className="h-3.5 w-3.5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M12 5v14M5 12h14" />
+                      </svg>
+                    </button>
+                  )}
                   <div
                     data-chip-id={p.id}
                     // WHERE YOU ARE has to be unmissable: the current chip
@@ -7501,6 +7608,22 @@ export const Player = forwardRef<
           onJoin={(count, winner) => void performJoin(count, winner)}
           onAdjust={(t0, t1) => void performAdjust(t0, t1)}
           adjustLocked={modifyPoint.edited}
+        />
+      )}
+
+      {insertSeam && onInsertPoint && (
+        <InsertPoint
+          prev={insertSeam.prev}
+          next={insertSeam.next}
+          videoUrl={videoUrl}
+          pad={pad}
+          youLabel={youLabel}
+          themLabel={themLabel}
+          busy={insertBusy}
+          onClose={() => setInsertSeam(null)}
+          onInsert={(t0, t1, cutT0, winner) =>
+            void doInsert(t0, t1, cutT0, winner)
+          }
         />
       )}
 
