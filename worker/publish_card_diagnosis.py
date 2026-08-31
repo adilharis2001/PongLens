@@ -101,9 +101,9 @@ def point_tracks(blob, blurball=None):
 
     A SECOND artifact rather than more of serves.json, and the reason is
     who reads it. serves.json goes to the browser, which is why its track
-    is thinned to every third frame — enough to draw a trail, not enough to
-    judge whether the ball crossed the net. This one is read on the server,
-    never sent, and is undecimated.
+    is thinned to every third frame. This one is read on the server and is
+    undecimated. The admin trail may receive its time/x/y rows, but the
+    confidence column and winner-rule work stay on the server.
 
     Times are SOURCE seconds, the same clock the placement candidates use,
     so the reader hands the rules a clip origin of zero and nothing converts

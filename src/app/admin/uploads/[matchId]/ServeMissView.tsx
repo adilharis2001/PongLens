@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NORMAL_SPEED_IDX, SPEEDS, SpeedMenu } from "../../../match/[id]/SpeedMenu";
 import { CardTimeline } from "./CardTimeline";
 import {
   TABLE_L_M,
   TABLE_W_M,
+  projectTrackToTable,
   reasonShort,
   reasonTone,
+  tableTrailAt,
   type MissCard,
   type ServeMissData,
 } from "../serveMiss";
@@ -333,7 +335,7 @@ export function ServeMissView({
 
       <div className="flex min-w-0 flex-row gap-3 lg:flex-1">
         <div className="w-24 shrink-0 sm:w-32 lg:w-40">
-          <Court card={card} t={t} />
+          <Court card={card} data={data} t={t} />
         </div>
         <div className="min-w-0 flex-1">
           {typeof card.serve_s === "number" ? (
@@ -388,8 +390,16 @@ export function ServeMissView({
   );
 }
 
-/** Where the bounces landed, looking down on the table. */
-function Court({ card, t }: { card: MissCard; t: number }) {
+/** BlurBall's raw path and the bounces, looking down on the table. */
+function Court({
+  card,
+  data,
+  t,
+}: {
+  card: MissCard;
+  data: ServeMissData;
+  t: number;
+}) {
   const VIEW_W = 150;
   const VIEW_H = 260;
   const TX = 25;
@@ -400,6 +410,19 @@ function Court({ card, t }: { card: MissCard; t: number }) {
     x: TX + (TW * u) / TABLE_W_M,
     y: TY + TH * (1 - v / TABLE_L_M),
   });
+  const projectedTrack = useMemo(
+    () =>
+      projectTrackToTable(
+        card.track,
+        data.quad,
+        data.w,
+        data.h,
+        card.seen,
+        data.fps
+      ),
+    [card.track, card.seen, data.fps, data.quad, data.w, data.h]
+  );
+  const trail = tableTrailAt(projectedTrack, t);
   const placed = card.bounces.filter((b) => b.u !== null && b.v !== null);
   return (
     <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="w-full">
@@ -422,6 +445,41 @@ function Court({ card, t }: { card: MissCard; t: number }) {
         strokeWidth="1.75"
         strokeDasharray="4 2"
       />
+      {/* Consecutive raw observations only. A detector gap starts a new
+          segment, so this never invents a path between bounce markers. */}
+      <g pointerEvents="none" aria-label="BlurBall trail">
+        {trail.map((point, index) => {
+          const position = xy(point.u, point.v);
+          const previous = index > 0 ? trail[index - 1] : null;
+          const previousPosition = previous
+            ? xy(previous.u, previous.v)
+            : null;
+          const alpha = 0.15 + 0.85 * point.opacity;
+          return (
+            <g key={`${point.t}-${index}`}>
+              {point.connectsFromPrevious && previousPosition && (
+                <line
+                  x1={previousPosition.x}
+                  y1={previousPosition.y}
+                  x2={position.x}
+                  y2={position.y}
+                  stroke="#facc15"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  opacity={alpha}
+                />
+              )}
+              <circle
+                cx={position.x}
+                cy={position.y}
+                r={index === trail.length - 1 ? 2.8 : 1.65}
+                fill="#facc15"
+                opacity={alpha}
+              />
+            </g>
+          );
+        })}
+      </g>
       {placed.map((b, i) => {
         const p = xy(b.u as number, b.v as number);
         const live = Math.abs(t - b.t) < 0.34;

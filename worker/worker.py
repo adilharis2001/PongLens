@@ -3884,10 +3884,10 @@ def publish_card_diagnosis(outdir: str, key_prefix: str,
     r2().upload_file(dest, R2_MEDIA_BUCKET, f"{key_prefix}/serves.json",
                      ExtraArgs={"ContentType": "application/json"})
 
-    # The undecimated track, for the winner rules. Read on the server and
-    # never sent to a browser, which is why it can be full rate where
-    # serves.json cannot. Built from the same dump, so the two cannot
-    # describe different cards.
+    # The undecimated track, for the winner rules and the admin trail. The
+    # browser receives only time/x/y after the server strips confidence;
+    # all winner-rule work stays on the server. Built from the same dump,
+    # so the two artifacts cannot describe different cards.
     # BlurBall's own detections, confidence and all. Without them the two
     # rules that read the track cannot be trusted and the reader ignores it.
     tracks = write_point_tracks(

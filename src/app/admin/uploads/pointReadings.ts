@@ -36,9 +36,9 @@ import type { MatchJson, UploadDetail } from "./uploadView";
  * scored against 174 hand-tapped points would be a different rule wearing
  * the same numbers.
  *
- * All of this runs on the SERVER. The candidates are about 200 KB a match
- * and the track another 400, and the browser needs neither — only the
- * verdicts, which are a few hundred bytes a card.
+ * All rule evaluation runs on the SERVER. The browser receives the track's
+ * time/x/y rows for the admin trail, but never the confidence or candidate
+ * payload the rules read; only their verdicts cross that boundary.
  */
 
 /** How the serve's own two bounces came out. */

@@ -10,7 +10,7 @@ import { MEDIA_BUCKET, getObject } from "@/lib/r2";
 import { requireAdmin } from "../../requireAdmin";
 import { UploadView } from "./UploadView";
 import type { MatchJson, UploadDetail } from "../uploadView";
-import type { ServeMissData } from "../serveMiss";
+import { hydrateServeMissData, type ServeMissData } from "../serveMiss";
 import { readCards, type TrackArtifact } from "../pointReadings";
 
 export const metadata: Metadata = {
@@ -87,13 +87,15 @@ async function readServeMisses(
 }
 
 /**
- * The undecimated ball track, read on the SERVER and never sent on.
+ * The undecimated ball track, read on the SERVER.
  *
  * Written beside serves.json by the same publisher, so the two always
  * describe the same cards. About 400 KB a match — fine for one server-side
  * fetch, and the reason the winner rules run here rather than in the
- * browser. Absent on any match diagnosed before the worker wrote it, which
- * costs the two rules that need a track and nothing else.
+ * browser. The admin trail now receives only its time/x/y rows; confidence
+ * stays server-side with the winner rules. Absent on any match diagnosed
+ * before the worker wrote it, which costs full-rate drawing and the two
+ * rules that need a track, while the thinned serves.json trail still works.
  */
 async function readTracks(
   matchJsonPath: string | null
@@ -161,6 +163,9 @@ export default async function AdminUploadPage({
     matchJson,
     tracks,
   });
+  const hydratedServeMisses = serveMisses
+    ? hydrateServeMissData(serveMisses, tracks, matchJson?.source?.fps)
+    : null;
 
   return (
     <>
@@ -174,7 +179,7 @@ export default async function AdminUploadPage({
         <UploadView
           detail={detail}
           matchJson={matchJson}
-          serveMisses={serveMisses}
+          serveMisses={hydratedServeMisses}
           readings={readings}
           readingSummary={summary}
           themes={themes.map((t) => ({ id: t.id, label: t.label }))}
