@@ -1,5 +1,7 @@
 const TABLE_WIDTH_M = 1.525;
 const TABLE_LENGTH_M = 2.74;
+const NET_V_M = TABLE_LENGTH_M / 2;
+const NET_HEIGHT_M = 0.1525;
 const EPSILON = 1e-10;
 
 export interface EstimatedTrajectoryPoint {
@@ -160,9 +162,19 @@ export function reconstructBallTrajectory(
   );
   if (!inverse || cameras.length === 0) return [];
 
+  const seen = (input.seen ?? [])
+    .filter(
+      (span) =>
+        span.length >= 2 &&
+        Number.isFinite(span[0]) &&
+        Number.isFinite(span[1]) &&
+        span[1] >= span[0]
+    )
+    .map((span) => [span[0], span[1]] as const);
   const samples = input.track.flatMap((row): PlaneSample[] => {
     const [t, normalizedX, normalizedY] = row;
     if (![t, normalizedX, normalizedY].every(Number.isFinite)) return [];
+    if (seen.length > 0 && !timeInSeen(t, seen)) return [];
     const projected = project(
       inverse,
       normalizedX * input.sourceWidth,
@@ -175,26 +187,44 @@ export function reconstructBallTrajectory(
     (sample, index) => index === 0 || sample.t > samples[index - 1].t
   );
   if (uniqueSamples.length < 2) return [];
+  const firstSampleTime = uniqueSamples[0].t;
+  const lastSampleTime = uniqueSamples[uniqueSamples.length - 1].t;
 
   const bounces = input.bounces
     .filter((bounce) =>
-      [bounce.t, bounce.u, bounce.v].every(Number.isFinite)
+      [bounce.t, bounce.u, bounce.v].every(Number.isFinite) &&
+      bounce.t >= firstSampleTime &&
+      bounce.t <= lastSampleTime
     )
     .slice()
     .sort((left, right) => left.t - right.t);
-  const contacts = (input.contacts ?? [])
+  const rawContacts = (input.contacts ?? [])
     .filter((contact) => Number.isFinite(contact.t))
     .slice()
     .sort((left, right) => left.t - right.t);
   if (
     Number.isFinite(input.serveTime) &&
-    !contacts.some(
+    !rawContacts.some(
       (contact) => Math.abs(contact.t - Number(input.serveTime)) <= 0.035
     )
   ) {
-    contacts.push({ t: Number(input.serveTime) });
-    contacts.sort((left, right) => left.t - right.t);
+    rawContacts.push({ t: Number(input.serveTime) });
+    rawContacts.sort((left, right) => left.t - right.t);
   }
+  const contacts = rawContacts.filter(
+    (contact) =>
+      contact.t >= firstSampleTime && contact.t <= lastSampleTime
+  );
+  const crossings = (input.crossings ?? [])
+    .filter(
+      (time) =>
+        Number.isFinite(time) &&
+        time >= firstSampleTime &&
+        time <= lastSampleTime &&
+        (seen.length === 0 || timeInSeen(time, seen))
+    )
+    .slice()
+    .sort((left, right) => left - right);
   let anchors: HeightAnchor[] = [
     ...bounces.map((bounce) => ({
       t: bounce.t,
@@ -211,6 +241,7 @@ export function reconstructBallTrajectory(
     (anchor, index) =>
       index === 0 || Math.abs(anchor.t - anchors[index - 1].t) > 1e-6
   );
+  if (anchors.length < 2 || bounces.length === 0) return [];
 
   const serveContact = Number.isFinite(input.serveTime)
     ? Number(input.serveTime)
@@ -222,8 +253,7 @@ export function reconstructBallTrajectory(
   if (
     contactPlane &&
     firstLanding &&
-    (contactPlane.v0 - TABLE_LENGTH_M / 2) *
-      (firstLanding.v - TABLE_LENGTH_M / 2) <
+    (contactPlane.v0 - NET_V_M) * (firstLanding.v - NET_V_M) <
       0
   ) {
     const latentTime = latentBounceTime(
@@ -237,17 +267,26 @@ export function reconstructBallTrajectory(
     }
   }
 
-  const allSamples = insertEventSamples(uniqueSamples, anchors);
+  const allSamples = insertEventSamples(
+    uniqueSamples,
+    [...anchors.map((anchor) => anchor.t), ...crossings],
+    seen
+  );
+  const representedCrossings = crossings.filter((time) =>
+    allSamples.some((sample) => Math.abs(sample.t - time) <= 1e-6)
+  );
   const trajectories = cameras.map((camera) => {
     const lifted = allSamples.map((sample): EstimatedTrajectoryPoint => {
       const z = heightAt(sample.t, anchors);
       const point = liftAlongRay(sample.u0, sample.v0, z, camera);
       return { t: sample.t, u: point.u, v: point.v, z };
     });
-    const cost = trajectoryCost(lifted, bounces);
+    const cost = trajectoryCost(lifted, bounces, representedCrossings);
     const points = lifted.slice();
     for (const bounce of bounces) {
-      const index = nearestIndex(points, bounce.t);
+      const index = points.findIndex(
+        (point) => Math.abs(point.t - bounce.t) <= 1e-6
+      );
       if (index >= 0) {
         points[index] = {
           t: bounce.t,
@@ -261,7 +300,7 @@ export function reconstructBallTrajectory(
       cost,
       points: removeIsolatedTeleports(
         points.sort((left, right) => left.t - right.t),
-        bounces
+        [...anchors.map((anchor) => anchor.t), ...representedCrossings]
       ),
     };
   });
@@ -308,20 +347,22 @@ function heightAt(time: number, anchors: readonly HeightAnchor[]): number {
 
 function insertEventSamples(
   samples: readonly PlaneSample[],
-  anchors: readonly HeightAnchor[]
+  eventTimes: readonly number[],
+  seen: readonly (readonly [number, number])[]
 ): PlaneSample[] {
   const output = samples.slice();
-  for (const anchor of anchors) {
-    if (output.some((sample) => Math.abs(sample.t - anchor.t) <= 1e-9)) {
+  for (const time of eventTimes) {
+    if (output.some((sample) => Math.abs(sample.t - time) <= 1e-9)) {
       continue;
     }
-    const after = output.findIndex((sample) => sample.t > anchor.t);
+    const after = output.findIndex((sample) => sample.t > time);
     if (after <= 0) continue;
     const left = output[after - 1];
     const right = output[after];
-    const ratio = (anchor.t - left.t) / (right.t - left.t);
+    if (!canInterpolateAt(time, left.t, right.t, seen)) continue;
+    const ratio = (time - left.t) / (right.t - left.t);
     output.push({
-      t: anchor.t,
+      t: time,
       u0: left.u0 + ratio * (right.u0 - left.u0),
       v0: left.v0 + ratio * (right.v0 - left.v0),
     });
@@ -376,13 +417,26 @@ function latentBounceTime(
 
 function trajectoryCost(
   points: readonly EstimatedTrajectoryPoint[],
-  bounces: readonly TrajectoryBounce[]
+  bounces: readonly TrajectoryBounce[],
+  crossings: readonly number[]
 ): number {
   let cost = 0;
   for (const bounce of bounces) {
-    const index = nearestIndex(points, bounce.t);
+    const index = points.findIndex(
+      (point) => Math.abs(point.t - bounce.t) <= 1e-6
+    );
     if (index < 0) continue;
     cost += 1_000 * horizontalDistance(points[index], bounce) ** 2;
+  }
+  for (const crossing of crossings) {
+    const point = points.find(
+      (candidate) => Math.abs(candidate.t - crossing) <= 1e-6
+    );
+    if (!point) continue;
+    cost += 1_000 * (point.v - NET_V_M) ** 2;
+    if (point.z < NET_HEIGHT_M) {
+      cost += 1_000 * (NET_HEIGHT_M - point.z) ** 2;
+    }
   }
   for (let index = 0; index < points.length; index += 1) {
     const point = points[index];
@@ -433,11 +487,11 @@ function trajectoryCost(
 
 function removeIsolatedTeleports(
   points: readonly EstimatedTrajectoryPoint[],
-  bounces: readonly TrajectoryBounce[]
+  protectedTimes: readonly number[]
 ): EstimatedTrajectoryPoint[] {
   return points.filter((point, index) => {
     if (index === 0 || index === points.length - 1) return true;
-    if (bounces.some((bounce) => Math.abs(bounce.t - point.t) <= 1e-6)) {
+    if (protectedTimes.some((time) => Math.abs(time - point.t) <= 1e-6)) {
       return true;
     }
     const incoming = horizontalSpeed(points[index - 1], point);
@@ -466,6 +520,28 @@ function horizontalDistance(
 
 function distanceOutside(value: number, minimum: number, maximum: number) {
   return value < minimum ? minimum - value : value > maximum ? value - maximum : 0;
+}
+
+function timeInSeen(
+  time: number,
+  seen: readonly (readonly [number, number])[]
+): boolean {
+  return seen.some(([start, end]) => time >= start - 1e-6 && time <= end + 1e-6);
+}
+
+function canInterpolateAt(
+  time: number,
+  leftTime: number,
+  rightTime: number,
+  seen: readonly (readonly [number, number])[]
+): boolean {
+  if (seen.length === 0) return true;
+  return seen.some(
+    ([start, end]) =>
+      leftTime >= start - 1e-6 &&
+      time >= start - 1e-6 &&
+      rightTime <= end + 1e-6
+  );
 }
 
 function tableToImageHomography(
@@ -589,20 +665,6 @@ function project(matrix: Matrix3, x: number, y: number): [number, number] | null
   const v =
     (matrix[1][0] * x + matrix[1][1] * y + matrix[1][2]) / denominator;
   return Number.isFinite(u) && Number.isFinite(v) ? [u, v] : null;
-}
-
-function nearestIndex(
-  points: readonly EstimatedTrajectoryPoint[],
-  time: number
-): number {
-  if (points.length === 0) return -1;
-  let best = 0;
-  for (let index = 1; index < points.length; index += 1) {
-    if (Math.abs(points[index].t - time) < Math.abs(points[best].t - time)) {
-      best = index;
-    }
-  }
-  return best;
 }
 
 function dot(left: readonly number[], right: readonly number[]): number {
