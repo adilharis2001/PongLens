@@ -502,8 +502,21 @@ struct RecordScreen: View {
             queue.releaseCompletion(sessionId: sessionId)
         }
         .sheet(isPresented: $settingsOpen) {
-            RecordSettingsSheet(settings: $settings, overlay: $overlay) { fps in
-                Task { await recorder.configure(fps: fps) }
+            RecordSettingsSheet(
+                availableFrameRates:
+                    recorder.supportedFrameRates(from: [30, 60]),
+                settings: $settings, overlay: $overlay
+            ) { fps in
+                // Apply to the live device. Rebuilding the session here is
+                // what produced "the camera isn't available on this
+                // device" on every frame-rate change.
+                let got = recorder.setFrameRate(fps)
+                if got != fps {
+                    // Snap the picker back to what the camera is really
+                    // doing; the banner says why.
+                    settings.fps = got
+                    settings.save()
+                }
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
@@ -641,6 +654,9 @@ struct RecordScreen: View {
                 banner("The phone is running hot. Recording continues, but give it some shade if you can.", tint: PL.warningText)
             }
             if let note = recorder.interruptionNote {
+                banner(note, tint: PL.warningText)
+            }
+            if let note = recorder.frameRateNote {
                 banner(note, tint: PL.warningText)
             }
             if recorder.state == .recording, finder?.drifted == true {
@@ -1112,6 +1128,10 @@ struct RecordingUploadRow: View {
 // MARK: - Settings (a real Form, the way iOS settings read)
 
 private struct RecordSettingsSheet: View {
+    /// What the live camera says it can carry. Asked of the device rather
+    /// than assumed, because a 1080p format that tops out at 30 is common
+    /// enough that offering 60 regardless is a promise we cannot keep.
+    let availableFrameRates: [Int]
     @Binding var settings: RecordSettings
     @Binding var overlay: RecordOverlay
     let onFrameRateChange: (Int) -> Void
@@ -1128,8 +1148,12 @@ private struct RecordSettingsSheet: View {
                             onFrameRateChange($0)
                         }
                     )) {
-                        Text("30 fps").tag(30)
-                        Text("60 fps").tag(60)
+                        // Only what this phone can actually deliver. An
+                        // option that silently records something else is
+                        // worse than an option that is not there.
+                        ForEach(availableFrameRates, id: \.self) { rate in
+                            Text("\(rate) fps").tag(rate)
+                        }
                     }
                     .pickerStyle(.segmented)
                 } footer: {

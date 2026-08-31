@@ -23,6 +23,14 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
 
     var state: State = .idle
     var elapsed: TimeInterval = 0
+    /// The frame rate actually in force, which is not always the one
+    /// asked for. Published so the settings picker can show the truth
+    /// rather than the request.
+    private(set) var activeFPS: Int = 30
+    /// Set when a requested frame rate could not be reached, cleared as
+    /// soon as one can. The record screen shows it as a banner.
+    private(set) var frameRateNote: String?
+
     /// Seconds recorded since the shutter, across segment rolls.
     ///
     /// `elapsed` is the CURRENT segment's clock and goes back to zero
@@ -137,6 +145,17 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     // MARK: - Setup
 
     func configure(fps: Int) async {
+        // Idempotent. This used to be called again for every frame-rate
+        // change, and the second call always failed: a session already
+        // holding a video input refuses another, so the guard below fell
+        // through to "the camera isn't available on this device" — with a
+        // perfectly good camera still running behind the message. Rate is
+        // a property of the device, not the shape of the session, so it
+        // is set directly and nothing is rebuilt.
+        if device != nil, !session.inputs.isEmpty {
+            setFrameRate(fps)
+            return
+        }
         let camera = await AVCaptureDevice.requestAccess(for: .video)
         let mic = await AVCaptureDevice.requestAccess(for: .audio)
         guard camera else {
@@ -203,7 +222,7 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         output.movieFragmentInterval = CMTime(seconds: 5, preferredTimescale: 600)
         session.commitConfiguration()
 
-        applyFrameRate(fps)
+        setFrameRate(fps)
         if let connection = output.connection(with: .video) {
             if output.availableVideoCodecTypes.contains(.hevc) {
                 output.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
@@ -219,19 +238,92 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         state = .ready
     }
 
-    private func applyFrameRate(_ fps: Int) {
-        guard let device else { return }
-        let target = CMTime(value: 1, timescale: CMTimeScale(fps))
-        guard let range = device.activeFormat.videoSupportedFrameRateRanges.first,
-              Double(fps) <= range.maxFrameRate else { return }
+    /// Set the capture rate, switching to a format that can carry it when
+    /// the active one cannot. Returns the rate actually in force.
+    ///
+    /// The old version only ever looked at the format the session preset
+    /// had already chosen, and only at the FIRST of its rate ranges. When
+    /// that format topped out at 30 — which is what a 1080p preset picks
+    /// on plenty of phones — asking for 60 silently did nothing: the
+    /// setting said 60, the camera recorded 30, and nobody was told.
+    /// Anything that reports a rate it did not deliver is worse than a
+    /// rate it cannot deliver.
+    @discardableResult
+    func setFrameRate(_ fps: Int) -> Int {
+        guard let device else { activeFPS = fps; return fps }
+        let target = Double(fps)
+
+        func carries(_ format: AVCaptureDevice.Format) -> Bool {
+            format.videoSupportedFrameRateRanges.contains {
+                $0.minFrameRate <= target + 0.01
+                    && target <= $0.maxFrameRate + 0.01
+            }
+        }
+
+        let chosen: AVCaptureDevice.Format? =
+            carries(device.activeFormat) ? device.activeFormat
+                                         : bestFormat(carrying: target)
+        guard let chosen else {
+            // Leave the camera exactly as it is and say so. Falling back
+            // silently is how the old bug hid.
+            frameRateNote =
+                "This phone can't record 1080p at \(fps) fps. Still recording at \(activeFPS)."
+            return activeFPS
+        }
+
+        let duration = CMTime(value: 1, timescale: CMTimeScale(fps))
+        session.beginConfiguration()
         do {
             try device.lockForConfiguration()
-            device.activeVideoMinFrameDuration = target
-            device.activeVideoMaxFrameDuration = target
+            // Setting a format hands format choice to the device and
+            // supersedes the session preset. Every candidate is 1920x1080,
+            // so the recorded size does not move.
+            if chosen != device.activeFormat { device.activeFormat = chosen }
+            device.activeVideoMinFrameDuration = duration
+            device.activeVideoMaxFrameDuration = duration
             device.unlockForConfiguration()
+            activeFPS = fps
+            frameRateNote = nil
         } catch {
-            // The default cadence still records.
+            frameRateNote = "Couldn't change the frame rate. Still recording at \(activeFPS)."
         }
+        session.commitConfiguration()
+        // A format change can clamp the zoom, so restate it rather than
+        // letting the buttons drift out of step with the lens.
+        setDisplayZoom(displayZoom)
+        return activeFPS
+    }
+
+    /// The gentlest 1080p format that can carry a rate: the lowest ceiling
+    /// that still covers it, so asking for 60 does not land on a 240 fps
+    /// slow-motion format with its worse low-light behaviour, and full
+    /// sensor readout ahead of a binned one where there is a choice.
+    private func bestFormat(carrying target: Double) -> AVCaptureDevice.Format? {
+        guard let device else { return nil }
+        return device.formats
+            .filter { format in
+                let size = CMVideoFormatDescriptionGetDimensions(
+                    format.formatDescription)
+                guard size.width == 1920, size.height == 1080 else { return false }
+                return format.videoSupportedFrameRateRanges.contains {
+                    $0.minFrameRate <= target + 0.01
+                        && target <= $0.maxFrameRate + 0.01
+                }
+            }
+            .min { lhs, rhs in
+                let l = lhs.videoSupportedFrameRateRanges
+                    .map(\.maxFrameRate).max() ?? 0
+                let r = rhs.videoSupportedFrameRateRanges
+                    .map(\.maxFrameRate).max() ?? 0
+                if l != r { return l < r }
+                return !lhs.isVideoBinned && rhs.isVideoBinned
+            }
+    }
+
+    /// What this phone can actually offer, for the settings picker.
+    func supportedFrameRates(from candidates: [Int]) -> [Int] {
+        guard device != nil else { return candidates }
+        return candidates.filter { bestFormat(carrying: Double($0)) != nil }
     }
 
     /// Set the zoom in the numbers on the buttons. Everything else in
