@@ -3918,24 +3918,35 @@ export const Player = forwardRef<
     [modifyBusy, onAdjustTiming, modifyPoint, showFlash, showToast]
   );
 
-  // Serve ball tap: flip who served the rally on screen. The override
-  // re-anchors the ITTF rotation, so every later point recomputes too.
-  const flipServer = useCallback(() => {
-    if (!currentRallyId || !server) return;
-    const p = pointsRef.current.find((pt) => pt.id === currentRallyId);
-    if (!p) return;
-    const next = server === "user" ? "opponent" : "user";
-    onSetServer(p, next);
-    // Name the downstream effect: the flip re-anchors the whole rotation,
-    // not just this rally (same copy as the point view's chip menu).
-    showFlash(
-      next === "user"
-        ? youLabel === "Me"
-          ? "I serve — rotation updated"
-          : `${youLabel} serves — rotation updated`
-        : `${themLabel} serves — rotation updated`
-    );
-  }, [currentRallyId, server, onSetServer, showFlash, themLabel, youLabel]);
+  // Serve ball tap: hand the serve to the side whose ball was pressed.
+  //
+  // It used to be one blind toggle shared by BOTH balls, so pressing the
+  // lit one — the natural way to confirm "yes, I served this" — silently
+  // handed the serve to the other player and re-anchored the rotation
+  // from there. Pressing a side now means that side, and pressing the
+  // side already showing does nothing. Same contract as iOS
+  // (PlayerTakeover.flipServer).
+  //
+  // The override re-anchors the ITTF rotation, so every later point
+  // recomputes too.
+  const setServerTo = useCallback(
+    (side: MatchServer) => {
+      if (!currentRallyId || server === side) return;
+      const p = pointsRef.current.find((pt) => pt.id === currentRallyId);
+      if (!p) return;
+      onSetServer(p, side);
+      // Name the downstream effect: the correction re-anchors the whole
+      // rotation, not just this rally (same copy as the chip menu).
+      showFlash(
+        side === "user"
+          ? youLabel === "Me"
+            ? "I serve. Rotation updated from here."
+            : `${youLabel} serves. Rotation updated from here.`
+          : `${themLabel} serves. Rotation updated from here.`
+      );
+    },
+    [currentRallyId, server, onSetServer, showFlash, themLabel, youLabel]
+  );
 
   // ------------------------------------------- game-boundary overrides
 
@@ -5690,11 +5701,11 @@ export const Player = forwardRef<
               {server !== null && (
                 <button
                   type="button"
-                  onClick={flipServer}
+                  onClick={() => setServerTo("user")}
                   aria-label={
                     server === "user"
-                      ? "I serve — tap to switch server"
-                      : "Give the serve to me"
+                      ? `${youLabel === "Me" ? "I" : youLabel} served this point`
+                      : `Give the serve to ${youLabel === "Me" ? "me" : youLabel}`
                   }
                   className="flex h-8 w-8 items-center justify-center rounded-full border border-edge bg-surface"
                 >
@@ -5746,10 +5757,10 @@ export const Player = forwardRef<
               {server !== null && (
                 <button
                   type="button"
-                  onClick={flipServer}
+                  onClick={() => setServerTo("opponent")}
                   aria-label={
                     server === "opponent"
-                      ? `${themLabel} serves — tap to switch server`
+                      ? `${themLabel} served this point`
                       : `Give the serve to ${themLabel}`
                   }
                   className="flex h-8 w-8 items-center justify-center rounded-full border border-edge bg-surface"
@@ -6894,6 +6905,7 @@ export const Player = forwardRef<
                       );
                       onPointUpdate(analysisPoint.id, patch);
                     }}
+                    onSetServer={(v) => onSetServer(analysisPoint, v)}
                   />
                 )}
                 <div

@@ -143,6 +143,7 @@ export function PointSheet({
   gameIndex,
   gameEnd,
   onSetGameOverride,
+  onSetServer,
   mapLabels,
   neutral = false,
   scored = true,
@@ -187,6 +188,7 @@ export function PointSheet({
   gameEnd: { endsHere: boolean; openHere: boolean };
   /** Write this point's game_end_override; resolves false on failure. */
   onSetGameOverride: (v: GameEndOverride) => Promise<boolean>;
+  onSetServer: (value: "user" | "opponent") => void | Promise<void>;
   mapLabels: MapLabels;
   /** Neutral / third-party match: names the players in the scorecard (see
    * MatchView's `neutral`). Forwarded to PointDetail. */
@@ -510,6 +512,7 @@ export function PointSheet({
             gameIndex={gameIndex}
             gameEnd={gameEnd}
             onSetGameOverride={onSetGameOverride}
+            onSetServer={onSetServer}
             mapLabels={mapLabels}
             neutral={neutral}
             scored={scored}

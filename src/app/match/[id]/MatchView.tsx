@@ -1605,20 +1605,45 @@ export function MatchView({
     [setSkipped]
   );
 
-  // Optimistic server correction (the Player's serve ball). Rotation
-  // re-anchors from the most recent override, so one fix heals the rest.
+  // Optimistic serve correction. The Keep-score serve balls, the point
+  // sheet's "Who served?" and the point-list chip menu ALL land here, so
+  // there is one implementation of what a correction means. `next: null`
+  // clears this point's own correction.
+  //
+  // set_server_override (migration 100) writes the anchor and clears every
+  // correction AFTER it in the same statement. The rotation anchors to the
+  // most recent override before each point, so a stale correction further
+  // down the match used to win over this one and quietly undo it from
+  // there on — fixing one rotation meant re-tapping every correction
+  // downstream. Corrections BEFORE this one stand: they anchor a stretch
+  // this one does not speak for.
   const setServerOverride = useCallback(
-    async (point: Point, next: "user" | "opponent") => {
+    async (point: Point, next: "user" | "opponent" | null) => {
+      const i = visiblePoints.findIndex((p) => p.id === point.id);
+      // The clear is mirrored locally as well as written: the rows go
+      // clean either way, but the chips downstream would keep their
+      // override styling until a reload.
+      const stale =
+        i < 0
+          ? []
+          : visiblePoints
+              .slice(i + 1)
+              .filter((p) => p.server_override !== null)
+              .map((p) => ({ id: p.id, was: p.server_override }));
       const prev = point.server_override;
       updatePoint(point.id, { server_override: next });
+      for (const s of stale) updatePoint(s.id, { server_override: null });
       const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ server_override: next })
-        .eq("id", point.id);
-      if (error) updatePoint(point.id, { server_override: prev });
+      const { error } = await supabase.rpc("set_server_override", {
+        p_id: point.id,
+        p_value: next,
+      });
+      if (error) {
+        updatePoint(point.id, { server_override: prev });
+        for (const s of stale) updatePoint(s.id, { server_override: s.was });
+      }
     },
-    [updatePoint]
+    [updatePoint, visiblePoints]
   );
 
   // Optimistic game-boundary override write (Keep score's pills and the
@@ -3504,6 +3529,7 @@ export function MatchView({
                                 : undefined
                             }
                             onPointUpdate={updatePoint}
+                            onSetServer={(v) => setServerOverride(point, v)}
                           />}
                           {scored && point.confirmed_winner && !point.is_let && (
                             <span
@@ -3996,6 +4022,7 @@ export function MatchView({
                 openHere: score.openAfter.has(panePoint.id),
               }}
               onSetGameOverride={(v) => setGameEndOverride(panePoint, v)}
+              onSetServer={(v) => setServerOverride(panePoint, v)}
               mapLabels={mapLabels}
               neutral={neutral}
               scored={scored}
@@ -4267,6 +4294,7 @@ export function MatchView({
             openHere: score.openAfter.has(selectedPoint.id),
           }}
           onSetGameOverride={(v) => setGameEndOverride(selectedPoint, v)}
+          onSetServer={(v) => setServerOverride(selectedPoint, v)}
           mapLabels={mapLabels}
           neutral={neutral}
           scored={scored}

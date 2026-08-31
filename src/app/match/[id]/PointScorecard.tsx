@@ -199,6 +199,7 @@ export function PointScorecard({
   flash,
   variant = "full",
   onPointUpdate,
+  onSetServer,
   customReasons = [],
   onCreateCustomReason,
 }: {
@@ -218,6 +219,12 @@ export function PointScorecard({
    */
   variant?: "full" | "analysis";
   onPointUpdate: (patch: Partial<Point>) => void;
+  /** Answer "Who served?". Lives on the host because a correction also
+   *  clears the corrections after it, which needs the whole timeline —
+   *  see MatchView.setServerOverride. Required even for the "analysis"
+   *  variant, which never asks: optional, a host that forgot to pass it
+   *  would render the question with buttons that silently do nothing. */
+  onSetServer: (value: "user" | "opponent") => void | Promise<void>;
   /**
    * The match owner's own reason pills (loss_reason_labels, migration 060).
    * Owner-keyed like tags, so one problem counts once across every match.
@@ -551,25 +558,17 @@ export function PointScorecard({
     await toggleLossReason(customReasonValue(id));
   };
 
-  // "Who served?" — writes server_override; the ITTF rotation re-anchors
-  // from the most recent override, so one fix heals later points too.
+  // "Who served?" — the host writes the correction, because it also
+  // clears the corrections after this point and the rotation re-anchors
+  // from the most recent one, so one fix heals the rest of the match.
   const pickServer = useCallback(
     async (v: "user" | "opponent") => {
       if (serve?.server === v) return; // already showing this server
       markError(null);
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ server_override: v })
-        .eq("id", point.id);
-      if (error) {
-        markError("Couldn't save. Tap again.");
-        return;
-      }
-      onPointUpdate({ server_override: v });
+      await onSetServer(v);
       markSaved();
     },
-    [serve?.server, point.id, onPointUpdate, markSaved, markError]
+    [serve?.server, onSetServer, markSaved, markError]
   );
 
   const youLabel = neutral ? mapLabels.you : "Me";

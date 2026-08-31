@@ -9,7 +9,7 @@
     "lint": "eslint",
     "test:auth": "node --test --experimental-strip-types src/lib/auth/*.test.ts",
     "test:learn": "node --test --experimental-strip-types src/app/learn/guides.test.ts",
-    "test:match-structure": "node --test --experimental-strip-types 'src/app/match/[[]id[]]/matchStructure.test.ts' 'src/app/match/[[]id[]]/gameScore.test.ts' 'src/app/match/[[]id[]]/playhead.test.ts' 'src/app/match/[[]id[]]/tapZone.test.ts' src/lib/research/matchStructureMigration.test.ts 'src/app/match/[[]id[]]/highlights.test.ts' 'src/app/match/[[]id[]]/sideChanges.test.ts'",
+    "test:match-structure": "node --test --experimental-strip-types 'src/app/match/[[]id[]]/matchStructure.test.ts' 'src/app/match/[[]id[]]/gameScore.test.ts' 'src/app/match/[[]id[]]/serving.test.ts' 'src/app/match/[[]id[]]/playhead.test.ts' 'src/app/match/[[]id[]]/tapZone.test.ts' src/lib/research/matchStructureMigration.test.ts 'src/app/match/[[]id[]]/highlights.test.ts' 'src/app/match/[[]id[]]/sideChanges.test.ts'",
     "test:costs": "node --test --experimental-strip-types src/lib/costs/*.test.ts src/app/admin/costDashboardView.test.ts src/app/admin/adminPageView.test.ts src/app/admin/players/playersView.test.ts src/app/admin/uploads/uploadView.test.ts",
     "test:placement": "node --test --experimental-strip-types src/lib/placement/*.test.ts",
     "test:scorecard": "node --test --experimental-strip-types 'src/app/match/[[]id[]]/scorecard.test.ts'",
