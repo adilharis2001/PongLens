@@ -3969,6 +3969,8 @@ export const Player = forwardRef<
   const [insertSeam, setInsertSeam] = useState<{
     prev: Point;
     next: Point;
+    prevNumber: number;
+    nextNumber: number;
   } | null>(null);
   const [insertBusy, setInsertBusy] = useState(false);
 
@@ -3983,13 +3985,27 @@ export const Player = forwardRef<
    * video jumped here", which is exactly the thing being fixed.
    */
   const insertOffers = useMemo(() => {
-    const out = new Map<string, { prev: Point; next: Point }>();
+    const out = new Map<
+      string,
+      { prev: Point; next: Point; prevNumber: number; nextNumber: number }
+    >();
     if (!onInsertPoint) return out;
+    // Numbers come from the position in the FULL visible list, so they match
+    // the chips on the strip rather than counting only clipped points.
+    const numberOf = new Map<string, number>();
+    points.forEach((p, i) => numberOf.set(p.id, i + 1));
     const withClips = points.filter((p) => p.cut_t0 !== null);
     for (let i = 1; i < withClips.length; i++) {
       const prev = withClips[i - 1];
       const next = withClips[i];
-      if (gapWorthOffering(prev, next, pad)) out.set(next.id, { prev, next });
+      if (gapWorthOffering(prev, next, pad)) {
+        out.set(next.id, {
+          prev,
+          next,
+          prevNumber: numberOf.get(prev.id) ?? i,
+          nextNumber: numberOf.get(next.id) ?? i + 1,
+        });
+      }
     }
     return out;
   }, [points, pad, onInsertPoint]);
@@ -7613,8 +7629,11 @@ export const Player = forwardRef<
 
       {insertSeam && onInsertPoint && (
         <InsertPoint
+          matchId={matchId}
           prev={insertSeam.prev}
           next={insertSeam.next}
+          prevNumber={insertSeam.prevNumber}
+          nextNumber={insertSeam.nextNumber}
           videoUrl={videoUrl}
           pad={pad}
           youLabel={youLabel}

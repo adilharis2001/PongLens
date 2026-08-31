@@ -564,7 +564,9 @@ struct PlayerTakeover: View {
         .sheet(item: $insertSeam) { pair in
             InsertSheet(
                 match: match, model: model,
-                prev: pair.prev, next: pair.next, pad: pad,
+                prev: pair.prev, next: pair.next,
+                prevNumber: pair.prevNumber, nextNumber: pair.nextNumber,
+                pad: pad,
                 onFinished: { showFlash($0) }
             )
         }
@@ -2179,11 +2181,18 @@ struct PlayerTakeover: View {
         var out: [UUID: InsertSeamPair] = [:]
         let withClips = points.filter { $0.cutT0 != nil }
         guard withClips.count > 1 else { return out }
+        // Numbers come from the position in the FULL visible list, so they
+        // match the chips on the strip rather than counting only clipped ones.
+        var numberOf: [UUID: Int] = [:]
+        for (i, p) in points.enumerated() { numberOf[p.id] = i + 1 }
         for i in 1..<withClips.count {
             let a = withClips[i - 1]
             let b = withClips[i]
             if gapWorthOffering(a.insertNeighbour, b.insertNeighbour, pad: pad) != nil {
-                out[b.id] = InsertSeamPair(id: b.id, prev: a, next: b)
+                out[b.id] = InsertSeamPair(
+                    id: b.id, prev: a, next: b,
+                    prevNumber: numberOf[a.id] ?? i,
+                    nextNumber: numberOf[b.id] ?? i + 1)
             }
         }
         return out

@@ -329,7 +329,27 @@ export async function POST(req: Request) {
         expiresSeconds: 6 * 3600,
         disposition: "inline",
       });
-      return NextResponse.json({ url, available: true });
+      // The RAW file's clock, not the points' clock. A trimmed upload is
+      // cut down before the pipeline ever sees it, so every t0/t1 in
+      // public.points is measured from trim_start_s into this file. Anything
+      // seeking the raw by a point's timestamp — the "add a missing rally"
+      // sheet does exactly that — has to add this back or it lands minutes
+      // out. Returned here so the two clients cannot disagree about it.
+      let trimStartS = 0;
+      if (match.job_id) {
+        const { data: job } = await supabase
+          .from("jobs")
+          .select("options")
+          .eq("id", match.job_id)
+          .single();
+        const raw = (job?.options as { trim_start_s?: unknown } | null)
+          ?.trim_start_s;
+        const n = typeof raw === "string" ? Number(raw) : raw;
+        if (typeof n === "number" && Number.isFinite(n) && n > 0) {
+          trimStartS = n;
+        }
+      }
+      return NextResponse.json({ url, available: true, trimStartS });
     }
 
     if (raw) {

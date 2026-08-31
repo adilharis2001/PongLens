@@ -200,4 +200,7 @@ struct InsertSeamPair: Identifiable {
     let id: UUID
     let prev: MatchPoint
     let next: MatchPoint
+    /// Their numbers on the strip, so the sheet can show the real chips.
+    let prevNumber: Int
+    let nextNumber: Int
 }
