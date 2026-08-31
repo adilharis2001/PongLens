@@ -270,6 +270,7 @@ export function reconstructBallTrajectory(
   const allSamples = insertEventSamples(
     uniqueSamples,
     [...anchors.map((anchor) => anchor.t), ...crossings],
+    contacts.map((contact) => contact.t),
     seen
   );
   const representedCrossings = crossings.filter((time) =>
@@ -348,6 +349,7 @@ function heightAt(time: number, anchors: readonly HeightAnchor[]): number {
 function insertEventSamples(
   samples: readonly PlaneSample[],
   eventTimes: readonly number[],
+  contactTimes: readonly number[],
   seen: readonly (readonly [number, number])[]
 ): PlaneSample[] {
   const output = samples.slice();
@@ -360,7 +362,14 @@ function insertEventSamples(
     const left = output[after - 1];
     const right = output[after];
     if (!canInterpolateAt(time, left.t, right.t, seen)) continue;
-    const ratio = (time - left.t) / (right.t - left.t);
+    // A racket impact is a velocity discontinuity. When BlurBall misses the
+    // exact impact frame, the outgoing observation is the relevant ray;
+    // blending it with the pre-impact ball recreates the false outer loop.
+    const ratio = contactTimes.some(
+      (contactTime) => Math.abs(contactTime - time) <= 1e-6
+    )
+      ? 1
+      : (time - left.t) / (right.t - left.t);
     output.push({
       t: time,
       u0: left.u0 + ratio * (right.u0 - left.u0),

@@ -152,8 +152,8 @@ test("height correction keeps a bounce fixed and returns the serve contact to it
   const points = reconstructBallTrajectory(youngServeFixture);
   const contact = nearest(points, 342.63);
   const bounce = nearest(points, 343.109);
-  assert.ok(contact.u > -0.45 && contact.u < 1.975);
-  assert.ok(contact.v > 2.65 && contact.v < 4.5);
+  assert.ok(contact.u > 0.2 && contact.u < 0.9);
+  assert.ok(contact.v > 2.65 && contact.v < 3.45);
   closeTo(contact.z, 0.28, 1e-9);
   closeTo(bounce.u, 0.6614, 0.035);
   closeTo(bounce.v, 1.9205, 0.035);
