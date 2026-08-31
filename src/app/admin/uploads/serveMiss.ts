@@ -373,7 +373,7 @@ export interface TableTrackPoint {
   u: number;
   v: number;
   /** True when the detector lost the ball before this observation. */
-  startsSegment: boolean;
+  startsSegment?: boolean;
 }
 
 export interface LiveTableTrackPoint extends TableTrackPoint {
@@ -387,6 +387,16 @@ export interface TableTrackSegment {
 }
 
 export const TABLE_TRAIL_SECONDS = 0.8;
+
+/**
+ * The top-down court is intentionally strict: only the server-reconstructed
+ * height-aware estimate may be drawn. Raw image detections cannot be used as
+ * a fallback because projecting an airborne ball onto the table plane bends
+ * its path away from the real flight.
+ */
+export function courtTrajectory(card: MissCard): EstimatedTrajectoryPoint[] {
+  return card.trajectory ?? [];
+}
 
 /** Every observed line segment, preserving detector-loss breaks. */
 export function tablePathSegments(

@@ -6,7 +6,7 @@ import { CardTimeline } from "./CardTimeline";
 import {
   TABLE_L_M,
   TABLE_W_M,
-  projectTrackToTable,
+  courtTrajectory,
   reasonShort,
   reasonTone,
   tablePathSegments,
@@ -36,17 +36,20 @@ import {
  *  on and off the playing surface, and a serve bounce can be either. */
 export const SERVE_BOUNCE = "#e879f9";
 
-const COURT_VIEW_W = 150;
-const COURT_VIEW_H = 260;
-const COURT_X = 25;
-const COURT_Y = 15;
-const COURT_W = 100;
-const COURT_H = 230;
+const METRES_TO_PX = 65.5;
+const SIDE_MARGIN_M = 0.45;
+const END_MARGIN_M = 0.7;
+const COURT_VIEW_W = (TABLE_W_M + SIDE_MARGIN_M * 2) * METRES_TO_PX;
+const COURT_VIEW_H = (TABLE_L_M + END_MARGIN_M * 2) * METRES_TO_PX;
+const COURT_X = SIDE_MARGIN_M * METRES_TO_PX;
+const COURT_Y = END_MARGIN_M * METRES_TO_PX;
+const COURT_W = TABLE_W_M * METRES_TO_PX;
+const COURT_H = TABLE_L_M * METRES_TO_PX;
 
 function courtXY(u: number, v: number) {
   return {
-    x: COURT_X + (COURT_W * u) / TABLE_W_M,
-    y: COURT_Y + COURT_H * (1 - v / TABLE_L_M),
+    x: (u + SIDE_MARGIN_M) * METRES_TO_PX,
+    y: (TABLE_L_M + END_MARGIN_M - v) * METRES_TO_PX,
   };
 }
 
@@ -74,7 +77,7 @@ const CompleteCourtPath = memo(function CompleteCourtPath({
     })
     .join("");
   return (
-    <g pointerEvents="none" aria-label="Complete BlurBall path">
+    <g pointerEvents="none" aria-label="Complete best estimate path">
       <path
         d={lineData}
         fill="none"
@@ -397,7 +400,7 @@ export function ServeMissView({
 
       <div className="flex min-w-0 flex-row gap-3 lg:flex-1">
         <div className="w-24 shrink-0 sm:w-32 lg:w-40">
-          <Court card={card} data={data} t={t} />
+          <Court card={card} t={t} />
         </div>
         <div className="min-w-0 flex-1">
           {typeof card.serve_s === "number" ? (
@@ -452,14 +455,12 @@ export function ServeMissView({
   );
 }
 
-/** BlurBall's raw path and the bounces, looking down on the table. */
+/** The reconstructed best-estimate path and bounces, looking down. */
 function Court({
   card,
-  data,
   t,
 }: {
   card: MissCard;
-  data: ServeMissData;
   t: number;
 }) {
   const VIEW_W = COURT_VIEW_W;
@@ -469,18 +470,7 @@ function Court({
   const TW = COURT_W;
   const TH = COURT_H;
   const xy = courtXY;
-  const projectedTrack = useMemo(
-    () =>
-      projectTrackToTable(
-        card.track,
-        data.quad,
-        data.w,
-        data.h,
-        card.seen,
-        data.fps
-      ),
-    [card.track, card.seen, data.fps, data.quad, data.w, data.h]
-  );
+  const projectedTrack = useMemo(() => courtTrajectory(card), [card]);
   const pathSegments = useMemo(
     () => tablePathSegments(projectedTrack),
     [projectedTrack]
@@ -508,12 +498,10 @@ function Court({
         strokeWidth="1.75"
         strokeDasharray="4 2"
       />
-      {/* Keep the complete raw path visible at rest. The brighter layer
-          below follows the playhead; neither layer bridges a detector gap. */}
+      {/* Keep the complete estimate visible at rest. The brighter layer
+          below follows the playhead and marks the current ball. */}
       <CompleteCourtPath points={projectedTrack} segments={pathSegments} />
-      {/* Consecutive raw observations only. A detector gap starts a new
-          segment, so this never invents a path between bounce markers. */}
-      <g pointerEvents="none" aria-label="BlurBall trail">
+      <g pointerEvents="none" aria-label="Recent best estimate trail">
         {trail.map((point, index) => {
           const position = xy(point.u, point.v);
           const previous = index > 0 ? trail[index - 1] : null;
@@ -596,7 +584,7 @@ function Court({
         fontSize="7"
         fill="#facc15"
       >
-        BlurBall path
+        Best estimate path
       </text>
     </svg>
   );

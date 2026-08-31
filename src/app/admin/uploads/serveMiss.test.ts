@@ -9,6 +9,20 @@ function closeTo(actual: number, expected: number) {
   );
 }
 
+test("the court draws only a reconstructed trajectory, never raw airborne plane projection", () => {
+  const estimate = [
+    { t: 1, u: 0.3, v: -0.2, z: 0.4 },
+    { t: 1.1, u: 0.5, v: 0.6, z: 0.2 },
+  ];
+  const card = { trajectory: estimate } as unknown as serveMiss.MissCard;
+
+  assert.deepEqual(serveMiss.courtTrajectory(card), estimate);
+  assert.deepEqual(
+    serveMiss.courtTrajectory({ ...card, trajectory: undefined }),
+    []
+  );
+});
+
 test("projects raw BlurBall detections from frame space onto the table", () => {
   const projectTrackToTable = (
     serveMiss as typeof serveMiss & {
