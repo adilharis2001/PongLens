@@ -29,6 +29,38 @@ export interface CalibrationAgreement {
   tables_seen?: number;
 }
 
+export interface PlacementEventJson {
+  event_id?: string | null;
+  t?: number;
+  u?: number | null;
+  v?: number | null;
+  x?: number | null;
+  y?: number | null;
+  confidence?: number;
+}
+
+export interface PlacementCandidateJson extends PlacementEventJson {
+  id?: string;
+  kind?: string;
+  kinds?: string[];
+  visual_confidence?: number;
+  audio_confidence?: number;
+}
+
+export interface PlacementShotJson {
+  seq?: number;
+  contact_t?: number | null;
+  contact?: PlacementEventJson | null;
+  serve_first_bounce?: PlacementEventJson | null;
+  landing?: PlacementEventJson | null;
+}
+
+export interface PlacementHypothesisJson {
+  status?: string;
+  confidence?: number;
+  shots?: PlacementShotJson[];
+}
+
 export interface MatchJson {
   version?: number;
   /** Which card assembly ran. Absent on matches processed before 119. */
@@ -59,7 +91,17 @@ export interface MatchJson {
   notes?: string[];
   cut_mode?: string;
   cut_segments?: [number, number][];
-  points?: { idx?: number; serve_s?: number | null }[];
+  points?: Array<{
+    idx?: number;
+    t0?: number;
+    t1?: number;
+    serve_s?: number | null;
+    placement?: {
+      status?: string;
+      candidates?: PlacementCandidateJson[];
+      hypotheses?: Record<string, PlacementHypothesisJson>;
+    } | null;
+  }>;
   /** Phase 2 — a structured twin of the `route ...` sentence in notes[]. */
   assembly?: {
     pipeline?: string;

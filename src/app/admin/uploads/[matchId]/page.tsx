@@ -164,7 +164,12 @@ export default async function AdminUploadPage({
     tracks,
   });
   const hydratedServeMisses = serveMisses
-    ? hydrateServeMissData(serveMisses, tracks, matchJson?.source?.fps)
+    ? hydrateServeMissData(
+        serveMisses,
+        tracks,
+        matchJson?.source?.fps,
+        matchJson
+      )
     : null;
 
   return (

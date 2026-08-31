@@ -250,6 +250,126 @@ test("the browser payload prefers full-rate BlurBall rows without confidence", (
   assert.equal(data.cards[0].track, originalTrack, "input artifact stays unchanged");
 });
 
+test("server hydration reconstructs a trajectory from ready placement evidence before stripping confidence", () => {
+  const data = {
+    w: 1920,
+    h: 1080,
+    quad: [
+      [971.272757, 572.372823],
+      [1155.976869, 554.58357],
+      [951.463257, 515.484394],
+      [788.748549, 527.256365],
+    ],
+    cards: [
+      {
+        t0: 341.03,
+        t1: 344,
+        serve_s: 342.63,
+        track: [[342.63, 0.45, 0.48]],
+        bounces: [],
+        crossings: [343.08],
+        seen: [[342.63, 343.53]],
+      },
+    ],
+  } as unknown as serveMiss.ServeMissData;
+  const measuredTrack = [
+    [342.63, 0.449272676, 0.482330011, 11.1],
+    [342.73, 0.455971548, 0.484924834, 12.2],
+    [342.83, 0.462878859, 0.487600395, 13.3],
+    [342.93, 0.470004491, 0.490360525, 14.4],
+    [343.03, 0.477358961, 0.493209295, 15.5],
+    [343.13, 0.484953473, 0.496151045, 16.6],
+    [343.23, 0.492799973, 0.499190404, 17.7],
+    [343.33, 0.500911215, 0.502332311, 18.8],
+    [343.43, 0.509300827, 0.505582046, 19.9],
+    [343.53, 0.51798339, 0.508945256, 20.1],
+  ];
+  const matchJson = {
+    source: { fps: 30, width: 1920, height: 1080 },
+    points: [
+      {
+        idx: 25,
+        t0: 341.03,
+        t1: 344,
+        serve_s: 342.63,
+        placement: {
+          status: "ready",
+          candidates: [
+            { id: "c1", kind: "contact", t: 342.63 },
+            { id: "b1", kind: "bounce", t: 342.93, u: 0.45, v: 2.3 },
+            { id: "b2", kind: "bounce", t: 343.23, u: 0.7, v: 0.5 },
+            { id: "c2", kind: "contact", t: 343.33 },
+            { id: "b3", kind: "bounce", t: 343.53, u: 0.8, v: 2 },
+          ],
+          hypotheses: {
+            near: {
+              status: "ready",
+              confidence: 0.2,
+              shots: [
+                {
+                  seq: 1,
+                  contact: { t: 342.7 },
+                  serve_first_bounce: { t: 342.95, u: 0.9, v: 0.4 },
+                  landing: { t: 343.25, u: 0.8, v: 2.2 },
+                },
+              ],
+            },
+            far: {
+              status: "ready",
+              confidence: 0.91,
+              shots: [
+                {
+                  seq: 1,
+                  contact_t: 342.63,
+                  contact: { event_id: "c1" },
+                  serve_first_bounce: { event_id: "b1" },
+                  landing: { event_id: "b2" },
+                },
+                {
+                  seq: 2,
+                  contact_t: 343.33,
+                  contact: { event_id: "c2" },
+                  serve_first_bounce: null,
+                  landing: { event_id: "b3" },
+                },
+              ],
+            },
+          },
+        },
+      },
+    ],
+  };
+
+  const hydrated = (
+    serveMiss.hydrateServeMissData as (
+      data: serveMiss.ServeMissData,
+      tracks: { cards: { t0: number; track: number[][] }[] } | null,
+      fps?: number,
+      matchJson?: unknown
+    ) => serveMiss.ServeMissData
+  )(
+    data,
+    { cards: [{ t0: 341.04, track: measuredTrack }] },
+    30,
+    matchJson
+  );
+
+  const trajectory = (
+    hydrated.cards[0] as serveMiss.MissCard & {
+      trajectory?: Array<{ t: number; u: number; v: number; z: number }>;
+    }
+  ).trajectory;
+  assert.ok(trajectory?.length);
+  assert.equal(trajectory[0].t, 342.63);
+  assert.equal(trajectory.some((point) => point.t === 343.33), true);
+  assert.deepEqual(
+    trajectory.find((point) => point.t === 342.93),
+    { t: 342.93, u: 0.45, v: 2.3, z: 0 }
+  );
+  assert.equal(hydrated.cards[0].track[0].length, 3);
+  assert.deepEqual(hydrated.cards[0].track[0], measuredTrack[0].slice(0, 3));
+});
+
 test("the resting table path includes every observed segment without bridging gaps", () => {
   const tablePathSegments = (
     serveMiss as typeof serveMiss & {

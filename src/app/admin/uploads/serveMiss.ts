@@ -18,6 +18,21 @@
  * converted, which `cutOffsetFor` below is the single place to do.
  */
 
+import {
+  reconstructBallTrajectory,
+  type EstimatedTrajectoryPoint,
+  type TrajectoryBounce,
+  type TrajectoryContact,
+} from "./ballTrajectory.ts";
+import {
+  quadFromCorners,
+  type MatchJson,
+  type PlacementCandidateJson,
+  type PlacementEventJson,
+  type PlacementHypothesisJson,
+  type PlacementShotJson,
+} from "./uploadView.ts";
+
 export interface MissBounce {
   t: number;
   /** fractions of the frame, so an overlay survives any display size */
@@ -80,6 +95,8 @@ export interface MissCard {
    */
   serve_bounces?: [number, number] | null;
   track: [number, number, number][];
+  /** Height-corrected metric best estimate, attached by server hydration. */
+  trajectory?: EstimatedTrajectoryPoint[];
   bounces: MissBounce[];
   crossings: number[];
   /**
@@ -121,6 +138,157 @@ interface FullRateTrackSource {
   cards: { t0: number; track: number[][] }[];
 }
 
+interface PlacementTrajectoryEvidence {
+  contacts: TrajectoryContact[];
+  bounces: TrajectoryBounce[];
+}
+
+type OrderedPlacementEvent =
+  | ({ kind: "contact" } & TrajectoryContact)
+  | ({ kind: "bounce" } & TrajectoryBounce);
+
+const PLACEMENT_EVENT_DEDUPE_S = 0.035;
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function contactEvent(
+  shot: PlacementShotJson,
+  candidates: ReadonlyMap<string, PlacementCandidateJson>
+): OrderedPlacementEvent | null {
+  const reference = shot.contact;
+  const candidate =
+    typeof reference?.event_id === "string"
+      ? candidates.get(reference.event_id)
+      : undefined;
+  const t =
+    finiteNumber(reference?.t) ??
+    finiteNumber(candidate?.t) ??
+    finiteNumber(shot.contact_t);
+  if (t === null) return null;
+  const u = finiteNumber(reference?.u) ?? finiteNumber(candidate?.u);
+  const v = finiteNumber(reference?.v) ?? finiteNumber(candidate?.v);
+  return {
+    kind: "contact",
+    t,
+    ...(u !== null ? { u } : {}),
+    ...(v !== null ? { v } : {}),
+  };
+}
+
+function bounceEvent(
+  reference: PlacementEventJson | null | undefined,
+  candidates: ReadonlyMap<string, PlacementCandidateJson>
+): OrderedPlacementEvent | null {
+  const candidate =
+    typeof reference?.event_id === "string"
+      ? candidates.get(reference.event_id)
+      : undefined;
+  const t = finiteNumber(reference?.t) ?? finiteNumber(candidate?.t);
+  const u = finiteNumber(reference?.u) ?? finiteNumber(candidate?.u);
+  const v = finiteNumber(reference?.v) ?? finiteNumber(candidate?.v);
+  return t === null || u === null || v === null
+    ? null
+    : { kind: "bounce", t, u, v };
+}
+
+function readyPlacementEvidence(
+  matchJson: MatchJson | null | undefined,
+  cardT0: number
+): PlacementTrajectoryEvidence | null {
+  const point = matchJson?.points?.find(
+    (candidate) =>
+      finiteNumber(candidate.t0) !== null &&
+      Math.abs(Number(candidate.t0) - cardT0) < 0.1
+  );
+  const hypotheses = point?.placement?.hypotheses;
+  if (!hypotheses || typeof hypotheses !== "object") return null;
+  const ready = Object.values(hypotheses)
+    .filter(
+      (hypothesis): hypothesis is PlacementHypothesisJson =>
+        hypothesis !== null &&
+        typeof hypothesis === "object" &&
+        hypothesis.status === "ready" &&
+        Array.isArray(hypothesis.shots)
+    )
+    .sort(
+      (left, right) =>
+        (finiteNumber(right.confidence) ?? -Infinity) -
+        (finiteNumber(left.confidence) ?? -Infinity)
+    )[0];
+  if (!ready) return null;
+
+  const candidates = new Map(
+    (point?.placement?.candidates ?? []).flatMap((candidate) =>
+      typeof candidate?.id === "string"
+        ? ([[candidate.id, candidate]] as const)
+        : []
+    )
+  );
+
+  const shots = (ready.shots ?? [])
+    .map((shot, index) => ({ shot, index }))
+    .sort(
+      (left, right) =>
+        (finiteNumber(left.shot.seq) ?? left.index) -
+        (finiteNumber(right.shot.seq) ?? right.index)
+    )
+    .map(({ shot }) => shot);
+  const ordered = shots.flatMap((shot) =>
+    [
+      contactEvent(shot, candidates),
+      bounceEvent(shot.serve_first_bounce, candidates),
+      bounceEvent(shot.landing, candidates),
+    ].filter((event): event is OrderedPlacementEvent => event !== null)
+  );
+  ordered.sort((left, right) => left.t - right.t);
+
+  const deduplicated: OrderedPlacementEvent[] = [];
+  for (const event of ordered) {
+    const previous = deduplicated.at(-1);
+    if (
+      previous &&
+      Math.abs(event.t - previous.t) <= PLACEMENT_EVENT_DEDUPE_S
+    ) {
+      // A literal table event is a stronger height anchor than a coincident
+      // inferred contact, and it preserves the detector's measured u/v.
+      if (event.kind === "bounce" && previous.kind === "contact") {
+        deduplicated[deduplicated.length - 1] = event;
+      }
+      continue;
+    }
+    deduplicated.push(event);
+  }
+  return {
+    contacts: deduplicated.filter(
+      (event): event is Extract<OrderedPlacementEvent, { kind: "contact" }> =>
+        event.kind === "contact"
+    ),
+    bounces: deduplicated.filter(
+      (event): event is Extract<OrderedPlacementEvent, { kind: "bounce" }> =>
+        event.kind === "bounce"
+    ),
+  };
+}
+
+function fallbackBounceEvidence(card: MissCard): TrajectoryBounce[] {
+  const bounces = (card.bounces ?? []).flatMap((bounce): TrajectoryBounce[] => {
+    const t = finiteNumber(bounce.t);
+    const u = finiteNumber(bounce.u);
+    const v = finiteNumber(bounce.v);
+    return bounce.onSurface && t !== null && u !== null && v !== null
+      ? [{ t, u, v }]
+      : [];
+  });
+  bounces.sort((left, right) => left.t - right.t);
+  return bounces.filter(
+    (bounce, index) =>
+      index === 0 ||
+      Math.abs(bounce.t - bounces[index - 1].t) > PLACEMENT_EVENT_DEDUPE_S
+  );
+}
+
 /**
  * Attach the server-only full-rate track to the browser diagnosis payload.
  *
@@ -132,20 +300,64 @@ interface FullRateTrackSource {
 export function hydrateServeMissData(
   data: ServeMissData,
   tracks: FullRateTrackSource | null,
-  fps?: number
+  fps?: number,
+  matchJson?: MatchJson | null
 ): ServeMissData {
   const sourceFps = Number(fps);
+  const calibratedQuad =
+    matchJson?.calibration?.ok === true
+      ? quadFromCorners(matchJson.calibration.table_corners_px)
+      : null;
+  const quad = calibratedQuad ?? data.quad;
+  const sourceWidth =
+    finiteNumber(matchJson?.source?.width) ?? finiteNumber(data.w) ?? 0;
+  const sourceHeight =
+    finiteNumber(matchJson?.source?.height) ?? finiteNumber(data.h) ?? 0;
   const cards = data.cards.map((card) => {
     const source = tracks?.cards.find(
       (candidate) => Math.abs(Number(candidate.t0) - card.t0) < 0.1
     );
-    const fullRate = (source?.track ?? []).flatMap((row) => {
-      const [t, x, y] = row.map(Number);
+    const fullRows = (source?.track ?? card.track).flatMap((row) => {
+      const numeric = row.map(Number);
+      const [t, x, y] = numeric;
+      return [t, x, y].every(Number.isFinite) ? [numeric] : [];
+    });
+    const fullRate = fullRows.flatMap((row) => {
+      const [t, x, y] = row;
       return [t, x, y].every(Number.isFinite)
         ? ([[t, x, y]] as MissCard["track"])
         : [];
     });
-    return fullRate.length > 0 ? { ...card, track: fullRate } : card;
+    const matchPoint = matchJson?.points?.find(
+      (point) =>
+        finiteNumber(point.t0) !== null &&
+        Math.abs(Number(point.t0) - card.t0) < 0.1
+    );
+    const placement = readyPlacementEvidence(matchJson, card.t0);
+    const serveTime =
+      finiteNumber(matchPoint?.serve_s) ?? finiteNumber(card.serve_s);
+    const trajectory =
+      Array.isArray(quad) &&
+      quad.length === 4 &&
+      sourceWidth > 0 &&
+      sourceHeight > 0
+        ? reconstructBallTrajectory({
+            track: fullRows,
+            quad,
+            sourceWidth,
+            sourceHeight,
+            bounces: placement?.bounces ?? fallbackBounceEvidence(card),
+            contacts: placement?.contacts ?? [],
+            crossings: card.crossings ?? [],
+            serveTime,
+            seen: card.seen,
+          })
+        : [];
+    return {
+      ...card,
+      ...(fullRate.length > 0 ? { track: fullRate } : {}),
+      ...(trajectory.length >= 2 ? { trajectory } : {}),
+    };
   });
   return {
     ...data,
