@@ -1010,6 +1010,13 @@ function RuleScore({ summary }: { summary: ReadingSummary | null }) {
       <h3 className="text-sm font-medium text-zinc-200">
         What the winner rules read
       </h3>
+      {!summary.sideKnown && (
+        <p className="mt-1 text-sm text-amber-300/80">
+          Nobody recorded which end this player was on, so every call below
+          names an END of the table rather than a person, and none of them can
+          be scored against the taps.
+        </p>
+      )}
       <p className="mt-1 text-sm text-zinc-500">
         {summary.called} of {summary.points} cards got a call
         {summary.compared > 0 && mine !== null && (

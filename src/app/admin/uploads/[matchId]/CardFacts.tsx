@@ -22,11 +22,21 @@ const RULE_LABEL: Record<string, string> = {
   "no return": "No return says",
 };
 
+/**
+ * Whoever the verdict points at.
+ *
+ * With no recorded side, "user" is not a person — it is the near end of the
+ * table, because that is the frame the reading was taken in. Naming a player
+ * there would be a guess with a name on it.
+ */
 function name(
   who: "user" | "opponent" | null,
-  names: { user: string; opponent: string }
+  names: { user: string; opponent: string },
+  sideKnown: boolean
 ): string {
-  return who === "user" ? names.user : who === "opponent" ? names.opponent : "";
+  if (who === null) return "";
+  if (!sideKnown) return who === "user" ? "the near player" : "the far player";
+  return who === "user" ? names.user : names.opponent;
 }
 
 export function CardFacts({
@@ -43,8 +53,10 @@ export function CardFacts({
     <div className="mt-3 rounded-2xl border border-edge bg-surface-2/40 p-4">
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-4">
         <Fact label="You tapped">
-          {r.tapped ? (
-            <span className="text-zinc-200">{name(r.tapped, names)}</span>
+          {!r.sideKnown ? (
+            <span className="text-zinc-500">no end recorded</span>
+          ) : r.tapped ? (
+            <span className="text-zinc-200">{name(r.tapped, names, r.sideKnown)}</span>
           ) : (
             <span className="text-zinc-500">not scored</span>
           )}
@@ -58,7 +70,7 @@ export function CardFacts({
                   r.agrees === false ? "text-amber-300" : "text-zinc-200"
                 }
               >
-                {name(r.winner, names)}
+                {name(r.winner, names, r.sideKnown)}
               </span>
               {r.why && (
                 <span className="block text-xs text-zinc-500">{r.why}</span>
@@ -83,7 +95,7 @@ export function CardFacts({
           {r.worker?.winner ? (
             <>
               <span className="text-zinc-300">
-                {name(r.worker.winner, names)}
+                {name(r.worker.winner, names, r.sideKnown)}
               </span>
               {r.worker.how && (
                 <span className="block text-xs text-zinc-500">
@@ -122,7 +134,7 @@ export function CardFacts({
                     r.rule === rule.name ? "text-cyan-glow" : "text-zinc-300"
                   }
                 >
-                  {name(rule.verdict, names)}
+                  {name(rule.verdict, names, r.sideKnown)}
                 </span>
                 {rule.why && (
                   <span className="block text-xs text-zinc-500">

@@ -54,6 +54,16 @@ export interface RuleLine {
 
 export interface CardReading {
   pointId: string;
+  /**
+   * False when nobody recorded which end the uploader played from.
+   *
+   * The rules read the ball against a physical end and answer "near lost"
+   * or "far lost"; turning that into a player needs `matches.user_side`.
+   * Without it the reading is still real — it just names an END. Refusing
+   * to answer at all would throw away a correct verdict over a missing
+   * label, and 16 of the 36 diagnosed matches have no side on them.
+   */
+  sideKnown: boolean;
   /** Who the owner said won, which is the ruler everything else is read
    *  against. Null on a point they never scored. */
   tapped: "user" | "opponent" | null;
@@ -99,6 +109,8 @@ export interface CardReading {
 }
 
 export interface ReadingSummary {
+  /** False when the match has no recorded side; every call names an end. */
+  sideKnown: boolean;
   points: number;
   /** Points a rule spoke on, and how many of those match the owner's tap. */
   called: number;
@@ -256,13 +268,12 @@ export function readCards({
   const trackMap: Tracks = {};
   const rows: ServeAccuracyRow[] = evidence.map((e) => {
     const gameIndex = gameIndexByPoint.get(e.id) ?? 0;
-    const userSide = match.user_side as "near" | "far" | null;
+    // With no recorded side, read the match from the NEAR end and say so.
+    // Every "user" below then means the near player, which the page relabels
+    // rather than pretending to know who that is.
+    const userSide = (match.user_side as "near" | "far" | null) ?? "near";
     const userPhysicalSide =
-      userSide === null
-        ? null
-        : gameIndex % 2 === 0
-          ? userSide
-          : flipSide(userSide);
+      gameIndex % 2 === 0 ? userSide : flipSide(userSide);
     const server = serving.get(e.id)?.server ?? null;
     const d = diagnosed.get(e.id) ?? null;
     const placement = e.placement;
@@ -349,11 +360,13 @@ export function readCards({
     };
   });
 
+  const sideKnown = match.user_side !== null;
   const readings = rows.map((row, i) =>
     toCardReading(
       row,
       readPoint(row, corners, trackMap, source),
-      evidence[i].t0
+      evidence[i].t0,
+      sideKnown
     )
   );
   return { readings, summary: summarise(readings) };
@@ -362,7 +375,8 @@ export function readCards({
 function toCardReading(
   row: ServeAccuracyRow,
   reading: PointReading,
-  cardT0: number
+  cardT0: number,
+  sideKnown: boolean
 ): CardReading {
   const spoke = new Map(reading.verdicts.map((v) => [v.name, v]));
   const landings = reading.events.filter(
@@ -379,7 +393,8 @@ function toCardReading(
 
   return {
     pointId: row.pointId,
-    tapped: row.winner,
+    sideKnown,
+    tapped: sideKnown ? row.winner : null,
     rules: RULE_ORDER.map((name) => ({
       name,
       verdict: spoke.get(name)?.verdict ?? null,
@@ -390,12 +405,15 @@ function toCardReading(
     why: reading.why,
     refusal: reading.refusal,
     disagree: rulesDisagree(reading),
+    // Both comparisons need the side: without it "user" is an end, not a
+    // person, and scoring it against a tap would be arithmetic on two
+    // different things.
     agrees:
-      reading.winner === null || row.winner === null
+      !sideKnown || reading.winner === null || row.winner === null
         ? null
         : reading.winner === row.winner,
     agreesWorker:
-      row.computed?.winner == null || row.winner === null
+      !sideKnown || row.computed?.winner == null || row.winner === null
         ? null
         : row.computed.winner === row.winner,
     recovered: reading.events.filter(isRecovered).map((e) => ({
@@ -451,6 +469,7 @@ function summarise(readings: readonly CardReading[]): ReadingSummary {
   const worker = readings.filter((r) => r.worker?.winner);
 
   return {
+    sideKnown: readings[0]?.sideKnown ?? true,
     points: readings.length,
     called: called.length,
     compared: compared.length,
