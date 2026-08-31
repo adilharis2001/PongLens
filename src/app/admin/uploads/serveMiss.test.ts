@@ -249,3 +249,22 @@ test("the browser payload prefers full-rate BlurBall rows without confidence", (
   assert.equal(hydrated?.fps, 60);
   assert.equal(data.cards[0].track, originalTrack, "input artifact stays unchanged");
 });
+
+test("the resting table path includes every observed segment without bridging gaps", () => {
+  const tablePathSegments = (
+    serveMiss as typeof serveMiss & {
+      tablePathSegments?: (
+        points: serveMiss.TableTrackPoint[]
+      ) => unknown;
+    }
+  ).tablePathSegments;
+  const a = { t: 1, u: 0.1, v: 0.2, startsSegment: true };
+  const b = { t: 1.1, u: 0.2, v: 0.4, startsSegment: false };
+  const c = { t: 1.4, u: 0.8, v: 1.4, startsSegment: true };
+  const d = { t: 1.5, u: 0.9, v: 1.7, startsSegment: false };
+
+  assert.deepEqual(tablePathSegments?.([a, b, c, d]), [
+    { from: a, to: b },
+    { from: c, to: d },
+  ]);
+});

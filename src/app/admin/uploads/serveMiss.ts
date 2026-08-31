@@ -169,7 +169,25 @@ export interface LiveTableTrackPoint extends TableTrackPoint {
   connectsFromPrevious: boolean;
 }
 
+export interface TableTrackSegment {
+  from: TableTrackPoint;
+  to: TableTrackPoint;
+}
+
 export const TABLE_TRAIL_SECONDS = 0.8;
+
+/** Every observed line segment, preserving detector-loss breaks. */
+export function tablePathSegments(
+  points: TableTrackPoint[]
+): TableTrackSegment[] {
+  const segments: TableTrackSegment[] = [];
+  for (let index = 1; index < points.length; index += 1) {
+    if (!points[index].startsSegment) {
+      segments.push({ from: points[index - 1], to: points[index] });
+    }
+  }
+  return segments;
+}
 
 /** The raw observations that should be visible at this playhead position. */
 export function tableTrailAt(

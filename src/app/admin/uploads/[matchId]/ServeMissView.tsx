@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { NORMAL_SPEED_IDX, SPEEDS, SpeedMenu } from "../../../match/[id]/SpeedMenu";
 import { CardTimeline } from "./CardTimeline";
 import {
@@ -9,9 +9,12 @@ import {
   projectTrackToTable,
   reasonShort,
   reasonTone,
+  tablePathSegments,
   tableTrailAt,
   type MissCard,
   type ServeMissData,
+  type TableTrackPoint,
+  type TableTrackSegment,
 } from "../serveMiss";
 
 /**
@@ -32,6 +35,65 @@ import {
 /** The serve's own bounces. Not green or red — those already mean
  *  on and off the playing surface, and a serve bounce can be either. */
 export const SERVE_BOUNCE = "#e879f9";
+
+const COURT_VIEW_W = 150;
+const COURT_VIEW_H = 260;
+const COURT_X = 25;
+const COURT_Y = 15;
+const COURT_W = 100;
+const COURT_H = 230;
+
+function courtXY(u: number, v: number) {
+  return {
+    x: COURT_X + (COURT_W * u) / TABLE_W_M,
+    y: COURT_Y + COURT_H * (1 - v / TABLE_L_M),
+  };
+}
+
+/** Two SVG nodes no matter how many full-rate observations a card carries. */
+const CompleteCourtPath = memo(function CompleteCourtPath({
+  points,
+  segments,
+}: {
+  points: TableTrackPoint[];
+  segments: TableTrackSegment[];
+}) {
+  const lineData = segments
+    .map(({ from, to }) => {
+      const a = courtXY(from.u, from.v);
+      const b = courtXY(to.u, to.v);
+      return `M${a.x},${a.y}L${b.x},${b.y}`;
+    })
+    .join("");
+  // A near-zero stroked segment with a round cap reads as a dot, while all
+  // raw observations remain consolidated into one DOM node.
+  const dotData = points
+    .map((point) => {
+      const p = courtXY(point.u, point.v);
+      return `M${p.x},${p.y}l0.01,0`;
+    })
+    .join("");
+  return (
+    <g pointerEvents="none" aria-label="Complete BlurBall path">
+      <path
+        d={lineData}
+        fill="none"
+        stroke="#facc15"
+        strokeWidth="0.8"
+        strokeLinecap="round"
+        opacity="0.22"
+      />
+      <path
+        d={dotData}
+        fill="none"
+        stroke="#facc15"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        opacity="0.3"
+      />
+    </g>
+  );
+});
 
 export function ServeMissView({
   data,
@@ -400,16 +462,13 @@ function Court({
   data: ServeMissData;
   t: number;
 }) {
-  const VIEW_W = 150;
-  const VIEW_H = 260;
-  const TX = 25;
-  const TY = 15;
-  const TW = 100;
-  const TH = 230;
-  const xy = (u: number, v: number) => ({
-    x: TX + (TW * u) / TABLE_W_M,
-    y: TY + TH * (1 - v / TABLE_L_M),
-  });
+  const VIEW_W = COURT_VIEW_W;
+  const VIEW_H = COURT_VIEW_H;
+  const TX = COURT_X;
+  const TY = COURT_Y;
+  const TW = COURT_W;
+  const TH = COURT_H;
+  const xy = courtXY;
   const projectedTrack = useMemo(
     () =>
       projectTrackToTable(
@@ -421,6 +480,10 @@ function Court({
         data.fps
       ),
     [card.track, card.seen, data.fps, data.quad, data.w, data.h]
+  );
+  const pathSegments = useMemo(
+    () => tablePathSegments(projectedTrack),
+    [projectedTrack]
   );
   const trail = tableTrailAt(projectedTrack, t);
   const placed = card.bounces.filter((b) => b.u !== null && b.v !== null);
@@ -445,6 +508,9 @@ function Court({
         strokeWidth="1.75"
         strokeDasharray="4 2"
       />
+      {/* Keep the complete raw path visible at rest. The brighter layer
+          below follows the playhead; neither layer bridges a detector gap. */}
+      <CompleteCourtPath points={projectedTrack} segments={pathSegments} />
       {/* Consecutive raw observations only. A detector gap starts a new
           segment, so this never invents a path between bounce markers. */}
       <g pointerEvents="none" aria-label="BlurBall trail">
@@ -522,6 +588,15 @@ function Court({
       </text>
       <text x={TX} y={TY - 5} fontSize="7" fill="#71717a">
         far end
+      </text>
+      <text
+        x={TX + TW}
+        y={TY - 5}
+        textAnchor="end"
+        fontSize="7"
+        fill="#facc15"
+      >
+        BlurBall path
       </text>
     </svg>
   );
