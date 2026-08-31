@@ -58,6 +58,11 @@ interface PlaneSample {
   t: number;
   u0: number;
   v0: number;
+  confidence: number;
+}
+
+interface CandidateTrajectoryPoint extends EstimatedTrajectoryPoint {
+  confidence: number;
 }
 
 interface HeightAnchor {
@@ -177,7 +182,7 @@ export function reconstructBallTrajectory(
     )
     .map((span) => [span[0], span[1]] as const);
   const samples = input.track.flatMap((row): PlaneSample[] => {
-    const [t, normalizedX, normalizedY] = row;
+    const [t, normalizedX, normalizedY, confidence] = row;
     if (![t, normalizedX, normalizedY].every(Number.isFinite)) return [];
     if (seen.length > 0 && !timeInSeen(t, seen)) return [];
     const projected = project(
@@ -185,7 +190,14 @@ export function reconstructBallTrajectory(
       normalizedX * input.sourceWidth,
       normalizedY * input.sourceHeight
     );
-    return projected ? [{ t, u0: projected[0], v0: projected[1] }] : [];
+    return projected
+      ? [{
+          t,
+          u0: projected[0],
+          v0: projected[1],
+          confidence: normalizeConfidence(confidence),
+        }]
+      : [];
   });
   samples.sort((left, right) => left.t - right.t);
   const uniqueSamples = samples.filter(
@@ -282,10 +294,16 @@ export function reconstructBallTrajectory(
     allSamples.some((sample) => Math.abs(sample.t - time) <= 1e-6)
   );
   const trajectories = cameras.flatMap((camera) => {
-    const lifted = allSamples.map((sample): EstimatedTrajectoryPoint => {
+    const lifted = allSamples.map((sample): CandidateTrajectoryPoint => {
       const z = heightAt(sample.t, anchors);
       const point = liftAlongRay(sample.u0, sample.v0, z, camera);
-      return { t: sample.t, u: point.u, v: point.v, z };
+      return {
+        t: sample.t,
+        u: point.u,
+        v: point.v,
+        z,
+        confidence: sample.confidence,
+      };
     });
     const points = lifted.slice();
     for (const bounce of bounces) {
@@ -298,6 +316,7 @@ export function reconstructBallTrajectory(
           u: bounce.u,
           v: bounce.v,
           z: 0,
+          confidence: points[index].confidence,
         };
       }
     }
@@ -316,9 +335,10 @@ export function reconstructBallTrajectory(
 
   if (trajectories.length === 0) return [];
 
-  return trajectories.reduce((best, candidate) =>
+  const best = trajectories.reduce((best, candidate) =>
     candidate.cost < best.cost ? candidate : best
   ).points;
+  return best.map(({ t, u, v, z }) => ({ t, u, v, z }));
 }
 
 /**
@@ -328,10 +348,10 @@ export function reconstructBallTrajectory(
  * points so the renderer receives one continuous estimate.
  */
 function stabilizeSupportedTrajectory(
-  points: readonly EstimatedTrajectoryPoint[],
+  points: readonly CandidateTrajectoryPoint[],
   anchors: readonly HeightAnchor[]
-): EstimatedTrajectoryPoint[] | null {
-  const output: EstimatedTrajectoryPoint[] = [];
+): CandidateTrajectoryPoint[] | null {
+  const output: CandidateTrajectoryPoint[] = [];
   for (let anchorIndex = 1; anchorIndex < anchors.length; anchorIndex += 1) {
     const startTime = anchors[anchorIndex - 1].t;
     const endTime = anchors[anchorIndex].t;
@@ -353,14 +373,18 @@ function stabilizeSupportedTrajectory(
         (isInsideDisplay(point) && point.v >= minimumV && point.v <= maximumV)
     );
     const previous = new Array<number>(candidates.length).fill(-1);
-    const retained = new Array<number>(candidates.length).fill(
+    const retainedCounts = new Array<number>(candidates.length).fill(
       Number.NEGATIVE_INFINITY
     );
-    retained[0] = 1;
+    const retainedConfidence = new Array<number>(candidates.length).fill(
+      Number.NEGATIVE_INFINITY
+    );
+    retainedCounts[0] = 1;
+    retainedConfidence[0] = candidates[0].confidence;
     const direction = Math.sign(end.v - start.v);
     for (let right = 1; right < candidates.length; right += 1) {
       for (let left = 0; left < right; left += 1) {
-        if (!Number.isFinite(retained[left])) continue;
+        if (!Number.isFinite(retainedCounts[left])) continue;
         const deltaV = candidates[right].v - candidates[left].v;
         const followsFlight =
           direction === 0
@@ -371,16 +395,23 @@ function stabilizeSupportedTrajectory(
           horizontalSpeed(candidates[left], candidates[right]) <=
             MAX_HORIZONTAL_SPEED_MPS
         ) {
-          const score = retained[left] + 1;
-          if (score > retained[right]) {
-            retained[right] = score;
+          const count = retainedCounts[left] + 1;
+          const confidence =
+            retainedConfidence[left] + candidates[right].confidence;
+          if (
+            count > retainedCounts[right] ||
+            (count === retainedCounts[right] &&
+              confidence > retainedConfidence[right] + EPSILON)
+          ) {
+            retainedCounts[right] = count;
+            retainedConfidence[right] = confidence;
             previous[right] = left;
           }
         }
       }
     }
     const endIndex = candidates.length - 1;
-    if (!Number.isFinite(retained[endIndex])) return null;
+    if (!Number.isFinite(retainedCounts[endIndex])) return null;
 
     const supportedIndices: number[] = [];
     for (let index = endIndex; index >= 0; index = previous[index]) {
@@ -505,6 +536,8 @@ function insertEventSamples(
       t: time,
       u0: left.u0 + ratio * (right.u0 - left.u0),
       v0: left.v0 + ratio * (right.v0 - left.v0),
+      confidence:
+        left.confidence + ratio * (right.confidence - left.confidence),
     });
   }
   return output.sort((left, right) => left.t - right.t);
@@ -525,7 +558,15 @@ function interpolatePlaneSample(
     t: time,
     u0: left.u0 + ratio * (right.u0 - left.u0),
     v0: left.v0 + ratio * (right.v0 - left.v0),
+    confidence:
+      left.confidence + ratio * (right.confidence - left.confidence),
   };
+}
+
+function normalizeConfidence(value: number | undefined): number {
+  return Number.isFinite(value) && Number(value) > 0
+    ? Number(value) / (1 + Number(value))
+    : 0.5;
 }
 
 function latentBounceTime(

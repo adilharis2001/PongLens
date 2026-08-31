@@ -155,6 +155,27 @@ const falseCrossingFixture: BallTrajectoryInput = {
   seen: [[2, 2.7]],
 };
 
+const competingBranchesFixture: BallTrajectoryInput = {
+  ...youngServeFixture,
+  quad: syntheticQuad,
+  track: [
+    [3, 0.519631243, 0.520105665, 10],
+    [3.1, 0.490546354, 0.515461127, 0.01],
+    [3.11, 0.557746323, 0.504852774, 100],
+    [3.2, 0.468320118, 0.506055514, 0.01],
+    [3.21, 0.533668215, 0.496386155, 100],
+    [3.3, 0.480137084, 0.491266315, 10],
+  ],
+  bounces: [
+    { t: 3, u: 0.4, v: 0.3 },
+    { t: 3.3, u: 0.8, v: 2 },
+  ],
+  contacts: [],
+  crossings: [],
+  serveTime: null,
+  seen: [[3, 3.3]],
+};
+
 const missedBounceFixture: BallTrajectoryInput = {
   ...youngServeFixture,
   quad: syntheticQuad,
@@ -321,6 +342,41 @@ test("selected bounce anchors remain exact after rejecting corrupt observations"
 test("same-side flights do not invent repeated net crossings", () => {
   const result = reconstructBallTrajectory(falseCrossingFixture);
   assert.equal(countNetCrossings(result), 0);
+});
+
+test("confidence breaks equal-length valid-path ties toward the tracked ball", () => {
+  const result = reconstructBallTrajectory(competingBranchesFixture);
+  const highBranch = reconstructBallTrajectory({
+    ...competingBranchesFixture,
+    track: competingBranchesFixture.track.filter(
+      (row) => row[0] === 3 || row[0] === 3.11 || row[0] === 3.21 || row[0] === 3.3
+    ),
+  });
+  const selected = result.find((point) => point.t === 3.11);
+  const expected = highBranch.find((point) => point.t === 3.11);
+  assert.ok(selected && expected);
+  closeTo(selected.u, expected.u, 1e-9);
+  closeTo(selected.v, expected.v, 1e-9);
+});
+
+test("legacy three-column tracks remain supported without exposing confidence", () => {
+  const legacyTrack = competingBranchesFixture.track.map((row) => row.slice(0, 3));
+  const result = reconstructBallTrajectory({
+    ...competingBranchesFixture,
+    track: legacyTrack,
+  });
+  assert.ok(result.length > 2);
+  assert.deepEqual(Object.keys(result[0]), ["t", "u", "v", "z"]);
+  assert.deepEqual(
+    reconstructBallTrajectory({
+      ...competingBranchesFixture,
+      track: legacyTrack.map((row, index) => [
+        ...row,
+        index % 2 === 0 ? Number.NaN : Number.POSITIVE_INFINITY,
+      ]),
+    }),
+    result
+  );
 });
 
 test("crossing evidence inserts exact net-time estimates for candidate scoring", () => {
