@@ -70,6 +70,15 @@ export interface MissCard {
    *  Null on every card the research page publishes; set on the anchored
    *  cards the admin portal additionally carries. */
   serve_s?: number | null;
+  /**
+   * The two bounces the serve rule actually accepted, in source seconds.
+   *
+   * A card carries every bounce the detector saw and they all look alike,
+   * so which two of them made the serve is the one thing a picture of ten
+   * identical rings cannot tell you. Null on a card with no serve, and on
+   * any diagnosis published before the pair was recorded.
+   */
+  serve_bounces?: [number, number] | null;
   track: [number, number, number][];
   bounces: MissBounce[];
   crossings: number[];

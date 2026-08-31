@@ -210,18 +210,35 @@ def main():
             anchored = sum(1 for c in page["cards"]
                            if c.get("serve_s") is not None)
             size_kb = os.path.getsize(dest) / 1024
-            tracks = write_point_tracks(blob, os.path.dirname(dest))
+            # NEVER stamp over measured confidences. This script has no
+            # blurball.jsonl to read, so anything it builds here would be
+            # stamped — and the reader ignores a stamped track, so
+            # re-publishing after a rule change would silently switch two of
+            # the three winner rules off on every match that had them.
+            # Rebuild the track only where there is nothing better already.
+            existing = os.path.join(os.path.dirname(dest), "tracks.json")
+            measured = False
+            if os.path.exists(existing):
+                try:
+                    with open(existing) as fh:
+                        measured = json.load(fh).get("conf") == CONF_MEASURED
+                except ValueError:
+                    measured = False
+            tracks = existing if measured else write_point_tracks(
+                blob, os.path.dirname(dest))
             if s3:
                 prefix = f"points/{owner_of(conn, name)}/{name}"
                 s3.upload_file(dest, MEDIA_BUCKET, f"{prefix}/serves.json",
                                ExtraArgs={"ContentType": "application/json"})
-                s3.upload_file(tracks, MEDIA_BUCKET, f"{prefix}/tracks.json",
-                               ExtraArgs={"ContentType": "application/json"})
+                if not measured:
+                    s3.upload_file(tracks, MEDIA_BUCKET,
+                                   f"{prefix}/tracks.json",
+                                   ExtraArgs={"ContentType": "application/json"})
             print(f"{name[:8]}  {len(page['cards']):3d} cards, "
                   f"{anchored:3d} with a serve, "
                   f"{len(page['cards']) - anchored:3d} without "
-                  f"({size_kb:.0f} KB + {os.path.getsize(tracks)/1024:.0f} KB "
-                  f"of track)")
+                  f"({size_kb:.0f} KB, track "
+                  f"{'kept measured' if measured else 'rebuilt stamped'})")
             done += 1
 
     print(f"\n{done} published, {failed} skipped")

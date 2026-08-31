@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { NORMAL_SPEED_IDX, SPEEDS, SpeedMenu } from "../../../match/[id]/SpeedMenu";
 import { CardTimeline } from "./CardTimeline";
 import {
   TABLE_L_M,
@@ -26,6 +27,10 @@ import {
  * there is exactly one line in this file where the two clocks meet.
  */
 
+/** The serve's own bounces. Not green or red — those already mean
+ *  on and off the playing surface, and a serve bounce can be either. */
+export const SERVE_BOUNCE = "#e879f9";
+
 export function ServeMissView({
   data,
   card,
@@ -42,6 +47,12 @@ export function ServeMissView({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [t, setT] = useState(card.t0);
   const [playing, setPlaying] = useState(false);
+  // Per instance, never module-scoped: several cards can be expanded at
+  // once on a phone and one rate for all of them would move the others.
+  const [rate, setRate] = useState<number>(SPEEDS[NORMAL_SPEED_IDX]);
+  // The presentation time of the frame ACTUALLY on screen. See the draw
+  // loop for why currentTime is not good enough below about half speed.
+  const frameTime = useRef<number | null>(null);
 
   const cutT0 = card.t0 + cutOffset;
   const cutT1 = card.t1 + cutOffset;
@@ -61,8 +72,48 @@ export function ServeMissView({
     };
   }, [cutT0]);
 
+  // playbackRate survives a seek but not a change of src, and this video's
+  // src is a presigned URL that can be renewed under it. Setting
+  // defaultPlaybackRate too means the element comes back at the chosen rate
+  // rather than silently at 1x while the pill still reads 0.1x.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.playbackRate = rate;
+    v.defaultPlaybackRate = rate;
+  }, [rate, videoUrl]);
+
   useEffect(() => {
     let raf = 0;
+    let vfc = 0;
+    const v0 = videoRef.current;
+    // requestVideoFrameCallback hands back the media time of the frame the
+    // compositor just showed. currentTime does not: it runs on continuously
+    // while a single frame is held, which at 1x is a third of a frame and
+    // invisible, and at 0.1x is a whole frame — the overlay would draw the
+    // ball a frame ahead of the picture it is drawn on, at exactly the
+    // speed someone is using to check the tracking frame by frame.
+    type FrameMeta = { mediaTime: number };
+    type WithVFC = HTMLVideoElement & {
+      requestVideoFrameCallback?: (
+        cb: (now: number, meta: FrameMeta) => void
+      ) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    };
+    const vfcHost = v0 as WithVFC | null;
+    const onFrame = (_now: number, meta: FrameMeta) => {
+      frameTime.current = meta.mediaTime;
+      if (vfcHost?.requestVideoFrameCallback) {
+        vfc = vfcHost.requestVideoFrameCallback(onFrame);
+      }
+    };
+    if (vfcHost?.requestVideoFrameCallback) {
+      vfc = vfcHost.requestVideoFrameCallback(onFrame);
+    }
+    // Derived in here, not in the render: `card.serve_bounces ?? []` is a
+    // fresh array every render, and as a dependency it tore this effect —
+    // and the frame callback with it — down and up again on every tick.
+    const servePair = card.serve_bounces ?? [];
     const draw = () => {
       raf = requestAnimationFrame(draw);
       const v = videoRef.current;
@@ -82,7 +133,7 @@ export function ServeMissView({
       const sy = h / data.h;
       // THE one conversion: the video's clock, read back into the
       // assembler's. Everything below is source seconds.
-      const now = v.currentTime - cutOffset;
+      const now = (frameTime.current ?? v.currentTime) - cutOffset;
       setT(now);
 
       if (!v.paused && now > card.t1) {
@@ -158,22 +209,34 @@ export function ServeMissView({
       }
 
       // every bounce, held a third of a second either side so a 30fps
-      // event is visible at all
+      // event is visible at all. The serve's own two are drawn in magenta
+      // whatever the surface says: on a card carrying ten identical rings,
+      // which two the serve rule accepted is the thing you cannot see.
       for (const b of card.bounces) {
         const age = now - b.t;
         if (age < -0.34 || age > 0.34) continue;
         const fade = 1 - Math.abs(age) / 0.34;
+        const isServe = servePair.some((st) => Math.abs(st - b.t) < 0.02);
         ctx.globalAlpha = 0.25 + 0.75 * fade;
         ctx.beginPath();
         ctx.arc(b.x * w, b.y * h, 5 + 8 * (1 - fade), 0, Math.PI * 2);
-        ctx.strokeStyle = b.onSurface ? "#50ff78" : "#ff5050";
-        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = isServe
+          ? SERVE_BOUNCE
+          : b.onSurface
+            ? "#50ff78"
+            : "#ff5050";
+        ctx.lineWidth = isServe ? 3.5 : 2.5;
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
     };
     raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (vfc && vfcHost?.cancelVideoFrameCallback) {
+        vfcHost.cancelVideoFrameCallback(vfc);
+      }
+    };
   }, [data, card, cutOffset, cutT0]);
 
   const why = card.why;
@@ -244,6 +307,14 @@ export function ServeMissView({
         <span className="w-20 shrink-0 text-right text-xs tabular-nums text-zinc-500">
           {Math.max(0, t - card.t0).toFixed(1)}s / {card.dur.toFixed(1)}s
         </span>
+        {/* Opens upward, over the picture: below this row is the timeline,
+            and a menu that covered it would hide the thing being read. */}
+        <SpeedMenu
+          value={rate}
+          onChange={setRate}
+          drop="up"
+          className="rounded-full border border-edge px-3 py-1 text-xs tabular-nums text-zinc-300 transition-colors hover:border-cyan-glow/40"
+        />
       </div>
 
       {/* What each sensor recorded across the same seconds. Under the
@@ -354,19 +425,25 @@ function Court({ card, t }: { card: MissCard; t: number }) {
       {placed.map((b, i) => {
         const p = xy(b.u as number, b.v as number);
         const live = Math.abs(t - b.t) < 0.34;
+        const isServe = (card.serve_bounces ?? []).some(
+          (st) => Math.abs(st - b.t) < 0.02
+        );
         return (
           <g key={`${b.t}-${i}`}>
             <title>
               {`${(b.t - card.t0).toFixed(2)}s into the card · `
                 + `${b.u?.toFixed(2)}, ${b.v?.toFixed(2)} m · `
-                + `${b.onSurface ? "on the surface" : "off the surface"}`}
+                + `${b.onSurface ? "on the surface" : "off the surface"}`
+                + (isServe ? " · the serve" : "")}
             </title>
             <circle
               cx={p.x}
               cy={p.y}
               r={live ? 6 : 3.5}
-              fill={b.onSurface ? "#50ff78" : "#ff5050"}
-              fillOpacity={live ? 0.95 : 0.4}
+              fill={
+                isServe ? SERVE_BOUNCE : b.onSurface ? "#50ff78" : "#ff5050"
+              }
+              fillOpacity={live ? 0.95 : isServe ? 0.75 : 0.4}
               stroke="#0c1222"
               strokeWidth="0.75"
             />

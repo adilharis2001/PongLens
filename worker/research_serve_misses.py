@@ -172,7 +172,7 @@ def walk_rules(t0, t1, bnc, track, times, crossings, H):
     return res, proj
 
 
-def anchored_serve_times(blob, H):
+def anchored_serves(blob, H):
     """Which serves the detector finds NOW, not when the bundle was written.
 
     Each stored card carries the serve time the reprocess run found, and this
@@ -195,7 +195,15 @@ def anchored_serve_times(blob, H):
     scale = float(blob["w"]) / 1920.0
     motifs = serve_motifs(track, sorted(bounces), H, fps, scale,
                           [float(t) for t in blob.get("crossings") or []])
-    return sorted({round(m["contact_s"], 2) for m in motifs})
+    # The PAIR, not just the contact. A card shows every bounce the detector
+    # saw and they all look alike; which two of them the serve rule actually
+    # accepted is the thing you want to see, and it is thrown away here if
+    # only the contact time survives.
+    return sorted(
+        ({"contact": round(m["contact_s"], 2),
+          "bounces": [round(m["bounce1_s"], 2), round(m["bounce2_s"], 2)]}
+         for m in motifs),
+        key=lambda m: m["contact"])
 
 
 def tracked_runs(track, t0, t1, fps):
@@ -275,13 +283,13 @@ def build(blob, include_all=False):
 
     track, times, bnc = bounce_pixels(blob)
     w, h = float(blob["w"]), float(blob["h"])
-    serves = anchored_serve_times(blob, H)
+    serves = anchored_serves(blob, H)
     cards = []
     for card in blob["cards"]:
         t0, t1 = float(card[0]), float(card[1])
         # Recomputed against today's constants, not the value frozen into
         # the bundle — see anchored_serve_times.
-        inside = [s for s in serves if t0 <= s <= t1]
+        inside = [m for m in serves if t0 <= m["contact"] <= t1]
         if inside and not include_all:
             continue
         res, proj = walk_rules(t0, t1, bnc, track, times,
@@ -294,7 +302,10 @@ def build(blob, include_all=False):
             # Where the detector put bat on ball, or null when it found
             # none. The portal reads this to tell an anchored card from a
             # refused one; the research page only ever gets nulls.
-            "serve_s": round(inside[0], 2) if inside else None,
+            "serve_s": inside[0]["contact"] if inside else None,
+            # The two bounces the serve rule accepted, so the page can pick
+            # them out of the ten the card carries.
+            "serve_bounces": inside[0]["bounces"] if inside else None,
             # fractions of the frame, so the overlay survives any size
             "track": [[round(t, 2), round(x / w, 5), round(y / h, 5)]
                       for t, x, y in track[ia:ib]],

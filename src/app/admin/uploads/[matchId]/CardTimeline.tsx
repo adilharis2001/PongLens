@@ -51,6 +51,8 @@ const TONE = {
   offSurface: "#ff5050",
   crossing: "#64748b",
   serve: "#facc15",
+  /** The two bounces the serve rule accepted, told apart from the rest. */
+  serveBounce: "#e879f9",
 };
 
 export function CardTimeline({
@@ -195,22 +197,33 @@ export function CardTimeline({
             strokeWidth="1"
           />
         ))}
-        {card.bounces.map((b, i) => (
-          <circle
-            key={`b${i}`}
-            cx={px(b.t)}
-            cy={BOUNCE_Y}
-            r="4"
-            fill={b.onSurface ? TONE.onSurface : TONE.offSurface}
-            fillOpacity="0.9"
-          >
-            <title>
-              {`${(b.t - card.t0).toFixed(2)}s · ${
-                b.onSurface ? "on the playing surface" : "off the surface"
-              }`}
-            </title>
-          </circle>
-        ))}
+        {card.bounces.map((b, i) => {
+          const isServe = (card.serve_bounces ?? []).some(
+            (st) => Math.abs(st - b.t) < 0.02
+          );
+          return (
+            <circle
+              key={`b${i}`}
+              cx={px(b.t)}
+              cy={BOUNCE_Y}
+              r={isServe ? 5 : 4}
+              fill={
+                isServe
+                  ? TONE.serveBounce
+                  : b.onSurface
+                    ? TONE.onSurface
+                    : TONE.offSurface
+              }
+              fillOpacity="0.95"
+            >
+              <title>
+                {`${(b.t - card.t0).toFixed(2)}s · ${
+                  b.onSurface ? "on the playing surface" : "off the surface"
+                }${isServe ? " · the serve" : ""}`}
+              </title>
+            </circle>
+          );
+        })}
 
         {/* the serve, if one was anchored */}
         <line
@@ -315,6 +328,10 @@ export function CardTimeline({
         <span>
           <i className="mr-1 inline-block h-2 w-2.5 align-middle rounded-sm bg-cyan-glow/75" />
           ball held
+        </span>
+        <span>
+          <i className="mr-1 inline-block h-2 w-2 align-middle rounded-full bg-[#e879f9]" />
+          the serve&rsquo;s two bounces
         </span>
         <span>
           <i className="mr-1 inline-block h-2 w-2 align-middle rounded-full bg-[#50ff78]" />
