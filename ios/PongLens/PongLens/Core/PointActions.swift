@@ -7,9 +7,50 @@ enum WinnerOrSkip { case user, opponent, skip }
 // The point detail view's write surface — all column-scoped patches,
 // optimistic with rollback, mirroring PointScorecard.tsx's writes.
 extension MatchDetailModel {
-    func setServerOverride(_ point: MatchPoint, _ side: Winner) async {
-        await patch(point, fields: ["server_override": .string(side.rawValue)]) {
-            $0.serverOverride = side
+    /// Set (or clear, with nil) a point's serve correction.
+    ///
+    /// set_server_override (migration 100) writes the anchor AND clears
+    /// every correction after it, in one statement. The rotation anchors to
+    /// the most recent override before each point, so a stale correction
+    /// further down the match used to win over this one and quietly undo it
+    /// from there on. Corrections BEFORE this one stand: they anchor a
+    /// stretch this one does not speak for.
+    func setServerOverride(_ point: MatchPoint, _ side: Winner?) async {
+        struct Params: Encodable {
+            let p_id: String
+            let p_value: String?
+        }
+        // The clear is mirrored locally as well as written, or the chips
+        // downstream keep showing a correction that is already gone.
+        let restore = points.map { ($0.id, $0.serverOverride) }
+        var doomed: Set<UUID> = []
+        if let at = visible.firstIndex(where: { $0.id == point.id }) {
+            doomed = Set(
+                visible[(at + 1)...]
+                    .filter { $0.serverOverride != nil }
+                    .map(\.id)
+            )
+        }
+        for i in points.indices {
+            if points[i].id == point.id {
+                points[i].serverOverride = side
+            } else if doomed.contains(points[i].id) {
+                points[i].serverOverride = nil
+            }
+        }
+        do {
+            _ = try await supa
+                .rpc("set_server_override", params: Params(
+                    p_id: point.id.uuidString.lowercased(),
+                    p_value: side?.rawValue
+                ))
+                .execute()
+        } catch {
+            for (id, was) in restore {
+                if let i = points.firstIndex(where: { $0.id == id }) {
+                    points[i].serverOverride = was
+                }
+            }
         }
     }
 

@@ -249,6 +249,8 @@ struct PlayerTakeover: View {
 
     @State var chipPill: UUID?
     @State var removedArmed: UUID?
+    /// The seam the "Add a missing rally" sheet is open on.
+    @State var insertSeam: InsertSeamPair?
     @State var toast: String?
     @State var gesturesOpen = false
     /// Deferred while the setup sheet is up: being told where you are is
@@ -558,6 +560,13 @@ struct PlayerTakeover: View {
                 .presentationDetents([.height(300)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $insertSeam) { pair in
+            InsertSheet(
+                match: match, model: model,
+                prev: pair.prev, next: pair.next, pad: pad,
+                onFinished: { showFlash($0) }
+            )
         }
         .sheet(isPresented: $gesturesOpen) {
             gesturesSheet
@@ -2026,9 +2035,11 @@ struct PlayerTakeover: View {
         }
         .buttonStyle(.plain)
         .disabled(displayTarget == nil || app.userId != match.userId)
+        // The lit ball is the state, not an action: pressing it is a
+        // no-op (see flipServer), so it must not promise a switch.
         .accessibilityLabel(
             active
-                ? "\(them ? (match.opponentName ?? "They") : "I") serve — tap to switch server"
+                ? "\(them ? (match.opponentName ?? "They") : "I") served this point"
                 : "Give the serve to \(them ? (match.opponentName ?? "them") : "me")"
         )
     }
@@ -2041,8 +2052,8 @@ struct PlayerTakeover: View {
         guard serving[target.id]?.server != side else { return }
         Task { await model.setServerOverride(target, side) }
         showFlash(side == .user
-            ? "I serve — rotation updated"
-            : "\(match.opponentName ?? "They") serve — rotation updated")
+            ? "I serve. Rotation updated from here."
+            : "\(match.opponentName ?? "They") serve. Rotation updated from here.")
     }
 
     func serveBallFace(active: Bool, them: Bool = false) -> some View {
@@ -2076,6 +2087,7 @@ struct PlayerTakeover: View {
     func chipStrip(targetId: UUID?) -> some View {
         let full = fullScore
         let removed = removedDots
+        let offers = insertOffers
         // Once for the strip, not once per chip: the rule walks every
         // visible rally, and it is read inside a ForEach body.
         let markers = SideChanges.byPoint(
@@ -2098,6 +2110,9 @@ struct PlayerTakeover: View {
                             // trace.
                             ForEach(removed[p.id] ?? [], id: \.self) { id in
                                 removedDot(id)
+                            }
+                            if let offer = offers[p.id] {
+                                insertDot(offer)
                             }
                             HStack(spacing: 0) {
                                 tickerChip(p, number: i + 1, isCurrent: p.id == targetId)
@@ -2152,6 +2167,56 @@ struct PlayerTakeover: View {
         return out
     }
 
+    /// Where the strip offers a "+", keyed by the chip it sits BEFORE.
+    ///
+    /// Only where the video actually SKIPS. Measured over 9,433 seams in
+    /// production, 19% run more than eight seconds — about a rally plus the
+    /// pauses either side of it. One between every pair of chips would turn
+    /// a 72-point strip into 71 buttons and say nothing; only at the skips,
+    /// it reads as "the video jumped here", which is the thing being fixed.
+    var insertOffers: [UUID: InsertSeamPair] {
+        guard app.userId == match.userId else { return [:] }
+        var out: [UUID: InsertSeamPair] = [:]
+        let withClips = points.filter { $0.cutT0 != nil }
+        guard withClips.count > 1 else { return out }
+        for i in 1..<withClips.count {
+            let a = withClips[i - 1]
+            let b = withClips[i]
+            if gapWorthOffering(a.insertNeighbour, b.insertNeighbour, pad: pad) != nil {
+                out[b.id] = InsertSeamPair(id: b.id, prev: a, next: b)
+            }
+        }
+        return out
+    }
+
+    /// Dashed and quiet: it marks a hole in the strip rather than competing
+    /// with the chips, and only appears where there is one.
+    func insertDot(_ seamPair: InsertSeamPair) -> some View {
+        let skipped = Int(((seamPair.next.t0 ?? 0) - (seamPair.prev.t1 ?? 0)).rounded())
+        return Button {
+            // player.pause(), NOT a bare pause(): Swift resolves a bare
+            // pause() to the POSIX pause(2) system call from Darwin, which
+            // blocks the calling thread until a signal arrives. On the main
+            // thread that hangs the whole app and the watchdog then kills
+            // it — it compiles without a murmur, and it shipped in build 75.
+            player.pause()
+            insertSeam = seamPair
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(PL.text500)
+                .frame(width: 24, height: 24)
+                .overlay(
+                    Circle().strokeBorder(
+                        PL.text600, style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])))
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            "The video skips \(skipped) seconds here. Add a missing rally.")
+    }
+
     /// Tap once to arm, again to restore — a bare dot is too easy to hit by
     /// accident for a write, and a confirm dialog for one point is heavier
     /// than the mistake.
@@ -2173,9 +2238,18 @@ struct PlayerTakeover: View {
                         if removedArmed == id { removedArmed = nil }
                     }
                 } label: {
+                    // Drawn small on purpose — a removed point is a trace,
+                    // not a chip — but TAPPED at the same 36pt as the chips
+                    // beside it. It used to be a bare 10pt circle, which is
+                    // a 10pt target: about 8% of a chip's area, and in
+                    // practice unhittable, so a point deleted by accident
+                    // could not be put back at all. The frame matches the
+                    // strip's row height, so nothing moves.
                     Circle()
-                        .strokeBorder(PL.dangerText.opacity(0.55), lineWidth: 1.5)
-                        .frame(width: 10, height: 10)
+                        .strokeBorder(PL.dangerText.opacity(0.7), lineWidth: 1.5)
+                        .frame(width: 12, height: 12)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("A removed point — tap to put it back")

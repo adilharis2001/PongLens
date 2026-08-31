@@ -271,6 +271,71 @@ extension MatchDetailModel {
         }
     }
 
+    /// Add a card for a rally the cut missed.
+    ///
+    /// insert_point (101) does it all in one statement: creates the card,
+    /// trims each neighbour only where the new window overlapped it, and
+    /// clears the serve corrections after it — an insert changes the
+    /// rotation from here on, so a correction downstream was answering a
+    /// rotation that no longer exists.
+    ///
+    /// The rotation needs nothing else: it is a COUNT of cards, so
+    /// restoring the beat fixes who served every later point, the score,
+    /// the deuce switch and the game boundaries at once.
+    func runInsert(
+        prev: MatchPoint?, next: MatchPoint?,
+        t0: Double, t1: Double, cutT0: Double,
+        winner: Winner?
+    ) async -> Bool {
+        guard let matchId = prev?.matchId ?? next?.matchId else { return false }
+        struct Params: Encodable {
+            let p_prev_id: String?
+            let p_next_id: String?
+            let p_t0: Double
+            let p_t1: Double
+            let p_cut_t0: Double
+        }
+        do {
+            let created: MatchPoint = try await supa
+                .rpc("insert_point", params: Params(
+                    p_prev_id: prev?.id.uuidString.lowercased(),
+                    p_next_id: next?.id.uuidString.lowercased(),
+                    p_t0: t0, p_t1: t1, p_cut_t0: cutT0
+                ))
+                .execute()
+                .value
+            points.append(created)
+            // Mirror what the RPC did to the neighbours and to any stale
+            // corrections, so the strip is truthful before any refetch.
+            if let prev, let pt1 = prev.t1, pt1 > t0,
+               let j = points.firstIndex(where: { $0.id == prev.id }) {
+                points[j].t1 = t0
+                points[j].edited = true
+            }
+            if let next, let nt0 = next.t0, nt0 < t1,
+               let j = points.firstIndex(where: { $0.id == next.id }) {
+                points[j].t0 = t1
+                points[j].edited = true
+            }
+            for j in points.indices where points[j].serverOverride != nil {
+                if let pt0 = points[j].t0, pt0 > t0, points[j].id != created.id {
+                    points[j].serverOverride = nil
+                }
+            }
+            // The clip has to come from the raw: this footage is either
+            // missing from the cut entirely or shared with a neighbour that
+            // just gave it up.
+            await enqueueReclip(matchId)
+            if let winner {
+                _ = await setOutcome(
+                    created, winner == .user ? .user : .opponent)
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// The Adjust save: new t0/t1, a manually re-timed split edge dissolving
     /// its tight flag so the reclip pads it with full context again.
     func runAdjust(_ point: MatchPoint, t0New: Double, t1New: Double) async -> Bool {
