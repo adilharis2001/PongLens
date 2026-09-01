@@ -8,6 +8,14 @@ export interface ResearchPage {
 
 export const RESEARCH_PAGES = [
   {
+    title: "Audio impacts",
+    category: "Data labeling",
+    description:
+      "Label paddle, table, floor, shoe, net, background-court, and unrelated sounds from recent matches across quiet and noisy venues.",
+    href: "/research/audio-impacts",
+    accent: "cyan",
+  },
+  {
     title: "Serve spin",
     category: "Data labeling",
     description:

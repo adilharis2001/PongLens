@@ -14,6 +14,7 @@ test("the research catalog contains every current research page", () => {
   assert.deepEqual(
     RESEARCH_PAGES.map(({ title, href }) => ({ title, href })),
     [
+      { title: "Audio impacts", href: "/research/audio-impacts" },
       { title: "Serve spin", href: "/research/spin" },
       { title: "Fused labeling", href: "/research/fused-labeling" },
       {
@@ -46,7 +47,7 @@ test("the research catalog contains every current research page", () => {
       },
     ],
   );
-  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 18);
+  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 19);
   for (const page of RESEARCH_PAGES) {
     assert.ok(page.category.length > 0);
     assert.ok(page.description.length > 0);

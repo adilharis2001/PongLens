@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const migration = readFileSync(
@@ -34,6 +34,13 @@ const winnerConstrainedEnding = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
+const audioImpactUrl = new URL(
+  "../../../supabase/migrations/152_audio_impact_research.sql",
+  import.meta.url,
+);
+const audioImpact = existsSync(audioImpactUrl)
+  ? readFileSync(audioImpactUrl, "utf8").toLowerCase()
+  : "";
 const serveFollowupExport = readFileSync(
   new URL(
     "../../../supabase/migrations/059_serve_followup_export.sql",
@@ -120,6 +127,18 @@ test("winner ending migration narrowly adds the fourth permanent media namespace
   assert.match(winnerConstrainedEnding, /v\[0-9\]\+\/sources/);
   assert.match(winnerConstrainedEnding, /\[0-9a-f-\]\{36\}/);
   assert.doesNotMatch(winnerConstrainedEnding, /research\/\.\*/);
+});
+
+test("audio impact migration narrowly adds the fifth permanent media namespace", () => {
+  assert.match(
+    audioImpact,
+    /fused-labeling\|placement-calibration\|serve-detection\|winner-constrained-endings\|audio-impacts/,
+  );
+  assert.match(audioImpact, /v\[0-9\]\+\/sources/);
+  assert.match(audioImpact, /\[0-9a-f-\]\{36\}/);
+  assert.doesNotMatch(audioImpact, /research\/\.\*/);
+  assert.doesNotMatch(audioImpact, /grant\s/);
+  assert.doesNotMatch(audioImpact, /disable row level security/);
 });
 
 test("serve follow-up export includes evidence while retaining the admin gate", () => {
