@@ -20,6 +20,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { SpokenGamesToggle, SpokenLine, cleanSpoken } from "./SpokenScore";
 import { useRouter } from "next/navigation";
 import { NoteComposer, NoteItem } from "./Notes";
 
@@ -100,6 +101,8 @@ export function RawMatchView({
    *  opens itself, because its reason and its retry are why anyone is
    *  looking at this screen. */
   const [processOpen, setProcessOpen] = useState(match.status === "failed");
+  const [spokenOpen, setSpokenOpen] = useState(false);
+  const spokenRows = cleanSpoken(match.spoken_scores);
   /** The browser refused the raw file (usually HEVC in a .mov). */
   const [undecodable, setUndecodable] = useState(false);
 
@@ -336,14 +339,34 @@ export function RawMatchView({
             {duration != null && <> · {formatClock(duration)}</>}
           </p>
         </div>
-        <span className="shrink-0 rounded-full border border-edge px-3 py-1 text-xs text-zinc-400">
-          {jobRunning
-            ? "Processing"
-            : match.status === "failed"
-              ? "Processing failed"
-              : "Not processed"}
-        </span>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <span className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-400">
+            {jobRunning
+              ? "Processing"
+              : match.status === "failed"
+                ? "Processing failed"
+                : "Not processed"}
+          </span>
+          {/* The score called out at the phone. Before processing there
+              is no other score in the product, so this is its moment:
+              league night, entering the result somewhere. Muted and
+              labelled, because it is testimony rather than the scored
+              record the player will make later. */}
+          {spokenRows.length > 0 && (
+            <SpokenGamesToggle
+              rows={spokenRows}
+              open={spokenOpen}
+              onToggle={() => setSpokenOpen((o) => !o)}
+              className="text-base"
+            />
+          )}
+        </div>
       </header>
+      {spokenOpen && spokenRows.length > 0 && (
+        <div className="-mt-2 mb-4 flex justify-end">
+          <SpokenLine rows={spokenRows} className="text-sm font-semibold" />
+        </div>
+      )}
 
       {/* The same player the rest of the app uses, in its cut mode:
           tap to play, double-tap either half for ±10s, pinch to zoom,

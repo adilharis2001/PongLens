@@ -68,6 +68,9 @@ struct MatchRow: Codable, Identifiable, Hashable {
     /// The game-end detector's evidence (140/146). Optional and defaulted
     /// so every construction of MatchRow in tests and previews stands.
     var matchStructure: MatchStructure? = nil
+    /// Scores called out at the phone while recording (152). Reference
+    /// only: never feeds the scorekeeper or the analysis.
+    var spokenScores: [SpokenGameScore]? = nil
     let createdAt: String
     let points: [CountRow]?
 
@@ -90,11 +93,12 @@ struct MatchRow: Codable, Identifiable, Hashable {
         case clipPads = "clip_pads"
         case placementStatus = "placement_status"
         case matchStructure = "match_structure"
+        case spokenScores = "spoken_scores"
         case createdAt = "created_at"
     }
 
     static let librarySelect =
-        "id,user_id,job_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,first_server,clip_pads,placement_status,created_at,points(count)"
+        "id,user_id,job_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,first_server,clip_pads,placement_status,spoken_scores,created_at,points(count)"
 
     /// One match, opened. Adds the game-end detector's evidence, which the
     /// library list has no use for — it is a JSONB blob per row and the

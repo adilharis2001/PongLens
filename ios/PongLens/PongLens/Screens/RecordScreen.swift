@@ -2017,12 +2017,13 @@ struct SpokenEditTarget: Identifiable {
 
 /// The hands-on fallback for everything the microphone gets wrong.
 ///
-/// The spoken path can fail three ways — a game never heard, numbers
-/// that would not parse (the ?? row), a phrase invented from chatter —
-/// and until this existed none of them could be fixed: the only
-/// correction anywhere was swapping two numbers that were already
-/// right. Saying it again is still the quick path mid-match; this is
-/// the sure one, at the sheet where the score is being read anyway.
+/// Asks the way players answer: who won, and how many the loser got.
+/// "Won it 11-7" is one tap and one wheel; deuce derives itself, since a
+/// loser on ten means the winner finished two clear. The two-wheel free
+/// mode stays one tap away for the scores that are not standard games —
+/// an abandoned game, a different rule set — and an existing score that
+/// is not standard opens straight into it rather than being rounded to
+/// something it is not.
 struct SpokenScoreEditor: View {
     let youLabel: String
     /// Set when editing an existing game; nil offers the free numbers.
@@ -2036,8 +2037,12 @@ struct SpokenScoreEditor: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var game: Int
-    @State private var you: Int
-    @State private var them: Int
+    @State private var youWon: Bool
+    @State private var loserPoints: Int
+    /// The two-wheel escape, for scores that are not standard games.
+    @State private var freeMode: Bool
+    @State private var freeYou: Int
+    @State private var freeThem: Int
 
     init(youLabel: String, fixedGame: Int?, freeGames: [Int],
          initialYou: Int, initialThem: Int, canRemove: Bool,
@@ -2052,14 +2057,43 @@ struct SpokenScoreEditor: View {
         self.onSave = onSave
         self.onRemove = onRemove
         _game = State(initialValue: fixedGame ?? freeGames.first ?? 1)
-        _you = State(initialValue: initialYou)
-        _them = State(initialValue: initialThem)
+        if let standard = SpokenScore.standardLoser(you: initialYou,
+                                                    them: initialThem) {
+            _youWon = State(initialValue: standard.youWon)
+            _loserPoints = State(initialValue: standard.loserPoints)
+            _freeMode = State(initialValue: false)
+        } else if initialYou == 0, initialThem == 0, canRemove {
+            // A ?? row being filled in: nothing was heard, so nothing is
+            // worth prefilling beyond the defaults.
+            _youWon = State(initialValue: true)
+            _loserPoints = State(initialValue: 0)
+            _freeMode = State(initialValue: false)
+        } else if canRemove {
+            // An existing score that is not a standard game belongs in
+            // the free wheels exactly as it is.
+            _youWon = State(initialValue: initialYou >= initialThem)
+            _loserPoints = State(initialValue: min(initialYou, initialThem))
+            _freeMode = State(initialValue: true)
+        } else {
+            _youWon = State(initialValue: true)
+            _loserPoints = State(initialValue: 0)
+            _freeMode = State(initialValue: false)
+        }
+        _freeYou = State(initialValue: initialYou)
+        _freeThem = State(initialValue: initialThem)
+    }
+
+    private var saved: (you: Int, them: Int) {
+        if freeMode { return (freeYou, freeThem) }
+        let standard = SpokenScore.standardGame(loserPoints: loserPoints)
+        return youWon ? (standard.winner, standard.loser)
+                      : (standard.loser, standard.winner)
     }
 
     var body: some View {
         PLSheetScaffold(title: fixedGame.map { "Game \($0)" } ?? "Add a game",
                         showDone: false) {
-            VStack(spacing: 20) {
+            VStack(spacing: 22) {
                 if fixedGame == nil, freeGames.count > 1 {
                     Picker("Game", selection: $game) {
                         ForEach(freeGames, id: \.self) { number in
@@ -2070,59 +2104,122 @@ struct SpokenScoreEditor: View {
                     .padding(.horizontal, 20)
                 }
 
-                // Wheels, not typing: two-digit numbers with a hard
-                // ceiling are what wheels are for, and no keyboard means
-                // the sheet never jumps around.
-                HStack(spacing: 0) {
-                    scoreWheel(label: youLabel, tint: PL.cyan, value: $you)
-                    Text("\u{2013}")
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(PL.text500)
-                    scoreWheel(label: "Opponent", tint: PL.magentaSoft,
-                               value: $them)
+                if freeMode {
+                    freeWheels
+                } else {
+                    standardEntry
                 }
-                .frame(height: 170)
-                .padding(.horizontal, 12)
+
+                // The result being saved, spelled out in the score's own
+                // colours, so nothing is committed sight unseen.
+                HStack(spacing: 6) {
+                    Text("\(saved.you)")
+                        .foregroundStyle(PL.cyan)
+                    Text("\u{2013}").foregroundStyle(PL.text500)
+                    Text("\(saved.them)")
+                        .foregroundStyle(PL.magentaSoft)
+                }
+                .font(.system(size: 30, weight: .bold))
+                .monospacedDigit()
+                .animation(.easeOut(duration: 0.12), value: saved.you)
+                .animation(.easeOut(duration: 0.12), value: saved.them)
 
                 VStack(spacing: 10) {
                     Button("Save") {
-                        onSave(game, you, them)
+                        onSave(game, saved.you, saved.them)
                         dismiss()
                     }
                     .buttonStyle(PLPrimaryButtonStyle())
 
-                    if canRemove, let fixedGame {
-                        Button("Remove this game") {
-                            onRemove(fixedGame)
-                            dismiss()
+                    HStack(spacing: 10) {
+                        Button(freeMode ? "Standard game" : "Other score") {
+                            withAnimation(.easeOut(duration: 0.15)) {
+                                if !freeMode {
+                                    freeYou = saved.you
+                                    freeThem = saved.them
+                                }
+                                freeMode.toggle()
+                            }
                         }
-                        .buttonStyle(PLSoftDestructiveButtonStyle())
+                        .buttonStyle(PLSecondaryButtonStyle())
+
+                        if canRemove, let fixedGame {
+                            Button("Remove this game") {
+                                onRemove(fixedGame)
+                                dismiss()
+                            }
+                            .buttonStyle(PLSoftDestructiveButtonStyle())
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
             }
-            .padding(.top, 8)
+            .padding(.top, 10)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .background(PL.ink)
         }
-        .presentationDetents([.height(420)])
+        .presentationDetents([.height(fixedGame == nil ? 470 : 420)])
+        // Opaque on purpose. The system material let the sheet underneath
+        // bleed through — toggles glowing inside the game picker.
+        .presentationBackground(PL.ink)
     }
 
-    private func scoreWheel(label: String, tint: Color,
-                            value: Binding<Int>) -> some View {
-        VStack(spacing: 2) {
-            Text(label)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(tint)
-                .lineLimit(1)
-            Picker(label, selection: value) {
-                // Deuce runs past eleven; forty is comfortably past any
-                // real game without the wheel becoming a scroll.
-                ForEach(0...40, id: \.self) { n in
-                    Text("\(n)").tag(n)
-                }
+    private var standardEntry: some View {
+        VStack(spacing: 18) {
+            Picker("Who won", selection: $youWon) {
+                Text("\(youLabel) won").tag(true)
+                Text("Opponent won").tag(false)
             }
-            .pickerStyle(.wheel)
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 20)
+
+            VStack(spacing: 2) {
+                Text(youWon ? "Opponent's points" : "\(youLabel)'s points")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(youWon ? PL.magentaSoft : PL.cyan)
+                Picker("Loser's points", selection: $loserPoints) {
+                    // Thirty is far past any real deuce without the wheel
+                    // becoming a scroll.
+                    ForEach(0...30, id: \.self) { n in
+                        Text("\(n)").tag(n)
+                    }
+                }
+                .pickerStyle(.wheel)
+                .frame(height: 120)
+            }
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    private var freeWheels: some View {
+        HStack(spacing: 0) {
+            VStack(spacing: 2) {
+                Text(youLabel)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PL.cyan)
+                    .lineLimit(1)
+                Picker(youLabel, selection: $freeYou) {
+                    ForEach(0...40, id: \.self) { n in Text("\(n)").tag(n) }
+                }
+                .pickerStyle(.wheel)
+                .frame(height: 130)
+            }
+            .frame(maxWidth: .infinity)
+            Text("\u{2013}")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(PL.text500)
+            VStack(spacing: 2) {
+                Text("Opponent")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PL.magentaSoft)
+                Picker("Opponent", selection: $freeThem) {
+                    ForEach(0...40, id: \.self) { n in Text("\(n)").tag(n) }
+                }
+                .pickerStyle(.wheel)
+                .frame(height: 130)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .padding(.horizontal, 12)
     }
 }

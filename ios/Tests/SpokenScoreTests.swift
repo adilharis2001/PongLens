@@ -130,3 +130,29 @@ func runSpokenScoreChecks() {
     reads("okay game two score eleven six", 2, 11, 6)
     reads("right, that's it. Game 5 score 11-9, well played", 5, 11, 9)
 }
+
+
+// The hand editor's derivation: who won plus the loser's points is the
+// whole entry, because that is how players say scores out loud.
+func runStandardGameChecks() {
+    print("\n— standard game derivation —")
+
+    check(SpokenScore.standardGame(loserPoints: 0) == (11, 0), "11-0")
+    check(SpokenScore.standardGame(loserPoints: 7) == (11, 7), "11-7")
+    check(SpokenScore.standardGame(loserPoints: 9) == (11, 9), "11-9")
+    // Deuce: the loser reaching ten means the winner finished two clear.
+    check(SpokenScore.standardGame(loserPoints: 10) == (12, 10), "12-10")
+    check(SpokenScore.standardGame(loserPoints: 14) == (16, 14), "16-14")
+
+    // The reverse read round-trips every standard score, both ways round.
+    check(SpokenScore.standardLoser(you: 11, them: 7)! == (true, 7), "won 11-7")
+    check(SpokenScore.standardLoser(you: 7, them: 11)! == (false, 7), "lost 7-11")
+    check(SpokenScore.standardLoser(you: 12, them: 10)! == (true, 10), "won 12-10")
+
+    // Non-standard pairs refuse, so the editor opens them in free mode
+    // instead of silently rounding them to something they are not.
+    check(SpokenScore.standardLoser(you: 11, them: 10) == nil, "11-10 is not standard")
+    check(SpokenScore.standardLoser(you: 8, them: 4) == nil, "an abandoned game is not standard")
+    check(SpokenScore.standardLoser(you: 11, them: 11) == nil, "a tie is not a game")
+    check(SpokenScore.standardLoser(you: 13, them: 10) == nil, "13-10 skips deuce")
+}
