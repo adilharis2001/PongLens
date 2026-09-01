@@ -469,6 +469,13 @@ struct MatchDetailScreen: View {
     @State private var pointSheetIndex = 0
     @State private var pointsExpanded = false
     @State private var showGamesDetail = false
+    /// The spoken score's own disclosure, for the unscored state where it
+    /// stands in the score slot.
+    @State private var showSpokenDetail = false
+    /// Editing the spoken score after the fact. Local override so a save
+    /// shows immediately without refetching the row.
+    @State private var spokenOverride: [SpokenGameScore]??
+    @State private var spokenSheetOpen = false
     @State private var filtersOpen = false
     @State private var winnerFilter: WinnerFilter = .anyone
     @State private var onlyFilter: OnlyFilter = .everything
@@ -498,6 +505,18 @@ struct MatchDetailScreen: View {
     private let pointsPreview = 10
 
     private var current: MatchRow { live ?? match }
+
+    /// Spoken rows to display: the local edit if one happened, else the
+    /// row's. Empty array means "had them, all removed".
+    private var spokenRows: [SpokenGameScore] {
+        (spokenOverride ?? current.spokenScores) ?? []
+    }
+
+    /// The scored result owns the slot whenever it exists; spoken only
+    /// stands in while it does not.
+    private var scoredOwnsSlot: Bool {
+        tracksServe && score.confirmedCount > 0
+    }
 
     /// Does a score mean anything here — tracksServe on the LIVE type, so
     /// changing it in Match details reacts without a reload. Gates every
@@ -1041,7 +1060,7 @@ struct MatchDetailScreen: View {
                 // scored and then re-tagged as practice keeps its winner
                 // rows, and a games total beside "Practice" reads as a
                 // contradiction. Flip the type back and it returns.
-                if tracksServe, score.confirmedCount > 0 {
+                if scoredOwnsSlot {
                     Button {
                         withAnimation(.easeOut(duration: 0.15)) {
                             showGamesDetail.toggle()
@@ -1060,6 +1079,16 @@ struct MatchDetailScreen: View {
                         }
                     }
                     .buttonStyle(.plain)
+                } else if !spokenRows.isEmpty {
+                    // No scored result yet: the spoken score stands in
+                    // the slot, muted and labelled, so which one is the
+                    // record is answered by weight before the label.
+                    SpokenGamesToggle(rows: spokenRows,
+                                      open: showSpokenDetail) {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            showSpokenDetail.toggle()
+                        }
+                    }
                 }
             }
             if showGamesDetail, !score.games.isEmpty {
@@ -1067,7 +1096,93 @@ struct MatchDetailScreen: View {
                     .font(.plCaption)
                     .monospacedDigit()
                     .foregroundStyle(PL.text400)
+                // The record, then the testimony, one weight apart. Tap
+                // the spoken line to fix it.
+                if !spokenRows.isEmpty {
+                    Button {
+                        spokenSheetOpen = true
+                    } label: {
+                        Text("Spoken  ").font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(PL.text600)
+                        + Text(SpokenSummary.line(spokenRows))
+                            .font(.plCaption)
+                            .monospacedDigit()
+                            .foregroundStyle(PL.text500)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            if showSpokenDetail, !scoredOwnsSlot, !spokenRows.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Button {
+                        spokenSheetOpen = true
+                    } label: {
+                        Text(SpokenSummary.line(spokenRows))
+                            .font(.plCaption)
+                            .monospacedDigit()
+                            .foregroundStyle(PL.text400)
+                    }
+                    .buttonStyle(.plain)
+                    // Spoken is the appetizer; the analysis only comes
+                    // from scoring the points. The nudge rides the peek,
+                    // which is the moment someone is thinking about the
+                    // score at all.
+                    if tracksServe, current.status == .ready,
+                       let url = model.videoURL {
+                        Button {
+                            playerRequest = PlayerRequest(
+                                url: url, startAt: nil, mode: .score)
+                        } label: {
+                            Text("Score the match to unlock your analysis")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(PL.cyan)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $spokenSheetOpen) {
+            SpokenScoreSheet(youLabel: spokenYouLabel,
+                             rows: spokenRows,
+                             onSave: { game, you, them in
+                                 saveSpoken(game: game, you: you, them: them)
+                             },
+                             onRemove: { game in removeSpoken(game: game) })
+        }
+    }
+
+    /// The uploader's own label on the spoken board, same rule as the
+    /// record screen: the account's first name, or "You".
+    private var spokenYouLabel: String {
+        let name = app.firstName
+        guard name != "player", name.count <= 10 else { return "You" }
+        return name.prefix(1).uppercased() + name.dropFirst()
+    }
+
+    private func saveSpoken(game: Int, you: Int, them: Int) {
+        var rows = spokenRows
+        rows.removeAll { $0.game == game }
+        rows.append(SpokenGameScore(game: game, you: you, them: them))
+        rows.sort { $0.game < $1.game }
+        persistSpoken(rows)
+    }
+
+    private func removeSpoken(game: Int) {
+        persistSpoken(spokenRows.filter { $0.game != game })
+    }
+
+    /// Optimistic: the screen updates now, the row write follows. An
+    /// empty list stores null, so the slot disappears cleanly rather
+    /// than leaving an empty board behind.
+    private func persistSpoken(_ rows: [SpokenGameScore]) {
+        spokenOverride = rows.isEmpty ? .some(nil) : .some(rows)
+        struct Patch: Encodable { let spoken_scores: [SpokenGameScore]? }
+        Task {
+            _ = try? await supa.from("matches")
+                .update(Patch(spoken_scores: rows.isEmpty ? nil : rows))
+                .eq("id", value: match.id.uuidString)
+                .execute()
         }
     }
 

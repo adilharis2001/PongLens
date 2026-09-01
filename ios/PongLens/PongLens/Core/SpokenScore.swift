@@ -6,7 +6,7 @@ import Foundation
 /// eleven seven" — rather than from a counter the app keeps. That is what
 /// makes correcting one free: say it again and it replaces the old
 /// reading, in any order, at any point in the match.
-struct SpokenGameScore: Codable, Equatable, Identifiable {
+struct SpokenGameScore: Codable, Equatable, Hashable, Identifiable {
     /// 1 through 7, as spoken.
     var game: Int
     /// Always the speaker's own score first. The board prints it back
@@ -172,6 +172,28 @@ enum SpokenScore {
             found.append((a, b))
         }
         return found.count == 1 ? found[0] : nil
+    }
+
+    // MARK: - Standard games, for the hand editor
+
+    /// The score a standard game ends on given only the loser's points:
+    /// eleven, unless the loser reached ten, in which case deuce ran and
+    /// the winner finished two clear. This is how players SAY scores
+    /// ("won it 11-7", "lost it 12-10"), so the editor asks who won and
+    /// how many the loser got, and derives the rest.
+    static func standardGame(loserPoints: Int) -> (winner: Int, loser: Int) {
+        let loser = max(0, loserPoints)
+        return (max(GAME_TARGET, loser + CLEAR_BY), loser)
+    }
+
+    /// The reverse read, for opening the editor on an existing score:
+    /// nil when the pair is not a standard game (an abandoned game, a
+    /// different rule set) and the editor should open in its free mode.
+    static func standardLoser(you: Int, them: Int) -> (youWon: Bool, loserPoints: Int)? {
+        let winner = max(you, them), loser = min(you, them)
+        guard you != them, standardGame(loserPoints: loser) == (winner, loser)
+        else { return nil }
+        return (you > them, loser)
     }
 
     /// A score a game of table tennis can actually end on, under the rules

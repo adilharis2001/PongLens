@@ -27,7 +27,12 @@ import {
   type GameEndOverride,
 } from "./gameScore";
 import { GamesPair, GamesToggle, ScoreLine } from "./ScoreLine";
-import { SpokenScoreCard } from "./SpokenScore";
+import {
+  SpokenGamesToggle,
+  SpokenLine,
+  SpokenScoreEditor,
+  cleanSpoken,
+} from "./SpokenScore";
 import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { HighlightsRow } from "./HighlightsRow";
 import { NoteComposer, NoteItem } from "./Notes";
@@ -1974,6 +1979,12 @@ export function MatchView({
    *  and in the floating bar independently. */
   const [barScoreOpen, setBarScoreOpen] = useState(false);
   const [headerScoreOpen, setHeaderScoreOpen] = useState(false);
+  /** The spoken score's own disclosure while it stands in the slot. */
+  const [spokenOpen, setSpokenOpen] = useState(false);
+  const [spokenEditing, setSpokenEditing] = useState(false);
+  const [spokenRows, setSpokenRows] = useState(() =>
+    cleanSpoken(match.spoken_scores)
+  );
   /** Owner-only match settings (unscore / delete) next to the title. */
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [confirmUnscore, setConfirmUnscore] = useState(false);
@@ -2728,20 +2739,79 @@ export function MatchView({
               and then re-tagged as practice keeps its winner rows in the
               database, and a games total beside the word "Practice" reads
               as a contradiction. Flip the type back and the score returns. */}
-          {scored && score.confirmedCount > 0 && (
+          {scored && score.confirmedCount > 0 ? (
             <GamesToggle
               score={score}
               open={headerScoreOpen}
               onToggle={() => setHeaderScoreOpen((o) => !o)}
               className="text-lg font-bold tracking-tight sm:text-xl lg:text-2xl"
             />
+          ) : (
+            spokenRows.length > 0 && (
+              // No scored result yet: the spoken score stands in the
+              // slot, muted and labelled. Which number is the record is
+              // answered by weight before anyone reads the label.
+              <SpokenGamesToggle
+                rows={spokenRows}
+                open={spokenOpen}
+                onToggle={() => setSpokenOpen((o) => !o)}
+                className="text-lg sm:text-xl"
+              />
+            )
           )}
         </div>
         {headerScoreOpen && scored && score.confirmedCount > 0 && (
-          <ScoreLine
-            wrap
-            score={score}
-            className="mt-2 text-sm font-semibold tabular-nums"
+          <>
+            <ScoreLine
+              wrap
+              score={score}
+              className="mt-2 text-sm font-semibold tabular-nums"
+            />
+            {/* The record, then the testimony, one weight apart. */}
+            {spokenRows.length > 0 && !spokenEditing && (
+              <button
+                type="button"
+                onClick={() => isOwner && setSpokenEditing(true)}
+                className="mt-1.5 flex items-baseline gap-2 text-left"
+              >
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600">
+                  Spoken
+                </span>
+                <SpokenLine rows={spokenRows} className="text-sm" />
+              </button>
+            )}
+          </>
+        )}
+        {spokenOpen && !(scored && score.confirmedCount > 0) && !spokenEditing && (
+          <div className="mt-2 space-y-1.5">
+            <button
+              type="button"
+              onClick={() => isOwner && setSpokenEditing(true)}
+              className="block text-left"
+            >
+              <SpokenLine rows={spokenRows} className="text-sm font-semibold" />
+            </button>
+            {/* Spoken is the appetizer. The analysis only comes from
+                scoring the points, and the nudge rides the peek. */}
+            {isOwner && hasCutOffsets && scored && (
+              <button
+                type="button"
+                onClick={() => playerRef.current?.openScore()}
+                className="text-sm font-semibold text-cyan-glow"
+              >
+                Score the match to unlock your analysis →
+              </button>
+            )}
+          </div>
+        )}
+        {spokenEditing && isOwner && (
+          <SpokenScoreEditor
+            matchId={match.id}
+            initial={spokenRows}
+            youLabel={ownSideName.trim() || "You"}
+            themLabel={opponentName.trim() || "Opponent"}
+            onClose={() => setSpokenEditing(false)}
+            onSaved={(rows) => setSpokenRows(rows)}
           />
         )}
 
@@ -2931,20 +3001,6 @@ export function MatchView({
             />
           </DownloadCard>
         </div>
-
-        {/* The score called out at the phone while recording, when there
-            is one. Sits above Tools because its moment is the hours
-            before the match is scored properly. */}
-        {(match.spoken_scores?.length ?? 0) > 0 && (
-          <section className="mt-8">
-            <SectionHeading>Spoken score</SectionHeading>
-            <SpokenScoreCard
-              scores={match.spoken_scores ?? []}
-              youLabel={ownSideName || "You"}
-              themLabel={opponentName.trim() || "Opponent"}
-            />
-          </section>
-        )}
 
         {/* A coach viewing someone's match is exactly who paid reviews are
             for; one dismissible line, never for the owner. */}
