@@ -171,7 +171,8 @@ export function nextOpenPointTarget(
     )
     .sort((left, right) => left.sequence - right.sequence);
   const later = open.filter((item) => item.sequence > current.sequence);
-  return firstReviewTarget(later.length > 0 ? later : open);
+  const nextAssignment = later[0] ?? open[0];
+  return nextAssignment ? firstReviewTarget([nextAssignment]) : null;
 }
 
 export interface FullContextPlaybackEvidence {

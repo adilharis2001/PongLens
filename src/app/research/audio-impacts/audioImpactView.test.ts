@@ -194,6 +194,19 @@ test("explicit point completion skips submitted points and can wrap", () => {
   );
 });
 
+test("explicit point completion never skips an answered unsubmitted point", () => {
+  const assignments = [
+    assignment("one", 1, ["paddle"]),
+    assignment("two", 2, ["table", "shoe_squeak"]),
+    assignment("three", 3, [null]),
+  ];
+
+  assert.deepEqual(nextOpenPointTarget(assignments, "one"), {
+    assignment_id: "two",
+    event_id: "two-1",
+  });
+});
+
 test("full-point context unlocks only after an unskipped normal-speed ending", () => {
   const complete = {
     started_at_zero: true,
