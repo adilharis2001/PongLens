@@ -11,6 +11,7 @@ import {
   gapWorthOffering,
   moveHandle,
   playableAt,
+  needsOwnClip,
   seamBetween,
   sourceToCut,
   spanOf,
@@ -188,4 +189,40 @@ test("a legacy point with no cut_t0 cannot anchor anything", () => {
   // never passes one anyway, since it filters on cut_t0 first.
   const seam = gapWorthOffering(legacy, JOSE_NEXT, PAD);
   assert.equal(seam?.prev, null);
+});
+
+/**
+ * TERRY 2, CARD 45 — the inserted card that played the wrong rally.
+ * Real numbers: card 44 ends at cut 678.9, card 46 starts at cut 690.6, and
+ * the 14.5s rally inserted between them had 12.5s removed at its seam. The
+ * cut holds 11.7s there, so it cannot be showing a 14.5s rally.
+ */
+const T_PREV = pt("c44", 860.0, 868.4, 670.5);
+const T_INSERT = pt("c45", 880.9, 895.4, 678.9);
+const T_NEXT = pt("c46", 895.4, 904.3, 690.6);
+
+test("an insert into a cut-away seam has to play its own clip", () => {
+  assert.equal(needsOwnClip(T_PREV, T_INSERT, T_NEXT, PAD), true);
+});
+
+test("a normally cut card is shown by the cut video", () => {
+  // The cut was built around it, so there is always room.
+  assert.equal(needsOwnClip(T_PREV, T_NEXT, pt("c47", 906, 915, 701.2), PAD), false);
+  assert.equal(
+    needsOwnClip(JOSE_PREV, JOSE_NEXT, pt("x", 70, 78, 43.5), PAD),
+    false
+  );
+});
+
+test("an insert into a CONTINUOUS seam stays on the cut video", () => {
+  // Nothing was removed, so the footage is already in the file.
+  const a = pt("a", 10, 20, 4);
+  const mid = pt("m", 21, 29, 15);
+  const b = pt("b", 30, 40, 24);
+  assert.equal(needsOwnClip(a, mid, b, PAD), false);
+});
+
+test("it cannot tell without both neighbours, and says so", () => {
+  assert.equal(needsOwnClip(null, T_INSERT, T_NEXT, PAD), false);
+  assert.equal(needsOwnClip(T_PREV, T_INSERT, null, PAD), false);
 });

@@ -210,3 +210,33 @@ struct InsertSeamPair: Identifiable {
     let prevNumber: Int?
     let nextNumber: Int?
 }
+
+/// Whether the cut video can actually show this card, or whether the
+/// ScoreKeeper has to play the card's OWN clip instead.
+///
+/// The cut video is never re-assembled. An inserted card gets a cutT0 so the
+/// strip can show it, but if the seam it went into had footage removed, that
+/// footage is not in the cut file — so playing from its cutT0 plays whatever
+/// comes next and the rally is silently skipped. Terry 2, card 45: 12.5s
+/// removed at its seam, 14.5s of rally, and the cut jumps straight from card
+/// 44's end to card 46's start.
+///
+/// The test is room: between the previous rally's END and the next rally's
+/// START the cut holds some seconds, and if that is less than this card's
+/// own duration the cut cannot be showing it. A normally cut card always has
+/// room, because the cut was built around it.
+func needsOwnClip(
+    _ prevPoint: InsertNeighbour?,
+    _ point: InsertNeighbour?,
+    _ nextPoint: InsertNeighbour?,
+    pad: ClipPad
+) -> Bool {
+    guard let selfSpan = insertSpanOf(point, pad: pad),
+          let prev = insertSpanOf(prevPoint, pad: pad),
+          let next = insertSpanOf(nextPoint, pad: pad)
+    else { return false }
+    let cutRoom = next.rallyStart - prev.rallyEnd
+    let needed = selfSpan.t1 - selfSpan.t0
+    // Half a second of slack: pads and rounding move these by fractions.
+    return cutRoom + 0.5 < needed
+}

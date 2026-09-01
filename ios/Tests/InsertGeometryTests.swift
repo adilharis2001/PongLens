@@ -86,6 +86,22 @@ func runInsertGeometryParityChecks() {
           "a quickly re-served miss is, which eight seconds was blind to")
     check(gapWorthOffering(nb(10, 20, 4), nb(23.5, 30, 15), pad: PAD) == nil,
           "just under the line stays quiet")
+    // TERRY 2, CARD 45 — the inserted card that played the wrong rally.
+    // Card 44 ends at cut 678.9, card 46 starts at 690.6, and the 14.5s
+    // rally between them had 12.5s removed at its seam: the cut holds 11.7s
+    // there and cannot be showing it.
+    let tPrev = nb(860.0, 868.4, 670.5)
+    let tInsert = nb(880.9, 895.4, 678.9)
+    let tNext = nb(895.4, 904.3, 690.6)
+    check(needsOwnClip(tPrev, tInsert, tNext, pad: PAD),
+          "an insert into a cut-away seam plays its own clip")
+    check(!needsOwnClip(tPrev, tNext, nb(906, 915, 701.2), pad: PAD),
+          "a normally cut card is shown by the cut video")
+    check(!needsOwnClip(nb(10, 20, 4), nb(21, 29, 15), nb(30, 40, 24), pad: PAD),
+          "an insert into a continuous seam stays on the cut")
+    check(!needsOwnClip(nil, tInsert, tNext, pad: PAD),
+          "and it says no when it cannot tell")
+
     check(gapWorthOffering(nil, JOSE_NEXT, pad: PAD) != nil,
           "the start of the match always offers")
     check(gapWorthOffering(JOSE_PREV, nil, pad: PAD) != nil,

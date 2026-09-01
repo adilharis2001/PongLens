@@ -251,3 +251,40 @@ export function gapWorthOffering(
   if (!seam.prev || !seam.next) return seam;
   return seam.gapTo - seam.gapFrom >= GAP_WORTH_OFFERING_S ? seam : null;
 }
+
+/**
+ * Whether the cut video can actually show this card, or whether the
+ * ScoreKeeper has to play the card's OWN clip instead.
+ *
+ * The cut video is never re-assembled. An inserted card gets a cut_t0 so
+ * the strip can show it, but if the seam it went into had footage removed,
+ * that footage is not in the cut file — so playing from its cut_t0 plays
+ * whatever comes next and the rally is silently skipped. Terry 2, card 45:
+ * 12.5s removed at its seam, 14.5s of rally, and the cut jumps straight
+ * from card 44's end to card 46's start.
+ *
+ * The test is room. Between the previous card's rally END and the next
+ * card's rally START, the cut holds some number of seconds; if that is less
+ * than this card's own duration, the cut cannot be showing it. A normally
+ * cut card always has room by construction — the cut was built around it.
+ *
+ * Returns false when it cannot tell (no neighbours, missing timings), which
+ * keeps the cut as the default and matches every card that predates this.
+ */
+export function needsOwnClip(
+  prevPoint: Neighbour,
+  point: Neighbour,
+  nextPoint: Neighbour,
+  pad: ClipPad
+): boolean {
+  const self = spanOf(point, pad);
+  if (!self) return false;
+  const prev = spanOf(prevPoint, pad);
+  const next = spanOf(nextPoint, pad);
+  if (!prev || !next) return false;
+  const cutRoom = next.rallyStart - prev.rallyEnd;
+  const needed = self.t1 - self.t0;
+  // Half a second of slack: pads and rounding move these by fractions, and
+  // a false positive costs a needless file swap.
+  return cutRoom + 0.5 < needed;
+}
