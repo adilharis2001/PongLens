@@ -2077,11 +2077,28 @@ struct PlayerTakeover: View {
     }
 
     func serveLine(_ info: ServeInfo?) -> String {
-        switch info?.server {
+        let who: String? = switch info?.server {
         case .user: "You serve"
         case .opponent: "\(match.opponentName ?? "They") serve\(match.opponentName == nil ? "" : "s")"
-        case nil: ""
+        case nil: nil
         }
+        // Say WHICH rally you are on, in words. The lit chip alone was not
+        // reading as "you are here": colour on that strip already means who
+        // won, and position is easy to lose in a long match — especially one
+        // with deletions, where the numbers no longer match the strip's
+        // own order. A number here is unambiguous wherever the strip is
+        // scrolled to.
+        guard let n = currentPointNumber else { return who ?? "" }
+        guard let who else { return "Point \(n)" }
+        return "Point \(n) · \(who)"
+    }
+
+    /// Where the playhead is, numbered as the strip numbers it.
+    var currentPointNumber: Int? {
+        guard let id = displayTarget?.id,
+              let i = points.firstIndex(where: { $0.id == id })
+        else { return nil }
+        return i + 1
     }
 
     /// The point ticker: numbered rings colored by winner, the current one
@@ -2151,6 +2168,25 @@ struct PlayerTakeover: View {
             .onChange(of: targetId) { _, id in
                 guard let id else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            // ALSO on appear. onChange alone never fires for the target the
+            // strip opens with, so Keep score always opened scrolled to the
+            // left. That was invisible while a deleted point left a 10pt
+            // dot behind; at 36pt a run of deletions at the front of a match
+            // pushes the current chip clean off screen, which is how it
+            // surfaced. Same for the count changing under it — inserting a
+            // card or restoring a point moves everything along.
+            .onAppear {
+                guard let id = targetId else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            .onChange(of: points.count) { _, _ in
+                guard let id = targetId else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     proxy.scrollTo(id, anchor: .center)
                 }
             }
