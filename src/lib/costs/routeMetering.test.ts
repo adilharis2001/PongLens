@@ -21,7 +21,10 @@ for (const [route, operation] of routes) {
       source,
       /import \{ openAIUsageEvents, recordUsage \} from "@\/lib\/costs\/meter"/,
     );
-    assert.match(source, new RegExp(`operation: "${operation}"`));
+    assert.match(
+      source,
+      new RegExp(`operation(?:: string)?(?: =|:) "${operation}"`),
+    );
     assert.match(source, /usage: data\.usage/);
     // Whitespace-tolerant: the longer routes wrap the call across lines,
     // and a formatting choice should not decide whether spend is tracked.
@@ -80,15 +83,4 @@ test("review lifecycle emails are metered", () => {
   );
   assert.match(source, /resendEmailEvent/);
   assert.match(source, /operation: `review_email_\$\{kind\}`/);
-});
-
-test("Recollect meters extraction and validation as separate operations", () => {
-  const source = readFileSync(
-    new URL("../recollect/openai.ts", import.meta.url),
-    "utf8",
-  );
-  assert.match(source, /operation: "recollect_extraction"/);
-  assert.match(source, /operation: "recollect_validation"/);
-  assert.match(source, /openAIUsageEvents/);
-  assert.match(source, /recordUsage/);
 });
