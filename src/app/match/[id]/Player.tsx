@@ -58,7 +58,7 @@ import { hintEligible, markHintDone, markHintShown } from "./gestureHints";
 import { tapZone } from "./tapZone";
 import type { MatchServer, ServeInfo } from "./serving";
 import { InsertPoint } from "./InsertPoint";
-import { gapWorthOffering } from "./insertGeometry";
+import { gapWorthOffering, ownClipIds } from "./insertGeometry";
 import {
   NORMAL_SPEED_IDX,
   SPEEDS as SPEED_VALUES,
@@ -1442,6 +1442,36 @@ export const Player = forwardRef<
     setEndPausedId(id);
   }, []);
 
+  // ------------------------------------------------------------- detour
+  //
+  // THE CUT VIDEO IS NEVER RE-ASSEMBLED, so an inserted rally's footage is
+  // not in it: the card has a cut_t0 (the strip needs one) but playing from
+  // it shows whatever the seam kept and the rally is silently skipped
+  // (Terry 2, card 45 — 14.5s of rally, 11.7s of room). For exactly those
+  // cards the player takes a DETOUR: a second video element plays the
+  // card's own clip, then playback hands back to the cut.
+  //
+  // The whole machine stays on the cut clock. A card's clip opens on the
+  // same frame a cut seek to cut_t0 lands on (the ANCHORING FACT in
+  // playhead.ts), so clip time c IS virtual cut time cut_t0 + c — the
+  // playhead, the strip, the boundary maths and the scoring stamps all
+  // keep working unchanged. The one thing the virtual clock breaks is the
+  // WYSIWYG resolver PAST the next card's start (the virtual span overlaps
+  // it — that overlap is precisely why the cut has no room), so while the
+  // detour is up the target is pinned to its card, the same way the
+  // paused-at-end pin already works.
+  const [detourId, setDetourId] = useState<string | null>(null);
+  const detourRef = useRef<string | null>(null);
+  const detourBaseRef = useRef(0);
+  const detourVideoRef = useRef<HTMLVideoElement | null>(null);
+  const detourPendingSeek = useRef<number | null>(null);
+  const detourTickRef = useRef<number | null>(null);
+  /** Presigned clip URLs for the cards that need one, by point id. */
+  const clipUrlsRef = useRef(new Map<string, string>());
+  const [clipUrlTick, setClipUrlTick] = useState(0);
+  /** One gesture-priming per open — see openTakeover. */
+  const detourPrimedRef = useRef(false);
+
   // Score-mode pinch zoom: transform state (render) + ref (gesture math).
   // Origin top-left: frame point = {x,y} + s * content point.
   const [zoomT, setZoomT] = useState({ s: 1, x: 0, y: 0 });
@@ -1758,6 +1788,64 @@ export const Player = forwardRef<
     return m;
   }, [points, pad, ends]);
 
+  // Cards the cut cannot show, so the detour must (see the detour block
+  // above). Bracketing runs over the PHYSICAL timeline — deleted cards
+  // still occupy cut footage — and only a visible card whose clip the
+  // worker has already produced can take a detour: a fresh insert stays on
+  // the cut (today's behaviour) until processing finishes.
+  const ownClipSet = useMemo(() => {
+    const ids = ownClipIds([...points, ...removedPoints], pad, duration || null);
+    if (ids.size === 0) return ids;
+    const byId = new Map(points.map((p) => [p.id, p]));
+    return new Set([...ids].filter((id) => byId.get(id)?.clip_path));
+  }, [points, removedPoints, pad, duration]);
+  const ownClipSetRef = useRef(ownClipSet);
+  ownClipSetRef.current = ownClipSet;
+
+  // Their clip URLs, fetched as soon as the card is known — the swap must
+  // not wait on a round trip. A failed fetch leaves the card on the cut,
+  // which is exactly what every one of these cards did before the detour
+  // existed.
+  useEffect(() => {
+    let cancelled = false;
+    for (const id of ownClipSet) {
+      if (clipUrlsRef.current.has(id)) continue;
+      (async () => {
+        try {
+          const res = await fetch("/api/media-url", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ matchId, pointId: id }),
+          });
+          const data = res.ok ? await res.json() : null;
+          if (data?.url && !cancelled) {
+            clipUrlsRef.current.set(id, data.url);
+            setClipUrlTick((n) => n + 1);
+          }
+        } catch {
+          // Stays on the cut.
+        }
+      })();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [ownClipSet, matchId]);
+
+  // Warm the detour surface: source the first flagged card's clip as soon
+  // as its URL lands, so the first swap starts with frames in hand rather
+  // than a spinner.
+  useEffect(() => {
+    const dv = detourVideoRef.current;
+    if (!dv || ownClipSet.size === 0 || detourRef.current !== null) return;
+    const first = points.find((p) => ownClipSet.has(p.id));
+    const url = first ? clipUrlsRef.current.get(first.id) : undefined;
+    if (url && dv.src !== url) {
+      dv.src = url;
+      dv.load();
+    }
+  }, [ownClipSet, points, clipUrlTick]);
+
   // ---------------------------------------------------------------- media
 
   // Presigned preview URL of the cut video (the poster needs it too).
@@ -1784,26 +1872,115 @@ export const Player = forwardRef<
   // Seeks requested before metadata is in are applied on loadedmetadata.
   const pendingSeek = useRef<number | null>(null);
 
-  const seekTo = useCallback((t: number) => {
-    const clamped = Math.max(0, t);
-    setPlayheadT(clamped);
-    // Kill the crossing detector's previous tick SYNCHRONOUSLY: a
-    // timeupdate can race in with the new position before the seeked
-    // event clears it, and a jump must never read as a played-through
-    // pause boundary.
-    lastTickRef.current = null;
+  /** Whichever element is the playback surface right now. */
+  const activeVideo = useCallback(
+    (): HTMLVideoElement | null =>
+      detourRef.current !== null ? detourVideoRef.current : videoRef.current,
+    []
+  );
+
+  /** The playhead in cut/virtual seconds, whichever surface holds it. */
+  const nowT = useCallback((fallback: number): number => {
+    if (detourRef.current !== null) {
+      const dv = detourVideoRef.current;
+      if (dv && dv.readyState >= 1) {
+        return detourBaseRef.current + dv.currentTime;
+      }
+    }
     const v = videoRef.current;
-    if (v && v.readyState >= 1) v.currentTime = clamped;
-    else pendingSeek.current = clamped;
+    return v && v.readyState >= 1 ? v.currentTime : fallback;
   }, []);
 
+  /**
+   * The card virtual time t belongs to, when that card must play its own
+   * clip and the clip is ready. Ownership is the WYSIWYG resolver's call —
+   * the SAME rule the chip uses — so the surface and the label can never
+   * disagree about whose rally is at t.
+   */
+  const detourPointOf = useCallback((t: number): Point | null => {
+    const set = ownClipSetRef.current;
+    if (set.size === 0) return null;
+    const id = playingPointId(pointsRef.current, t);
+    if (!id || !set.has(id) || !clipUrlsRef.current.get(id)) return null;
+    return pointsRef.current.find((p) => p.id === id) ?? null;
+  }, []);
+
+  const exitDetour = useCallback(() => {
+    if (detourRef.current === null) return;
+    detourRef.current = null;
+    setDetourId(null);
+    detourTickRef.current = null;
+    // A surface out of the document's flow keeps playing WITH SOUND —
+    // same family as the unmount rule. Pause before it goes invisible.
+    detourVideoRef.current?.pause();
+  }, []);
+
+  /** Put the detour surface on card p at virtual time t. The main video
+   *  pauses underneath and keeps its place. */
+  const enterDetour = useCallback((p: Point, t: number) => {
+    const url = clipUrlsRef.current.get(p.id);
+    const dv = detourVideoRef.current;
+    if (!url || !dv || p.cut_t0 === null) return;
+    // Pin FIRST: the pause below flushes one last timeupdate/pause pair
+    // off the main element, and both handlers key off this ref to stand
+    // down during a detour.
+    detourRef.current = p.id;
+    setDetourId(p.id);
+    videoRef.current?.pause();
+    detourBaseRef.current = Number(p.cut_t0);
+    detourTickRef.current = null;
+    if (dv.src !== url) {
+      dv.src = url;
+      dv.load();
+    }
+    const at = Math.max(0, t - Number(p.cut_t0));
+    if (dv.readyState >= 1) dv.currentTime = at;
+    else detourPendingSeek.current = at;
+  }, []);
+
+  const seekTo = useCallback(
+    (t: number) => {
+      const clamped = Math.max(0, t);
+      setPlayheadT(clamped);
+      // Kill the crossing detector's previous tick SYNCHRONOUSLY: a
+      // timeupdate can race in with the new position before the seeked
+      // event clears it, and a jump must never read as a played-through
+      // pause boundary.
+      lastTickRef.current = null;
+      detourTickRef.current = null;
+      // Whose footage lives at this position? Every navigation lands here
+      // — chip, chevron, advance, replay, review — so this one branch is
+      // what routes an insert card into its own clip. During a live drag
+      // the surface never switches (onScrubUp re-evaluates the landing).
+      const dp = scrubbing.current ? null : detourPointOf(clamped);
+      if (dp) {
+        enterDetour(dp, clamped);
+        return;
+      }
+      if (detourRef.current !== null) exitDetour();
+      const v = videoRef.current;
+      if (v && v.readyState >= 1) v.currentTime = clamped;
+      else pendingSeek.current = clamped;
+    },
+    [detourPointOf, enterDetour, exitDetour]
+  );
+
   const playNow = useCallback(() => {
-    const v = videoRef.current;
+    const v = activeVideo();
     if (!v) return;
     lastPlayAtRef.current = Date.now(); // arms the no-auto-pause guard
     v.playbackRate = SPEEDS[speedIdx];
     void v.play().catch(() => undefined);
-  }, [speedIdx]);
+  }, [speedIdx, activeVideo]);
+
+  /** Halt playback wherever it lives. Every "stop the video" intent —
+   *  sheets, exits, holds — must land on both surfaces: pausing only the
+   *  main element under an active detour leaves sound running behind
+   *  whatever just opened. */
+  const pauseBoth = useCallback(() => {
+    videoRef.current?.pause();
+    detourVideoRef.current?.pause();
+  }, []);
 
   const onLoadedMetadata = useCallback((v: HTMLVideoElement) => {
     setDuration(v.duration || 0);
@@ -1826,6 +2003,14 @@ export const Player = forwardRef<
 
   const onTime = useCallback(
     (v: HTMLVideoElement) => {
+      // While a detour is up the DETOUR element owns the playhead; the
+      // main element sits paused underneath and its stray ticks (a pause
+      // always flushes one last timeupdate) must not clobber the virtual
+      // clock or read as crossings.
+      if (detourRef.current !== null) {
+        lastTickRef.current = null;
+        return;
+      }
       // THE TAPE OWNS PLAYBACK while highlights are up (2026-08-25). One
       // authority, one hop: outside a pick, straight to the next pick's
       // start — never via the deleted-span or let skips below, whose
@@ -1851,6 +2036,19 @@ export const Player = forwardRef<
         }
         setPlayheadT(v.currentTime);
         return; // nothing below applies while the tape is up
+      }
+      // An insert card's footage is not in this file: playing into its
+      // span swaps the surface to its own clip (the detour). The WYSIWYG
+      // owner decides — the exact moment the chip flips to the card is the
+      // moment its clip takes over. Never mid-scrub, and playNow here is
+      // the handoff that keeps the run feeling continuous.
+      if (!scrubbing.current && !v.paused && detourRef.current === null) {
+        const dp = detourPointOf(v.currentTime);
+        if (dp) {
+          enterDetour(dp, v.currentTime);
+          playNow();
+          return;
+        }
       }
       // Deleted-span auto-skip: dead footage is dead in BOTH modes.
       // During playback (never mid-scrub — respect the user's drag) the
@@ -2064,8 +2262,121 @@ export const Player = forwardRef<
         if (end !== null && v.currentTime >= end) v.pause();
       }
     },
-    [phase, reviewPoint, deadSpanEnd, pinEndPause]
+    [phase, reviewPoint, deadSpanEnd, pinEndPause, detourPointOf, enterDetour, playNow]
   );
+
+  /**
+   * The detour surface's own tick. One card, so the general crossing loop
+   * collapses to a single boundary — and pauseEnd takes NO next-start
+   * clamp here on purpose: the next card's cut_t0 lands INSIDE this card's
+   * virtual span (that overlap is why the detour exists), and clamping to
+   * it would stop the rally early, which is the very bug this machinery
+   * removes.
+   */
+  const onDetourTime = useCallback(
+    (dv: HTMLVideoElement) => {
+      const id = detourRef.current;
+      if (id === null) return; // stray timeupdate after an exit
+      const t = detourBaseRef.current + dv.currentTime;
+      setPlayheadT(t);
+      if (scrubbing.current || dv.paused) {
+        detourTickRef.current = null;
+        return;
+      }
+      const prev = detourTickRef.current;
+      detourTickRef.current = t;
+      if (prev === null) runStartTRef.current = t;
+      const p = pointsRef.current.find((x) => x.id === id);
+      if (!p) return;
+      const cpad = padRef.current;
+      // Review clips stop at the reviewed card's effective end, as on the
+      // main surface.
+      if (modeRef.current === "score" && phase === "review") {
+        const end = effectiveEnd(p, cpad, endsRef.current);
+        if (end !== null && t >= end) dv.pause();
+        return;
+      }
+      // Watching through (watch mode, or a scored card in score mode with
+      // its boundary already consumed) ends at the card's effective end:
+      // past it is ball retrieval the cut never shows for any other card.
+      const stop = isUnscored(p)
+        ? pauseEnd(p, cpad, null)
+        : effectiveEnd(p, cpad, endsRef.current);
+      if (modeRef.current !== "score" || phase !== "play") {
+        const end = effectiveEnd(p, cpad, endsRef.current);
+        if (prev !== null && end !== null && end > prev && end <= t) {
+          onDetourDoneRef.current();
+        }
+        return;
+      }
+      // An answered card's played-out tail advances exactly as the main
+      // surface's would have.
+      const tail = playTailRef.current;
+      if (tail && t >= tail.end) {
+        playTailRef.current = null;
+        const tp = pointsRef.current.find((x) => x.id === tail.id);
+        if (tp) {
+          advanceRef.current(tp);
+          return;
+        }
+      }
+      // Replay re-arm and the single-card boundary, same guards as the
+      // main loop's crossing detector.
+      if (
+        endPauseFiredRef.current === id &&
+        (stop === null || t < stop - REARM_BACK_S)
+      ) {
+        endPauseFiredRef.current = null;
+      }
+      if (
+        prev !== null &&
+        t > prev &&
+        t - prev < 1 &&
+        stop !== null &&
+        stop > prev &&
+        stop <= t
+      ) {
+        const guarded = Date.now() - lastPlayAtRef.current < PLAY_GUARD_MS;
+        if (endPauseFiredRef.current !== id && !guarded) {
+          endPauseFiredRef.current = id;
+          pinEndPause(id);
+          dv.pause();
+        }
+      }
+    },
+    [phase, pinEndPause]
+  );
+
+  /**
+   * The detour is over — the clip ran out, or watch mode crossed the
+   * card's effective end. Hand back to the cut at the next card's padded
+   * start, playing; with nothing after it, the card was the match's last
+   * word and score mode closes to the summary exactly as the cut's own
+   * end would.
+   */
+  const onDetourDone = useCallback(() => {
+    const id = detourRef.current;
+    if (id === null) return;
+    const p = pointsRef.current.find((x) => x.id === id);
+    exitDetour();
+    const t0 = p?.cut_t0 == null ? null : Number(p.cut_t0);
+    const next =
+      t0 === null
+        ? undefined
+        : pointsRef.current.find(
+            (pt) =>
+              pt.id !== id && pt.cut_t0 !== null && Number(pt.cut_t0) > t0
+          );
+    if (next?.cut_t0 != null) {
+      endPauseFiredRef.current = null;
+      seekTo(Number(next.cut_t0));
+      playNow();
+    } else if (modeRef.current === "score" && phase === "play") {
+      setPhase("summary");
+    }
+  }, [exitDetour, seekTo, playNow, phase]);
+  const onDetourDoneRef = useRef(onDetourDone);
+  onDetourDoneRef.current = onDetourDone;
 
   // Measure the letterbox: the gap under the picture and the gap beside it,
   // in element pixels. Re-measured on resize (rotation included) and when
@@ -2138,10 +2449,17 @@ export const Player = forwardRef<
     endPausedId !== null
       ? (points.find((p) => p.id === endPausedId) ?? null)
       : null;
+  // Detour PIN: while a card plays its own clip, the surface is about that
+  // card for as long as the clip runs — the WYSIWYG resolver flips at the
+  // next card's padded start, which lands INSIDE the detour card's virtual
+  // span (the overlap is why the detour exists at all).
+  const detourPoint =
+    detourId !== null ? (points.find((p) => p.id === detourId) ?? null) : null;
   const displayTarget =
     phase === "review"
       ? reviewPoint
       : (endPausedPoint ??
+        detourPoint ??
         targetAt(
           points,
           playheadT,
@@ -2250,8 +2568,13 @@ export const Player = forwardRef<
       const pinned = ps.find((p) => p.id === endPausedRef.current);
       if (pinned) return pinned;
     }
-    const v = videoRef.current;
-    const t = v && v.readyState >= 1 ? v.currentTime : playheadT;
+    // Detour pin second, for the same reason the chip pins: mid-clip the
+    // resolver may already say the next card.
+    if (detourRef.current !== null) {
+      const pinned = ps.find((p) => p.id === detourRef.current);
+      if (pinned) return pinned;
+    }
+    const t = nowT(playheadT);
     return targetAt(
       ps,
       t,
@@ -2330,13 +2653,41 @@ export const Player = forwardRef<
     modeRef.current = m;
     setMode(m);
     setControlsVisible(true);
+    // iOS Safari ties an AUDIBLE play() to a user gesture per element, and
+    // the detour surface may have to start on its own later (playing into
+    // an insert card's span). Spend this open's gesture priming it: a
+    // muted play/pause marks the element user-activated, invisibly.
+    // Never while a detour is ALREADY up — the open landed straight on an
+    // insert card, its play() is in this same gesture, and the muted
+    // play/pause dance here would pause the very surface just started.
+    const dv = detourVideoRef.current;
+    if (
+      dv &&
+      ownClipSetRef.current.size > 0 &&
+      !detourPrimedRef.current &&
+      detourRef.current === null
+    ) {
+      detourPrimedRef.current = true;
+      dv.muted = true;
+      dv
+        .play()
+        .then(() => {
+          dv.pause();
+          dv.muted = false;
+        })
+        .catch(() => {
+          dv.muted = false;
+          detourPrimedRef.current = false;
+        });
+    }
   }, []);
 
   // popstate (browser/OS Back or our own history.back) closes the takeover.
   useEffect(() => {
     if (!open) return;
     const onPop = () => {
-      videoRef.current?.pause();
+      pauseBoth();
+      exitDetour(); // closing hands the surface back to the cut
       pinEndPause(null);
       endPauseFiredRef.current = null;
       zoomRef.current = { s: 1, x: 0, y: 0 };
@@ -2353,7 +2704,7 @@ export const Player = forwardRef<
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [open, pinEndPause]);
+  }, [open, pinEndPause, pauseBoth, exitDetour]);
 
   const exit = useCallback(() => {
     // The component never unmounts, so a zoom left on would still be there
@@ -2559,11 +2910,11 @@ export const Player = forwardRef<
   // ------------------------------------------------------------- controls
 
   const togglePause = useCallback(() => {
-    const v = videoRef.current;
+    const v = activeVideo();
     if (!v) return;
     if (v.paused) playNow();
     else v.pause();
-  }, [playNow]);
+  }, [playNow, activeVideo]);
   // The tap handler is defined before these and holds a stale closure
   // otherwise; the gesture layer is built once and lives for the session.
   const togglePauseRef = useRef(togglePause);
@@ -2575,7 +2926,7 @@ export const Player = forwardRef<
       const i = SPEEDS.indexOf(rate as (typeof SPEEDS)[number]);
       if (i < 0) return;
       setSpeedIdx(i);
-      const v = videoRef.current;
+      const v = activeVideo();
       if (v) v.playbackRate = rate;
       showControls();
     },
@@ -2674,15 +3025,16 @@ export const Player = forwardRef<
       const ps = pointsRef.current;
       const cutPoints = ps.filter((p) => p.cut_t0 !== null);
       if (cutPoints.length === 0) return;
-      const v = videoRef.current;
-      const t = v && v.readyState >= 1 ? v.currentTime : playheadT;
+      const t = nowT(playheadT);
       // While auto-paused at a rally's end, THAT pinned rally is the
       // current one. pauseEnd overhangs the next rally's padded start on
       // adjacent cuts, so the WYSIWYG resolver may already say "next" —
       // stepping from IT made the next chevron skip a point and the prev
       // chevron land back on the rally just watched, whose end then
-      // re-paused: the frozen-feeling navigation loop.
-      const curId = endPausedRef.current ?? playingPointId(ps, t);
+      // re-paused: the frozen-feeling navigation loop. The detour pin is
+      // the live twin of the same rule.
+      const curId =
+        endPausedRef.current ?? detourRef.current ?? playingPointId(ps, t);
       const curIdx = curId
         ? cutPoints.findIndex((p) => p.id === curId)
         : -1;
@@ -2716,7 +3068,7 @@ export const Player = forwardRef<
     }
     if (g.holding) {
       g.holding = false;
-      const v = videoRef.current;
+      const v = activeVideo();
       if (v) v.playbackRate = g.priorRate;
       setHoldRate(null);
       return true;
@@ -2799,7 +3151,7 @@ export const Player = forwardRef<
       g.holdTimer = window.setTimeout(() => {
         g.holdTimer = null;
         g.holding = true;
-        const v = videoRef.current;
+        const v = activeVideo();
         g.priorRate = v ? v.playbackRate : SPEEDS[speedIdx];
         if (v) v.playbackRate = held;
         setHoldRate(held);
@@ -2984,10 +3336,15 @@ export const Player = forwardRef<
         // Capture is best-effort; tap-to-seek still works without it.
       }
       scrubbing.current = true;
+      // A drag previews on the MAIN surface — its frames follow the
+      // timeline; a clip only holds one card's worth. Remember whether
+      // anything was running so the landing can resume it.
+      scrubWasPlayingRef.current = !(activeVideo()?.paused ?? true);
+      exitDetour();
       scrubToPointer(e.clientX, e.clientY);
       showControls();
     },
-    [scrubToPointer, showControls]
+    [scrubToPointer, showControls, activeVideo, exitDetour]
   );
   const onScrubMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -2997,8 +3354,23 @@ export const Player = forwardRef<
     [scrubToPointer]
   );
   const onScrubUp = useCallback(() => {
+    if (!scrubbing.current) return;
     scrubbing.current = false;
-  }, []);
+    // The landing may belong to an insert card — seekTo skipped the
+    // switch during the drag, so ask once more now that it is over.
+    const t = nowT(playheadT);
+    const dp = detourPointOf(t);
+    if (dp) {
+      enterDetour(dp, t);
+      if (scrubWasPlayingRef.current) playNow();
+    } else if (scrubWasPlayingRef.current && videoRef.current?.paused) {
+      // A drag that started INSIDE a detour paused the cut on entry;
+      // landing outside the card hands playback straight back.
+      playNow();
+    }
+    scrubWasPlayingRef.current = false;
+  }, [nowT, playheadT, detourPointOf, enterDetour, playNow]);
+  const scrubWasPlayingRef = useRef(false);
 
   // --------------------------------------------------------- score-mode ops
 
@@ -3044,8 +3416,7 @@ export const Player = forwardRef<
       // rally is in there you now watch it happen; if it is just the post
       // pad, playTailRef lands you on the next point a second later, which
       // is what the jump would have done anyway.
-      const v = videoRef.current;
-      const now = v && v.readyState >= 1 ? v.currentTime : playheadT;
+      const now = nowT(playheadT);
       const own = effectiveEnd(p, padRef.current, endsRef.current);
       if (own !== null && own - now > TAIL_WATCH_S) {
         playTailRef.current = { id: p.id, end: own };
@@ -3073,11 +3444,14 @@ export const Player = forwardRef<
       const pinned = ps.find((p) => p.id === endPausedRef.current);
       if (pinned) return pinned;
     }
-    const v = videoRef.current;
-    const t = v && v.readyState >= 1 ? v.currentTime : playheadT;
+    if (detourRef.current) {
+      const pinned = ps.find((p) => p.id === detourRef.current);
+      if (pinned) return pinned;
+    }
+    const t = nowT(playheadT);
     const id = playingPointId(ps, t);
     return id ? (ps.find((p) => p.id === id) ?? null) : null;
-  }, [playheadT]);
+  }, [playheadT, nowT]);
 
   /**
    * Replay the rally on screen: seek back to its padded start (cut_t0) and
@@ -3104,7 +3478,7 @@ export const Player = forwardRef<
   const openNoteSheet = useCallback(() => {
     const p = currentPoint();
     if (!p) return;
-    videoRef.current?.pause();
+    pauseBoth();
     setNoteSheet(p);
   }, [currentPoint]);
 
@@ -3126,7 +3500,9 @@ export const Player = forwardRef<
    * or a privacy shield blocking canvas readback.
    */
   const captureFrame = useCallback((): HTMLCanvasElement | null => {
-    const v = videoRef.current;
+    // The ACTIVE surface: during a detour the clip element is the one
+    // provably painting frames (see the WebKit note below).
+    const v = activeVideo();
     if (!v || v.videoWidth === 0) return null;
     try {
       const scale = Math.min(1, 1280 / v.videoWidth);
@@ -3264,7 +3640,7 @@ export const Player = forwardRef<
         : null;
     const p = justScored ?? currentPoint();
     if (!p) return;
-    videoRef.current?.pause();
+    pauseBoth();
     setAnalysisPoint(p);
   }, [currentPoint]);
 
@@ -3353,8 +3729,7 @@ export const Player = forwardRef<
     // outlives its clip is how you split the wrong point.
     setSplitNudge(null);
     if (!onSplit || p.cut_t0 === null || p.t0 === null || p.t1 === null) return;
-    const v = videoRef.current;
-    const now = v && v.readyState >= 1 ? v.currentTime : 0;
+    const now = nowT(0);
     const own = paddedEnd(p, padRef.current);
     if (own === null || own - now <= TAIL_WATCH_S) return;
     const gap = fusedSplitCut(p, padRef.current);
@@ -3439,9 +3814,9 @@ export const Player = forwardRef<
       if (!canLabelServeStart || !onSetServeStart) return;
       const p = resolveTargetPoint();
       if (!p) return;
-      const v = videoRef.current;
+      const v = activeVideo();
       if (!v || v.readyState < 1) return;
-      onSetServeStart(p, Math.round(v.currentTime * 100) / 100, {
+      onSetServeStart(p, Math.round(nowT(0) * 100) / 100, {
         paused: v.paused,
         rate: v.playbackRate,
         src,
@@ -3497,10 +3872,12 @@ export const Player = forwardRef<
         // The training label (067): where the playhead sat when the human
         // called the point. Only the flowing session — in review or on
         // chip corrections the playhead says nothing about the rally end.
-        const v = videoRef.current;
+        // On a detour the stamp is the VIRTUAL clock, which is what every
+        // consumer of this card's numbers reads.
+        const v = activeVideo();
         const atCut =
           phase === "play" && next !== null && v && v.readyState >= 1
-            ? Math.round(v.currentTime * 100) / 100
+            ? Math.round(nowT(0) * 100) / 100
             : undefined;
         onSetWinner(p, next, atCut);
       }
@@ -3543,7 +3920,7 @@ export const Player = forwardRef<
        * cannot put the point on the wrong player.
        */
       if (opts?.thenWhy && next !== null) {
-        videoRef.current?.pause();
+        pauseBoth();
         pinEndPause(null);
         // The winner this tap just set, applied locally: `p` was read
         // BEFORE onSetWinner, so handing it over as-is would open on a
@@ -3713,7 +4090,7 @@ export const Player = forwardRef<
   const tapModify = useCallback(() => {
     const p = resolveTargetPoint();
     if (!p) return;
-    videoRef.current?.pause();
+    pauseBoth();
     setModifyInitialCut(null);
     setModifyPoint(p);
   }, [resolveTargetPoint]);
@@ -3760,7 +4137,7 @@ export const Player = forwardRef<
         aIdx >= 0 ? (orderedAtStart[aIdx + 1] ?? null) : null;
 
       setModifyBusy(true);
-      videoRef.current?.pause();
+      pauseBoth();
 
       // The marker math and the split_point sequence live in modifyOps.ts,
       // shared with the point view's Modify.
@@ -3861,7 +4238,7 @@ export const Player = forwardRef<
       const A = ps[i];
 
       setModifyBusy(true);
-      videoRef.current?.pause();
+      pauseBoth();
       const plan = await runJoinPlan({ point: A, points: ps, count });
       if (!plan) {
         setModifyBusy(false);
@@ -4971,6 +5348,10 @@ export const Player = forwardRef<
               );
             }}
             onPause={() => {
+              // The handoff INTO a detour pauses this element while the
+              // clip takes over — playback is not stopping, so the paused
+              // chrome must not flash.
+              if (detourRef.current !== null) return;
               setPaused(true);
               setControlsVisible(true);
               setStalled(false);
@@ -4993,6 +5374,85 @@ export const Player = forwardRef<
             <p className="text-xs text-zinc-600">Loading preview…</p>
           </div>
         )}
+
+        {/* THE DETOUR SURFACE: an insert card's own clip, over the cut —
+            see the detour block by the state. Always mounted so it can
+            preload and keep its gesture activation; invisible and inert
+            until a detour pins it. pointer-events stay off because the
+            gesture layer above owns every tap, exactly as it does for the
+            main element. */}
+        <video
+          ref={detourVideoRef}
+          playsInline
+          preload="auto"
+          disablePictureInPicture
+          controlsList="nodownload noplaybackrate noremoteplayback"
+          onContextMenu={(e) => e.preventDefault()}
+          onLoadedMetadata={(e) => {
+            const at = detourPendingSeek.current;
+            if (at !== null) {
+              e.currentTarget.currentTime = at;
+              detourPendingSeek.current = null;
+            }
+          }}
+          onTimeUpdate={(e) => onDetourTime(e.currentTarget)}
+          onSeeked={(e) => {
+            if (detourRef.current === null) return;
+            setPlayheadT(detourBaseRef.current + e.currentTarget.currentTime);
+            detourTickRef.current = null;
+            playTailRef.current = null;
+            if (nudgeHoldTimer.current) {
+              window.clearTimeout(nudgeHoldTimer.current);
+              nudgeHoldTimer.current = null;
+            }
+          }}
+          onEnded={onDetourDone}
+          onPlay={(e) => {
+            // The muted priming play (openTakeover) lands here with no
+            // detour pinned; everything below is for real playback only.
+            if (detourRef.current === null) return;
+            setPaused(false);
+            lastPlayAtRef.current = Date.now();
+            pinEndPause(null);
+            if (nudgeHoldTimer.current) {
+              window.clearTimeout(nudgeHoldTimer.current);
+              nudgeHoldTimer.current = null;
+            }
+            e.currentTarget.playbackRate =
+              gesture.current.holding && holdRateRef.current !== null
+                ? holdRateRef.current
+                : SPEEDS[speedIdx];
+          }}
+          onPause={() => {
+            if (detourRef.current === null) return;
+            setPaused(true);
+            setControlsVisible(true);
+            setStalled(false);
+          }}
+          onWaiting={() => {
+            if (detourRef.current !== null) setStalled(true);
+          }}
+          onStalled={() => {
+            if (detourRef.current !== null) setStalled(true);
+          }}
+          onPlaying={() => {
+            if (detourRef.current !== null) setStalled(false);
+          }}
+          onCanPlay={() => {
+            if (detourRef.current !== null) setStalled(false);
+          }}
+          className={`pointer-events-none absolute inset-0 h-full w-full select-none bg-black object-contain [-webkit-touch-callout:none] ${
+            detourId !== null ? "" : "invisible"
+          }`}
+          style={
+            zoomT.s > 1
+              ? {
+                  transform: `translate(${zoomT.x}px, ${zoomT.y}px) scale(${zoomT.s})`,
+                  transformOrigin: "0 0",
+                }
+              : undefined
+          }
+        />
 
         {/* poster affordance: the video NEVER plays inline on the page */}
         {!open && videoUrl && (
@@ -5401,7 +5861,7 @@ export const Player = forwardRef<
                 <button
                   type="button"
                   onClick={() => {
-                    videoRef.current?.pause();
+                    pauseBoth();
                     highlightDownloadRef.current?.();
                   }}
                   className="whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/70 px-3.5 py-1.5 text-xs font-semibold text-cyan-glow backdrop-blur transition-colors hover:bg-cyan-glow/10"
@@ -5483,7 +5943,7 @@ export const Player = forwardRef<
                   <button
                     type="button"
                     onClick={() => {
-                      videoRef.current?.pause();
+                      pauseBoth();
                       setPointPicker(true);
                     }}
                     aria-label="Jump to a point"
@@ -6037,7 +6497,7 @@ export const Player = forwardRef<
                     <button
                       type="button"
                       onClick={() => {
-                        videoRef.current?.pause();
+                        pauseBoth();
                         setInsertSeam(offer);
                       }}
                       title={insertOfferLabel(offer)}
@@ -6234,7 +6694,7 @@ export const Player = forwardRef<
                 <button
                   type="button"
                   onClick={() => {
-                    videoRef.current?.pause();
+                    pauseBoth();
                     setInsertSeam(insertTail);
                   }}
                   title={insertOfferLabel(insertTail)}
@@ -6655,7 +7115,7 @@ export const Player = forwardRef<
                     // the user SEES where the split goes, adjusts it on
                     // the scrub timeline, and confirms.
                     if (p) {
-                      videoRef.current?.pause();
+                      pauseBoth();
                       setModifyInitialCut(splitNudge.atCut);
                       setModifyPoint(p);
                     }
