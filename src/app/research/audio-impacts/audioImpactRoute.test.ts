@@ -76,7 +76,7 @@ test("desktop reviewer mounts one protected video and durable assignment saves",
   assert.match(labeler, /canReviewAudioImpact\(mediaState, saveState\)/);
   assert.match(labeler, /saveState === "error"/);
   assert.match(labeler, /editableRounds\.includes\(assignmentRound\)/);
-  assert.match(labeler, /naturalPlaybackSeen/);
+  assert.match(labeler, /spotlightHeardEventId/);
 });
 
 test("reviewer exposes every plain-language class without model hints", () => {

@@ -31,6 +31,7 @@ export interface AudioImpactTimedEvent {
 }
 
 export type AudioImpactAuditionPhase = "approaching" | "target" | "after";
+export type AudioImpactAuditionMode = "spotlight" | "nearby" | "full";
 
 export type AudioImpactMediaState = "loading" | "ready" | "error";
 export type AudioImpactSaveState = "idle" | "saving" | "saved" | "error";
@@ -40,6 +41,24 @@ export function canReviewAudioImpact(
   saveState: AudioImpactSaveState,
 ): boolean {
   return mediaState === "ready" && saveState !== "saving" && saveState !== "error";
+}
+
+export function canClassifyAudioImpact(options: {
+  media_state: AudioImpactMediaState;
+  save_state: AudioImpactSaveState;
+  context_ready: boolean;
+  editable: boolean;
+  audition_mode: AudioImpactAuditionMode;
+  event_id: string;
+  heard_event_id: string | null;
+}): boolean {
+  return (
+    canReviewAudioImpact(options.media_state, options.save_state) &&
+    options.context_ready &&
+    options.editable &&
+    options.audition_mode === "spotlight" &&
+    options.heard_event_id === options.event_id
+  );
 }
 
 export function shouldReloadAudioImpactMedia(

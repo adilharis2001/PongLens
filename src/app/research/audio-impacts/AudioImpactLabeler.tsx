@@ -27,6 +27,7 @@ import {
   audioImpactAuditionPhase,
   candidateLoop,
   candidateSpotlight,
+  canClassifyAudioImpact,
   canReviewAudioImpact,
   filterAudioImpactAssignments,
   firstReviewTarget,
@@ -39,6 +40,7 @@ import {
   roundPointPosition,
   shouldReloadAudioImpactMedia,
   type AudioImpactReviewTarget,
+  type AudioImpactAuditionMode,
   type AudioImpactAuditionPhase,
   type AudioImpactMediaState,
 } from "./audioImpactView";
@@ -50,7 +52,6 @@ import type {
 } from "./types";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
-type AuditionMode = "spotlight" | "nearby" | "full";
 
 interface PendingSave {
   assignment_id: string;
@@ -201,11 +202,14 @@ export function AudioImpactLabeler({
   const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
   const [history, setHistory] = useState<PendingSave[]>([]);
   const [looping, setLooping] = useState(true);
-  const [auditionMode, setAuditionMode] = useState<AuditionMode>("spotlight");
+  const [auditionMode, setAuditionMode] =
+    useState<AudioImpactAuditionMode>("spotlight");
   const [auditionPhase, setAuditionPhase] =
     useState<AudioImpactAuditionPhase>("approaching");
+  const [spotlightHeardEventId, setSpotlightHeardEventId] = useState<
+    string | null
+  >(null);
   const [playbackSpeed, setPlaybackSpeedState] = useState(1);
-  const [naturalPlaybackSeen, setNaturalPlaybackSeen] = useState(false);
   const [contextReadyAssignmentIds, setContextReadyAssignmentIds] = useState(
     () => new Set<string>(),
   );
@@ -313,12 +317,23 @@ export function AudioImpactLabeler({
     );
   }, [assignment, displayWindow]);
   const assignmentRound = assignment?.source.prefill.round ?? null;
-  const reviewEnabled =
+  const mediaActionsEnabled =
     canReviewAudioImpact(mediaState, saveState) &&
     contextReady &&
-    naturalPlaybackSeen &&
     assignmentRound !== null &&
     editableRounds.includes(assignmentRound);
+  const classificationEnabled =
+    currentEvent !== null &&
+    canClassifyAudioImpact({
+      media_state: mediaState,
+      save_state: saveState,
+      context_ready: contextReady,
+      editable:
+        assignmentRound !== null && editableRounds.includes(assignmentRound),
+      audition_mode: auditionMode,
+      event_id: currentEvent.id,
+      heard_event_id: spotlightHeardEventId,
+    });
   const navigationBlocked = saveState === "saving" || saveState === "error";
 
   const resetMetrics = useCallback((next: AudioImpactResearchAssignment) => {
@@ -365,7 +380,6 @@ export function AudioImpactLabeler({
       setAuditionMode("spotlight");
       setAuditionPhase("approaching");
       setPlaybackSpeedState(1);
-      setNaturalPlaybackSeen(false);
       setMessage(null);
       setDirty(false);
     },
@@ -457,7 +471,7 @@ export function AudioImpactLabeler({
 
   const saveAndAdvance = useCallback(
     async (kind: AudioImpactKind) => {
-      if (!assignment || !currentEvent || !target || !reviewEnabled) {
+      if (!assignment || !currentEvent || !target || !classificationEnabled) {
         return;
       }
       const previousLabel = label;
@@ -478,7 +492,7 @@ export function AudioImpactLabeler({
       const updated = await persist(assignment, nextLabel, "in_progress");
       if (updated) finishSave(pending, updated);
     },
-    [assignment, currentEvent, finishSave, label, persist, reviewEnabled, target],
+    [assignment, classificationEnabled, currentEvent, finishSave, label, persist, target],
   );
 
   const retrySave = useCallback(async () => {
@@ -519,7 +533,7 @@ export function AudioImpactLabeler({
   }, [assignment, assignments, finishSave, history, label, navigationBlocked, persist, resetMetrics]);
 
   const addMissedSound = useCallback(async () => {
-    if (!assignment || !videoRef.current || !reviewEnabled) return;
+    if (!assignment || !videoRef.current || !mediaActionsEnabled) return;
     const nextLabel = insertManualAudioImpactEvent(
       label,
       videoRef.current.currentTime,
@@ -545,10 +559,10 @@ export function AudioImpactLabeler({
     setPendingSave(pending);
     const updated = await persist(assignment, nextLabel, "in_progress");
     if (updated) finishSave(pending, updated);
-  }, [assignment, finishSave, label, persist, reviewEnabled]);
+  }, [assignment, finishSave, label, mediaActionsEnabled, persist]);
 
   const completePoint = useCallback(async () => {
-    if (!assignment || !target || !reviewEnabled) return;
+    if (!assignment || !target || !mediaActionsEnabled) return;
     const nextLabel = setAudioImpactSequenceComplete(label, true);
     const missing = validateAudioImpactLabel(nextLabel);
     if (missing.length > 0) {
@@ -571,7 +585,7 @@ export function AudioImpactLabeler({
     setPendingSave(pending);
     const updated = await persist(assignment, nextLabel, "submitted");
     if (updated) finishSave(pending, updated);
-  }, [assignment, finishSave, label, persist, reviewEnabled, target]);
+  }, [assignment, finishSave, label, mediaActionsEnabled, persist, target]);
 
   const playSpotlight = useCallback((speed: number) => {
     const video = videoRef.current;
@@ -617,7 +631,6 @@ export function AudioImpactLabeler({
     if (!video || !assignment) return;
     setAuditionMode("full");
     setLooping(false);
-    setNaturalPlaybackSeen(false);
     fullContextStartedAtZero.current = true;
     fullContextInvalidated.current = false;
     fullContextPlayed.current = false;
@@ -711,7 +724,14 @@ export function AudioImpactLabeler({
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !contextReady || !looping || !loopWindow || eventTimeS === null) {
+    if (
+      !video ||
+      !contextReady ||
+      !looping ||
+      !loopWindow ||
+      eventTimeS === null ||
+      !currentEvent
+    ) {
       if (video && auditionMode !== "spotlight") video.volume = 1;
       return;
     }
@@ -732,6 +752,13 @@ export function AudioImpactLabeler({
         setAuditionPhase((current) =>
           current === nextPhase ? current : nextPhase,
         );
+        if (
+          currentVideo.playbackRate === 1 &&
+          currentVideo.currentTime >= eventTimeS &&
+          currentVideo.currentTime <= loopWindow.end_s
+        ) {
+          setSpotlightHeardEventId(currentEvent.id);
+        }
       } else {
         currentVideo.volume = 1;
       }
@@ -756,11 +783,11 @@ export function AudioImpactLabeler({
       window.cancelAnimationFrame(animationFrame);
       video.volume = 1;
     };
-  }, [auditionMode, contextReady, eventTimeS, looping, loopWindow]);
+  }, [auditionMode, contextReady, currentEvent, eventTimeS, looping, loopWindow]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isAudioImpactShortcutTarget(event.target) || !reviewEnabled) return;
+      if (isAudioImpactShortcutTarget(event.target) || !classificationEnabled) return;
       const kind = audioImpactKindForShortcut(event.key);
       if (!kind) return;
       event.preventDefault();
@@ -768,7 +795,7 @@ export function AudioImpactLabeler({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [reviewEnabled, saveAndAdvance]);
+  }, [classificationEnabled, saveAndAdvance]);
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -1111,9 +1138,6 @@ export function AudioImpactLabeler({
                   }}
                   onPlay={() => {
                     playbackCount.current += 1;
-                    if (videoRef.current?.playbackRate === 1) {
-                      setNaturalPlaybackSeen(true);
-                    }
                   }}
                   onSeeking={(event) => {
                     if (!contextReady && event.currentTarget.currentTime > 0.05) {
@@ -1123,17 +1147,6 @@ export function AudioImpactLabeler({
                   onRateChange={(event) => {
                     if (!contextReady && event.currentTarget.playbackRate !== 1) {
                       fullContextInvalidated.current = true;
-                    }
-                  }}
-                  onTimeUpdate={(event) => {
-                    const video = event.currentTarget;
-                    if (
-                      loopWindow &&
-                      video.playbackRate === 1 &&
-                      video.currentTime >= loopWindow.start_s &&
-                      video.currentTime <= loopWindow.end_s
-                    ) {
-                      setNaturalPlaybackSeen(true);
                     }
                   }}
                   onEnded={() => {
@@ -1164,7 +1177,6 @@ export function AudioImpactLabeler({
                         next.add(assignment.id);
                         return next;
                       });
-                      setNaturalPlaybackSeen(false);
                       return;
                     }
                     if (looping && loopWindow && videoRef.current) {
@@ -1287,7 +1299,7 @@ export function AudioImpactLabeler({
                 </button>
                 <button
                   type="button"
-                  disabled={!naturalPlaybackSeen}
+                  disabled={spotlightHeardEventId !== currentEvent.id}
                   onClick={() => playSpotlight(0.5)}
                   className={`rounded-lg border px-3 py-2 text-sm disabled:opacity-35 ${playbackSpeed === 0.5 ? "border-cyan-glow text-cyan-100" : "border-edge text-zinc-300"}`}
                 >
@@ -1295,7 +1307,7 @@ export function AudioImpactLabeler({
                 </button>
                 <button
                   type="button"
-                  disabled={!naturalPlaybackSeen}
+                  disabled={spotlightHeardEventId !== currentEvent.id}
                   onClick={() => playSpotlight(0.25)}
                   className={`rounded-lg border px-3 py-2 text-sm disabled:opacity-35 ${playbackSpeed === 0.25 ? "border-cyan-glow text-cyan-100" : "border-edge text-zinc-300"}`}
                 >
@@ -1378,7 +1390,7 @@ export function AudioImpactLabeler({
                   <button
                     key={kind}
                     type="button"
-                    disabled={!reviewEnabled}
+                    disabled={!classificationEnabled}
                     onClick={() => void saveAndAdvance(kind)}
                     className={`rounded-xl border p-3 text-left transition disabled:opacity-50 ${
                       active
@@ -1449,7 +1461,7 @@ export function AudioImpactLabeler({
               </button>
               <button
                 type="button"
-                disabled={!reviewEnabled}
+                disabled={!mediaActionsEnabled}
                 onClick={() => void addMissedSound()}
                 className="col-span-2 rounded-lg border border-magenta-glow/30 px-3 py-2 text-sm text-magenta-soft disabled:opacity-30"
               >
@@ -1457,7 +1469,7 @@ export function AudioImpactLabeler({
               </button>
               <button
                 type="button"
-                disabled={!reviewEnabled || !currentPointState.complete}
+                disabled={!mediaActionsEnabled || !currentPointState.complete}
                 onClick={() => void completePoint()}
                 className="col-span-2 rounded-lg bg-cyan-glow px-3 py-3 text-sm font-bold text-ink disabled:opacity-50"
               >

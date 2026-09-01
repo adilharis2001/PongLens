@@ -5,6 +5,7 @@ import {
   audioImpactAuditionPhase,
   candidateLoop,
   candidateSpotlight,
+  canClassifyAudioImpact,
   canReviewAudioImpact,
   filterAudioImpactAssignments,
   firstReviewTarget,
@@ -134,6 +135,37 @@ test("audio spotlight makes only the marked transient loud and identifies its ph
   assert.equal(audioImpactAuditionPhase(target - 0.1, target), "approaching");
   assert.equal(audioImpactAuditionPhase(target, target), "target");
   assert.equal(audioImpactAuditionPhase(target + 0.15, target), "after");
+});
+
+test("classification unlocks only after this event reaches NOW in the spotlight", () => {
+  const ready = {
+    media_state: "ready" as const,
+    save_state: "idle" as const,
+    context_ready: true,
+    editable: true,
+    event_id: "sound-6",
+    heard_event_id: "sound-6",
+  };
+
+  assert.equal(canClassifyAudioImpact({ ...ready, audition_mode: "spotlight" }), true);
+  assert.equal(canClassifyAudioImpact({ ...ready, audition_mode: "nearby" }), false);
+  assert.equal(canClassifyAudioImpact({ ...ready, audition_mode: "full" }), false);
+  assert.equal(
+    canClassifyAudioImpact({
+      ...ready,
+      audition_mode: "spotlight",
+      heard_event_id: null,
+    }),
+    false,
+  );
+  assert.equal(
+    canClassifyAudioImpact({
+      ...ready,
+      audition_mode: "spotlight",
+      heard_event_id: "sound-5",
+    }),
+    false,
+  );
 });
 
 test("first target chooses the first unresolved sound before submitted points", () => {
