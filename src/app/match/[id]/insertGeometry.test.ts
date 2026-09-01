@@ -12,6 +12,7 @@ import {
   moveHandle,
   playableAt,
   needsOwnClip,
+  ownClipIds,
   seamBetween,
   sourceToCut,
   spanOf,
@@ -225,4 +226,66 @@ test("an insert into a CONTINUOUS seam stays on the cut video", () => {
 test("it cannot tell without both neighbours, and says so", () => {
   assert.equal(needsOwnClip(null, T_INSERT, T_NEXT, PAD), false);
   assert.equal(needsOwnClip(T_PREV, T_INSERT, null, PAD), false);
+});
+
+/**
+ * One-sided seams: a card at the match's edge has a file edge where a
+ * neighbour would be, so the room test needs the cut's real duration.
+ * This is the Kyle (cropped) shape — a missed final serve added after the
+ * last card, with nothing behind it in the file.
+ */
+test("a tail insert past the cut's end needs its own clip", () => {
+  const last = pt("last", 895.4, 904.3, 690.6); // rally end at cut 700.5
+  const added = pt("add", 910.0, 914.0, 700.2); // 4s rally
+  assert.equal(needsOwnClip(last, added, null, PAD, 701.8), true);
+  // Without the duration it cannot tell, and stays on the cut.
+  assert.equal(needsOwnClip(last, added, null, PAD), false);
+});
+
+test("the real first and last cards never trip the edge rules", () => {
+  // The first card's footage opens the cut; the room from 0 to the next
+  // rally covers it by construction.
+  const first = pt("f", 10, 18, 0);
+  const second = pt("s", 25, 31, 12.3);
+  assert.equal(needsOwnClip(null, first, second, PAD, 600), false);
+  // The last card's clip is what the cut ends with.
+  const beforeLast = pt("bl", 500, 507, 570);
+  const lastReal = pt("lr", 512, 519, 579.3);
+  assert.equal(needsOwnClip(beforeLast, lastReal, null, PAD, 588.9), false);
+});
+
+/**
+ * ownClipIds over the whole timeline. The trap this pins: the insert's own
+ * 14.5s virtual span overhangs card 46's room, so bracketing 46 against it
+ * flags a REAL card. The idx rule (insert_point mints max+1) keeps the
+ * retrofitted card out of everyone else's brackets.
+ */
+test("ownClipIds flags the insert and never its real neighbours", () => {
+  const rows = [
+    { ...pt("c44", 860.0, 868.4, 670.5), idx: 44 },
+    { ...pt("c45", 880.9, 895.4, 678.9), idx: 75 }, // the insert
+    { ...pt("c46", 895.4, 904.3, 690.6), idx: 45 },
+    { ...pt("c47", 906.0, 915.0, 701.2), idx: 46 },
+  ];
+  const ids = ownClipIds(rows, PAD, 720);
+  assert.deepEqual([...ids], ["c45"]);
+});
+
+test("ownClipIds is quiet on an untouched timeline", () => {
+  const rows = [
+    { ...pt("a", 10, 18, 0), idx: 0 },
+    { ...pt("b", 25, 31, 12.3), idx: 1 },
+    { ...pt("c", 40, 49, 21.5), idx: 2 },
+  ];
+  // Duration = the last clip's padded end.
+  assert.equal(ownClipIds(rows, PAD, 33.1).size, 0);
+  // A split-born card (idx max+1, footage contiguous in the cut) is
+  // retrofitted by idx but has room, so it stays on the cut too.
+  const split = [
+    { ...pt("a", 10, 18, 0), idx: 0 },
+    { ...pt("b1", 25, 28, 12.3, { end: true }), idx: 3 },
+    { ...pt("b2", 28.5, 31, 15.1, { start: true }), idx: 4 },
+    { ...pt("c", 40, 49, 21.5), idx: 2 },
+  ];
+  assert.equal(ownClipIds(split, PAD, 33.1).size, 0);
 });

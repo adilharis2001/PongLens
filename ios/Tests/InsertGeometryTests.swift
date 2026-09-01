@@ -106,4 +106,72 @@ func runInsertGeometryParityChecks() {
           "the start of the match always offers")
     check(gapWorthOffering(JOSE_PREV, nil, pad: PAD) != nil,
           "and so does the end, where a missed final serve hides")
+
+    // ---- one-sided seams: the match's edges, where the file itself is
+    //      the missing neighbour. The Kyle (cropped) shape.
+    let last = nb(895.4, 904.3, 690.6) // rally end at cut 700.5
+    let added = nb(910.0, 914.0, 700.2) // 4s rally
+    check(needsOwnClip(last, added, nil, pad: PAD, cutDuration: 701.8),
+          "a tail insert past the cut's end needs its own clip")
+    check(!needsOwnClip(last, added, nil, pad: PAD),
+          "without the duration it cannot tell, and stays on the cut")
+    check(!needsOwnClip(nil, nb(10, 18, 0), nb(25, 31, 12.3),
+                        pad: PAD, cutDuration: 600),
+          "the real first card never trips the edge rule")
+    check(!needsOwnClip(nb(500, 507, 570), nb(512, 519, 579.3), nil,
+                        pad: PAD, cutDuration: 588.9),
+          "the real last card never trips the edge rule")
+
+    // ---- ownClipIds over the whole timeline. The trap this pins: the
+    //      insert's 14.5s virtual span overhangs card 46's room, so naive
+    //      bracketing flags a REAL card. The idx rule (insert_point mints
+    //      max+1) keeps the retrofit out of everyone else's brackets.
+    let c45 = UUID()
+    let terry = [
+        mp(44, 860.0, 868.4, 670.5),
+        mp(75, 880.9, 895.4, 678.9, id: c45), // the insert
+        mp(45, 895.4, 904.3, 690.6),
+        mp(46, 906.0, 915.0, 701.2),
+    ]
+    check(ownClipIds(terry, pad: PAD, cutDuration: 720) == [c45],
+          "ownClipIds flags the insert and never its real neighbours")
+
+    let plain = [
+        mp(0, 10, 18, 0),
+        mp(1, 25, 31, 12.3),
+        mp(2, 40, 49, 21.5),
+    ]
+    check(ownClipIds(plain, pad: PAD, cutDuration: 33.1).isEmpty,
+          "ownClipIds is quiet on an untouched timeline")
+    // A split-born card (idx max+1, footage contiguous in the cut) is
+    // retrofitted by idx but has room, so it stays on the cut too.
+    let split = [
+        mp(0, 10, 18, 0),
+        mp(3, 25, 28, 12.3, tightEnd: true),
+        mp(4, 28.5, 31, 15.1, tightStart: true),
+        mp(2, 40, 49, 21.5),
+    ]
+    check(ownClipIds(split, pad: PAD, cutDuration: 33.1).isEmpty,
+          "a split child with room stays on the cut")
+}
+
+/// A full MatchPoint for ownClipIds, which needs idx and clipPath beside
+/// the geometry fields.
+private func mp(
+    _ idx: Int, _ t0: Double, _ t1: Double, _ cutT0: Double,
+    tightStart: Bool = false, tightEnd: Bool = false, id: UUID = UUID()
+) -> MatchPoint {
+    MatchPoint(
+        id: id, matchId: UUID(), idx: idx,
+        t0: t0, t1: t1, cutT0: cutT0,
+        server: nil, serverOverride: nil, isLet: false,
+        confirmedWinner: nil, confirmedHow: nil, starred: false,
+        deleted: false, edited: false,
+        tightStart: tightStart, tightEnd: tightEnd,
+        gameEndOverride: nil, gameWinnerOverride: nil,
+        scoredAtCutS: nil, serveStartAtCutS: nil,
+        lossReasons: nil, direction: nil, misreadKind: nil,
+        serveSpin: nil, serveSidespin: nil, serveLength: nil,
+        placementFlagged: nil, clipPath: "c", placement: nil
+    )
 }

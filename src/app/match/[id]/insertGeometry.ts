@@ -275,16 +275,82 @@ export function needsOwnClip(
   prevPoint: Neighbour,
   point: Neighbour,
   nextPoint: Neighbour,
-  pad: ClipPad
+  pad: ClipPad,
+  /** The cut file's real length, when the caller has the metadata. Only
+   *  the one-sided cases need it: a card at the match's edge has a file
+   *  edge where a neighbour would be. */
+  cutDuration?: number | null
 ): boolean {
   const self = spanOf(point, pad);
   if (!self) return false;
   const prev = spanOf(prevPoint, pad);
   const next = spanOf(nextPoint, pad);
-  if (!prev || !next) return false;
-  const cutRoom = next.rallyStart - prev.rallyEnd;
   const needed = self.t1 - self.t0;
-  // Half a second of slack: pads and rounding move these by fractions, and
-  // a false positive costs a needless file swap.
-  return cutRoom + 0.5 < needed;
+  // Half a second of slack throughout: pads and rounding move these by
+  // fractions, and a false positive costs a needless file swap.
+  if (prev && next) {
+    return next.rallyStart - prev.rallyEnd + 0.5 < needed;
+  }
+  // A card at the start or the end of the match: the room is bounded by
+  // the file itself, so it needs the cut's real duration. A neighbour that
+  // EXISTS but cannot anchor (legacy, no cut_t0) is not a file edge — that
+  // stays "cannot tell", which keeps the cut as the default.
+  if (cutDuration == null || cutDuration <= 0) return false;
+  if (prev && nextPoint === null) {
+    return cutDuration - prev.rallyEnd + 0.5 < needed;
+  }
+  if (next && prevPoint === null) {
+    return next.rallyStart + 0.5 < needed;
+  }
+  return false;
+}
+
+/**
+ * Which cards, over a whole timeline, the cut video cannot show.
+ *
+ * `rows` is the PHYSICAL timeline — deleted cards included, because their
+ * footage still occupies the cut and they are true brackets for how much
+ * room a seam holds. Order does not matter; anything without a cut anchor
+ * is ignored.
+ *
+ * A RETROFITTED card must never bracket its neighbours. insert_point and
+ * split_point both mint idx = max + 1, so a card whose idx is larger than
+ * a later card's was added to the timeline after the cut was built — and
+ * its span can describe footage the cut does not hold. On the Terry seam,
+ * bracketing naively with the insert flagged real card 46 as unplayable,
+ * because the insert's 14.5s virtual span overhangs 46's room. The room a
+ * neighbour has is always measured between cards the cut was BUILT from.
+ * (Known miss, accepted: two separate rallies inserted into one seam can
+ * each fit the seam's room alone and neither gets flagged.)
+ */
+export function ownClipIds(
+  rows: (NonNullable<Neighbour> & { idx: number })[],
+  pad: ClipPad,
+  cutDuration?: number | null
+): Set<string> {
+  const cut = rows
+    .filter((p) => p.cut_t0 !== null)
+    .sort((a, b) => Number(a.cut_t0) - Number(b.cut_t0));
+  // idx of the earliest-created card AFTER each position; a card created
+  // later than something that follows it was retrofitted in.
+  const minIdxAfter: number[] = new Array(cut.length).fill(Infinity);
+  for (let i = cut.length - 2; i >= 0; i--) {
+    minIdxAfter[i] = Math.min(cut[i + 1].idx, minIdxAfter[i + 1]);
+  }
+  const retro = cut.map((p, i) => p.idx > minIdxAfter[i]);
+  const out = new Set<string>();
+  for (let i = 0; i < cut.length; i++) {
+    let prev: Neighbour = null;
+    for (let j = i - 1; j >= 0; j--) {
+      if (!retro[j]) { prev = cut[j]; break; }
+    }
+    let next: Neighbour = null;
+    for (let j = i + 1; j < cut.length; j++) {
+      if (!retro[j]) { next = cut[j]; break; }
+    }
+    if (needsOwnClip(prev, cut[i], next, pad, cutDuration)) {
+      out.add(cut[i].id);
+    }
+  }
+  return out;
 }
