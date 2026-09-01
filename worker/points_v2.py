@@ -207,6 +207,36 @@ def load_multi(path):
     return out if any_c else None
 
 
+def shift_detections(src, dst, dx, dy):
+    """Rewrite a detections jsonl with every position moved by (dx, dy).
+
+    The one seam in table-cropped detection. Inference runs on a crop, so
+    the model reports positions in the crop's own pixels; adding the crop
+    origin puts them back in the original video's frame, where the table
+    corners, the homography, the cards and the clips all live. Everything
+    downstream then reads a file it cannot distinguish from a full-frame
+    one, which is why nothing else in the pipeline had to change.
+
+    Both shapes are shifted: "x"/"y" is the chosen ball, "c" the candidate
+    cloud the continuity chain actually walks. Missing either one leaves
+    half the file in the wrong coordinate system.
+    """
+    n = 0
+    with open(src) as fh, open(dst, "w") as out:
+        for line in fh:
+            r = json.loads(line)
+            if r.get("x") is not None:
+                r["x"] = round(float(r["x"]) + dx, 2)
+                r["y"] = round(float(r["y"]) + dy, 2)
+                n += 1
+            if r.get("c"):
+                r["c"] = [[round(float(p[0]) + dx, 2),
+                           round(float(p[1]) + dy, 2), *p[2:]]
+                          for p in r["c"]]
+            out.write(json.dumps(r) + "\n")
+    return n
+
+
 def build_track(cand, scale=1.0):
     """Continuity chain over the candidate cloud -> {frame: (x, y)}.
 

@@ -1620,6 +1620,90 @@ def run_blurball(
     return blurball_out
 
 
+def detect_ball(
+    input_video: str,
+    workdir: str,
+    *,
+    attempt_key: str = "manual",
+    on_progress: Callable[[float], None] | None = None,
+    table_crop: bool = False,
+) -> str:
+    """blurball.jsonl in the ORIGINAL video's coordinates, always.
+
+    With table_crop off this is run_blurball unchanged, which is what every
+    job does unless it asks otherwise.
+
+    With it on, the table is found FIRST, inference runs on a crop around
+    it, and the positions are shifted back before anyone else reads them.
+    The detector resizes every frame to 512x288, so a ball that was two
+    pixels across arrives at three and a half, and the neighbouring courts
+    are not in the picture to be found at all. Measured over four matches:
+    bounces on the uploader's own table up 24-143%, serves up 8-226%.
+
+    THE VIDEO ITSELF IS NEVER CROPPED. Only the detector sees the crop; the
+    cards, the clips and the geometry all still read the untouched file.
+    Cropping the video instead was tried and cuts the near player's legs
+    off on an end-on camera.
+
+    Fails open in every direction — no table, no usable box, a failed
+    encode — because a match processed on full-frame detections is the
+    outcome we have today, and a match that fails to process is not.
+    """
+    if not table_crop:
+        return run_blurball(input_video, workdir, attempt_key=attempt_key,
+                            on_progress=on_progress)
+    box = None
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import points_endon
+        from points_pipeline import keypoint_calibrate, probe
+        calib = keypoint_calibrate(input_video, workdir)
+        corners = (calib or {}).get("corners_px")
+        if corners:
+            meta = probe(input_video)
+            box = points_endon.ball_crop_box(
+                corners, meta["width"], meta["height"])
+        if box is None:
+            log.info("  table crop: no usable box, detecting on the full frame")
+    except Exception:                                       # noqa: BLE001
+        log.warning("  table crop: calibration failed, full frame",
+                    exc_info=True)
+        box = None
+    if box is None:
+        return run_blurball(input_video, workdir, attempt_key=attempt_key,
+                            on_progress=on_progress)
+
+    bx, by, bw, bh = box
+    cropped = os.path.join(workdir, "ball_crop.mp4")
+    log.info("  table crop: %dx%d at (%d,%d) for detection only", bw, bh, bx, by)
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", input_video,
+             "-vf", f"crop={bw}:{bh}:{bx}:{by}", "-an",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", cropped],
+            check=True, timeout=2 * 3600)
+    except Exception:                                       # noqa: BLE001
+        log.warning("  table crop: encode failed, full frame", exc_info=True)
+        return run_blurball(input_video, workdir, attempt_key=attempt_key,
+                            on_progress=on_progress)
+
+    raw_out = run_blurball(cropped, workdir, attempt_key=attempt_key,
+                           on_progress=on_progress)
+    import points_v2
+    shifted = os.path.join(workdir, "blurball.jsonl")
+    tmp = raw_out + ".crop"
+    os.replace(raw_out, tmp)
+    n = points_v2.shift_detections(tmp, shifted, float(bx), float(by))
+    log.info("  table crop: %d detections shifted back to full-frame "
+             "coordinates", n)
+    for path in (cropped, tmp):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    return shifted
+
+
 def run_cut(
     input_video: str,
     workdir: str,
@@ -4275,6 +4359,24 @@ def points_pipeline_version(conn) -> str:
         return "v2" if get_config(conn, "points_pipeline") == "v2" else "v1"
     except Exception:
         return "v1"
+
+
+def ball_crop_enabled(conn) -> bool:
+    """Whether ball detection runs on a crop around the table:
+    app_config.ball_crop.
+
+    Same contract as the switches around it — read per job, so one UPDATE
+    turns it on or off with no deploy and no restart, and a config read
+    that errors FAILS OPEN to the full frame, which is what every match
+    got before this switch existed. A job's own options still override in
+    either direction. Measured 2026-09-01 over 13 labelled matches: real
+    serves at disagreed timestamps 36 -> 48 of 76 against the full frame,
+    junk 7 -> 3, and no venue type measured worse.
+    """
+    try:
+        return get_config(conn, "ball_crop") == "on"
+    except Exception:
+        return False
 
 
 def endon_fallback_enabled(conn) -> bool:
@@ -7084,9 +7186,15 @@ def process_job(conn, msg) -> None:
                     last_pct[0] = pct
                     update_job(conn, job_id, progress=pct)
 
-            blurball_out = run_blurball(local_input, workdir,
-                                        attempt_key=attempt_key,
-                                        on_progress=blurball_progress)
+            # the job's own option wins in either direction; absent, the
+            # app_config switch decides
+            ball_crop = options.get("ball_crop")
+            if ball_crop is None:
+                ball_crop = ball_crop_enabled(conn)
+            blurball_out = detect_ball(local_input, workdir,
+                                       attempt_key=attempt_key,
+                                       on_progress=blurball_progress,
+                                       table_crop=bool(ball_crop))
             update_job(conn, job_id, progress=45)
             segments_json = None
             try:
