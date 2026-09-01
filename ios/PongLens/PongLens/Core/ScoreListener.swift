@@ -141,6 +141,10 @@ final class ScoreListener {
         capture.beginSession()
         missTimer?.cancel()
         settleFallback?.cancel()
+        // Stopping a match while paused left this true forever, and a
+        // suspended gate ignores every buffer: the next match's listener
+        // was wired up, running, and deaf.
+        suspended = false
     }
 
     func start() async {
@@ -155,16 +159,7 @@ final class ScoreListener {
         guard unavailable == nil, let locale else { return }
 
         let transcriber = Self.makeTranscriber(locale: locale)
-        // Tell the recogniser what is coming instead of only widening our
-        // own word lists after each mishearing. The phrases and number
-        // words bias it toward "game three score eleven seven" over the
-        // English it would otherwise prefer ("7-Eleven", "eleven too").
-        let context = AnalysisContext()
-        context.contextualStrings = [.general: Self.expectedPhrases]
         let analyzer = SpeechAnalyzer(modules: [transcriber])
-        // Biasing is best effort: a context the analyzer refuses loses
-        // the nudge, not the feature.
-        try? await analyzer.setContext(context)
         guard let format = await SpeechAnalyzer
             .bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
             unavailable = "The recogniser wouldn't start."
@@ -191,6 +186,19 @@ final class ScoreListener {
         self.continuation = continuation
         self.targetFormat = format
         self.running = true
+
+        // The vocabulary nudge, strictly AFTER everything is wired and
+        // strictly off the critical path. This used to be awaited before
+        // the analyzer even started, which put an unbounded asset-touching
+        // call between the shutter and the first heard word: on a slow
+        // path the microphone was not attached for seconds — no
+        // "Listening", no capture, and every failure swallowed. Biasing
+        // is a nudge; a nudge must never be able to hold the door.
+        Task {
+            let context = AnalysisContext()
+            context.contextualStrings = [.general: Self.expectedPhrases]
+            try? await analyzer.setContext(context)
+        }
 
         // Drained as the analyzer runs, not after: the sequence ends when
         // the analyzer does.

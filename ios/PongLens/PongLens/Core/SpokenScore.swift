@@ -59,53 +59,51 @@ enum SpokenScore {
         // Only the recent tail is considered. The text handed in grows for
         // as long as somebody keeps talking near the phone, and nothing
         // said a minute ago can still be the score being called now.
-        let tokens = tokenise(transcript).suffix(40).map { $0 }
-        guard let hit = trigger(in: tokens) else { return .ignored }
+        let tokens = Array(tokenise(transcript).suffix(40))
 
-        let tail = Array(tokens[hit.after...].prefix(6))
-        guard let pair = score(from: tail) else { return .missed(game: hit.game) }
-        return .captured(
-            SpokenGameScore(game: hit.game, you: pair.0, them: pair.1))
-    }
-
-    // MARK: - The phrase
-
-    /// "game" <1-7> "score", the three words adjacent. Adjacent on purpose:
-    /// allowing filler between them lets an ordinary sentence about a game
-    /// and a score drift into range, and the whole point of a fixed phrase
-    /// is that nobody says it by accident.
-    ///
-    /// Scanned from the END, so the LAST phrase in the text wins.
-    ///
-    /// This is not a detail. Results arrive as they form and the text
-    /// accumulates, so a correction — saying a game's score again because
-    /// the first attempt was wrong — leaves both phrases in the same
-    /// string. Taking the first match meant the correction could never
-    /// land, and worse, that every later score was ignored too, because
-    /// the original phrase stayed pinned at the front of a string that
-    /// only ever grew. Last-match is also simply the right rule: the most
-    /// recent thing somebody said is what they meant.
-    private static func trigger(in tokens: [String]) -> (game: Int, after: Int)? {
-        guard tokens.count >= 3 else { return nil }
-        var i = tokens.count - 3
+        // Newest phrase first: every "game <n>" from the end of the text
+        // backwards is a candidate, and the first one that yields a legal
+        // score wins. The word "score" is welcome but no longer required —
+        // the phrase was designed as "game one score eleven two" and
+        // within a week nobody, including its designer, was saying the
+        // middle word. What keeps chat out without it is the rest of the
+        // gauntlet: someone loud AT the phone, a game number, and a score
+        // a game can legally end on, all in one breath.
+        //
+        // The word still buys one thing: certainty of intent. A candidate
+        // WITH "score" whose numbers are mush files a miss (the ?? row);
+        // one without it that does not parse is let go as chat, because
+        // "game one more point" must not leave marks on the board.
+        guard tokens.count >= 2 else { return .ignored }
+        var i = tokens.count - 2
         while i >= 0 {
             defer { i -= 1 }
-            guard gameWords.contains(tokens[i]) else { continue }
-            guard let number = value(of: tokens[i + 1])?.n,
+            guard gameWords.contains(tokens[i]),
+                  let number = value(of: tokens[i + 1])?.n,
                   (1...maxGame).contains(number) else { continue }
-            // Up to two filler words may sit between the number and
-            // "score" — "game one, the score was ..." is a natural thing
-            // to say and the phrase is still unmistakably ours.
+
             var j = i + 2
             var skipped = 0
+            var explicit = false
             while j < tokens.count, skipped <= 2 {
-                if scoreWords.contains(tokens[j]) { return (number, j + 1) }
+                if scoreWords.contains(tokens[j]) {
+                    explicit = true
+                    j += 1
+                    break
+                }
                 guard separators.contains(tokens[j]) else { break }
                 j += 1
                 skipped += 1
             }
+
+            let tail = Array(tokens[min(j, tokens.count)...].prefix(6))
+            if let pair = score(from: tail) {
+                return .captured(SpokenGameScore(
+                    game: number, you: pair.0, them: pair.1))
+            }
+            if explicit { return .missed(game: number) }
         }
-        return nil
+        return .ignored
     }
 
     // MARK: - The numbers

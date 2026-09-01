@@ -117,12 +117,31 @@ func runSpokenScoreChecks() {
     reads("game one, the score was eleven two", 1, 11, 2)
     reads("game three final score 11-6", 3, 11, 6)
 
+    // The word "score" is optional when a legal pair follows: the phrase
+    // was designed with it and within a week nobody was saying it, the
+    // designer included. The legality gate is what keeps chat out.
+    reads("Game 1 3-11", 1, 3, 11)
+    reads("game one three eleven", 1, 3, 11)
+    reads("game two 11 9", 2, 11, 9)
+    reads("game one eleven to", 1, 11, 2)
+    reads("game five, 12-10", 5, 12, 10)
+
+    // Without the score word, garbage is chat and leaves no mark — no
+    // capture, but no ?? row either. "game one more point" is someone
+    // TALKING, and it must not write to the board.
+    ignores("game one more point")
+    ignores("that was game two I think")
+    ignores("game one was great fun")
+    // With the score word, mush still files the miss: intent was
+    // unmistakable, so the ?? row is the honest answer.
+    misses("game four score seven together", 4)
+
     // Not addressed to us. The hall is full of the word "game".
     ignores("nice game")
     ignores("that was a good game, 11-2")
     ignores("the score is eleven two")
     ignores("game nine score eleven two")   // no ninth game exists
-    ignores("game one eleven two")          // no "score", no trigger
+    reads("game one eleven two", 1, 11, 2)  // the score word is optional now
     ignores("")
 
     // The phrase anywhere in a longer sentence, since a recogniser
