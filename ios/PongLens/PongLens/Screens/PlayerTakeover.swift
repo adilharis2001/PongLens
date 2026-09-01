@@ -2106,7 +2106,25 @@ struct PlayerTakeover: View {
     func chipStrip(targetId: UUID?) -> some View {
         let full = fullScore
         let removed = removedDots
-        let offers = insertOffers
+        // Only the two seams touching the rally you are ON. An offer keyed
+        // by chip X is drawn BEFORE X, so "the one after the current card"
+        // is keyed by the card that follows it. Scattered down the whole
+        // strip the dashes read as decoration; against the current card
+        // they read as "something is missing right here", which is the only
+        // moment the question is live.
+        let clipped = points.filter { $0.cutT0 != nil }
+        let here: Set<UUID> = {
+            guard let targetId,
+                  let i = clipped.firstIndex(where: { $0.id == targetId })
+            else { return [] }
+            var out: Set<UUID> = [targetId]
+            if i + 1 < clipped.count { out.insert(clipped[i + 1].id) }
+            return out
+        }()
+        let offers = insertOffers.filter { here.contains($0.key) }
+        // The end of the match belongs to the last card, so it only shows
+        // while you are standing on it.
+        let tail = clipped.last?.id == targetId ? insertTail : nil
         // Once for the strip, not once per chip: the rule walks every
         // visible rally, and it is read inside a ForEach body.
         let markers = SideChanges.byPoint(
@@ -2158,7 +2176,7 @@ struct PlayerTakeover: View {
                     ForEach(removed[nil] ?? [], id: \.self) { id in
                         removedDot(id)
                     }
-                    if let tail = insertTail {
+                    if let tail {
                         insertDot(tail)
                     }
                 }
