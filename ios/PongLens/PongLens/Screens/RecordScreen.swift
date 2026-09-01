@@ -260,9 +260,12 @@ struct ScoreBoard: View {
             VStack(alignment: .leading, spacing: 5) {
                 // Holds the game-number row's height, so the two name
                 // labels sit exactly on their own numbers.
+                // Bright, not muted: this board sits over a live
+                // picture, and a grey label that reads fine on a dark
+                // form vanishes against a sunlit hall.
                 Text("Game")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(PL.text600)
+                    .foregroundStyle(.white.opacity(0.75))
                 Text(youLabel).foregroundStyle(PL.cyan)
                 Text("Opponent").foregroundStyle(PL.magentaSoft)
             }
@@ -276,7 +279,7 @@ struct ScoreBoard: View {
                     VStack(spacing: 5) {
                         Text("\(score.game)")
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(PL.text600)
+                            .foregroundStyle(.white.opacity(0.75))
                         // Cyan is the user and magenta the opponent
                         // everywhere else a score is drawn — the pill on
                         // every match card, the stats table, the running
