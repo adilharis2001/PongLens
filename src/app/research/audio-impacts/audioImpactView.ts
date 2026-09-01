@@ -46,7 +46,6 @@ export function canReviewAudioImpact(
 export function canClassifyAudioImpact(options: {
   media_state: AudioImpactMediaState;
   save_state: AudioImpactSaveState;
-  context_ready: boolean;
   editable: boolean;
   audition_mode: AudioImpactAuditionMode;
   event_id: string;
@@ -54,7 +53,6 @@ export function canClassifyAudioImpact(options: {
 }): boolean {
   return (
     canReviewAudioImpact(options.media_state, options.save_state) &&
-    options.context_ready &&
     options.editable &&
     options.audition_mode === "spotlight" &&
     options.heard_event_id === options.event_id

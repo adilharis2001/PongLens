@@ -1,6 +1,7 @@
 export const AUDIO_IMPACT_KINDS = [
   "paddle",
   "table",
+  "paddle_table",
   "floor",
   "shoe",
   "shoe_squeak",
@@ -55,6 +56,7 @@ export interface AudioImpactProgress {
 const SHORTCUTS: Readonly<Record<string, AudioImpactKind>> = {
   p: "paddle",
   t: "table",
+  c: "paddle_table",
   f: "floor",
   h: "shoe",
   q: "shoe_squeak",

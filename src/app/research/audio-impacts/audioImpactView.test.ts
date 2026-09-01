@@ -141,7 +141,6 @@ test("classification unlocks only after this event reaches NOW in the spotlight"
   const ready = {
     media_state: "ready" as const,
     save_state: "idle" as const,
-    context_ready: true,
     editable: true,
     event_id: "sound-6",
     heard_event_id: "sound-6",
@@ -164,6 +163,44 @@ test("classification unlocks only after this event reaches NOW in the spotlight"
       audition_mode: "spotlight",
       heard_event_id: "sound-5",
     }),
+    false,
+  );
+});
+
+test("classification does not require a full-point context playback", () => {
+  assert.equal(
+    canClassifyAudioImpact({
+      media_state: "ready",
+      save_state: "idle",
+      editable: true,
+      audition_mode: "spotlight",
+      event_id: "sound-1",
+      heard_event_id: "sound-1",
+    }),
+    true,
+  );
+});
+
+test("optional full-point playback is counted only when watched normally from the start", () => {
+  const complete = {
+    started_at_zero: true,
+    invalidated: false,
+    playback_rate: 1,
+    current_time_s: 5.98,
+    duration_s: 6,
+  };
+
+  assert.equal(isVerifiedFullContextPlayback(complete), true);
+  assert.equal(
+    isVerifiedFullContextPlayback({ ...complete, invalidated: true }),
+    false,
+  );
+  assert.equal(
+    isVerifiedFullContextPlayback({ ...complete, playback_rate: 1.5 }),
+    false,
+  );
+  assert.equal(
+    isVerifiedFullContextPlayback({ ...complete, current_time_s: 4 }),
     false,
   );
 });
@@ -277,34 +314,6 @@ test("explicit point completion never skips an answered unsubmitted point", () =
     assignment_id: "two",
     event_id: "two-1",
   });
-});
-
-test("full-point context unlocks only after an unskipped normal-speed ending", () => {
-  const complete = {
-    started_at_zero: true,
-    invalidated: false,
-    playback_rate: 1,
-    current_time_s: 5.98,
-    duration_s: 6,
-  };
-
-  assert.equal(isVerifiedFullContextPlayback(complete), true);
-  assert.equal(
-    isVerifiedFullContextPlayback({ ...complete, invalidated: true }),
-    false,
-  );
-  assert.equal(
-    isVerifiedFullContextPlayback({ ...complete, playback_rate: 1.5 }),
-    false,
-  );
-  assert.equal(
-    isVerifiedFullContextPlayback({ ...complete, current_time_s: 4 }),
-    false,
-  );
-  assert.equal(
-    isVerifiedFullContextPlayback({ ...complete, started_at_zero: false }),
-    false,
-  );
 });
 
 test("previous target follows chronological review order even when answered", () => {
