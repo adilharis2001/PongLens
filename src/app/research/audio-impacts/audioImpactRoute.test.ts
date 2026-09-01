@@ -45,3 +45,48 @@ test("reviewer has a clear empty assignment state", () => {
   assert.match(labeler, /No audio-impact assignments yet/);
   assert.match(labeler, /Back to research/);
 });
+
+test("desktop reviewer mounts one protected video and durable assignment saves", () => {
+  const labeler = read("./AudioImpactLabeler.tsx");
+
+  assert.equal(labeler.match(/<video\b/g)?.length, 1);
+  assert.match(labeler, /fetch\("\/api\/research\/media"/);
+  assert.match(labeler, /\.from\("research_assignments"\)/);
+  assert.match(labeler, /\.update\(\{/);
+  assert.match(labeler, /human_label: nextLabel/);
+  assert.match(labeler, /Save failed\. Your answer is still on this screen\./);
+  assert.match(labeler, /Retry save/);
+});
+
+test("reviewer exposes every plain-language class without model hints", () => {
+  const labeler = read("./AudioImpactLabeler.tsx");
+
+  for (const text of [
+    "Paddle",
+    "Table",
+    "Ball on floor",
+    "Shoe / stomp",
+    "Net",
+    "Background court",
+    "Other",
+    "No clear impact",
+    "Unsure",
+  ]) {
+    assert.match(labeler, new RegExp(text.replace("/", "\\/")));
+  }
+  assert.doesNotMatch(labeler, /detector_scores|candidate\.strength|confidence hint/i);
+});
+
+test("reviewer starts naturally, supports deliberate replay speeds, and guards shortcuts", () => {
+  const labeler = read("./AudioImpactLabeler.tsx");
+
+  assert.match(labeler, /playbackRate = 1/);
+  assert.match(labeler, /setPlaybackSpeed\(0\.5\)/);
+  assert.match(labeler, /setPlaybackSpeed\(0\.25\)/);
+  assert.match(labeler, /isAudioImpactShortcutTarget\(event\.target\)/);
+  assert.match(labeler, /Undo/);
+  assert.match(labeler, /Previous/);
+  assert.match(labeler, /Add missed sound/);
+  assert.match(labeler, /Point complete/);
+  assert.match(labeler, /labeled sounds/);
+});
