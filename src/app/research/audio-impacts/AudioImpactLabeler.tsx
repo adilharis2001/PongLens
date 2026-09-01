@@ -31,6 +31,7 @@ import {
   pointReviewState,
   previousReviewTargetInPoint,
   queueWithActive,
+  roundPointPosition,
   shouldReloadAudioImpactMedia,
   type AudioImpactReviewTarget,
   type AudioImpactMediaState,
@@ -238,15 +239,10 @@ export function AudioImpactLabeler({
     [assignments, completionFilter, roundFilter, venueFilter],
   );
   const queue = queueWithActive(visible, assignment);
-  const orderedAssignments = useMemo(
-    () => [...assignments].sort((left, right) => left.sequence - right.sequence),
-    [assignments],
-  );
-  const pointIndex = orderedAssignments.findIndex(
-    (item) => item.id === assignment?.id,
-  );
-  const pointNumber = pointIndex + 1;
-  const nextPointNumber = Math.min(pointNumber + 1, orderedAssignments.length);
+  const pointPosition = roundPointPosition(assignments, assignment?.id ?? "");
+  const pointNumber = pointPosition.number;
+  const pointTotal = pointPosition.total;
+  const nextPointNumber = Math.min(pointNumber + 1, pointTotal);
   const currentEventIndex = label.events.findIndex(
     (event) => event.id === currentEvent?.id,
   );
@@ -810,7 +806,7 @@ export function AudioImpactLabeler({
             >
               {queue.map((item) => (
                 <option key={item.id} value={item.id}>
-                  Point {orderedAssignments.findIndex((candidate) => candidate.id === item.id) + 1} · {item.source.match_label} · source {item.source.source_point_idx}
+                  Point {roundPointPosition(assignments, item.id).number} · {item.source.match_label} · source {item.source.source_point_idx}
                   {item.status === "submitted" ? " · complete" : ""}
                 </option>
               ))}
@@ -830,7 +826,7 @@ export function AudioImpactLabeler({
           </div>
           <div className="space-y-1 border-t border-edge pt-3 text-xs text-zinc-400">
             <p className="text-sm font-bold text-cyan-100">
-              Point {pointNumber} of {orderedAssignments.length}
+              Point {pointNumber} of {pointTotal}
             </p>
             <p className="font-semibold text-zinc-200">{assignment.source.match_label}</p>
             <p>{assignment.source.venue_label ?? "Unknown venue"}</p>
@@ -850,7 +846,7 @@ export function AudioImpactLabeler({
             <div className="mb-3 flex flex-wrap items-end gap-3">
               <div className="mr-auto">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
-                  Point {pointNumber} of {orderedAssignments.length}
+                  Point {pointNumber} of {pointTotal}
                 </p>
                 <h2 className="mt-1 text-xl font-bold">
                   {assignment.source.match_label}
@@ -1205,7 +1201,7 @@ export function AudioImpactLabeler({
                 onClick={() => void completePoint()}
                 className="col-span-2 rounded-lg bg-cyan-glow px-3 py-3 text-sm font-bold text-ink disabled:opacity-50"
               >
-                {pointIndex < orderedAssignments.length - 1
+                {pointNumber < pointTotal
                   ? `Finish Point ${pointNumber} and open Point ${nextPointNumber}`
                   : `Finish Point ${pointNumber}`}
               </button>

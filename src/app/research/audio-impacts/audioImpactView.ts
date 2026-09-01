@@ -141,6 +141,23 @@ export function pointReviewState(label: AudioImpactHumanLabel): {
   return { answered, total, complete: total > 0 && answered === total };
 }
 
+export function roundPointPosition(
+  assignments: readonly AudioImpactResearchAssignment[],
+  assignmentId: string,
+): { number: number; total: number } {
+  const current = assignments.find((item) => item.id === assignmentId);
+  if (!current) return { number: 0, total: 0 };
+  const roundAssignments = assignments
+    .filter(
+      (item) => item.source.prefill.round === current.source.prefill.round,
+    )
+    .sort((left, right) => left.sequence - right.sequence);
+  return {
+    number: roundAssignments.findIndex((item) => item.id === assignmentId) + 1,
+    total: roundAssignments.length,
+  };
+}
+
 export function previousReviewTarget(
   assignments: readonly AudioImpactResearchAssignment[],
   assignmentId: string,

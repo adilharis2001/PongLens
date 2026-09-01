@@ -7,6 +7,7 @@ import {
   firstReviewTarget,
   nextReviewTargetInPoint,
   pointReviewState,
+  roundPointPosition,
   previousReviewTarget,
   previousReviewTargetInPoint,
   queueWithActive,
@@ -147,6 +148,24 @@ test("point review state counts answered sounds without trusting submission stat
     ),
     { answered: 2, total: 2, complete: true },
   );
+});
+
+test("point numbering restarts inside each research round", () => {
+  const assignments = [
+    assignment("a-one", 1, [null], { round: "A" }),
+    assignment("a-two", 2, [null], { round: "A" }),
+    assignment("b-one", 31, [null], { round: "B" }),
+    assignment("b-two", 32, [null], { round: "B" }),
+  ];
+
+  assert.deepEqual(roundPointPosition(assignments, "b-one"), {
+    number: 1,
+    total: 2,
+  });
+  assert.deepEqual(roundPointPosition(assignments, "a-two"), {
+    number: 2,
+    total: 2,
+  });
 });
 
 test("previous target follows chronological review order even when answered", () => {
