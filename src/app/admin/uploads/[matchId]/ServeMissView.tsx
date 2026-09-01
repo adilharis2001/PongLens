@@ -1,11 +1,15 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NORMAL_SPEED_IDX, SPEEDS, SpeedMenu } from "../../../match/[id]/SpeedMenu";
 import { CardTimeline } from "./CardTimeline";
 import {
+  BOUNCE_LABELS,
+  LABEL_TONE,
   TABLE_L_M,
   TABLE_W_M,
+  bounceLabelCopy,
+  labelFor,
   courtTrajectory,
   inferredBounceMarkerTitle,
   inferredBounceMarkers,
@@ -13,6 +17,8 @@ import {
   reasonTone,
   tablePathSegments,
   tableTrailAt,
+  type BounceLabel,
+  type MissBounce,
   type MissCard,
   type ServeMissData,
   type TableTrackPoint,
@@ -105,12 +111,19 @@ export function ServeMissView({
   card,
   cutOffset,
   videoUrl,
+  labels,
+  onLabel,
 }: {
   data: ServeMissData;
   card: MissCard;
   /** Seconds to add to a source time to reach the cut video. */
   cutOffset: number;
   videoUrl: string | null;
+  /** The admin's event corrections for this match, keyed by labelKey(t).
+   *  Absent (an older caller) and the whole labeling surface stays off. */
+  labels?: ReadonlyMap<string, BounceLabel>;
+  /** Files one correction; null withdraws it. Storage is the caller's. */
+  onLabel?: (bounce: MissBounce, label: BounceLabel | null) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -122,9 +135,30 @@ export function ServeMissView({
   // The presentation time of the frame ACTUALLY on screen. See the draw
   // loop for why currentTime is not good enough below about half speed.
   const frameTime = useRef<number | null>(null);
+  // The bounce picked for relabeling, by its source time. Selecting seeks
+  // the video to it, so the frame being judged is on screen while judging.
+  const [selectedT, setSelectedT] = useState<number | null>(null);
 
   const cutT0 = card.t0 + cutOffset;
   const cutT1 = card.t1 + cutOffset;
+
+  const selectBounce = useCallback(
+    (sourceSeconds: number) => {
+      setSelectedT(sourceSeconds);
+      const v = videoRef.current;
+      if (v) {
+        v.pause();
+        v.currentTime = sourceSeconds + cutOffset;
+      }
+    },
+    [cutOffset]
+  );
+
+  // A new card must not inherit the last card's selection: the times would
+  // point at a bounce this card does not have.
+  useEffect(() => {
+    setSelectedT(null);
+  }, [card.t0]);
 
   // Park the poster inside the card rather than at the top of the match.
   useEffect(() => {
@@ -286,15 +320,22 @@ export function ServeMissView({
         if (age < -0.34 || age > 0.34) continue;
         const fade = 1 - Math.abs(age) / 0.34;
         const isServe = servePair.some((st) => Math.abs(st - b.t) < 0.02);
-        ctx.globalAlpha = 0.25 + 0.75 * fade;
+        const label = labelFor(labels, b.t);
+        ctx.globalAlpha =
+          (0.25 + 0.75 * fade) * (label === "not_ball" ? 0.5 : 1);
         ctx.beginPath();
         ctx.arc(b.x * w, b.y * h, 5 + 8 * (1 - fade), 0, Math.PI * 2);
-        ctx.strokeStyle = isServe
-          ? SERVE_BOUNCE
-          : b.onSurface
-            ? "#50ff78"
-            : "#ff5050";
-        ctx.lineWidth = isServe ? 3.5 : 2.5;
+        // The human's colour outranks the machine's: a serve bounce
+        // relabeled as a paddle contact is a wrong serve, and keeping it
+        // magenta would go on asserting the thing being corrected.
+        ctx.strokeStyle = label
+          ? LABEL_TONE[label]
+          : isServe
+            ? SERVE_BOUNCE
+            : b.onSurface
+              ? "#50ff78"
+              : "#ff5050";
+        ctx.lineWidth = isServe || label ? 3.5 : 2.5;
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
@@ -306,7 +347,7 @@ export function ServeMissView({
         vfcHost.cancelVideoFrameCallback(vfc);
       }
     };
-  }, [data, card, cutOffset, cutT0]);
+  }, [data, card, cutOffset, cutT0, labels]);
 
   const why = card.why;
   const inferred = useMemo(() => inferredBounceMarkers(card), [card]);
@@ -397,13 +438,32 @@ export function ServeMissView({
           const v = videoRef.current;
           if (v) v.currentTime = sourceSeconds + cutOffset;
         }}
+        labels={labels}
+        selectedT={selectedT}
+        onSelectBounce={onLabel ? selectBounce : undefined}
       />
+
+      {onLabel && (
+        <LabelBar
+          card={card}
+          labels={labels}
+          selectedT={selectedT}
+          onLabel={onLabel}
+          onClose={() => setSelectedT(null)}
+        />
+      )}
 
       </div>
 
       <div className="flex min-w-0 flex-row gap-3 lg:flex-1">
         <div className="w-24 shrink-0 sm:w-32 lg:w-40">
-          <Court card={card} t={t} />
+          <Court
+            card={card}
+            t={t}
+            labels={labels}
+            selectedT={selectedT}
+            onSelect={onLabel ? selectBounce : undefined}
+          />
         </div>
         <div className="min-w-0 flex-1">
           {typeof card.serve_s === "number" ? (
@@ -481,12 +541,111 @@ export function ServeMissView({
 }
 
 /** The reconstructed best-estimate path and bounces, looking down. */
+/**
+ * The relabeling control for one selected bounce.
+ *
+ * The detector's own call is shown as CONTEXT and never pre-selected — the
+ * fused labeling page's rule, kept for the same reason: a pre-ticked answer
+ * teaches the labeler to confirm rather than to look. Only a label the
+ * human actually filed lights a chip.
+ *
+ * No save button. A tap files it, exactly as the note box and the themes
+ * work everywhere else on this page.
+ */
+function LabelBar({
+  card,
+  labels,
+  selectedT,
+  onLabel,
+  onClose,
+}: {
+  card: MissCard;
+  labels?: ReadonlyMap<string, BounceLabel>;
+  selectedT: number | null;
+  onLabel: (bounce: MissBounce, label: BounceLabel | null) => void;
+  onClose: () => void;
+}) {
+  if (selectedT === null) {
+    return (
+      <p className="mt-1 text-[11px] text-zinc-600">
+        Tap a bounce dot to say what it really was.
+      </p>
+    );
+  }
+  const bounce = card.bounces.find(
+    (b) => Math.abs(b.t - selectedT) < 0.001
+  );
+  if (!bounce) return null;
+  const current = labelFor(labels, bounce.t);
+
+  return (
+    <div className="mt-2 rounded-xl border border-edge bg-surface-2/50 p-3">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <p className="text-xs text-zinc-300 tabular-nums">
+          Event at {(bounce.t - card.t0).toFixed(2)}s
+        </p>
+        <p className="text-xs text-zinc-500">
+          detector: bounce, {bounce.onSurface ? "on" : "off"} the playing
+          surface
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-auto rounded-full border border-edge px-2.5 py-0.5 text-xs text-zinc-400 transition-colors hover:text-white"
+        >
+          Done
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {BOUNCE_LABELS.map(({ value, copy }) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => onLabel(bounce, value === current ? null : value)}
+            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+              value === current
+                ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
+                : "border-edge text-zinc-300 hover:border-cyan-glow/40"
+            }`}
+          >
+            <i
+              className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle"
+              style={{ background: LABEL_TONE[value] }}
+            />
+            {copy}
+          </button>
+        ))}
+        {current && (
+          <button
+            type="button"
+            onClick={() => onLabel(bounce, null)}
+            className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-500 transition-colors hover:text-white"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <p className="mt-1.5 text-[11px] text-zinc-600">
+        {current
+          ? `Saved: ${bounceLabelCopy(current).toLowerCase()}. Tap again to withdraw it.`
+          : "Saved the moment you tap. This builds training data; the pipeline's own reading is unchanged."}
+      </p>
+    </div>
+  );
+}
+
 function Court({
   card,
   t,
+  labels,
+  selectedT,
+  onSelect,
 }: {
   card: MissCard;
   t: number;
+  labels?: ReadonlyMap<string, BounceLabel>;
+  selectedT?: number | null;
+  onSelect?: (sourceSeconds: number) => void;
 }) {
   const VIEW_W = COURT_VIEW_W;
   const VIEW_H = COURT_VIEW_H;
@@ -565,22 +724,50 @@ function Court({
         const isServe = (card.serve_bounces ?? []).some(
           (st) => Math.abs(st - b.t) < 0.02
         );
+        const label = labelFor(labels, b.t);
+        const selected =
+          selectedT != null && Math.abs(selectedT - b.t) < 0.001;
         return (
-          <g key={`${b.t}-${i}`}>
+          <g
+            key={`${b.t}-${i}`}
+            className={onSelect ? "cursor-pointer" : undefined}
+            onClick={onSelect ? () => onSelect(b.t) : undefined}
+          >
             <title>
               {`${(b.t - card.t0).toFixed(2)}s into the card · `
                 + `${b.u?.toFixed(2)}, ${b.v?.toFixed(2)} m · `
                 + `${b.onSurface ? "on the surface" : "off the surface"}`
-                + (isServe ? " · the serve" : "")}
+                + (isServe ? " · the serve" : "")
+                + (label ? ` · you said: ${bounceLabelCopy(label)}` : "")}
             </title>
+            {selected && (
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r="8"
+                fill="none"
+                stroke="#f8fafc"
+                strokeWidth="1"
+              />
+            )}
+            {/* Hit area: a 3.5px dot is no tap target. */}
+            <circle cx={p.x} cy={p.y} r="9" fill="transparent" />
             <circle
               cx={p.x}
               cy={p.y}
               r={live ? 6 : 3.5}
               fill={
-                isServe ? SERVE_BOUNCE : b.onSurface ? "#50ff78" : "#ff5050"
+                label
+                  ? LABEL_TONE[label]
+                  : isServe
+                    ? SERVE_BOUNCE
+                    : b.onSurface
+                      ? "#50ff78"
+                      : "#ff5050"
               }
-              fillOpacity={live ? 0.95 : isServe ? 0.75 : 0.4}
+              fillOpacity={
+                label === "not_ball" ? 0.35 : live ? 0.95 : isServe || label ? 0.75 : 0.4
+              }
               stroke="#0c1222"
               strokeWidth="0.75"
             />

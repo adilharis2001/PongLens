@@ -766,3 +766,74 @@ export function missForPoint(
     data.cards.find((c) => Math.abs(c.t0 - t0) < 0.1) ?? null
   );
 }
+
+/**
+ * The admin's own correction of one detected event (154).
+ *
+ * The detector's bounce list is drawn on three surfaces and sometimes what
+ * it calls a bounce is really the ball coming off a racket. The person
+ * watching the footage is the instrument here: one tap files what the
+ * event actually was, and the rows are training data. Nothing in the
+ * pipeline reads them back yet — the maps and the rules keep showing the
+ * detector's own reading, corrected colours and all.
+ *
+ * The vocabulary is the pipeline's own. `table_bounce` and
+ * `paddle_contact` are the exact strings placement candidates carry in
+ * their `kinds`; bare "contact" is avoided because the workers use it
+ * three different ways. `net` exists because a net touch is a ball event
+ * that is neither of the others; `not_ball` is the neighbouring-table and
+ * room-noise class.
+ */
+export type BounceLabel =
+  | "table_bounce"
+  | "paddle_contact"
+  | "net"
+  | "not_ball";
+
+export const BOUNCE_LABELS: { value: BounceLabel; copy: string }[] = [
+  { value: "table_bounce", copy: "Table bounce" },
+  { value: "paddle_contact", copy: "Paddle contact" },
+  { value: "net", copy: "Net" },
+  { value: "not_ball", copy: "Not the ball" },
+];
+
+/**
+ * One colour per human label, shared by the picture, the map and the
+ * timeline so a correction reads the same everywhere.
+ *
+ * A confirmed table bounce keeps the detector's green. White for a paddle
+ * contact — every strong colour on these surfaces already means something
+ * (green/red the surface, magenta the serve pair, amber the ear, cyan the
+ * ball). Orange for the net. An event marked not-the-ball dims to grey,
+ * because its job from then on is to stop drawing the eye.
+ */
+export const LABEL_TONE: Record<BounceLabel, string> = {
+  table_bounce: "#50ff78",
+  paddle_contact: "#f8fafc",
+  net: "#fb923c",
+  not_ball: "#52525b",
+};
+
+export function bounceLabelCopy(label: BounceLabel): string {
+  return BOUNCE_LABELS.find((l) => l.value === label)?.copy ?? label;
+}
+
+/**
+ * The key one event's label is stored and looked up under.
+ *
+ * The artifact's events carry no id; their source-clock time, rounded to
+ * 2dp on the way out, is the identity every surface already joins on, and
+ * placement's own dedupe keeps distinct events further apart than the
+ * rounding. Stringified so a Map lookup is exact rather than a float
+ * comparison.
+ */
+export function labelKey(t: number): string {
+  return t.toFixed(2);
+}
+
+export function labelFor(
+  labels: ReadonlyMap<string, BounceLabel> | null | undefined,
+  t: number
+): BounceLabel | null {
+  return labels?.get(labelKey(t)) ?? null;
+}

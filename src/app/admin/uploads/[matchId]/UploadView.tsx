@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
 import {
   effectiveEnd,
@@ -34,11 +35,14 @@ import {
 import type { CardReading, ReadingSummary } from "../pointReadings";
 import {
   cutOffsetFor,
+  labelKey,
   missForPoint,
   reasonShort,
   reasonTally,
   reasonTone,
   refusedCards,
+  type BounceLabel,
+  type MissBounce,
   type ServeMissData,
 } from "../serveMiss";
 import { CardFacts } from "./CardFacts";
@@ -94,6 +98,7 @@ export function UploadView({
   readings,
   readingSummary,
   themes: initialThemes,
+  eventLabels: initialEventLabels,
   ends,
 }: {
   detail: UploadDetail;
@@ -102,6 +107,8 @@ export function UploadView({
   readings: CardReading[];
   readingSummary: ReadingSummary | null;
   themes: Theme[];
+  /** The admin's stored event corrections for this match (154). */
+  eventLabels: { t: number; label: BounceLabel }[];
   ends: EndOptions;
 }) {
   const { match, owner, job, totals } = detail;
@@ -126,6 +133,52 @@ export function UploadView({
   // The operator's review, held here rather than inside each card so the
   // pane and the list agree the moment either changes, and so a theme
   // created on card 40 is offered on card 41 without a reload.
+  // The admin's event corrections, held here so both mounts (the desktop
+  // pane and a phone's expanded card) read and write ONE map, and a label
+  // filed on one card is still there after switching to another. Saving is
+  // optimistic with revert on error — the CardReview pattern, because
+  // relabeling two hundred dots is tap-and-move-on work.
+  const [eventLabels, setEventLabels] = useState<Map<string, BounceLabel>>(
+    () => new Map(initialEventLabels.map((l) => [labelKey(l.t), l.label]))
+  );
+  const setEventLabel = useCallback(
+    (bounce: MissBounce, label: BounceLabel | null) => {
+      const key = labelKey(bounce.t);
+      let previous: BounceLabel | null = null;
+      setEventLabels((prev) => {
+        previous = prev.get(key) ?? null;
+        const next = new Map(prev);
+        if (label === null) next.delete(key);
+        else next.set(key, label);
+        return next;
+      });
+      void createClient()
+        .rpc("admin_event_label_set", {
+          p_match_id: match.id,
+          p_t: Number(bounce.t.toFixed(2)),
+          p_label: label,
+          p_detected: "bounce",
+          p_on_surface: bounce.onSurface,
+          p_x: bounce.x,
+          p_y: bounce.y,
+          p_u: bounce.u,
+          p_v: bounce.v,
+        })
+        .then(({ error }) => {
+          if (!error) return;
+          // Put the map back rather than leaving a colour lying about
+          // what the database holds.
+          setEventLabels((prev) => {
+            const next = new Map(prev);
+            if (previous === null) next.delete(key);
+            else next.set(key, previous);
+            return next;
+          });
+        });
+    },
+    [match.id]
+  );
+
   const [vocabulary, setVocabulary] = useState<Theme[]>(initialThemes);
   const [reviewNotes, setReviewNotes] = useState<Map<string, string>>(
     () => new Map(detail.points.map((p) => [p.id, p.admin_note ?? ""]))
@@ -640,6 +693,8 @@ export function UploadView({
                   compact={isDesktop}
                   onPlay={() => pickCard(row.id)}
                   miss={missForPoint(serveMisses, row)}
+                  eventLabels={eventLabels}
+                  onEventLabel={setEventLabel}
                   missData={serveMisses}
                   reading={readingFor.get(row.id) ?? null}
                   cutOffset={cutOffsetFor(
@@ -672,6 +727,8 @@ export function UploadView({
                   pad={pad}
                   ends={ends}
                   serveMisses={serveMisses}
+                  eventLabels={eventLabels}
+                  onEventLabel={setEventLabel}
                   reading={
                     selectedId ? readingFor.get(selectedId) ?? null : null
                   }
@@ -722,6 +779,8 @@ function CardPane({
   pad,
   ends,
   serveMisses,
+  eventLabels,
+  onEventLabel,
   reading,
   videoUrl,
   onFullScreen,
@@ -737,6 +796,8 @@ function CardPane({
   pad: ClipPad;
   ends: EndOptions;
   serveMisses: ServeMissData | null;
+  eventLabels: ReadonlyMap<string, BounceLabel>;
+  onEventLabel: (bounce: MissBounce, label: BounceLabel | null) => void;
   reading: CardReading | null;
   videoUrl: string | null;
   onFullScreen: () => void;
@@ -822,6 +883,8 @@ function CardPane({
           card={miss}
           cutOffset={cutOffset ?? 0}
           videoUrl={videoUrl}
+          labels={eventLabels}
+          onLabel={onEventLabel}
         />
       ) : (
         <PlainCardClip
