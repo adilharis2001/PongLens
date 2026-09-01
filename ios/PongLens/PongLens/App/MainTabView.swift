@@ -165,7 +165,13 @@ struct MainTabView: View {
                     // LearnScreen — reachable only once Learn is already on
                     // the stack, which is exactly not the case when the
                     // first-steps checklist links to a guide from Home.
-                    if route.hasPrefix("guide:"),
+                    // "feedback:<matchId>" opens the feedback board with
+                    // that match pre-selected — the match pages' "Report
+                    // an issue" rows, so the report arrives with context.
+                    if route.hasPrefix("feedback:"),
+                       let id = UUID(uuidString: String(route.dropFirst(9))) {
+                        FeedbackScreen(matchId: id)
+                    } else if route.hasPrefix("guide:"),
                        let guide = GuideLibrary.shared.guides.first(
                            where: { $0.slug == String(route.dropFirst(6)) }
                        ) {

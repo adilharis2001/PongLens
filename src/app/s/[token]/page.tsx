@@ -411,6 +411,15 @@ export default async function SharePage({
                 <p className="text-sm text-zinc-500">Nothing here right now.</p>
               </div>
             )
+          ) : isMatch && !link.cut_path && !link.raw_path ? (
+            /* Neither video exists (a legacy match whose original was
+               swept before 096 protected library videos): say so, rather
+               than mounting a player that retries forever. */
+            <div className="flex aspect-video items-center justify-center border-y border-edge bg-ink sm:rounded-2xl sm:border">
+              <p className="text-sm text-zinc-500">
+                This video is no longer available.
+              </p>
+            </div>
           ) : (
             <ShareView
               token={token}

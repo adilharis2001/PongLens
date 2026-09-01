@@ -73,7 +73,7 @@ struct ToolsSection: View {
                 divider
                 toolRow("Your side", trailing: .text(sideTrailing)) { sideOpen = true }
                 divider
-                NavigationLink(value: "feedback") {
+                NavigationLink(value: "feedback:\(match.id.uuidString.lowercased())") {
                     HStack {
                         Text("Report an issue")
                             .font(.system(size: 16))
@@ -274,6 +274,10 @@ struct ShareLinksSheet: View {
     /// draw. False hides the toggle rather than offering a choice with no
     /// effect, the same rule the export sheet follows.
     var scored = false
+    /// False before processing: the link plays the original upload (and
+    /// upgrades to the cut once processing lands), so the footer must not
+    /// promise "cut to the play" yet.
+    var processed = true
 
     @Environment(\.dismiss) private var dismiss
     @State private var scope = "match"
@@ -296,11 +300,16 @@ struct ShareLinksSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("Share", selection: $scope) {
-                        Text("This match").tag("match")
-                        Text("Starred points").tag("starred")
+                    // Before processing there are no points to star, so
+                    // the starred scope is not an empty choice, it is an
+                    // impossible one — the picker waits for the cut.
+                    if processed {
+                        Picker("Share", selection: $scope) {
+                            Text("This match").tag("match")
+                            Text("Starred points").tag("starred")
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
                 } footer: {
                     Text(scopeFooter)
                 }
@@ -388,6 +397,9 @@ struct ShareLinksSheet: View {
             return starredCount == 0
                 ? "Star points to share them as a set."
                 : "The \(starredCount) points you have starred, and it keeps up as you star more. Anyone with the link can watch."
+        }
+        if !processed {
+            return "The whole match, as uploaded. Anyone with the link can watch, and you can revoke it anytime from your account."
         }
         return "The whole match, cut to the play. Anyone with the link can watch, and you can revoke it anytime from your account."
     }
@@ -1003,5 +1015,203 @@ struct YourSideSheet: View {
         }
         .buttonStyle(.plain)
         .disabled(saving)
+    }
+}
+
+// MARK: - Raw tools
+
+/// The Tools card for an UNPROCESSED match: the same rows as
+/// ToolsSection, minus the ones that need points to exist — Score
+/// Keeper, Highlights, Placement and Match analysis appear once
+/// processing creates them. A rejected upload (sourceGone) keeps only
+/// the rows that don't touch the video. Details editing stays with the
+/// screen's own editor (the ellipsis menu opens the same one), so the
+/// row hands the tap back rather than mounting a second sheet.
+struct RawToolsSection: View {
+    let match: MatchRow
+    let sourceGone: Bool
+    let onEditDetails: () -> Void
+    let onScrollToNotes: () -> Void
+
+    @State private var shareOpen = false
+    @State private var coachOpen = false
+    @State private var exportOpen = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeading("Tools")
+            VStack(spacing: 0) {
+                if !sourceGone {
+                    toolRow("Share", trailing: "Not shared") { shareOpen = true }
+                    divider
+                    toolRow("Coach", trailing: "Invite your coach") { coachOpen = true }
+                    divider
+                    toolRow("Export", trailing: "Original video") { exportOpen = true }
+                    divider
+                }
+                toolRow("Notes", trailing: "Add a note") { onScrollToNotes() }
+                if !sourceGone {
+                    divider
+                    toolRow("Match details", trailing: detailsTrailing) { onEditDetails() }
+                }
+                // No "Your side" row before processing (audit, 2026-09-01):
+                // nothing at processing time reads it, and everything it
+                // orients — maps, Me/Them labels — exists only after
+                // processing, where the first-open banner asks anyway.
+                divider
+                NavigationLink(value: "feedback:\(match.id.uuidString.lowercased())") {
+                    HStack {
+                        Text("Report an issue")
+                            .font(.system(size: 16))
+                            .foregroundStyle(PL.textBody)
+                        Spacer()
+                        Text("Something look off?")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text500)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PL.text600)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                    .strokeBorder(PL.edge, lineWidth: 1)
+            )
+        }
+        .sheet(isPresented: $shareOpen) {
+            ShareLinksSheet(match: match, starredCount: 0, scored: false, processed: false)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $coachOpen) {
+            CoachInviteSheet(match: match)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $exportOpen) {
+            RawExportSheet(match: match)
+                .presentationDetents([.medium])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+    }
+
+    private var detailsTrailing: String {
+        let opp = match.opponentName ?? ""
+        let venue = match.venue ?? ""
+        if opp.isEmpty && venue.isEmpty { return "Add opponent and venue" }
+        return [opp, venue].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    private var divider: some View {
+        Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1).padding(.leading, 16)
+    }
+
+    private func toolRow(
+        _ label: String, trailing: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Text(label)
+                    .font(.system(size: 16))
+                    .foregroundStyle(PL.textBody)
+                Spacer()
+                Text(trailing)
+                    .font(.plBody)
+                    .foregroundStyle(PL.text500)
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PL.text600)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Export before processing: the same door, one artifact — the original
+/// upload. Availability is probed on open so a legacy match whose
+/// original is gone gets an honest line rather than a button that does
+/// nothing (the raw of a live library match never ages out; only
+/// pre-commerce matches can have lost theirs).
+struct RawExportSheet: View {
+    let match: MatchRow
+
+    @Environment(\.openURL) private var openURL
+    /// nil while probing; false = the file is gone.
+    @State private var available: Bool?
+    @State private var busy = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Export")
+                .font(.plCardTitle)
+                .foregroundStyle(PL.text100)
+            Text("Point clips and rendered videos appear here after processing.")
+                .font(.plBody)
+                .foregroundStyle(PL.text400)
+
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Original video")
+                        .font(.plRowTitle)
+                        .foregroundStyle(available == false ? PL.text500 : PL.text100)
+                    Text(available == false
+                         ? "No longer stored"
+                         : "Your upload, as recorded")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
+                }
+                Spacer()
+                if available != false {
+                    Button(busy ? "…" : "Download") {
+                        Task { await download() }
+                    }
+                    .buttonStyle(PLSecondaryButtonStyle())
+                    .disabled(available != true || busy)
+                }
+            }
+            .plInnerRow()
+            Spacer()
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task { await probe() }
+    }
+
+    private struct Req: Encodable {
+        let matchId: String
+        let raw: Bool
+    }
+    private struct Res: Decodable {
+        let url: String?
+        let available: Bool?
+    }
+
+    private func probe() async {
+        let res: Res? = try? await API.post(
+            "api/media-url",
+            Req(matchId: match.id.uuidString.lowercased(), raw: true)
+        )
+        available = res?.available ?? (res?.url != nil)
+    }
+
+    private func download() async {
+        busy = true
+        let res: Res? = try? await API.post(
+            "api/media-url",
+            Req(matchId: match.id.uuidString.lowercased(), raw: true)
+        )
+        if let url = res?.url.flatMap(URL.init) { openURL(url) }
+        busy = false
     }
 }

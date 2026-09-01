@@ -35,6 +35,11 @@ export interface ResolvedShareLink {
   placement_flagged: boolean;
   played_at: string;
   cut_path: string | null;
+  /** the original upload, served when no cut exists (153) — an
+   *  unprocessed match's link plays this, then upgrades to the cut once
+   *  the match is processed. Both null only on legacy matches whose raw
+   *  was swept before commerce (096) protected library videos. */
+  raw_path: string | null;
   original_name: string | null;
   point_number: number | null;
   point_t0: number | null;

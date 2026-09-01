@@ -4029,6 +4029,26 @@ export const Player = forwardRef<
     return out;
   }, [points, pad, onInsertPoint]);
 
+  /**
+   * The two seams touching the rally you are ON — the only ones that get a
+   * "+". An offer keyed by chip X is drawn BEFORE X, so "the one after the
+   * current card" is keyed by the card that follows it.
+   *
+   * Scattered down the whole strip the dashes read as decoration; against
+   * the current card they read as "something is missing right here", which
+   * is the only moment the question is live.
+   */
+  const insertHere = useMemo(() => {
+    const out = new Set<string>();
+    if (!targetId) return out;
+    const clipped = points.filter((p) => p.cut_t0 !== null);
+    const i = clipped.findIndex((p) => p.id === targetId);
+    if (i < 0) return out;
+    out.add(targetId);
+    if (i + 1 < clipped.length) out.add(clipped[i + 1].id);
+    return out;
+  }, [points, targetId]);
+
   /** What a "+" says it will do, at either end or in between. */
   const insertOfferLabel = useCallback(
     (o: { prev: Point | null; next: Point | null }) => {
@@ -4040,12 +4060,14 @@ export const Player = forwardRef<
     []
   );
 
-  /** The offer that sits after the LAST card — the end of the match. */
+  /** The offer that sits after the LAST card — the end of the match. Shown
+   *  only while you are standing on that card, like every other offer. */
   const insertTail = useMemo(() => {
     if (!onInsertPoint) return null;
     const withClips = points.filter((p) => p.cut_t0 !== null);
     if (withClips.length === 0) return null;
     const last = withClips[withClips.length - 1];
+    if (last.id !== targetId) return null;
     if (!gapWorthOffering(last, null, pad)) return null;
     const n = points.findIndex((p) => p.id === last.id);
     return {
@@ -4054,7 +4076,7 @@ export const Player = forwardRef<
       prevNumber: n >= 0 ? n + 1 : withClips.length,
       nextNumber: null,
     };
-  }, [points, pad, onInsertPoint]);
+  }, [points, pad, onInsertPoint, targetId]);
 
   const doInsert = useCallback(
     async (
@@ -5999,7 +6021,9 @@ export const Player = forwardRef<
                       )
                     )
                   : null;
-                const offer = insertOffers.get(p.id);
+                const offer = insertHere.has(p.id)
+                  ? insertOffers.get(p.id)
+                  : undefined;
                 return (
                   <Fragment key={p.id}>
                   {dots.map((d) => (

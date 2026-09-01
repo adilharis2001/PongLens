@@ -737,7 +737,7 @@ struct MatchDetailScreen: View {
                             }
                             overallNotesSection
                         } else {
-                            rawSection
+                            rawSection(proxy: proxy)
                         }
                     }
                     .padding(20)
@@ -890,7 +890,8 @@ struct MatchDetailScreen: View {
         .sheet(isPresented: $shareOpen) {
             ShareLinksSheet(
                 match: current,
-                starredCount: model.visible.filter(\.starred).count
+                starredCount: model.visible.filter(\.starred).count,
+                processed: current.status == .ready
             )
             .presentationDetents([.medium, .large])
             .presentationBackground(PL.surface)
@@ -965,7 +966,11 @@ struct MatchDetailScreen: View {
             } label: {
                 Label("Edit details", systemImage: "pencil")
             }
-            if current.status == .ready {
+            // Share works before processing too (153): the link plays the
+            // original upload, then upgrades to the cut once processing
+            // lands. Only a rejected upload, whose file is gone, has
+            // nothing to share.
+            if !sourceGone {
                 Button {
                     shareOpen = true
                 } label: {
@@ -1327,7 +1332,7 @@ struct MatchDetailScreen: View {
     /// the pipeline runs, the failure sentence when it broke, and the
     /// process decision with real numbers when the video just sits there.
     @ViewBuilder
-    private var rawSection: some View {
+    private func rawSection(proxy: ScrollViewProxy) -> some View {
         if model.jobRunning || current.status == .processing {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Processing")
@@ -1356,62 +1361,24 @@ struct MatchDetailScreen: View {
             processCard
         }
 
-        if !sourceGone {
-            rawDetailsCard
+        // The processed page's Tools card, minus the rows that need
+        // points to exist. Details editing hands back to this screen's
+        // own editor (the same one the ellipsis menu opens), replacing
+        // the summary card that used to sit here — one editor, one door.
+        if isOwner {
+            RawToolsSection(
+                match: current,
+                sourceGone: sourceGone,
+                onEditDetails: { detailsOpen = true },
+                onScrollToNotes: {
+                    withAnimation { proxy.scrollTo("overall-notes", anchor: .top) }
+                }
+            )
         }
         // The same overall-notes thread the processed page ends with.
         // Notes were the invisible half of the raw player: its note button
         // saved a real match note, and this page had nowhere to show it.
         overallNotesSection
-    }
-
-    /// What the details sheet edits, readable without opening it. On the
-    /// web these fields sit as a form on the raw page — a fresh upload is
-    /// where names get filled in, and a value behind a menu might as well
-    /// not exist.
-    private var rawDetailsCard: some View {
-        Button {
-            detailsOpen = true
-        } label: {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Match details")
-                        .font(.plCardTitle)
-                        .foregroundStyle(PL.text100)
-                    Text(rawDetailsSummary)
-                        .font(.plBody)
-                        .foregroundStyle(PL.text500)
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 8)
-                Text(isOwner ? "Edit" : "")
-                    .font(.plButtonSecondary)
-                    .foregroundStyle(PL.text300)
-                if isOwner {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(PL.text600)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .plCard(padding: 16)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isOwner)
-    }
-
-    private var rawDetailsSummary: String {
-        var parts: [String] = []
-        if let opp = current.opponentName?.trimmingCharacters(in: .whitespaces),
-           !opp.isEmpty { parts.append("vs \(opp)") }
-        if let venue = current.venue?.trimmingCharacters(in: .whitespaces),
-           !venue.isEmpty { parts.append(venue) }
-        if let type = current.matchType,
-           let label = MatchTitle.typeLabel[type] { parts.append(label) }
-        return parts.isEmpty
-            ? "Add the opponent, venue, and type."
-            : parts.joined(separator: " · ")
     }
 
 

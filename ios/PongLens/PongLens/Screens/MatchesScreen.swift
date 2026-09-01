@@ -198,10 +198,13 @@ struct MatchesScreen: View {
         // counts live in the detail model, which the grid doesn't load, so
         // the starred row shows its empty state here.
         .sheet(item: $shareMatch) { match in
-            ShareLinksSheet(match: match, starredCount: 0)
-                .presentationDetents([.medium])
-                .presentationBackground(PL.surface)
-                .presentationDragIndicator(.visible)
+            ShareLinksSheet(
+                match: match, starredCount: 0,
+                processed: match.status == .ready
+            )
+            .presentationDetents([.medium])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
         }
         .alert(
             "Delete this match?",

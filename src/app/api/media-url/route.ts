@@ -329,44 +329,26 @@ export async function POST(req: Request) {
         expiresSeconds: 6 * 3600,
         disposition: "inline",
       });
-      // The RAW file's clock, not the points' clock. A trimmed upload is
-      // cut down before the pipeline ever sees it, so every t0/t1 in
-      // public.points is measured from trim_start_s into this file. Anything
-      // seeking the raw by a point's timestamp — the "add a missing rally"
-      // sheet does exactly that — has to add this back or it lands minutes
-      // out. Returned here so the two clients cannot disagree about it.
-      let trimStartS = 0;
-      if (match.job_id) {
-        const { data: job } = await supabase
-          .from("jobs")
-          .select("options")
-          .eq("id", match.job_id)
-          .single();
-        const raw = (job?.options as { trim_start_s?: unknown } | null)
-          ?.trim_start_s;
-        const n = typeof raw === "string" ? Number(raw) : raw;
-        if (typeof n === "number" && Number.isFinite(n) && n > 0) {
-          trimStartS = n;
-        }
-      }
-      return NextResponse.json({ url, available: true, trimStartS });
+      return NextResponse.json({ url, available: true });
     }
 
     if (raw) {
-      // Original raw upload, downloadable only while the 30-day retention
-      // sweep still holds it. The source job's input_path points at
-      // ponglens-raw; HEAD-check before signing so a gone upload reports
-      // { available: false } (the Export sheet hides the row) rather than
-      // handing back a link that 404s.
-      if (!match.job_id) {
-        return NextResponse.json({ available: false });
+      // Original raw upload as a download. raw_path first: it is the
+      // retention-protected object (r2_raw_sweep keeps it while the
+      // library row exists), and an UNPROCESSED match has no job_id yet.
+      // Older rows with a null raw_path fall back to the source job's
+      // input_path, which ages out on the 30-day clock. HEAD-check before
+      // signing so a gone upload reports { available: false } (the Export
+      // sheet hides the row) rather than handing back a link that 404s.
+      let loc = parseR2(match.raw_path);
+      if ((!loc || loc.bucket !== RAW_BUCKET) && match.job_id) {
+        const { data: job } = await supabase
+          .from("jobs")
+          .select("input_path")
+          .eq("id", match.job_id)
+          .single();
+        loc = parseR2(job?.input_path);
       }
-      const { data: job } = await supabase
-        .from("jobs")
-        .select("input_path")
-        .eq("id", match.job_id)
-        .single();
-      const loc = parseR2(job?.input_path);
       if (!loc || loc.bucket !== RAW_BUCKET) {
         return NextResponse.json({ available: false });
       }
