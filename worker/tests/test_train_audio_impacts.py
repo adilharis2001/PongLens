@@ -31,6 +31,25 @@ from worker.train_audio_impacts import (
 )
 
 
+class TaxonomyTests(unittest.TestCase):
+    def test_shoe_squeak_and_stomp_are_distinct_trainable_classes(self):
+        self.assertEqual(
+            AUDIO_IMPACT_CLASSES,
+            (
+                "paddle",
+                "table",
+                "floor",
+                "shoe",
+                "shoe_squeak",
+                "stomp",
+                "net",
+                "background",
+                "other",
+                "no_impact",
+            ),
+        )
+
+
 def event(
     event_id,
     kind,
@@ -267,10 +286,10 @@ class MetricTests(unittest.TestCase):
             partition="sealed",
             probabilities=np.asarray(
                 [
-                    [0.9, 0.1, 0, 0, 0, 0, 0, 0],
-                    [0.4, 0.6, 0, 0, 0, 0, 0, 0],
-                    [0.3, 0.7, 0, 0, 0, 0, 0, 0],
-                    [0.1, 0.9, 0, 0, 0, 0, 0, 0],
+                    [0.9, 0.1, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0.4, 0.6, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0.3, 0.7, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0.1, 0.9, 0, 0, 0, 0, 0, 0, 0, 0],
                 ]
             ),
         )
@@ -415,8 +434,8 @@ class LinearExperimentTests(unittest.TestCase):
     def test_round_b_acquisition_combines_model_uncertainty_and_low_band_confounds(self):
         probabilities = np.asarray(
             [
-                [0.51, 0.49, 0, 0, 0, 0, 0, 0],
-                [0.9, 0.1, 0, 0, 0, 0, 0, 0],
+                [0.51, 0.49, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0.9, 0.1, 0, 0, 0, 0, 0, 0, 0, 0],
             ]
         )
         candidates = [
@@ -446,6 +465,15 @@ class LinearExperimentTests(unittest.TestCase):
         self.assertEqual(components["event_density"], 1.0)
         self.assertEqual(components["floor_tail_density"], 0.25)
         self.assertEqual(components["confound_novelty"], 0.5)
+
+    def test_round_b_acquisition_treats_squeaks_and_stomps_as_confounds(self):
+        components = pool_acquisition_components(
+            np.asarray([[0, 0, 0, 0, 0.4, 0.6, 0, 0, 0, 0]]),
+            [{"detector_origins": [], "detector_scores": {}}],
+            duration_s=1.0,
+        )
+
+        self.assertEqual(components["confound_probability"], 1.0)
 
     def test_freeze_unlock_and_score_transitions_persist_exact_artifact_hashes(self):
         export = {

@@ -33,6 +33,8 @@ AUDIO_IMPACT_CLASSES = (
     "table",
     "floor",
     "shoe",
+    "shoe_squeak",
+    "stomp",
     "net",
     "background",
     "other",
@@ -872,7 +874,16 @@ def pool_acquisition_components(
     )
     confound_indices = [
         AUDIO_IMPACT_CLASSES.index(kind)
-        for kind in ("floor", "shoe", "net", "background", "other", "no_impact")
+        for kind in (
+            "floor",
+            "shoe",
+            "shoe_squeak",
+            "stomp",
+            "net",
+            "background",
+            "other",
+            "no_impact",
+        )
     ]
     confound_probability = (
         float(np.mean(probabilities[:, confound_indices].sum(axis=1)))

@@ -45,6 +45,18 @@ iCloud-synced; keeping it out of the file keeps it out of iCloud. Without the
 Keychain item the variable is simply empty and the routes that need it
 (paid-review transitions, the Ask rate limiter) fail closed.
 
+## Audio-impact research
+
+The admin-only desktop labeler at `/research/audio-impacts` reviews one game
+point at a time. Watch the full point first, then classify every pink-marked
+sound before explicitly finishing and opening the next point.
+
+The classes are Paddle (`P`), Table (`T`), Ball on floor (`F`), Shoe / footstep
+(`H`), Shoe squeak (`Q`), Stomp (`S`), Net (`N`), Background court (`B`),
+Other (`O`), No clear impact (`X`), and Unsure (`U`). Shoe / footstep means an
+ordinary step or non-squeaking shoe movement; Shoe squeak is friction noise;
+Stomp is a distinct heavy foot strike.
+
 ## Setup from scratch
 
 Full operator runbook (Supabase project, Google OAuth, Vercel, domain,

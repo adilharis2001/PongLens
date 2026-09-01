@@ -41,6 +41,13 @@ const audioImpactUrl = new URL(
 const audioImpact = existsSync(audioImpactUrl)
   ? readFileSync(audioImpactUrl, "utf8").toLowerCase()
   : "";
+const audioImpactFootClassesUrl = new URL(
+  "../../../supabase/migrations/153_audio_impact_foot_classes.sql",
+  import.meta.url,
+);
+const audioImpactFootClasses = existsSync(audioImpactFootClassesUrl)
+  ? readFileSync(audioImpactFootClassesUrl, "utf8").toLowerCase()
+  : "";
 const serveFollowupExport = readFileSync(
   new URL(
     "../../../supabase/migrations/059_serve_followup_export.sql",
@@ -158,6 +165,22 @@ test("audio impact migration seals rounds and validates human labels server-side
   assert.match(audioImpact, /frozen development bindings are immutable/i);
   assert.match(audioImpact, /all 30 sealed assignments must be complete/i);
   assert.match(audioImpact, /frozen audio-impact assignments are read-only/i);
+});
+
+test("audio impact foot taxonomy migration keeps shoe, squeak, and stomp distinct", () => {
+  assert.match(
+    audioImpactFootClasses,
+    /create or replace function public\.validate_audio_impact_assignment\(\)/,
+  );
+  for (const kind of ["shoe", "shoe_squeak", "stomp"]) {
+    assert.match(audioImpactFootClasses, new RegExp(`'${kind}'`));
+  }
+  assert.match(audioImpactFootClasses, /round c is sealed/);
+  assert.match(
+    audioImpactFootClasses,
+    /frozen audio-impact assignments are read-only/,
+  );
+  assert.match(audioImpactFootClasses, /media unavailable assignments cannot be labeled/);
 });
 
 test("serve follow-up export includes evidence while retaining the admin gate", () => {
