@@ -129,8 +129,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ url: signed });
     }
 
-    // Match link, no point: the cut video.
-    const loc = parseR2(link.cut_path);
+    // Match link, no point: the cut video, or — for a match that has not
+    // been processed — the original upload (153). Cut first, so the same
+    // link upgrades the moment processing finishes.
+    const loc = parseR2(link.cut_path) ?? parseR2(link.raw_path);
     if (!loc) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }

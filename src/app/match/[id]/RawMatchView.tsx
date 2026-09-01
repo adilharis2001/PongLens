@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { SpokenGamesToggle, SpokenLine, cleanSpoken } from "./SpokenScore";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { NoteComposer, NoteItem } from "./Notes";
 
 import { chargeMinutes, formatClock, formatMinutes } from "@/lib/commerce/minutes";
@@ -29,9 +30,13 @@ import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { createClient } from "@/lib/supabase/client";
 import type { Match, Note, NoteAuthor } from "@/lib/types";
 import { NameCombobox } from "@/app/dashboard/NameCombobox";
+import { SectionHeading } from "@/components/SectionHeading";
+import { ShareSheet } from "@/components/ShareSheet";
+import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { TrimBar } from "@/components/TrimBar";
 import { ClipPlayer } from "./ClipPlayer";
 import { PickSide } from "./PickSide";
+import { RawExportRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import type { Side } from "./sides";
 
 const MATCH_TYPES = ["drills", "practice", "match", "league", "tournament"] as const;
@@ -128,6 +133,52 @@ export function RawMatchView({
   const [pastOpponents, setPastOpponents] = useState<string[]>([]);
   const [detailsSaved, setDetailsSaved] = useState(false);
   const savedTimer = useRef<number | null>(null);
+
+  // Tools-card plumbing, mirroring the processed page: sheet switches,
+  // the details panel toggle, live row statuses, and the Notes jump
+  // target. Same rows, minus the ones that need points to exist.
+  const [shareOpen, setShareOpen] = useState(false);
+  const [coachOpen, setCoachOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [sideOpen, setSideOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const notesRef = useRef<HTMLElement | null>(null);
+  const [shareLinkCount, setShareLinkCount] = useState<number | null>(null);
+  const [coachShared, setCoachShared] = useState<boolean | null>(null);
+  const loadToolStatus = useCallback(async () => {
+    if (!isOwner) return;
+    const supabase = createClient();
+    const [links, coach] = await Promise.all([
+      supabase
+        .from("share_links")
+        .select("id", { count: "exact", head: true })
+        .eq("match_id", match.id)
+        .is("revoked_at", null),
+      supabase
+        .from("coach_links")
+        .select("id")
+        .eq("player_id", userId)
+        .neq("status", "revoked")
+        .or(`scope_match_id.eq.${match.id},scope_match_id.is.null`)
+        .limit(1),
+    ]);
+    if (typeof links.count === "number") setShareLinkCount(links.count);
+    if (coach.data) setCoachShared(coach.data.length > 0);
+  }, [isOwner, match.id, userId]);
+  useEffect(() => {
+    void loadToolStatus();
+  }, [loadToolStatus]);
+
+  // Default share-link title material. No player names exist before
+  // processing, so this is the opponent-field half of the processed
+  // page's rule: "Adil vs Marco" typed whole is kept, a bare name gets
+  // "vs", nothing falls back to the sheet's own "My match".
+  const shareNames = useMemo(() => {
+    const opp = opponent.trim();
+    if (!opp) return null;
+    if (/\bvs\b/i.test(opp)) return opp;
+    return `vs ${opp}`;
+  }, [opponent]);
 
   // Same one-name-per-person suggestions the upload card offers, so
   // "how do I do against X" keeps working across matches.
@@ -288,11 +339,10 @@ export function RawMatchView({
     }
   };
 
+  // Called from the confirm sheet only — the settings menu item opens the
+  // sheet, the sheet's red pill deletes. Same two-beat shape as before,
+  // now matching where the processed page keeps its delete.
   const remove = async () => {
-    if (!confirmDelete) {
-      setConfirmDelete(true);
-      return;
-    }
     setBusy(true);
     const supabase = createClient();
     const { error: deleteError } = await supabase
@@ -326,10 +376,82 @@ export function RawMatchView({
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pt-6">
       <header className="mb-5 flex items-baseline justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-zinc-50 sm:text-3xl">
-            {title}
-          </h1>
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="min-w-0 truncate text-2xl font-bold tracking-tight text-zinc-50 sm:text-3xl">
+              {title}
+            </h1>
+            {/* Match settings: the one whole-match action, in the same
+                gear the processed page keeps its own. */}
+            {isOwner && !jobRunning && (
+              <span className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen((o) => !o)}
+                  aria-expanded={settingsOpen}
+                  aria-label="Match settings"
+                  title="Match settings"
+                  className={`rounded-full p-1.5 transition-colors ${
+                    settingsOpen
+                      ? "text-cyan-glow"
+                      : "text-zinc-600 hover:text-zinc-300"
+                  }`}
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="3" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"
+                    />
+                  </svg>
+                </button>
+                {settingsOpen && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Close menu"
+                      onClick={() => setSettingsOpen(false)}
+                      className="fixed inset-0 z-10 cursor-default"
+                    />
+                    <div className="absolute right-0 top-9 z-20 w-52 overflow-hidden rounded-2xl border border-edge/80 bg-ink/95 py-1.5 shadow-xl shadow-black/50 backdrop-blur-xl">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSettingsOpen(false);
+                          setConfirmDelete(true);
+                        }}
+                        className="flex w-full items-center gap-2.5 whitespace-nowrap px-3.5 py-2 text-left text-[13px] font-medium text-red-400 transition-colors hover:bg-red-500/10"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          className="h-4 w-4 shrink-0"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.8"
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M3 6h18M8 6V4h8v2m-9 0 1 14h8l1-14"
+                          />
+                        </svg>
+                        Delete video
+                      </button>
+                    </div>
+                  </>
+                )}
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-sm text-zinc-400">
             {new Date(match.played_at).toLocaleDateString(undefined, {
               month: "short",
@@ -639,8 +761,144 @@ export function RawMatchView({
         </section>
       )}
 
-      {isOwner && !sourceGone && (
-        <section className="mt-4 rounded-2xl border border-edge bg-surface p-5">
+      {/* The processed page's Tools card, minus the rows that need points
+          to exist — Score Keeper, Highlights, Placement and Match analysis
+          appear once processing creates them. Same rows, same order, same
+          chrome, so the page reads as the same product either side of
+          processing. A rejected upload (sourceGone) keeps only the rows
+          that don't touch the video. */}
+      {isOwner && (
+        <section className="mt-8">
+          <SectionHeading>Tools</SectionHeading>
+          <div className="mt-3 w-full divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface lg:grid lg:grid-cols-3 lg:gap-3 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent">
+            {!sourceGone && (
+              <button
+                type="button"
+                onClick={() => setShareOpen(true)}
+                className={TOOL_ROW_CLASS}
+              >
+                <span className="text-sm font-semibold">Share</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  {shareLinkCount !== null && (
+                    <span
+                      className={`shrink-0 text-xs tabular-nums ${
+                        shareLinkCount > 0 ? "text-zinc-400" : "text-zinc-500"
+                      }`}
+                    >
+                      {shareLinkCount > 0
+                        ? `${shareLinkCount} link${shareLinkCount === 1 ? "" : "s"}`
+                        : "Not shared"}
+                    </span>
+                  )}
+                  <ToolRowChevron />
+                </span>
+              </button>
+            )}
+            {!sourceGone && (
+              <button
+                type="button"
+                onClick={() => setCoachOpen(true)}
+                className={TOOL_ROW_CLASS}
+              >
+                <span className="text-sm font-semibold">Coach</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  {coachShared !== null && (
+                    <span
+                      className={`shrink-0 text-xs ${
+                        coachShared ? "text-zinc-400" : "text-zinc-500"
+                      }`}
+                    >
+                      {coachShared ? "Shared" : "Invite your coach"}
+                    </span>
+                  )}
+                  <ToolRowChevron />
+                </span>
+              </button>
+            )}
+            {!sourceGone && <RawExportRow matchId={match.id} />}
+            <button
+              type="button"
+              onClick={() =>
+                notesRef.current?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "start",
+                })
+              }
+              className={TOOL_ROW_CLASS}
+            >
+              <span className="text-sm font-semibold">Notes</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span
+                  className={`shrink-0 text-xs ${
+                    notes.length > 0 ? "text-zinc-400" : "text-zinc-500"
+                  }`}
+                >
+                  {notes.length > 0
+                    ? `${notes.length} note${notes.length === 1 ? "" : "s"}`
+                    : "Add a note"}
+                </span>
+                <ToolRowChevron />
+              </span>
+            </button>
+            {!sourceGone && (
+              <button
+                type="button"
+                onClick={() => setDetailsOpen((v) => !v)}
+                aria-expanded={detailsOpen}
+                className={TOOL_ROW_CLASS}
+              >
+                <span className="text-sm font-semibold">Match details</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="min-w-0 shrink truncate text-xs text-zinc-400">
+                    {[opponent.trim(), venue.trim()]
+                      .filter(Boolean)
+                      .join(" · ") || "Add opponent and venue"}
+                  </span>
+                  <ToolRowChevron />
+                </span>
+              </button>
+            )}
+            {!sourceGone && rawUrl && (
+              <button
+                type="button"
+                onClick={() => setSideOpen(true)}
+                className={TOOL_ROW_CLASS}
+              >
+                <span className="text-sm font-semibold">Your side</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={`shrink-0 text-xs ${
+                      userSide !== null ? "text-zinc-400" : "text-zinc-500"
+                    }`}
+                  >
+                    {userSide === "near"
+                      ? "Bottom of video"
+                      : userSide === "far"
+                        ? "Top of video"
+                        : "Set your side"}
+                  </span>
+                  <ToolRowChevron />
+                </span>
+              </button>
+            )}
+            <Link
+              href={`/feedback?matchId=${match.id}`}
+              className={TOOL_ROW_CLASS}
+            >
+              <span className="text-sm font-semibold">Report an issue</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span className="shrink-0 text-xs text-zinc-500">
+                  Something look off?
+                </span>
+                <ToolRowChevron />
+              </span>
+            </Link>
+          </div>
+        </section>
+      )}
+
+      {isOwner && !sourceGone && detailsOpen && (
+        <section className="mt-3 rounded-2xl border border-edge bg-surface p-5">
           <div className="flex items-baseline justify-between gap-3">
             <h2 className="text-base font-semibold text-zinc-100">Match details</h2>
             <span
@@ -716,60 +974,15 @@ export function RawMatchView({
               </div>
             </div>
 
-            {/* Which end you played from. Asked against the raw file here
-                rather than the cut, because there is no cut yet — and if
-                the browser cannot decode it, PickSide says so and the
-                match page asks again once the H.264 cut exists. */}
-            {rawUrl && (
-              <div className="rounded-xl border border-edge bg-ink/20 p-3.5">
-                {userSide !== null ? (
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm text-zinc-200">
-                      You&apos;re at the{" "}
-                      <span className="font-semibold text-cyan-glow">
-                        {userSide === "near" ? "bottom" : "top"}
-                      </span>{" "}
-                      of the video
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setUserSide(null)}
-                      className="shrink-0 rounded-full border border-edge px-3 py-1.5 text-sm text-zinc-300 hover:border-zinc-500"
-                    >
-                      Change
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-sm text-zinc-200">
-                      Which player are you?
-                    </p>
-                    <div className="mt-3">
-                      <PickSide
-                        src={rawUrl}
-                        atSeconds={60}
-                        selected={userSide}
-                        onPick={(s) => {
-                          setUserSide(s);
-                          void saveDetails({ user_side: s });
-                        }}
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
           </div>
         </section>
       )}
 
       {/* match-level notes (point_id null), the processed page's closing
-          section. People who keep the rally whole still debrief. */}
-      <section className="mt-6">
-        <h2 className="text-base font-semibold text-zinc-100">Overall notes</h2>
-        <p className="mt-1 text-sm text-zinc-500">
-          Notes about the whole match. Type or record a voice note.
-        </p>
+          section. People who keep the rally whole still debrief. The Tools
+          "Notes" row jumps here, exactly as it does after processing. */}
+      <section ref={notesRef} className="mt-8 scroll-mt-32">
+        <SectionHeading>Overall notes</SectionHeading>
         {notes.length > 0 && (
           <ul className="mt-4 space-y-3">
             {notes.map((n) => (
@@ -795,23 +1008,122 @@ export function RawMatchView({
         </div>
       </section>
 
-      {isOwner && !jobRunning && (
-        <div className="mt-6 flex items-center gap-3">
+      {/* public-link share sheet — the same single share entry the
+          processed page has. Starred/tag rows disable themselves at zero
+          and the score toggle hides unscored, so the sheet needs no raw
+          variant. */}
+      {isOwner && (
+        <ShareSheet
+          open={shareOpen}
+          onClose={() => {
+            setShareOpen(false);
+            void loadToolStatus();
+          }}
+          matchId={match.id}
+          starredCount={0}
+          userId={userId}
+          names={shareNames}
+          scored={false}
+        />
+      )}
+
+      {/* coach invite sheet, from the Tools "Coach" row. Touches nothing
+          but coach_links, so it works identically before processing. */}
+      {isOwner && (
+        <ShareWithCoachSheet
+          open={coachOpen}
+          onClose={() => {
+            setCoachOpen(false);
+            void loadToolStatus();
+          }}
+          userId={userId}
+          matchId={match.id}
+        />
+      )}
+
+      {/* "Your side" sheet, from the Tools row — PickSide against the raw
+          file, since there is no cut yet. If the browser cannot decode
+          the file, PickSide says so and the match page asks again once
+          the H.264 cut exists. */}
+      {isOwner && sideOpen && rawUrl && (
+        <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
           <button
-            onClick={remove}
-            disabled={busy}
-            className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 hover:border-amber-400/60 hover:text-amber-200"
-          >
-            {confirmDelete ? "Delete for good?" : "Delete video"}
-          </button>
-          {confirmDelete && (
-            <button
-              onClick={() => setConfirmDelete(false)}
-              className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-400 hover:border-zinc-500"
-            >
-              Keep it
-            </button>
-          )}
+            type="button"
+            aria-label="Close"
+            onClick={() => setSideOpen(false)}
+            className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
+          />
+          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Which player are you?</h2>
+              <button
+                type="button"
+                onClick={() => setSideOpen(false)}
+                aria-label="Close"
+                className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </div>
+            <div className="mt-4">
+              <PickSide
+                src={rawUrl}
+                atSeconds={60}
+                selected={userSide}
+                onPick={(s) => {
+                  setUserSide(s);
+                  void saveDetails({ user_side: s });
+                  setSideOpen(false);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* delete confirm — opened from the header gear, same home as the
+          processed page's delete. */}
+      {isOwner && confirmDelete && (
+        <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setConfirmDelete(false)}
+            className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
+          />
+          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
+            <h2 className="text-base font-semibold">Delete this video?</h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              It comes off your library for good.
+            </p>
+            {error && <p className="mt-2 text-sm text-amber-300/90">{error}</p>}
+            <div className="mt-5 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-400 hover:border-zinc-500"
+              >
+                Keep it
+              </button>
+              <button
+                type="button"
+                onClick={remove}
+                disabled={busy}
+                className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 hover:border-amber-400/60 hover:text-amber-200 disabled:opacity-50"
+              >
+                Delete video
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

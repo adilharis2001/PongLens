@@ -666,3 +666,139 @@ export function ReelRow({
     </div>
   );
 }
+
+/**
+ * The Export row for an UNPROCESSED match: the same Tools-card door and
+ * the same sheet chrome as ReelRow, holding the one artifact that exists
+ * before processing — the original upload. Point clips, rendered reels
+ * and tag collections appear via ReelRow once the match is processed.
+ * Availability is probed on open, exactly as ReelRow probes its raw row:
+ * a legacy match whose original is gone gets an honest line, not a link
+ * that 404s.
+ */
+export function RawExportRow({ matchId }: { matchId: string }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // null = probing, false = gone, true = present.
+  const [rawAvailable, setRawAvailable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    setRawAvailable(null);
+    (async () => {
+      try {
+        const res = await fetch("/api/media-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matchId, raw: true }),
+        });
+        const data = res.ok ? await res.json() : null;
+        if (alive) setRawAvailable(Boolean(data?.available));
+      } catch {
+        if (alive) setRawAvailable(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [open, matchId]);
+
+  const download = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/media-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId, raw: true }),
+      });
+      const data = res.ok ? await res.json() : null;
+      if (!data?.url) throw new Error("no url");
+      triggerDownload(data.url);
+    } catch {
+      setError("Couldn't create a download link. Try again shortly.");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, matchId]);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          setError(null);
+          setOpen(true);
+        }}
+        className={TOOL_ROW_CLASS}
+      >
+        <span className="text-sm font-semibold">Export</span>
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="shrink-0 text-xs text-zinc-500">Original video</span>
+          <ToolRowChevron />
+        </span>
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            aria-label="Close export sheet"
+            onClick={() => setOpen(false)}
+            className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
+          />
+          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold">Export</h2>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Close"
+                className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </div>
+            <p className="mt-1 text-sm text-zinc-400">
+              Point clips and rendered videos appear here after processing.
+            </p>
+
+            <div className="mt-4 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+              <ExportRow
+                title="Original video"
+                subtitle={
+                  rawAvailable === false
+                    ? "No longer stored"
+                    : "Your upload, as recorded"
+                }
+                action={
+                  rawAvailable === false ? null : (
+                    <DownloadAction
+                      busy={busy}
+                      disabled={rawAvailable !== true}
+                      onClick={() => void download()}
+                    />
+                  )
+                }
+              />
+            </div>
+
+            {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
