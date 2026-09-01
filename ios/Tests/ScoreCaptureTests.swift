@@ -150,6 +150,44 @@ func runScoreCaptureChecks() {
         check(c.heardLog.count == 1, "but is logged for debugging")
     }
 
+    // Games arrive out of order. Two captured, three never heard, four
+    // captured — and three said later must land and sort into place.
+    // This is the exact sequence from the field report; the core always
+    // handled it, and this pins that down so the next plumbing rewrite
+    // cannot lose it.
+    do {
+        var c = ScoreCapture()
+        c.beginSession()
+        c.windowOpened()
+        _ = c.heard("game two score eleven five")
+        _ = c.settled(nil)
+        c.windowOpened()
+        _ = c.heard("game four score eleven seven")
+        _ = c.settled(nil)
+        c.windowOpened()
+        check(c.heard("game three score eleven nine") == .captured,
+              "a skipped game lands late")
+        check(board(c) == "2:11-5 3:11-9 4:11-7",
+              "and sorts into place, got \(board(c))")
+    }
+
+    // Same shape through the ?? path: three was heard but not scored,
+    // four captured over the top of it, three typed... said again later.
+    do {
+        var c = ScoreCapture()
+        c.beginSession()
+        c.windowOpened()
+        _ = c.settled("game three score mumble mumble")
+        c.windowOpened()
+        _ = c.heard("game four score eleven seven")
+        _ = c.settled(nil)
+        c.windowOpened()
+        check(c.heard("game three score eleven nine") == .captured,
+              "a ?? game fills in late")
+        check(board(c) == "3:11-9 4:11-7",
+              "and keeps its place, got \(board(c))")
+    }
+
     // Haptic discipline: the same forming phrase is one event, not one
     // per word.
     do {

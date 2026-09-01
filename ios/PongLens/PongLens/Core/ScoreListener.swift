@@ -57,6 +57,16 @@ final class ScoreListener {
     /// and a gate that shut in the gap would hand the recogniser two
     /// fragments where the phrase only means anything whole.
     private static let minOpenS = 4.0
+    /// And however LOUD it stays, a window ends here. Opening takes a
+    /// raised voice at the phone, but staying open takes a fifth of
+    /// that, and a busy hall sits above the hold level for minutes at a
+    /// time. Without a ceiling, one shout near the phone holds the
+    /// window open indefinitely, the whole room streams into a single
+    /// growing utterance, and a score called late in a loud match
+    /// drowns in it — which from the outside looks like the feature
+    /// working early in the evening and dying later. A called score
+    /// fits comfortably inside nine seconds; nothing longer is one.
+    private static let maxOpenS = 9.0
     /// Fed in ahead of the gate opening, so the first word is not clipped.
     private static let prerollS = 0.7
 
@@ -286,7 +296,9 @@ final class ScoreListener {
         if openSince != nil {
             feed(buffer)
             let held = now.timeIntervalSince(openSince ?? now)
-            if held > Self.minOpenS, let last = lastLoud,
+            if held > Self.maxOpenS {
+                closeWindow()
+            } else if held > Self.minOpenS, let last = lastLoud,
                now.timeIntervalSince(last) > Self.hangoverS {
                 closeWindow()
             }

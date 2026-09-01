@@ -38,6 +38,30 @@ enum RecordOrientation {
         scene?.interfaceOrientation.isLandscape ?? false
     }
 
+    /// How far to turn a view so it reads upright to somebody holding the
+    /// phone the normal way up, while the interface is pinned sideways.
+    ///
+    /// The record screen only ALLOWS landscape (see claim()), so a phone
+    /// held upright still gets a landscape interface and everything in it
+    /// runs down the screen instead of across it. That is fine for the
+    /// viewfinder, which is the picture being filmed, and wrong for the
+    /// one message that is addressed to somebody who has not turned the
+    /// phone yet.
+    ///
+    /// The signs are the way round they are because they were CHECKED,
+    /// not derived. Reading them off the camera preview's orientation
+    /// table gives both of them backwards: videoRotationAngle turns one
+    /// way and SwiftUI's rotationEffect turns the other, so the banner
+    /// came out horizontal and upside down. Anything that touches this
+    /// wants a real screenshot, not an argument about conventions.
+    static var uprightFromLandscape: Double {
+        switch scene?.interfaceOrientation {
+        case .landscapeRight: -90
+        case .landscapeLeft: 90
+        default: 0
+        }
+    }
+
     private static var scene: UIWindowScene? {
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }.first
@@ -215,10 +239,11 @@ struct ScoreBoard: View {
     /// "Opponent".
     var youLabel: String
     var missed: Int?
-    /// Tapping a game swaps its two numbers, which is the mistake this is
-    /// for: the score is spoken with the user's own first, and half the
-    /// time it will come out the other way round.
-    var onSwap: ((Int) -> Void)?
+    /// What a tap on a game does. On the record screen it swaps the two
+    /// numbers (the likeliest mistake mid-match, fixable blind); on the
+    /// details sheet it opens the editor, because with both hands free
+    /// the right correction is typing the real numbers.
+    var onTap: ((Int) -> Void)?
 
     /// A number, or the mark for a game that was called out and never
     /// scored. Two question marks rather than "XX", which in a row of
@@ -274,7 +299,7 @@ struct ScoreBoard: View {
 
             ForEach(scores) { score in
                 Button {
-                    onSwap?(score.game)
+                    onTap?(score.game)
                 } label: {
                     VStack(spacing: 5) {
                         Text("\(score.game)")
@@ -493,6 +518,24 @@ struct RecordScreen: View {
                     landscapeChrome(sideways: heldSideways(screenIsPortrait: false))
                 }
 
+                // The one message meant for somebody who has NOT turned
+                // the phone yet, so it is the one message that cannot be
+                // drawn sideways. It sits in the middle of the screen and
+                // turns to face them; the moment they do turn the phone
+                // it has nothing left to say and goes.
+                //
+                // Deliberately outside statusBanners: rotated a quarter
+                // turn its width becomes its height, and it would push
+                // every other banner around the screen.
+                if recorder.state == .ready,
+                   !heldSideways(screenIsPortrait: portrait) {
+                    banner("Turn your phone sideways to record.", tint: PL.cyan)
+                        .rotationEffect(.degrees(
+                            portrait ? 0 : RecordOrientation.uprightFromLandscape))
+                        .transition(.opacity)
+                        .animation(.easeOut(duration: 0.2), value: portrait)
+                }
+
                 if !revealed {
                     ZStack {
                         Color.black.ignoresSafeArea()
@@ -569,7 +612,11 @@ struct RecordScreen: View {
                 queue.holdCompletion(sessionId: sessionId)
                 // Whatever was called out during the match, carried into
                 // the sheet so it is confirmed rather than assumed.
-                if !listener.scores.isEmpty {
+                // Deliberately also when EMPTY: a non-nil empty list is
+                // how the sheet knows the feature ran and offers manual
+                // entry, which is the fallback for a match where the
+                // phone heard nothing at all.
+                if settings.callOutScore, hearsScores {
                     draft.spokenScores = listener.scores
                 }
                 // Filming is landscape; typing is not. The details sheet is
@@ -809,11 +856,6 @@ struct RecordScreen: View {
                         tint: PL.cyan
                     )
                 }
-            }
-            // Reads the phone, not the screen: with rotation lock on the
-            // two disagree, and the phone is the one that matters.
-            if recorder.state == .ready, !sideways {
-                banner("Turn your phone sideways to record.", tint: PL.cyan)
             }
             if recorder.state == .ready, let block = recorder.preflightBlock {
                 banner(block, tint: PL.dangerText)
@@ -1114,7 +1156,7 @@ struct RecordScreen: View {
             ScoreBoard(scores: listener.scores,
                        youLabel: youLabel,
                        missed: listener.missedGame,
-                       onSwap: { listener.swapSides(game: $0) })
+                       onTap: { listener.swapSides(game: $0) })
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
         }
     }
@@ -1486,22 +1528,41 @@ struct MatchDetailsSheet: View {
                 // Above Processing on purpose: this is the moment the
                 // score gets typed into a league app, and it is the last
                 // screen before the recording disappears into the queue.
-                if let spoken = draft.spokenScores, !spoken.isEmpty {
+                // The microphone can fail — a loud hall, a mumbled
+                // number — so this is also where hands take over: tap a
+                // game to type the real numbers, add one the phone never
+                // heard, remove one it invented.
+                if let spoken = draft.spokenScores {
                     Section {
-                        ScoreBoard(scores: spoken,
-                                   youLabel: youLabel,
-                                   missed: nil,
-                                   onSwap: { swapSpoken(game: $0) })
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .listRowInsets(EdgeInsets(top: 10, leading: 12,
-                                                      bottom: 10, trailing: 12))
-                            .listRowBackground(Color.clear)
+                        if !spoken.isEmpty {
+                            ScoreBoard(scores: spoken,
+                                       youLabel: youLabel,
+                                       missed: nil,
+                                       onTap: { game in
+                                           spokenEdit = SpokenEditTarget(game: game)
+                                       })
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .listRowInsets(EdgeInsets(top: 10, leading: 12,
+                                                          bottom: 10, trailing: 12))
+                                .listRowBackground(Color.clear)
+                        }
+                        if spoken.count < SpokenScore.maxGame {
+                            Button {
+                                spokenEdit = SpokenEditTarget(game: nil)
+                            } label: {
+                                Text("Add a game")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(PL.cyan)
+                            }
+                        }
                     } header: {
                         Text("Spoken score")
                     } footer: {
                         Text(spoken.contains { !$0.known }
-                             ? "What you called out during the match. A game showing ?? was heard but not understood. Tap any game to swap the two numbers."
-                             : "What you called out during the match. Tap a game to swap the two numbers.")
+                             ? "What you called out during the match. A game showing ?? was heard but not understood. Tap a game to type it in."
+                             : spoken.isEmpty
+                             ? "Nothing was caught this match. You can add the games by hand."
+                             : "What you called out during the match. Tap a game to correct it.")
                     }
                 }
 
@@ -1570,6 +1631,9 @@ struct MatchDetailsSheet: View {
             }
             .plKeyboardDismiss()
         }
+        .sheet(item: $spokenEdit) { target in
+            spokenEditorSheet(target)
+        }
         .task { await loadPoster() }
         .task {
             struct ProcessingRow: Decodable {
@@ -1625,6 +1689,9 @@ struct MatchDetailsSheet: View {
         return text
     }
 
+    /// Which spoken game the editor is open for; nil game means adding.
+    @State private var spokenEdit: SpokenEditTarget?
+
     /// The uploader's own first name for the board's top row, matching the
     /// record screen. "You" when the account has no name to use.
     private var youLabel: String {
@@ -1633,13 +1700,20 @@ struct MatchDetailsSheet: View {
         return name.prefix(1).uppercased() + name.dropFirst()
     }
 
-    private func swapSpoken(game: Int) {
-        guard var rows = draft.spokenScores,
-              let index = rows.firstIndex(where: { $0.game == game }),
-              rows[index].known else { return }
-        let row = rows[index]
-        rows[index] = SpokenGameScore(game: row.game, you: row.them, them: row.you)
+    private func saveSpoken(game: Int, you: Int, them: Int) {
+        var rows = draft.spokenScores ?? []
+        rows.removeAll { $0.game == game }
+        rows.append(SpokenGameScore(game: game, you: you, them: them))
+        rows.sort { $0.game < $1.game }
         draft.spokenScores = rows
+        pushDraft()
+    }
+
+    private func removeSpoken(game: Int) {
+        var rows = draft.spokenScores ?? []
+        rows.removeAll { $0.game == game }
+        draft.spokenScores = rows
+        pushDraft()
     }
 
     private func pushProcessing() {
@@ -1838,6 +1912,24 @@ struct MatchDetailsSheet: View {
         queue.updateMetadata(sessionId: sessionId, draft)
     }
 
+    @ViewBuilder
+    fileprivate func spokenEditorSheet(_ target: SpokenEditTarget) -> some View {
+        let rows = draft.spokenScores ?? []
+        let existing = target.game.flatMap { g in rows.first { $0.game == g } }
+        SpokenScoreEditor(
+            youLabel: youLabel,
+            fixedGame: target.game,
+            freeGames: (1...SpokenScore.maxGame).filter { candidate in
+                !rows.contains { $0.game == candidate }
+            },
+            initialYou: existing?.you ?? 11,
+            initialThem: existing?.them ?? 0,
+            canRemove: existing != nil,
+            onSave: { game, you, them in saveSpoken(game: game, you: you, them: them) },
+            onRemove: { game in removeSpoken(game: game) }
+        )
+    }
+
     /// The first frame, fetched with patience: the file may still be
     /// merging when the sheet opens, and a fragmented HEVC capture needs a
     /// tolerant, precisely-timed reader before it gives up a frame.
@@ -1913,3 +2005,124 @@ extension LibraryStore {
 // in true perspective from the camera poses that processed well, replacing
 // the side-on trapezoid that taught the one angle the pipeline handles
 // worst.
+
+// MARK: - Fixing a spoken score by hand
+
+/// Which spoken game the details sheet's editor is open on. A nil game
+/// is a new one being added.
+struct SpokenEditTarget: Identifiable {
+    let id = UUID()
+    var game: Int?
+}
+
+/// The hands-on fallback for everything the microphone gets wrong.
+///
+/// The spoken path can fail three ways — a game never heard, numbers
+/// that would not parse (the ?? row), a phrase invented from chatter —
+/// and until this existed none of them could be fixed: the only
+/// correction anywhere was swapping two numbers that were already
+/// right. Saying it again is still the quick path mid-match; this is
+/// the sure one, at the sheet where the score is being read anyway.
+struct SpokenScoreEditor: View {
+    let youLabel: String
+    /// Set when editing an existing game; nil offers the free numbers.
+    let fixedGame: Int?
+    let freeGames: [Int]
+    let initialYou: Int
+    let initialThem: Int
+    let canRemove: Bool
+    let onSave: (Int, Int, Int) -> Void
+    let onRemove: (Int) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var game: Int
+    @State private var you: Int
+    @State private var them: Int
+
+    init(youLabel: String, fixedGame: Int?, freeGames: [Int],
+         initialYou: Int, initialThem: Int, canRemove: Bool,
+         onSave: @escaping (Int, Int, Int) -> Void,
+         onRemove: @escaping (Int) -> Void) {
+        self.youLabel = youLabel
+        self.fixedGame = fixedGame
+        self.freeGames = freeGames
+        self.initialYou = initialYou
+        self.initialThem = initialThem
+        self.canRemove = canRemove
+        self.onSave = onSave
+        self.onRemove = onRemove
+        _game = State(initialValue: fixedGame ?? freeGames.first ?? 1)
+        _you = State(initialValue: initialYou)
+        _them = State(initialValue: initialThem)
+    }
+
+    var body: some View {
+        PLSheetScaffold(title: fixedGame.map { "Game \($0)" } ?? "Add a game",
+                        showDone: false) {
+            VStack(spacing: 20) {
+                if fixedGame == nil, freeGames.count > 1 {
+                    Picker("Game", selection: $game) {
+                        ForEach(freeGames, id: \.self) { number in
+                            Text("Game \(number)").tag(number)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, 20)
+                }
+
+                // Wheels, not typing: two-digit numbers with a hard
+                // ceiling are what wheels are for, and no keyboard means
+                // the sheet never jumps around.
+                HStack(spacing: 0) {
+                    scoreWheel(label: youLabel, tint: PL.cyan, value: $you)
+                    Text("\u{2013}")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(PL.text500)
+                    scoreWheel(label: "Opponent", tint: PL.magentaSoft,
+                               value: $them)
+                }
+                .frame(height: 170)
+                .padding(.horizontal, 12)
+
+                VStack(spacing: 10) {
+                    Button("Save") {
+                        onSave(game, you, them)
+                        dismiss()
+                    }
+                    .buttonStyle(PLPrimaryButtonStyle())
+
+                    if canRemove, let fixedGame {
+                        Button("Remove this game") {
+                            onRemove(fixedGame)
+                            dismiss()
+                        }
+                        .buttonStyle(PLSoftDestructiveButtonStyle())
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 8)
+            }
+            .padding(.top, 8)
+        }
+        .presentationDetents([.height(420)])
+    }
+
+    private func scoreWheel(label: String, tint: Color,
+                            value: Binding<Int>) -> some View {
+        VStack(spacing: 2) {
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(tint)
+                .lineLimit(1)
+            Picker(label, selection: value) {
+                // Deuce runs past eleven; forty is comfortably past any
+                // real game without the wheel becoming a scroll.
+                ForEach(0...40, id: \.self) { n in
+                    Text("\(n)").tag(n)
+                }
+            }
+            .pickerStyle(.wheel)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
