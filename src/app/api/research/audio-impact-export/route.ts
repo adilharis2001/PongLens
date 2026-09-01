@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   const { data: studyState } = await supabase
     .from("audio_impact_research_state")
     .select(
-      "phase,cohort_manifest_sha256,detector_manifest_sha256,development_export_sha256,development_model_sha256,development_threshold_sha256,development_training_data_sha256,feature_definition_sha256,split_definition_sha256,unlocked_at,sealed_report_sha256,scored_at",
+      "phase,cohort_manifest_sha256,detector_manifest_sha256,development_export_sha256,development_model_sha256,development_threshold_sha256,development_training_data_sha256,feature_definition_sha256,split_definition_sha256,unlocked_at,sealed_label_snapshot_sha256,sealed_report_sha256,scored_at",
     )
     .eq("batch_id", batchId)
     .maybeSingle();

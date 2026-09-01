@@ -230,6 +230,7 @@ def validate_export_bindings(
     study_state = payload.get("study_state") or {}
     phase = str(study_state.get("phase") or "")
     exported_rounds = {str(value) for value in payload.get("exported_rounds") or []}
+    sealed_snapshot_sha256 = ""
     if partition == "development":
         if "C" in exported_rounds or phase not in {
             "development_a",
@@ -285,6 +286,9 @@ def validate_export_bindings(
             raise ValueError(
                 "all 30 frozen Round C assignments must be submitted and complete"
             )
+        sealed_snapshot_sha256 = sealed_label_snapshot(sealed_assignments)[
+            "sha256"
+        ]
     cohort_hash = _validate_hash(
         study_state.get("cohort_manifest_sha256"), "cohort_manifest_sha256"
     )
@@ -314,6 +318,7 @@ def validate_export_bindings(
         "frozen_threshold_sha256": str(
             study_state.get("development_threshold_sha256") or ""
         ),
+        "sealed_label_snapshot_sha256": sealed_snapshot_sha256,
     }
 
 
@@ -1486,6 +1491,10 @@ def score_sealed(
     )
     report["model_sha256"] = artifact["model_sha256"]
     report["threshold_sha256"] = artifact["threshold_sha256"]
+    report["sealed_label_snapshot_sha256"] = _validate_hash(
+        sealed_bindings.get("sealed_label_snapshot_sha256"),
+        "sealed_label_snapshot_sha256",
+    )
     return report
 
 
@@ -1554,6 +1563,37 @@ def freeze_and_unlock_payload(
     }
 
 
+def sealed_label_snapshot(
+    assignments: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    sealed = [
+        row
+        for row in assignments
+        if str((row.get("prefill") or {}).get("round") or "") == "C"
+    ]
+    versions = sorted(
+        (
+            {
+                "assignment_id": str(row.get("assignment_id") or ""),
+                "source_id": str(row.get("source_id") or ""),
+                "updated_at": str(row.get("updated_at") or ""),
+            }
+            for row in sealed
+        ),
+        key=lambda row: (row["assignment_id"], row["source_id"]),
+    )
+    if (
+        len(versions) != 30
+        or len({row["assignment_id"] for row in versions}) != 30
+        or len({row["source_id"] for row in versions}) != 30
+        or any(not all(row.values()) for row in versions)
+    ):
+        raise ValueError(
+            "sealed label snapshot requires 30 distinct assignment/source versions"
+        )
+    return {"assignments": versions, "sha256": canonical_hash(versions)}
+
+
 def scored_state_payload(
     study_state: Mapping[str, Any],
     report: Mapping[str, Any],
@@ -1588,9 +1628,13 @@ def scored_state_payload(
         "development_threshold_sha256"
     ):
         raise ValueError("sealed report threshold differs from the frozen threshold")
+    snapshot = sealed_label_snapshot(sealed)
+    if report.get("sealed_label_snapshot_sha256") != snapshot["sha256"]:
+        raise ValueError("sealed report labels differ from the exported label snapshot")
     return {
         **dict(study_state),
         "phase": "scored",
+        "sealed_label_snapshot_sha256": snapshot["sha256"],
         "sealed_report_sha256": canonical_hash(report),
         "scored_at": scored_at,
     }
@@ -1624,6 +1668,101 @@ def _patch_study_state(
     for key, value in payload.items():
         if stored.get(key) != value:
             raise RuntimeError(f"audio-impact lifecycle did not persist {key}")
+
+
+def _record_sealed_score(
+    production: Any,
+    batch_id: str,
+    transition: Mapping[str, Any],
+    snapshot: Mapping[str, Any],
+) -> None:
+    import requests
+
+    response = requests.post(
+        f"{production.supabase_url}/rest/v1/rpc/record_audio_impact_sealed_score",
+        headers={
+            **production.headers,
+            "Content-Type": "application/json",
+        },
+        json={
+            "target_batch_id": batch_id,
+            "expected_assignments": snapshot["assignments"],
+            "expected_snapshot_sha256": transition[
+                "sealed_label_snapshot_sha256"
+            ],
+            "report_sha256": transition["sealed_report_sha256"],
+            "score_time": transition["scored_at"],
+        },
+        timeout=60,
+    )
+    response.raise_for_status()
+    stored = response.json()
+    if isinstance(stored, list):
+        stored = stored[0] if len(stored) == 1 else {}
+    for key in (
+        "phase",
+        "sealed_label_snapshot_sha256",
+        "sealed_report_sha256",
+        "scored_at",
+    ):
+        if stored.get(key) != transition[key]:
+            raise RuntimeError(f"sealed scoring did not persist {key}")
+
+
+def recover_pending_sealed_report(
+    production: Any,
+    export_path: Path,
+    report_out: Path,
+    *,
+    request_get: Callable[..., Any] | None = None,
+) -> Path:
+    """Promote a pending report only when its exact score is already committed."""
+    if report_out.exists():
+        raise FileExistsError(f"sealed report already exists at {report_out}")
+    pending_report = report_out.with_suffix(report_out.suffix + ".pending")
+    if not pending_report.exists():
+        raise FileNotFoundError(f"no pending sealed report at {pending_report}")
+
+    export_payload = json.loads(export_path.read_text())
+    report = json.loads(pending_report.read_text())
+    snapshot = sealed_label_snapshot(export_payload.get("assignments") or [])
+    if report.get("sealed_label_snapshot_sha256") != snapshot["sha256"]:
+        raise ValueError("pending report does not match the exported sealed labels")
+    batch_id = str((export_payload.get("batch") or {}).get("id") or "")
+    if not batch_id:
+        raise ValueError("sealed export is missing its batch ID")
+
+    if request_get is None:
+        import requests
+
+        request_get = requests.get
+    response = request_get(
+        f"{production.supabase_url}/rest/v1/audio_impact_research_state",
+        headers=production.headers,
+        params={
+            "batch_id": f"eq.{batch_id}",
+            "select": (
+                "phase,sealed_label_snapshot_sha256,sealed_report_sha256"
+            ),
+        },
+        timeout=60,
+    )
+    response.raise_for_status()
+    rows = response.json()
+    if not isinstance(rows, list) or len(rows) != 1:
+        raise RuntimeError("could not resolve one audio-impact lifecycle state row")
+    stored = rows[0]
+    if stored.get("phase") != "scored":
+        raise RuntimeError(
+            "the database has not committed this sealed score; pending report retained"
+        )
+    if stored.get("sealed_label_snapshot_sha256") != snapshot["sha256"]:
+        raise RuntimeError("database sealed-label snapshot differs; pending report retained")
+    if stored.get("sealed_report_sha256") != canonical_hash(report):
+        raise RuntimeError("database sealed-report hash differs; pending report retained")
+
+    pending_report.replace(report_out)
+    return report_out
 
 
 def require_cnn_dependency(
@@ -1693,6 +1832,13 @@ def main() -> None:
         help="Atomically close the database-backed sealed evaluation after scoring",
     )
 
+    recover = subparsers.add_parser(
+        "recover-sealed-report",
+        help="Recover a pending report after an ambiguous scoring response",
+    )
+    recover.add_argument("--export", type=Path, required=True)
+    recover.add_argument("--report-out", type=Path, required=True)
+
     unlock = subparsers.add_parser(
         "unlock-sealed",
         help="Freeze the A/B artifact hashes and unlock Round C",
@@ -1729,6 +1875,18 @@ def main() -> None:
     if args.command == "check-cnn":
         require_cnn_dependency()
         print("PyTorch is available for the optional CNN experiment.")
+        return
+    if args.command == "recover-sealed-report":
+        if __package__:
+            from .build_research_pilot import Production
+        else:
+            from build_research_pilot import Production
+        recovered = recover_pending_sealed_report(
+            Production(),
+            args.export,
+            args.report_out,
+        )
+        print(json.dumps({"sealed_report": str(recovered), "recovered": True}))
         return
     if args.command in {"fetch-media", "fetch-pool-media"}:
         if __package__:
@@ -1845,26 +2003,44 @@ def main() -> None:
         feature_matrix(examples),
         sealed_bindings=bindings,
     )
-    _write_json(args.report_out, report)
-    if args.record_score:
-        payload = json.loads(args.export.read_text())
-        transition = scored_state_payload(
-            payload.get("study_state") or {},
-            report,
-            payload.get("assignments") or [],
-            scored_at=datetime.now(timezone.utc).isoformat(),
+    payload = json.loads(args.export.read_text())
+    snapshot = sealed_label_snapshot(payload.get("assignments") or [])
+    transition = scored_state_payload(
+        payload.get("study_state") or {},
+        report,
+        payload.get("assignments") or [],
+        scored_at=datetime.now(timezone.utc).isoformat(),
+    )
+    if args.report_out.exists():
+        raise FileExistsError(
+            f"refusing to overwrite sealed report {args.report_out}"
         )
+    pending_report = args.report_out.with_suffix(args.report_out.suffix + ".pending")
+    if pending_report.exists():
+        raise FileExistsError(
+            f"pending sealed report already exists at {pending_report}; recover it before retrying"
+        )
+    _write_json(pending_report, report)
+    if args.record_score:
         if __package__:
             from .build_research_pilot import Production
         else:
             from build_research_pilot import Production
         batch_id = str((payload.get("batch") or {}).get("id") or "")
-        _patch_study_state(
-            Production(),
-            batch_id,
-            transition,
-            expected_phase="sealed_labeling",
-        )
+        try:
+            _record_sealed_score(
+                Production(),
+                batch_id,
+                transition,
+                snapshot,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "sealed scoring response was ambiguous; the pending report was retained. "
+                "Run recover-sealed-report with the same --export and --report-out "
+                "to verify the committed database hashes before promotion"
+            ) from exc
+    pending_report.replace(args.report_out)
     print(json.dumps({"sealed_report": str(args.report_out)}))
 
 

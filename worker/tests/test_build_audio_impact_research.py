@@ -1,5 +1,6 @@
 from collections import Counter
 from copy import deepcopy
+import hashlib
 from pathlib import Path
 import subprocess
 import sys
@@ -9,7 +10,9 @@ from botocore.exceptions import ClientError
 
 from worker.build_audio_impact_research import (
     BATCH_SLUG,
+    VENUE_RECORDING_TARGETS,
     available_source_fingerprint,
+    assign_capture_sessions,
     build_cohort_manifest,
     canonical_hash,
     choose_recordings,
@@ -17,6 +20,7 @@ from worker.build_audio_impact_research import (
     round_b_acquisition_inputs,
     recording_raw_identity,
     recent_venue_matches,
+    raw_media_sha256,
     rest_get_all,
     select_round_points,
     validate_existing_seed,
@@ -116,6 +120,35 @@ class VenueTests(unittest.TestCase):
             )
         )
 
+    def test_historical_raw_media_without_hash_metadata_is_stream_hashed(self):
+        payload = b"the exact retained match bytes"
+
+        class Body:
+            def __init__(self):
+                self.offset = 0
+
+            def read(self, size):
+                chunk = payload[self.offset : self.offset + size]
+                self.offset += len(chunk)
+                return chunk
+
+            def close(self):
+                return None
+
+        class R2:
+            def head_object(self, **_kwargs):
+                return {"Metadata": {}}
+
+            def get_object(self, **_kwargs):
+                return {"Body": Body()}
+
+        production = type("Production", (), {"r2": R2()})()
+
+        self.assertEqual(
+            raw_media_sha256(production, "r2://ponglens-raw/user/match.mov"),
+            hashlib.sha256(payload).hexdigest(),
+        )
+
     def test_live_inventory_caps_each_venue_before_the_point_query(self):
         matches = []
         for venue in VENUES:
@@ -132,6 +165,25 @@ class VenueTests(unittest.TestCase):
 
         self.assertEqual(Counter(venue_category(item["venue"]) for item in recent), Counter({venue: 12 for venue in VENUES}))
         self.assertTrue(all(any(item["id"] == f"{venue}-19" for item in recent) for venue in VENUES))
+
+    def test_default_inventory_window_is_wide_enough_for_independent_sessions(self):
+        matches = []
+        for venue in VENUES:
+            for number in range(50):
+                matches.append(
+                    {
+                        "id": f"{venue}-{number}",
+                        "venue": venue,
+                        "played_at": f"2026-{number // 28 + 1:02d}-{number % 28 + 1:02d}T12:00:00+00:00",
+                    }
+                )
+
+        recent = recent_venue_matches(matches)
+
+        self.assertEqual(
+            Counter(venue_category(item["venue"]) for item in recent),
+            Counter({venue: 36 for venue in VENUES}),
+        )
 
     def test_point_inventory_pages_past_the_hosted_api_thousand_row_cap(self):
         calls = []
@@ -170,7 +222,7 @@ class VenueTests(unittest.TestCase):
 
 
 class CohortTests(unittest.TestCase):
-    def test_selects_three_newest_unique_non_cropped_recordings_per_venue(self):
+    def test_selects_recent_session_safe_recordings_with_noisy_club_fallback(self):
         rows = []
         for venue in VENUES:
             rows.extend(recording(venue, number) for number in range(1, 5))
@@ -185,7 +237,10 @@ class CohortTests(unittest.TestCase):
         selected = choose_recordings(rows)
 
         self.assertEqual(len(selected), 9)
-        self.assertEqual(Counter(item["venue_category"] for item in selected), Counter({venue: 3 for venue in VENUES}))
+        self.assertEqual(
+            Counter(item["venue_category"] for item in selected),
+            Counter(VENUE_RECORDING_TARGETS),
+        )
         self.assertEqual(len({item["source_sha256"] for item in selected}), 9)
         self.assertTrue(all("cropped" not in item["opponent_name"].lower() for item in selected))
 
@@ -201,26 +256,49 @@ class CohortTests(unittest.TestCase):
 
         self.assertEqual(len({item["raw_identity"] for item in selected}), 9)
 
-    def test_same_opponent_session_cannot_cross_development_and_sealed_rounds(self):
+    def test_same_capture_session_cannot_cross_rounds_even_with_different_opponents(self):
         rows = []
         for venue in VENUES:
-            rows.extend(recording(venue, number) for number in range(1, 5))
-        duplicate_opponent = recording("pingpod", 0, source_hash="f" * 64)
-        duplicate_opponent["opponent_name"] = rows[0]["opponent_name"]
-        rows.append(duplicate_opponent)
+            rows.extend(recording(venue, number) for number in range(1, 6))
+        ping_rows = [item for item in rows if item["venue_category"] == "pingpod"]
+        ping_rows[0]["played_at"] = "2026-08-29T18:00:00+00:00"
+        ping_rows[1]["played_at"] = "2026-08-29T19:30:00+00:00"
+        ping_rows[0]["opponent_name"] = "Alice"
+        ping_rows[1]["opponent_name"] = "Bob"
+
+        rows = assign_capture_sessions(rows)
 
         selected = choose_recordings(rows)
 
         for venue in VENUES:
-            opponents = {
-                item["opponent_name"].lower()
+            sessions = {
+                item["session_identity"]
                 for item in selected
                 if item["venue_category"] == venue
             }
-            self.assertEqual(len(opponents), 3)
+            self.assertEqual(len(sessions), VENUE_RECORDING_TARGETS[venue])
+
+    def test_capture_session_inference_fails_closed_without_a_timestamp(self):
+        row = recording("pingpod", 1)
+        row["played_at"] = None
+
+        with self.assertRaisesRegex(ValueError, "capture session"):
+            assign_capture_sessions([row])
+
+    def test_capture_session_window_is_conservatively_bounded_at_six_hours(self):
+        rows = [recording("pingpod", number) for number in range(1, 4)]
+        rows[0]["played_at"] = "2026-08-20T10:00:00+00:00"
+        rows[1]["played_at"] = "2026-08-20T15:59:00+00:00"
+        rows[2]["played_at"] = "2026-08-20T22:00:00+00:00"
+
+        grouped = assign_capture_sessions(rows)
+
+        by_id = {item["id"]: item["session_identity"] for item in grouped}
+        self.assertEqual(by_id[rows[0]["id"]], by_id[rows[1]["id"]])
+        self.assertNotEqual(by_id[rows[1]["id"]], by_id[rows[2]["id"]])
 
     def test_missing_venue_inventory_fails_closed(self):
-        with self.assertRaisesRegex(ValueError, "exactly three"):
+        with self.assertRaisesRegex(ValueError, "requires exactly"):
             choose_recordings([recording("pingpod", number) for number in range(1, 4)])
 
     def test_timeline_selection_is_deterministic_and_covers_the_recording(self):
@@ -238,7 +316,7 @@ class CohortTests(unittest.TestCase):
     def test_round_b_pool_is_frozen_before_post_a_selection_without_using_round_c(self):
         recordings = []
         for venue in VENUES:
-            recordings.extend(recording(venue, number) for number in range(1, 4))
+            recordings.extend(recording(venue, number) for number in range(1, VENUE_RECORDING_TARGETS[venue] + 1))
         manifest = build_cohort_manifest(recordings)
 
         inputs = round_b_acquisition_inputs(manifest)
@@ -255,7 +333,7 @@ class CohortTests(unittest.TestCase):
     def test_initial_manifest_freezes_a_c_and_the_complete_b_pool(self):
         rows = []
         for venue in VENUES:
-            rows.extend(recording(venue, number) for number in range(1, 4))
+            rows.extend(recording(venue, number) for number in range(1, VENUE_RECORDING_TARGETS[venue] + 1))
 
         manifest = build_cohort_manifest(rows)
         verified = verified_manifest(manifest)
@@ -272,7 +350,7 @@ class CohortTests(unittest.TestCase):
     def test_round_b_is_selected_only_after_a_with_frozen_scores_and_model_hash(self):
         rows = []
         for venue in VENUES:
-            rows.extend(recording(venue, number) for number in range(1, 4))
+            rows.extend(recording(venue, number) for number in range(1, VENUE_RECORDING_TARGETS[venue] + 1))
         initial = build_cohort_manifest(rows)
         score_envelope = {
             "initial_manifest_sha256": initial["manifest_sha256"],
@@ -302,7 +380,7 @@ class CohortTests(unittest.TestCase):
     def test_manifest_hash_detects_tampering(self):
         rows = []
         for venue in VENUES:
-            rows.extend(recording(venue, number) for number in range(1, 4))
+            rows.extend(recording(venue, number) for number in range(1, VENUE_RECORDING_TARGETS[venue] + 1))
         manifest = build_cohort_manifest(rows)
         self.assertEqual(manifest["manifest_sha256"], canonical_hash({key: value for key, value in manifest.items() if key != "manifest_sha256"}))
 
@@ -311,10 +389,43 @@ class CohortTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "hash"):
             verified_manifest(tampered)
 
+    def test_self_hashed_manifest_still_requires_complete_source_identities(self):
+        rows = []
+        for venue in VENUES:
+            rows.extend(recording(venue, number) for number in range(1, VENUE_RECORDING_TARGETS[venue] + 1))
+        manifest = build_cohort_manifest(rows)
+        tampered = deepcopy(manifest)
+        tampered["recordings"][0]["raw_identity"] = ""
+        tampered["manifest_sha256"] = canonical_hash(
+            {key: value for key, value in tampered.items() if key != "manifest_sha256"}
+        )
+
+        with self.assertRaisesRegex(ValueError, "identity"):
+            verified_manifest(tampered)
+
+    def test_self_hashed_manifest_must_keep_the_exact_venue_round_plan(self):
+        rows = []
+        for venue in VENUES:
+            rows.extend(recording(venue, number) for number in range(1, VENUE_RECORDING_TARGETS[venue] + 1))
+        manifest = build_cohort_manifest(rows)
+        tampered = deepcopy(manifest)
+        west_c = next(
+            item
+            for item in tampered["recordings"]
+            if item["venue_category"] == "westchester" and item["round"] == "C"
+        )
+        west_c["round"] = "B"
+        tampered["manifest_sha256"] = canonical_hash(
+            {key: value for key, value in tampered.items() if key != "manifest_sha256"}
+        )
+
+        with self.assertRaisesRegex(ValueError, "venue/round"):
+            verified_manifest(tampered)
+
     def test_media_audit_rejects_duplicate_clip_content_across_recordings(self):
         rows = []
         for venue in VENUES:
-            rows.extend(recording(venue, number) for number in range(1, 4))
+            rows.extend(recording(venue, number) for number in range(1, VENUE_RECORDING_TARGETS[venue] + 1))
         manifest = build_cohort_manifest(rows)
         entries = []
         for item in [*manifest["selected"], *manifest["round_b_pool"]]:

@@ -34,6 +34,13 @@ export function canReviewAudioImpact(
   return mediaState === "ready" && saveState !== "saving" && saveState !== "error";
 }
 
+export function shouldReloadAudioImpactMedia(
+  currentAssignmentId: string | null,
+  nextAssignmentId: string,
+): boolean {
+  return currentAssignmentId !== nextAssignmentId;
+}
+
 interface OrderedReviewEvent extends AudioImpactReviewTarget {
   event: AudioImpactHumanEvent;
 }

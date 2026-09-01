@@ -39,12 +39,16 @@ model artifacts, or reports containing research identifiers.
 
 ## Build, audit, and seed Round A
 
-The default builder is read-only. It chooses nine distinct recent recordings:
-three each from PingPod, Westchester, and LYTTC. The initial manifest freezes
+The default builder is read-only. It chooses nine session-distinct recordings:
+three from PingPod, two from Westchester, and four from LYTTC. Westchester has
+only two retained capture sessions with enough point media, so the extra recent
+LYTTC recording belongs to adaptive Round B. The initial manifest freezes
 30 timeline-stratified Round A points, 30 sealed Round C points, and the entire
 eligible Round B pool. Repeated raw objects, crop/recut names, byte-identical
-point content, and same-opponent sessions cannot cross rounds. Round B's final
-30 points do not exist yet.
+point content, and recordings inferred to belong to the same venue capture
+session cannot cross rounds. Session inference groups same-venue recordings
+whose timestamps are no more than six hours apart; missing lineage fails
+closed. Round B's final 30 points do not exist yet.
 
 ```bash
 "$AUDIO_PYTHON" worker/build_audio_impact_research.py \
@@ -52,12 +56,14 @@ point content, and same-opponent sessions cannot cross rounds. Round B's final
   --audit-out "$AUDIO_RUN/cohort-initial.audit.json"
 ```
 
-This also downloads every selected A/C point and every eligible B-pool point
+This first streams each of the nine retained raw recordings to bind a full
+content SHA-256 when historical upload metadata does not already contain one.
+It then downloads every selected A/C point and every eligible B-pool point
 without writing production state. It verifies video/audio decode, duration,
 sample rate, detector output, exact media SHA-256, and cross-recording content
 identity. Check for 60 initially selected points, 9 recordings, 30 A, 30 C,
-and a non-empty B pool. Re-run with `--inventory-only` and confirm the manifest
-SHA-256 is unchanged before writing anything.
+and a non-empty B pool. Re-run and confirm the manifest SHA-256 is unchanged
+before writing anything.
 
 Apply only the page's media-namespace migration, using the frozen manifest:
 
@@ -233,7 +239,23 @@ Label Round C with predictions hidden, export to
 
 The scorer refuses non-C evaluation rows, missing frozen hashes, altered model
 or threshold contents, and any overlap between training and sealed source IDs.
-The database records the report hash and rejects a second scoring transition.
+Its final database transaction locks all 30 C assignments and verifies the
+exact assignment/source/`updated_at` snapshot from the export before recording
+both the label-snapshot hash and report hash. A changed label or a second
+scoring transition is rejected, and the local report is written only after the
+transaction succeeds. If the network response fails after the database may
+have committed, the scorer retains `<report-out>.pending` instead of guessing
+whether it is safe to retry. Recover it with the same export and output path:
+
+```bash
+"$AUDIO_PYTHON" worker/train_audio_impacts.py recover-sealed-report \
+  --export "$AUDIO_RUN/sealed-export.json" \
+  --report-out "$AUDIO_RUN/sealed-report.json"
+```
+
+Recovery promotes the pending file only when the database is already in the
+`scored` phase and its stored label-snapshot and report hashes exactly match.
+Otherwise it leaves the pending evidence untouched for investigation.
 
 ## Reading the report
 

@@ -30,6 +30,7 @@ import {
   nextReviewTarget,
   previousReviewTarget,
   queueWithActive,
+  shouldReloadAudioImpactMedia,
   type AudioImpactReviewTarget,
   type AudioImpactMediaState,
 } from "./audioImpactView";
@@ -258,14 +259,20 @@ export function AudioImpactLabeler({
         (item) => item.id === next.assignment_id,
       );
       if (!nextAssignment) return;
-      if (nextAssignment.id !== assignment?.id) {
+      const reloadMedia = shouldReloadAudioImpactMedia(
+        assignment?.id ?? null,
+        nextAssignment.id,
+      );
+      if (reloadMedia) {
         setLabel(labelForAssignment(nextAssignment));
         resetMetrics(nextAssignment);
       }
       setTarget(next);
-      setMediaUrl(null);
-      setMediaError(null);
-      setMediaState("loading");
+      if (reloadMedia) {
+        setMediaUrl(null);
+        setMediaError(null);
+        setMediaState("loading");
+      }
       setLooping(true);
       setPlaybackSpeedState(1);
       setNaturalPlaybackSeen(false);
@@ -826,8 +833,16 @@ export function AudioImpactLabeler({
                     }
                   }}
                   onTimeUpdate={(event) => {
-                    if (!looping || !loopWindow) return;
                     const video = event.currentTarget;
+                    if (
+                      loopWindow &&
+                      video.playbackRate === 1 &&
+                      video.currentTime >= loopWindow.start_s &&
+                      video.currentTime <= loopWindow.end_s
+                    ) {
+                      setNaturalPlaybackSeen(true);
+                    }
+                    if (!looping || !loopWindow) return;
                     if (
                       video.currentTime >= loopWindow.end_s ||
                       video.currentTime < loopWindow.start_s - 0.05

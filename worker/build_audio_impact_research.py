@@ -17,6 +17,7 @@ import math
 from pathlib import Path
 import re
 import tempfile
+from datetime import datetime, timedelta
 from typing import Any, Mapping, Sequence
 
 import psycopg2
@@ -49,6 +50,14 @@ BATCH_TITLE = "Recent cross-venue audio impact labeling"
 DESTINATION_PREFIX = "research/audio-impacts/v1/sources"
 VENUE_CATEGORIES = ("pingpod", "westchester", "lyttc")
 ROUNDS = ("A", "B", "C")
+VENUE_ROUND_PLAN = {
+    "pingpod": ("A", "B", "C"),
+    "westchester": ("A", "C"),
+    "lyttc": ("A", "B", "B", "C"),
+}
+VENUE_RECORDING_TARGETS = {
+    venue: len(rounds) for venue, rounds in VENUE_ROUND_PLAN.items()
+}
 POINTS_PER_RECORDING = 10
 TOTAL_RECORDINGS = 9
 TOTAL_POINTS = 90
@@ -107,7 +116,7 @@ def recording_raw_identity(
 def recent_venue_matches(
     matches: Sequence[Mapping[str, Any]],
     *,
-    per_venue: int = 12,
+    per_venue: int = 36,
 ) -> list[dict[str, Any]]:
     output = []
     for category in VENUE_CATEGORIES:
@@ -135,12 +144,57 @@ def _is_cropped(recording: Mapping[str, Any]) -> bool:
     return "cropped" in text or "recut" in text
 
 
-def _opponent_identity(recording: Mapping[str, Any]) -> str:
-    return re.sub(
-        r"[^a-z0-9]+",
-        "",
-        str(recording.get("opponent_name") or "unknown").lower(),
-    )
+def assign_capture_sessions(
+    recordings: Sequence[Mapping[str, Any]],
+    *,
+    maximum_gap: timedelta = timedelta(hours=6),
+) -> list[dict[str, Any]]:
+    """Conservatively group same-venue recordings from one capture session."""
+    prepared: list[tuple[dict[str, Any], datetime]] = []
+    for raw in recordings:
+        item = deepcopy(dict(raw))
+        category = str(
+            item.get("venue_category") or venue_category(item.get("venue")) or ""
+        )
+        played_at = str(item.get("played_at") or "")
+        if category not in VENUE_CATEGORIES or not played_at:
+            raise ValueError("capture session lineage requires venue and played_at")
+        try:
+            timestamp = datetime.fromisoformat(played_at.replace("Z", "+00:00"))
+        except ValueError as error:
+            raise ValueError("capture session lineage has an invalid played_at") from error
+        if timestamp.tzinfo is None:
+            raise ValueError("capture session lineage requires timezone-aware played_at")
+        item["venue_category"] = category
+        prepared.append((item, timestamp))
+
+    output: list[dict[str, Any]] = []
+    by_venue: dict[str, list[tuple[dict[str, Any], datetime]]] = defaultdict(list)
+    for item, timestamp in prepared:
+        by_venue[item["venue_category"]].append((item, timestamp))
+    for category in VENUE_CATEGORIES:
+        ordered = sorted(by_venue.get(category, []), key=lambda value: value[1])
+        clusters: list[list[tuple[dict[str, Any], datetime]]] = []
+        for entry in ordered:
+            if not clusters or entry[1] - clusters[-1][-1][1] > maximum_gap:
+                clusters.append([entry])
+            else:
+                clusters[-1].append(entry)
+        for cluster in clusters:
+            session_identity = canonical_hash(
+                {
+                    "method": "venue-time-gap-v1",
+                    "venue_category": category,
+                    "recording_ids": sorted(str(item.get("id") or "") for item, _ in cluster),
+                    "raw_identities": sorted(
+                        str(item.get("raw_identity") or "") for item, _ in cluster
+                    ),
+                }
+            )
+            for item, _ in cluster:
+                item["session_identity"] = session_identity
+                output.append(item)
+    return output
 
 
 def _usable_points(recording: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -160,7 +214,7 @@ def choose_recordings(
     recordings: Sequence[Mapping[str, Any]],
 ) -> list[dict[str, Any]]:
     candidates: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for raw in recordings:
+    for raw in assign_capture_sessions(recordings):
         item = deepcopy(dict(raw))
         category = str(item.get("venue_category") or venue_category(item.get("venue")) or "")
         points = _usable_points(item)
@@ -190,29 +244,32 @@ def choose_recordings(
             reverse=True,
         )
         venue_selected = []
-        seen_opponents: set[str] = set()
+        seen_sessions: set[str] = set()
         for item in ordered:
             source_hash = str(item["source_sha256"])
             raw_identity = str(item["raw_identity"])
-            opponent_identity = _opponent_identity(item)
+            session_identity = str(item["session_identity"])
             if (
                 source_hash in seen_hashes
                 or raw_identity in seen_raw
-                or opponent_identity in seen_opponents
+                or session_identity in seen_sessions
             ):
                 continue
             venue_selected.append(item)
             seen_hashes.add(source_hash)
             seen_raw.add(raw_identity)
-            seen_opponents.add(opponent_identity)
-            if len(venue_selected) == 3:
+            seen_sessions.add(session_identity)
+            if len(venue_selected) == VENUE_RECORDING_TARGETS[category]:
                 break
-        if len(venue_selected) != 3:
+        target = VENUE_RECORDING_TARGETS[category]
+        if len(venue_selected) != target:
             raise ValueError(
-                f"{category} requires exactly three eligible distinct recordings; "
+                f"{category} requires exactly {target} eligible distinct recordings; "
                 f"found {len(venue_selected)}"
             )
-        for round_name, item in zip(ROUNDS, venue_selected, strict=True):
+        for round_name, item in zip(
+            VENUE_ROUND_PLAN[category], venue_selected, strict=True
+        ):
             item["round"] = round_name
             selected.append(item)
 
@@ -309,6 +366,7 @@ def build_cohort_manifest(
             "round": round_name,
             "raw_identity": str(recording["raw_identity"]),
             "source_sha256": str(recording["source_sha256"]),
+            "session_identity": str(recording["session_identity"]),
         }
         manifest_recordings.append(recording_manifest)
         def manifest_point(point: Mapping[str, Any]) -> dict[str, Any]:
@@ -330,6 +388,7 @@ def build_cohort_manifest(
                     ),
                     "source_sha256": recording_manifest["source_sha256"],
                     "raw_identity": recording_manifest["raw_identity"],
+                    "session_identity": recording_manifest["session_identity"],
                 }
 
         for point in chosen_points:
@@ -396,14 +455,40 @@ def verified_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError(
             f"manifest must contain exactly nine recordings and {expected_points} selected points"
         )
+    hash_pattern = re.compile(r"^[0-9a-f]{64}$")
+    raw_identity_pattern = re.compile(r"^r2://[^/]+/.+")
+    if any(
+        not hash_pattern.fullmatch(str(item.get("source_sha256") or ""))
+        or not hash_pattern.fullmatch(str(item.get("session_identity") or ""))
+        or not raw_identity_pattern.fullmatch(str(item.get("raw_identity") or ""))
+        for item in recordings
+    ):
+        raise ValueError(
+            "every recording must have valid source, raw, and capture-session identity"
+        )
+    expected_recording_plan = Counter(
+        (venue, round_name)
+        for venue, round_names in VENUE_ROUND_PLAN.items()
+        for round_name in round_names
+    )
+    if Counter(
+        (
+            str(item.get("venue_category") or ""),
+            str(item.get("round") or ""),
+        )
+        for item in recordings
+    ) != expected_recording_plan:
+        raise ValueError("manifest recording venue/round plan is invalid")
     if len({str(item.get("source_sha256")) for item in recordings}) != 9:
         raise ValueError("manifest contains duplicate source recordings")
     if len({str(item.get("raw_identity")) for item in recordings}) != 9:
         raise ValueError("manifest contains duplicate raw identities")
+    if len({str(item.get("session_identity")) for item in recordings}) != 9:
+        raise ValueError("manifest contains recordings from the same capture session")
     if len({str(item.get("point_id")) for item in selected}) != expected_points:
         raise ValueError("manifest contains duplicate point IDs")
     if Counter(str(item.get("venue_category")) for item in recordings) != Counter(
-        {venue: 3 for venue in VENUE_CATEGORIES}
+        VENUE_RECORDING_TARGETS
     ):
         raise ValueError("manifest recording venue counts are invalid")
     expected_rounds = (
@@ -413,11 +498,41 @@ def verified_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
     )
     if Counter(str(item.get("round")) for item in selected) != expected_rounds:
         raise ValueError("manifest round counts are invalid")
-    points_per_venue = 20 if stage == "initial" else 30
-    if Counter(str(item.get("venue_category")) for item in selected) != Counter(
-        {venue: points_per_venue for venue in VENUE_CATEGORIES}
-    ):
-        raise ValueError("manifest point venue counts are invalid")
+    expected_point_plan = Counter(
+        {
+            (venue, round_name): recording_count * POINTS_PER_RECORDING
+            for (venue, round_name), recording_count in expected_recording_plan.items()
+            if stage == "round_b_selected" or round_name != "B"
+        }
+    )
+    if Counter(
+        (
+            str(item.get("venue_category") or ""),
+            str(item.get("round") or ""),
+        )
+        for item in selected
+    ) != expected_point_plan:
+        raise ValueError("manifest point venue/round plan is invalid")
+    recordings_by_id = {
+        str(item.get("recording_id") or ""): item for item in recordings
+    }
+    if "" in recordings_by_id or len(recordings_by_id) != TOTAL_RECORDINGS:
+        raise ValueError("manifest recording identities are invalid or duplicated")
+    for point in [*selected, *round_b_pool]:
+        recording = recordings_by_id.get(str(point.get("recording_id") or ""))
+        if recording is None or any(
+            str(point.get(field) or "") != str(recording.get(field) or "")
+            for field in (
+                "venue_category",
+                "round",
+                "source_sha256",
+                "raw_identity",
+                "session_identity",
+            )
+        ):
+            raise ValueError(
+                "manifest point identity and venue/round must match its recording"
+            )
     expected_recording_counts = {
         str(item["recording_id"]): (
             0 if stage == "initial" and item["round"] == "B" else 10
@@ -610,6 +725,28 @@ def available_source_fingerprint(production: Any, uri: str) -> str | None:
         if code in {"404", "NoSuchKey", "NotFound"}:
             return None
         raise
+
+
+def raw_media_sha256(production: Any, uri: str) -> str:
+    """Return the retained raw object's content SHA, streaming legacy uploads."""
+    bucket, key = parse_r2_uri(uri)
+    head = production.r2.head_object(Bucket=bucket, Key=key)
+    metadata = {
+        str(name).lower(): str(value).lower()
+        for name, value in (head.get("Metadata") or {}).items()
+    }
+    for name in ("sha256", "source-sha256", "content-sha256"):
+        value = metadata.get(name, "")
+        if re.fullmatch(r"[0-9a-f]{64}", value):
+            return value
+    body = production.r2.get_object(Bucket=bucket, Key=key)["Body"]
+    digest = hashlib.sha256()
+    try:
+        for chunk in iter(lambda: body.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    finally:
+        body.close()
+    return digest.hexdigest()
 
 
 def rest_get_all(
@@ -839,9 +976,7 @@ def audit_manifest_media(
     payload = {
         "schema_version": 1,
         "manifest_sha256": cohort["manifest_sha256"],
-        "source_identity_method": (
-            "raw-object-identity-plus-audited-point-clip-sha256-v1"
-        ),
+        "source_identity_method": "full-raw-media-sha256-plus-audited-point-clip-sha256-v1",
         "entries": entries,
         "recording_content": _recording_content_inventory(cohort, entries),
     }
@@ -875,7 +1010,7 @@ def verified_media_audit(
             raise ValueError("media audit found too few review candidates")
     expected_recording_content = _recording_content_inventory(cohort, entries)
     if audit.get("source_identity_method") != (
-        "raw-object-identity-plus-audited-point-clip-sha256-v1"
+        "full-raw-media-sha256-plus-audited-point-clip-sha256-v1"
     ):
         raise ValueError("media audit source identity method is unsupported")
     if audit.get("recording_content") != expected_recording_content:
@@ -1053,6 +1188,7 @@ def seed_batch(
                 "round": item["round"],
                 "split": item["split"],
                 "source_recording_id": item["recording_id"],
+                "capture_session_identity": item["session_identity"],
                 "source_media_sha256": item["source_sha256"],
                 "point_id": point_id,
                 "cohort_manifest_sha256": binding_hash,
@@ -1241,7 +1377,17 @@ def main() -> None:
     if args.manifest:
         manifest = verified_manifest(json.loads(args.manifest.read_text()))
     else:
-        manifest = build_cohort_manifest(inventory)
+        selected_recordings = choose_recordings(inventory)
+        for number, recording in enumerate(selected_recordings, start=1):
+            recording["source_sha256"] = raw_media_sha256(
+                production,
+                str(recording["raw_identity"]),
+            )
+            print(
+                f"[raw hash {number}/{len(selected_recordings)}] "
+                f"{recording.get('match_label') or recording.get('id')}"
+            )
+        manifest = build_cohort_manifest(selected_recordings)
     if args.round_b_scores:
         manifest = finalize_round_b_manifest(
             manifest,

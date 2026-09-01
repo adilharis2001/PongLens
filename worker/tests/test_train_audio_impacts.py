@@ -1,4 +1,6 @@
 import unittest
+from copy import deepcopy
+import json
 from pathlib import Path
 import tempfile
 
@@ -18,11 +20,14 @@ from worker.train_audio_impacts import (
     pool_acquisition_components,
     prepare_gold_examples,
     require_cnn_dependency,
+    recover_pending_sealed_report,
     score_sealed,
+    sealed_label_snapshot,
     scored_state_payload,
     train_linear_experiment,
     validate_export_bindings,
     validate_sealed_artifact,
+    canonical_hash,
 )
 
 
@@ -395,6 +400,7 @@ class LinearExperimentTests(unittest.TestCase):
                 "cohort_manifest_sha256": "2" * 64,
                 "frozen_model_sha256": artifact["model_sha256"],
                 "frozen_threshold_sha256": artifact["threshold_sha256"],
+                "sealed_label_snapshot_sha256": "9" * 64,
             },
         )
 
@@ -477,19 +483,23 @@ class LinearExperimentTests(unittest.TestCase):
         unlocked = freeze_and_unlock_payload(export, artifact, unlocked_at="2026-09-01T12:00:00Z")
         sealed_assignments = [
             {
+                "assignment_id": f"assignment-c-{index}",
                 "status": "submitted",
                 "source_id": f"source-c-{index}",
+                "updated_at": f"2026-09-02T12:{index:02d}:00+00:00",
                 "prefill": {"round": "C"},
                 "human_label": {"sequence_complete": True},
             }
             for index in range(30)
         ]
+        snapshot = sealed_label_snapshot(sealed_assignments)
         scored = scored_state_payload(
             unlocked,
             {
                 "model_sha256": "4" * 64,
                 "threshold_sha256": "5" * 64,
                 "coverage": 0.75,
+                "sealed_label_snapshot_sha256": snapshot["sha256"],
             },
             sealed_assignments,
             scored_at="2026-09-02T12:00:00Z",
@@ -499,8 +509,141 @@ class LinearExperimentTests(unittest.TestCase):
         self.assertEqual(unlocked["development_model_sha256"], "4" * 64)
         self.assertEqual(scored["phase"], "scored")
         self.assertEqual(len(scored["sealed_report_sha256"]), 64)
+        self.assertEqual(
+            scored["sealed_label_snapshot_sha256"],
+            snapshot["sha256"],
+        )
         with self.assertRaisesRegex(ValueError, "already been scored"):
             scored_state_payload(scored, {}, sealed_assignments, scored_at="later")
+
+    def test_sealed_label_snapshot_changes_when_any_assignment_version_changes(self):
+        assignments = [
+            {
+                "assignment_id": f"assignment-{index}",
+                "source_id": f"source-{index}",
+                "updated_at": f"2026-09-02T12:{index:02d}:00+00:00",
+                "status": "submitted",
+                "prefill": {"round": "C"},
+                "human_label": {"sequence_complete": True},
+            }
+            for index in range(30)
+        ]
+
+        original = sealed_label_snapshot(assignments)
+        changed = deepcopy(assignments)
+        changed[7]["updated_at"] = "2026-09-02T14:00:00+00:00"
+
+        self.assertNotEqual(original["sha256"], sealed_label_snapshot(changed)["sha256"])
+        self.assertEqual(len(original["assignments"]), 30)
+
+    def test_ambiguous_score_response_can_promote_a_matching_pending_report(self):
+        assignments = [
+            {
+                "assignment_id": f"assignment-{index}",
+                "source_id": f"source-{index}",
+                "updated_at": f"2026-09-02T12:{index:02d}:00+00:00",
+                "prefill": {"round": "C"},
+            }
+            for index in range(30)
+        ]
+        snapshot = sealed_label_snapshot(assignments)
+        report = {
+            "model_sha256": "4" * 64,
+            "sealed_label_snapshot_sha256": snapshot["sha256"],
+        }
+
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return [
+                    {
+                        "phase": "scored",
+                        "sealed_label_snapshot_sha256": snapshot["sha256"],
+                        "sealed_report_sha256": canonical_hash(report),
+                    }
+                ]
+
+        production = type(
+            "Production",
+            (),
+            {"supabase_url": "https://example.test", "headers": {"apikey": "test"}},
+        )()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            export_path = root / "sealed-export.json"
+            report_out = root / "sealed-report.json"
+            export_path.write_text(
+                json.dumps({"batch": {"id": "batch-id"}, "assignments": assignments})
+            )
+            report_out.with_suffix(".json.pending").write_text(json.dumps(report))
+
+            recovered = recover_pending_sealed_report(
+                production,
+                export_path,
+                report_out,
+                request_get=lambda *_args, **_kwargs: Response(),
+            )
+
+            self.assertEqual(recovered, report_out)
+            self.assertEqual(json.loads(report_out.read_text()), report)
+            self.assertFalse(report_out.with_suffix(".json.pending").exists())
+
+    def test_recovery_retains_pending_report_when_database_hash_differs(self):
+        assignments = [
+            {
+                "assignment_id": f"assignment-{index}",
+                "source_id": f"source-{index}",
+                "updated_at": f"2026-09-02T12:{index:02d}:00+00:00",
+                "prefill": {"round": "C"},
+            }
+            for index in range(30)
+        ]
+        snapshot = sealed_label_snapshot(assignments)
+        report = {
+            "model_sha256": "4" * 64,
+            "sealed_label_snapshot_sha256": snapshot["sha256"],
+        }
+
+        class Response:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return [
+                    {
+                        "phase": "scored",
+                        "sealed_label_snapshot_sha256": snapshot["sha256"],
+                        "sealed_report_sha256": "f" * 64,
+                    }
+                ]
+
+        production = type(
+            "Production",
+            (),
+            {"supabase_url": "https://example.test", "headers": {"apikey": "test"}},
+        )()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            export_path = root / "sealed-export.json"
+            report_out = root / "sealed-report.json"
+            pending = report_out.with_suffix(".json.pending")
+            export_path.write_text(
+                json.dumps({"batch": {"id": "batch-id"}, "assignments": assignments})
+            )
+            pending.write_text(json.dumps(report))
+
+            with self.assertRaisesRegex(RuntimeError, "hash differs"):
+                recover_pending_sealed_report(
+                    production,
+                    export_path,
+                    report_out,
+                    request_get=lambda *_args, **_kwargs: Response(),
+                )
+
+            self.assertTrue(pending.exists())
+            self.assertFalse(report_out.exists())
 
 
 if __name__ == "__main__":

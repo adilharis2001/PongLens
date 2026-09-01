@@ -45,21 +45,21 @@ The builder creates exactly 90 point sources from exactly nine distinct source r
 
 | Round | Purpose | Sources | Rule |
 | --- | --- | ---: | --- |
-| A | Initial development | 30 points | Ten points from one recent distinct match in each venue category |
-| B | Targeted development | 30 points | Ten points from a different match in each venue category, prioritizing uncertain and rare-sound-rich points after Round A |
-| C | Sealed evaluation | 30 points | Ten points from a third distinct match in each venue category, frozen before any model training |
+| A | Initial development | 30 points | Ten points from one recent session-distinct match in each venue category |
+| B | Targeted development | 30 points | Ten PingPod points and twenty LYTTC points from three distinct sessions, prioritizing uncertain and rare-sound-rich points after Round A |
+| C | Sealed evaluation | 30 points | Ten points from a different session in each venue category, frozen before any model training |
 
 The three venue categories are:
 
 - recent PingPod footage, representing the usually quieter deployment environment;
-- Westchester footage from the recent 2026-08-29 session, representing a noisy club;
+- Westchester footage from its two retained eligible capture sessions, representing a noisy club;
 - the newest eligible LYTTC footage, currently from 2026-08-09 through 2026-08-11, representing a second noisy club.
 
-The builder determines exact match IDs from a dry-run inventory. For each venue it sorts eligible recordings by `played_at DESC`, then stable source identity, and selects the newest three that satisfy all constraints. A recording is eligible only when its point media and native audio are readable, its source is not a crop or recut of another selected recording, and at least ten usable recent points exist. The ten Round A and Round C points are selected deterministically from a stable hash of batch slug, source identity, and point identity after stratifying across the recording timeline. This prevents the first ten points from dominating the corpus.
+The builder determines exact match IDs from a dry-run inventory. It sorts eligible recordings by `played_at DESC`, then stable source identity, and selects three PingPod, two Westchester, and four LYTTC recordings. Westchester has only two retained independent sessions with sufficient point media, so a second LYTTC recording fills Round B; Round C still contains all three venue categories. Same-venue recordings separated by no more than six hours are conservatively treated as one capture session and cannot cross rounds; missing venue/time lineage fails closed. A recording is eligible only when its point media and native audio are readable, its source is not a crop or recut of another selected recording, and at least ten usable recent points exist. The ten Round A and Round C points are selected deterministically from a stable hash of batch slug, source identity, and point identity after stratifying across the recording timeline. This prevents the first ten points from dominating the corpus.
 
 Round B's recording is frozen at the same time as Rounds A and C. Its ten points are selected after the Round A checkpoint from a frozen eligible-point manifest, using a stored model hash and deterministic acquisition score. The score combines predictive uncertainty, low-frequency shoe/stomp proposal strength, likely floor-bounce tails, and background/no-impact density. If no Round A model is available, the builder uses the same detector-derived terms without predictive uncertainty. The selected point IDs, scores, model hash, and tie-break order are persisted in the Round B manifest.
 
-Duplicate prevention uses source-media SHA-256 as the primary identity and normalized raw media/job input identity as a secondary check. Cropped, shortened, transcoded, or re-exported copies of the same recording cannot cross rounds or venues. The builder fails closed when source identity cannot be resolved; it does not guess.
+Duplicate prevention uses the full retained raw-media SHA-256 as the primary identity and normalized raw media/job input identity as a secondary check. Historical objects without trusted SHA metadata are streamed once to compute it. Cropped, shortened, transcoded, or re-exported copies of the same recording cannot cross rounds or venues. The builder fails closed when source or session identity cannot be resolved; it does not guess.
 
 Before Round A labeling begins, the builder writes immutable cohort, split, source, point, and detector manifests. Round C identities and proposal timings are sealed then and never regenerated, tuned, or used for model selection. Round C labels remain hidden from training and tuning exports until the evaluation unlock step.
 

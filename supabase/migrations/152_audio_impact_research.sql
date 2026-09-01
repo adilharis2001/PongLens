@@ -23,6 +23,7 @@ create table if not exists public.audio_impact_research_state (
   feature_definition_sha256 text check (feature_definition_sha256 ~ '^[0-9a-f]{64}$'),
   split_definition_sha256 text check (split_definition_sha256 ~ '^[0-9a-f]{64}$'),
   unlocked_at timestamptz,
+  sealed_label_snapshot_sha256 text check (sealed_label_snapshot_sha256 ~ '^[0-9a-f]{64}$'),
   sealed_report_sha256 text check (sealed_report_sha256 ~ '^[0-9a-f]{64}$'),
   scored_at timestamptz,
   updated_at timestamptz not null default now(),
@@ -40,9 +41,38 @@ create table if not exists public.audio_impact_research_state (
   ),
   check (
     phase <> 'scored'
-    or (sealed_report_sha256 is not null and scored_at is not null)
+    and sealed_label_snapshot_sha256 is null
+    and sealed_report_sha256 is null
+    and scored_at is null
+    or phase = 'scored' and (
+      sealed_label_snapshot_sha256 is not null
+      and sealed_report_sha256 is not null
+      and scored_at is not null
+    )
   )
 );
+
+-- Keep this migration safe when an earlier revision already created the table.
+alter table public.audio_impact_research_state
+  add column if not exists sealed_label_snapshot_sha256 text;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.audio_impact_research_state'::regclass
+      and conname = 'audio_impact_research_state_sealed_label_snapshot_sha256_check'
+  ) then
+    alter table public.audio_impact_research_state
+      add constraint audio_impact_research_state_sealed_label_snapshot_sha256_check
+      check (
+        sealed_label_snapshot_sha256 is null
+        or sealed_label_snapshot_sha256 ~ '^[0-9a-f]{64}$'
+      );
+  end if;
+end;
+$$;
 
 alter table public.audio_impact_research_state enable row level security;
 revoke all on public.audio_impact_research_state from public, anon;
@@ -79,6 +109,9 @@ declare
   sealed_complete int;
   development_total int;
   development_complete int;
+  sealed_sources int;
+  development_sources int;
+  frozen_source_total int;
 begin
   if new.cohort_manifest_sha256 is distinct from old.cohort_manifest_sha256
      or new.detector_manifest_sha256 is distinct from old.detector_manifest_sha256 then
@@ -96,6 +129,10 @@ begin
       raise exception 'frozen development bindings are immutable';
     end if;
   end if;
+  if old.sealed_label_snapshot_sha256 is not null
+     and new.sealed_label_snapshot_sha256 is distinct from old.sealed_label_snapshot_sha256 then
+    raise exception 'sealed label snapshot binding is immutable';
+  end if;
   if old.phase = 'scored' then
     raise exception 'sealed audio-impact evaluation has already been scored';
   end if;
@@ -107,46 +144,62 @@ begin
   ) then
     raise exception 'invalid audio-impact study phase transition';
   end if;
+  if new.phase = 'scored'
+     and coalesce(current_setting('ponglens.audio_impact_scoring_rpc', true), '') <> 'on' then
+    raise exception 'sealed scoring must use the atomic scoring RPC';
+  end if;
   if new.phase = 'development_b' and old.phase = 'development_a' then
-    select count(*),
+    select count(*) into frozen_source_total
+    from public.research_sources s
+    where s.batch_id = old.batch_id and s.prefill->>'round' = 'A';
+    select count(*), count(distinct a.source_id),
            count(*) filter (
              where a.status = 'submitted'
                and coalesce((a.human_label->>'sequence_complete')::boolean, false)
            )
-      into development_total, development_complete
+      into development_total, development_sources, development_complete
     from public.research_assignments a
     join public.research_sources s on s.id = a.source_id
     where a.batch_id = old.batch_id and s.prefill->>'round' = 'A';
-    if development_total <> 30 or development_complete <> 30 then
+    if frozen_source_total <> 30 or development_total <> 30
+       or development_sources <> 30 or development_complete <> 30 then
       raise exception 'all 30 Round A assignments must be complete before Round B';
     end if;
   end if;
   if new.phase = 'sealed_labeling' and old.phase in ('development_b', 'frozen') then
-    select count(*),
+    select count(*) into frozen_source_total
+    from public.research_sources s
+    where s.batch_id = old.batch_id and s.prefill->>'round' in ('A', 'B');
+    select count(*), count(distinct a.source_id),
            count(*) filter (
              where a.status = 'submitted'
                and coalesce((a.human_label->>'sequence_complete')::boolean, false)
            )
-      into development_total, development_complete
+      into development_total, development_sources, development_complete
     from public.research_assignments a
     join public.research_sources s on s.id = a.source_id
     where a.batch_id = old.batch_id and s.prefill->>'round' in ('A', 'B');
-    if development_total <> 60 or development_complete <> 60 then
+    if frozen_source_total <> 60 or development_total <> 60
+       or development_sources <> 60 or development_complete <> 60 then
       raise exception 'all 60 development assignments must be complete before unsealing';
     end if;
   end if;
   if new.phase = 'scored' and old.phase = 'sealed_labeling' then
-    select count(*),
+    select count(*) into frozen_source_total
+    from public.research_sources s
+    where s.batch_id = old.batch_id and s.prefill->>'round' = 'C';
+    select count(*), count(distinct a.source_id),
            count(*) filter (
              where a.status = 'submitted'
                and coalesce((a.human_label->>'sequence_complete')::boolean, false)
            )
-      into sealed_total, sealed_complete
+      into sealed_total, sealed_sources, sealed_complete
     from public.research_assignments a
     join public.research_sources s on s.id = a.source_id
     where a.batch_id = old.batch_id
       and s.prefill->>'round' = 'C';
-    if sealed_total <> 30 or sealed_complete <> 30 then
+    if frozen_source_total <> 30 or sealed_total <> 30
+       or sealed_sources <> 30 or sealed_complete <> 30 then
       raise exception 'all 30 sealed assignments must be complete before scoring';
     end if;
   end if;
@@ -160,6 +213,119 @@ drop trigger if exists validate_audio_impact_state_transition_trigger
 create trigger validate_audio_impact_state_transition_trigger
   before update on public.audio_impact_research_state
   for each row execute function public.validate_audio_impact_state_transition();
+
+create or replace function public.record_audio_impact_sealed_score(
+  target_batch_id uuid,
+  expected_assignments jsonb,
+  expected_snapshot_sha256 text,
+  report_sha256 text,
+  score_time timestamptz
+)
+returns public.audio_impact_research_state
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_state public.audio_impact_research_state%rowtype;
+  result_state public.audio_impact_research_state%rowtype;
+  sealed_total int;
+  sealed_sources int;
+  sealed_complete int;
+  frozen_source_total int;
+  expected_total int;
+  expected_assignment_ids int;
+  expected_source_ids int;
+begin
+  if coalesce(auth.role(), '') <> 'service_role' and not public.is_admin() then
+    raise exception 'admin only';
+  end if;
+  if expected_snapshot_sha256 !~ '^[0-9a-f]{64}$'
+     or report_sha256 !~ '^[0-9a-f]{64}$' then
+    raise exception 'sealed score hashes are invalid';
+  end if;
+  if jsonb_typeof(expected_assignments) is distinct from 'array' then
+    raise exception 'sealed assignment snapshot must be an array';
+  end if;
+
+  select * into current_state
+  from public.audio_impact_research_state
+  where batch_id = target_batch_id
+  for update;
+  if not found or current_state.phase <> 'sealed_labeling' then
+    raise exception 'sealed evaluation is not open for one-time scoring';
+  end if;
+
+  perform a.id
+  from public.research_assignments a
+  join public.research_sources s on s.id = a.source_id
+  where a.batch_id = target_batch_id and s.prefill->>'round' = 'C'
+  order by a.id
+  for update of a;
+
+  select count(*), count(distinct a.source_id),
+         count(*) filter (
+           where a.status = 'submitted'
+             and coalesce((a.human_label->>'sequence_complete')::boolean, false)
+         )
+    into sealed_total, sealed_sources, sealed_complete
+  from public.research_assignments a
+  join public.research_sources s on s.id = a.source_id
+  where a.batch_id = target_batch_id and s.prefill->>'round' = 'C';
+
+  select count(*) into frozen_source_total
+  from public.research_sources s
+  where s.batch_id = target_batch_id and s.prefill->>'round' = 'C';
+
+  select count(*),
+         count(distinct item->>'assignment_id'),
+         count(distinct item->>'source_id')
+    into expected_total, expected_assignment_ids, expected_source_ids
+  from jsonb_array_elements(expected_assignments) item;
+
+  if frozen_source_total <> 30 or sealed_total <> 30
+     or sealed_sources <> 30 or sealed_complete <> 30
+     or expected_total <> 30 or expected_assignment_ids <> 30
+     or expected_source_ids <> 30 then
+    raise exception 'sealed assignment snapshot must cover 30 complete distinct sources';
+  end if;
+
+  if exists (
+    select 1
+    from public.research_assignments a
+    join public.research_sources s on s.id = a.source_id
+    left join jsonb_array_elements(expected_assignments) item
+      on item->>'assignment_id' = a.id::text
+    where a.batch_id = target_batch_id
+      and s.prefill->>'round' = 'C'
+      and (
+        item is null
+        or item->>'source_id' is distinct from a.source_id::text
+        or (item->>'updated_at')::timestamptz is distinct from a.updated_at
+      )
+  ) then
+    raise exception 'sealed labels changed after the scoring export';
+  end if;
+
+  perform set_config('ponglens.audio_impact_scoring_rpc', 'on', true);
+  update public.audio_impact_research_state
+  set phase = 'scored',
+      sealed_label_snapshot_sha256 = expected_snapshot_sha256,
+      sealed_report_sha256 = report_sha256,
+      scored_at = score_time
+  where batch_id = target_batch_id and phase = 'sealed_labeling'
+  returning * into result_state;
+  if not found then
+    raise exception 'sealed evaluation was already closed';
+  end if;
+  return result_state;
+end;
+$$;
+
+revoke all on function public.record_audio_impact_sealed_score(uuid, jsonb, text, text, timestamptz)
+  from public, anon;
+grant execute on function public.record_audio_impact_sealed_score(uuid, jsonb, text, text, timestamptz)
+  to authenticated, service_role;
 
 create or replace function public.validate_audio_impact_assignment()
 returns trigger

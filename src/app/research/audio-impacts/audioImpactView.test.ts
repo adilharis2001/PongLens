@@ -8,6 +8,7 @@ import {
   nextReviewTarget,
   previousReviewTarget,
   queueWithActive,
+  shouldReloadAudioImpactMedia,
 } from "./audioImpactView.ts";
 import type { AudioImpactResearchAssignment } from "./types.ts";
 
@@ -189,4 +190,10 @@ test("labels and navigation stay locked until media is playable and saves are du
   assert.equal(canReviewAudioImpact("error", "idle"), false);
   assert.equal(canReviewAudioImpact("ready", "saving"), false);
   assert.equal(canReviewAudioImpact("ready", "error"), false);
+});
+
+test("moving between sounds in one point reuses the playable protected video", () => {
+  assert.equal(shouldReloadAudioImpactMedia("point-one", "point-one"), false);
+  assert.equal(shouldReloadAudioImpactMedia("point-one", "point-two"), true);
+  assert.equal(shouldReloadAudioImpactMedia(null, "point-one"), true);
 });
