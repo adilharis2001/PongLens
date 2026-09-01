@@ -116,12 +116,12 @@ test("reviewer makes the point-first hierarchy and transitions explicit", () => 
   assert.match(labeler, /nextReviewTargetInPoint/);
 });
 
-test("reviewer starts naturally, supports deliberate replay speeds, and guards shortcuts", () => {
+test("reviewer spotlights the target, supports deliberate replay speeds, and guards shortcuts", () => {
   const labeler = read("./AudioImpactLabeler.tsx");
 
   assert.match(labeler, /playbackRate = 1/);
-  assert.match(labeler, /setPlaybackSpeed\(0\.5\)/);
-  assert.match(labeler, /setPlaybackSpeed\(0\.25\)/);
+  assert.match(labeler, /playSpotlight\(0\.5\)/);
+  assert.match(labeler, /playSpotlight\(0\.25\)/);
   assert.match(labeler, /isAudioImpactShortcutTarget\(event\.target\)/);
   assert.match(labeler, /Undo/);
   assert.match(labeler, /Previous/);

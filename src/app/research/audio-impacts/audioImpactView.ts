@@ -25,6 +25,13 @@ export interface AudioImpactLoopWindow {
   end_s: number;
 }
 
+export interface AudioImpactTimedEvent {
+  id: string;
+  time_s: number;
+}
+
+export type AudioImpactAuditionPhase = "approaching" | "target" | "after";
+
 export type AudioImpactMediaState = "loading" | "ready" | "error";
 export type AudioImpactSaveState = "idle" | "saving" | "saved" | "error";
 
@@ -85,9 +92,58 @@ export function candidateLoop(
   durationS: number,
 ): AudioImpactLoopWindow {
   return {
-    start_s: Math.max(0, round4(timeS - 1)),
-    end_s: Math.min(durationS, round4(timeS + 1)),
+    start_s: Math.max(0, round4(timeS - 0.75)),
+    end_s: Math.min(durationS, round4(timeS + 0.75)),
   };
+}
+
+export function candidateSpotlight(
+  events: readonly AudioImpactTimedEvent[],
+  eventId: string,
+  durationS: number,
+): AudioImpactLoopWindow {
+  const ordered = [...events].sort(
+    (left, right) => left.time_s - right.time_s || left.id.localeCompare(right.id),
+  );
+  const index = ordered.findIndex((event) => event.id === eventId);
+  if (index < 0) return { start_s: 0, end_s: Math.min(durationS, 0.38) };
+
+  const target = ordered[index];
+  const previous = ordered[index - 1];
+  const next = ordered[index + 1];
+  const previousBoundary = previous
+    ? round4((previous.time_s + target.time_s) / 2)
+    : 0;
+  const nextBoundary = next
+    ? round4((target.time_s + next.time_s) / 2)
+    : durationS;
+
+  return {
+    start_s: Math.max(0, round4(target.time_s - 0.16), previousBoundary),
+    end_s: Math.min(durationS, round4(target.time_s + 0.22), nextBoundary),
+  };
+}
+
+export function audioImpactAuditionGain(
+  currentTimeS: number,
+  targetTimeS: number,
+): number {
+  const offset = currentTimeS - targetTimeS;
+  if (offset >= -0.055 && offset <= 0.085) return 1;
+  if (offset <= -0.12 || offset >= 0.16) return 0.12;
+  if (offset < -0.055) {
+    return 0.12 + ((offset + 0.12) / 0.065) * 0.88;
+  }
+  return 1 - ((offset - 0.085) / 0.075) * 0.88;
+}
+
+export function audioImpactAuditionPhase(
+  currentTimeS: number,
+  targetTimeS: number,
+): AudioImpactAuditionPhase {
+  if (currentTimeS < targetTimeS - 0.055) return "approaching";
+  if (currentTimeS <= targetTimeS + 0.085) return "target";
+  return "after";
 }
 
 export function firstReviewTarget(
