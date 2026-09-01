@@ -28,6 +28,11 @@ struct RecordingMetadata: Codable, Equatable {
     /// rotation is then wrong for the whole match with nothing on screen
     /// to say so.
     var firstServer: String?
+    /// Game scores called out at the phone while filming. Kept apart from
+    /// the scores the pipeline works out from the points: this is what the
+    /// player said, which is a different kind of fact and must not be
+    /// allowed to overwrite one that was derived.
+    var spokenScores: [SpokenGameScore]?
 }
 
 extension Notification.Name {
@@ -379,6 +384,32 @@ final class RecordingQueue: NSObject {
                 )
             ))
             let matchId = completed.matchId.flatMap(UUID.init(uuidString:))
+            // Scores called out during the match land on the match row.
+            // Only fully-heard games: a ?? row is a prompt on the phone,
+            // not a fact worth storing. Registration goes through a
+            // database function that predates this column, so the write
+            // is its own statement; best effort, because a match without
+            // its spoken scores beats an upload that failed over them.
+            if let matchId, let spoken = item.metadata.spokenScores {
+                struct SpokenRow: Encodable {
+                    let game: Int
+                    let you: Int
+                    let them: Int
+                }
+                struct SpokenPatch: Encodable {
+                    let spoken_scores: [SpokenRow]
+                }
+                let rows = spoken.compactMap { row -> SpokenRow? in
+                    guard let you = row.you, let them = row.them else { return nil }
+                    return SpokenRow(game: row.game, you: you, them: them)
+                }
+                if !rows.isEmpty {
+                    _ = try? await supa.from("matches")
+                        .update(SpokenPatch(spoken_scores: rows))
+                        .eq("id", value: matchId.uuidString)
+                        .execute()
+                }
+            }
             if item.processOn, let matchId {
                 struct ProcessReq: Encodable {
                     let matchId: String

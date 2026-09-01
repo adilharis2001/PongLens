@@ -140,50 +140,167 @@ enum RecordOrientation {
 /// bottom, so the middle is the one region nothing else claims. It is
 /// also inert (`allowsHitTesting(false)` where it is placed), so even if
 /// a future layout moves a control underneath it, the control still wins.
-struct RecordingBadge: View {
-    /// Drives the dot only. The badge itself must not pulse — a sign that
-    /// breathes reads as a notification, not a status.
+/// The permanent mark that filming is happening, top of the screen.
+///
+/// Up from the moment the shutter is pressed rather than five minutes in.
+/// The old badge was a large centred card on a delay, which meant the one
+/// thing it existed to say was absent for exactly as long as anyone was
+/// still deciding whether the app was working.
+struct RecordingStrip: View {
+    var paused = false
+    /// Somebody is at the phone right now, which is worth saying above
+    /// everything else because it is the only feedback available while
+    /// they are still speaking.
+    var hearing = false
+
     @State private var live = false
 
-    var body: some View {
-        // Logo and wordmark share a row. The badge only ever appears in
-        // landscape — recording is landscape-only — and a stacked lockup
-        // ate half the height of a 402 pt screen for no extra legibility.
-        VStack(spacing: 12) {
-            HStack(spacing: 12) {
-                LogoMark(size: 46)
-                HStack(spacing: 0) {
-                    Text("Pong").foregroundStyle(.white)
-                    Text("Lens").foregroundStyle(PL.cyan)
-                }
-                .font(.system(size: 30, weight: .semibold))
-                .tracking(-0.8)
-            }
+    private var mark: Color {
+        if paused { return PL.warningText }
+        return hearing ? PL.cyan : PL.dangerFill
+    }
 
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(PL.dangerFill)
-                    .frame(width: 7, height: 7)
-                    .opacity(live ? 0.35 : 1)
-                    .animation(.easeInOut(duration: 1.1)
-                        .repeatForever(autoreverses: true), value: live)
-                Text("Recording in progress")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.85))
+    private var words: String {
+        if paused { return "Recording paused" }
+        return hearing ? "Listening" : "Recording in progress"
+    }
+
+    var body: some View {
+        HStack(spacing: 9) {
+            LogoMark(size: 18)
+            HStack(spacing: 0) {
+                Text("Pong").foregroundStyle(.white)
+                Text("Lens").foregroundStyle(PL.cyan)
+            }
+            .font(.system(size: 14, weight: .semibold))
+            .tracking(-0.3)
+
+            Circle()
+                .fill(mark)
+                .frame(width: 6, height: 6)
+                // The dot breathes; the strip does not. A sign that
+                // pulses as a whole reads as a notification demanding
+                // something, and this one is only stating a fact.
+                .opacity(live && !hearing && !paused ? 0.35 : 1)
+                .animation(.easeInOut(duration: 1.1)
+                    .repeatForever(autoreverses: true), value: live)
+                .animation(.easeOut(duration: 0.2), value: hearing)
+
+            Text(words)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.85))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+        .shadow(color: .black.opacity(0.3), radius: 12, y: 4)
+        .onAppear { live = true }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("PongLens. \(words).")
+    }
+}
+
+/// Games called out at the phone, as a scoreboard.
+///
+/// Two rows and a column per game, rather than a line per game: a match
+/// can run to seven, and seven lines is a panel where seven columns is
+/// still a strip. It also puts the two players' numbers directly above
+/// and below each other, which is how a score is read anywhere else.
+struct ScoreBoard: View {
+    var scores: [SpokenGameScore]
+    /// The user's own name when the account has one, "You" when it does
+    /// not. The opponent has no name at this point in the flow — it is
+    /// asked for after the recording stops — so that side is always
+    /// "Opponent".
+    var youLabel: String
+    var missed: Int?
+    /// Tapping a game swaps its two numbers, which is the mistake this is
+    /// for: the score is spoken with the user's own first, and half the
+    /// time it will come out the other way round.
+    var onSwap: ((Int) -> Void)?
+
+    /// A number, or the mark for a game that was called out and never
+    /// scored. Two question marks rather than "XX", which in a row of
+    /// numbers can be read as twenty.
+    static func cell(_ value: Int?) -> String {
+        value.map(String.init) ?? "??"
+    }
+
+    static func won(_ mine: Int?, _ theirs: Int?) -> Bool {
+        guard let mine, let theirs else { return false }
+        return mine > theirs
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !scores.isEmpty { board }
+            if let missed {
+                Text("Didn't catch game \(missed). Say it again.")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(PL.warningText)
             }
         }
-        .padding(.horizontal, 30)
-        .padding(.vertical, 22)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        // Material rather than a flat fill, because this one sits over a
+        // live picture; the border is the app's own edge token, so it
+        // still reads as the same family as the score pills.
         .background(.ultraThinMaterial, in: RoundedRectangle(
-            cornerRadius: 30, style: .continuous))
+            cornerRadius: 18, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(PL.edge, lineWidth: 1)
         )
-        // The picture behind stays the point; the badge sits on it rather
-        // than replacing it.
-        .shadow(color: .black.opacity(0.35), radius: 24, y: 8)
-        .onAppear { live = true }
+        .shadow(color: .black.opacity(0.3), radius: 14, y: 5)
+    }
+
+    private var board: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 5) {
+                // Holds the game-number row's height, so the two name
+                // labels sit exactly on their own numbers.
+                Text("Game")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(PL.text600)
+                Text(youLabel).foregroundStyle(PL.cyan)
+                Text("Opponent").foregroundStyle(PL.magentaSoft)
+            }
+            .font(.system(size: 13, weight: .medium))
+            .lineLimit(1)
+
+            ForEach(scores) { score in
+                Button {
+                    onSwap?(score.game)
+                } label: {
+                    VStack(spacing: 5) {
+                        Text("\(score.game)")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(PL.text600)
+                        // Cyan is the user and magenta the opponent
+                        // everywhere else a score is drawn — the pill on
+                        // every match card, the stats table, the running
+                        // score in the player. The loser of each game is
+                        // dimmed rather than recoloured, so who took what
+                        // reads without comparing digits and the two
+                        // sides stay the colours they always are.
+                        Text(ScoreBoard.cell(score.you))
+                            .foregroundStyle(PL.cyan)
+                            .opacity(ScoreBoard.won(score.you, score.them) ? 1 : 0.45)
+                        Text(ScoreBoard.cell(score.them))
+                            .foregroundStyle(PL.magentaSoft)
+                            .opacity(ScoreBoard.won(score.them, score.you) ? 1 : 0.45)
+                    }
+                    .font(.system(size: 15, weight: .semibold))
+                    .monospacedDigit()
+                    .frame(minWidth: 22)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(score.known
+                    ? "Game \(score.game). \(youLabel) \(ScoreBoard.cell(score.you)), opponent \(ScoreBoard.cell(score.them)). Tap to swap."
+                    : "Game \(score.game), not captured.")
+            }
+        }
     }
 }
 
@@ -292,11 +409,9 @@ struct RecordScreen: View {
     /// handed down, so the recorder itself stays ignorant of the
     /// distinction: it films the same way either way.
     private var kind: MatchKind { router.recordKind }
+    @Environment(AppState.self) private var app
     @State private var recorder = Recorder()
     @State private var level = LevelMonitor()
-    /// The live table check; nil when the model is missing from the
-    /// bundle, and the ghost silently stays a drawing.
-    @State private var finder = TableFinderEngine()
     @State private var settings = RecordSettings.load()
     @State private var settingsOpen = false
     /// Which overlay is drawn, at most one. See RecordOverlay.
@@ -319,7 +434,9 @@ struct RecordScreen: View {
     /// True once the recording has run long enough for the badge. Held in
     /// state rather than computed inline so the fade has something to
     /// animate, and so it cannot flicker on the second the clock crosses.
-    @State private var showBadge = false
+    @State private var listener = ScoreListener()
+    /// The long-press debug readout of what the recogniser heard.
+    @State private var showHeard = false
     /// "right" or "left" from the profile, nil until it answers (or if it
     /// never does — everything here degrades to the old behaviour).
     @State private var handedness: String?
@@ -353,8 +470,6 @@ struct RecordScreen: View {
                        heldSideways(screenIsPortrait: portrait) {
                         TableGhost(level: level.rollDegrees,
                                    session: recorder.session,
-                                   finder: overlay == .check ? finder : nil,
-                                   showTarget: overlay == .ghost,
                                    preferredRightSide: handedness.map { $0 == "right" })
                             .ignoresSafeArea()
                     }
@@ -373,13 +488,6 @@ struct RecordScreen: View {
                     portraitChrome(sideways: heldSideways(screenIsPortrait: true))
                 } else {
                     landscapeChrome(sideways: heldSideways(screenIsPortrait: false))
-                }
-
-                if showBadge {
-                    RecordingBadge()
-                        .transition(.opacity.combined(
-                            with: .scale(scale: 0.97)))
-                        .allowsHitTesting(false)
                 }
 
                 if !revealed {
@@ -456,6 +564,11 @@ struct RecordScreen: View {
                 // Wi-Fi can finish uploading before the sheet appears, and
                 // it must not register with untouched fields.
                 queue.holdCompletion(sessionId: sessionId)
+                // Whatever was called out during the match, carried into
+                // the sheet so it is confirmed rather than assumed.
+                if !listener.scores.isEmpty {
+                    draft.spokenScores = listener.scores
+                }
                 // Filming is landscape; typing is not. The details sheet is
                 // a form — opponent, venue, type — and a form in landscape
                 // on a phone that has just come off a tripod is a row of
@@ -474,21 +587,30 @@ struct RecordScreen: View {
             }
             overlay = settings.overlay
             level.start()
-            syncPreviewTap(settings.overlay)
             await recorder.configure(fps: settings.fps)
-            finder?.fovDegrees = recorder.horizontalFOV
             await loadHandedness()
+            // Before the shutter, never at it: the language pack is a
+            // download and a club is the worst place to discover that.
+            if settings.callOutScore, hearsScores { await listener.prepare() }
         }
-        .onChange(of: ghostRightSide) { _, _ in syncExpectedSide() }
-        .onChange(of: ghostSideChosen) { _, _ in syncExpectedSide() }
         .onChange(of: recorder.state) { _, newState in
-            finder?.recording = (newState == .recording)
-            if newState != .recording { setBadge(false) }
+            if newState == .recording {
+                startListening()
+            } else {
+                stopListening()
+            }
         }
-        .onChange(of: recorder.sessionElapsed) { _, _ in refreshBadge() }
-        .onChange(of: recorder.isPaused) { _, _ in refreshBadge() }
-        .onChange(of: overlay) { _, mode in
-            syncPreviewTap(mode)
+        // Held between points is exactly when people wander over and
+        // chat next to the phone. Nothing said to a paused recording is
+        // a score being reported.
+        .onChange(of: recorder.isPaused) { _, paused in
+            listener.suspended = paused
+        }
+        // Switched on mid-session: fetch the language pack now, while the
+        // user is still looking at a settings screen, rather than at the
+        // moment they press record.
+        .onChange(of: settings.callOutScore) { _, on in
+            if on, hearsScores { Task { await listener.prepare() } }
         }
         .onDisappear {
             // Hand the scene back. A phone genuinely held sideways keeps
@@ -505,7 +627,8 @@ struct RecordScreen: View {
             RecordSettingsSheet(
                 availableFrameRates:
                     recorder.supportedFrameRates(from: [30, 60]),
-                settings: $settings, overlay: $overlay
+                settings: $settings, overlay: $overlay,
+                offerScoreSetting: hearsScores
             ) { fps in
                 // Apply to the live device. Rebuilding the session here is
                 // what produced "the camera isn't available on this
@@ -567,7 +690,6 @@ struct RecordScreen: View {
                     cancelButton
                 } else {
                     ghostButton
-                    checkButton
                     settingsButton
                     closeButton
                 }
@@ -575,9 +697,16 @@ struct RecordScreen: View {
             .padding(.horizontal, 16)
             .padding(.top, 12)
 
+            recordingStrip
             statusBanners(sideways: sideways)
 
             Spacer()
+
+            HStack {
+                scoreBoard
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
 
             if recorder.state == .ready, !queue.active.isEmpty {
                 uploadsShelf.padding(.horizontal, 16)
@@ -592,16 +721,21 @@ struct RecordScreen: View {
 
     private func landscapeChrome(sideways: Bool) -> some View {
         HStack(spacing: 0) {
-            VStack {
+            VStack(alignment: .leading, spacing: 10) {
+                recordingStrip
+                    .frame(maxWidth: .infinity)
                 statusBanners(sideways: sideways)
                 Spacer()
+                scoreBoard
+                    .padding(.bottom, 4)
                 if recorder.state == .ready, !queue.active.isEmpty {
                     uploadsShelf
                         .frame(maxWidth: 420)
                         .padding(.bottom, 16)
                 }
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 16)
             .padding(.top, 10)
 
             VStack(spacing: 18) {
@@ -610,7 +744,6 @@ struct RecordScreen: View {
                         cancelButton
                     } else {
                         ghostButton
-                        checkButton
                         settingsButton
                         closeButton
                     }
@@ -659,8 +792,10 @@ struct RecordScreen: View {
             if let note = recorder.frameRateNote {
                 banner(note, tint: PL.warningText)
             }
-            if recorder.state == .recording, finder?.drifted == true {
-                banner("The camera has moved. Check the tripod.",
+            // Turning the setting on and getting nothing, with no reason
+            // given, is the worst version of this feature. Say why once.
+            if settings.callOutScore, hearsScores, let note = listener.unavailable {
+                banner("Calling out the score isn't working. \(note)",
                        tint: PL.warningText)
             }
             if recorder.state == .recording, !recorder.isPaused {
@@ -788,9 +923,6 @@ struct RecordScreen: View {
                 let picked = abs(recorder.displayZoom - step) < 0.03
                 Button {
                     recorder.setDisplayZoom(step)
-                    // Different glass, different geometry — tell the check
-                    // before it reads the next frame.
-                    finder?.fovDegrees = recorder.horizontalFOV
                 } label: {
                     Text(Self.zoomLabel(step))
                         .font(.system(size: 12, weight: .bold))
@@ -825,9 +957,6 @@ struct RecordScreen: View {
                 if zoomStart == nil { zoomStart = recorder.displayZoom }
                 let next = (zoomStart ?? 1) * value.magnification
                 recorder.setDisplayZoom(min(max(next, low), high))
-                // Different glass, different geometry — tell the check
-                // before it reads the next frame.
-                finder?.fovDegrees = recorder.horizontalFOV
             }
             .onEnded { _ in zoomStart = nil }
     }
@@ -853,14 +982,6 @@ struct RecordScreen: View {
             symbol: "rectangle.dashed",
             on: "Hide the placement guide",
             off: "Show the placement guide")
-    }
-
-    private var checkButton: some View {
-        overlayButton(
-            mode: .check,
-            symbol: "dot.viewfinder",
-            on: "Stop looking for the table",
-            off: "Look for the table")
     }
 
     private func overlayButton(mode: RecordOverlay, symbol: String,
@@ -914,15 +1035,109 @@ struct RecordScreen: View {
     /// says "recording in progress" and must not be able to say it over a
     /// stopped picture. Reads the session clock rather than `elapsed`,
     /// which resets to zero every time the file rolls at 45 minutes.
-    private func refreshBadge() {
-        setBadge(recorder.state == .recording
-                 && !recorder.isPaused
-                 && recorder.sessionElapsed >= 300)
+    /// Only a match has games to call a score for. Drills and practice
+    /// are not played to a score and nobody is keeping one, so the setting
+    /// is not offered behind that door at all — an option that could never
+    /// do anything is worse than a missing one. Speaking notes during a
+    /// practice session is a different feature and wants its own words.
+    private var hearsScores: Bool {
+        if case .match = kind { return true }
+        return false
     }
 
-    private func setBadge(_ on: Bool) {
-        guard showBadge != on else { return }
-        withAnimation(.easeOut(duration: on ? 0.7 : 0.25)) { showBadge = on }
+    /// The user's own name for the scoreboard, when the account has one.
+    ///
+    /// Falls back to "You" for an account with no name, and for a name
+    /// long enough to stretch the label column wider than the scores
+    /// beside it — the board has to stay a strip in the corner.
+    private var youLabel: String {
+        let name = app.firstName
+        guard name != "player", name.count <= 10 else { return "You" }
+        return name.prefix(1).uppercased() + name.dropFirst()
+    }
+
+    @ViewBuilder
+    private var recordingStrip: some View {
+        if recorder.state == .recording {
+            VStack(spacing: 6) {
+                RecordingStrip(paused: recorder.isPaused,
+                               hearing: listener.hearing)
+                    .onLongPressGesture(minimumDuration: 0.6) {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            showHeard.toggle()
+                        }
+                    }
+                // The debug view of what the recogniser produced for
+                // approaches that captured nothing. Deliberately hidden
+                // behind a long-press: bystanders' speech does not belong
+                // on a recording screen, but without any record of what
+                // was heard, every mishearing in a hall is unfixable
+                // guesswork. In memory only, never uploaded, gone when
+                // the screen closes.
+                if showHeard, settings.callOutScore {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Heard, not captured — debug, not saved")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(PL.text500)
+                        if listener.heardLog.isEmpty {
+                            Text("Nothing yet.")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(PL.text400)
+                        }
+                        ForEach(listener.heardLog.suffix(5).reversed(),
+                                id: \.self) { line in
+                            Text(line)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.white.opacity(0.7))
+                                .lineLimit(2)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: 340, alignment: .leading)
+                    .background(Color.black.opacity(0.6), in: RoundedRectangle(
+                        cornerRadius: 12, style: .continuous))
+                    .transition(.opacity)
+                }
+            }
+            .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var scoreBoard: some View {
+        if recorder.state == .recording,
+           !listener.scores.isEmpty || listener.missedGame != nil {
+            ScoreBoard(scores: listener.scores,
+                       youLabel: youLabel,
+                       missed: listener.missedGame,
+                       onSwap: { listener.swapSides(game: $0) })
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+        }
+    }
+
+    private func startListening() {
+        guard settings.callOutScore, hearsScores else { return }
+        // A fresh match gets a fresh board. The old scores were handed to
+        // the previous session's details sheet when it stopped; leaving
+        // them here painted last match's scoreboard over this one.
+        listener.beginSession()
+        guard recorder.audioTapReady else {
+            listener.reportNoMicrophone()
+            return
+        }
+        Task {
+            await listener.start()
+            guard listener.running else { return }
+            recorder.onAudioBuffer = { [listener] buffer in
+                listener.ingest(buffer)
+            }
+        }
+    }
+
+    private func stopListening() {
+        recorder.onAudioBuffer = nil
+        listener.stop()
     }
 
     /// The profile's handedness, fetched once per open. RLS scopes the
@@ -934,33 +1149,6 @@ struct RecordScreen: View {
             .select("handedness")
             .execute().value
         handedness = rows?.first?.handedness
-        syncExpectedSide()
-    }
-
-    /// The wrong-side cue's authority. Handedness names the side, and a
-    /// user who has flipped the ghost AGAINST their handedness has made a
-    /// choice — filming a left-handed friend, a wall in the way — so the
-    /// cue says nothing rather than nagging them about it.
-    private func syncExpectedSide() {
-        guard let handedness else { finder?.expectedSide = nil; return }
-        let wantRight = handedness == "right"
-        if ghostSideChosen, ghostRightSide != wantRight {
-            finder?.expectedSide = nil
-        } else {
-            finder?.expectedSide = handedness
-        }
-    }
-
-    /// The model reads preview frames only while the check is the chosen
-    /// overlay. Off means no handler at all, so it costs no battery.
-    private func syncPreviewTap(_ mode: RecordOverlay) {
-        if mode == .check {
-            recorder.onPreviewFrame = { [weak finder] buffer in
-                finder?.ingest(buffer)
-            }
-        } else {
-            recorder.onPreviewFrame = nil
-        }
     }
 
     private func shutterRow(recordingAllowed: Bool) -> some View {
@@ -1134,6 +1322,8 @@ private struct RecordSettingsSheet: View {
     let availableFrameRates: [Int]
     @Binding var settings: RecordSettings
     @Binding var overlay: RecordOverlay
+    /// Matches only. See RecordScreen.hearsScores.
+    let offerScoreSetting: Bool
     let onFrameRateChange: (Int) -> Void
 
     var body: some View {
@@ -1167,7 +1357,6 @@ private struct RecordSettingsSheet: View {
                     )) {
                         Text("None").tag(RecordOverlay.none)
                         Text("Placement guide").tag(RecordOverlay.ghost)
-                        Text("Look for the table").tag(RecordOverlay.check)
                     }
                     Toggle("Upload on Wi-Fi only", isOn: Binding(
                         get: { settings.wifiOnlyUploads },
@@ -1189,6 +1378,21 @@ private struct RecordSettingsSheet: View {
                 } footer: {
                     Text("Video records at 1080p HEVC. A 45-minute match is about 2 GB at 30 fps.")
                 }
+
+                if offerScoreSetting {
+                    Section {
+                        Toggle("Call out the score", isOn: Binding(
+                            get: { settings.callOutScore },
+                            set: { settings.callOutScore = $0; settings.save() }
+                        ))
+                    } footer: {
+                        // The phrase is spelled out because it has to be
+                        // said exactly, and the example comes from the
+                        // parser itself so the instruction cannot drift
+                        // away from what is actually accepted.
+                        Text("At the end of a game, step close to the phone and say \"\(SpokenScore.examplePhrase())\". The score appears on screen, and you can tap it to swap the two numbers round. The phone only listens while someone is close to it, and only the score is kept.")
+                    }
+                }
             }
             .tint(PL.cyan)
             .navigationTitle("Recording")
@@ -1209,6 +1413,7 @@ struct MatchDetailsSheet: View {
     let recentVenues: [String]
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var app
     @State private var poster: UIImage?
     /// The video's displayed shape. The track answers this long before a
     /// frame decodes, so the box is already the right shape and the row
@@ -1273,6 +1478,28 @@ struct MatchDetailsSheet: View {
             Form {
                 Section {
                     progressRow
+                }
+
+                // Above Processing on purpose: this is the moment the
+                // score gets typed into a league app, and it is the last
+                // screen before the recording disappears into the queue.
+                if let spoken = draft.spokenScores, !spoken.isEmpty {
+                    Section {
+                        ScoreBoard(scores: spoken,
+                                   youLabel: youLabel,
+                                   missed: nil,
+                                   onSwap: { swapSpoken(game: $0) })
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .listRowInsets(EdgeInsets(top: 10, leading: 12,
+                                                      bottom: 10, trailing: 12))
+                            .listRowBackground(Color.clear)
+                    } header: {
+                        Text("Spoken score")
+                    } footer: {
+                        Text(spoken.contains { !$0.known }
+                             ? "What you called out during the match. A game showing ?? was heard but not understood. Tap any game to swap the two numbers."
+                             : "What you called out during the match. Tap a game to swap the two numbers.")
+                    }
                 }
 
                 Section {
@@ -1393,6 +1620,23 @@ struct MatchDetailsSheet: View {
             text += " Placement maps show where every ball landed and add processing time."
         }
         return text
+    }
+
+    /// The uploader's own first name for the board's top row, matching the
+    /// record screen. "You" when the account has no name to use.
+    private var youLabel: String {
+        let name = app.firstName
+        guard name != "player", name.count <= 10 else { return "You" }
+        return name.prefix(1).uppercased() + name.dropFirst()
+    }
+
+    private func swapSpoken(game: Int) {
+        guard var rows = draft.spokenScores,
+              let index = rows.firstIndex(where: { $0.game == game }),
+              rows[index].known else { return }
+        let row = rows[index]
+        rows[index] = SpokenGameScore(game: row.game, you: row.them, them: row.you)
+        draft.spokenScores = rows
     }
 
     private func pushProcessing() {

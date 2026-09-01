@@ -21,7 +21,10 @@ swiftc -O -o "$OUT" \
   "$CORE/Highlights.swift" \
   "$CORE/CameraGuideGate.swift" \
   "$CORE/SideChanges.swift" \
+  "$CORE/SpokenScore.swift" \
+  "$CORE/ScoreCapture.swift" \
   ScoreLogicTests.swift ServePlacementTests.swift StarredTests.swift \
   HighlightsTests.swift CameraGuideGateTests.swift \
-  RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift main.swift
+  RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift \
+  SpokenScoreTests.swift ScoreCaptureTests.swift main.swift
 "$OUT"

@@ -56,16 +56,22 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     var onSegment: ((URL, TimeInterval) -> Void)?
     /// Manual stop finished — the session's last file is banked.
     var onSessionEnd: (() -> Void)?
-    /// Upright preview frames for the live table check. Written once from
-    /// the main actor before the session starts, read on the tap queue —
-    /// the nonisolated(unsafe) is that handshake, not an invitation.
-    nonisolated(unsafe) var onPreviewFrame: ((CVPixelBuffer) -> Void)?
+    /// Match audio, for the spoken-score listener. Written once from the
+    /// main actor before the session starts, read on the tap queue — the
+    /// nonisolated(unsafe) is that handshake, not an invitation. Nil
+    /// unless the setting is on, so it costs nothing when it is off.
+    nonisolated(unsafe) var onAudioBuffer: ((CMSampleBuffer) -> Void)?
+    /// Whether the session would take a second read of the microphone.
+    /// Published rather than assumed: a capture session can refuse an
+    /// output, and a listener wired to one that was never added hears
+    /// nothing for ever without a word of explanation.
+    private(set) var audioTapReady = false
 
     let session = AVCaptureSession()
     private let output = AVCaptureMovieFileOutput()
-    private let previewTap = AVCaptureVideoDataOutput()
-    private let previewTapQueue = DispatchQueue(
-        label: "com.ponglens.preview-tap", qos: .utility)
+    private let audioTap = AVCaptureAudioDataOutput()
+    private let audioTapQueue = DispatchQueue(
+        label: "com.ponglens.audio-tap", qos: .utility)
     private var device: AVCaptureDevice?
     private var timer: Timer?
     private var rollPending = false
@@ -206,16 +212,13 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         if session.canAddOutput(output) {
             session.addOutput(output)
         }
-        // The table check reads the same session's frames; BGRA so the
-        // engine never touches YUV, late frames dropped so it can never
-        // back-pressure the recording.
-        previewTap.videoSettings = [
-            kCVPixelBufferPixelFormatTypeKey as String:
-                kCVPixelFormatType_32BGRA]
-        previewTap.alwaysDiscardsLateVideoFrames = true
-        previewTap.setSampleBufferDelegate(self, queue: previewTapQueue)
-        if session.canAddOutput(previewTap) {
-            session.addOutput(previewTap)
+        // The same microphone the recording uses, read a second time. The
+        // handler is nil unless someone turned the setting on, so an
+        // ordinary match delivers buffers to nothing and stops there.
+        audioTap.setSampleBufferDelegate(self, queue: audioTapQueue)
+        if session.canAddOutput(audioTap) {
+            session.addOutput(audioTap)
+            audioTapReady = true
         }
         // Crash insurance: fragments every 5 seconds keep everything up to
         // the last few seconds playable no matter how the process dies.
@@ -688,26 +691,32 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     }
 }
 
-// MARK: - Preview tap for the live table check
+// MARK: - Audio tap
 
-extension Recorder: AVCaptureVideoDataOutputSampleBufferDelegate {
-    /// Point every video connection the same way up. The preview computes
-    /// the angle in its own layout pass and hands it here.
+extension Recorder: AVCaptureAudioDataOutputSampleBufferDelegate {
+    nonisolated func captureOutput(_ output: AVCaptureOutput,
+                                   didOutput sampleBuffer: CMSampleBuffer,
+                                   from connection: AVCaptureConnection) {
+        guard let handler = onAudioBuffer else { return }
+        handler(sampleBuffer)
+    }
+}
+
+// MARK: - Orientation
+
+extension Recorder {
+    /// Point the recorded file the same way up as the viewfinder. The
+    /// preview computes the angle in its own layout pass and hands it here.
     ///
-    /// There are three connections and for a long time only two of them
-    /// were set: the preview layer, so the viewfinder looked right, and
-    /// this tap, so the table check saw what the viewfinder saw. The movie
-    /// output — the only one that reaches the file — kept AVFoundation's
-    /// default, which is portrait. So a match filmed in landscape, through
-    /// a viewfinder that looked perfectly correct, was written to disk
+    /// This was missed for a long time: the preview layer was rotated, so
+    /// the viewfinder looked right, while the movie output — the only
+    /// connection that reaches the file — kept AVFoundation's default,
+    /// which is portrait. So a match filmed in landscape, through a
+    /// viewfinder that looked perfectly correct, was written to disk
     /// flagged as portrait and played back on its side. Nothing on a
     /// simulator can catch that: there is no camera, so no build ever
     /// produced a real recording until one reached a real match.
     func setCaptureRotation(_ angle: CGFloat) {
-        if let tap = previewTap.connection(with: .video),
-           tap.isVideoRotationAngleSupported(angle) {
-            tap.videoRotationAngle = angle
-        }
         // The file's own rotation is fixed when the chunk opens and must
         // not move afterwards: changing it mid-recording turns the picture
         // over halfway through the video.
@@ -715,15 +724,5 @@ extension Recorder: AVCaptureVideoDataOutputSampleBufferDelegate {
               let movie = output.connection(with: .video),
               movie.isVideoRotationAngleSupported(angle) else { return }
         movie.videoRotationAngle = angle
-    }
-
-    nonisolated func captureOutput(_ output: AVCaptureOutput,
-                                   didOutput sampleBuffer: CMSampleBuffer,
-                                   from connection: AVCaptureConnection) {
-        guard output === previewTap,
-              let handler = onPreviewFrame,
-              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
-        else { return }
-        handler(pixelBuffer)
     }
 }

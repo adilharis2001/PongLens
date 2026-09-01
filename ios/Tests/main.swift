@@ -13,6 +13,8 @@ runRallyEndParityChecks()
 runSideChangeParityChecks()
 runServingParityChecks()
 runInsertGeometryParityChecks()
+runSpokenScoreChecks()
+runScoreCaptureChecks()
 
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {
