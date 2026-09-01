@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildPointRows,
+  cardCanOpen,
   formatClock,
   fpsLabel,
   gapLabel,
@@ -96,6 +97,13 @@ test("point rows order by time, measure gaps, and number only the visible", () =
   // The owner's numbering skips removed points, so the card after a
   // removed one must not jump — this is the number shown in the app.
   assert.deepEqual(rows.map((r) => r.displayNo), [1, 2, null, 3]);
+});
+
+test("desktop Admin can open card diagnostics when the cut video is unavailable", () => {
+  assert.equal(cardCanOpen(12.5, false, true), true);
+  assert.equal(cardCanOpen(12.5, false, false), false);
+  assert.equal(cardCanOpen(12.5, true, false), true);
+  assert.equal(cardCanOpen(null, true, true), false);
 });
 
 test("numeric strings from the RPC are coerced before arithmetic", () => {

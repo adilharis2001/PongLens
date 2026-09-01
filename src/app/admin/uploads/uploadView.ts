@@ -146,6 +146,19 @@ export interface AdminUploadPoint {
   admin_theme_ids: string[];
 }
 
+/**
+ * A desktop Admin card opens an evidence pane even when its cut video is
+ * unavailable. Phones still require video because their card action opens
+ * the playback takeover rather than the side-by-side diagnosis.
+ */
+export function cardCanOpen(
+  cutT0: number | null,
+  hasCutVideo: boolean,
+  isDesktop: boolean
+): boolean {
+  return cutT0 !== null && (hasCutVideo || isDesktop);
+}
+
 export interface UploadDetail {
   match: {
     id: string;
