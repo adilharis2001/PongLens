@@ -300,11 +300,16 @@ struct ShareLinksSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    Picker("Share", selection: $scope) {
-                        Text("This match").tag("match")
-                        Text("Starred points").tag("starred")
+                    // Before processing there are no points to star, so
+                    // the starred scope is not an empty choice, it is an
+                    // impossible one — the picker waits for the cut.
+                    if processed {
+                        Picker("Share", selection: $scope) {
+                            Text("This match").tag("match")
+                            Text("Starred points").tag("starred")
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
                 } footer: {
                     Text(scopeFooter)
                 }
@@ -1028,11 +1033,9 @@ struct RawToolsSection: View {
     let onEditDetails: () -> Void
     let onScrollToNotes: () -> Void
 
-    @Environment(LibraryStore.self) private var library
     @State private var shareOpen = false
     @State private var coachOpen = false
     @State private var exportOpen = false
-    @State private var sideOpen = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1050,9 +1053,11 @@ struct RawToolsSection: View {
                 if !sourceGone {
                     divider
                     toolRow("Match details", trailing: detailsTrailing) { onEditDetails() }
-                    divider
-                    toolRow("Your side", trailing: sideTrailing) { sideOpen = true }
                 }
+                // No "Your side" row before processing (audit, 2026-09-01):
+                // nothing at processing time reads it, and everything it
+                // orients — maps, Me/Them labels — exists only after
+                // processing, where the first-open banner asks anyway.
                 divider
                 NavigationLink(value: "feedback:\(match.id.uuidString.lowercased())") {
                     HStack {
@@ -1095,14 +1100,6 @@ struct RawToolsSection: View {
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
-        .sheet(isPresented: $sideOpen) {
-            YourSideSheet(match: match) {
-                Task { await library.load() }
-            }
-            .presentationDetents([.medium])
-            .presentationBackground(PL.surface)
-            .presentationDragIndicator(.visible)
-        }
     }
 
     private var detailsTrailing: String {
@@ -1110,14 +1107,6 @@ struct RawToolsSection: View {
         let venue = match.venue ?? ""
         if opp.isEmpty && venue.isEmpty { return "Add opponent and venue" }
         return [opp, venue].filter { !$0.isEmpty }.joined(separator: " · ")
-    }
-
-    private var sideTrailing: String {
-        switch match.userSide {
-        case "near": "Bottom of video"
-        case "far": "Top of video"
-        default: "Set your side"
-        }
     }
 
     private var divider: some View {

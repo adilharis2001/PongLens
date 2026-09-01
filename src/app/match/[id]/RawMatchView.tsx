@@ -35,9 +35,7 @@ import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { TrimBar } from "@/components/TrimBar";
 import { ClipPlayer } from "./ClipPlayer";
-import { PickSide } from "./PickSide";
 import { RawExportRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
-import type { Side } from "./sides";
 
 const MATCH_TYPES = ["drills", "practice", "match", "league", "tournament"] as const;
 
@@ -127,9 +125,6 @@ export function RawMatchView({
   const [opponent, setOpponent] = useState(match.opponent_name ?? "");
   const [venue, setVenue] = useState(match.venue ?? "");
   const [matchType, setMatchType] = useState(match.match_type ?? "");
-  const [userSide, setUserSide] = useState<Side | null>(
-    (match.user_side as Side | null) ?? null,
-  );
   const [pastOpponents, setPastOpponents] = useState<string[]>([]);
   const [detailsSaved, setDetailsSaved] = useState(false);
   const savedTimer = useRef<number | null>(null);
@@ -140,7 +135,6 @@ export function RawMatchView({
   const [shareOpen, setShareOpen] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [sideOpen, setSideOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const notesRef = useRef<HTMLElement | null>(null);
   const [shareLinkCount, setShareLinkCount] = useState<number | null>(null);
@@ -858,29 +852,11 @@ export function RawMatchView({
                 </span>
               </button>
             )}
-            {!sourceGone && rawUrl && (
-              <button
-                type="button"
-                onClick={() => setSideOpen(true)}
-                className={TOOL_ROW_CLASS}
-              >
-                <span className="text-sm font-semibold">Your side</span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <span
-                    className={`shrink-0 text-xs ${
-                      userSide !== null ? "text-zinc-400" : "text-zinc-500"
-                    }`}
-                  >
-                    {userSide === "near"
-                      ? "Bottom of video"
-                      : userSide === "far"
-                        ? "Top of video"
-                        : "Set your side"}
-                  </span>
-                  <ToolRowChevron />
-                </span>
-              </button>
-            )}
+            {/* No "Your side" row here on purpose (audit, 2026-09-01):
+                nothing at processing time reads it, and everything it
+                orients — maps, Me/Them labels — exists only after
+                processing, where the first-open banner asks anyway. A
+                question with no payoff does not belong on this page. */}
             <Link
               href={`/feedback?matchId=${match.id}`}
               className={TOOL_ROW_CLASS}
@@ -1024,6 +1000,7 @@ export function RawMatchView({
           userId={userId}
           names={shareNames}
           scored={false}
+          processed={false}
         />
       )}
 
@@ -1039,55 +1016,6 @@ export function RawMatchView({
           userId={userId}
           matchId={match.id}
         />
-      )}
-
-      {/* "Your side" sheet, from the Tools row — PickSide against the raw
-          file, since there is no cut yet. If the browser cannot decode
-          the file, PickSide says so and the match page asks again once
-          the H.264 cut exists. */}
-      {isOwner && sideOpen && rawUrl && (
-        <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={() => setSideOpen(false)}
-            className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
-          />
-          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold">Which player are you?</h2>
-              <button
-                type="button"
-                onClick={() => setSideOpen(false)}
-                aria-label="Close"
-                className="rounded-full border border-edge p-1.5 text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-white"
-              >
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden="true"
-                >
-                  <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
-            </div>
-            <div className="mt-4">
-              <PickSide
-                src={rawUrl}
-                atSeconds={60}
-                selected={userSide}
-                onPick={(s) => {
-                  setUserSide(s);
-                  void saveDetails({ user_side: s });
-                  setSideOpen(false);
-                }}
-              />
-            </div>
-          </div>
-        </div>
       )}
 
       {/* delete confirm — opened from the header gear, same home as the
