@@ -221,10 +221,14 @@ The tab contains:
 
 Entry points, both opening Modify with the Insert tab selected:
 
-- **ScoreKeeper** — a small "+" at the leading edge of the current card in
-  the chip strip, meaning "a rally is missing between the previous card and
-  this one". One affordance tied to the current card, not one between every
-  pair, which would turn the strip into a row of buttons.
+- **ScoreKeeper** — a small "+" between two cards whose seam runs longer
+  than four seconds. Eight was the first line, reasoned from rally length,
+  and it was blind to the case that actually hurts: a missed serve is
+  re-served within a couple of seconds. Nothing signals that a point was
+  eaten, so the line is arbitrary either way; four costs ~33 offers on a
+  73-card match against ~13 at eight, and that was accepted (2026-08-31)
+  over a two-tier design, on the grounds that a second visual language on
+  this strip costs more than the buttons do.
 - **Point view** — the same tab, reachable from the existing Modify button.
 
 ### 4.4 Per platform

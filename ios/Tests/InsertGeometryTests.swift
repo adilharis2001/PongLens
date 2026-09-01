@@ -82,6 +82,10 @@ func runInsertGeometryParityChecks() {
           "the Jose seam is worth offering a plus on")
     check(gapWorthOffering(nb(10, 20, 4), nb(21.2, 30, 15), pad: PAD) == nil,
           "ordinary between-point time is not")
+    check(gapWorthOffering(nb(10, 20, 4), nb(24.5, 30, 15), pad: PAD) != nil,
+          "a quickly re-served miss is, which eight seconds was blind to")
+    check(gapWorthOffering(nb(10, 20, 4), nb(23.5, 30, 15), pad: PAD) == nil,
+          "just under the line stays quiet")
     check(gapWorthOffering(nil, JOSE_NEXT, pad: PAD) == nil,
           "and nothing is offered at the ends of the match")
 }

@@ -177,11 +177,13 @@ func insertCutT0(_ seam: Seam, _ w: InsertWindow, pad: ClipPad) -> Double {
     return max(0, round2(sourceToCut(seam, w.t0) - eff.pre))
 }
 
-/// A rally plus the pauses either side is around ten seconds and ordinary
-/// between-point time is under four. Measured over 9,433 seams, 19% clear
-/// eight — about one offer per five cards, which reads as "the video
-/// skipped here" rather than as a row of buttons.
-let GAP_WORTH_OFFERING_S = 8.0
+/// Four seconds, low on purpose. The first cut was eight, reasoned from a
+/// rally plus its surrounding pauses — and blind to the case that actually
+/// hurts: a missed serve is re-served within a couple of seconds, so the gap
+/// that swallowed one is short. Nothing signals that a point was eaten, so
+/// the choice is only where to put an arbitrary line. Measured over 9,433
+/// seams, eight offers on ~13 of a 73-card match and four on ~33.
+let GAP_WORTH_OFFERING_S = 4.0
 
 func gapWorthOffering(
     _ prevPoint: InsertNeighbour?, _ nextPoint: InsertNeighbour?, pad: ClipPad

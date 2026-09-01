@@ -168,6 +168,10 @@ test("the offer appears where the video skipped, not between every card", () => 
   assert.ok(gapWorthOffering(JOSE_PREV, JOSE_NEXT, PAD));
   // Ordinary between-point time: not.
   assert.equal(gapWorthOffering(pt("a", 10, 20, 4), pt("b", 21.2, 30, 15), PAD), null);
+  // A missed serve, re-served quickly — the case eight seconds was blind to.
+  assert.ok(gapWorthOffering(pt("a", 10, 20, 4), pt("b", 24.5, 30, 15), PAD));
+  // Just under the line stays quiet.
+  assert.equal(gapWorthOffering(pt("a", 10, 20, 4), pt("b", 23.5, 30, 15), PAD), null);
   // Nothing to offer at the ends of the match.
   assert.equal(gapWorthOffering(null, JOSE_NEXT, PAD), null);
   assert.equal(gapWorthOffering(JOSE_PREV, null, PAD), null);

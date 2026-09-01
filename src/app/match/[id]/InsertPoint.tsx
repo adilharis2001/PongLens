@@ -157,9 +157,15 @@ export function InsertPoint({
     [videoTimeFor]
   );
 
-  // Land on the start of the missing rally once the file is known.
+  // Land on the start of the missing rally once the file is known, and
+  // PLAY it. The whole reason to open this sheet is to see what is in the
+  // gap; making that a second tap asks the owner to request the one thing
+  // the screen exists for. Muted, so autoplay is allowed.
   useEffect(() => {
-    if (source && seam) seek(win.t0);
+    if (!source || !seam) return;
+    seek(win.t0);
+    const v = videoRef.current;
+    if (v) void v.play().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
@@ -354,7 +360,7 @@ export function InsertPoint({
               disabled={!source}
               className="mt-2 rounded-full border border-edge bg-ink/40 px-3 py-1 text-xs font-medium text-zinc-200 disabled:opacity-40"
             >
-              {playing ? "Pause" : "Play this rally"}
+              {playing ? "Pause" : "Replay"}
             </button>
           </div>
 

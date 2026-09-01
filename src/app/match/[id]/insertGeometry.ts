@@ -212,12 +212,22 @@ export function cutT0For(seam: Seam, w: Window, pad: ClipPad): number {
 /**
  * Whether this seam is worth offering a "+" on.
  *
- * A rally plus the pauses either side of it is around ten seconds, and
- * ordinary between-point time is under four. Measured over 9,433 seams,
- * 19% clear eight seconds — roughly one offer per five cards, which reads
- * as "the video skipped here" rather than as a row of buttons.
+ * FOUR seconds, which is low on purpose. The first cut of this was eight,
+ * reasoned from the length of a rally plus the pauses either side — and it
+ * was blind to the case that actually hurts: a missed serve is re-served
+ * within a couple of seconds, so the gap that swallowed one is short. There
+ * is no signal that says a point was eaten (the serve detector fires on
+ * about a third of serves, and we have no independent read of who served),
+ * so the choice is only ever where to put an arbitrary line.
+ *
+ * The cost is real and was accepted with the numbers in hand: measured over
+ * 9,433 seams, eight seconds offers on ~13 of a 73-card match and four on
+ * ~33 — closer to one between every other pair. Adil's call, over a
+ * two-tier version that would have kept a quiet affordance everywhere and a
+ * loud one on the long gaps: a second visual language on this strip costs
+ * more than the buttons do.
  */
-export const GAP_WORTH_OFFERING_S = 8;
+export const GAP_WORTH_OFFERING_S = 4;
 
 export function gapWorthOffering(
   prevPoint: Neighbour,

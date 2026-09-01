@@ -171,7 +171,7 @@ struct InsertSheet: View {
         Button {
             togglePlay()
         } label: {
-            Text(playing ? "Pause" : "Play this rally")
+            Text(playing ? "Pause" : "Replay")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(PL.text200)
                 .padding(.horizontal, 14)
@@ -397,6 +397,11 @@ struct InsertSheet: View {
         player.replaceCurrentItem(with: AVPlayerItem(url: source.url))
         player.isMuted = true
         seek(built, win.t0)
+        // Play it straight away. The whole reason to open this sheet is to
+        // see what is in the gap; making that a second tap asks for the one
+        // thing the screen exists for.
+        player.play()
+        playing = true
         // Stop at the end of the rally being restored.
         observer = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
