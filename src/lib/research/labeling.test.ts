@@ -137,19 +137,19 @@ test("event completion requires explicit detail and accepts unsure", () => {
 test("research media keys cannot escape the permanent pilot prefix", () => {
   assert.equal(
     isResearchMediaKey(
-      "research/fused-labeling/v1/sources/12345678-1234-1234-1234-123456789abc.mp4",
+      "research/fused-labeling/v1/sources/12345678-1234-1234-8abc-123456789abc.mp4",
     ),
     true,
   );
   assert.equal(
     isResearchMediaKey(
-      "research/placement-calibration/v1/sources/12345678-1234-1234-1234-123456789abc.mp4",
+      "research/placement-calibration/v1/sources/12345678-1234-1234-8abc-123456789abc.mp4",
     ),
     true,
   );
   assert.equal(
     isResearchMediaKey(
-      "research/serve-detection/v1/sources/12345678-1234-1234-1234-123456789abc.mp4",
+      "research/serve-detection/v1/sources/12345678-1234-1234-8abc-123456789abc.mp4",
     ),
     true,
   );
@@ -163,7 +163,7 @@ test("research media keys cannot escape the permanent pilot prefix", () => {
   assert.equal(isResearchMediaKey("research/fused-labeling/../../secret"), false);
   assert.equal(
     isResearchMediaKey(
-      "research/another-pilot/v1/sources/12345678-1234-1234-1234-123456789abc.mp4",
+      "research/another-pilot/v1/sources/12345678-1234-1234-8abc-123456789abc.mp4",
     ),
     false,
   );
@@ -172,7 +172,7 @@ test("research media keys cannot escape the permanent pilot prefix", () => {
 test("winner-constrained ending clips use only the permanent UUID namespace", () => {
   assert.equal(
     isResearchMediaKey(
-      "research/winner-constrained-endings/v1/sources/12345678-1234-1234-1234-123456789abc.mp4",
+      "research/winner-constrained-endings/v1/sources/12345678-1234-1234-8abc-123456789abc.mp4",
     ),
     true,
   );
@@ -184,7 +184,7 @@ test("winner-constrained ending clips use only the permanent UUID namespace", ()
   );
   assert.equal(
     isResearchMediaKey(
-      "research/winner-constrained-endings/private/12345678-1234-1234-1234-123456789abc.mp4",
+      "research/winner-constrained-endings/private/12345678-1234-1234-8abc-123456789abc.mp4",
     ),
     false,
   );
@@ -193,7 +193,7 @@ test("winner-constrained ending clips use only the permanent UUID namespace", ()
 test("audio impact clips use only the permanent UUID namespace", () => {
   assert.equal(
     isResearchMediaKey(
-      "research/audio-impacts/v1/sources/12345678-1234-1234-1234-123456789abc.mp4",
+      "research/audio-impacts/v1/sources/12345678-1234-1234-8abc-123456789abc.mp4",
     ),
     true,
   );
@@ -203,7 +203,7 @@ test("audio impact clips use only the permanent UUID namespace", () => {
   );
   assert.equal(
     isResearchMediaKey(
-      "research/audio-impacts/private/12345678-1234-1234-1234-123456789abc.mp4",
+      "research/audio-impacts/private/12345678-1234-1234-8abc-123456789abc.mp4",
     ),
     false,
   );

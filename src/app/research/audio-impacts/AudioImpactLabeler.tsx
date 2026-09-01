@@ -24,12 +24,14 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import {
   candidateLoop,
+  canReviewAudioImpact,
   filterAudioImpactAssignments,
   firstReviewTarget,
   nextReviewTarget,
   previousReviewTarget,
   queueWithActive,
   type AudioImpactReviewTarget,
+  type AudioImpactMediaState,
 } from "./audioImpactView";
 import type {
   AudioImpactResearchAssignment,
@@ -127,9 +129,11 @@ function labelForAssignment(
 export function AudioImpactLabeler({
   initialAssignments,
   isAdmin,
+  availableRounds,
 }: {
   initialAssignments: AudioImpactResearchAssignment[];
   isAdmin: boolean;
+  availableRounds: AudioImpactRound[];
 }) {
   const initialAssignmentId = firstAssignmentId(initialAssignments);
   const initialAssignment =
@@ -152,6 +156,7 @@ export function AudioImpactLabeler({
   >("all");
   const [mediaUrl, setMediaUrl] = useState<string | null>(null);
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const [mediaState, setMediaState] = useState<AudioImpactMediaState>("loading");
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -217,6 +222,8 @@ export function AudioImpactLabeler({
     () => waveformPoints(assignment?.source.proposal.audio.waveform ?? []),
     [assignment],
   );
+  const reviewEnabled = canReviewAudioImpact(mediaState, saveState);
+  const navigationBlocked = saveState === "saving" || saveState === "error";
 
   const resetMetrics = useCallback((next: AudioImpactResearchAssignment) => {
     openedAt.current = Date.now();
@@ -231,8 +238,12 @@ export function AudioImpactLabeler({
   }, []);
 
   const openTarget = useCallback(
-    (next: AudioImpactReviewTarget | null) => {
+    (next: AudioImpactReviewTarget | null, afterDurableSave = false) => {
       if (!next) return;
+      if (!afterDurableSave && (pendingSave || saveState === "error")) {
+        setMessage("Retry the failed save before leaving this sound.");
+        return;
+      }
       const nextAssignment = assignments.find(
         (item) => item.id === next.assignment_id,
       );
@@ -245,10 +256,9 @@ export function AudioImpactLabeler({
       setLooping(true);
       setPlaybackSpeedState(1);
       setMessage(null);
-      setPendingSave(null);
       setDirty(false);
     },
-    [assignment?.id, assignments, resetMetrics],
+    [assignment?.id, assignments, pendingSave, resetMetrics, saveState],
   );
 
   const persist = useCallback(
@@ -322,6 +332,7 @@ export function AudioImpactLabeler({
             saved.target.assignment_id,
             saved.target.event_id,
           ),
+          true,
         );
       }
     },
@@ -330,7 +341,7 @@ export function AudioImpactLabeler({
 
   const saveAndAdvance = useCallback(
     async (kind: AudioImpactKind) => {
-      if (!assignment || !currentEvent || !target || saveState === "saving") {
+      if (!assignment || !currentEvent || !target || !reviewEnabled) {
         return;
       }
       const previousLabel = label;
@@ -350,7 +361,7 @@ export function AudioImpactLabeler({
       const updated = await persist(assignment, nextLabel, "in_progress");
       if (updated) finishSave(pending, updated);
     },
-    [assignment, currentEvent, finishSave, label, persist, saveState, target],
+    [assignment, currentEvent, finishSave, label, persist, reviewEnabled, target],
   );
 
   const retrySave = useCallback(async () => {
@@ -365,7 +376,7 @@ export function AudioImpactLabeler({
 
   const undo = useCallback(async () => {
     const prior = history.at(-1);
-    if (!prior || saveState === "saving") return;
+    if (!prior || navigationBlocked) return;
     const item = assignments.find(
       (candidate) => candidate.id === prior.assignment_id,
     );
@@ -377,10 +388,10 @@ export function AudioImpactLabeler({
     const updated = await persist(item, prior.previous_label, "in_progress");
     if (!updated) return;
     setHistory((current) => current.slice(0, -1));
-  }, [assignments, history, persist, resetMetrics, saveState]);
+  }, [assignments, history, navigationBlocked, persist, resetMetrics]);
 
   const addMissedSound = useCallback(async () => {
-    if (!assignment || !videoRef.current || saveState === "saving") return;
+    if (!assignment || !videoRef.current || !reviewEnabled) return;
     const nextLabel = insertManualAudioImpactEvent(
       label,
       videoRef.current.currentTime,
@@ -405,10 +416,10 @@ export function AudioImpactLabeler({
         advance: false,
       });
     }
-  }, [assignment, label, persist, saveState]);
+  }, [assignment, label, persist, reviewEnabled]);
 
   const completePoint = useCallback(async () => {
-    if (!assignment || !target || saveState === "saving") return;
+    if (!assignment || !target || !reviewEnabled) return;
     const nextLabel = setAudioImpactSequenceComplete(label, true);
     const missing = validateAudioImpactLabel(nextLabel);
     if (missing.length > 0) {
@@ -434,8 +445,13 @@ export function AudioImpactLabeler({
     const updatedAssignments = assignments.map((item) =>
       item.id === updated.id ? updated : item,
     );
-    openTarget(firstReviewTarget(updatedAssignments.filter((item) => item.status !== "submitted")));
-  }, [assignment, assignments, label, openTarget, persist, saveState, target]);
+    openTarget(
+      firstReviewTarget(
+        updatedAssignments.filter((item) => item.status !== "submitted"),
+      ),
+      true,
+    );
+  }, [assignment, assignments, label, openTarget, persist, reviewEnabled, target]);
 
   const setPlaybackSpeed = useCallback((speed: number) => {
     const video = videoRef.current;
@@ -463,6 +479,7 @@ export function AudioImpactLabeler({
     let cancelled = false;
     setMediaUrl(null);
     setMediaError(null);
+    setMediaState("loading");
     fetch("/api/research/media", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -482,12 +499,25 @@ export function AudioImpactLabeler({
         if (!cancelled) setMediaUrl(url);
       })
       .catch((error: Error) => {
-        if (!cancelled) setMediaError(error.message);
+        if (!cancelled) {
+          setMediaError(error.message);
+          setMediaState("error");
+          void supabase
+            .from("research_assignments")
+            .update({
+              review_metrics: {
+                ...(assignment?.review_metrics ?? {}),
+                media_unavailable: true,
+                media_error: error.message,
+              },
+            })
+            .eq("id", assignmentId);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [assignmentId]);
+  }, [assignment?.review_metrics, assignmentId, supabase]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -501,7 +531,7 @@ export function AudioImpactLabeler({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isAudioImpactShortcutTarget(event.target)) return;
+      if (isAudioImpactShortcutTarget(event.target) || !reviewEnabled) return;
       const kind = audioImpactKindForShortcut(event.key);
       if (!kind) return;
       event.preventDefault();
@@ -509,7 +539,7 @@ export function AudioImpactLabeler({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [saveAndAdvance]);
+  }, [reviewEnabled, saveAndAdvance]);
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -523,7 +553,7 @@ export function AudioImpactLabeler({
 
   const exportBatch = async () => {
     if (!assignment) return;
-    const response = await fetch("/api/research/export", {
+    const response = await fetch("/api/research/audio-impact-export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ batchId: assignment.batch_id }),
@@ -636,9 +666,9 @@ export function AudioImpactLabeler({
               className="rounded-lg border border-edge bg-surface-2 px-2 py-2 text-sm"
             >
               <option value="all">All rounds</option>
-              <option value="A">Round A</option>
-              <option value="B">Round B</option>
-              <option value="C">Round C</option>
+              {availableRounds.includes("A") && <option value="A">Round A</option>}
+              {availableRounds.includes("B") && <option value="B">Round B</option>}
+              {availableRounds.includes("C") && <option value="C">Round C</option>}
             </select>
             <select
               aria-label="Filter by completion"
@@ -658,7 +688,7 @@ export function AudioImpactLabeler({
           <div className="grid grid-cols-[auto_1fr_auto] gap-2">
             <button
               type="button"
-              disabled={queueIndex <= 0 || saveState === "saving"}
+              disabled={queueIndex <= 0 || navigationBlocked}
               onClick={() => {
                 const next = queue[queueIndex - 1];
                 if (next) {
@@ -673,6 +703,7 @@ export function AudioImpactLabeler({
             <select
               aria-label="Audio-impact point"
               value={assignment.id}
+              disabled={navigationBlocked}
               onChange={(event) => {
                 const next = queue.find((item) => item.id === event.target.value);
                 if (next) openTarget(firstReviewTarget([next]));
@@ -688,7 +719,7 @@ export function AudioImpactLabeler({
             </select>
             <button
               type="button"
-              disabled={queueIndex >= queue.length - 1 || saveState === "saving"}
+              disabled={queueIndex >= queue.length - 1 || navigationBlocked}
               onClick={() => {
                 const next = queue[queueIndex + 1];
                 if (next) openTarget(firstReviewTarget([next]));
@@ -738,6 +769,34 @@ export function AudioImpactLabeler({
                   playsInline
                   preload="auto"
                   className="aspect-video w-full"
+                  onCanPlay={(event) => {
+                    const video = event.currentTarget;
+                    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+                      setMediaState("error");
+                      setMediaError(
+                        "Protected video has an invalid duration. Admin repair is required.",
+                      );
+                      return;
+                    }
+                    setMediaState("ready");
+                    setMediaError(null);
+                  }}
+                  onError={() => {
+                    const error =
+                      "Protected video could not be decoded. Admin repair is required.";
+                    setMediaState("error");
+                    setMediaError(error);
+                    void supabase
+                      .from("research_assignments")
+                      .update({
+                        review_metrics: {
+                          ...(assignment.review_metrics ?? {}),
+                          media_unavailable: true,
+                          media_error: error,
+                        },
+                      })
+                      .eq("id", assignment.id);
+                  }}
                   onPlay={() => {
                     playbackCount.current += 1;
                   }}
@@ -863,7 +922,7 @@ export function AudioImpactLabeler({
                   <button
                     key={kind}
                     type="button"
-                    disabled={saveState === "saving"}
+                    disabled={!reviewEnabled}
                     onClick={() => void saveAndAdvance(kind)}
                     className={`rounded-xl border p-3 text-left transition disabled:opacity-50 ${
                       active
@@ -890,7 +949,7 @@ export function AudioImpactLabeler({
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
-                disabled={history.length === 0 || saveState === "saving"}
+                disabled={history.length === 0 || navigationBlocked}
                 onClick={() => void undo()}
                 className="rounded-lg border border-edge px-3 py-2 text-sm disabled:opacity-30"
               >
@@ -898,7 +957,7 @@ export function AudioImpactLabeler({
               </button>
               <button
                 type="button"
-                disabled={saveState === "saving"}
+                disabled={navigationBlocked}
                 onClick={() =>
                   openTarget(
                     previousReviewTarget(
@@ -914,7 +973,7 @@ export function AudioImpactLabeler({
               </button>
               <button
                 type="button"
-                disabled={saveState === "saving" || !mediaUrl}
+                disabled={!reviewEnabled}
                 onClick={() => void addMissedSound()}
                 className="col-span-2 rounded-lg border border-magenta-glow/30 px-3 py-2 text-sm text-magenta-soft disabled:opacity-30"
               >
@@ -922,7 +981,7 @@ export function AudioImpactLabeler({
               </button>
               <button
                 type="button"
-                disabled={saveState === "saving"}
+                disabled={!reviewEnabled}
                 onClick={() => void completePoint()}
                 className="col-span-2 rounded-lg bg-cyan-glow px-3 py-3 text-sm font-bold text-ink disabled:opacity-50"
               >

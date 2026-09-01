@@ -135,10 +135,26 @@ test("audio impact migration narrowly adds the fifth permanent media namespace",
     /fused-labeling\|placement-calibration\|serve-detection\|winner-constrained-endings\|audio-impacts/,
   );
   assert.match(audioImpact, /v\[0-9\]\+\/sources/);
-  assert.match(audioImpact, /\[0-9a-f-\]\{36\}/);
+  assert.match(audioImpact, /\[0-9a-f\]\{8\}-\[0-9a-f\]\{4\}/);
   assert.doesNotMatch(audioImpact, /research\/\.\*/);
-  assert.doesNotMatch(audioImpact, /grant\s/);
+  assert.doesNotMatch(audioImpact, /grant\s+all/);
   assert.doesNotMatch(audioImpact, /disable row level security/);
+});
+
+test("audio impact migration seals rounds and validates human labels server-side", () => {
+  assert.match(audioImpact, /create table if not exists public\.audio_impact_research_state/);
+  assert.match(audioImpact, /development_a/);
+  assert.match(audioImpact, /sealed_labeling/);
+  assert.match(audioImpact, /sealed_report_sha256/);
+  assert.match(audioImpact, /create or replace function public\.validate_audio_impact_assignment/);
+  for (const kind of [
+    "paddle", "table", "floor", "shoe", "net", "background", "other", "no_impact", "unsure",
+  ]) {
+    assert.match(audioImpact, new RegExp(`'${kind}'`));
+  }
+  assert.match(audioImpact, /create trigger validate_audio_impact_assignment_trigger/);
+  assert.match(audioImpact, /media_unavailable/);
+  assert.match(audioImpact, /round c is sealed/);
 });
 
 test("serve follow-up export includes evidence while retaining the admin gate", () => {

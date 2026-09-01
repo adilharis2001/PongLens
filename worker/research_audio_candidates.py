@@ -28,6 +28,7 @@ ENERGY_FRAME_MS = 1
 MERGE_WINDOW_S = 0.035
 MIN_REVIEW_CANDIDATES = 9
 MAX_REVIEW_CANDIDATES = 14
+DETECTOR_VERSION = "dual_band_impact_v1"
 
 
 def probe_sample_rate(path: Path) -> int:
@@ -159,9 +160,15 @@ def _band_detections(
     return detections, energy
 
 
-def _candidate_id(time_s: float, origins: Sequence[str]) -> str:
+def _candidate_id(
+    time_s: float,
+    origins: Sequence[str],
+    *,
+    source_id: str,
+    detector_version: str,
+) -> str:
     time_ms = round(time_s * 1000)
-    identity = f"{time_ms}:{','.join(origins)}"
+    identity = f"{source_id}:{detector_version}:{time_ms}:{','.join(origins)}"
     suffix = hashlib.sha256(identity.encode()).hexdigest()[:10]
     return f"impact-{time_ms:08d}-{suffix}"
 
@@ -170,6 +177,8 @@ def merge_detector_candidates(
     detections: Sequence[Mapping[str, Any]],
     *,
     tolerance_s: float = MERGE_WINDOW_S,
+    source_id: str = "unbound-source",
+    detector_version: str = DETECTOR_VERSION,
 ) -> list[dict[str, Any]]:
     clusters: list[list[Mapping[str, Any]]] = []
     for detection in sorted(
@@ -209,7 +218,12 @@ def merge_detector_candidates(
         strength = round(max(scores.values()), 4)
         merged.append(
             {
-                "id": _candidate_id(time_s, origins),
+                "id": _candidate_id(
+                    time_s,
+                    origins,
+                    source_id=source_id,
+                    detector_version=detector_version,
+                ),
                 "time_s": time_s,
                 "detector_origins": origins,
                 "strength": strength,
@@ -227,10 +241,20 @@ def merge_detector_candidates(
     return merged
 
 
-def _control_candidate(time_s: float) -> dict[str, Any]:
+def _control_candidate(
+    time_s: float,
+    *,
+    source_id: str,
+    detector_version: str,
+) -> dict[str, Any]:
     rounded = round(time_s, 4)
     return {
-        "id": _candidate_id(rounded, ["control"]),
+        "id": _candidate_id(
+            rounded,
+            ["control"],
+            source_id=source_id,
+            detector_version=detector_version,
+        ),
         "time_s": rounded,
         "detector_origins": ["control"],
         "strength": 0.0,
@@ -247,6 +271,8 @@ def select_review_candidates(
     *,
     minimum: int = MIN_REVIEW_CANDIDATES,
     maximum: int = MAX_REVIEW_CANDIDATES,
+    source_id: str = "unbound-source",
+    detector_version: str = DETECTOR_VERSION,
 ) -> list[dict[str, Any]]:
     if maximum < minimum or minimum < 0:
         raise ValueError("candidate bounds must satisfy 0 <= minimum <= maximum")
@@ -276,7 +302,13 @@ def select_review_candidates(
             time_s = duration_s * (index + 1) / (maximum * 8 + 1)
             if any(abs(time_s - existing) < 0.08 for existing in existing_times):
                 continue
-            selected.append(_control_candidate(time_s))
+            selected.append(
+                _control_candidate(
+                    time_s,
+                    source_id=source_id,
+                    detector_version=detector_version,
+                )
+            )
             existing_times.append(time_s)
             controls_added += 1
 
@@ -286,7 +318,12 @@ def select_review_candidates(
     )
 
 
-def analyze_samples(samples: np.ndarray, sample_rate: int) -> dict[str, Any]:
+def analyze_samples(
+    samples: np.ndarray,
+    sample_rate: int,
+    *,
+    source_id: str = "unbound-source",
+) -> dict[str, Any]:
     if sample_rate <= 0:
         raise ValueError("sample_rate must be positive")
     mono = np.asarray(samples, dtype=np.float32).reshape(-1)
@@ -327,7 +364,10 @@ def analyze_samples(samples: np.ndarray, sample_rate: int) -> dict[str, Any]:
         "low_frequency",
         baseline_multiplier=4.5,
     )
-    uncapped = merge_detector_candidates([*high, *low])
+    uncapped = merge_detector_candidates(
+        [*high, *low],
+        source_id=source_id,
+    )
 
     low_threshold_high, _ = _band_detections(
         highpass,
@@ -342,12 +382,18 @@ def analyze_samples(samples: np.ndarray, sample_rate: int) -> dict[str, Any]:
         baseline_multiplier=3.0,
     )
     low_threshold = merge_detector_candidates(
-        [*low_threshold_high, *low_threshold_low]
+        [*low_threshold_high, *low_threshold_low],
+        source_id=source_id,
     )
-    candidates = select_review_candidates(uncapped, duration_s)
+    candidates = select_review_candidates(
+        uncapped,
+        duration_s,
+        source_id=source_id,
+    )
 
     return {
-        "detector_version": "dual_band_impact_v1",
+        "detector_version": DETECTOR_VERSION,
+        "source_id": source_id,
         "sample_rate": sample_rate,
         "native_sample_rate": sample_rate,
         "duration_s": round(duration_s, 4),
@@ -361,16 +407,26 @@ def analyze_samples(samples: np.ndarray, sample_rate: int) -> dict[str, Any]:
     }
 
 
-def analyze(path: Path) -> dict[str, Any]:
+def analyze(path: Path, *, source_id: str) -> dict[str, Any]:
     mono, sample_rate = decode_audio(path)
-    return analyze_samples(mono, sample_rate)
+    return analyze_samples(mono, sample_rate, source_id=source_id)
+
+
+def media_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("media", type=Path)
+    parser.add_argument("--source-id")
     args = parser.parse_args()
-    print(json.dumps(analyze(args.media), separators=(",", ":")))
+    source_id = args.source_id or media_sha256(args.media)
+    print(json.dumps(analyze(args.media, source_id=source_id), separators=(",", ":")))
 
 
 if __name__ == "__main__":

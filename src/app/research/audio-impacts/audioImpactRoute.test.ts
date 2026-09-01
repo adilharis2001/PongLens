@@ -21,10 +21,24 @@ test("audio impact route is authenticated, admin-only, batch-scoped, and noindex
   assert.match(page, /\.eq\("reviewer_id", user\.id\)/);
   assert.match(page, /research_batches\.slug/);
   assert.match(page, /audio-impact-labeling-recent-v1/);
+  assert.match(page, /audio_impact_research_state/);
+  assert.match(page, /visibleAudioImpactRounds/);
+  assert.match(page, /research_sources\.prefill->>round/);
   assert.match(
     page,
     /robots: \{ index: false, follow: false, nocache: true \}/,
   );
+});
+
+test("audio-impact export is phase-scoped and never uses the generic all-round export", () => {
+  const labeler = read("./AudioImpactLabeler.tsx");
+  const route = read("../../api/research/audio-impact-export/route.ts");
+
+  assert.match(labeler, /\/api\/research\/audio-impact-export/);
+  assert.match(route, /audio_impact_research_state/);
+  assert.match(route, /visibleAudioImpactRounds/);
+  assert.match(route, /media_sha256/);
+  assert.match(route, /cohort_manifest_sha256/);
 });
 
 test("route loads only the source fields needed by the audio reviewer", () => {
@@ -56,6 +70,10 @@ test("desktop reviewer mounts one protected video and durable assignment saves",
   assert.match(labeler, /human_label: nextLabel/);
   assert.match(labeler, /Save failed\. Your answer is still on this screen\./);
   assert.match(labeler, /Retry save/);
+  assert.match(labeler, /onCanPlay/);
+  assert.match(labeler, /onError/);
+  assert.match(labeler, /canReviewAudioImpact\(mediaState, saveState\)/);
+  assert.match(labeler, /saveState === "error"/);
 });
 
 test("reviewer exposes every plain-language class without model hints", () => {

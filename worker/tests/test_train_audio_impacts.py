@@ -7,14 +7,21 @@ import numpy as np
 from worker.train_audio_impacts import (
     AUDIO_IMPACT_CLASSES,
     build_grouped_folds,
+    compare_cnn_to_linear,
     evaluate_predictions,
     fetch_frozen_media,
+    freeze_and_unlock_payload,
+    log_spectrogram,
+    feature_definition_sha256,
     fixed_audio_window,
     normalize_research_export,
+    pool_acquisition_components,
     prepare_gold_examples,
     require_cnn_dependency,
     score_sealed,
+    scored_state_payload,
     train_linear_experiment,
+    validate_export_bindings,
     validate_sealed_artifact,
 )
 
@@ -100,11 +107,22 @@ class LeakageGuardTests(unittest.TestCase):
             "training_source_ids": ["source-a", "source-c"],
             "model_sha256": "a" * 64,
             "threshold_sha256": "b" * 64,
+            "feature_definition_sha256": feature_definition_sha256(),
+            "cohort_manifest_sha256": "c" * 64,
         }
         sealed = [event("sealed", "table", recording="recording-c", source="source-c", round_name="C")]
+        sealed[0]["cohort_manifest_sha256"] = "c" * 64
 
         with self.assertRaisesRegex(ValueError, "Round C"):
-            validate_sealed_artifact(artifact, sealed)
+            validate_sealed_artifact(
+                artifact,
+                sealed,
+                sealed_bindings={
+                    "cohort_manifest_sha256": "c" * 64,
+                    "frozen_model_sha256": "a" * 64,
+                    "frozen_threshold_sha256": "b" * 64,
+                },
+            )
 
     def test_round_c_cannot_enter_the_linear_fit(self):
         sealed = [event("sealed", "table", round_name="C")]
@@ -117,12 +135,23 @@ class ExportTests(unittest.TestCase):
     def test_flattens_only_completed_submitted_human_labels(self):
         payload = {
             "batch": {"slug": "audio-impact-labeling-recent-v1"},
+            "exported_rounds": ["A"],
+            "study_state": {
+                "phase": "development_a",
+                "cohort_manifest_sha256": "c" * 64,
+                "detector_manifest_sha256": "d" * 64,
+            },
             "assignments": [
                 {
                     "status": "submitted",
                     "source_id": "source-a",
                     "source_match_id": "recording-a",
-                    "prefill": {"round": "A", "venue_category": "pingpod"},
+                    "media_sha256": "e" * 64,
+                    "prefill": {
+                        "round": "A",
+                        "venue_category": "pingpod",
+                        "cohort_manifest_sha256": "c" * 64,
+                    },
                     "human_label": {
                         "sequence_complete": True,
                         "events": [{"id": "hit", "kind": "paddle", "time_s": 1.25}],
@@ -146,6 +175,10 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(rows[0]["event_id"], "hit")
         self.assertEqual(rows[0]["venue"], "pingpod")
         self.assertEqual(rows[0]["media_path"], "/frozen/source-a.mp4")
+        self.assertEqual(rows[0]["media_sha256"], "e" * 64)
+        bindings = validate_export_bindings(payload, rows, partition="development")
+        self.assertEqual(bindings["cohort_manifest_sha256"], "c" * 64)
+        self.assertEqual(len(bindings["export_sha256"]), 64)
 
     def test_fetches_each_frozen_source_once_from_the_research_namespace(self):
         calls = []
@@ -206,7 +239,12 @@ class MetricTests(unittest.TestCase):
         )
 
         self.assertEqual(report["coverage"], 0.75)
+        self.assertAlmostEqual(report["selective_accuracy"], 2 / 3)
+        self.assertAlmostEqual(report["selective_paddle_table_balanced_accuracy"], 0.75)
         self.assertEqual(report["venues"]["PingPod"]["coverage"], 0.5)
+        self.assertIn("macro_f1", report["venues"]["PingPod"])
+        self.assertIn("confusion_matrix", report["venues"]["PingPod"])
+        self.assertIn("selective_accuracy", report["venues"]["PingPod"])
         self.assertEqual(report["venues"]["Westchester"]["classes"]["table"]["true_positive"], 1)
         self.assertEqual(report["classes"]["paddle"]["sealed_count"], 2)
         self.assertEqual(report["classes"]["paddle"]["status"], "data_insufficient")
@@ -226,12 +264,48 @@ class MetricTests(unittest.TestCase):
 
 
 class OptionalCnnTests(unittest.TestCase):
+    def test_cnn_uses_a_fixed_small_log_spectrogram(self):
+        samples = np.sin(
+            2 * np.pi * 1_000 * np.arange(9_600, dtype=np.float64) / 48_000
+        ).astype(np.float32)
+
+        image = log_spectrogram(samples)
+
+        self.assertEqual(image.shape, (96, 36))
+        self.assertTrue(np.isfinite(image).all())
+
     def test_missing_cnn_dependency_has_a_precise_install_message(self):
         def missing_import(_name):
             raise ModuleNotFoundError("No module named 'torch'")
 
         with self.assertRaisesRegex(RuntimeError, "pip install.*torch"):
             require_cnn_dependency(import_module=missing_import)
+
+    def test_cnn_is_accepted_only_for_material_cross_venue_improvement(self):
+        linear = {
+            "selective_macro_f1": 0.70,
+            "venues": {
+                "pingpod": {"selective_accuracy": 0.80},
+                "westchester": {"selective_accuracy": 0.70},
+            },
+        }
+        accepted = {
+            "selective_macro_f1": 0.74,
+            "venues": {
+                "pingpod": {"selective_accuracy": 0.79},
+                "westchester": {"selective_accuracy": 0.72},
+            },
+        }
+        regressed = {
+            **accepted,
+            "venues": {
+                **accepted["venues"],
+                "westchester": {"selective_accuracy": 0.67},
+            },
+        }
+
+        self.assertTrue(compare_cnn_to_linear(accepted, linear)["accept_cnn_complexity"])
+        self.assertFalse(compare_cnn_to_linear(regressed, linear)["accept_cnn_complexity"])
 
 
 class LinearExperimentTests(unittest.TestCase):
@@ -261,21 +335,98 @@ class LinearExperimentTests(unittest.TestCase):
         artifact, development_report = train_linear_experiment(
             development,
             np.asarray(feature_rows),
+            bindings={
+                "export_sha256": "1" * 64,
+                "cohort_manifest_sha256": "2" * 64,
+                "detector_manifest_sha256": "3" * 64,
+            },
         )
         sealed = [
             event("c-p", "paddle", recording="sealed-r", source="sealed-s", round_name="C"),
             event("c-t", "table", recording="sealed-r", source="sealed-s", round_name="C"),
         ]
+        for row in sealed:
+            row["cohort_manifest_sha256"] = "2" * 64
         sealed_report = score_sealed(
             artifact,
             sealed,
             np.asarray([[1.0, 0.1, 0.1, 0.5], [-1.0, 0.1, 0.1, 0.5]]),
+            sealed_bindings={
+                "cohort_manifest_sha256": "2" * 64,
+                "frozen_model_sha256": artifact["model_sha256"],
+                "frozen_threshold_sha256": artifact["threshold_sha256"],
+            },
         )
 
         self.assertEqual(len(artifact["model_sha256"]), 64)
         self.assertEqual(len(artifact["threshold_sha256"]), 64)
         self.assertEqual(development_report["validation"], "source_recording_grouped")
         self.assertEqual(sealed_report["model_sha256"], artifact["model_sha256"])
+        self.assertEqual(artifact["feature_definition_sha256"], feature_definition_sha256())
+        self.assertEqual(len(artifact["split_definition_sha256"]), 64)
+        self.assertEqual(len(artifact["development_report_sha256"]), 64)
+
+    def test_round_b_acquisition_combines_model_uncertainty_and_low_band_confounds(self):
+        probabilities = np.asarray(
+            [
+                [0.51, 0.49, 0, 0, 0, 0, 0, 0],
+                [0.9, 0.1, 0, 0, 0, 0, 0, 0],
+            ]
+        )
+        candidates = [
+            {"detector_origins": ["high_frequency", "low_frequency"]},
+            {"detector_origins": ["low_frequency"]},
+        ]
+
+        components = pool_acquisition_components(probabilities, candidates)
+
+        self.assertAlmostEqual(components["uncertainty"], 0.295)
+        self.assertEqual(components["confound_novelty"], 1.0)
+
+    def test_freeze_unlock_and_score_transitions_persist_exact_artifact_hashes(self):
+        export = {
+            "batch": {"id": "batch", "slug": "audio-impact-labeling-recent-v1"},
+            "exported_rounds": ["A", "B"],
+            "study_state": {
+                "phase": "development_b",
+                "cohort_manifest_sha256": "2" * 64,
+                "detector_manifest_sha256": "3" * 64,
+            },
+            "assignments": [
+                {"status": "submitted", "prefill": {"round": "A"}},
+                {"status": "submitted", "prefill": {"round": "B"}},
+            ],
+        }
+        artifact = {
+            "development_export_sha256": "",
+            "cohort_manifest_sha256": "2" * 64,
+            "detector_manifest_sha256": "3" * 64,
+            "model_sha256": "4" * 64,
+            "threshold_sha256": "5" * 64,
+            "training_data_sha256": "6" * 64,
+            "feature_definition_sha256": feature_definition_sha256(),
+            "split_definition_sha256": "8" * 64,
+        }
+        from worker.train_audio_impacts import canonical_hash
+        artifact["development_export_sha256"] = canonical_hash(export)
+
+        unlocked = freeze_and_unlock_payload(export, artifact, unlocked_at="2026-09-01T12:00:00Z")
+        scored = scored_state_payload(
+            unlocked,
+            {
+                "model_sha256": "4" * 64,
+                "threshold_sha256": "5" * 64,
+                "coverage": 0.75,
+            },
+            scored_at="2026-09-02T12:00:00Z",
+        )
+
+        self.assertEqual(unlocked["phase"], "sealed_labeling")
+        self.assertEqual(unlocked["development_model_sha256"], "4" * 64)
+        self.assertEqual(scored["phase"], "scored")
+        self.assertEqual(len(scored["sealed_report_sha256"]), 64)
+        with self.assertRaisesRegex(ValueError, "already been scored"):
+            scored_state_payload(scored, {}, scored_at="later")
 
 
 if __name__ == "__main__":

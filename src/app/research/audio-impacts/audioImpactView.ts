@@ -24,6 +24,16 @@ export interface AudioImpactLoopWindow {
   end_s: number;
 }
 
+export type AudioImpactMediaState = "loading" | "ready" | "error";
+export type AudioImpactSaveState = "idle" | "saving" | "saved" | "error";
+
+export function canReviewAudioImpact(
+  mediaState: AudioImpactMediaState,
+  saveState: AudioImpactSaveState,
+): boolean {
+  return mediaState === "ready" && saveState !== "saving" && saveState !== "error";
+}
+
 interface OrderedReviewEvent extends AudioImpactReviewTarget {
   event: AudioImpactHumanEvent;
 }

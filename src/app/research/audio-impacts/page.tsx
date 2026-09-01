@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import {
+  visibleAudioImpactRounds,
+  type AudioImpactStudyPhase,
+} from "@/lib/research/audioImpactStudy";
 import { AudioImpactLabeler } from "./AudioImpactLabeler";
 import type { AudioImpactResearchAssignment } from "./types";
 
@@ -31,13 +35,36 @@ export default async function AudioImpactResearchPage() {
   const { data: isAdmin } = await supabase.rpc("is_admin");
   if (!isAdmin) notFound();
 
+  const { data: batch, error: batchError } = await supabase
+    .from("research_batches")
+    .select("id,slug")
+    .eq("slug", BATCH_SLUG)
+    .maybeSingle();
+  if (batchError) throw new Error("Could not load the audio-impact research batch.");
+  if (!batch) {
+    return <AudioImpactLabeler initialAssignments={[]} isAdmin availableRounds={[]} />;
+  }
+  const { data: studyState, error: stateError } = await supabase
+    .from("audio_impact_research_state")
+    .select("phase")
+    .eq("batch_id", batch.id)
+    .maybeSingle();
+  if (stateError || !studyState) {
+    throw new Error("Audio-impact study state is unavailable; assignments remain sealed.");
+  }
+  const availableRounds = visibleAudioImpactRounds(
+    studyState.phase as AudioImpactStudyPhase,
+  );
+
   const { data, error } = await supabase
     .from("research_assignments")
     .select(
       "id,batch_id,source_id,sequence,status,human_label,review_metrics,started_at,submitted_at,research_sources!inner(id,source_point_idx,match_label,venue_label,duration_s,proposal,prefill),research_batches!inner(slug)",
     )
     .eq("reviewer_id", user.id)
+    .eq("batch_id", batch.id)
     .eq("research_batches.slug", BATCH_SLUG)
+    .in("research_sources.prefill->>round", availableRounds)
     .order("sequence", { ascending: true });
   if (error) {
     console.error("audio impact assignment query failed", error);
@@ -65,6 +92,7 @@ export default async function AudioImpactResearchPage() {
     <AudioImpactLabeler
       initialAssignments={assignments}
       isAdmin={Boolean(isAdmin)}
+      availableRounds={availableRounds}
     />
   );
 }

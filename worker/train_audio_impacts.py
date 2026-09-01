@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from hashlib import sha256
 from importlib import import_module
 import json
@@ -17,10 +18,11 @@ import math
 from pathlib import Path
 import re
 import subprocess
+import sys
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
 import numpy as np
-from scipy.signal import resample_poly
+from scipy.signal import resample_poly, stft
 
 
 SAMPLE_RATE = 48_000
@@ -43,6 +45,18 @@ MIN_DEVELOPMENT_EXAMPLES = 30
 MIN_SEALED_EXAMPLES = 15
 MEDIA_BUCKET = "ponglens-media"
 MEDIA_PREFIX = "research/audio-impacts/v1/sources"
+FEATURE_DEFINITION = {
+    "version": "short_time_full_band_v1",
+    "sample_rate": SAMPLE_RATE,
+    "window_samples": WINDOW_SAMPLES,
+    "frame_samples": 1_200,
+    "hop_samples": 480,
+    "spectral_bands": 24,
+    "band_min_hz": 60,
+    "band_max_hz": SAMPLE_RATE // 2,
+    "summaries": ["mean", "std", "max"],
+    "descriptors": ["centroid", "bandwidth", "rolloff85", "rms", "zcr", "crest"],
+}
 
 
 @dataclass(frozen=True)
@@ -64,6 +78,18 @@ def canonical_json(value: Any) -> bytes:
 
 def canonical_hash(value: Any) -> str:
     return sha256(canonical_json(value)).hexdigest()
+
+
+def feature_definition_sha256() -> str:
+    return canonical_hash(FEATURE_DEFINITION)
+
+
+def file_sha256(path: Path) -> str:
+    digest = sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def fixed_audio_window(
@@ -177,11 +203,64 @@ def normalize_research_export(
                     "venue": str(prefill.get("venue_category") or "unknown"),
                     "round": str(prefill.get("round") or ""),
                     "media_path": str(media_dir / f"{source_id}.mp4"),
+                    "media_sha256": str(assignment.get("media_sha256") or ""),
+                    "cohort_manifest_sha256": str(
+                        prefill.get("cohort_manifest_sha256") or ""
+                    ),
+                    "detector_manifest_sha256": str(
+                        assignment.get("detector_manifest_sha256")
+                        or prefill.get("detector_manifest_sha256")
+                        or ""
+                    ),
                     "human_gold": True,
                     "point_id": prefill.get("point_id") or assignment.get("source_point_id"),
                 }
             )
     return rows
+
+
+def validate_export_bindings(
+    payload: Mapping[str, Any],
+    examples: Sequence[Mapping[str, Any]],
+    *,
+    partition: str,
+) -> dict[str, str]:
+    if partition not in {"development", "sealed"}:
+        raise ValueError("partition must be development or sealed")
+    study_state = payload.get("study_state") or {}
+    phase = str(study_state.get("phase") or "")
+    exported_rounds = {str(value) for value in payload.get("exported_rounds") or []}
+    if partition == "development":
+        if "C" in exported_rounds or phase not in {
+            "development_a",
+            "development_b",
+            "frozen",
+        }:
+            raise ValueError("development export is not phase-scoped away from Round C")
+    elif phase != "sealed_labeling" or "C" not in exported_rounds:
+        raise ValueError("sealed export is not an unlocked Round C export")
+    cohort_hash = _validate_hash(
+        study_state.get("cohort_manifest_sha256"), "cohort_manifest_sha256"
+    )
+    detector_hash = _validate_hash(
+        study_state.get("detector_manifest_sha256"), "detector_manifest_sha256"
+    )
+    if any(str(row.get("cohort_manifest_sha256") or "") != cohort_hash for row in examples):
+        raise ValueError("export examples do not match the frozen cohort manifest")
+    if any(
+        not re.fullmatch(r"[0-9a-f]{64}", str(row.get("media_sha256") or ""))
+        for row in examples
+    ):
+        raise ValueError("every export example needs a frozen media SHA-256")
+    return {
+        "export_sha256": canonical_hash(payload),
+        "cohort_manifest_sha256": cohort_hash,
+        "detector_manifest_sha256": detector_hash,
+        "frozen_model_sha256": str(study_state.get("development_model_sha256") or ""),
+        "frozen_threshold_sha256": str(
+            study_state.get("development_threshold_sha256") or ""
+        ),
+    }
 
 
 def fetch_frozen_media(
@@ -350,6 +429,21 @@ def evaluate_predictions(
     supported_f1 = [
         value["f1"] for value in classes.values() if value[f"{partition}_count"] > 0
     ]
+    accepted_indices = [
+        index for index, prediction in enumerate(predictions) if prediction is not None
+    ]
+    selective_truth = [truth[index] for index in accepted_indices]
+    selective_predictions = [predictions[index] for index in accepted_indices]
+    selective_classes = _class_metrics(
+        selective_truth,
+        selective_predictions,
+        partition=partition,
+    )
+    selective_supported_f1 = [
+        value["f1"]
+        for value in selective_classes.values()
+        if value[f"{partition}_count"] > 0
+    ]
     report: dict[str, Any] = {
         "partition": partition,
         "example_count": len(examples),
@@ -359,8 +453,23 @@ def evaluate_predictions(
             if examples
             else 0.0
         ),
+        "selective_accuracy": (
+            sum(left == right for left, right in zip(selective_truth, selective_predictions))
+            / len(selective_truth)
+            if selective_truth
+            else 0.0
+        ),
         "macro_f1": sum(supported_f1) / len(supported_f1) if supported_f1 else 0.0,
+        "selective_macro_f1": (
+            sum(selective_supported_f1) / len(selective_supported_f1)
+            if selective_supported_f1
+            else 0.0
+        ),
         "paddle_table_balanced_accuracy": _paddle_table_balanced_accuracy(truth, predictions),
+        "selective_paddle_table_balanced_accuracy": _paddle_table_balanced_accuracy(
+            selective_truth,
+            selective_predictions,
+        ),
         "paddle_table_roc_auc": _paddle_table_roc_auc(truth, probabilities),
         "classes": classes,
         "confusion_matrix": {
@@ -390,6 +499,18 @@ def evaluate_predictions(
             venue_predictions,
             partition=partition,
         )
+        venue_supported_f1 = [
+            value["f1"]
+            for value in venue_classes.values()
+            if value[f"{partition}_count"] > 0
+        ]
+        venue_accepted = [
+            index for index, value in enumerate(venue_predictions) if value is not None
+        ]
+        venue_selective_truth = [venue_truth[index] for index in venue_accepted]
+        venue_selective_predictions = [
+            venue_predictions[index] for index in venue_accepted
+        ]
         report["venues"][venue] = {
             "example_count": len(indices),
             "coverage": (
@@ -398,8 +519,45 @@ def evaluate_predictions(
                 else 0.0
             ),
             "classes": venue_classes,
+            "accuracy": sum(
+                left == right
+                for left, right in zip(venue_truth, venue_predictions)
+            )
+            / len(indices),
+            "selective_accuracy": (
+                sum(
+                    left == right
+                    for left, right in zip(
+                        venue_selective_truth, venue_selective_predictions
+                    )
+                )
+                / len(venue_selective_truth)
+                if venue_selective_truth
+                else 0.0
+            ),
+            "macro_f1": (
+                sum(venue_supported_f1) / len(venue_supported_f1)
+                if venue_supported_f1
+                else 0.0
+            ),
+            "confusion_matrix": {
+                actual: {
+                    predicted: sum(
+                        left == actual and (right or "abstain") == predicted
+                        for left, right in zip(venue_truth, venue_predictions)
+                    )
+                    for predicted in (*AUDIO_IMPACT_CLASSES, "abstain")
+                }
+                for actual in AUDIO_IMPACT_CLASSES
+            },
             "paddle_table_balanced_accuracy": _paddle_table_balanced_accuracy(
                 venue_truth, venue_predictions
+            ),
+            "selective_paddle_table_balanced_accuracy": (
+                _paddle_table_balanced_accuracy(
+                    venue_selective_truth,
+                    venue_selective_predictions,
+                )
             ),
             "paddle_table_roc_auc": _paddle_table_roc_auc(
                 venue_truth,
@@ -481,6 +639,26 @@ def extract_spectral_features(samples: np.ndarray) -> np.ndarray:
     return summary.astype(np.float64)
 
 
+def log_spectrogram(samples: np.ndarray) -> np.ndarray:
+    signal = np.asarray(samples, dtype=np.float32)
+    if signal.shape != (WINDOW_SAMPLES,):
+        raise ValueError(f"expected {WINDOW_SAMPLES} samples")
+    _, _, values = stft(
+        signal,
+        fs=SAMPLE_RATE,
+        window="hann",
+        nperseg=512,
+        noverlap=256,
+        nfft=512,
+        boundary=None,
+        padded=False,
+    )
+    image = np.log1p(np.abs(values[:96]) * 100.0)
+    mean = float(image.mean())
+    scale = float(image.std()) or 1.0
+    return ((image - mean) / scale).astype(np.float32)
+
+
 def decode_audio(path: Path) -> np.ndarray:
     if not path.is_file():
         raise FileNotFoundError(f"missing frozen source media: {path}")
@@ -516,6 +694,12 @@ def feature_matrix(examples: Sequence[Mapping[str, Any]]) -> np.ndarray:
     for row in examples:
         path = str(row["media_path"])
         if path not in cache:
+            expected_media_sha = _validate_hash(
+                row.get("media_sha256"), "media_sha256"
+            )
+            actual_media_sha = file_sha256(Path(path))
+            if actual_media_sha != expected_media_sha:
+                raise ValueError(f"frozen media SHA-256 mismatch for {path}")
             cache[path] = decode_audio(Path(path))
         window = fixed_audio_window(
             cache[path],
@@ -526,6 +710,28 @@ def feature_matrix(examples: Sequence[Mapping[str, Any]]) -> np.ndarray:
     if not features:
         raise ValueError("no labeled audio-impact examples are available")
     return np.stack(features)
+
+
+def window_matrix(examples: Sequence[Mapping[str, Any]]) -> np.ndarray:
+    cache: dict[str, np.ndarray] = {}
+    windows = []
+    for row in examples:
+        path = str(row["media_path"])
+        if path not in cache:
+            expected = _validate_hash(row.get("media_sha256"), "media_sha256")
+            if file_sha256(Path(path)) != expected:
+                raise ValueError(f"frozen media SHA-256 mismatch for {path}")
+            cache[path] = decode_audio(Path(path))
+        windows.append(
+            fixed_audio_window(
+                cache[path],
+                event_time_s=float(row["time_s"]),
+                source_rate=SAMPLE_RATE,
+            ).samples
+        )
+    if not windows:
+        raise ValueError("no labeled audio-impact examples are available")
+    return np.stack(windows)
 
 
 def _fit_linear(
@@ -574,6 +780,159 @@ def _predictions(probabilities: np.ndarray, threshold: float) -> list[str | None
     ]
 
 
+def pool_acquisition_components(
+    probabilities: np.ndarray,
+    candidates: Sequence[Mapping[str, Any]],
+) -> dict[str, float]:
+    if len(probabilities) != len(candidates):
+        raise ValueError("candidate and probability counts differ")
+    if not candidates:
+        return {"uncertainty": 1.0, "confound_novelty": 0.0}
+    uncertainty = float(np.mean(1.0 - probabilities.max(axis=1)))
+    low_band_count = sum(
+        "low_frequency" in (candidate.get("detector_origins") or [])
+        for candidate in candidates
+    )
+    return {
+        "uncertainty": round(uncertainty, 8),
+        "confound_novelty": round(low_band_count / len(candidates), 8),
+    }
+
+
+def _verified_pool_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
+    manifest = dict(payload)
+    supplied = str(manifest.pop("manifest_sha256", ""))
+    if supplied != canonical_hash(manifest):
+        raise ValueError("cohort manifest hash does not match its contents")
+    if (
+        manifest.get("batch_slug") != "audio-impact-labeling-recent-v1"
+        or manifest.get("stage") != "initial"
+    ):
+        raise ValueError("Round B acquisition requires the initial audio-impact manifest")
+    pool = list(manifest.get("round_b_pool") or [])
+    if not pool or any(item.get("round") != "B" for item in pool):
+        raise ValueError("cohort manifest has no valid Round B pool")
+    manifest["manifest_sha256"] = supplied
+    return manifest
+
+
+def _verified_pool_audit(
+    payload: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+) -> dict[str, str]:
+    audit = dict(payload)
+    supplied = str(audit.pop("audit_sha256", ""))
+    if supplied != canonical_hash(audit):
+        raise ValueError("Round B media audit hash does not match its contents")
+    if audit.get("manifest_sha256") != manifest.get("manifest_sha256"):
+        raise ValueError("Round B media audit belongs to another cohort manifest")
+    hashes = {
+        str(item.get("point_id") or ""): str(item.get("media_sha256") or "")
+        for item in audit.get("entries") or []
+    }
+    pool_ids = {str(item["point_id"]) for item in manifest["round_b_pool"]}
+    if not pool_ids.issubset(hashes):
+        raise ValueError("Round B media audit does not cover the frozen pool")
+    for point_id in pool_ids:
+        _validate_hash(hashes[point_id], f"pool media SHA-256 for {point_id}")
+    return {point_id: hashes[point_id] for point_id in sorted(pool_ids)}
+
+
+def fetch_round_b_pool_media(
+    manifest_payload: Mapping[str, Any],
+    audit_payload: Mapping[str, Any],
+    output_dir: Path,
+    *,
+    production: Any,
+) -> int:
+    manifest = _verified_pool_manifest(manifest_payload)
+    audited_hashes = _verified_pool_audit(audit_payload, manifest)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    fetched = 0
+    for item in manifest["round_b_pool"]:
+        point_id = str(item["point_id"])
+        destination = output_dir / f"{point_id}.mp4"
+        if destination.is_file():
+            pass
+        else:
+            uri = str(item["clip_path"])
+            if not uri.startswith("r2://") or "/" not in uri[5:]:
+                raise ValueError(f"invalid Round B clip path {uri!r}")
+            bucket, key = uri[5:].split("/", 1)
+            production.r2.download_file(bucket, key, str(destination))
+            fetched += 1
+        if file_sha256(destination) != audited_hashes[point_id]:
+            raise ValueError(f"frozen Round B media SHA-256 mismatch for {point_id}")
+    return fetched
+
+
+def score_round_b_pool(
+    manifest_payload: Mapping[str, Any],
+    audit_payload: Mapping[str, Any],
+    artifact: Mapping[str, Any],
+    media_dir: Path,
+) -> dict[str, dict[str, float]]:
+    manifest = _verified_pool_manifest(manifest_payload)
+    audited_hashes = _verified_pool_audit(audit_payload, manifest)
+    if artifact.get("cohort_manifest_sha256") != manifest["manifest_sha256"]:
+        raise ValueError("A-model artifact does not belong to the frozen cohort")
+    if artifact.get("feature_definition_sha256") != feature_definition_sha256():
+        raise ValueError("A-model feature definition is not current")
+    model = {
+        "mean": artifact["mean"],
+        "scale": artifact["scale"],
+        "weights": artifact["weights"],
+    }
+    model_payload = {
+        "model_type": artifact["model_type"],
+        "classes": artifact["classes"],
+        "feature_count": artifact["feature_count"],
+        **model,
+    }
+    if canonical_hash(model_payload) != artifact.get("model_sha256"):
+        raise ValueError("A-model hash does not match artifact contents")
+    scores: dict[str, dict[str, float]] = {}
+    detector = Path(__file__).with_name("research_audio_candidates.py")
+    for item in manifest["round_b_pool"]:
+        point_id = str(item["point_id"])
+        media_path = media_dir / f"{point_id}.mp4"
+        if not media_path.is_file():
+            raise FileNotFoundError(f"missing Round B pool media: {media_path}")
+        if file_sha256(media_path) != audited_hashes[point_id]:
+            raise ValueError(f"frozen Round B media SHA-256 mismatch for {point_id}")
+        completed = subprocess.run(
+            [sys.executable, str(detector), str(media_path), "--source-id", point_id],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(
+                f"candidate analysis failed for {point_id}: {completed.stderr.strip()}"
+            )
+        proposal = json.loads(completed.stdout)
+        candidates = list(proposal.get("candidates") or [])
+        samples = decode_audio(media_path)
+        if candidates:
+            features = np.stack(
+                [
+                    extract_spectral_features(
+                        fixed_audio_window(
+                            samples,
+                            event_time_s=float(candidate["time_s"]),
+                            source_rate=SAMPLE_RATE,
+                        ).samples
+                    )
+                    for candidate in candidates
+                ]
+            )
+            probabilities = _linear_probabilities(model, features)
+        else:
+            probabilities = np.empty((0, len(AUDIO_IMPACT_CLASSES)))
+        scores[point_id] = pool_acquisition_components(probabilities, candidates)
+    return scores
+
+
 def _select_threshold(
     examples: Sequence[Mapping[str, Any]], probabilities: np.ndarray
 ) -> float:
@@ -595,11 +954,20 @@ def train_linear_experiment(
     features: np.ndarray,
     *,
     fold_count: int = 3,
+    bindings: Mapping[str, str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if any(_round_for(row) not in DEVELOPMENT_ROUNDS for row in examples):
         raise ValueError("Round C may not enter model fitting or threshold selection")
     if len(examples) != len(features):
         raise ValueError("feature and example counts differ")
+    if bindings is None:
+        raise ValueError("training requires frozen export and manifest bindings")
+    for name in (
+        "export_sha256",
+        "cohort_manifest_sha256",
+        "detector_manifest_sha256",
+    ):
+        _validate_hash(bindings.get(name), name)
     folds = build_grouped_folds(examples, fold_count=fold_count)
     out_of_fold = np.zeros((len(examples), len(AUDIO_IMPACT_CLASSES)))
     labels = [str(row["kind"]) for row in examples]
@@ -623,6 +991,28 @@ def train_linear_experiment(
     report["validation"] = "source_recording_grouped"
     report["fold_count"] = len(folds)
     report["threshold"] = threshold
+    split_payload = {
+        "strategy": "source_recording_grouped",
+        "folds": [
+            {
+                "training_recording_ids": sorted(
+                    {
+                        str(examples[index]["source_recording_id"])
+                        for index in fold["train_indices"]
+                    }
+                ),
+                "validation_recording_ids": sorted(
+                    {
+                        str(examples[index]["source_recording_id"])
+                        for index in fold["validation_indices"]
+                    }
+                ),
+            }
+            for fold in folds
+        ],
+    }
+    split_hash = canonical_hash(split_payload)
+    report["split_definition_sha256"] = split_hash
 
     fitted = _fit_linear(features, labels)
     model_payload = {
@@ -643,6 +1033,13 @@ def train_linear_experiment(
             {str(row["source_recording_id"]) for row in examples}
         ),
         "training_event_ids": sorted(str(row["event_id"]) for row in examples),
+        "development_export_sha256": bindings["export_sha256"],
+        "cohort_manifest_sha256": bindings["cohort_manifest_sha256"],
+        "detector_manifest_sha256": bindings["detector_manifest_sha256"],
+        "feature_definition": FEATURE_DEFINITION,
+        "feature_definition_sha256": feature_definition_sha256(),
+        "split_definition": split_payload,
+        "split_definition_sha256": split_hash,
         "training_data_sha256": canonical_hash(
             sorted(
                 (
@@ -661,7 +1058,141 @@ def train_linear_experiment(
         "model_sha256": canonical_hash(model_payload),
         "threshold_sha256": canonical_hash(threshold_payload),
     }
+    artifact["development_report_sha256"] = canonical_hash(report)
     return artifact, report
+
+
+def train_grouped_cnn_experiment(
+    examples: Sequence[Mapping[str, Any]],
+    windows: np.ndarray,
+    *,
+    torch_module: Any,
+    epochs: int = 20,
+    fold_count: int = 3,
+) -> dict[str, Any]:
+    """Evaluate a small spectrogram CNN with the same recording-grouped folds."""
+    if any(_round_for(row) not in DEVELOPMENT_ROUNDS for row in examples):
+        raise ValueError("Round C may not enter the CNN experiment")
+    if windows.shape != (len(examples), WINDOW_SAMPLES):
+        raise ValueError("CNN windows have the wrong shape")
+    if epochs < 1:
+        raise ValueError("CNN epochs must be positive")
+    torch = torch_module
+    nn = torch.nn
+    spectrograms = np.stack([log_spectrogram(window) for window in windows])
+    labels = np.asarray(
+        [AUDIO_IMPACT_CLASSES.index(str(row["kind"])) for row in examples],
+        dtype=np.int64,
+    )
+    folds = build_grouped_folds(examples, fold_count=fold_count)
+    out_of_fold = np.zeros((len(examples), len(AUDIO_IMPACT_CLASSES)))
+
+    class TinyImpactCnn(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.network = nn.Sequential(
+                nn.Conv2d(1, 8, kernel_size=3, padding=1),
+                nn.ReLU(),
+                nn.MaxPool2d(2),
+                nn.Conv2d(8, 16, kernel_size=3, padding=1),
+                nn.ReLU(),
+                nn.AdaptiveAvgPool2d((1, 1)),
+                nn.Flatten(),
+                nn.Linear(16, len(AUDIO_IMPACT_CLASSES)),
+            )
+
+        def forward(self, values: Any) -> Any:
+            return self.network(values)
+
+    for fold_number, fold in enumerate(folds):
+        torch.manual_seed(20_260_901 + fold_number)
+        model = TinyImpactCnn()
+        train_indices = np.asarray(fold["train_indices"])
+        validation_indices = np.asarray(fold["validation_indices"])
+        train_x = torch.tensor(
+            spectrograms[train_indices, None, :, :],
+            dtype=torch.float32,
+        )
+        train_y = torch.tensor(labels[train_indices], dtype=torch.long)
+        counts = np.bincount(
+            labels[train_indices],
+            minlength=len(AUDIO_IMPACT_CLASSES),
+        )
+        weights = np.zeros(len(AUDIO_IMPACT_CLASSES), dtype=np.float32)
+        present = counts > 0
+        weights[present] = len(train_indices) / counts[present]
+        loss_function = nn.CrossEntropyLoss(
+            weight=torch.tensor(weights, dtype=torch.float32)
+        )
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.003, weight_decay=0.001)
+        model.train()
+        for _ in range(epochs):
+            optimizer.zero_grad()
+            loss = loss_function(model(train_x), train_y)
+            loss.backward()
+            optimizer.step()
+        model.eval()
+        with torch.no_grad():
+            validation_x = torch.tensor(
+                spectrograms[validation_indices, None, :, :],
+                dtype=torch.float32,
+            )
+            probabilities = torch.softmax(model(validation_x), dim=1).cpu().numpy()
+        out_of_fold[validation_indices] = probabilities
+
+    threshold = _select_threshold(examples, out_of_fold)
+    report = evaluate_predictions(
+        examples,
+        _predictions(out_of_fold, threshold),
+        partition="development",
+        probabilities=out_of_fold,
+    )
+    report.update(
+        {
+            "model_type": "tiny_log_spectrogram_cnn_v1",
+            "validation": "source_recording_grouped",
+            "fold_count": len(folds),
+            "epochs": epochs,
+            "threshold": threshold,
+            "spectrogram_shape": list(spectrograms.shape[1:]),
+            "feature_definition_sha256": canonical_hash(
+                {
+                    "window_feature": FEATURE_DEFINITION,
+                    "spectrogram": {
+                        "nperseg": 512,
+                        "noverlap": 256,
+                        "frequency_bins": 96,
+                        "log_scale": 100.0,
+                    },
+                }
+            ),
+        }
+    )
+    return report
+
+
+def compare_cnn_to_linear(
+    cnn_report: Mapping[str, Any],
+    linear_report: Mapping[str, Any],
+) -> dict[str, Any]:
+    macro_delta = float(cnn_report.get("selective_macro_f1") or 0.0) - float(
+        linear_report.get("selective_macro_f1") or 0.0
+    )
+    venue_deltas = {}
+    for venue, linear_venue in (linear_report.get("venues") or {}).items():
+        cnn_venue = (cnn_report.get("venues") or {}).get(venue) or {}
+        venue_deltas[str(venue)] = float(
+            cnn_venue.get("selective_accuracy") or 0.0
+        ) - float(linear_venue.get("selective_accuracy") or 0.0)
+    accepted = macro_delta >= 0.03 and all(
+        value >= -0.02 for value in venue_deltas.values()
+    )
+    return {
+        "selective_macro_f1_delta": round(macro_delta, 8),
+        "venue_selective_accuracy_deltas": venue_deltas,
+        "accept_cnn_complexity": accepted,
+        "rule": "at least +0.03 selective macro F1 and no venue worse by more than 0.02",
+    }
 
 
 def _validate_hash(value: Any, name: str) -> str:
@@ -674,11 +1205,25 @@ def _validate_hash(value: Any, name: str) -> str:
 def validate_sealed_artifact(
     artifact: Mapping[str, Any],
     sealed_examples: Sequence[Mapping[str, Any]],
+    *,
+    sealed_bindings: Mapping[str, str],
 ) -> None:
     if any(_round_for(row) != SEALED_ROUND for row in sealed_examples):
         raise ValueError("sealed scoring input must contain only Round C")
     _validate_hash(artifact.get("model_sha256"), "model_sha256")
     _validate_hash(artifact.get("threshold_sha256"), "threshold_sha256")
+    if artifact.get("feature_definition_sha256") != feature_definition_sha256():
+        raise ValueError("feature definition differs from the frozen training artifact")
+    if artifact.get("cohort_manifest_sha256") != sealed_bindings.get(
+        "cohort_manifest_sha256"
+    ):
+        raise ValueError("sealed export belongs to a different cohort manifest")
+    if artifact.get("model_sha256") != sealed_bindings.get("frozen_model_sha256"):
+        raise ValueError("sealed study state does not freeze this model")
+    if artifact.get("threshold_sha256") != sealed_bindings.get(
+        "frozen_threshold_sha256"
+    ):
+        raise ValueError("sealed study state does not freeze this threshold")
     sealed_source_ids = {str(row["source_id"]) for row in sealed_examples}
     overlap = sealed_source_ids.intersection(
         str(value) for value in artifact.get("training_source_ids") or []
@@ -694,8 +1239,14 @@ def score_sealed(
     artifact: Mapping[str, Any],
     examples: Sequence[Mapping[str, Any]],
     features: np.ndarray,
+    *,
+    sealed_bindings: Mapping[str, str],
 ) -> dict[str, Any]:
-    validate_sealed_artifact(artifact, examples)
+    validate_sealed_artifact(
+        artifact,
+        examples,
+        sealed_bindings=sealed_bindings,
+    )
     model_payload = {
         key: artifact[key]
         for key in ("model_type", "classes", "feature_count", "mean", "scale", "weights")
@@ -727,6 +1278,99 @@ def score_sealed(
     return report
 
 
+def freeze_and_unlock_payload(
+    export_payload: Mapping[str, Any],
+    artifact: Mapping[str, Any],
+    *,
+    unlocked_at: str,
+) -> dict[str, Any]:
+    state = dict(export_payload.get("study_state") or {})
+    if state.get("phase") != "development_b":
+        raise ValueError("sealed unlock requires the completed Round A/B phase")
+    if set(map(str, export_payload.get("exported_rounds") or [])) != {"A", "B"}:
+        raise ValueError("sealed unlock requires an A/B-only development export")
+    incomplete = [
+        row
+        for row in export_payload.get("assignments") or []
+        if str((row.get("prefill") or {}).get("round") or "") in {"A", "B"}
+        and row.get("status") != "submitted"
+    ]
+    if incomplete:
+        raise ValueError("all Round A/B assignments must be submitted before unlock")
+    export_hash = canonical_hash(export_payload)
+    expected = {
+        "development_export_sha256": export_hash,
+        "cohort_manifest_sha256": str(state.get("cohort_manifest_sha256") or ""),
+        "detector_manifest_sha256": str(
+            state.get("detector_manifest_sha256") or ""
+        ),
+        "feature_definition_sha256": feature_definition_sha256(),
+    }
+    for name, value in expected.items():
+        _validate_hash(value, name)
+        if artifact.get(name) != value:
+            raise ValueError(f"artifact {name} does not match the development export")
+    for name in (
+        "model_sha256",
+        "threshold_sha256",
+        "training_data_sha256",
+        "split_definition_sha256",
+    ):
+        _validate_hash(artifact.get(name), name)
+    return {
+        **state,
+        "phase": "sealed_labeling",
+        "development_export_sha256": export_hash,
+        "development_model_sha256": artifact["model_sha256"],
+        "development_threshold_sha256": artifact["threshold_sha256"],
+        "development_training_data_sha256": artifact["training_data_sha256"],
+        "feature_definition_sha256": artifact["feature_definition_sha256"],
+        "split_definition_sha256": artifact["split_definition_sha256"],
+        "unlocked_at": unlocked_at,
+    }
+
+
+def scored_state_payload(
+    study_state: Mapping[str, Any],
+    report: Mapping[str, Any],
+    *,
+    scored_at: str,
+) -> dict[str, Any]:
+    if study_state.get("phase") == "scored" or study_state.get("sealed_report_sha256"):
+        raise ValueError("this sealed cohort has already been scored")
+    if study_state.get("phase") != "sealed_labeling":
+        raise ValueError("sealed scoring has not been unlocked")
+    if report.get("model_sha256") != study_state.get("development_model_sha256"):
+        raise ValueError("sealed report model differs from the frozen model")
+    if report.get("threshold_sha256") != study_state.get(
+        "development_threshold_sha256"
+    ):
+        raise ValueError("sealed report threshold differs from the frozen threshold")
+    return {
+        **dict(study_state),
+        "phase": "scored",
+        "sealed_report_sha256": canonical_hash(report),
+        "scored_at": scored_at,
+    }
+
+
+def _patch_study_state(production: Any, batch_id: str, payload: Mapping[str, Any]) -> None:
+    import requests
+
+    response = requests.patch(
+        f"{production.supabase_url}/rest/v1/audio_impact_research_state",
+        headers={
+            **production.headers,
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal",
+        },
+        params={"batch_id": f"eq.{batch_id}"},
+        json=dict(payload),
+        timeout=60,
+    )
+    response.raise_for_status()
+
+
 def require_cnn_dependency(
     *, import_module: Callable[[str], Any] = import_module
 ) -> Any:
@@ -740,13 +1384,21 @@ def require_cnn_dependency(
         ) from exc
 
 
-def _read_examples(export_path: Path, media_dir: Path, partition: str) -> list[dict[str, Any]]:
+def _read_examples(
+    export_path: Path,
+    media_dir: Path,
+    partition: str,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
     payload = json.loads(export_path.read_text())
     rows = normalize_research_export(payload, media_dir=media_dir)
     examples = prepare_gold_examples(rows, partition=partition)
     if not examples:
         raise ValueError(f"no completed {partition} labels found in export")
-    return examples
+    return examples, validate_export_bindings(
+        payload,
+        examples,
+        partition=partition,
+    )
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -764,15 +1416,57 @@ def main() -> None:
     train.add_argument("--artifact-out", type=Path, required=True)
     train.add_argument("--report-out", type=Path, required=True)
 
+    cnn = subparsers.add_parser(
+        "train-cnn",
+        help="Run the optional grouped tiny-CNN comparison against the linear baseline",
+    )
+    cnn.add_argument("--export", type=Path, required=True)
+    cnn.add_argument("--media-dir", type=Path, required=True)
+    cnn.add_argument("--linear-report", type=Path, required=True)
+    cnn.add_argument("--report-out", type=Path, required=True)
+    cnn.add_argument("--epochs", type=int, default=20)
+
     sealed = subparsers.add_parser("score-sealed", help="Score Round C once with a frozen artifact")
     sealed.add_argument("--export", type=Path, required=True)
     sealed.add_argument("--media-dir", type=Path, required=True)
     sealed.add_argument("--artifact", type=Path, required=True)
     sealed.add_argument("--report-out", type=Path, required=True)
+    sealed.add_argument(
+        "--record-score",
+        action="store_true",
+        required=True,
+        help="Atomically close the database-backed sealed evaluation after scoring",
+    )
+
+    unlock = subparsers.add_parser(
+        "unlock-sealed",
+        help="Freeze the A/B artifact hashes and unlock Round C",
+    )
+    unlock.add_argument("--export", type=Path, required=True)
+    unlock.add_argument("--artifact", type=Path, required=True)
+    unlock.add_argument("--apply", action="store_true")
 
     fetch = subparsers.add_parser("fetch-media", help="Download frozen clips named by an export")
     fetch.add_argument("--export", type=Path, required=True)
     fetch.add_argument("--media-dir", type=Path, required=True)
+
+    fetch_pool = subparsers.add_parser(
+        "fetch-pool-media",
+        help="Download the immutable eligible Round B point pool",
+    )
+    fetch_pool.add_argument("--manifest", type=Path, required=True)
+    fetch_pool.add_argument("--audit", type=Path, required=True)
+    fetch_pool.add_argument("--media-dir", type=Path, required=True)
+
+    score_pool = subparsers.add_parser(
+        "score-pool",
+        help="Score the Round B pool with the frozen Round A model",
+    )
+    score_pool.add_argument("--manifest", type=Path, required=True)
+    score_pool.add_argument("--audit", type=Path, required=True)
+    score_pool.add_argument("--artifact", type=Path, required=True)
+    score_pool.add_argument("--media-dir", type=Path, required=True)
+    score_pool.add_argument("--scores-out", type=Path, required=True)
 
     subparsers.add_parser("check-cnn", help="Check the optional CNN dependency")
     args = parser.parse_args()
@@ -781,28 +1475,126 @@ def main() -> None:
         require_cnn_dependency()
         print("PyTorch is available for the optional CNN experiment.")
         return
-    if args.command == "fetch-media":
+    if args.command in {"fetch-media", "fetch-pool-media"}:
         if __package__:
             from .build_research_pilot import Production
         else:
             from build_research_pilot import Production
 
-        payload = json.loads(args.export.read_text())
-        count = fetch_frozen_media(payload, args.media_dir, production=Production())
+        if args.command == "fetch-media":
+            payload = json.loads(args.export.read_text())
+            count = fetch_frozen_media(
+                payload,
+                args.media_dir,
+                production=Production(),
+            )
+        else:
+            payload = json.loads(args.manifest.read_text())
+            count = fetch_round_b_pool_media(
+                payload,
+                json.loads(args.audit.read_text()),
+                args.media_dir,
+                production=Production(),
+            )
         print(json.dumps({"downloaded": count, "media_dir": str(args.media_dir)}))
         return
+    if args.command == "score-pool":
+        scores = score_round_b_pool(
+            json.loads(args.manifest.read_text()),
+            json.loads(args.audit.read_text()),
+            json.loads(args.artifact.read_text()),
+            args.media_dir,
+        )
+        _write_json(args.scores_out, scores)
+        print(json.dumps({"scores": str(args.scores_out), "points": len(scores)}))
+        return
+    if args.command == "unlock-sealed":
+        export_payload = json.loads(args.export.read_text())
+        artifact = json.loads(args.artifact.read_text())
+        transition = freeze_and_unlock_payload(
+            export_payload,
+            artifact,
+            unlocked_at=datetime.now(timezone.utc).isoformat(),
+        )
+        if args.apply:
+            if __package__:
+                from .build_research_pilot import Production
+            else:
+                from build_research_pilot import Production
+            batch_id = str((export_payload.get("batch") or {}).get("id") or "")
+            _patch_study_state(Production(), batch_id, transition)
+        print(json.dumps({"apply": args.apply, "state": transition}, sort_keys=True))
+        return
     if args.command == "train-linear":
-        examples = _read_examples(args.export, args.media_dir, "development")
-        artifact, report = train_linear_experiment(examples, feature_matrix(examples))
+        examples, bindings = _read_examples(
+            args.export, args.media_dir, "development"
+        )
+        artifact, report = train_linear_experiment(
+            examples,
+            feature_matrix(examples),
+            bindings=bindings,
+        )
         _write_json(args.artifact_out, artifact)
         _write_json(args.report_out, report)
         print(json.dumps({"artifact": str(args.artifact_out), "report": str(args.report_out)}))
         return
+    if args.command == "train-cnn":
+        examples, bindings = _read_examples(
+            args.export, args.media_dir, "development"
+        )
+        report = train_grouped_cnn_experiment(
+            examples,
+            window_matrix(examples),
+            torch_module=require_cnn_dependency(),
+            epochs=args.epochs,
+        )
+        report.update(
+            {
+                "development_export_sha256": bindings["export_sha256"],
+                "cohort_manifest_sha256": bindings["cohort_manifest_sha256"],
+                "detector_manifest_sha256": bindings["detector_manifest_sha256"],
+            }
+        )
+        report["linear_comparison"] = compare_cnn_to_linear(
+            report,
+            json.loads(args.linear_report.read_text()),
+        )
+        report["report_sha256"] = canonical_hash(report)
+        _write_json(args.report_out, report)
+        print(
+            json.dumps(
+                {
+                    "cnn_report": str(args.report_out),
+                    "accept_cnn_complexity": report["linear_comparison"][
+                        "accept_cnn_complexity"
+                    ],
+                }
+            )
+        )
+        return
 
     artifact = json.loads(args.artifact.read_text())
-    examples = _read_examples(args.export, args.media_dir, "sealed")
-    report = score_sealed(artifact, examples, feature_matrix(examples))
+    examples, bindings = _read_examples(args.export, args.media_dir, "sealed")
+    report = score_sealed(
+        artifact,
+        examples,
+        feature_matrix(examples),
+        sealed_bindings=bindings,
+    )
     _write_json(args.report_out, report)
+    if args.record_score:
+        payload = json.loads(args.export.read_text())
+        transition = scored_state_payload(
+            payload.get("study_state") or {},
+            report,
+            scored_at=datetime.now(timezone.utc).isoformat(),
+        )
+        if __package__:
+            from .build_research_pilot import Production
+        else:
+            from build_research_pilot import Production
+        batch_id = str((payload.get("batch") or {}).get("id") or "")
+        _patch_study_state(Production(), batch_id, transition)
     print(json.dumps({"sealed_report": str(args.report_out)}))
 
 

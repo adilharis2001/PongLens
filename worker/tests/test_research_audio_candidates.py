@@ -110,6 +110,17 @@ class DualBandDetectionTests(unittest.TestCase):
             all("semantic_class" not in item for item in first["candidates"])
         )
 
+    def test_candidate_ids_bind_source_and_detector_version(self):
+        samples = np.zeros(SAMPLE_RATE, dtype=np.float32)
+
+        first = analyze_samples(samples, SAMPLE_RATE, source_id="source-a")
+        second = analyze_samples(samples, SAMPLE_RATE, source_id="source-b")
+
+        self.assertNotEqual(
+            [item["id"] for item in first["candidates"]],
+            [item["id"] for item in second["candidates"]],
+        )
+
     def test_native_44100_hz_audio_is_not_claimed_as_resampled(self):
         sample_rate = 44_100
         samples = np.zeros(sample_rate, dtype=np.float32)

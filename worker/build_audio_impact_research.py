@@ -12,6 +12,7 @@ from collections import Counter, defaultdict
 from copy import deepcopy
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import tempfile
@@ -50,6 +51,7 @@ ROUNDS = ("A", "B", "C")
 POINTS_PER_RECORDING = 10
 TOTAL_RECORDINGS = 9
 TOTAL_POINTS = 90
+MIN_AUDITED_CANDIDATES = 9
 
 
 def _admin_user(production: Any) -> dict[str, Any]:
@@ -261,10 +263,22 @@ def build_cohort_manifest(
     selected_points = []
     for recording in chosen:
         round_name = str(recording["round"])
-        chosen_points = select_round_points(
-            recording["points"],
-            round_name=round_name,
-            seed=f"{BATCH_SLUG}:{recording['id']}",
+        ordered_points = sorted(
+            (deepcopy(dict(item)) for item in recording["points"]),
+            key=lambda item: (
+                float(item["source_time_s"]),
+                int(item.get("idx") or 0),
+                str(item["id"]),
+            ),
+        )
+        chosen_points = (
+            []
+            if round_name == "B"
+            else select_round_points(
+                ordered_points,
+                round_name=round_name,
+                seed=f"{BATCH_SLUG}:{recording['id']}",
+            )
         )
         recording_manifest = {
             "recording_id": str(recording["id"]),
@@ -281,9 +295,8 @@ def build_cohort_manifest(
             "source_sha256": str(recording["source_sha256"]),
         }
         manifest_recordings.append(recording_manifest)
-        for point in chosen_points:
-            selected_points.append(
-                {
+        def manifest_point(point: Mapping[str, Any]) -> dict[str, Any]:
+            return {
                     "point_id": str(point["id"]),
                     "point_idx": int(point.get("idx") or 0),
                     "clip_path": str(point["clip_path"]),
@@ -301,21 +314,31 @@ def build_cohort_manifest(
                     ),
                     "source_sha256": recording_manifest["source_sha256"],
                     "raw_identity": recording_manifest["raw_identity"],
-                    "acquisition_score": round(
-                        float(point.get("acquisition_score") or 0.0), 6
-                    ),
-                    "acquisition_model_sha256": point.get(
-                        "acquisition_model_sha256"
-                    ),
                 }
+
+        for point in chosen_points:
+            selected_points.append(manifest_point(point))
+        if round_name == "B":
+            recording_manifest["eligible_point_count"] = len(ordered_points)
+            recording_manifest["eligible_point_ids_sha256"] = canonical_hash(
+                {"point_ids": [str(point["id"]) for point in ordered_points]}
             )
+            recording_manifest["round_b_pool"] = [
+                manifest_point(point) for point in ordered_points
+            ]
 
     payload = {
         "schema_version": 1,
+        "stage": "initial",
         "batch_slug": BATCH_SLUG,
         "detector_version": "dual_band_impact_v1",
         "recordings": manifest_recordings,
         "selected": selected_points,
+        "round_b_pool": [
+            point
+            for recording in manifest_recordings
+            for point in recording.pop("round_b_pool", [])
+        ],
     }
     payload["manifest_sha256"] = canonical_hash(payload)
     return verified_manifest(payload)
@@ -330,30 +353,76 @@ def verified_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("manifest batch slug is not the audio-impact batch")
     recordings = list(manifest.get("recordings") or [])
     selected = list(manifest.get("selected") or [])
-    if len(recordings) != TOTAL_RECORDINGS or len(selected) != TOTAL_POINTS:
-        raise ValueError("manifest must contain exactly nine recordings and 90 points")
+    round_b_pool = list(manifest.get("round_b_pool") or [])
+    stage = str(manifest.get("stage") or "")
+    expected_points = 60 if stage == "initial" else TOTAL_POINTS
+    if stage not in {"initial", "round_b_selected"}:
+        raise ValueError("manifest stage is invalid")
+    if stage == "round_b_selected":
+        reconstructed_initial = {
+            "schema_version": manifest.get("schema_version"),
+            "stage": "initial",
+            "batch_slug": manifest.get("batch_slug"),
+            "detector_version": manifest.get("detector_version"),
+            "recordings": recordings,
+            "selected": [
+                deepcopy(dict(item))
+                for item in selected
+                if item.get("round") != "B"
+            ],
+            "round_b_pool": round_b_pool,
+        }
+        if manifest.get("initial_manifest_sha256") != canonical_hash(
+            reconstructed_initial
+        ):
+            raise ValueError("finalized Round B manifest does not bind its initial seal")
+    if len(recordings) != TOTAL_RECORDINGS or len(selected) != expected_points:
+        raise ValueError(
+            f"manifest must contain exactly nine recordings and {expected_points} selected points"
+        )
     if len({str(item.get("source_sha256")) for item in recordings}) != 9:
         raise ValueError("manifest contains duplicate source recordings")
     if len({str(item.get("raw_identity")) for item in recordings}) != 9:
         raise ValueError("manifest contains duplicate raw identities")
-    if len({str(item.get("point_id")) for item in selected}) != TOTAL_POINTS:
+    if len({str(item.get("point_id")) for item in selected}) != expected_points:
         raise ValueError("manifest contains duplicate point IDs")
     if Counter(str(item.get("venue_category")) for item in recordings) != Counter(
         {venue: 3 for venue in VENUE_CATEGORIES}
     ):
         raise ValueError("manifest recording venue counts are invalid")
-    if Counter(str(item.get("round")) for item in selected) != Counter(
-        {round_name: 30 for round_name in ROUNDS}
-    ):
+    expected_rounds = (
+        Counter({"A": 30, "C": 30})
+        if stage == "initial"
+        else Counter({round_name: 30 for round_name in ROUNDS})
+    )
+    if Counter(str(item.get("round")) for item in selected) != expected_rounds:
         raise ValueError("manifest round counts are invalid")
+    points_per_venue = 20 if stage == "initial" else 30
     if Counter(str(item.get("venue_category")) for item in selected) != Counter(
-        {venue: 30 for venue in VENUE_CATEGORIES}
+        {venue: points_per_venue for venue in VENUE_CATEGORIES}
     ):
         raise ValueError("manifest point venue counts are invalid")
+    expected_recording_counts = {
+        str(item["recording_id"]): (
+            0 if stage == "initial" and item["round"] == "B" else 10
+        )
+        for item in recordings
+    }
     if Counter(str(item.get("recording_id")) for item in selected) != Counter(
-        {str(item["recording_id"]): 10 for item in recordings}
+        {key: value for key, value in expected_recording_counts.items() if value}
     ):
         raise ValueError("each recording must contribute exactly ten points")
+    b_recording_ids = {
+        str(item["recording_id"]) for item in recordings if item["round"] == "B"
+    }
+    pool_counts = Counter(str(item.get("recording_id")) for item in round_b_pool)
+    if set(pool_counts) != b_recording_ids or any(
+        pool_counts[recording_id] < POINTS_PER_RECORDING
+        for recording_id in b_recording_ids
+    ):
+        raise ValueError("Round B eligible pool is incomplete")
+    if any(item.get("round") != "B" for item in round_b_pool):
+        raise ValueError("Round B pool contains another round")
     for item in selected:
         if item.get("round") == "C" and item.get("split") != "sealed_evaluation":
             raise ValueError("Round C must remain sealed evaluation")
@@ -365,11 +434,72 @@ def verified_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
 
 def round_b_acquisition_inputs(manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
     verified = verified_manifest(manifest)
-    return [
-        deepcopy(dict(item))
-        for item in verified["selected"]
-        if item.get("round") == "B"
-    ]
+    return [deepcopy(dict(item)) for item in verified["round_b_pool"]]
+
+
+def finalize_round_b_manifest(
+    initial_manifest: Mapping[str, Any],
+    scores: Mapping[str, Mapping[str, Any]],
+    *,
+    acquisition_model_sha256: str,
+) -> dict[str, Any]:
+    initial = verified_manifest(initial_manifest)
+    if initial["stage"] != "initial":
+        raise ValueError("Round B can only be finalized from the initial manifest")
+    if not re.fullmatch(r"[0-9a-f]{64}", acquisition_model_sha256):
+        raise ValueError("acquisition model SHA-256 is invalid")
+    pool = [deepcopy(dict(item)) for item in initial["round_b_pool"]]
+    pool_ids = {str(item["point_id"]) for item in pool}
+    if set(map(str, scores)) != pool_ids:
+        raise ValueError("Round B scores must cover the complete frozen pool")
+
+    selected_b: list[dict[str, Any]] = []
+    recording_ids = sorted({str(item["recording_id"]) for item in pool})
+    for recording_id in recording_ids:
+        candidates = []
+        for item in pool:
+            if str(item["recording_id"]) != recording_id:
+                continue
+            components = dict(scores[str(item["point_id"])])
+            uncertainty = float(components.get("uncertainty") or 0.0)
+            novelty = float(components.get("confound_novelty") or 0.0)
+            if not math.isfinite(uncertainty) or not math.isfinite(novelty):
+                raise ValueError("Round B acquisition scores must be finite")
+            item["acquisition_components"] = {
+                "uncertainty": round(uncertainty, 8),
+                "confound_novelty": round(novelty, 8),
+            }
+            item["acquisition_score"] = round(uncertainty + novelty, 8)
+            item["acquisition_model_sha256"] = acquisition_model_sha256
+            item["acquisition_tiebreak"] = stable_score(
+                initial["manifest_sha256"], item["point_id"]
+            )
+            candidates.append(item)
+        ordered = sorted(
+            candidates,
+            key=lambda item: (
+                -float(item["acquisition_score"]),
+                str(item["acquisition_tiebreak"]),
+            ),
+        )
+        for rank, item in enumerate(ordered[:POINTS_PER_RECORDING], start=1):
+            item["acquisition_rank"] = rank
+            selected_b.append(item)
+
+    payload = {
+        key: deepcopy(value)
+        for key, value in initial.items()
+        if key != "manifest_sha256"
+    }
+    payload["stage"] = "round_b_selected"
+    payload["initial_manifest_sha256"] = initial["manifest_sha256"]
+    payload["acquisition_model_sha256"] = acquisition_model_sha256
+    payload["acquisition_scores_sha256"] = canonical_hash(
+        {key: dict(scores[key]) for key in sorted(scores)}
+    )
+    payload["selected"] = [*initial["selected"], *selected_b]
+    payload["manifest_sha256"] = canonical_hash(payload)
+    return verified_manifest(payload)
 
 
 def validate_existing_seed(
@@ -378,23 +508,29 @@ def validate_existing_seed(
     existing_assignments: Sequence[Mapping[str, Any]],
 ) -> str:
     selected_ids = {str(item["point_id"]) for item in manifest.get("selected") or []}
+    binding_hash = str(
+        manifest.get("initial_manifest_sha256")
+        or manifest.get("manifest_sha256")
+        or ""
+    )
     for assignment in existing_assignments:
         if (
             assignment.get("status") == "submitted"
             and str(assignment.get("source_point_id")) not in selected_ids
         ):
             raise ValueError("refusing to replace a submitted assignment")
-    expected_hash = str(manifest.get("manifest_sha256") or "")
     for source in existing_sources:
         stored_hash = str(
             (source.get("prefill") or {}).get("cohort_manifest_sha256") or ""
         )
-        if stored_hash != expected_hash:
+        if stored_hash != binding_hash:
             raise ValueError("existing source belongs to a different cohort manifest")
     source_ids = {str(item.get("source_point_id")) for item in existing_sources}
     assignment_ids = {
         str(item.get("source_point_id")) for item in existing_assignments
     }
+    if not source_ids.issubset(selected_ids) or not assignment_ids.issubset(selected_ids):
+        raise ValueError("refusing to shrink or replace an existing seeded cohort")
     if source_ids == selected_ids and assignment_ids == selected_ids:
         return "noop"
     return "resume" if source_ids or assignment_ids else "seed"
@@ -559,12 +695,168 @@ def _media_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _audited_points(manifest: Mapping[str, Any]) -> list[dict[str, Any]]:
+    by_id: dict[str, dict[str, Any]] = {}
+    for raw in [
+        *(manifest.get("selected") or []),
+        *(manifest.get("round_b_pool") or []),
+    ]:
+        item = deepcopy(dict(raw))
+        by_id[str(item["point_id"])] = item
+    return [by_id[key] for key in sorted(by_id)]
+
+
+def _recording_content_inventory(
+    manifest: Mapping[str, Any],
+    entries: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    point_to_recording = {
+        str(item["point_id"]): str(item["recording_id"])
+        for item in _audited_points(manifest)
+    }
+    hashes_by_recording: dict[str, list[str]] = defaultdict(list)
+    owners_by_hash: dict[str, set[str]] = defaultdict(set)
+    for entry in entries:
+        point_id = str(entry.get("point_id") or "")
+        recording_id = point_to_recording.get(point_id)
+        if recording_id is None:
+            continue
+        media_hash = str(entry.get("media_sha256") or "")
+        hashes_by_recording[recording_id].append(media_hash)
+        owners_by_hash[media_hash].add(recording_id)
+    duplicates = sorted(
+        media_hash
+        for media_hash, recording_ids in owners_by_hash.items()
+        if len(recording_ids) > 1
+    )
+    if duplicates:
+        raise ValueError(
+            "media audit found duplicate clip content across source recordings"
+        )
+    return [
+        {
+            "recording_id": recording_id,
+            "audited_point_count": len(hashes),
+            "audited_point_content_sha256": canonical_hash(
+                {"media_sha256": sorted(hashes)}
+            ),
+        }
+        for recording_id, hashes in sorted(hashes_by_recording.items())
+    ]
+
+
+def audit_manifest_media(
+    production: Production,
+    manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    cohort = verified_manifest(manifest)
+    entries = []
+    points = _audited_points(cohort)
+    with tempfile.TemporaryDirectory(prefix="ponglens-audio-audit-") as directory:
+        temp_dir = Path(directory)
+        for number, item in enumerate(points, start=1):
+            point_id = str(item["point_id"])
+            bucket, key = parse_r2_uri(str(item["clip_path"]))
+            local_path = temp_dir / f"{point_id}.mp4"
+            production.r2.download_file(bucket, key, str(local_path))
+            video = probe_video(local_path)
+            audio = analyze_audio(
+                local_path,
+                source_id=stable_uuid(BATCH_SLUG, point_id),
+            )
+            if int(audio["sample_rate"]) not in {44_100, 48_000}:
+                raise ValueError(
+                    f"point {point_id} has unsupported {audio['sample_rate']} Hz audio"
+                )
+            if abs(float(video["duration_s"]) - float(audio["duration_s"])) > 0.05:
+                raise ValueError(f"point {point_id} has audio/video duration mismatch")
+            proposal = {
+                "schema_version": 1,
+                "automatic_prediction_withheld": True,
+                "video": video,
+                "audio": audio,
+            }
+            entries.append(
+                {
+                    "point_id": point_id,
+                    "clip_path": str(item["clip_path"]),
+                    "media_sha256": _media_sha256(local_path),
+                    "proposal_sha256": canonical_hash(proposal),
+                    "duration_s": round(float(video["duration_s"]), 4),
+                    "sample_rate": int(audio["sample_rate"]),
+                    "candidate_count": len(audio.get("candidates") or []),
+                    "low_threshold_candidate_count": len(
+                        audio.get("low_threshold_candidates") or []
+                    ),
+                }
+            )
+            print(f"[audit {number}/{len(points)}] {item['match_label']} point {item['point_idx']}")
+    payload = {
+        "schema_version": 1,
+        "manifest_sha256": cohort["manifest_sha256"],
+        "source_identity_method": (
+            "raw-object-identity-plus-audited-point-clip-sha256-v1"
+        ),
+        "entries": entries,
+        "recording_content": _recording_content_inventory(cohort, entries),
+    }
+    payload["audit_sha256"] = canonical_hash(payload)
+    return verified_media_audit(payload, cohort)
+
+
+def verified_media_audit(
+    payload: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+) -> dict[str, Any]:
+    cohort = verified_manifest(manifest)
+    audit = deepcopy(dict(payload))
+    supplied = str(audit.pop("audit_sha256", ""))
+    if supplied != canonical_hash(audit):
+        raise ValueError("media audit hash does not match its contents")
+    acceptable_manifest_hashes = {cohort["manifest_sha256"]}
+    if cohort.get("initial_manifest_sha256"):
+        acceptable_manifest_hashes.add(str(cohort["initial_manifest_sha256"]))
+    if audit.get("manifest_sha256") not in acceptable_manifest_hashes:
+        raise ValueError("media audit belongs to another cohort manifest")
+    entries = list(audit.get("entries") or [])
+    expected_ids = {str(item["point_id"]) for item in _audited_points(cohort)}
+    if {str(item.get("point_id")) for item in entries} != expected_ids:
+        raise ValueError("media audit does not cover the complete frozen point inventory")
+    for item in entries:
+        for key in ("media_sha256", "proposal_sha256"):
+            if not re.fullmatch(r"[0-9a-f]{64}", str(item.get(key) or "")):
+                raise ValueError(f"media audit has an invalid {key}")
+        if int(item.get("candidate_count") or 0) < MIN_AUDITED_CANDIDATES:
+            raise ValueError("media audit found too few review candidates")
+    expected_recording_content = _recording_content_inventory(cohort, entries)
+    if audit.get("source_identity_method") != (
+        "raw-object-identity-plus-audited-point-clip-sha256-v1"
+    ):
+        raise ValueError("media audit source identity method is unsupported")
+    if audit.get("recording_content") != expected_recording_content:
+        raise ValueError("media audit recording content fingerprint is invalid")
+    if audit.get("manifest_sha256") != cohort["manifest_sha256"]:
+        audit["manifest_sha256"] = cohort["manifest_sha256"]
+        supplied = canonical_hash(audit)
+    audit["audit_sha256"] = supplied
+    return audit
+
+
 def seed_batch(
     production: Production,
     manifest: Mapping[str, Any],
     reviewer_id: str,
+    media_audit: Mapping[str, Any],
 ) -> dict[str, Any]:
     cohort = verified_manifest(manifest)
+    audit = verified_media_audit(media_audit, cohort)
+    audit_by_point = {
+        str(item["point_id"]): dict(item) for item in audit["entries"]
+    }
+    selected_count = len(cohort["selected"])
+    binding_hash = str(
+        cohort.get("initial_manifest_sha256") or cohort["manifest_sha256"]
+    )
     batch_id = stable_uuid("research-batch", BATCH_SLUG)
     batches = production.rest_get(
         "research_batches",
@@ -623,7 +915,21 @@ def seed_batch(
         existing_assignments,
     )
     if state == "noop":
-        return {"status": "noop", "batch_id": batch_id, "sources": 90}
+        return {"status": "noop", "batch_id": batch_id, "sources": selected_count}
+
+    if cohort["stage"] == "round_b_selected" and existing_assignments:
+        round_by_source = {
+            str(item["id"]): str((item.get("prefill") or {}).get("round") or "")
+            for item in existing_sources
+        }
+        incomplete_a = [
+            item
+            for item in raw_assignments
+            if round_by_source.get(str(item["source_id"])) == "A"
+            and item.get("status") != "submitted"
+        ]
+        if incomplete_a:
+            raise ValueError("Round A must be fully submitted before selecting Round B")
 
     existing_by_point = {
         str(item["source_point_id"]): dict(item) for item in existing_sources
@@ -640,7 +946,7 @@ def seed_batch(
             local_path = temp_dir / f"{source_id}.mp4"
             production.r2.download_file(source_bucket, source_key, str(local_path))
             video = probe_video(local_path)
-            audio = analyze_audio(local_path)
+            audio = analyze_audio(local_path, source_id=source_id)
             if int(audio["sample_rate"]) not in {44_100, 48_000}:
                 raise ValueError(
                     f"point {point_id} has unsupported {audio['sample_rate']} Hz audio"
@@ -655,6 +961,13 @@ def seed_batch(
             }
             media_sha = _media_sha256(local_path)
             proposal_sha = canonical_hash(proposal)
+            audited = audit_by_point[point_id]
+            if media_sha != audited["media_sha256"] or proposal_sha != audited[
+                "proposal_sha256"
+            ]:
+                raise RuntimeError(
+                    f"point {point_id} changed after the read-only media audit"
+                )
             media_key = f"{DESTINATION_PREFIX}/{source_id}.mp4"
             production.r2.upload_file(
                 str(local_path),
@@ -666,7 +979,7 @@ def seed_batch(
                         "source-sha256": media_sha,
                         "manifest-sha256": proposal_sha,
                         "source-point-id": point_id,
-                        "cohort-sha256": cohort["manifest_sha256"],
+                        "cohort-sha256": binding_hash,
                     },
                 },
             )
@@ -680,7 +993,8 @@ def seed_batch(
                 "source_recording_id": item["recording_id"],
                 "source_media_sha256": item["source_sha256"],
                 "point_id": point_id,
-                "cohort_manifest_sha256": cohort["manifest_sha256"],
+                "cohort_manifest_sha256": binding_hash,
+                "selection_manifest_sha256": cohort["manifest_sha256"],
                 "detector_manifest_sha256": proposal_sha,
                 "selection_score": item.get("acquisition_score"),
                 "acquisition_model_sha256": item.get("acquisition_model_sha256"),
@@ -704,7 +1018,10 @@ def seed_batch(
                     "prefill": prefill,
                 }
             )
-            print(f"[{number}/{TOTAL_POINTS}] froze {item['match_label']} point {item['point_idx']}")
+            print(
+                f"[{number}/{selected_count}] froze "
+                f"{item['match_label']} point {item['point_idx']}"
+            )
     if source_rows:
         production.upsert(
             "research_sources",
@@ -717,8 +1034,10 @@ def seed_batch(
         select="id,source_point_id,prefill",
         batch_id=f"eq.{batch_id}",
     )
-    if len(sources) != TOTAL_POINTS:
-        raise RuntimeError(f"seed produced {len(sources)} sources, expected 90")
+    if len(sources) != selected_count:
+        raise RuntimeError(
+            f"seed produced {len(sources)} sources, expected {selected_count}"
+        )
     source_by_point = {str(item["source_point_id"]): item for item in sources}
     existing_assignment_ids = {
         str(item["source_id"])
@@ -730,7 +1049,21 @@ def seed_batch(
         )
     }
     assignment_rows = []
-    for sequence, item in enumerate(cohort["selected"], start=1):
+    ordered_selected = sorted(
+        cohort["selected"],
+        key=lambda item: (
+            ROUNDS.index(str(item["round"])),
+            VENUE_CATEGORIES.index(str(item["venue_category"])),
+            str(item["recording_id"]),
+            float(item["source_time_s"]),
+        ),
+    )
+    round_offsets = {"A": 0, "B": 30, "C": 60}
+    round_positions = Counter()
+    for item in ordered_selected:
+        round_name = str(item["round"])
+        round_positions[round_name] += 1
+        sequence = round_offsets[round_name] + round_positions[round_name]
         source_id = str(source_by_point[str(item["point_id"])]["id"])
         if source_id in existing_assignment_ids:
             continue
@@ -755,10 +1088,30 @@ def seed_batch(
         batch_id=f"eq.{batch_id}",
         reviewer_id=f"eq.{reviewer_id}",
     )
-    if len(assignments) != TOTAL_POINTS:
+    if len(assignments) != selected_count:
         raise RuntimeError(
-            f"seed produced {len(assignments)} assignments, expected 90"
+            f"seed produced {len(assignments)} assignments, expected {selected_count}"
         )
+    detector_manifest_sha256 = canonical_hash(
+        {
+            "detector_version": cohort["detector_version"],
+            "candidate_identity": "source-detector-clock-v1",
+        }
+    )
+    production.upsert(
+        "audio_impact_research_state",
+        {
+            "batch_id": batch_id,
+            "phase": (
+                "development_b"
+                if cohort["stage"] == "round_b_selected"
+                else "development_a"
+            ),
+            "cohort_manifest_sha256": binding_hash,
+            "detector_manifest_sha256": detector_manifest_sha256,
+        },
+        "batch_id",
+    )
     production.upsert(
         "research_batches",
         {
@@ -776,6 +1129,11 @@ def seed_batch(
         "sources": len(sources),
         "assignments": len(assignments),
         "manifest_sha256": cohort["manifest_sha256"],
+        "phase": (
+            "development_b"
+            if cohort["stage"] == "round_b_selected"
+            else "development_a"
+        ),
     }
 
 
@@ -783,6 +1141,7 @@ def manifest_summary(manifest: Mapping[str, Any]) -> dict[str, Any]:
     cohort = verified_manifest(manifest)
     return {
         "batch_slug": cohort["batch_slug"],
+        "stage": cohort["stage"],
         "manifest_sha256": cohort["manifest_sha256"],
         "recordings": cohort["recordings"],
         "points_by_round": dict(Counter(item["round"] for item in cohort["selected"])),
@@ -790,6 +1149,7 @@ def manifest_summary(manifest: Mapping[str, Any]) -> dict[str, Any]:
             Counter(item["venue_category"] for item in cohort["selected"])
         ),
         "total_points": len(cohort["selected"]),
+        "round_b_pool_points": len(cohort["round_b_pool"]),
     }
 
 
@@ -799,6 +1159,15 @@ def main() -> None:
     parser.add_argument("--seed", action="store_true")
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--manifest-out", type=Path)
+    parser.add_argument("--round-b-scores", type=Path)
+    parser.add_argument("--round-b-model-sha")
+    parser.add_argument("--audit", type=Path)
+    parser.add_argument("--audit-out", type=Path)
+    parser.add_argument(
+        "--inventory-only",
+        action="store_true",
+        help="Skip the read-only point-media health audit; output is not seedable",
+    )
     args = parser.parse_args()
 
     production = Production()
@@ -807,16 +1176,66 @@ def main() -> None:
         manifest = verified_manifest(json.loads(args.manifest.read_text()))
     else:
         manifest = build_cohort_manifest(inventory)
+    if bool(args.round_b_scores) != bool(args.round_b_model_sha):
+        parser.error("--round-b-scores and --round-b-model-sha are required together")
+    if args.round_b_scores:
+        manifest = finalize_round_b_manifest(
+            manifest,
+            json.loads(args.round_b_scores.read_text()),
+            acquisition_model_sha256=args.round_b_model_sha,
+        )
     if args.manifest_out:
         args.manifest_out.parent.mkdir(parents=True, exist_ok=True)
         args.manifest_out.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     print(json.dumps(manifest_summary(manifest), indent=2, sort_keys=True))
 
+    media_audit = None
+    if args.audit:
+        media_audit = verified_media_audit(
+            json.loads(args.audit.read_text()),
+            manifest,
+        )
+    elif args.seed:
+        parser.error("--seed requires a verified read-only --audit artifact")
+    elif not args.inventory_only and not args.apply_migration:
+        media_audit = audit_manifest_media(production, manifest)
+    if media_audit:
+        audit_out = args.audit_out
+        if audit_out is None and args.manifest_out:
+            audit_out = args.manifest_out.with_suffix(".audit.json")
+        if audit_out:
+            audit_out.parent.mkdir(parents=True, exist_ok=True)
+            audit_out.write_text(
+                json.dumps(media_audit, indent=2, sort_keys=True) + "\n"
+            )
+        print(
+            json.dumps(
+                {
+                    "audit_sha256": media_audit["audit_sha256"],
+                    "audited_points": len(media_audit["entries"]),
+                    "candidate_counts": dict(
+                        Counter(
+                            int(item["candidate_count"])
+                            for item in media_audit["entries"]
+                        )
+                    ),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+
     if args.apply_migration:
         _apply_migration(production)
         print("Applied migration 152_audio_impact_research.sql")
     if args.seed:
-        print(json.dumps(seed_batch(production, manifest, reviewer_id), indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                seed_batch(production, manifest, reviewer_id, media_audit),
+                indent=2,
+                sort_keys=True,
+            )
+        )
 
 
 if __name__ == "__main__":

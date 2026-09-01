@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   candidateLoop,
+  canReviewAudioImpact,
   filterAudioImpactAssignments,
   firstReviewTarget,
   nextReviewTarget,
@@ -180,4 +181,12 @@ test("the active assignment remains navigable when a filter hides it", () => {
     queueWithActive([active, ...visible], active).map((item) => item.id),
     ["active", "visible"],
   );
+});
+
+test("labels and navigation stay locked until media is playable and saves are durable", () => {
+  assert.equal(canReviewAudioImpact("ready", "idle"), true);
+  assert.equal(canReviewAudioImpact("loading", "idle"), false);
+  assert.equal(canReviewAudioImpact("error", "idle"), false);
+  assert.equal(canReviewAudioImpact("ready", "saving"), false);
+  assert.equal(canReviewAudioImpact("ready", "error"), false);
 });

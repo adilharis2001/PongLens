@@ -60,6 +60,8 @@ export interface AudioImpactReviewMetrics {
   replay_quarter_speed_count?: number;
   full_context_played?: boolean;
   video_completed?: boolean;
+  media_unavailable?: boolean;
+  media_error?: string;
 }
 
 export interface AudioImpactResearchAssignment {

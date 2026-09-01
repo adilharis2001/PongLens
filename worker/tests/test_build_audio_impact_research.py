@@ -13,6 +13,7 @@ from worker.build_audio_impact_research import (
     build_cohort_manifest,
     canonical_hash,
     choose_recordings,
+    finalize_round_b_manifest,
     round_b_acquisition_inputs,
     recording_raw_identity,
     recent_venue_matches,
@@ -20,6 +21,7 @@ from worker.build_audio_impact_research import (
     select_round_points,
     validate_existing_seed,
     venue_category,
+    verified_media_audit,
     verified_manifest,
 )
 
@@ -215,7 +217,7 @@ class CohortTests(unittest.TestCase):
         self.assertLessEqual(min(indices), 10)
         self.assertGreaterEqual(max(indices), 91)
 
-    def test_round_b_prefers_acquisition_score_without_using_round_c(self):
+    def test_round_b_pool_is_frozen_before_post_a_selection_without_using_round_c(self):
         recordings = []
         for venue in VENUES:
             recordings.extend(recording(venue, number) for number in range(1, 4))
@@ -223,7 +225,7 @@ class CohortTests(unittest.TestCase):
 
         inputs = round_b_acquisition_inputs(manifest)
 
-        self.assertEqual(len(inputs), 30)
+        self.assertGreaterEqual(len(inputs), 30)
         self.assertTrue(all(item["round"] == "B" for item in inputs))
         round_c_ids = {
             item["point_id"]
@@ -232,7 +234,7 @@ class CohortTests(unittest.TestCase):
         }
         self.assertTrue(round_c_ids.isdisjoint({item["point_id"] for item in inputs}))
 
-    def test_manifest_freezes_the_exact_90_point_contract(self):
+    def test_initial_manifest_freezes_a_c_and_the_complete_b_pool(self):
         rows = []
         for venue in VENUES:
             rows.extend(recording(venue, number) for number in range(1, 4))
@@ -242,10 +244,38 @@ class CohortTests(unittest.TestCase):
 
         self.assertEqual(verified["batch_slug"], BATCH_SLUG)
         self.assertEqual(len(verified["recordings"]), 9)
-        self.assertEqual(len(verified["selected"]), 90)
-        self.assertEqual(Counter(item["round"] for item in verified["selected"]), Counter({"A": 30, "B": 30, "C": 30}))
-        self.assertEqual(Counter(item["venue_category"] for item in verified["selected"]), Counter({venue: 30 for venue in VENUES}))
+        self.assertEqual(verified["stage"], "initial")
+        self.assertEqual(len(verified["selected"]), 60)
+        self.assertEqual(Counter(item["round"] for item in verified["selected"]), Counter({"A": 30, "C": 30}))
+        self.assertEqual(Counter(item["venue_category"] for item in verified["selected"]), Counter({venue: 20 for venue in VENUES}))
+        self.assertEqual(Counter(item["recording_id"] for item in verified["round_b_pool"]), Counter({item["recording_id"]: 20 for item in verified["recordings"] if item["round"] == "B"}))
         self.assertEqual(len({item["source_sha256"] for item in verified["recordings"]}), 9)
+
+    def test_round_b_is_selected_only_after_a_with_frozen_scores_and_model_hash(self):
+        rows = []
+        for venue in VENUES:
+            rows.extend(recording(venue, number) for number in range(1, 4))
+        initial = build_cohort_manifest(rows)
+        scores = {
+            item["point_id"]: {
+                "uncertainty": item["point_idx"] / 100,
+                "confound_novelty": (100 - item["point_idx"]) / 200,
+            }
+            for item in initial["round_b_pool"]
+        }
+
+        finalized = finalize_round_b_manifest(
+            initial,
+            scores,
+            acquisition_model_sha256="d" * 64,
+        )
+
+        self.assertEqual(finalized["stage"], "round_b_selected")
+        self.assertEqual(finalized["initial_manifest_sha256"], initial["manifest_sha256"])
+        self.assertEqual(len(finalized["selected"]), 90)
+        self.assertEqual(Counter(item["round"] for item in finalized["selected"]), Counter({"A": 30, "B": 30, "C": 30}))
+        self.assertTrue(all(item["acquisition_model_sha256"] == "d" * 64 for item in finalized["selected"] if item["round"] == "B"))
+        self.assertEqual(finalized, finalize_round_b_manifest(initial, scores, acquisition_model_sha256="d" * 64))
 
     def test_manifest_hash_detects_tampering(self):
         rows = []
@@ -258,6 +288,37 @@ class CohortTests(unittest.TestCase):
         tampered["selected"][0]["point_id"] = "replacement"
         with self.assertRaisesRegex(ValueError, "hash"):
             verified_manifest(tampered)
+
+    def test_media_audit_rejects_duplicate_clip_content_across_recordings(self):
+        rows = []
+        for venue in VENUES:
+            rows.extend(recording(venue, number) for number in range(1, 4))
+        manifest = build_cohort_manifest(rows)
+        entries = []
+        for item in [*manifest["selected"], *manifest["round_b_pool"]]:
+            entries.append(
+                {
+                    "point_id": item["point_id"],
+                    "media_sha256": canonical_hash({"point": item["point_id"]}),
+                    "proposal_sha256": "f" * 64,
+                    "candidate_count": 12,
+                }
+            )
+        recording_ids = sorted({item["recording_id"] for item in manifest["selected"]})
+        first = next(item for item in manifest["selected"] if item["recording_id"] == recording_ids[0])
+        second = next(item for item in manifest["selected"] if item["recording_id"] == recording_ids[1])
+        duplicate_hash = "e" * 64
+        next(item for item in entries if item["point_id"] == first["point_id"])["media_sha256"] = duplicate_hash
+        next(item for item in entries if item["point_id"] == second["point_id"])["media_sha256"] = duplicate_hash
+        audit = {
+            "schema_version": 1,
+            "manifest_sha256": manifest["manifest_sha256"],
+            "entries": entries,
+        }
+        audit["audit_sha256"] = canonical_hash(audit)
+
+        with self.assertRaisesRegex(ValueError, "duplicate clip content"):
+            verified_media_audit(audit, manifest)
 
 
 class SeedValidationTests(unittest.TestCase):
