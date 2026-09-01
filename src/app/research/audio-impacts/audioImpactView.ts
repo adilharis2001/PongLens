@@ -154,6 +154,18 @@ export function previousReviewTarget(
   return currentIndex > 0 ? targetOf(events[currentIndex - 1]) : null;
 }
 
+export function previousReviewTargetInPoint(
+  assignments: readonly AudioImpactResearchAssignment[],
+  assignmentId: string,
+  eventId: string,
+): AudioImpactReviewTarget | null {
+  const events = orderedReviewEvents(assignments).filter(
+    (item) => item.assignment_id === assignmentId,
+  );
+  const currentIndex = events.findIndex((item) => item.event_id === eventId);
+  return currentIndex > 0 ? targetOf(events[currentIndex - 1]) : null;
+}
+
 export function filterAudioImpactAssignments(
   assignments: readonly AudioImpactResearchAssignment[],
   filters: AudioImpactFilters,

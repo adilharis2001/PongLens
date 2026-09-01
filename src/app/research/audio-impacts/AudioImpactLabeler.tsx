@@ -27,8 +27,9 @@ import {
   canReviewAudioImpact,
   filterAudioImpactAssignments,
   firstReviewTarget,
-  nextReviewTarget,
-  previousReviewTarget,
+  nextReviewTargetInPoint,
+  pointReviewState,
+  previousReviewTargetInPoint,
   queueWithActive,
   shouldReloadAudioImpactMedia,
   type AudioImpactReviewTarget,
@@ -72,9 +73,19 @@ const LABELS: Record<
     description: "The match ball bounces on the floor.",
   },
   shoe: {
+    key: "H",
+    title: "Shoe / footstep",
+    description: "An ordinary footstep or non-squeaking shoe movement.",
+  },
+  shoe_squeak: {
+    key: "Q",
+    title: "Shoe squeak",
+    description: "A distinct friction or squeaking sound from a shoe.",
+  },
+  stomp: {
     key: "S",
-    title: "Shoe / stomp",
-    description: "A footfall, shoe squeak, or serving stomp.",
+    title: "Stomp",
+    description: "A strong, heavy foot strike, often during a serve.",
   },
   net: {
     key: "N",
@@ -168,6 +179,18 @@ export function AudioImpactLabeler({
   const [looping, setLooping] = useState(true);
   const [playbackSpeed, setPlaybackSpeedState] = useState(1);
   const [naturalPlaybackSeen, setNaturalPlaybackSeen] = useState(false);
+  const [contextReadyAssignmentIds, setContextReadyAssignmentIds] = useState(
+    () =>
+      new Set(
+        initialAssignments
+          .filter(
+            (item) =>
+              item.status !== "not_started" ||
+              item.review_metrics?.full_context_played === true,
+          )
+          .map((item) => item.id),
+      ),
+  );
   const videoRef = useRef<HTMLVideoElement>(null);
   const openedAt = useRef(Date.now());
   const playbackCount = useRef(
@@ -215,6 +238,22 @@ export function AudioImpactLabeler({
     [assignments, completionFilter, roundFilter, venueFilter],
   );
   const queue = queueWithActive(visible, assignment);
+  const orderedAssignments = useMemo(
+    () => [...assignments].sort((left, right) => left.sequence - right.sequence),
+    [assignments],
+  );
+  const pointIndex = orderedAssignments.findIndex(
+    (item) => item.id === assignment?.id,
+  );
+  const pointNumber = pointIndex + 1;
+  const nextPointNumber = Math.min(pointNumber + 1, orderedAssignments.length);
+  const currentEventIndex = label.events.findIndex(
+    (event) => event.id === currentEvent?.id,
+  );
+  const currentPointState = pointReviewState(label);
+  const contextReady = assignment
+    ? contextReadyAssignmentIds.has(assignment.id)
+    : false;
   const progress = audioImpactProgress(
     assignments.map((item) => ({
       status: item.status,
@@ -231,6 +270,7 @@ export function AudioImpactLabeler({
   const assignmentRound = assignment?.source.prefill.round ?? null;
   const reviewEnabled =
     canReviewAudioImpact(mediaState, saveState) &&
+    contextReady &&
     naturalPlaybackSeen &&
     assignmentRound !== null &&
     editableRounds.includes(assignmentRound);
@@ -347,14 +387,12 @@ export function AudioImpactLabeler({
       setPendingSave(null);
       setHistory((current) => [...current.slice(-19), saved]);
       if (saved.advance) {
-        openTarget(
-          nextReviewTarget(
-            updatedAssignments,
-            saved.target.assignment_id,
-            saved.target.event_id,
-          ),
-          true,
+        const next = nextReviewTargetInPoint(
+          updatedAssignments,
+          saved.target.assignment_id,
+          saved.target.event_id,
         );
+        if (next) openTarget(next, true);
       }
     },
     [assignments, openTarget],
@@ -466,12 +504,16 @@ export function AudioImpactLabeler({
     const updatedAssignments = assignments.map((item) =>
       item.id === updated.id ? updated : item,
     );
-    openTarget(
+    const laterOpenAssignments = updatedAssignments.filter(
+      (item) =>
+        item.status !== "submitted" && item.sequence > assignment.sequence,
+    );
+    const nextPointTarget =
+      firstReviewTarget(laterOpenAssignments) ??
       firstReviewTarget(
         updatedAssignments.filter((item) => item.status !== "submitted"),
-      ),
-      true,
-    );
+      );
+    if (nextPointTarget) openTarget(nextPointTarget, true);
   }, [assignment, assignments, label, openTarget, persist, reviewEnabled, target]);
 
   const setPlaybackSpeed = useCallback((speed: number) => {
@@ -494,6 +536,18 @@ export function AudioImpactLabeler({
     fullContextPlayed.current = true;
     void video.play().catch(() => undefined);
   }, []);
+
+  const startPointReview = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !assignment) return;
+    setLooping(false);
+    setNaturalPlaybackSeen(false);
+    video.currentTime = 0;
+    video.playbackRate = 1;
+    setPlaybackSpeedState(1);
+    fullContextPlayed.current = true;
+    void video.play().catch(() => undefined);
+  }, [assignment]);
 
   const markMediaUnavailable = useCallback(
     async (id: string, errorMessage: string) => {
@@ -559,12 +613,19 @@ export function AudioImpactLabeler({
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !mediaUrl || !loopWindow) return;
+    if (!contextReady) {
+      setLooping(false);
+      setPlaybackSpeedState(1);
+      video.playbackRate = 1;
+      video.currentTime = 0;
+      return;
+    }
     setLooping(true);
     setPlaybackSpeedState(1);
     video.playbackRate = 1;
     video.currentTime = loopWindow.start_s;
     void video.play().catch(() => undefined);
-  }, [currentEvent?.id, loopWindow, mediaUrl]);
+  }, [contextReady, currentEvent?.id, loopWindow, mediaUrl]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -635,7 +696,7 @@ export function AudioImpactLabeler({
             <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-glow">
               Pong Lens Research
             </p>
-            <h1 className="text-xl font-bold">What made this sound?</h1>
+            <h1 className="text-xl font-bold">Label sounds inside each point</h1>
           </div>
           <span className="rounded-full border border-edge px-3 py-1 text-xs">
             {progress.labeled_sounds}/{progress.total_sounds} labeled sounds
@@ -674,10 +735,10 @@ export function AudioImpactLabeler({
         <aside className="space-y-3 rounded-2xl border border-edge bg-surface/90 p-3 xl:sticky xl:top-20 xl:h-[calc(100vh-6rem)] xl:overflow-y-auto">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
-              Queue
+              Points
             </p>
             <p className="mt-1 text-xs text-zinc-400">
-              Filter points; progress always counts the full batch.
+              Finish every marked sound in one point before moving to the next.
             </p>
           </div>
           <select
@@ -749,7 +810,7 @@ export function AudioImpactLabeler({
             >
               {queue.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.sequence} · {item.source.match_label} · point {item.source.source_point_idx}
+                  Point {orderedAssignments.findIndex((candidate) => candidate.id === item.id) + 1} · {item.source.match_label} · source {item.source.source_point_idx}
                   {item.status === "submitted" ? " · complete" : ""}
                 </option>
               ))}
@@ -768,10 +829,13 @@ export function AudioImpactLabeler({
             </button>
           </div>
           <div className="space-y-1 border-t border-edge pt-3 text-xs text-zinc-400">
+            <p className="text-sm font-bold text-cyan-100">
+              Point {pointNumber} of {orderedAssignments.length}
+            </p>
             <p className="font-semibold text-zinc-200">{assignment.source.match_label}</p>
             <p>{assignment.source.venue_label ?? "Unknown venue"}</p>
             <p>
-              Round {assignment.source.prefill.round} · point {assignment.source.source_point_idx}
+              Round {assignment.source.prefill.round} · original match point {assignment.source.source_point_idx}
             </p>
             {assignment.source.prefill.round === "C" && (
               <p className="rounded-lg bg-amber-500/10 p-2 text-amber-200">
@@ -786,16 +850,67 @@ export function AudioImpactLabeler({
             <div className="mb-3 flex flex-wrap items-end gap-3">
               <div className="mr-auto">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
-                  Sound {label.events.findIndex((event) => event.id === currentEvent.id) + 1} of {label.events.length}
+                  Point {pointNumber} of {orderedAssignments.length}
                 </p>
                 <h2 className="mt-1 text-xl font-bold">
-                  Listen at normal speed first
+                  {assignment.source.match_label}
                 </h2>
+                <p className="mt-1 text-sm text-zinc-400">
+                  {assignment.source.venue_label ?? "Unknown venue"} · original match point {assignment.source.source_point_idx}
+                </p>
               </div>
-              <span className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-300">
-                {currentEvent.time_s.toFixed(3)} s
-              </span>
+              {contextReady && (
+                <span className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-300">
+                  Sound {currentEventIndex + 1} of {label.events.length} · {currentEvent.time_s.toFixed(3)} s
+                </span>
+              )}
             </div>
+            {!contextReady && (
+              <div className="mb-3 rounded-xl border border-cyan-glow/30 bg-cyan-glow/10 p-4">
+                <p className="text-lg font-bold text-cyan-50">
+                  First, watch this whole point
+                </p>
+                <p className="mt-1 text-sm text-cyan-100/75">
+                  This point contains {label.events.length} marked sounds. After the video ends, you’ll label those sounds one at a time without leaving this point.
+                </p>
+              </div>
+            )}
+            {contextReady && (
+              <div className="mb-3">
+                <p className="text-sm font-semibold text-zinc-100">
+                  Sound {currentEventIndex + 1} of {label.events.length} in this point
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2" aria-label="Sounds in this point">
+                  {label.events.map((event, index) => {
+                    const active = event.id === currentEvent.id;
+                    const answered = event.kind !== null;
+                    return (
+                      <button
+                        key={event.id}
+                        type="button"
+                        disabled={navigationBlocked}
+                        onClick={() =>
+                          openTarget({
+                            assignment_id: assignment.id,
+                            event_id: event.id,
+                          })
+                        }
+                        aria-label={`Sound ${index + 1}: ${answered ? LABELS[event.kind!].title : "unanswered"}`}
+                        className={`min-w-9 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition disabled:opacity-40 ${
+                          active
+                            ? "border-cyan-glow bg-cyan-glow text-ink"
+                            : answered
+                              ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                              : "border-edge bg-ink/40 text-zinc-400"
+                        }`}
+                      >
+                        {index + 1}{answered ? " ✓" : ""}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div className="overflow-hidden rounded-xl bg-black">
               {mediaUrl ? (
                 <video
@@ -852,6 +967,15 @@ export function AudioImpactLabeler({
                     }
                   }}
                   onEnded={() => {
+                    if (!contextReady) {
+                      setContextReadyAssignmentIds((current) => {
+                        const next = new Set(current);
+                        next.add(assignment.id);
+                        return next;
+                      });
+                      setNaturalPlaybackSeen(false);
+                      return;
+                    }
                     if (looping && loopWindow && videoRef.current) {
                       videoRef.current.currentTime = loopWindow.start_s;
                       void videoRef.current.play().catch(() => undefined);
@@ -864,6 +988,16 @@ export function AudioImpactLabeler({
                 </div>
               )}
             </div>
+            {!contextReady ? (
+              <button
+                type="button"
+                disabled={mediaState !== "ready"}
+                onClick={startPointReview}
+                className="mt-3 w-full rounded-xl bg-cyan-glow px-4 py-3 text-sm font-bold text-ink disabled:opacity-40"
+              >
+                Watch full point, then start labeling
+              </button>
+            ) : (
             <div className="mt-3 rounded-xl border border-edge bg-ink/40 p-3">
               <svg
                 viewBox="0 0 1000 52"
@@ -927,6 +1061,7 @@ export function AudioImpactLabeler({
                 </button>
               </div>
             </div>
+            )}
           </article>
           {message && (
             <div
@@ -948,13 +1083,36 @@ export function AudioImpactLabeler({
         </section>
 
         <aside className="space-y-4 xl:sticky xl:top-20 xl:h-[calc(100vh-6rem)] xl:overflow-y-auto">
+          {!contextReady ? (
+            <article className="rounded-2xl border border-cyan-glow/25 bg-surface/95 p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
+                Point {pointNumber} setup
+              </p>
+              <h2 className="mt-1 text-lg font-bold">What you’ll do</h2>
+              <ol className="mt-4 space-y-3 text-sm text-zinc-300">
+                <li className="rounded-xl border border-edge bg-ink/35 p-3">
+                  <strong className="text-zinc-100">1. Watch this point once.</strong>
+                  <span className="mt-1 block text-xs text-zinc-400">This makes it clear which game point you are reviewing.</span>
+                </li>
+                <li className="rounded-xl border border-edge bg-ink/35 p-3">
+                  <strong className="text-zinc-100">2. Label each marked sound.</strong>
+                  <span className="mt-1 block text-xs text-zinc-400">You will stay inside this point for all {label.events.length} sounds.</span>
+                </li>
+                <li className="rounded-xl border border-edge bg-ink/35 p-3">
+                  <strong className="text-zinc-100">3. Finish the point.</strong>
+                  <span className="mt-1 block text-xs text-zinc-400">The next point opens only after you explicitly finish this one.</span>
+                </li>
+              </ol>
+            </article>
+          ) : (
+          <>
           <article className="rounded-2xl border border-cyan-glow/25 bg-surface/95 p-4">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
-              Choose one · keyboard enabled
+              Point {pointNumber} · sound {currentEventIndex + 1} of {label.events.length}
             </p>
-            <h2 className="mt-1 text-lg font-bold">What is the marked sound?</h2>
+            <h2 className="mt-1 text-lg font-bold">Label sound {currentEventIndex + 1}</h2>
             <p className="mt-1 text-sm text-zinc-400">
-              Classify the visible match. Sounds from other games are Background court.
+              Listen to the short loop and identify the sound at the pink marker. Sounds from other games are Background court.
             </p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
               {AUDIO_IMPACT_KINDS.map((kind) => {
@@ -988,6 +1146,26 @@ export function AudioImpactLabeler({
           </article>
 
           <article className="rounded-2xl border border-edge bg-surface/90 p-4">
+            <div className="mb-4 rounded-xl border border-edge bg-ink/35 p-3">
+              <p className="text-sm font-bold text-zinc-100">
+                {currentPointState.complete
+                  ? `All ${currentPointState.total} sounds are labeled`
+                  : `${currentPointState.answered} of ${currentPointState.total} sounds labeled`}
+              </p>
+              {currentPointState.complete ? (
+                <ol className="mt-2 grid grid-cols-2 gap-1 text-xs text-zinc-400">
+                  {label.events.map((event, index) => (
+                    <li key={event.id}>
+                      {index + 1}. {event.kind ? LABELS[event.kind].title : "Unanswered"}
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="mt-1 text-xs text-zinc-400">
+                  Finish the remaining sounds in this point before moving on.
+                </p>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
@@ -1002,7 +1180,7 @@ export function AudioImpactLabeler({
                 disabled={navigationBlocked}
                 onClick={() =>
                   openTarget(
-                    previousReviewTarget(
+                    previousReviewTargetInPoint(
                       assignments,
                       target.assignment_id,
                       target.event_id,
@@ -1023,14 +1201,18 @@ export function AudioImpactLabeler({
               </button>
               <button
                 type="button"
-                disabled={!reviewEnabled}
+                disabled={!reviewEnabled || !currentPointState.complete}
                 onClick={() => void completePoint()}
                 className="col-span-2 rounded-lg bg-cyan-glow px-3 py-3 text-sm font-bold text-ink disabled:opacity-50"
               >
-                Point complete
+                {pointIndex < orderedAssignments.length - 1
+                  ? `Finish Point ${pointNumber} and open Point ${nextPointNumber}`
+                  : `Finish Point ${pointNumber}`}
               </button>
             </div>
           </article>
+          </>
+          )}
         </aside>
       </div>
     </main>

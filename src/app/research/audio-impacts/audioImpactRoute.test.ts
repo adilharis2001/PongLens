@@ -86,7 +86,9 @@ test("reviewer exposes every plain-language class without model hints", () => {
     "Paddle",
     "Table",
     "Ball on floor",
-    "Shoe / stomp",
+    "Shoe / footstep",
+    "Shoe squeak",
+    "Stomp",
     "Net",
     "Background court",
     "Other",
@@ -95,7 +97,23 @@ test("reviewer exposes every plain-language class without model hints", () => {
   ]) {
     assert.match(labeler, new RegExp(text.replace("/", "\\/")));
   }
+  assert.doesNotMatch(labeler, /Shoe \/ stomp/);
   assert.doesNotMatch(labeler, /detector_scores|candidate\.strength|confidence hint/i);
+});
+
+test("reviewer makes the point-first hierarchy and transitions explicit", () => {
+  const labeler = read("./AudioImpactLabeler.tsx");
+
+  for (const text of [
+    "Watch full point, then start labeling",
+    "sounds in this point",
+    "Label sound",
+    "Finish Point",
+    "and open Point",
+  ]) {
+    assert.match(labeler, new RegExp(text));
+  }
+  assert.match(labeler, /nextReviewTargetInPoint/);
 });
 
 test("reviewer starts naturally, supports deliberate replay speeds, and guards shortcuts", () => {
@@ -108,6 +126,6 @@ test("reviewer starts naturally, supports deliberate replay speeds, and guards s
   assert.match(labeler, /Undo/);
   assert.match(labeler, /Previous/);
   assert.match(labeler, /Add missed sound/);
-  assert.match(labeler, /Point complete/);
+  assert.match(labeler, /Finish Point/);
   assert.match(labeler, /labeled sounds/);
 });

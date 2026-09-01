@@ -8,6 +8,7 @@ import {
   nextReviewTargetInPoint,
   pointReviewState,
   previousReviewTarget,
+  previousReviewTargetInPoint,
   queueWithActive,
   shouldReloadAudioImpactMedia,
 } from "./audioImpactView.ts";
@@ -159,6 +160,19 @@ test("previous target follows chronological review order even when answered", ()
     event_id: "one-2",
   });
   assert.equal(previousReviewTarget(assignments, "one", "one-1"), null);
+});
+
+test("the in-point previous control never crosses into another point", () => {
+  const assignments = [
+    assignment("one", 1, ["paddle", "table"]),
+    assignment("two", 2, [null, null]),
+  ];
+
+  assert.equal(previousReviewTargetInPoint(assignments, "two", "two-1"), null);
+  assert.deepEqual(
+    previousReviewTargetInPoint(assignments, "two", "two-2"),
+    { assignment_id: "two", event_id: "two-1" },
+  );
 });
 
 test("venue, round, and completion filters compose", () => {
