@@ -198,12 +198,14 @@ test("progress counts sounds separately from submitted points", () => {
   );
 });
 
-test("the nine one-key shortcuts map to distinct labels", () => {
+test("the eleven one-key shortcuts map to distinct labels", () => {
   assert.deepEqual(AUDIO_IMPACT_KINDS, [
     "paddle",
     "table",
     "floor",
     "shoe",
+    "shoe_squeak",
+    "stomp",
     "net",
     "background",
     "other",
@@ -211,12 +213,12 @@ test("the nine one-key shortcuts map to distinct labels", () => {
     "unsure",
   ]);
   assert.deepEqual(
-    ["p", "T", "f", "S", "n", "B", "o", "X", "u"].map(
+    ["p", "T", "f", "H", "q", "S", "n", "B", "o", "X", "u"].map(
       audioImpactKindForShortcut,
     ),
     AUDIO_IMPACT_KINDS,
   );
-  assert.equal(audioImpactKindForShortcut("q"), null);
+  assert.equal(audioImpactKindForShortcut("z"), null);
 });
 
 test("shortcuts are ignored for editable and interactive targets", () => {

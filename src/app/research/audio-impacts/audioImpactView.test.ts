@@ -5,7 +5,8 @@ import {
   canReviewAudioImpact,
   filterAudioImpactAssignments,
   firstReviewTarget,
-  nextReviewTarget,
+  nextReviewTargetInPoint,
+  pointReviewState,
   previousReviewTarget,
   queueWithActive,
   shouldReloadAudioImpactMedia,
@@ -109,23 +110,42 @@ test("next unresolved sound advances within the point before the next point", ()
     assignment("two", 2, [null]),
   ];
 
-  assert.deepEqual(nextReviewTarget(assignments, "one", "one-1"), {
+  assert.deepEqual(nextReviewTargetInPoint(assignments, "one", "one-1"), {
     assignment_id: "one",
     event_id: "one-2",
   });
 });
 
-test("next target wraps to the next point and then the first unresolved sound", () => {
+test("labeling the final sound never crosses into the next point", () => {
   const assignments = [
     assignment("one", 1, ["paddle", "table"]),
     assignment("two", 2, [null]),
   ];
 
-  assert.deepEqual(nextReviewTarget(assignments, "one", "one-2"), {
-    assignment_id: "two",
-    event_id: "two-1",
-  });
-  assert.equal(nextReviewTarget([assignment("done", 1, ["paddle"])], "done", "done-1"), null);
+  assert.equal(nextReviewTargetInPoint(assignments, "one", "one-2"), null);
+  assert.equal(
+    nextReviewTargetInPoint(
+      [assignment("done", 1, ["paddle"])],
+      "done",
+      "done-1",
+    ),
+    null,
+  );
+});
+
+test("point review state counts answered sounds without trusting submission status", () => {
+  assert.deepEqual(
+    pointReviewState(
+      assignment("one", 1, ["paddle", null, "shoe_squeak"]).human_label!,
+    ),
+    { answered: 2, total: 3, complete: false },
+  );
+  assert.deepEqual(
+    pointReviewState(
+      assignment("done", 1, ["paddle", "stomp"]).human_label!,
+    ),
+    { answered: 2, total: 2, complete: true },
+  );
 });
 
 test("previous target follows chronological review order even when answered", () => {

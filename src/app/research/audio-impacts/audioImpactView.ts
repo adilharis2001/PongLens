@@ -1,6 +1,7 @@
 import {
   hydrateAudioImpactLabel,
   type AudioImpactHumanEvent,
+  type AudioImpactHumanLabel,
 } from "../../../lib/research/audioImpacts.ts";
 import type {
   AudioImpactResearchAssignment,
@@ -112,6 +113,32 @@ export function nextReviewTarget(
     .slice(currentIndex + 1)
     .find((item) => item.event.kind === null);
   return next ? targetOf(next) : null;
+}
+
+export function nextReviewTargetInPoint(
+  assignments: readonly AudioImpactResearchAssignment[],
+  assignmentId: string,
+  eventId: string,
+): AudioImpactReviewTarget | null {
+  const events = orderedReviewEvents(assignments).filter(
+    (item) => item.assignment_id === assignmentId,
+  );
+  const currentIndex = events.findIndex((item) => item.event_id === eventId);
+  if (currentIndex < 0) return null;
+  const next = events
+    .slice(currentIndex + 1)
+    .find((item) => item.event.kind === null);
+  return next ? targetOf(next) : null;
+}
+
+export function pointReviewState(label: AudioImpactHumanLabel): {
+  answered: number;
+  total: number;
+  complete: boolean;
+} {
+  const answered = label.events.filter((event) => event.kind !== null).length;
+  const total = label.events.length;
+  return { answered, total, complete: total > 0 && answered === total };
 }
 
 export function previousReviewTarget(
