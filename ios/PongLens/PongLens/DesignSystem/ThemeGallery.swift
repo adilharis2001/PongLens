@@ -42,6 +42,25 @@ struct ThemeGallery: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
+                        SectionHeading("Spoken score editor")
+                        // The hands-on fallback from the details sheet:
+                        // fix a game the microphone got wrong, or add one
+                        // it never heard. Rendered inline rather than as
+                        // a sheet so the gallery can show it.
+                        SpokenScoreEditor(
+                            youLabel: "Adil",
+                            fixedGame: nil,
+                            freeGames: [3, 5, 6, 7],
+                            initialYou: 11,
+                            initialThem: 0,
+                            canRemove: false,
+                            onSave: { _, _, _ in },
+                            onRemove: { _ in })
+                        .frame(height: 400)
+                        .frame(maxWidth: .infinity)
+                        .background(PL.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+
                         SectionHeading("Recording strip and scoreboard")
                         // Both overlays as they sit over the viewfinder:
                         // the strip top-centre, the board in the corner.
