@@ -240,7 +240,7 @@ Query batch `audio-impact-labeling-recent-v1` and assert exactly seven Round A a
 
 - [ ] **Step 7: Reset the seven exact assignments transactionally**
 
-For the resolved assignment IDs only, set `status = 'not_started'`, `human_label = NULL`, `review_metrics = NULL`, `started_at = NULL`, and `submitted_at = NULL`. Do not delete rows. Perform the update through an exact ID list in one database transaction.
+In one database transaction, resolve and lock the exact touched assignment rows, reassert the seven-assignment/14-label preconditions, and rebuild each `human_label` as a schema-version-one blank envelope from that source's frozen proposal candidates (`kind = null`, `sequence_complete = false`). Set `status = 'not_started'`, `review_metrics = '{}'::jsonb`, `started_at = NULL`, and `submitted_at = NULL`. Do not delete rows, and do not write `NULL` to either non-null JSONB column.
 
 - [ ] **Step 8: Verify the reset and production health**
 

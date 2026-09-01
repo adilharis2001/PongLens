@@ -83,9 +83,9 @@ The new taxonomy must be accepted consistently by the UI types, validation helpe
 After the corrected application and database taxonomy are deployed, reset only the review work created during the confusing session in batch `audio-impact-labeling-recent-v1`:
 
 - 14 labeled events across seven Round A assignments
-- assignment status, `human_label`, review metrics, and start/submission timestamps for those seven assignments
+- assignment status, event answers, review metrics, and start/submission timestamps for those seven assignments
 
-The reset preserves the batch, reviewer, source rows, protected media, frozen detector proposals, event markers, assignment IDs, sequence order, lifecycle state, and all untouched assignments. The reset is an exact targeted update, not a deletion of the study corpus.
+The reset preserves the batch, reviewer, source rows, protected media, frozen detector proposals, event markers, assignment IDs, sequence order, lifecycle state, and all untouched assignments. Each non-null `human_label` is rebuilt as a valid blank envelope from its source's frozen candidates; `review_metrics` becomes an empty JSON object. The reset is an exact targeted update inside one row-locking transaction, not a deletion of the study corpus.
 
 The reset is intentionally performed after deployment so the next review session begins with the point-first flow and expanded taxonomy. Counts are verified before and after the transaction.
 

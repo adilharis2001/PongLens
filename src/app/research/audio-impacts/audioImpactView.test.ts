@@ -5,6 +5,8 @@ import {
   canReviewAudioImpact,
   filterAudioImpactAssignments,
   firstReviewTarget,
+  isVerifiedFullContextPlayback,
+  nextOpenPointTarget,
   nextReviewTargetInPoint,
   pointReviewState,
   roundPointPosition,
@@ -166,6 +168,58 @@ test("point numbering restarts inside each research round", () => {
     number: 2,
     total: 2,
   });
+});
+
+test("explicit point completion skips submitted points and can wrap", () => {
+  const assignments = [
+    assignment("one", 1, ["paddle"]),
+    assignment("two", 2, ["table"], { status: "submitted" }),
+    assignment("three", 3, [null]),
+  ];
+
+  assert.deepEqual(nextOpenPointTarget(assignments, "one"), {
+    assignment_id: "three",
+    event_id: "three-1",
+  });
+  assert.deepEqual(nextOpenPointTarget(assignments, "three"), {
+    assignment_id: "one",
+    event_id: "one-1",
+  });
+  assert.equal(
+    nextOpenPointTarget(
+      [assignment("only", 1, ["paddle"], { status: "submitted" })],
+      "only",
+    ),
+    null,
+  );
+});
+
+test("full-point context unlocks only after an unskipped normal-speed ending", () => {
+  const complete = {
+    started_at_zero: true,
+    invalidated: false,
+    playback_rate: 1,
+    current_time_s: 5.98,
+    duration_s: 6,
+  };
+
+  assert.equal(isVerifiedFullContextPlayback(complete), true);
+  assert.equal(
+    isVerifiedFullContextPlayback({ ...complete, invalidated: true }),
+    false,
+  );
+  assert.equal(
+    isVerifiedFullContextPlayback({ ...complete, playback_rate: 1.5 }),
+    false,
+  );
+  assert.equal(
+    isVerifiedFullContextPlayback({ ...complete, current_time_s: 4 }),
+    false,
+  );
+  assert.equal(
+    isVerifiedFullContextPlayback({ ...complete, started_at_zero: false }),
+    false,
+  );
 });
 
 test("previous target follows chronological review order even when answered", () => {

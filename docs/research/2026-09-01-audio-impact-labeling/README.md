@@ -11,9 +11,11 @@ The protected desktop reviewer is:
 - Local: <http://localhost:3000/research/audio-impacts>
 - Batch slug: `audio-impact-labeling-recent-v1`
 
-The nine stored answers are paddle, table, floor, shoe/stomp, net, background
-court, other, no clear impact, and unsure. `unsure` completes a review answer
-but is excluded from training and evaluation.
+The eleven stored answers are paddle, table, floor, shoe/footstep, shoe squeak,
+stomp, net, background court, other, no clear impact, and unsure. `unsure`
+completes a review answer but is excluded from training and evaluation. The
+older combined shoe/stomp taxonomy is superseded by these three distinct foot
+classes.
 
 ## Prerequisites
 
@@ -102,7 +104,8 @@ During the first checkpoint:
   each newly exposed B and C recording, covering all nine by study end.
 - Confirm paddle/table distinctions in both quiet PingPod and the noisier
   Westchester/LYTTC recordings.
-- Confirm shoe/stomp is used for foot impact, not general club noise.
+- Keep ordinary shoe/footstep, friction-based shoe squeak, and a heavy stomp
+  distinct; use Other or Background court for unrelated club noise.
 - Confirm every completed point has an explicit answer for every marker.
 
 ## Select and label adaptive Round B
@@ -260,7 +263,7 @@ Otherwise it leaves the pending evidence untouched for investigation.
 ## Reading the report
 
 Reports include confusion matrices; precision, recall, F1, and counts for all
-eight trainable classes; macro F1; paddle/table balanced accuracy and ROC AUC;
+ten trainable classes; macro F1; paddle/table balanced accuracy and ROC AUC;
 abstention coverage; and separate recording and venue summaries. Classes with
 fewer than 30 A/B examples or 15 C examples are marked `data_insufficient`
 without being merged.
@@ -273,8 +276,9 @@ Research gates:
   `selective_paddle_table_balanced_accuracy` with at least 70% coverage in
   every supported venue, and only if false audio impacts do not degrade the
   downstream visual benchmark. Retain end-to-end balanced accuracy separately.
-- Floor, shoe/stomp, net, and background remain rejection/confound labels until
-  each independently clears the same per-venue gate with sufficient data.
+- Floor, shoe/footstep, shoe squeak, stomp, net, and background remain
+  rejection/confound labels until each independently clears the same per-venue
+  gate with sufficient data.
 
 No Round C result may be used to revise this batch's features, classes,
 threshold, or model. Any revision starts a newly versioned, newly sealed batch.

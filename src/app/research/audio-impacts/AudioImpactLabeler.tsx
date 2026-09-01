@@ -27,6 +27,8 @@ import {
   canReviewAudioImpact,
   filterAudioImpactAssignments,
   firstReviewTarget,
+  isVerifiedFullContextPlayback,
+  nextOpenPointTarget,
   nextReviewTargetInPoint,
   pointReviewState,
   previousReviewTargetInPoint,
@@ -51,7 +53,8 @@ interface PendingSave {
   label: AudioImpactHumanLabel;
   previous_label: AudioImpactHumanLabel;
   status: AudioImpactResearchAssignment["status"];
-  advance: boolean;
+  advance: "sound" | "point" | "none";
+  history_action: "append" | "pop" | "none";
 }
 
 const LABELS: Record<
@@ -181,16 +184,7 @@ export function AudioImpactLabeler({
   const [playbackSpeed, setPlaybackSpeedState] = useState(1);
   const [naturalPlaybackSeen, setNaturalPlaybackSeen] = useState(false);
   const [contextReadyAssignmentIds, setContextReadyAssignmentIds] = useState(
-    () =>
-      new Set(
-        initialAssignments
-          .filter(
-            (item) =>
-              item.status !== "not_started" ||
-              item.review_metrics?.full_context_played === true,
-          )
-          .map((item) => item.id),
-      ),
+    () => new Set<string>(),
   );
   const videoRef = useRef<HTMLVideoElement>(null);
   const openedAt = useRef(Date.now());
@@ -209,6 +203,8 @@ export function AudioImpactLabeler({
   const fullContextPlayed = useRef(
     initialAssignment?.review_metrics?.full_context_played ?? false,
   );
+  const fullContextStartedAtZero = useRef(false);
+  const fullContextInvalidated = useRef(false);
   const supabase = useMemo(() => createClient(), []);
 
   const assignment =
@@ -242,7 +238,15 @@ export function AudioImpactLabeler({
   const pointPosition = roundPointPosition(assignments, assignment?.id ?? "");
   const pointNumber = pointPosition.number;
   const pointTotal = pointPosition.total;
-  const nextPointNumber = Math.min(pointNumber + 1, pointTotal);
+  const nextPointTarget = assignment
+    ? nextOpenPointTarget(assignments, assignment.id)
+    : null;
+  const nextPointAssignment = nextPointTarget
+    ? assignments.find((item) => item.id === nextPointTarget.assignment_id) ?? null
+    : null;
+  const nextPointPosition = nextPointAssignment
+    ? roundPointPosition(assignments, nextPointAssignment.id)
+    : null;
   const currentEventIndex = label.events.findIndex(
     (event) => event.id === currentEvent?.id,
   );
@@ -302,6 +306,9 @@ export function AudioImpactLabeler({
       if (reloadMedia) {
         setLabel(labelForAssignment(nextAssignment));
         resetMetrics(nextAssignment);
+        setHistory([]);
+        fullContextStartedAtZero.current = false;
+        fullContextInvalidated.current = false;
       }
       setTarget(next);
       if (reloadMedia) {
@@ -381,13 +388,20 @@ export function AudioImpactLabeler({
         item.id === updated.id ? updated : item,
       );
       setPendingSave(null);
-      setHistory((current) => [...current.slice(-19), saved]);
-      if (saved.advance) {
+      if (saved.history_action === "append") {
+        setHistory((current) => [...current.slice(-19), saved]);
+      } else if (saved.history_action === "pop") {
+        setHistory((current) => current.slice(0, -1));
+      }
+      if (saved.advance === "sound") {
         const next = nextReviewTargetInPoint(
           updatedAssignments,
           saved.target.assignment_id,
           saved.target.event_id,
         );
+        if (next) openTarget(next, true);
+      } else if (saved.advance === "point") {
+        const next = nextOpenPointTarget(updatedAssignments, updated.id);
         if (next) openTarget(next, true);
       }
     },
@@ -407,7 +421,8 @@ export function AudioImpactLabeler({
         label: nextLabel,
         previous_label: previousLabel,
         status: "in_progress",
-        advance: true,
+        advance: "sound",
+        history_action: "append",
       };
       answerChanges.current += 1;
       setLabel(nextLabel);
@@ -431,19 +446,30 @@ export function AudioImpactLabeler({
 
   const undo = useCallback(async () => {
     const prior = history.at(-1);
-    if (!prior || navigationBlocked) return;
+    if (!prior || !assignment || prior.assignment_id !== assignment.id || navigationBlocked) {
+      return;
+    }
     const item = assignments.find(
       (candidate) => candidate.id === prior.assignment_id,
     );
     if (!item) return;
+    const pending: PendingSave = {
+      assignment_id: item.id,
+      target: prior.target,
+      label: prior.previous_label,
+      previous_label: label,
+      status: "in_progress",
+      advance: "none",
+      history_action: "pop",
+    };
     resetMetrics(item);
     setTarget(prior.target);
     setLabel(prior.previous_label);
     setDirty(true);
+    setPendingSave(pending);
     const updated = await persist(item, prior.previous_label, "in_progress");
-    if (!updated) return;
-    setHistory((current) => current.slice(0, -1));
-  }, [assignments, history, navigationBlocked, persist, resetMetrics]);
+    if (updated) finishSave(pending, updated);
+  }, [assignment, assignments, finishSave, history, label, navigationBlocked, persist, resetMetrics]);
 
   const addMissedSound = useCallback(async () => {
     if (!assignment || !videoRef.current || !reviewEnabled) return;
@@ -460,18 +486,19 @@ export function AudioImpactLabeler({
     setLabel(nextLabel);
     setTarget({ assignment_id: assignment.id, event_id: added.id });
     setDirty(true);
+    const pending: PendingSave = {
+      assignment_id: assignment.id,
+      target: { assignment_id: assignment.id, event_id: added.id },
+      label: nextLabel,
+      previous_label: label,
+      status: "in_progress",
+      advance: "none",
+      history_action: "none",
+    };
+    setPendingSave(pending);
     const updated = await persist(assignment, nextLabel, "in_progress");
-    if (!updated) {
-      setPendingSave({
-        assignment_id: assignment.id,
-        target: { assignment_id: assignment.id, event_id: added.id },
-        label: nextLabel,
-        previous_label: label,
-        status: "in_progress",
-        advance: false,
-      });
-    }
-  }, [assignment, label, persist, reviewEnabled]);
+    if (updated) finishSave(pending, updated);
+  }, [assignment, finishSave, label, persist, reviewEnabled]);
 
   const completePoint = useCallback(async () => {
     if (!assignment || !target || !reviewEnabled) return;
@@ -485,32 +512,19 @@ export function AudioImpactLabeler({
     }
     setLabel(nextLabel);
     setDirty(true);
+    const pending: PendingSave = {
+      assignment_id: assignment.id,
+      target,
+      label: nextLabel,
+      previous_label: label,
+      status: "submitted",
+      advance: "point",
+      history_action: "none",
+    };
+    setPendingSave(pending);
     const updated = await persist(assignment, nextLabel, "submitted");
-    if (!updated) {
-      setPendingSave({
-        assignment_id: assignment.id,
-        target,
-        label: nextLabel,
-        previous_label: label,
-        status: "submitted",
-        advance: true,
-      });
-      return;
-    }
-    const updatedAssignments = assignments.map((item) =>
-      item.id === updated.id ? updated : item,
-    );
-    const laterOpenAssignments = updatedAssignments.filter(
-      (item) =>
-        item.status !== "submitted" && item.sequence > assignment.sequence,
-    );
-    const nextPointTarget =
-      firstReviewTarget(laterOpenAssignments) ??
-      firstReviewTarget(
-        updatedAssignments.filter((item) => item.status !== "submitted"),
-      );
-    if (nextPointTarget) openTarget(nextPointTarget, true);
-  }, [assignment, assignments, label, openTarget, persist, reviewEnabled, target]);
+    if (updated) finishSave(pending, updated);
+  }, [assignment, finishSave, label, persist, reviewEnabled, target]);
 
   const setPlaybackSpeed = useCallback((speed: number) => {
     const video = videoRef.current;
@@ -529,7 +543,6 @@ export function AudioImpactLabeler({
     video.currentTime = 0;
     video.playbackRate = 1;
     setPlaybackSpeedState(1);
-    fullContextPlayed.current = true;
     void video.play().catch(() => undefined);
   }, []);
 
@@ -538,10 +551,12 @@ export function AudioImpactLabeler({
     if (!video || !assignment) return;
     setLooping(false);
     setNaturalPlaybackSeen(false);
+    fullContextStartedAtZero.current = true;
+    fullContextInvalidated.current = false;
+    fullContextPlayed.current = false;
     video.currentTime = 0;
     video.playbackRate = 1;
     setPlaybackSpeedState(1);
-    fullContextPlayed.current = true;
     void video.play().catch(() => undefined);
   }, [assignment]);
 
@@ -943,6 +958,16 @@ export function AudioImpactLabeler({
                       setNaturalPlaybackSeen(true);
                     }
                   }}
+                  onSeeking={(event) => {
+                    if (!contextReady && event.currentTarget.currentTime > 0.05) {
+                      fullContextInvalidated.current = true;
+                    }
+                  }}
+                  onRateChange={(event) => {
+                    if (!contextReady && event.currentTarget.playbackRate !== 1) {
+                      fullContextInvalidated.current = true;
+                    }
+                  }}
                   onTimeUpdate={(event) => {
                     const video = event.currentTarget;
                     if (
@@ -964,6 +989,24 @@ export function AudioImpactLabeler({
                   }}
                   onEnded={() => {
                     if (!contextReady) {
+                      const video = videoRef.current;
+                      const verified =
+                        video !== null &&
+                        isVerifiedFullContextPlayback({
+                          started_at_zero: fullContextStartedAtZero.current,
+                          invalidated: fullContextInvalidated.current,
+                          playback_rate: video.playbackRate,
+                          current_time_s: video.currentTime,
+                          duration_s: video.duration,
+                        });
+                      if (!verified) {
+                        fullContextPlayed.current = false;
+                        setMessage(
+                          "Please watch the full point from the beginning at normal speed without skipping.",
+                        );
+                        return;
+                      }
+                      fullContextPlayed.current = true;
                       setContextReadyAssignmentIds((current) => {
                         const next = new Set(current);
                         next.add(assignment.id);
@@ -1201,8 +1244,10 @@ export function AudioImpactLabeler({
                 onClick={() => void completePoint()}
                 className="col-span-2 rounded-lg bg-cyan-glow px-3 py-3 text-sm font-bold text-ink disabled:opacity-50"
               >
-                {pointNumber < pointTotal
-                  ? `Finish Point ${pointNumber} and open Point ${nextPointNumber}`
+                {nextPointAssignment && nextPointPosition
+                  ? nextPointAssignment.source.prefill.round === assignment.source.prefill.round
+                    ? `Finish Point ${pointNumber} and open Point ${nextPointPosition.number}`
+                    : `Finish Point ${pointNumber} and open Round ${nextPointAssignment.source.prefill.round} Point ${nextPointPosition.number}`
                   : `Finish Point ${pointNumber}`}
               </button>
             </div>

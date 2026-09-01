@@ -158,6 +158,43 @@ export function roundPointPosition(
   };
 }
 
+export function nextOpenPointTarget(
+  assignments: readonly AudioImpactResearchAssignment[],
+  currentAssignmentId: string,
+): AudioImpactReviewTarget | null {
+  const current = assignments.find((item) => item.id === currentAssignmentId);
+  if (!current) return null;
+  const open = assignments
+    .filter(
+      (item) =>
+        item.id !== currentAssignmentId && item.status !== "submitted",
+    )
+    .sort((left, right) => left.sequence - right.sequence);
+  const later = open.filter((item) => item.sequence > current.sequence);
+  return firstReviewTarget(later.length > 0 ? later : open);
+}
+
+export interface FullContextPlaybackEvidence {
+  started_at_zero: boolean;
+  invalidated: boolean;
+  playback_rate: number;
+  current_time_s: number;
+  duration_s: number;
+}
+
+export function isVerifiedFullContextPlayback(
+  evidence: FullContextPlaybackEvidence,
+): boolean {
+  return (
+    evidence.started_at_zero &&
+    !evidence.invalidated &&
+    evidence.playback_rate === 1 &&
+    Number.isFinite(evidence.duration_s) &&
+    evidence.duration_s > 0 &&
+    evidence.current_time_s >= evidence.duration_s - 0.05
+  );
+}
+
 export function previousReviewTarget(
   assignments: readonly AudioImpactResearchAssignment[],
   assignmentId: string,
