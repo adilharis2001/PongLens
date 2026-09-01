@@ -186,6 +186,11 @@ export interface Match {
   // pre-048 matches — the app falls back to the per-strictness table
   // (clipEdit.ts CLIP_PAD, the values those older clips were cut with).
   clip_pads?: { pre: number; post: number } | null;
+  // Game scores the player called out at the phone while recording (iOS
+  // "Call out the score", 152). What the player SAID, kept apart from the
+  // scores derived from points; "you" is the uploader's own score. Only
+  // fully-heard games are stored.
+  spoken_scores?: { game: number; you: number; them: number }[] | null;
   // Placement generation is optional and may fail without failing the match.
   placement_status: MatchPlacementStatus;
   placement_retry_count: 0 | 1;

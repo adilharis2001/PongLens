@@ -27,6 +27,7 @@ import {
   type GameEndOverride,
 } from "./gameScore";
 import { GamesPair, GamesToggle, ScoreLine } from "./ScoreLine";
+import { SpokenScoreCard } from "./SpokenScore";
 import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { HighlightsRow } from "./HighlightsRow";
 import { NoteComposer, NoteItem } from "./Notes";
@@ -2930,6 +2931,20 @@ export function MatchView({
             />
           </DownloadCard>
         </div>
+
+        {/* The score called out at the phone while recording, when there
+            is one. Sits above Tools because its moment is the hours
+            before the match is scored properly. */}
+        {(match.spoken_scores?.length ?? 0) > 0 && (
+          <section className="mt-8">
+            <SectionHeading>Spoken score</SectionHeading>
+            <SpokenScoreCard
+              scores={match.spoken_scores ?? []}
+              youLabel={ownSideName || "You"}
+              themLabel={opponentName.trim() || "Opponent"}
+            />
+          </section>
+        )}
 
         {/* A coach viewing someone's match is exactly who paid reviews are
             for; one dismissible line, never for the owner. */}
