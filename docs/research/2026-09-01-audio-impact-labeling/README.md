@@ -42,7 +42,9 @@ model artifacts, or reports containing research identifiers.
 The default builder is read-only. It chooses nine distinct recent recordings:
 three each from PingPod, Westchester, and LYTTC. The initial manifest freezes
 30 timeline-stratified Round A points, 30 sealed Round C points, and the entire
-eligible Round B pool. Round B's final 30 points do not exist yet.
+eligible Round B pool. Repeated raw objects, crop/recut names, byte-identical
+point content, and same-opponent sessions cannot cross rounds. Round B's final
+30 points do not exist yet.
 
 ```bash
 "$AUDIO_PYTHON" worker/build_audio_impact_research.py \
@@ -89,8 +91,9 @@ meaningful sound. Use `Unsure` instead of guessing.
 During the first checkpoint:
 
 - Finish every Round A assignment.
-- Spot-check at least one completed point from each of the nine recordings
-  using full-point context, and at least five completed points per venue.
+- Spot-check at least one completed point from each of the three currently
+  visible Round A recordings using full-point context. Repeat that check for
+  each newly exposed B and C recording, covering all nine by study end.
 - Confirm paddle/table distinctions in both quiet PingPod and the noisier
   Westchester/LYTTC recordings.
 - Confirm shoe/stomp is used for foot impact, not general club noise.
@@ -126,21 +129,24 @@ the final baseline; this checkpoint model is used only for acquisition:
   --scores-out "$AUDIO_RUN/round-b-scores.json"
 ```
 
-Use `model_sha256` from `round-a-model.json` to finalize and seed Round B:
+The score envelope already binds the exact acquisition model, feature
+definition, detector proposals, media audit, and initial manifest. Use it to
+finalize and seed Round B:
 
 ```bash
 "$AUDIO_PYTHON" worker/build_audio_impact_research.py \
   --manifest "$AUDIO_RUN/cohort-initial.json" \
   --round-b-scores "$AUDIO_RUN/round-b-scores.json" \
-  --round-b-model-sha '<model_sha256>' \
   --manifest-out "$AUDIO_RUN/cohort-final.json" \
   --audit "$AUDIO_RUN/cohort-initial.audit.json" \
   --seed
 ```
 
 The complete pool was frozen and audited before A. Selection combines model
-uncertainty with low-band confound novelty and deterministic tie breaks, then
-persists every score component and the acquisition model hash. The database
+uncertainty with predicted confound probability, low-frequency strength,
+low-threshold event density, late floor-bounce-tail density, and deterministic
+tie breaks. A hashed score envelope persists every component plus the exact
+model, feature, detector-proposal, audit, and initial-manifest hashes. The database
 requires all A rows to be submitted before it admits B. The page now exposes
 A and B, while C remains unavailable.
 
@@ -241,9 +247,10 @@ Research gates:
 
 - At or below 0.60 sealed paddle/table balanced accuracy: stop or redesign.
 - Above 0.60 but materially venue-dependent: continue research only.
-- Consider shadow mode only at 0.80 or better balanced accuracy with at least
-  70% coverage in every supported venue, and only if false audio impacts do not
-  degrade the downstream visual benchmark.
+- Consider shadow mode only at 0.80 or better
+  `selective_paddle_table_balanced_accuracy` with at least 70% coverage in
+  every supported venue, and only if false audio impacts do not degrade the
+  downstream visual benchmark. Retain end-to-end balanced accuracy separately.
 - Floor, shoe/stomp, net, and background remain rejection/confound labels until
   each independently clears the same per-venue gate with sufficient data.
 

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
+  editableAudioImpactRounds,
   visibleAudioImpactRounds,
   type AudioImpactStudyPhase,
 } from "@/lib/research/audioImpactStudy";
@@ -42,7 +43,7 @@ export default async function AudioImpactResearchPage() {
     .maybeSingle();
   if (batchError) throw new Error("Could not load the audio-impact research batch.");
   if (!batch) {
-    return <AudioImpactLabeler initialAssignments={[]} isAdmin availableRounds={[]} />;
+    return <AudioImpactLabeler initialAssignments={[]} isAdmin availableRounds={[]} editableRounds={[]} />;
   }
   const { data: studyState, error: stateError } = await supabase
     .from("audio_impact_research_state")
@@ -53,6 +54,9 @@ export default async function AudioImpactResearchPage() {
     throw new Error("Audio-impact study state is unavailable; assignments remain sealed.");
   }
   const availableRounds = visibleAudioImpactRounds(
+    studyState.phase as AudioImpactStudyPhase,
+  );
+  const editableRounds = editableAudioImpactRounds(
     studyState.phase as AudioImpactStudyPhase,
   );
 
@@ -93,6 +97,7 @@ export default async function AudioImpactResearchPage() {
       initialAssignments={assignments}
       isAdmin={Boolean(isAdmin)}
       availableRounds={availableRounds}
+      editableRounds={editableRounds}
     />
   );
 }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  editableAudioImpactRounds,
   isAudioImpactRoundUnlocked,
   visibleAudioImpactRounds,
 } from "./audioImpactStudy.ts";
@@ -13,4 +14,9 @@ test("research phases keep Round C unavailable until a frozen model is unlocked"
   assert.deepEqual(visibleAudioImpactRounds("scored"), ["A", "B", "C"]);
   assert.equal(isAudioImpactRoundUnlocked("development_b", "C"), false);
   assert.equal(isAudioImpactRoundUnlocked("sealed_labeling", "C"), true);
+  assert.deepEqual(editableAudioImpactRounds("development_a"), ["A"]);
+  assert.deepEqual(editableAudioImpactRounds("development_b"), ["A", "B"]);
+  assert.deepEqual(editableAudioImpactRounds("frozen"), []);
+  assert.deepEqual(editableAudioImpactRounds("sealed_labeling"), ["C"]);
+  assert.deepEqual(editableAudioImpactRounds("scored"), []);
 });

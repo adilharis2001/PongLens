@@ -155,6 +155,9 @@ test("audio impact migration seals rounds and validates human labels server-side
   assert.match(audioImpact, /create trigger validate_audio_impact_assignment_trigger/);
   assert.match(audioImpact, /media_unavailable/);
   assert.match(audioImpact, /round c is sealed/);
+  assert.match(audioImpact, /frozen development bindings are immutable/i);
+  assert.match(audioImpact, /all 30 sealed assignments must be complete/i);
+  assert.match(audioImpact, /frozen audio-impact assignments are read-only/i);
 });
 
 test("serve follow-up export includes evidence while retaining the admin gate", () => {

@@ -237,8 +237,54 @@ def validate_export_bindings(
             "frozen",
         }:
             raise ValueError("development export is not phase-scoped away from Round C")
-    elif phase != "sealed_labeling" or "C" not in exported_rounds:
-        raise ValueError("sealed export is not an unlocked Round C export")
+        expected_rounds = {"A"} if phase == "development_a" else {"A", "B"}
+        expected_count = 30 if phase == "development_a" else 60
+        development_assignments = [
+            row
+            for row in payload.get("assignments") or []
+            if str((row.get("prefill") or {}).get("round") or "")
+            in expected_rounds
+        ]
+        source_ids = {
+            str(row.get("source_id") or "") for row in development_assignments
+        }
+        if (
+            len(development_assignments) != expected_count
+            or len(source_ids) != expected_count
+            or "" in source_ids
+            or any(
+                row.get("status") != "submitted"
+                or (row.get("human_label") or {}).get("sequence_complete") is not True
+                for row in development_assignments
+            )
+        ):
+            raise ValueError(
+                f"all {expected_count} development assignments must be complete"
+            )
+    else:
+        if phase != "sealed_labeling" or "C" not in exported_rounds:
+            raise ValueError("sealed export is not an unlocked Round C export")
+        sealed_assignments = [
+            row
+            for row in payload.get("assignments") or []
+            if str((row.get("prefill") or {}).get("round") or "") == "C"
+        ]
+        sealed_source_ids = {
+            str(row.get("source_id") or "") for row in sealed_assignments
+        }
+        if (
+            len(sealed_assignments) != 30
+            or len(sealed_source_ids) != 30
+            or "" in sealed_source_ids
+            or any(
+                row.get("status") != "submitted"
+                or (row.get("human_label") or {}).get("sequence_complete") is not True
+                for row in sealed_assignments
+            )
+        ):
+            raise ValueError(
+                "all 30 frozen Round C assignments must be submitted and complete"
+            )
     cohort_hash = _validate_hash(
         study_state.get("cohort_manifest_sha256"), "cohort_manifest_sha256"
     )
@@ -252,6 +298,14 @@ def validate_export_bindings(
         for row in examples
     ):
         raise ValueError("every export example needs a frozen media SHA-256")
+    if any(
+        not re.fullmatch(
+            r"[0-9a-f]{64}",
+            str(row.get("detector_manifest_sha256") or ""),
+        )
+        for row in examples
+    ):
+        raise ValueError("every export example needs a frozen proposal SHA-256")
     return {
         "export_sha256": canonical_hash(payload),
         "cohort_manifest_sha256": cohort_hash,
@@ -511,6 +565,16 @@ def evaluate_predictions(
         venue_selective_predictions = [
             venue_predictions[index] for index in venue_accepted
         ]
+        venue_selective_classes = _class_metrics(
+            venue_selective_truth,
+            venue_selective_predictions,
+            partition=partition,
+        )
+        venue_selective_supported_f1 = [
+            value["f1"]
+            for value in venue_selective_classes.values()
+            if value[f"{partition}_count"] > 0
+        ]
         report["venues"][venue] = {
             "example_count": len(indices),
             "coverage": (
@@ -519,6 +583,7 @@ def evaluate_predictions(
                 else 0.0
             ),
             "classes": venue_classes,
+            "selective_classes": venue_selective_classes,
             "accuracy": sum(
                 left == right
                 for left, right in zip(venue_truth, venue_predictions)
@@ -538,6 +603,12 @@ def evaluate_predictions(
             "macro_f1": (
                 sum(venue_supported_f1) / len(venue_supported_f1)
                 if venue_supported_f1
+                else 0.0
+            ),
+            "selective_macro_f1": (
+                sum(venue_selective_supported_f1)
+                / len(venue_selective_supported_f1)
+                if venue_selective_supported_f1
                 else 0.0
             ),
             "confusion_matrix": {
@@ -783,19 +854,78 @@ def _predictions(probabilities: np.ndarray, threshold: float) -> list[str | None
 def pool_acquisition_components(
     probabilities: np.ndarray,
     candidates: Sequence[Mapping[str, Any]],
+    *,
+    low_threshold_candidates: Sequence[Mapping[str, Any]] = (),
+    duration_s: float | None = None,
 ) -> dict[str, float]:
     if len(probabilities) != len(candidates):
         raise ValueError("candidate and probability counts differ")
-    if not candidates:
-        return {"uncertainty": 1.0, "confound_novelty": 0.0}
-    uncertainty = float(np.mean(1.0 - probabilities.max(axis=1)))
-    low_band_count = sum(
-        "low_frequency" in (candidate.get("detector_origins") or [])
-        for candidate in candidates
+    uncertainty = (
+        float(np.mean(1.0 - probabilities.max(axis=1)))
+        if candidates
+        else 1.0
+    )
+    confound_indices = [
+        AUDIO_IMPACT_CLASSES.index(kind)
+        for kind in ("floor", "shoe", "net", "background", "other", "no_impact")
+    ]
+    confound_probability = (
+        float(np.mean(probabilities[:, confound_indices].sum(axis=1)))
+        if candidates
+        else 0.0
+    )
+    low_frequency_strength = (
+        float(
+            np.mean(
+                [
+                    min(
+                        1.0,
+                        float((candidate.get("detector_scores") or {}).get("low_frequency") or 0.0)
+                        / 5.0,
+                    )
+                    for candidate in candidates
+                ]
+            )
+        )
+        if candidates
+        else 0.0
+    )
+    duration = float(duration_s or 0.0)
+    event_density = (
+        min(1.0, len(low_threshold_candidates) / max(1.0, duration * 4.0))
+        if duration > 0
+        else 0.0
+    )
+    tail_candidates = [
+        item
+        for item in low_threshold_candidates
+        if duration > 0
+        and float(item.get("time_s") or 0.0) >= duration * 0.75
+        and "low_frequency" in (item.get("detector_origins") or [])
+    ]
+    floor_tail_density = (
+        len(tail_candidates) / len(low_threshold_candidates)
+        if low_threshold_candidates
+        else 0.0
+    )
+    confound_novelty = float(
+        np.mean(
+            [
+                confound_probability,
+                low_frequency_strength,
+                event_density,
+                floor_tail_density,
+            ]
+        )
     )
     return {
         "uncertainty": round(uncertainty, 8),
-        "confound_novelty": round(low_band_count / len(candidates), 8),
+        "confound_probability": round(confound_probability, 8),
+        "low_frequency_strength": round(low_frequency_strength, 8),
+        "event_density": round(event_density, 8),
+        "floor_tail_density": round(floor_tail_density, 8),
+        "confound_novelty": round(confound_novelty, 8),
+        "acquisition_score": round(0.6 * uncertainty + 0.4 * confound_novelty, 8),
     }
 
 
@@ -819,23 +949,52 @@ def _verified_pool_manifest(payload: Mapping[str, Any]) -> dict[str, Any]:
 def _verified_pool_audit(
     payload: Mapping[str, Any],
     manifest: Mapping[str, Any],
-) -> dict[str, str]:
+) -> dict[str, Any]:
     audit = dict(payload)
     supplied = str(audit.pop("audit_sha256", ""))
     if supplied != canonical_hash(audit):
         raise ValueError("Round B media audit hash does not match its contents")
     if audit.get("manifest_sha256") != manifest.get("manifest_sha256"):
         raise ValueError("Round B media audit belongs to another cohort manifest")
-    hashes = {
-        str(item.get("point_id") or ""): str(item.get("media_sha256") or "")
+    entries = {
+        str(item.get("point_id") or ""): dict(item)
         for item in audit.get("entries") or []
     }
+    expected_ids = {
+        str(item["point_id"])
+        for item in [
+            *(manifest.get("selected") or []),
+            *(manifest.get("round_b_pool") or []),
+        ]
+    }
+    if set(entries) != expected_ids:
+        raise ValueError("Round B media audit does not cover the frozen inventory")
     pool_ids = {str(item["point_id"]) for item in manifest["round_b_pool"]}
-    if not pool_ids.issubset(hashes):
+    if not pool_ids.issubset(entries):
         raise ValueError("Round B media audit does not cover the frozen pool")
     for point_id in pool_ids:
-        _validate_hash(hashes[point_id], f"pool media SHA-256 for {point_id}")
-    return {point_id: hashes[point_id] for point_id in sorted(pool_ids)}
+        _validate_hash(
+            entries[point_id].get("media_sha256"),
+            f"pool media SHA-256 for {point_id}",
+        )
+        _validate_hash(
+            entries[point_id].get("proposal_sha256"),
+            f"pool proposal SHA-256 for {point_id}",
+        )
+    detector_hash = canonical_hash(
+        {
+            "detector_version": manifest["detector_version"],
+            "proposal_sha256_by_point": {
+                point_id: str(entries[point_id]["proposal_sha256"])
+                for point_id in sorted(entries)
+            },
+        }
+    )
+    return {
+        "audit_sha256": supplied,
+        "detector_manifest_sha256": detector_hash,
+        "entries": entries,
+    }
 
 
 def fetch_round_b_pool_media(
@@ -846,7 +1005,7 @@ def fetch_round_b_pool_media(
     production: Any,
 ) -> int:
     manifest = _verified_pool_manifest(manifest_payload)
-    audited_hashes = _verified_pool_audit(audit_payload, manifest)
+    audit = _verified_pool_audit(audit_payload, manifest)
     output_dir.mkdir(parents=True, exist_ok=True)
     fetched = 0
     for item in manifest["round_b_pool"]:
@@ -861,7 +1020,7 @@ def fetch_round_b_pool_media(
             bucket, key = uri[5:].split("/", 1)
             production.r2.download_file(bucket, key, str(destination))
             fetched += 1
-        if file_sha256(destination) != audited_hashes[point_id]:
+        if file_sha256(destination) != audit["entries"][point_id]["media_sha256"]:
             raise ValueError(f"frozen Round B media SHA-256 mismatch for {point_id}")
     return fetched
 
@@ -871,13 +1030,15 @@ def score_round_b_pool(
     audit_payload: Mapping[str, Any],
     artifact: Mapping[str, Any],
     media_dir: Path,
-) -> dict[str, dict[str, float]]:
+) -> dict[str, Any]:
     manifest = _verified_pool_manifest(manifest_payload)
-    audited_hashes = _verified_pool_audit(audit_payload, manifest)
+    audit = _verified_pool_audit(audit_payload, manifest)
     if artifact.get("cohort_manifest_sha256") != manifest["manifest_sha256"]:
         raise ValueError("A-model artifact does not belong to the frozen cohort")
     if artifact.get("feature_definition_sha256") != feature_definition_sha256():
         raise ValueError("A-model feature definition is not current")
+    if artifact.get("detector_manifest_sha256") != audit["detector_manifest_sha256"]:
+        raise ValueError("A-model detector binding differs from the audited proposals")
     model = {
         "mean": artifact["mean"],
         "scale": artifact["scale"],
@@ -893,15 +1054,25 @@ def score_round_b_pool(
         raise ValueError("A-model hash does not match artifact contents")
     scores: dict[str, dict[str, float]] = {}
     detector = Path(__file__).with_name("research_audio_candidates.py")
+    if __package__:
+        from .build_research_pilot import probe_video, stable_uuid
+    else:
+        from build_research_pilot import probe_video, stable_uuid
     for item in manifest["round_b_pool"]:
         point_id = str(item["point_id"])
         media_path = media_dir / f"{point_id}.mp4"
         if not media_path.is_file():
             raise FileNotFoundError(f"missing Round B pool media: {media_path}")
-        if file_sha256(media_path) != audited_hashes[point_id]:
+        if file_sha256(media_path) != audit["entries"][point_id]["media_sha256"]:
             raise ValueError(f"frozen Round B media SHA-256 mismatch for {point_id}")
         completed = subprocess.run(
-            [sys.executable, str(detector), str(media_path), "--source-id", point_id],
+            [
+                sys.executable,
+                str(detector),
+                str(media_path),
+                "--source-id",
+                stable_uuid("audio-impact-labeling-recent-v1", point_id),
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -911,6 +1082,16 @@ def score_round_b_pool(
                 f"candidate analysis failed for {point_id}: {completed.stderr.strip()}"
             )
         proposal = json.loads(completed.stdout)
+        frozen_proposal = {
+            "schema_version": 1,
+            "automatic_prediction_withheld": True,
+            "video": probe_video(media_path),
+            "audio": proposal,
+        }
+        if canonical_hash(frozen_proposal) != audit["entries"][point_id][
+            "proposal_sha256"
+        ]:
+            raise ValueError(f"frozen detector proposal mismatch for {point_id}")
         candidates = list(proposal.get("candidates") or [])
         samples = decode_audio(media_path)
         if candidates:
@@ -929,8 +1110,23 @@ def score_round_b_pool(
             probabilities = _linear_probabilities(model, features)
         else:
             probabilities = np.empty((0, len(AUDIO_IMPACT_CLASSES)))
-        scores[point_id] = pool_acquisition_components(probabilities, candidates)
-    return scores
+        scores[point_id] = pool_acquisition_components(
+            probabilities,
+            candidates,
+            low_threshold_candidates=proposal.get("low_threshold_candidates") or [],
+            duration_s=float(proposal.get("duration_s") or 0.0),
+        )
+    envelope = {
+        "schema_version": 1,
+        "initial_manifest_sha256": manifest["manifest_sha256"],
+        "media_audit_sha256": audit["audit_sha256"],
+        "detector_manifest_sha256": audit["detector_manifest_sha256"],
+        "model_sha256": artifact["model_sha256"],
+        "feature_definition_sha256": feature_definition_sha256(),
+        "scores": scores,
+    }
+    envelope["score_envelope_sha256"] = canonical_hash(envelope)
+    return envelope
 
 
 def _select_threshold(
@@ -1013,6 +1209,13 @@ def train_linear_experiment(
     }
     split_hash = canonical_hash(split_payload)
     report["split_definition_sha256"] = split_hash
+    report.update(
+        {
+            "development_export_sha256": bindings["export_sha256"],
+            "cohort_manifest_sha256": bindings["cohort_manifest_sha256"],
+            "detector_manifest_sha256": bindings["detector_manifest_sha256"],
+        }
+    )
 
     fitted = _fit_linear(features, labels)
     model_payload = {
@@ -1175,6 +1378,14 @@ def compare_cnn_to_linear(
     cnn_report: Mapping[str, Any],
     linear_report: Mapping[str, Any],
 ) -> dict[str, Any]:
+    for name in (
+        "development_export_sha256",
+        "cohort_manifest_sha256",
+        "detector_manifest_sha256",
+    ):
+        _validate_hash(cnn_report.get(name), name)
+        if cnn_report.get(name) != linear_report.get(name):
+            raise ValueError(f"CNN and linear reports differ on {name}")
     macro_delta = float(cnn_report.get("selective_macro_f1") or 0.0) - float(
         linear_report.get("selective_macro_f1") or 0.0
     )
@@ -1289,14 +1500,27 @@ def freeze_and_unlock_payload(
         raise ValueError("sealed unlock requires the completed Round A/B phase")
     if set(map(str, export_payload.get("exported_rounds") or [])) != {"A", "B"}:
         raise ValueError("sealed unlock requires an A/B-only development export")
-    incomplete = [
+    development_assignments = [
         row
         for row in export_payload.get("assignments") or []
         if str((row.get("prefill") or {}).get("round") or "") in {"A", "B"}
-        and row.get("status") != "submitted"
     ]
-    if incomplete:
-        raise ValueError("all Round A/B assignments must be submitted before unlock")
+    development_source_ids = {
+        str(row.get("source_id") or "") for row in development_assignments
+    }
+    if (
+        len(development_assignments) != 60
+        or len(development_source_ids) != 60
+        or "" in development_source_ids
+        or any(
+            row.get("status") != "submitted"
+            or (row.get("human_label") or {}).get("sequence_complete") is not True
+            for row in development_assignments
+        )
+    ):
+        raise ValueError(
+            "all 60 Round A/B assignments must be submitted before unlock"
+        )
     export_hash = canonical_hash(export_payload)
     expected = {
         "development_export_sha256": export_hash,
@@ -1333,6 +1557,7 @@ def freeze_and_unlock_payload(
 def scored_state_payload(
     study_state: Mapping[str, Any],
     report: Mapping[str, Any],
+    assignments: Sequence[Mapping[str, Any]],
     *,
     scored_at: str,
 ) -> dict[str, Any]:
@@ -1340,6 +1565,23 @@ def scored_state_payload(
         raise ValueError("this sealed cohort has already been scored")
     if study_state.get("phase") != "sealed_labeling":
         raise ValueError("sealed scoring has not been unlocked")
+    sealed = [
+        row
+        for row in assignments
+        if str((row.get("prefill") or {}).get("round") or "") == "C"
+    ]
+    sealed_source_ids = {str(row.get("source_id") or "") for row in sealed}
+    if (
+        len(sealed) != 30
+        or len(sealed_source_ids) != 30
+        or "" in sealed_source_ids
+        or any(
+            row.get("status") != "submitted"
+            or (row.get("human_label") or {}).get("sequence_complete") is not True
+            for row in sealed
+        )
+    ):
+        raise ValueError("all 30 sealed assignments must be complete before scoring")
     if report.get("model_sha256") != study_state.get("development_model_sha256"):
         raise ValueError("sealed report model differs from the frozen model")
     if report.get("threshold_sha256") != study_state.get(
@@ -1354,7 +1596,13 @@ def scored_state_payload(
     }
 
 
-def _patch_study_state(production: Any, batch_id: str, payload: Mapping[str, Any]) -> None:
+def _patch_study_state(
+    production: Any,
+    batch_id: str,
+    payload: Mapping[str, Any],
+    *,
+    expected_phase: str,
+) -> None:
     import requests
 
     response = requests.patch(
@@ -1362,13 +1610,20 @@ def _patch_study_state(production: Any, batch_id: str, payload: Mapping[str, Any
         headers={
             **production.headers,
             "Content-Type": "application/json",
-            "Prefer": "return=minimal",
+            "Prefer": "return=representation",
         },
-        params={"batch_id": f"eq.{batch_id}"},
+        params={"batch_id": f"eq.{batch_id}", "phase": f"eq.{expected_phase}"},
         json=dict(payload),
         timeout=60,
     )
     response.raise_for_status()
+    rows = response.json()
+    if len(rows) != 1:
+        raise RuntimeError("audio-impact lifecycle compare-and-swap changed no state row")
+    stored = rows[0]
+    for key, value in payload.items():
+        if stored.get(key) != value:
+            raise RuntimeError(f"audio-impact lifecycle did not persist {key}")
 
 
 def require_cnn_dependency(
@@ -1506,7 +1761,11 @@ def main() -> None:
             args.media_dir,
         )
         _write_json(args.scores_out, scores)
-        print(json.dumps({"scores": str(args.scores_out), "points": len(scores)}))
+        print(
+            json.dumps(
+                {"scores": str(args.scores_out), "points": len(scores["scores"])}
+            )
+        )
         return
     if args.command == "unlock-sealed":
         export_payload = json.loads(args.export.read_text())
@@ -1522,7 +1781,12 @@ def main() -> None:
             else:
                 from build_research_pilot import Production
             batch_id = str((export_payload.get("batch") or {}).get("id") or "")
-            _patch_study_state(Production(), batch_id, transition)
+            _patch_study_state(
+                Production(),
+                batch_id,
+                transition,
+                expected_phase="development_b",
+            )
         print(json.dumps({"apply": args.apply, "state": transition}, sort_keys=True))
         return
     if args.command == "train-linear":
@@ -1587,6 +1851,7 @@ def main() -> None:
         transition = scored_state_payload(
             payload.get("study_state") or {},
             report,
+            payload.get("assignments") or [],
             scored_at=datetime.now(timezone.utc).isoformat(),
         )
         if __package__:
@@ -1594,7 +1859,12 @@ def main() -> None:
         else:
             from build_research_pilot import Production
         batch_id = str((payload.get("batch") or {}).get("id") or "")
-        _patch_study_state(Production(), batch_id, transition)
+        _patch_study_state(
+            Production(),
+            batch_id,
+            transition,
+            expected_phase="sealed_labeling",
+        )
     print(json.dumps({"sealed_report": str(args.report_out)}))
 
 

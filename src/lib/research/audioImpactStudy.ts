@@ -23,3 +23,12 @@ export function isAudioImpactRoundUnlocked(
 ): boolean {
   return visibleAudioImpactRounds(phase).includes(round);
 }
+
+export function editableAudioImpactRounds(
+  phase: AudioImpactStudyPhase,
+): AudioImpactStudyRound[] {
+  if (phase === "development_a") return ["A"];
+  if (phase === "development_b") return ["A", "B"];
+  if (phase === "sealed_labeling") return ["C"];
+  return [];
+}

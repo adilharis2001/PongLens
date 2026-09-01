@@ -130,10 +130,12 @@ export function AudioImpactLabeler({
   initialAssignments,
   isAdmin,
   availableRounds,
+  editableRounds,
 }: {
   initialAssignments: AudioImpactResearchAssignment[];
   isAdmin: boolean;
   availableRounds: AudioImpactRound[];
+  editableRounds: AudioImpactRound[];
 }) {
   const initialAssignmentId = firstAssignmentId(initialAssignments);
   const initialAssignment =
@@ -164,6 +166,7 @@ export function AudioImpactLabeler({
   const [history, setHistory] = useState<PendingSave[]>([]);
   const [looping, setLooping] = useState(true);
   const [playbackSpeed, setPlaybackSpeedState] = useState(1);
+  const [naturalPlaybackSeen, setNaturalPlaybackSeen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const openedAt = useRef(Date.now());
   const playbackCount = useRef(
@@ -185,6 +188,8 @@ export function AudioImpactLabeler({
 
   const assignment =
     assignments.find((item) => item.id === target?.assignment_id) ?? null;
+  const reviewMetricsRef = useRef(assignment?.review_metrics);
+  reviewMetricsRef.current = assignment?.review_metrics;
   const currentEvent =
     label.events.find((event) => event.id === target?.event_id) ??
     label.events[0] ??
@@ -222,7 +227,12 @@ export function AudioImpactLabeler({
     () => waveformPoints(assignment?.source.proposal.audio.waveform ?? []),
     [assignment],
   );
-  const reviewEnabled = canReviewAudioImpact(mediaState, saveState);
+  const assignmentRound = assignment?.source.prefill.round ?? null;
+  const reviewEnabled =
+    canReviewAudioImpact(mediaState, saveState) &&
+    naturalPlaybackSeen &&
+    assignmentRound !== null &&
+    editableRounds.includes(assignmentRound);
   const navigationBlocked = saveState === "saving" || saveState === "error";
 
   const resetMetrics = useCallback((next: AudioImpactResearchAssignment) => {
@@ -253,8 +263,12 @@ export function AudioImpactLabeler({
         resetMetrics(nextAssignment);
       }
       setTarget(next);
+      setMediaUrl(null);
+      setMediaError(null);
+      setMediaState("loading");
       setLooping(true);
       setPlaybackSpeedState(1);
+      setNaturalPlaybackSeen(false);
       setMessage(null);
       setDirty(false);
     },
@@ -474,6 +488,31 @@ export function AudioImpactLabeler({
     void video.play().catch(() => undefined);
   }, []);
 
+  const markMediaUnavailable = useCallback(
+    async (id: string, errorMessage: string) => {
+      const metrics = {
+        ...(reviewMetricsRef.current ?? {}),
+        media_unavailable: true,
+        media_error: errorMessage,
+      };
+      const { error } = await supabase
+        .from("research_assignments")
+        .update({ review_metrics: metrics })
+        .eq("id", id);
+      if (error) {
+        console.error("audio impact media-health save failed", error);
+        setMessage("Could not record the media failure. Reload this point to retry.");
+        return;
+      }
+      setAssignments((current) =>
+        current.map((item) =>
+          item.id === id ? { ...item, review_metrics: metrics } : item,
+        ),
+      );
+    },
+    [supabase],
+  );
+
   useEffect(() => {
     if (!assignmentId) return;
     let cancelled = false;
@@ -502,22 +541,13 @@ export function AudioImpactLabeler({
         if (!cancelled) {
           setMediaError(error.message);
           setMediaState("error");
-          void supabase
-            .from("research_assignments")
-            .update({
-              review_metrics: {
-                ...(assignment?.review_metrics ?? {}),
-                media_unavailable: true,
-                media_error: error.message,
-              },
-            })
-            .eq("id", assignmentId);
+          void markMediaUnavailable(assignmentId, error.message);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [assignment?.review_metrics, assignmentId, supabase]);
+  }, [assignmentId, markMediaUnavailable]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -772,10 +802,11 @@ export function AudioImpactLabeler({
                   onCanPlay={(event) => {
                     const video = event.currentTarget;
                     if (!Number.isFinite(video.duration) || video.duration <= 0) {
+                      const error =
+                        "Protected video has an invalid duration. Admin repair is required.";
                       setMediaState("error");
-                      setMediaError(
-                        "Protected video has an invalid duration. Admin repair is required.",
-                      );
+                      setMediaError(error);
+                      void markMediaUnavailable(assignment.id, error);
                       return;
                     }
                     setMediaState("ready");
@@ -786,19 +817,13 @@ export function AudioImpactLabeler({
                       "Protected video could not be decoded. Admin repair is required.";
                     setMediaState("error");
                     setMediaError(error);
-                    void supabase
-                      .from("research_assignments")
-                      .update({
-                        review_metrics: {
-                          ...(assignment.review_metrics ?? {}),
-                          media_unavailable: true,
-                          media_error: error,
-                        },
-                      })
-                      .eq("id", assignment.id);
+                    void markMediaUnavailable(assignment.id, error);
                   }}
                   onPlay={() => {
                     playbackCount.current += 1;
+                    if (videoRef.current?.playbackRate === 1) {
+                      setNaturalPlaybackSeen(true);
+                    }
                   }}
                   onTimeUpdate={(event) => {
                     if (!looping || !loopWindow) return;
@@ -864,15 +889,17 @@ export function AudioImpactLabeler({
                 </button>
                 <button
                   type="button"
+                  disabled={!naturalPlaybackSeen}
                   onClick={() => setPlaybackSpeed(0.5)}
-                  className={`rounded-lg border px-3 py-2 text-sm ${playbackSpeed === 0.5 ? "border-cyan-glow text-cyan-100" : "border-edge text-zinc-300"}`}
+                  className={`rounded-lg border px-3 py-2 text-sm disabled:opacity-35 ${playbackSpeed === 0.5 ? "border-cyan-glow text-cyan-100" : "border-edge text-zinc-300"}`}
                 >
                   0.5x
                 </button>
                 <button
                   type="button"
+                  disabled={!naturalPlaybackSeen}
                   onClick={() => setPlaybackSpeed(0.25)}
-                  className={`rounded-lg border px-3 py-2 text-sm ${playbackSpeed === 0.25 ? "border-cyan-glow text-cyan-100" : "border-edge text-zinc-300"}`}
+                  className={`rounded-lg border px-3 py-2 text-sm disabled:opacity-35 ${playbackSpeed === 0.25 ? "border-cyan-glow text-cyan-100" : "border-edge text-zinc-300"}`}
                 >
                   0.25x
                 </button>

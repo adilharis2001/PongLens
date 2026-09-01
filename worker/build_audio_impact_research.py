@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build, audit, and seed the recent cross-venue audio-impact corpus.
 
-The default command is read-only and prints the deterministic 90-point
-manifest. Database and R2 writes require the explicit ``--seed`` flag.
+The default command is read-only and builds the deterministic staged manifest
+plus its media audit. Database and R2 writes require the explicit ``--seed``
+flag.
 """
 
 from __future__ import annotations
@@ -134,6 +135,14 @@ def _is_cropped(recording: Mapping[str, Any]) -> bool:
     return "cropped" in text or "recut" in text
 
 
+def _opponent_identity(recording: Mapping[str, Any]) -> str:
+    return re.sub(
+        r"[^a-z0-9]+",
+        "",
+        str(recording.get("opponent_name") or "unknown").lower(),
+    )
+
+
 def _usable_points(recording: Mapping[str, Any]) -> list[dict[str, Any]]:
     points = []
     for raw in recording.get("points") or []:
@@ -181,14 +190,21 @@ def choose_recordings(
             reverse=True,
         )
         venue_selected = []
+        seen_opponents: set[str] = set()
         for item in ordered:
             source_hash = str(item["source_sha256"])
             raw_identity = str(item["raw_identity"])
-            if source_hash in seen_hashes or raw_identity in seen_raw:
+            opponent_identity = _opponent_identity(item)
+            if (
+                source_hash in seen_hashes
+                or raw_identity in seen_raw
+                or opponent_identity in seen_opponents
+            ):
                 continue
             venue_selected.append(item)
             seen_hashes.add(source_hash)
             seen_raw.add(raw_identity)
+            seen_opponents.add(opponent_identity)
             if len(venue_selected) == 3:
                 break
         if len(venue_selected) != 3:
@@ -439,15 +455,27 @@ def round_b_acquisition_inputs(manifest: Mapping[str, Any]) -> list[dict[str, An
 
 def finalize_round_b_manifest(
     initial_manifest: Mapping[str, Any],
-    scores: Mapping[str, Mapping[str, Any]],
-    *,
-    acquisition_model_sha256: str,
+    score_envelope: Mapping[str, Any],
 ) -> dict[str, Any]:
     initial = verified_manifest(initial_manifest)
     if initial["stage"] != "initial":
         raise ValueError("Round B can only be finalized from the initial manifest")
-    if not re.fullmatch(r"[0-9a-f]{64}", acquisition_model_sha256):
-        raise ValueError("acquisition model SHA-256 is invalid")
+    envelope = deepcopy(dict(score_envelope))
+    supplied_envelope_hash = str(envelope.pop("score_envelope_sha256", ""))
+    if supplied_envelope_hash != canonical_hash(envelope):
+        raise ValueError("Round B score envelope hash does not match its contents")
+    if envelope.get("initial_manifest_sha256") != initial["manifest_sha256"]:
+        raise ValueError("Round B scores belong to another initial manifest")
+    for name in (
+        "media_audit_sha256",
+        "detector_manifest_sha256",
+        "model_sha256",
+        "feature_definition_sha256",
+    ):
+        if not re.fullmatch(r"[0-9a-f]{64}", str(envelope.get(name) or "")):
+            raise ValueError(f"Round B score envelope has an invalid {name}")
+    scores = envelope.get("scores") or {}
+    acquisition_model_sha256 = str(envelope["model_sha256"])
     pool = [deepcopy(dict(item)) for item in initial["round_b_pool"]]
     pool_ids = {str(item["point_id"]) for item in pool}
     if set(map(str, scores)) != pool_ids:
@@ -465,11 +493,20 @@ def finalize_round_b_manifest(
             novelty = float(components.get("confound_novelty") or 0.0)
             if not math.isfinite(uncertainty) or not math.isfinite(novelty):
                 raise ValueError("Round B acquisition scores must be finite")
+            if any(
+                not math.isfinite(float(value))
+                for value in components.values()
+            ):
+                raise ValueError("Round B acquisition components must be finite")
             item["acquisition_components"] = {
-                "uncertainty": round(uncertainty, 8),
-                "confound_novelty": round(novelty, 8),
+                key: round(float(value), 8)
+                for key, value in sorted(components.items())
+                if key != "acquisition_score"
             }
-            item["acquisition_score"] = round(uncertainty + novelty, 8)
+            item["acquisition_score"] = round(
+                float(components.get("acquisition_score", 0.6 * uncertainty + 0.4 * novelty)),
+                8,
+            )
             item["acquisition_model_sha256"] = acquisition_model_sha256
             item["acquisition_tiebreak"] = stable_score(
                 initial["manifest_sha256"], item["point_id"]
@@ -494,6 +531,14 @@ def finalize_round_b_manifest(
     payload["stage"] = "round_b_selected"
     payload["initial_manifest_sha256"] = initial["manifest_sha256"]
     payload["acquisition_model_sha256"] = acquisition_model_sha256
+    payload["round_b_score_envelope_sha256"] = supplied_envelope_hash
+    payload["media_audit_sha256"] = envelope["media_audit_sha256"]
+    payload["detector_manifest_sha256"] = envelope[
+        "detector_manifest_sha256"
+    ]
+    payload["feature_definition_sha256"] = envelope[
+        "feature_definition_sha256"
+    ]
     payload["acquisition_scores_sha256"] = canonical_hash(
         {key: dict(scores[key]) for key in sorted(scores)}
     )
@@ -836,10 +881,30 @@ def verified_media_audit(
     if audit.get("recording_content") != expected_recording_content:
         raise ValueError("media audit recording content fingerprint is invalid")
     if audit.get("manifest_sha256") != cohort["manifest_sha256"]:
+        audit["initial_audit_sha256"] = supplied
         audit["manifest_sha256"] = cohort["manifest_sha256"]
         supplied = canonical_hash(audit)
     audit["audit_sha256"] = supplied
     return audit
+
+
+def detector_binding_sha256(
+    audit: Mapping[str, Any],
+    *,
+    detector_version: str,
+) -> str:
+    return canonical_hash(
+        {
+            "detector_version": detector_version,
+            "proposal_sha256_by_point": {
+                str(item["point_id"]): str(item["proposal_sha256"])
+                for item in sorted(
+                    audit.get("entries") or [],
+                    key=lambda value: str(value["point_id"]),
+                )
+            },
+        }
+    )
 
 
 def seed_batch(
@@ -914,9 +979,6 @@ def seed_batch(
         existing_sources,
         existing_assignments,
     )
-    if state == "noop":
-        return {"status": "noop", "batch_id": batch_id, "sources": selected_count}
-
     if cohort["stage"] == "round_b_selected" and existing_assignments:
         round_by_source = {
             str(item["id"]): str((item.get("prefill") or {}).get("round") or "")
@@ -1092,12 +1154,17 @@ def seed_batch(
         raise RuntimeError(
             f"seed produced {len(assignments)} assignments, expected {selected_count}"
         )
-    detector_manifest_sha256 = canonical_hash(
-        {
-            "detector_version": cohort["detector_version"],
-            "candidate_identity": "source-detector-clock-v1",
-        }
+    detector_manifest_sha256 = detector_binding_sha256(
+        audit,
+        detector_version=str(cohort["detector_version"]),
     )
+    if cohort["stage"] == "round_b_selected":
+        if cohort.get("media_audit_sha256") != audit.get(
+            "initial_audit_sha256", audit["audit_sha256"]
+        ):
+            raise ValueError("Round B manifest does not bind the verified media audit")
+        if cohort.get("detector_manifest_sha256") != detector_manifest_sha256:
+            raise ValueError("Round B manifest does not bind the audited proposals")
     production.upsert(
         "audio_impact_research_state",
         {
@@ -1124,7 +1191,7 @@ def seed_batch(
         "slug",
     )
     return {
-        "status": "active",
+        "status": "reconciled" if state == "noop" else "active",
         "batch_id": batch_id,
         "sources": len(sources),
         "assignments": len(assignments),
@@ -1160,7 +1227,6 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path)
     parser.add_argument("--manifest-out", type=Path)
     parser.add_argument("--round-b-scores", type=Path)
-    parser.add_argument("--round-b-model-sha")
     parser.add_argument("--audit", type=Path)
     parser.add_argument("--audit-out", type=Path)
     parser.add_argument(
@@ -1176,13 +1242,10 @@ def main() -> None:
         manifest = verified_manifest(json.loads(args.manifest.read_text()))
     else:
         manifest = build_cohort_manifest(inventory)
-    if bool(args.round_b_scores) != bool(args.round_b_model_sha):
-        parser.error("--round-b-scores and --round-b-model-sha are required together")
     if args.round_b_scores:
         manifest = finalize_round_b_manifest(
             manifest,
             json.loads(args.round_b_scores.read_text()),
-            acquisition_model_sha256=args.round_b_model_sha,
         )
     if args.manifest_out:
         args.manifest_out.parent.mkdir(parents=True, exist_ok=True)

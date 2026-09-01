@@ -201,6 +201,24 @@ class CohortTests(unittest.TestCase):
 
         self.assertEqual(len({item["raw_identity"] for item in selected}), 9)
 
+    def test_same_opponent_session_cannot_cross_development_and_sealed_rounds(self):
+        rows = []
+        for venue in VENUES:
+            rows.extend(recording(venue, number) for number in range(1, 5))
+        duplicate_opponent = recording("pingpod", 0, source_hash="f" * 64)
+        duplicate_opponent["opponent_name"] = rows[0]["opponent_name"]
+        rows.append(duplicate_opponent)
+
+        selected = choose_recordings(rows)
+
+        for venue in VENUES:
+            opponents = {
+                item["opponent_name"].lower()
+                for item in selected
+                if item["venue_category"] == venue
+            }
+            self.assertEqual(len(opponents), 3)
+
     def test_missing_venue_inventory_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "exactly three"):
             choose_recordings([recording("pingpod", number) for number in range(1, 4)])
@@ -256,26 +274,30 @@ class CohortTests(unittest.TestCase):
         for venue in VENUES:
             rows.extend(recording(venue, number) for number in range(1, 4))
         initial = build_cohort_manifest(rows)
-        scores = {
-            item["point_id"]: {
-                "uncertainty": item["point_idx"] / 100,
-                "confound_novelty": (100 - item["point_idx"]) / 200,
-            }
-            for item in initial["round_b_pool"]
+        score_envelope = {
+            "initial_manifest_sha256": initial["manifest_sha256"],
+            "media_audit_sha256": "a" * 64,
+            "detector_manifest_sha256": "b" * 64,
+            "model_sha256": "d" * 64,
+            "feature_definition_sha256": "e" * 64,
+            "scores": {
+                item["point_id"]: {
+                    "uncertainty": item["point_idx"] / 100,
+                    "confound_novelty": (100 - item["point_idx"]) / 200,
+                }
+                for item in initial["round_b_pool"]
+            },
         }
+        score_envelope["score_envelope_sha256"] = canonical_hash(score_envelope)
 
-        finalized = finalize_round_b_manifest(
-            initial,
-            scores,
-            acquisition_model_sha256="d" * 64,
-        )
+        finalized = finalize_round_b_manifest(initial, score_envelope)
 
         self.assertEqual(finalized["stage"], "round_b_selected")
         self.assertEqual(finalized["initial_manifest_sha256"], initial["manifest_sha256"])
         self.assertEqual(len(finalized["selected"]), 90)
         self.assertEqual(Counter(item["round"] for item in finalized["selected"]), Counter({"A": 30, "B": 30, "C": 30}))
         self.assertTrue(all(item["acquisition_model_sha256"] == "d" * 64 for item in finalized["selected"] if item["round"] == "B"))
-        self.assertEqual(finalized, finalize_round_b_manifest(initial, scores, acquisition_model_sha256="d" * 64))
+        self.assertEqual(finalized, finalize_round_b_manifest(initial, score_envelope))
 
     def test_manifest_hash_detects_tampering(self):
         rows = []

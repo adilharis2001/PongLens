@@ -147,6 +147,7 @@ class ExportTests(unittest.TestCase):
                     "source_id": "source-a",
                     "source_match_id": "recording-a",
                     "media_sha256": "e" * 64,
+                    "detector_manifest_sha256": "f" * 64,
                     "prefill": {
                         "round": "A",
                         "venue_category": "pingpod",
@@ -176,9 +177,6 @@ class ExportTests(unittest.TestCase):
         self.assertEqual(rows[0]["venue"], "pingpod")
         self.assertEqual(rows[0]["media_path"], "/frozen/source-a.mp4")
         self.assertEqual(rows[0]["media_sha256"], "e" * 64)
-        bindings = validate_export_bindings(payload, rows, partition="development")
-        self.assertEqual(bindings["cohort_manifest_sha256"], "c" * 64)
-        self.assertEqual(len(bindings["export_sha256"]), 64)
 
     def test_fetches_each_frozen_source_once_from_the_research_namespace(self):
         calls = []
@@ -214,6 +212,40 @@ class ExportTests(unittest.TestCase):
             ),
         )
 
+    def test_sealed_export_requires_all_thirty_completed_round_c_assignments(self):
+        payload = {
+            "batch": {"slug": "audio-impact-labeling-recent-v1"},
+            "exported_rounds": ["A", "B", "C"],
+            "study_state": {
+                "phase": "sealed_labeling",
+                "cohort_manifest_sha256": "c" * 64,
+                "detector_manifest_sha256": "d" * 64,
+            },
+            "assignments": [
+                {
+                    "status": "submitted",
+                    "source_id": "source-c",
+                    "media_sha256": "e" * 64,
+                    "detector_manifest_sha256": "f" * 64,
+                    "prefill": {
+                        "round": "C",
+                        "source_recording_id": "recording-c",
+                        "cohort_manifest_sha256": "c" * 64,
+                    },
+                    "human_label": {
+                        "sequence_complete": True,
+                        "events": [
+                            {"id": "event-c", "kind": "paddle", "time_s": 1}
+                        ],
+                    },
+                }
+            ],
+        }
+        rows = normalize_research_export(payload, media_dir=Path("/frozen"))
+
+        with self.assertRaisesRegex(ValueError, "all 30"):
+            validate_export_bindings(payload, rows, partition="sealed")
+
 
 class MetricTests(unittest.TestCase):
     def test_reports_abstention_coverage_and_per_venue_class_metrics(self):
@@ -243,6 +275,8 @@ class MetricTests(unittest.TestCase):
         self.assertAlmostEqual(report["selective_paddle_table_balanced_accuracy"], 0.75)
         self.assertEqual(report["venues"]["PingPod"]["coverage"], 0.5)
         self.assertIn("macro_f1", report["venues"]["PingPod"])
+        self.assertIn("selective_macro_f1", report["venues"]["PingPod"])
+        self.assertIn("selective_classes", report["venues"]["PingPod"])
         self.assertIn("confusion_matrix", report["venues"]["PingPod"])
         self.assertIn("selective_accuracy", report["venues"]["PingPod"])
         self.assertEqual(report["venues"]["Westchester"]["classes"]["table"]["true_positive"], 1)
@@ -284,6 +318,9 @@ class OptionalCnnTests(unittest.TestCase):
     def test_cnn_is_accepted_only_for_material_cross_venue_improvement(self):
         linear = {
             "selective_macro_f1": 0.70,
+            "development_export_sha256": "1" * 64,
+            "cohort_manifest_sha256": "2" * 64,
+            "detector_manifest_sha256": "3" * 64,
             "venues": {
                 "pingpod": {"selective_accuracy": 0.80},
                 "westchester": {"selective_accuracy": 0.70},
@@ -291,6 +328,9 @@ class OptionalCnnTests(unittest.TestCase):
         }
         accepted = {
             "selective_macro_f1": 0.74,
+            "development_export_sha256": "1" * 64,
+            "cohort_manifest_sha256": "2" * 64,
+            "detector_manifest_sha256": "3" * 64,
             "venues": {
                 "pingpod": {"selective_accuracy": 0.79},
                 "westchester": {"selective_accuracy": 0.72},
@@ -374,14 +414,32 @@ class LinearExperimentTests(unittest.TestCase):
             ]
         )
         candidates = [
-            {"detector_origins": ["high_frequency", "low_frequency"]},
-            {"detector_origins": ["low_frequency"]},
+            {
+                "detector_origins": ["high_frequency", "low_frequency"],
+                "detector_scores": {"low_frequency": 5.0},
+            },
+            {
+                "detector_origins": ["low_frequency"],
+                "detector_scores": {"low_frequency": 2.5},
+            },
+        ]
+        low_threshold = [
+            {"time_s": time_s, "detector_origins": ["low_frequency"]}
+            for time_s in (0.1, 0.3, 0.5, 0.9)
         ]
 
-        components = pool_acquisition_components(probabilities, candidates)
+        components = pool_acquisition_components(
+            probabilities,
+            candidates,
+            low_threshold_candidates=low_threshold,
+            duration_s=1.0,
+        )
 
         self.assertAlmostEqual(components["uncertainty"], 0.295)
-        self.assertEqual(components["confound_novelty"], 1.0)
+        self.assertEqual(components["low_frequency_strength"], 0.75)
+        self.assertEqual(components["event_density"], 1.0)
+        self.assertEqual(components["floor_tail_density"], 0.25)
+        self.assertEqual(components["confound_novelty"], 0.5)
 
     def test_freeze_unlock_and_score_transitions_persist_exact_artifact_hashes(self):
         export = {
@@ -393,8 +451,14 @@ class LinearExperimentTests(unittest.TestCase):
                 "detector_manifest_sha256": "3" * 64,
             },
             "assignments": [
-                {"status": "submitted", "prefill": {"round": "A"}},
-                {"status": "submitted", "prefill": {"round": "B"}},
+                {
+                    "status": "submitted",
+                    "source_id": f"source-{round_name}-{index}",
+                    "prefill": {"round": round_name},
+                    "human_label": {"sequence_complete": True},
+                }
+                for round_name in ("A", "B")
+                for index in range(30)
             ],
         }
         artifact = {
@@ -411,6 +475,15 @@ class LinearExperimentTests(unittest.TestCase):
         artifact["development_export_sha256"] = canonical_hash(export)
 
         unlocked = freeze_and_unlock_payload(export, artifact, unlocked_at="2026-09-01T12:00:00Z")
+        sealed_assignments = [
+            {
+                "status": "submitted",
+                "source_id": f"source-c-{index}",
+                "prefill": {"round": "C"},
+                "human_label": {"sequence_complete": True},
+            }
+            for index in range(30)
+        ]
         scored = scored_state_payload(
             unlocked,
             {
@@ -418,6 +491,7 @@ class LinearExperimentTests(unittest.TestCase):
                 "threshold_sha256": "5" * 64,
                 "coverage": 0.75,
             },
+            sealed_assignments,
             scored_at="2026-09-02T12:00:00Z",
         )
 
@@ -426,7 +500,7 @@ class LinearExperimentTests(unittest.TestCase):
         self.assertEqual(scored["phase"], "scored")
         self.assertEqual(len(scored["sealed_report_sha256"]), 64)
         with self.assertRaisesRegex(ValueError, "already been scored"):
-            scored_state_payload(scored, {}, scored_at="later")
+            scored_state_payload(scored, {}, sealed_assignments, scored_at="later")
 
 
 if __name__ == "__main__":

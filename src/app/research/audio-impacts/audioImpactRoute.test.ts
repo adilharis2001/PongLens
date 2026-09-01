@@ -23,6 +23,7 @@ test("audio impact route is authenticated, admin-only, batch-scoped, and noindex
   assert.match(page, /audio-impact-labeling-recent-v1/);
   assert.match(page, /audio_impact_research_state/);
   assert.match(page, /visibleAudioImpactRounds/);
+  assert.match(page, /editableAudioImpactRounds/);
   assert.match(page, /research_sources\.prefill->>round/);
   assert.match(
     page,
@@ -74,6 +75,8 @@ test("desktop reviewer mounts one protected video and durable assignment saves",
   assert.match(labeler, /onError/);
   assert.match(labeler, /canReviewAudioImpact\(mediaState, saveState\)/);
   assert.match(labeler, /saveState === "error"/);
+  assert.match(labeler, /editableRounds\.includes\(assignmentRound\)/);
+  assert.match(labeler, /naturalPlaybackSeen/);
 });
 
 test("reviewer exposes every plain-language class without model hints", () => {

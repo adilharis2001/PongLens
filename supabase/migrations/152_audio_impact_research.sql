@@ -74,10 +74,27 @@ create or replace function public.validate_audio_impact_state_transition()
 returns trigger
 language plpgsql
 as $$
+declare
+  sealed_total int;
+  sealed_complete int;
+  development_total int;
+  development_complete int;
 begin
   if new.cohort_manifest_sha256 is distinct from old.cohort_manifest_sha256
      or new.detector_manifest_sha256 is distinct from old.detector_manifest_sha256 then
     raise exception 'frozen audio-impact manifest bindings are immutable';
+  end if;
+  if old.phase in ('frozen', 'sealed_labeling', 'scored')
+     or old.development_export_sha256 is not null then
+    if new.development_export_sha256 is distinct from old.development_export_sha256
+       or new.development_model_sha256 is distinct from old.development_model_sha256
+       or new.development_threshold_sha256 is distinct from old.development_threshold_sha256
+       or new.development_training_data_sha256 is distinct from old.development_training_data_sha256
+       or new.feature_definition_sha256 is distinct from old.feature_definition_sha256
+       or new.split_definition_sha256 is distinct from old.split_definition_sha256
+       or new.unlocked_at is distinct from old.unlocked_at then
+      raise exception 'frozen development bindings are immutable';
+    end if;
   end if;
   if old.phase = 'scored' then
     raise exception 'sealed audio-impact evaluation has already been scored';
@@ -89,6 +106,49 @@ begin
     or (old.phase = 'sealed_labeling' and new.phase = 'scored')
   ) then
     raise exception 'invalid audio-impact study phase transition';
+  end if;
+  if new.phase = 'development_b' and old.phase = 'development_a' then
+    select count(*),
+           count(*) filter (
+             where a.status = 'submitted'
+               and coalesce((a.human_label->>'sequence_complete')::boolean, false)
+           )
+      into development_total, development_complete
+    from public.research_assignments a
+    join public.research_sources s on s.id = a.source_id
+    where a.batch_id = old.batch_id and s.prefill->>'round' = 'A';
+    if development_total <> 30 or development_complete <> 30 then
+      raise exception 'all 30 Round A assignments must be complete before Round B';
+    end if;
+  end if;
+  if new.phase = 'sealed_labeling' and old.phase in ('development_b', 'frozen') then
+    select count(*),
+           count(*) filter (
+             where a.status = 'submitted'
+               and coalesce((a.human_label->>'sequence_complete')::boolean, false)
+           )
+      into development_total, development_complete
+    from public.research_assignments a
+    join public.research_sources s on s.id = a.source_id
+    where a.batch_id = old.batch_id and s.prefill->>'round' in ('A', 'B');
+    if development_total <> 60 or development_complete <> 60 then
+      raise exception 'all 60 development assignments must be complete before unsealing';
+    end if;
+  end if;
+  if new.phase = 'scored' and old.phase = 'sealed_labeling' then
+    select count(*),
+           count(*) filter (
+             where a.status = 'submitted'
+               and coalesce((a.human_label->>'sequence_complete')::boolean, false)
+           )
+      into sealed_total, sealed_complete
+    from public.research_assignments a
+    join public.research_sources s on s.id = a.source_id
+    where a.batch_id = old.batch_id
+      and s.prefill->>'round' = 'C';
+    if sealed_total <> 30 or sealed_complete <> 30 then
+      raise exception 'all 30 sealed assignments must be complete before scoring';
+    end if;
   end if;
   new.updated_at := now();
   return new;
@@ -115,6 +175,7 @@ declare
   source_duration double precision;
   event_value jsonb;
   event_kind text;
+  event_id text;
   event_origin text;
   event_candidate_id text;
   event_time double precision;
@@ -141,6 +202,9 @@ begin
   if study_round = 'B' and study_phase = 'development_a' then
     raise exception 'Round B is not unlocked';
   end if;
+  if study_phase = 'scored' then
+    raise exception 'frozen audio-impact assignments are read-only';
+  end if;
   if study_round = 'C' and study_phase <> 'sealed_labeling' then
     raise exception 'Round C is sealed';
   end if;
@@ -148,19 +212,27 @@ begin
      and new.status is not distinct from old.status then
     return new;
   end if;
-  if study_phase in ('sealed_labeling', 'scored')
+  if study_phase in ('frozen', 'sealed_labeling', 'scored')
      and study_round in ('A', 'B')
-     and new.human_label is distinct from old.human_label then
-    raise exception 'development labels are frozen';
+     and (
+       new.human_label is distinct from old.human_label
+       or new.status is distinct from old.status
+     ) then
+    raise exception 'frozen audio-impact assignments are read-only';
   end if;
-  if coalesce((old.review_metrics->>'media_unavailable')::boolean, false)
-     and new.human_label is distinct from old.human_label then
+  if (
+       coalesce((old.review_metrics->>'media_unavailable')::boolean, false)
+       or coalesce((new.review_metrics->>'media_unavailable')::boolean, false)
+     ) and (
+       new.human_label is distinct from old.human_label
+       or new.status is distinct from old.status
+     ) then
     raise exception 'media unavailable assignments cannot be labeled';
   end if;
   if jsonb_typeof(new.human_label) <> 'object'
      or new.human_label->>'schema_version' <> '1'
-     or jsonb_typeof(new.human_label->'events') <> 'array'
-     or jsonb_typeof(new.human_label->'sequence_complete') <> 'boolean' then
+     or jsonb_typeof(new.human_label->'events') is distinct from 'array'
+     or jsonb_typeof(new.human_label->'sequence_complete') is distinct from 'boolean' then
     raise exception 'invalid audio-impact label envelope';
   end if;
   if jsonb_typeof(proposal_candidates) <> 'array' then
@@ -170,9 +242,28 @@ begin
   proposal_count := jsonb_array_length(proposal_candidates);
   for event_value in select value from jsonb_array_elements(new.human_label->'events')
   loop
+    if jsonb_typeof(event_value) is distinct from 'object' then
+      raise exception 'audio-impact event must be an object';
+    end if;
+    event_id := event_value->>'id';
     event_kind := event_value->>'kind';
     event_origin := event_value->>'origin';
     event_candidate_id := event_value->>'candidate_id';
+    if coalesce(event_id, '') = ''
+       or jsonb_typeof(event_value->'time_s') is distinct from 'number'
+       or jsonb_typeof(event_value->'origin') is distinct from 'string'
+       or (
+         event_value ? 'kind'
+         and jsonb_typeof(event_value->'kind') not in ('string', 'null')
+       ) then
+      raise exception 'audio-impact event has missing or invalid fields';
+    end if;
+    if (
+      select count(*) from jsonb_array_elements(new.human_label->'events') duplicate_event
+      where duplicate_event->>'id' = event_id
+    ) <> 1 then
+      raise exception 'audio-impact event ID is duplicated';
+    end if;
     begin
       event_time := (event_value->>'time_s')::double precision;
     exception when others then
@@ -184,11 +275,13 @@ begin
     ) then
       raise exception 'unknown audio-impact class';
     end if;
-    if event_time < 0 or event_time > source_duration then
+    if event_time is null
+       or event_time in ('NaN'::double precision, 'Infinity'::double precision, '-Infinity'::double precision)
+       or event_time < 0 or event_time > source_duration then
       raise exception 'audio-impact event time is outside source media';
     end if;
     if event_origin = 'proposal' then
-      if event_candidate_id is null or (
+      if event_candidate_id is null or event_id <> event_candidate_id or (
         select count(*)
         from jsonb_array_elements(proposal_candidates) candidate
         where candidate->>'id' = event_candidate_id
