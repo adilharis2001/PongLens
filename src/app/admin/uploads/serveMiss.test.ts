@@ -402,3 +402,210 @@ test("the resting table path includes every observed segment without bridging ga
     { from: c, to: d },
   ]);
 });
+
+test("Admin timeline markers preserve time-only inferred bounces without inventing coordinates", () => {
+  const card = {
+    t0: 320,
+    inferred_bounce_evidence: {
+      schema_version: 1,
+      detector_version: "shadow-v1.5",
+      clock: "source_seconds",
+      candidates: [
+        {
+          id: "later",
+          time: {
+            estimate_s: 325.5,
+            interval_s: [325.4, 325.6],
+            method: "subthreshold_curvature",
+          },
+          table_position: null,
+          context: "serve_first_bounce",
+          confidence: { score: 0.95, tier: "high" },
+          hypothesis_comparison: {
+            preferred: "latent_bounce",
+            continuous_airborne_cost: 31,
+            latent_bounce_cost: 12,
+            margin: 19,
+          },
+          support: [{ kind: "two_sided_track", strength: 0.9 }],
+          vetoes: [],
+          normal_detector_miss: {
+            reason: "below_reversal_threshold",
+            detail: "The reversal was weaker than the normal threshold.",
+          },
+          trajectory_constraint: {
+            safe_to_constrain_z0: false,
+            mode: "display_only",
+            reason: "No defensible coordinate.",
+          },
+        },
+        {
+          id: "earlier",
+          time: {
+            estimate_s: 323.25,
+            interval_s: [323.2, 323.3],
+            method: "occlusion_bridge",
+          },
+          table_position: {
+            u_m: 0.4,
+            v_m: 2.1,
+            uncertainty_radius_m: 0.08,
+            method: "two_sided_track_fit",
+          },
+          context: "mid_rally",
+          confidence: { score: 0.72, tier: "medium" },
+          hypothesis_comparison: {
+            preferred: "latent_bounce",
+            continuous_airborne_cost: 22,
+            latent_bounce_cost: 15,
+            margin: 7,
+          },
+          support: [{ kind: "occlusion_reappearance", strength: 0.7 }],
+          vetoes: [],
+          normal_detector_miss: {
+            reason: "track_gap_at_event",
+            detail: "The ball disappeared at the event.",
+          },
+          trajectory_constraint: {
+            safe_to_constrain_z0: false,
+            mode: "display_only",
+            reason: "Shadow mode does not constrain the path.",
+          },
+        },
+      ],
+    },
+  } as unknown as serveMiss.MissCard;
+
+  assert.deepEqual(serveMiss.inferredBounceMarkers(card), [
+    {
+      id: "earlier",
+      t: 323.25,
+      interval: [323.2, 323.3],
+      tier: "medium",
+      score: 0.72,
+      context: "mid_rally",
+      preferred: "latent_bounce",
+      method: "occlusion_bridge",
+      missReason: "track_gap_at_event",
+      missDetail: "The ball disappeared at the event.",
+      tablePosition: {
+        u_m: 0.4,
+        v_m: 2.1,
+        uncertainty_radius_m: 0.08,
+        method: "two_sided_track_fit",
+      },
+      safeToConstrain: false,
+    },
+    {
+      id: "later",
+      t: 325.5,
+      interval: [325.4, 325.6],
+      tier: "high",
+      score: 0.95,
+      context: "serve_first_bounce",
+      preferred: "latent_bounce",
+      method: "subthreshold_curvature",
+      missReason: "below_reversal_threshold",
+      missDetail: "The reversal was weaker than the normal threshold.",
+      tablePosition: null,
+      safeToConstrain: false,
+    },
+  ]);
+  assert.equal(
+    serveMiss.inferredBounceMarkers(card)[1].tablePosition,
+    null,
+    "a strong event can remain time-only"
+  );
+});
+
+test("Admin ignores a malformed inferred-bounce envelope", () => {
+  const card = {
+    inferred_bounce_evidence: {
+      schema_version: 1,
+      detector_version: "shadow-v1.5",
+      clock: "source_seconds",
+      candidates: [{ id: "partial-and-unsafe" }],
+    },
+  } as unknown as serveMiss.MissCard;
+
+  assert.deepEqual(serveMiss.inferredBounceMarkers(card), []);
+});
+
+test("inferred-bounce marker copy distinguishes time-only evidence from a table estimate", () => {
+  const markers = serveMiss.inferredBounceMarkers({
+    t0: 320,
+    inferred_bounce_evidence: {
+      schema_version: 1,
+      detector_version: "shadow-v1.5",
+      clock: "source_seconds",
+      candidates: [],
+    },
+  } as unknown as serveMiss.MissCard);
+  assert.deepEqual(markers, []);
+
+  assert.equal(
+    serveMiss.inferredBounceMarkerTitle(
+      {
+        id: "time-only",
+        t: 325.5,
+        interval: [325.4, 325.6],
+        tier: "high",
+        score: 0.95,
+        context: "serve_first_bounce",
+        preferred: "latent_bounce",
+        method: "subthreshold_curvature",
+        missReason: "below_reversal_threshold",
+        missDetail: "Weak reversal.",
+        tablePosition: null,
+        safeToConstrain: false,
+      },
+      320
+    ),
+    "5.50s · inferred first serve bounce · high (score 0.95) · below normal reversal threshold · time only"
+  );
+  assert.equal(
+    serveMiss.inferredBounceMarkerTitle(
+      {
+        id: "placed",
+        t: 323.25,
+        interval: [323.2, 323.3],
+        tier: "medium",
+        score: 0.72,
+        context: "mid_rally",
+        preferred: "latent_bounce",
+        method: "occlusion_bridge",
+        missReason: "track_gap_at_event",
+        missDetail: "Track gap.",
+        tablePosition: {
+          u_m: 0.4,
+          v_m: 2.1,
+          uncertainty_radius_m: 0.08,
+          method: "two_sided_track_fit",
+        },
+        safeToConstrain: false,
+      },
+      320
+    ),
+    "3.25s · inferred rally bounce · medium (score 0.72) · track gap at event · table estimate available · display only"
+  );
+  assert.equal(
+    serveMiss.inferredBounceMarkerTitle(
+      {
+        id: "airborne",
+        t: 324,
+        interval: [323.9, 324.1],
+        tier: "diagnostic",
+        score: 0.3,
+        context: "unknown",
+        preferred: "continuous_airborne",
+        method: "weak_reversal",
+        missReason: "unknown",
+        missDetail: "The continuous fit won.",
+        tablePosition: null,
+        safeToConstrain: false,
+      },
+      320
+    ),
+    "4.00s · continuous flight preferred · diagnostic (score 0.30) · normal miss reason unknown · time only"
+  );
+});

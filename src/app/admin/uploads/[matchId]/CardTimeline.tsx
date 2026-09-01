@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { MissCard } from "../serveMiss";
+import {
+  inferredBounceMarkerTitle,
+  inferredBounceMarkers,
+  type MissCard,
+} from "../serveMiss";
 
 /**
  * One card's four sensors, side by side on one clock.
@@ -53,6 +57,9 @@ const TONE = {
   serve: "#facc15",
   /** The two bounces the serve rule accepted, told apart from the rest. */
   serveBounce: "#e879f9",
+  inferredHigh: "#38bdf8",
+  inferredMedium: "#7dd3fc",
+  inferredDiagnostic: "#64748b",
 };
 
 export function CardTimeline({
@@ -93,6 +100,7 @@ export function CardTimeline({
   const body = useMemo(() => {
     const px = (time: number) =>
       PLOT_X + ((time - card.t0) / span) * plotW;
+    const inferred = inferredBounceMarkers(card);
 
     let wavePath = "";
     if (audio && audio.wave.length) {
@@ -224,6 +232,43 @@ export function CardTimeline({
             </circle>
           );
         })}
+        {inferred.map((marker) => {
+          const centerX = px(marker.t);
+          const markerY = BOUNCE_Y - 12;
+          const tone =
+            marker.preferred !== "latent_bounce"
+              ? TONE.inferredDiagnostic
+              : marker.tier === "high"
+              ? TONE.inferredHigh
+              : marker.tier === "medium"
+                ? TONE.inferredMedium
+                : TONE.inferredDiagnostic;
+          return (
+            <g key={`ib-${marker.id}`}>
+              <title>{inferredBounceMarkerTitle(marker, card.t0)}</title>
+              <line
+                x1={px(marker.interval[0])}
+                x2={px(marker.interval[1])}
+                y1={markerY}
+                y2={markerY}
+                stroke={tone}
+                strokeWidth="2"
+                strokeOpacity={marker.tier === "diagnostic" ? 0.45 : 0.8}
+              />
+              <path
+                d={`M ${centerX} ${markerY - 4} L ${centerX + 4} ${markerY} L ${centerX} ${markerY + 4} L ${centerX - 4} ${markerY} Z`}
+                fill={
+                  marker.preferred === "latent_bounce" && marker.tier === "high"
+                    ? tone
+                    : "#0c1222"
+                }
+                stroke={tone}
+                strokeWidth="1.5"
+                strokeOpacity={marker.tier === "diagnostic" ? 0.6 : 1}
+              />
+            </g>
+          );
+        })}
 
         {/* the serve, if one was anchored */}
         <line
@@ -340,6 +385,14 @@ export function CardTimeline({
         <span>
           <i className="mr-1 inline-block h-2 w-2 align-middle rounded-full bg-[#ff5050]" />
           off the surface
+        </span>
+        <span>
+          <i className="mr-1 inline-block h-2 w-2 rotate-45 align-middle border border-sky-400 bg-sky-400" />
+          latent bounce preferred
+        </span>
+        <span>
+          <i className="mr-1 inline-block h-2 w-2 rotate-45 align-middle border border-slate-500" />
+          continuous or unclear
         </span>
         <span>
           <i className="mr-1 inline-block h-2.5 w-0.5 align-middle bg-slate-500" />

@@ -196,8 +196,18 @@ def main():
             prod = blob.get("prod_cards")
             if prod:
                 blob["cards"] = prod
+            blurball = os.path.join(args.workroot, name, "blurball.jsonl")
+            confidence_path = blurball if os.path.exists(blurball) else None
+            confidence = (blurball_confidence(confidence_path)
+                          if confidence_path else None)
             try:
-                page = trim_for_transport(build(blob, include_all=True))
+                page = trim_for_transport(build(
+                    blob,
+                    include_all=True,
+                    observation_confidence=confidence,
+                    confidence_provenance=(CONF_MEASURED if confidence is not None
+                                           else "missing"),
+                ))
             except ValueError as e:
                 print(f"{name[:8]}  skipped: {e}")
                 failed += 1

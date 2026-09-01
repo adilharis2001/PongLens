@@ -25,6 +25,15 @@ import {
   type TrajectoryContact,
 } from "./ballTrajectory.ts";
 import {
+  readInferredBounceEvidence,
+  type InferredBounceConfidenceTier,
+  type InferredBounceContext,
+  type InferredBounceMissReason,
+  type InferredBouncePreferredHypothesis,
+  type InferredBounceTablePosition,
+  type InferredBounceTimeMethod,
+} from "../../../lib/inferredBounceEvidence.ts";
+import {
   quadFromCorners,
   type MatchJson,
   type PlacementCandidateJson,
@@ -113,6 +122,8 @@ export interface MissCard {
   seen?: [number, number][];
   /** Absent, or null, on any match processed before the worker listened. */
   audio?: MissAudio | null;
+  /** Additive Admin-only shadow evidence; absent on older diagnostics. */
+  inferred_bounce_evidence?: unknown;
   why: MissWhy;
 }
 
@@ -133,6 +144,83 @@ export interface ServeMissData {
 
 export const TABLE_W_M = 1.525;
 export const TABLE_L_M = 2.74;
+
+export interface InferredBounceMarker {
+  id: string;
+  t: number;
+  interval: [number, number];
+  tier: InferredBounceConfidenceTier;
+  score: number;
+  context: InferredBounceContext;
+  preferred: InferredBouncePreferredHypothesis;
+  method: InferredBounceTimeMethod;
+  missReason: InferredBounceMissReason;
+  missDetail: string;
+  tablePosition: InferredBounceTablePosition | null;
+  safeToConstrain: boolean;
+}
+
+/**
+ * Validated, time-ordered markers for the Admin diagnosis.
+ *
+ * A null table position stays null. The presentation may show the event on
+ * the shared time axis, but it must not turn strong temporal evidence into a
+ * fabricated landing location or a trajectory constraint.
+ */
+export function inferredBounceMarkers(card: MissCard): InferredBounceMarker[] {
+  const evidence = readInferredBounceEvidence(card.inferred_bounce_evidence);
+  if (!evidence) return [];
+  return evidence.candidates
+    .map((candidate) => ({
+      id: candidate.id,
+      t: candidate.time.estimate_s,
+      interval: candidate.time.interval_s,
+      tier: candidate.confidence.tier,
+      score: candidate.confidence.score,
+      context: candidate.context,
+      preferred: candidate.hypothesis_comparison.preferred,
+      method: candidate.time.method,
+      missReason: candidate.normal_detector_miss.reason,
+      missDetail: candidate.normal_detector_miss.detail,
+      tablePosition: candidate.table_position,
+      safeToConstrain: candidate.trajectory_constraint.safe_to_constrain_z0,
+    }))
+    .sort((left, right) => left.t - right.t || left.id.localeCompare(right.id));
+}
+
+const INFERRED_CONTEXT_LABEL: Record<InferredBounceContext, string> = {
+  serve_first_bounce: "first serve bounce",
+  mid_rally: "rally bounce",
+  unknown: "bounce",
+};
+
+const INFERRED_MISS_LABEL: Record<InferredBounceMissReason, string> = {
+  below_reversal_threshold: "below normal reversal threshold",
+  below_motion_threshold: "below normal motion threshold",
+  track_gap_at_event: "track gap at event",
+  candidate_not_offered: "not offered to the normal detector",
+  masked_for_evaluation: "masked for evaluation",
+  unknown: "normal miss reason unknown",
+};
+
+export function inferredBounceMarkerTitle(
+  marker: InferredBounceMarker,
+  cardT0: number
+): string {
+  const parts = [
+    `${(marker.t - cardT0).toFixed(2)}s`,
+    marker.preferred === "latent_bounce"
+      ? `inferred ${INFERRED_CONTEXT_LABEL[marker.context]}`
+      : marker.preferred === "continuous_airborne"
+        ? "continuous flight preferred"
+        : "bounce evidence indeterminate",
+    `${marker.tier} (score ${marker.score.toFixed(2)})`,
+    INFERRED_MISS_LABEL[marker.missReason],
+    marker.tablePosition ? "table estimate available" : "time only",
+  ];
+  if (marker.tablePosition && !marker.safeToConstrain) parts.push("display only");
+  return parts.join(" · ");
+}
 
 interface FullRateTrackSource {
   cards: { t0: number; track: number[][] }[];

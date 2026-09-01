@@ -3850,7 +3850,9 @@ def publish_card_diagnosis(outdir: str, key_prefix: str,
     if not os.path.exists(dump):
         return 0
     import points_v2
-    from publish_card_diagnosis import trim_for_transport, write_point_tracks
+    from publish_card_diagnosis import (blurball_confidence,
+                                        trim_for_transport,
+                                        write_point_tracks)
     from research_serve_misses import build as build_card_diagnosis
 
     # The serve rule reads two of its constants from app_config per job, so
@@ -3870,8 +3872,19 @@ def publish_card_diagnosis(outdir: str, key_prefix: str,
     with open(dump) as fh:
         blob = json.load(fh)
     blob.setdefault("match_id", key_prefix.rsplit("/", 1)[-1])
+    confidence_path = (
+        blurball_out if blurball_out and os.path.exists(blurball_out) else None
+    )
+    confidence = (blurball_confidence(confidence_path)
+                  if confidence_path else None)
     try:
-        page = trim_for_transport(build_card_diagnosis(blob, include_all=True))
+        page = trim_for_transport(build_card_diagnosis(
+            blob,
+            include_all=True,
+            observation_confidence=confidence,
+            confidence_provenance=("measured" if confidence is not None
+                                   else "missing"),
+        ))
     except ValueError as e:
         # No table quad; there is nothing to project bounces against.
         log.info("  card diagnosis skipped: %s", e)

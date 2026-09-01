@@ -20,6 +20,7 @@ writes `<id>.serves.json` beside the bundle in R2, for /research/serve-misses.
 import argparse
 import bisect
 import json
+import logging
 import os
 import sys
 
@@ -33,6 +34,15 @@ from points_v2 import (  # noqa: E402
 )
 import points_v2  # noqa: E402
 from research_reprocess import MEDIA_BUCKET, PREFIX, config, s3_client  # noqa: E402
+try:  # package import in tests; direct import in worker scripts
+    from .inferred_bounces import (CardInput, HardBounce, KnownContact,
+                                   Observation, infer_card_bounces)
+except ImportError:  # pragma: no cover - exercised by script entry points
+    from inferred_bounces import (CardInput, HardBounce, KnownContact,
+                                  Observation, infer_card_bounces)
+
+
+log = logging.getLogger(__name__)
 
 
 def apply_shipped_settings(env, pad=None, merge=None):
@@ -262,7 +272,8 @@ def card_audio_slice(audio, t0, t1):
     }
 
 
-def build(blob, include_all=False):
+def build(blob, include_all=False, observation_confidence=None,
+          confidence_provenance="missing", known_contacts=()):
     """Per-card evidence for one match.
 
     `include_all` is what the admin portal asks for. The research page wants
@@ -296,7 +307,7 @@ def build(blob, include_all=False):
                                blob["crossings"], H)
         ia = bisect.bisect_left(times, t0)
         ib = bisect.bisect_left(times, t1)
-        cards.append({
+        output_card = {
             "t0": round(t0, 2), "t1": round(t1, 2),
             "dur": round(t1 - t0, 2),
             # Where the detector put bat on ball, or null when it found
@@ -326,7 +337,71 @@ def build(blob, include_all=False):
             # "not measured" rather than as silence.
             "audio": card_audio_slice(blob.get("audio"), t0, t1),
             "why": res,
-        })
+        }
+        if include_all:
+            try:
+                fps = float(blob["fps"])
+                measured = confidence_provenance == "measured"
+                observations = []
+                for t, x, y in track[ia:ib]:
+                    frame = int(round(t * fps))
+                    confidence = (observation_confidence or {}).get(frame)
+                    has_measurement = bool(
+                        measured and confidence is not None
+                        and np.isfinite(float(confidence))
+                    )
+                    observations.append(Observation(
+                        float(t), float(x), float(y),
+                        float(confidence) if has_measurement else None,
+                        has_measurement,
+                    ))
+                hard_bounces = tuple(HardBounce(
+                    float(t), float(x), float(y),
+                    float(p[0]) if p else None,
+                    float(p[1]) if p else None,
+                    bool(on_tbl and p and on_surface(p)),
+                ) for t, x, y, p, on_tbl in proj)
+                audio = output_card["audio"] or {}
+                impacts = tuple(
+                    (float(t), float(strength))
+                    for t, strength in audio.get("impacts", [])
+                )
+                calibration = blob.get("calibration")
+                healthy = not (isinstance(calibration, dict)
+                               and calibration.get("healthy") is False)
+                shadow_input = CardInput(
+                    t0=t0,
+                    t1=t1,
+                    fps=fps,
+                    width_px=w,
+                    height_px=h,
+                    observations=tuple(observations),
+                    hard_bounces=hard_bounces,
+                    crossings=tuple(float(s) for s in blob["crossings"]
+                                    if t0 <= float(s) <= t1),
+                    audio_impacts=impacts,
+                    homography=H,
+                    accepted_serve_bounces=tuple(
+                        float(t) for t in (
+                            inside[0]["bounces"] if inside else []
+                        )
+                    ),
+                    known_contacts=tuple(
+                        contact for contact in known_contacts
+                        if isinstance(contact, KnownContact)
+                        and t0 <= contact.t <= t1
+                    ),
+                    calibration_healthy=healthy,
+                )
+                output_card["inferred_bounce_evidence"] = (
+                    infer_card_bounces(shadow_input)
+                )
+            # This field is diagnostic-only.  An unforeseen shadow bug must
+            # omit its envelope, never abort the Admin artifact or upload.
+            except Exception as e:
+                log.warning("inferred-bounce shadow skipped card %.2f-%.2f: %s",
+                            t0, t1, e)
+        cards.append(output_card)
     return {
         "key": blob["match_id"],
         "w": w, "h": h,

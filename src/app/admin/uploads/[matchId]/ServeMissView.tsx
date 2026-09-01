@@ -7,6 +7,8 @@ import {
   TABLE_L_M,
   TABLE_W_M,
   courtTrajectory,
+  inferredBounceMarkerTitle,
+  inferredBounceMarkers,
   reasonShort,
   reasonTone,
   tablePathSegments,
@@ -307,6 +309,7 @@ export function ServeMissView({
   }, [data, card, cutOffset, cutT0]);
 
   const why = card.why;
+  const inferred = useMemo(() => inferredBounceMarkers(card), [card]);
 
   return (
     <div className="mt-3 rounded-2xl border border-edge bg-surface-2/40 p-3">
@@ -447,6 +450,28 @@ export function ServeMissView({
                 </li>
               )}
             </ul>
+          )}
+          {inferred.length > 0 && (
+            <div className="mt-4 border-t border-edge pt-3">
+              <p className="text-sm font-medium text-zinc-300">
+                Inferred bounce evidence
+              </p>
+              <ul className="mt-2 space-y-2">
+                {inferred.slice(0, 8).map((marker) => (
+                  <li key={marker.id} className="text-xs text-zinc-400">
+                    <p className="text-zinc-300">
+                      {inferredBounceMarkerTitle(marker, card.t0)}
+                    </p>
+                    <p className="mt-0.5 text-zinc-500">{marker.missDetail}</p>
+                  </li>
+                ))}
+                {inferred.length > 8 && (
+                  <li className="text-xs text-zinc-600">
+                    and {inferred.length - 8} more diagnostic candidates
+                  </li>
+                )}
+              </ul>
+            </div>
           )}
         </div>
       </div>
