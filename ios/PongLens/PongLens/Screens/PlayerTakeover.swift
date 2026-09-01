@@ -2141,6 +2141,9 @@ struct PlayerTakeover: View {
                     ForEach(removed[nil] ?? [], id: \.self) { id in
                         removedDot(id)
                     }
+                    if let tail = insertTail {
+                        insertDot(tail)
+                    }
                 }
                 .padding(.vertical, 5)
                 .padding(.horizontal, 2)
@@ -2185,6 +2188,13 @@ struct PlayerTakeover: View {
         // match the chips on the strip rather than counting only clipped ones.
         var numberOf: [UUID: Int] = [:]
         for (i, p) in points.enumerated() { numberOf[p.id] = i + 1 }
+        // A rally missing BEFORE the first card has no pair either.
+        if let first = withClips.first,
+           gapWorthOffering(nil, first.insertNeighbour, pad: pad) != nil {
+            out[first.id] = InsertSeamPair(
+                id: first.id, prev: nil, next: first,
+                prevNumber: nil, nextNumber: numberOf[first.id] ?? 1)
+        }
         for i in 1..<withClips.count {
             let a = withClips[i - 1]
             let b = withClips[i]
@@ -2198,10 +2208,33 @@ struct PlayerTakeover: View {
         return out
     }
 
+    /// The offer that sits after the LAST card — the end of the match, which
+    /// had no offer at all until 2026-08-31 because the loop pairs each card
+    /// with the one before it and never looked past the last chip.
+    var insertTail: InsertSeamPair? {
+        guard app.userId == match.userId else { return nil }
+        let withClips = points.filter { $0.cutT0 != nil }
+        guard let last = withClips.last,
+              gapWorthOffering(last.insertNeighbour, nil, pad: pad) != nil
+        else { return nil }
+        let n = points.firstIndex(where: { $0.id == last.id }).map { $0 + 1 }
+        return InsertSeamPair(
+            id: last.id, prev: last, next: nil,
+            prevNumber: n, nextNumber: nil)
+    }
+
     /// Dashed and quiet: it marks a hole in the strip rather than competing
     /// with the chips, and only appears where there is one.
     func insertDot(_ seamPair: InsertSeamPair) -> some View {
-        let skipped = Int(((seamPair.next.t0 ?? 0) - (seamPair.prev.t1 ?? 0)).rounded())
+        let label: String = {
+            guard let p = seamPair.prev, let n = seamPair.next else {
+                return seamPair.prev == nil
+                    ? "Add a rally before the first one."
+                    : "Add a rally after the last one."
+            }
+            let skipped = Int((((n.t0 ?? 0) - (p.t1 ?? 0))).rounded())
+            return "The video skips \(skipped) seconds here. Add a missing rally."
+        }()
         return Button {
             // player.pause(), NOT a bare pause(): Swift resolves a bare
             // pause() to the POSIX pause(2) system call from Darwin, which
@@ -2222,8 +2255,7 @@ struct PlayerTakeover: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(
-            "The video skips \(skipped) seconds here. Add a missing rally.")
+        .accessibilityLabel(label)
     }
 
     /// Tap once to arm, again to restore — a bare dot is too easy to hit by

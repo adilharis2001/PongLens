@@ -172,13 +172,20 @@ test("the offer appears where the video skipped, not between every card", () => 
   assert.ok(gapWorthOffering(pt("a", 10, 20, 4), pt("b", 24.5, 30, 15), PAD));
   // Just under the line stays quiet.
   assert.equal(gapWorthOffering(pt("a", 10, 20, 4), pt("b", 23.5, 30, 15), PAD), null);
-  // Nothing to offer at the ends of the match.
-  assert.equal(gapWorthOffering(null, JOSE_NEXT, PAD), null);
-  assert.equal(gapWorthOffering(JOSE_PREV, null, PAD), null);
+  // The two ENDS always offer: a rally missing after the last card was
+  // unreachable until 2026-08-31, which is how Kyle (cropped) ended with a
+  // missed serve in 17.6s of trailing footage and no way to add it.
+  assert.ok(gapWorthOffering(null, JOSE_NEXT, PAD), "before the first card");
+  assert.ok(gapWorthOffering(JOSE_PREV, null, PAD), "after the last card");
 });
 
 test("a legacy point with no cut_t0 cannot anchor anything", () => {
   const legacy = { id: "z", t0: 1, t1: 2, cut_t0: null } as unknown as Point;
   assert.equal(spanOf(legacy, PAD), null);
-  assert.equal(gapWorthOffering(legacy, JOSE_NEXT, PAD), null);
+  // It is not rejected outright any more — the two ends of a match offer
+  // with one neighbour — but it must never become the ANCHOR: a point with
+  // no place in the cut cannot say where anything else goes. The strip
+  // never passes one anyway, since it filters on cut_t0 first.
+  const seam = gapWorthOffering(legacy, JOSE_NEXT, PAD);
+  assert.equal(seam?.prev, null);
 });

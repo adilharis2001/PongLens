@@ -188,10 +188,13 @@ let GAP_WORTH_OFFERING_S = 4.0
 func gapWorthOffering(
     _ prevPoint: InsertNeighbour?, _ nextPoint: InsertNeighbour?, pad: ClipPad
 ) -> Seam? {
-    guard prevPoint != nil, nextPoint != nil,
-          let seam = seamBetween(prevPoint, nextPoint, pad: pad),
-          seam.prev != nil, seam.next != nil
-    else { return nil }
+    guard let seam = seamBetween(prevPoint, nextPoint, pad: pad) else { return nil }
+    // A seam with only ONE neighbour is the start or the end of the match and
+    // always offers: a rally missing after the last card was unreachable
+    // until 2026-08-31, because the offer was only ever drawn BETWEEN two
+    // cards. Whether that trailing footage exists is not knowable here, so
+    // the sheet clamps to the file's real length once it loads.
+    if seam.prev == nil || seam.next == nil { return seam }
     return seam.gapTo - seam.gapFrom >= GAP_WORTH_OFFERING_S ? seam : nil
 }
 
@@ -200,9 +203,10 @@ func gapWorthOffering(
 /// can be presented with `.sheet(item:)`.
 struct InsertSeamPair: Identifiable {
     let id: UUID
-    let prev: MatchPoint
-    let next: MatchPoint
+    /// Nil at the start of the match; `next` is nil at the end of it.
+    let prev: MatchPoint?
+    let next: MatchPoint?
     /// Their numbers on the strip, so the sheet can show the real chips.
-    let prevNumber: Int
-    let nextNumber: Int
+    let prevNumber: Int?
+    let nextNumber: Int?
 }

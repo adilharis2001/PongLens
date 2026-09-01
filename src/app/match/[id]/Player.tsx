@@ -3967,10 +3967,10 @@ export const Player = forwardRef<
 
   /** The seam the "Add a missing rally" sheet is open on. */
   const [insertSeam, setInsertSeam] = useState<{
-    prev: Point;
-    next: Point;
-    prevNumber: number;
-    nextNumber: number;
+    prev: Point | null;
+    next: Point | null;
+    prevNumber: number | null;
+    nextNumber: number | null;
   } | null>(null);
   const [insertBusy, setInsertBusy] = useState(false);
 
@@ -3987,7 +3987,12 @@ export const Player = forwardRef<
   const insertOffers = useMemo(() => {
     const out = new Map<
       string,
-      { prev: Point; next: Point; prevNumber: number; nextNumber: number }
+      {
+        prev: Point | null;
+        next: Point | null;
+        prevNumber: number | null;
+        nextNumber: number | null;
+      }
     >();
     if (!onInsertPoint) return out;
     // Numbers come from the position in the FULL visible list, so they match
@@ -3995,6 +4000,20 @@ export const Player = forwardRef<
     const numberOf = new Map<string, number>();
     points.forEach((p, i) => numberOf.set(p.id, i + 1));
     const withClips = points.filter((p) => p.cut_t0 !== null);
+    // A rally missing BEFORE the first card has no pair either, so it gets
+    // its own offer against the start of the match.
+    if (withClips.length > 0) {
+      const first = withClips[0];
+      const seam = gapWorthOffering(null, first, pad);
+      if (seam) {
+        out.set(first.id, {
+          prev: null,
+          next: first,
+          prevNumber: null,
+          nextNumber: numberOf.get(first.id) ?? 1,
+        });
+      }
+    }
     for (let i = 1; i < withClips.length; i++) {
       const prev = withClips[i - 1];
       const next = withClips[i];
@@ -4008,6 +4027,33 @@ export const Player = forwardRef<
       }
     }
     return out;
+  }, [points, pad, onInsertPoint]);
+
+  /** What a "+" says it will do, at either end or in between. */
+  const insertOfferLabel = useCallback(
+    (o: { prev: Point | null; next: Point | null }) => {
+      if (!o.prev) return "Add a rally before the first one.";
+      if (!o.next) return "Add a rally after the last one.";
+      const skipped = Math.round(Number(o.next.t0) - Number(o.prev.t1));
+      return `The video skips ${skipped} seconds here. Add a missing rally.`;
+    },
+    []
+  );
+
+  /** The offer that sits after the LAST card — the end of the match. */
+  const insertTail = useMemo(() => {
+    if (!onInsertPoint) return null;
+    const withClips = points.filter((p) => p.cut_t0 !== null);
+    if (withClips.length === 0) return null;
+    const last = withClips[withClips.length - 1];
+    if (!gapWorthOffering(last, null, pad)) return null;
+    const n = points.findIndex((p) => p.id === last.id);
+    return {
+      prev: last,
+      next: null,
+      prevNumber: n >= 0 ? n + 1 : withClips.length,
+      nextNumber: null,
+    };
   }, [points, pad, onInsertPoint]);
 
   const doInsert = useCallback(
@@ -5970,12 +6016,8 @@ export const Player = forwardRef<
                         videoRef.current?.pause();
                         setInsertSeam(offer);
                       }}
-                      title={`The video skips ${Math.round(
-                        Number(offer.next.t0) - Number(offer.prev.t1)
-                      )}s here. Add a missing rally.`}
-                      aria-label={`The video skips ${Math.round(
-                        Number(offer.next.t0) - Number(offer.prev.t1)
-                      )} seconds here. Add a missing rally.`}
+                      title={insertOfferLabel(offer)}
+                      aria-label={insertOfferLabel(offer)}
                       className="flex h-8 w-6 shrink-0 items-center justify-center rounded-full border border-dashed border-zinc-600 text-zinc-500 transition-colors hover:border-cyan-glow/60 hover:text-cyan-glow"
                     >
                       <svg
@@ -6159,6 +6201,35 @@ export const Player = forwardRef<
               {(removedDots.get("") ?? []).map((d) => (
                 <RemovedDot key={d.id} onRestore={() => onUndoDelete(d.id)} />
               ))}
+              {insertTail && (
+                // The end of the match, which had no offer at all until
+                // 2026-08-31: the loop pairs each card with the one before
+                // it, so nothing was ever drawn past the last chip. Kyle
+                // (cropped) finished with 17.6s of footage and a missed
+                // serve in it, and no way to say so.
+                <button
+                  type="button"
+                  onClick={() => {
+                    videoRef.current?.pause();
+                    setInsertSeam(insertTail);
+                  }}
+                  title={insertOfferLabel(insertTail)}
+                  aria-label={insertOfferLabel(insertTail)}
+                  className="flex h-8 w-6 shrink-0 items-center justify-center rounded-full border border-dashed border-zinc-600 text-zinc-500 transition-colors hover:border-cyan-glow/60 hover:text-cyan-glow"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-3.5 w-3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+              )}
             </div>
           )}
 

@@ -234,8 +234,20 @@ export function gapWorthOffering(
   nextPoint: Neighbour,
   pad: ClipPad
 ): Seam | null {
-  if (!prevPoint || !nextPoint) return null;
   const seam = seamBetween(prevPoint, nextPoint, pad);
-  if (!seam || !seam.prev || !seam.next) return null;
+  if (!seam) return null;
+  // A seam with only ONE neighbour is the start or the end of the match, and
+  // it always offers. A rally missing after the last card was unreachable
+  // until 2026-08-31 — the offer was only ever drawn BETWEEN two cards, so
+  // the loop that pairs each card with the one before it had nothing to pair
+  // at either end. Kyle (cropped) ended with 17.6s of footage and a missed
+  // final serve in it, and no way to say so.
+  //
+  // Whether that trailing footage exists at all is not knowable here (the
+  // points' clock is the TRIMMED one, and the match row carries the raw
+  // duration), so these two always appear and the sheet clamps the handles
+  // to the file's real length once it loads. One extra offer per match end
+  // is a cheaper mistake than an unreachable rally.
+  if (!seam.prev || !seam.next) return seam;
   return seam.gapTo - seam.gapFrom >= GAP_WORTH_OFFERING_S ? seam : null;
 }

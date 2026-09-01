@@ -86,6 +86,8 @@ func runInsertGeometryParityChecks() {
           "a quickly re-served miss is, which eight seconds was blind to")
     check(gapWorthOffering(nb(10, 20, 4), nb(23.5, 30, 15), pad: PAD) == nil,
           "just under the line stays quiet")
-    check(gapWorthOffering(nil, JOSE_NEXT, pad: PAD) == nil,
-          "and nothing is offered at the ends of the match")
+    check(gapWorthOffering(nil, JOSE_NEXT, pad: PAD) != nil,
+          "the start of the match always offers")
+    check(gapWorthOffering(JOSE_PREV, nil, pad: PAD) != nil,
+          "and so does the end, where a missed final serve hides")
 }
