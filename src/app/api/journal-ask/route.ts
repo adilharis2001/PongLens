@@ -92,6 +92,9 @@ async function loadCorpus(
         .from("lessons")
         .select("*")
         .eq("user_id", userId)
+        // Coach entries (kind 'coach') are workspace notes about students,
+        // not this player's own journal; Ask must not read them.
+        .neq("kind", "coach")
         .order("created_at", { ascending: false }),
       supabase
         .from("matches")

@@ -50,6 +50,9 @@ struct LessonRow: Codable, Identifiable, Hashable {
     let kind: String
     let coachName: String?
     let imagePath: String?
+    /// "Lesson about this match" (037). Defaulted so the journal's own
+    /// queries, which never select it, keep decoding.
+    var matchId: UUID? = nil
     let createdAt: String
 
     enum CodingKeys: String, CodingKey {
@@ -57,6 +60,7 @@ struct LessonRow: Codable, Identifiable, Hashable {
         case userId = "user_id"
         case coachName = "coach_name"
         case imagePath = "image_path"
+        case matchId = "match_id"
         case createdAt = "created_at"
     }
 
@@ -68,7 +72,7 @@ struct LessonRow: Codable, Identifiable, Hashable {
         LessonRow(
             id: id, userId: userId, transcript: transcript, takeaways: takeaways,
             status: status, kind: kind, coachName: coachName,
-            imagePath: imagePath, createdAt: createdAt
+            imagePath: imagePath, matchId: matchId, createdAt: createdAt
         )
     }
 
@@ -78,8 +82,36 @@ struct LessonRow: Codable, Identifiable, Hashable {
         LessonRow(
             id: id, userId: userId, transcript: transcript, takeaways: takeaways,
             status: status, kind: kind, coachName: coachName,
-            imagePath: imagePath, createdAt: createdAt
+            imagePath: imagePath, matchId: matchId, createdAt: createdAt
         )
+    }
+}
+
+/// A coach's shared entry, as coach_shared_entries() returns it: the
+/// coach's live words, refreshed on every journal load. Read-only here —
+/// the coach owns the row.
+struct CoachSharedEntry: Codable, Identifiable, Hashable {
+    let entryId: UUID
+    let coachId: UUID
+    let coachName: String
+    let transcript: String
+    let takeaways: LessonTakeaways?
+    let entryKind: String
+    let matchId: UUID?
+    let sharedAt: String
+    let updatedAt: String
+
+    var id: UUID { entryId }
+
+    enum CodingKeys: String, CodingKey {
+        case transcript, takeaways
+        case entryId = "entry_id"
+        case coachId = "coach_id"
+        case coachName = "coach_name"
+        case entryKind = "entry_kind"
+        case matchId = "match_id"
+        case sharedAt = "shared_at"
+        case updatedAt = "updated_at"
     }
 }
 
@@ -126,6 +158,7 @@ struct EntryTagRow: Codable, Hashable {
 final class JournalStore {
     var notes: [NoteFeedRow] = []
     var lessons: [LessonRow] = []
+    var coachShared: [CoachSharedEntry] = []
     var tagStats: [TagStatRow] = []
     var entryTags: [EntryTagRow] = []
     var cues: [FocusPointRow] = []
@@ -146,10 +179,16 @@ final class JournalStore {
         async let notesQ: [NoteFeedRow]? = try? supa
             .rpc("note_feed", params: FeedParams(p_limit: 500))
             .execute().value
+        // Coach entries live in the same table under kind 'coach'; they
+        // belong to the coaching workspace, not this journal.
         async let lessonsQ: [LessonRow]? = try? supa
             .from("lessons")
             .select("id,user_id,transcript,takeaways,status,kind,coach_name,image_path,created_at")
+            .neq("kind", value: "coach")
             .order("created_at", ascending: false)
+            .execute().value
+        async let coachSharedQ: [CoachSharedEntry]? = try? supa
+            .rpc("coach_shared_entries")
             .execute().value
         async let tagsQ: [TagStatRow]? = try? supa
             .rpc("tag_stats").execute().value
@@ -169,6 +208,7 @@ final class JournalStore {
             .execute().value
 
         let (n, l, t, c, e, r) = await (notesQ, lessonsQ, tagsQ, cuesQ, entryTagsQ, recollectQ)
+        coachShared = (await coachSharedQ) ?? []
         notes = n ?? []
         lessons = l ?? []
         tagStats = t ?? []

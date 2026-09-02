@@ -8,6 +8,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Logo } from "@/components/Logo";
 import { NotificationBell } from "@/components/NotificationBell";
 import { createClient } from "@/lib/supabase/client";
+import { useWorkspace } from "@/lib/workspace";
 
 /**
  * Signed-in navigation shell.
@@ -124,6 +125,33 @@ function PersonIcon() {
   );
 }
 
+function StudentsIcon({ active }: { active: boolean }) {
+  // Two people — the roster.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-6 w-6"
+      fill={active ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={active ? 0 : 1.8}
+      aria-hidden="true"
+    >
+      <circle cx="9" cy="8.5" r="3.5" />
+      <path
+        strokeLinecap="round"
+        d="M3 19.5c.9-2.9 3.2-4.5 6-4.5s5.1 1.6 6 4.5"
+      />
+      <path
+        strokeLinecap="round"
+        d="M15.5 5.6a3 3 0 0 1 0 5.8M17.6 15.4c1.7.6 2.9 1.9 3.4 4.1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+      />
+    </svg>
+  );
+}
+
 function CoachIcon({ active }: { active: boolean }) {
   // A whistle: coaching's oldest tool.
   return (
@@ -152,6 +180,12 @@ const TABS = [
 
 const COACHING_TAB = { href: "/coaching", label: "Coaching" } as const;
 
+/** The coaching workspace's spine (156): the hub, and the roster. */
+const COACH_TABS = [
+  { href: "/coaching", label: "Coaching" },
+  { href: "/coaching/students", label: "Students" },
+] as const;
+
 function tabIcon(label: string, active: boolean) {
   switch (label) {
     case "Home":
@@ -160,6 +194,8 @@ function tabIcon(label: string, active: boolean) {
       return <MatchesIcon active={active} />;
     case "Coaching":
       return <CoachIcon active={active} />;
+    case "Students":
+      return <StudentsIcon active={active} />;
     default:
       return <JournalIcon active={active} />;
   }
@@ -236,7 +272,16 @@ export function AppNav({
 }) {
   const pathname = usePathname();
   const isCoach = useIsCoach();
-  const tabs = isCoach ? [...TABS, COACHING_TAB] : [...TABS];
+  const workspace = useWorkspace();
+  // The coaching workspace swaps the spine wholesale: same bar, other
+  // side of the table. The player bar keeps its Coaching tab for the
+  // student direction (your coaches, reviews you bought).
+  const tabs =
+    workspace === "coach"
+      ? [...COACH_TABS]
+      : isCoach
+        ? [...TABS, COACHING_TAB]
+        : [...TABS];
   const activeTab = (href: string) => {
     switch (href) {
       case "/dashboard":
@@ -247,9 +292,17 @@ export function AppNav({
         // told you that you were somewhere you were not. Nothing lights
         // there now — uploading is a task, not a destination, which is the
         // whole reason it has no tab of its own.
-        return pathname === "/matches" || pathname.startsWith("/match/");
+        return (
+          pathname === "/matches" ||
+          (pathname.startsWith("/match/") && workspace !== "coach")
+        );
+      case "/coaching/students":
+        return pathname.startsWith("/coaching/students");
       case "/coaching":
-        return pathname.startsWith("/coaching");
+        return (
+          pathname.startsWith("/coaching") &&
+          (workspace !== "coach" || !pathname.startsWith("/coaching/students"))
+        );
       default:
         return pathname.startsWith("/journal") || pathname.startsWith("/improve");
     }

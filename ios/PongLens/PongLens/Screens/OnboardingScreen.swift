@@ -14,6 +14,11 @@ struct OnboardingScreen: View {
 
     @Environment(AppState.self) private var app
     @State private var step: Int
+    /// The Upwork question, asked once of brand-new accounts: which side
+    /// of the table are you on. Invite-born coaches never see it — the
+    /// invite already answered. "player" runs the existing flow;
+    /// "coach" answers the name and lands in the coaching workspace.
+    @State private var role: String?
     @State private var name = ""
     @State private var handedness: String?
     @State private var grip: String?
@@ -87,6 +92,8 @@ struct OnboardingScreen: View {
                             }
                         }
                         .padding(.vertical, 24)
+                    } else if needsName && !isCoach && role == nil {
+                        roleStep
                     } else if step == 0 {
                         nameStep
                     } else {
@@ -119,6 +126,55 @@ struct OnboardingScreen: View {
             autoFinished = true
             await saveProfile()
         }
+    }
+
+    private var roleStep: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("How will you use PongLens?")
+                .font(.plCardTitle)
+                .foregroundStyle(PL.text100)
+            Text("You can add the other side later from Account.")
+                .font(.plBody)
+                .foregroundStyle(PL.text400)
+            VStack(spacing: 10) {
+                roleCard(
+                    value: "player",
+                    title: "I play",
+                    blurb: "Film your matches and review your game."
+                )
+                roleCard(
+                    value: "coach",
+                    title: "I coach",
+                    blurb: "Keep lesson notes and follow your students' matches."
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 24)
+    }
+
+    private func roleCard(value: String, title: String, blurb: String) -> some View {
+        Button {
+            role = value
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.plRowTitle)
+                    .foregroundStyle(PL.text100)
+                Text(blurb)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(14)
+            .background(PL.ink.opacity(0.4),
+                        in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                    .strokeBorder(PL.edge, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private var nameStep: some View {
@@ -266,9 +322,13 @@ struct OnboardingScreen: View {
                 data: ["full_name": .string(normalized)]
             ))
             saving = false
-            if isCoach {
+            if isCoach || role == "coach" {
                 // Straight past the player questions, exactly as the web
-                // flow does once the name is in.
+                // flow does once the name is in. A chosen coach lands in
+                // the coaching workspace with the choice remembered.
+                if role == "coach" {
+                    app.setWorkspace(.coach)
+                }
                 await saveProfile()
                 return
             }

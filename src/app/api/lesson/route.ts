@@ -229,7 +229,7 @@ export async function POST(req: Request) {
 
   let transcript: string;
   let lessonId: string;
-  let kind: "lesson" | "practice";
+  let kind: "lesson" | "practice" | "coach";
   let preview = false;
   let summarize: boolean;
   let imagePath: string | null;
@@ -238,7 +238,15 @@ export async function POST(req: Request) {
     const body = await req.json();
     transcript = String(body.transcript ?? "").trim();
     lessonId = String(body.lessonId ?? "");
-    kind = body.kind === "practice" ? "practice" : "lesson";
+    // 'coach' (156) is a coaching-workspace entry about a student. Same
+    // pipeline, different journal: it never reaches the author's own feed
+    // or their Recollect loop.
+    kind =
+      body.kind === "practice"
+        ? "practice"
+        : body.kind === "coach"
+          ? "coach"
+          : "lesson";
     // Who taught it (085). Only a lesson has one, and the column's own
     // check constraint caps it at 80 — trim to the same bound here so an
     // over-long name is a shorter name rather than a failed save.
@@ -288,12 +296,13 @@ export async function POST(req: Request) {
   if (lessonId) {
     const { data: row } = await supabase
       .from("lessons")
-      .select("id, transcript, takeaways")
+      .select("id, transcript, takeaways, kind")
       .eq("id", lessonId)
       .maybeSingle();
     if (!row) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
+    kind = row.kind === "coach" ? "coach" : kind;
     // Retry means "distillation produced nothing, try again", so a row
     // that already has notes has nothing to retry. It matters more than
     // tidiness: notes can now be corrected by hand, and running the model
@@ -336,12 +345,14 @@ export async function POST(req: Request) {
     }
     lessonId = created.id;
     if (plain) {
-      await beginRecollect(user.id, lessonId);
+      if (kind !== "coach") await beginRecollect(user.id, lessonId);
       return NextResponse.json({ id: lessonId, status: "ready" });
     }
   }
 
-  return distillAndFinish(supabase, user.id, lessonId, transcript);
+  return distillAndFinish(supabase, user.id, lessonId, transcript, {
+    recollect: kind !== "coach",
+  });
 }
 
 /**
@@ -355,6 +366,7 @@ async function distillAndFinish(
   userId: string,
   lessonId: string,
   transcript: string,
+  { recollect = true }: { recollect?: boolean } = {},
 ) {
   const result = await distill(transcript).catch((e) => {
     console.error("lesson distill threw:", e);
@@ -367,7 +379,7 @@ async function distillAndFinish(
       .from("lessons")
       .update({ takeaways: null, status: "ready" })
       .eq("id", lessonId);
-    await beginRecollect(userId, lessonId);
+    if (recollect) await beginRecollect(userId, lessonId);
     return NextResponse.json({ id: lessonId, status: "ready" });
   }
   const takeaways = result;
@@ -376,7 +388,7 @@ async function distillAndFinish(
     .from("lessons")
     .update({ takeaways, status })
     .eq("id", lessonId);
-  await beginRecollect(userId, lessonId);
+  if (recollect) await beginRecollect(userId, lessonId);
   return NextResponse.json({ id: lessonId, status, takeaways });
 }
 

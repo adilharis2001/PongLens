@@ -37,6 +37,9 @@ struct StudentOrderRow: Codable, Identifiable, Hashable {
 @Observable
 final class CoachingStore {
     var isCoach = false
+    /// Someone's accepted coach, regardless of having a marketplace page.
+    /// One leg of "does the coaching workspace offer itself".
+    var coachesAnyone = false
     var showTab: Bool
     var coachLinks: [CoachLinkRow] = []
     var orders: [StudentOrderRow] = []
@@ -81,6 +84,7 @@ final class CoachingStore {
 
         let (profile, asCoach, links, orderRows) = await (profileQ, asCoachQ, asPlayerQ, ordersQ)
         isCoach = (profile?.count ?? 0) > 0
+        coachesAnyone = (asCoach?.count ?? 0) > 0
         coachLinks = links ?? []
         orders = orderRows ?? []
         showTab = AppConfig.coachMarketplace

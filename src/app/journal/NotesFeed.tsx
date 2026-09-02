@@ -25,6 +25,7 @@ import { FabButton } from "@/components/Fab";
 import { journalTagsForOwner } from "@/lib/journal/tags";
 import { JournalEditor } from "./JournalEditor";
 import { NoteEditor } from "./NoteEditor";
+import { CoachShared } from "./CoachShared";
 import { AskPanel, MAX_QUESTION_CHARS, askable } from "./AskPanel";
 import { askExamples, topOpponentFromNotes } from "@/lib/ask/examples";
 import { Recollect } from "./Recollect";
@@ -237,9 +238,12 @@ export function NotesFeed({
     void supabase.rpc("tag_stats").then(({ data }) => {
       setTagStats((data as TagStat[]) ?? []);
     });
+    // Coach entries live in the same table under kind 'coach'; they belong
+    // to the coaching workspace, not this journal.
     void supabase
       .from("lessons")
       .select("*")
+      .neq("kind", "coach")
       .order("created_at", { ascending: false })
       .then(({ data }) => setLessons((data as Lesson[]) ?? []));
     void supabase
@@ -896,6 +900,8 @@ export function NotesFeed({
           onRestore={restoreCue}
         />
       )}
+
+      {!activeTag && <CoachShared />}
 
       {!activeTag &&
         rows !== null &&

@@ -7,6 +7,7 @@ struct AccountScreen: View {
     @Environment(\.openURL) private var openURL
     @Environment(AppState.self) private var app
     @Environment(CoachingStore.self) private var coaching
+    @Environment(CoachWorkspaceStore.self) private var coachWorkspace
     @State private var store = AccountStore()
     @State private var purchases = PurchaseStore()
     @State private var editingName = false
@@ -304,7 +305,21 @@ struct AccountScreen: View {
     private var coachingSection: some View {
         let accepted = coaching.coachLinks.filter { $0.status == "accepted" }.count
         let pending = coaching.coachLinks.count - accepted
+        // The coaching workspace offers itself to anyone with coach data:
+        // an accepted student, a roster, a coach page, or the onboarding
+        // answer. Adding a student inside the workspace keeps it open.
+        let coachEligible = app.workspace == .coach
+            || coaching.isCoach
+            || coaching.coachesAnyone
+            || !coachWorkspace.students.isEmpty
+            || app.metadataFlag("is_coach")
         return group("Coaching") {
+            if coachEligible {
+                navRow(app.workspace == .coach ? "Switch to playing" : "Switch to coaching") {
+                    app.setWorkspace(app.workspace == .coach ? .player : .coach)
+                }
+                rowDivider
+            }
             HStack(spacing: 12) {
                 Image(systemName: "person.2")
                     .font(.system(size: 15))
