@@ -78,11 +78,14 @@ struct OnboardingScreen: View {
     private var alsoCoach: Bool { role == "both" }
 
     /// The dots: which steps this account will walk, and where it is.
+    /// Counted from what the account arrived with, never from the card
+    /// under the finger — a coach simply never reaches the last dot, and
+    /// the row does not resize while choosing.
     private var stepCount: Int {
         var n = 0
         if isNew && !isCoach { n += 1 }
         if needsName { n += 1 }
-        if !coachOnly { n += 1 }
+        if !isCoach { n += 1 }
         return n
     }
     private var stepIndex: Int {
@@ -202,7 +205,7 @@ struct OnboardingScreen: View {
                     value: "both",
                     icon: "person.2.fill",
                     title: "Both",
-                    blurb: "Your own game and your students, one account, a switch between them."
+                    blurb: "Your own game and your students, one switch apart."
                 )
             }
             .opacity(cardsShown ? 1 : 0)
