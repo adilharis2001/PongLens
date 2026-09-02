@@ -40,6 +40,30 @@ final class CoachRouter {
     var newEntryOpen = false
     var newEntryStudent: CoachStudentRow?
     var composer: CoachComposerRequest?
+
+    #if DEBUG
+    /// Headless-verification hooks, the coach side's --dev-* set: land on
+    /// a tab or open a screen straight from launch arguments so simctl
+    /// screenshots can reach deep screens without tap automation.
+    var devOpenFirstStudent = false
+    var devOpenFirstEntry = false
+    var devComposeWrite = false
+    var devInvite = false
+    #endif
+
+    init() {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "--dev-coach-tab"), args.indices.contains(i + 1),
+           let requested = CoachTab(rawValue: args[i + 1].capitalized) {
+            tab = requested
+        }
+        devOpenFirstStudent = args.contains("--dev-open-first-student")
+        devOpenFirstEntry = args.contains("--dev-open-first-entry")
+        devComposeWrite = args.contains("--dev-coach-compose")
+        devInvite = args.contains("--dev-coach-invite")
+        #endif
+    }
 }
 
 /// The coaching workspace: the same app, standing on the other side of
@@ -56,6 +80,9 @@ struct CoachTabView: View {
     @State private var router = CoachRouter()
     @State private var path = NavigationPath()
     @State private var bellOpen = false
+    /// DEBUG-only presentation target for --dev-coach-invite; inert in
+    /// Release, where nothing sets it.
+    @State private var devInviteOpen = false
 
     var body: some View {
         @Bindable var router = router
@@ -122,6 +149,9 @@ struct CoachTabView: View {
         .fullScreenCover(item: $router.composer) { request in
             CoachEntryComposer(request: request)
         }
+        .sheet(isPresented: $devInviteOpen) {
+            StudentInviteSheet(student: workspace.activeStudents.first)
+        }
         .sheet(isPresented: $bellOpen) {
             NotificationsPanel(
                 store: notifications,
@@ -145,6 +175,26 @@ struct CoachTabView: View {
             await library.load()
             await scores.load(for: library.matches.filter { $0.status == .ready })
             library.startPolling()
+            #if DEBUG
+            if router.devOpenFirstStudent, let student = workspace.activeStudents.first {
+                router.devOpenFirstStudent = false
+                path.append(student)
+            }
+            if router.devOpenFirstEntry, let entry = workspace.entries.first {
+                router.devOpenFirstEntry = false
+                path.append(entry)
+            }
+            if router.devComposeWrite {
+                router.devComposeWrite = false
+                router.composer = CoachComposerRequest(
+                    mode: .write, student: workspace.activeStudents.first
+                )
+            }
+            if router.devInvite {
+                router.devInvite = false
+                devInviteOpen = true
+            }
+            #endif
         }
         .onChange(of: library.matches) { _, matches in
             Task {
