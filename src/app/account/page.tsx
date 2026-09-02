@@ -19,6 +19,7 @@ import {
 } from "@/lib/config";
 import { RecollectSetting } from "./RecollectSetting";
 import { WorkspaceSwitch } from "./WorkspaceSwitch";
+import { rememberedWorkspace } from "@/lib/workspaceServer";
 
 export const metadata: Metadata = {
   title: "Account",
@@ -80,6 +81,8 @@ export default async function AccountPage() {
   const isQa = qa === true;
   const supportEmail = await getSupportEmail();
   const commerceEnabled = await getCommerceEnabled();
+  const { workspace } = await rememberedWorkspace();
+  const coachSide = workspace === "coach";
   const [minutePacks, storagePacks] = commerceEnabled
     ? await Promise.all([getMinutePacks(), getStoragePacks()])
     : [[], []];
@@ -136,18 +139,24 @@ export default async function AccountPage() {
       )}
 
       {/* 3 — highest-frequency destinations on this tab. Player profile
-          is set-once data, so it lives behind a row, not on the page. */}
+          is set-once data, so it lives behind a row, not on the page. On
+          the coaching side the playing rooms are one switch away, not
+          here (158). */}
       <div className="mt-8">
-        <SectionLabel>Your game</SectionLabel>
+        <SectionLabel>{coachSide ? "Workspace" : "Your game"}</SectionLabel>
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-          <RowLink href="/stats" label="My stats" />
-          <RowLink href="/stats?view=tactics" label="Tactics" />
-          <RowLink href="/starred" label="Starred points" />
-          <RowLink href="/account/player" label="Player profile" />
-          <RecollectSetting
-            initialEnabled={recollectPreference?.enabled !== false}
-          />
-          <WorkspaceSwitch />
+          {!coachSide && (
+            <>
+              <RowLink href="/stats" label="My stats" />
+              <RowLink href="/stats?view=tactics" label="Tactics" />
+              <RowLink href="/starred" label="Starred points" />
+              <RowLink href="/account/player" label="Player profile" />
+              <RecollectSetting
+                initialEnabled={recollectPreference?.enabled !== false}
+              />
+            </>
+          )}
+          <WorkspaceSwitch remembered={workspace} />
         </div>
       </div>
 
@@ -157,17 +166,19 @@ export default async function AccountPage() {
         <ShareLinksSection />
       </div>
 
-      {/* 5 — resource management sits mid-low */}
-      {commerceEnabled && (
+      {/* 5 — resource management sits mid-low; playing-side only */}
+      {commerceEnabled && !coachSide && (
         <div id="minutes" className="mt-8 scroll-mt-20">
           <SectionLabel>Processing minutes</SectionLabel>
           <MinutesSection packs={minutePacks} />
         </div>
       )}
-      <div id="storage" className="mt-8 scroll-mt-20">
-        <SectionLabel>Storage</SectionLabel>
-        <StorageSection packs={commerceEnabled ? storagePacks : []} />
-      </div>
+      {!coachSide && (
+        <div id="storage" className="mt-8 scroll-mt-20">
+          <SectionLabel>Storage</SectionLabel>
+          <StorageSection packs={commerceEnabled ? storagePacks : []} />
+        </div>
+      )}
 
       {/* 6 — support block, just above legal */}
       <div className="mt-8">

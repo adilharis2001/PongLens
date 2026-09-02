@@ -10,6 +10,7 @@ import type {
 } from "@/lib/reviews/types";
 import type { NoteFeedRow } from "@/lib/types";
 import { CoachHub } from "./CoachHub";
+import { rememberedWorkspace } from "@/lib/workspaceServer";
 
 export const metadata: Metadata = {
   title: "Coaching",
@@ -124,9 +125,12 @@ export default async function CoachingPage() {
       sum + (hasGrant ? 0 : Number.isFinite(free) && free > 0 ? free : 0);
   }
 
+  const { workspace } = await rememberedWorkspace();
+
   return (
     <AppShell avatarUrl={avatarUrl} wide>
       <CoachHub
+        workspace={workspace}
         profile={(profile as CoachProfileRow | null) ?? null}
         sponsoredLeft={sponsoredLeft}
         initialQueue={queueRes.data ?? []}
@@ -144,7 +148,6 @@ export default async function CoachingPage() {
         coachNotes={((notesRes.data ?? []) as NoteFeedRow[]).filter(
           (n) => n.match_owner_id === user.id && n.author_id !== user.id,
         )}
-        hasCoachLinks={(linksRes.count ?? 0) > 0}
         pageOpens7d={(opensRes as { count: number | null }).count ?? 0}
         nudgePlayerCount={coachedOwners.size}
         nudgeNoteCount={coachedNoteOwners.length}

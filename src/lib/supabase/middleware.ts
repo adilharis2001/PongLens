@@ -8,6 +8,13 @@ import {
   isProtectedAppPath,
   loginPathForDestination,
 } from "@/lib/auth/paths";
+import {
+  WORKSPACE_COOKIE,
+  WORKSPACE_COOKIE_MAX_AGE,
+  formatWorkspaceCookie,
+  parseWorkspaceCookie,
+  routeTerritory,
+} from "@/lib/workspaceModel";
 
 /**
  * Refreshes the Supabase auth session on every matched request and
@@ -110,6 +117,28 @@ export async function updateSession(request: NextRequest) {
       path: "/",
       maxAge: 60 * 60, // 1 hour — plenty for a sign-in round trip
     });
+  }
+
+  // Landing on unambiguous territory (158) is sticky: a coach link from a
+  // notification switches the remembered side, so the shared pages that
+  // follow keep the same bar. Only written when it actually changes.
+  const territory = user ? routeTerritory(path) : null;
+  if (
+    user &&
+    territory &&
+    parseWorkspaceCookie(request.cookies.get(WORKSPACE_COOKIE)?.value, user.id) !==
+      territory
+  ) {
+    supabaseResponse.cookies.set(
+      WORKSPACE_COOKIE,
+      formatWorkspaceCookie(user.id, territory),
+      {
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        path: "/",
+        maxAge: WORKSPACE_COOKIE_MAX_AGE,
+      },
+    );
   }
 
   // The student-side twin (156): a coach's join link. Same dropped-?next=

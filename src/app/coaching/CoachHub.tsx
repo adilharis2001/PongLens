@@ -5,9 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { QRCodeSVG } from "qrcode.react";
-import { Segmented } from "@/app/match/[id]/placementTable";
 import { SharingSection } from "@/components/SharingSection";
 import { useWorkspace } from "@/lib/workspace";
+import type { Workspace } from "@/lib/workspaceModel";
+import { WorkspaceSwitch } from "@/app/account/WorkspaceSwitch";
 import { StudentsCard } from "./StudentsCard";
 import { PAYOUT_COUNTRIES } from "@/lib/payments/countries";
 import { formatUsd } from "@/lib/reviews/money";
@@ -256,13 +257,13 @@ function ActionPill({
 }
 
 export function CoachHub({
+  workspace,
   profile,
   initialQueue,
   stats,
   offeringCount,
   studentOrders,
   coachNotes,
-  hasCoachLinks,
   pageOpens7d,
   nudgePlayerCount,
   nudgeNoteCount,
@@ -271,13 +272,14 @@ export function CoachHub({
   defaultName,
   sponsoredLeft = null,
 }: {
+  /** The side the server resolved (158). */
+  workspace: Workspace;
   profile: CoachProfileRow | null;
   initialQueue: CoachQueueItem[];
   stats: CoachReviewStats;
   offeringCount: number;
   studentOrders: StudentOrderItem[];
   coachNotes: NoteFeedRow[];
-  hasCoachLinks: boolean;
   pageOpens7d: number;
   nudgePlayerCount: number;
   nudgeNoteCount: number;
@@ -381,26 +383,13 @@ export function CoachHub({
     !(offeringCount > 0 && payoutsReady && profile.published);
 
   // "Coaching" runs in two directions: you as a coach, and the coaches
-  // you have. Someone living both gets a view switch; everyone else gets
-  // exactly their side with no chrome. Hydrates to "coach" and reads the
-  // remembered choice in an effect — sessionStorage in an initializer is
-  // a hydration mismatch (see useIsCoach).
-  const playerSide =
-    hasCoachLinks || studentOrders.length > 0 || coachNotes.length > 0;
-  const dual = !!profile && playerSide;
-  const [view, setView] = useState<"coach" | "player">(
-    profile ? "coach" : "player",
-  );
-  useEffect(() => {
-    if (!dual) return;
-    const stored = sessionStorage.getItem("pl-coaching-view");
-    if (stored === "coach" || stored === "player") setView(stored);
-  }, [dual]);
-  const showCoach = !!profile && (!dual || view === "coach");
-  // In the coaching workspace a coach without a marketplace page gets a
-  // coach home (StudentsCard) instead of the player side of this page.
-  const coachWorkspace = useWorkspace() === "coach";
-  const showPlayer = (!profile && !coachWorkspace) || (dual && view === "player");
+  // you have. Which one this page shows is the workspace's decision (158)
+  // — the same switch that changes the nav — never a toggle of its own.
+  // Coaching side: the hub for a coach with a page, the roster home for
+  // one without. Playing side: your coaches and the reviews you bought.
+  const coachWorkspace = useWorkspace(workspace) === "coach";
+  const showCoach = coachWorkspace && !!profile;
+  const showPlayer = !coachWorkspace;
 
   async function saveAvailability(next: {
     accepting?: boolean;
@@ -499,26 +488,13 @@ export function CoachHub({
 
   return (
     <>
-      {/* The view toggle shares the header row — a whole row for two
-          pills was vertical space the phone screen didn't have. */}
+      {/* The workspace switch shares the header row — a whole row for it
+          was vertical space the phone screen didn't have. */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
           Coaching
         </h1>
-        {dual && (
-          <Segmented
-            ariaLabel="Coaching view"
-            options={[
-              { key: "coach", label: "Coach" },
-              { key: "player", label: "Your coaches" },
-            ]}
-            value={view}
-            onChange={(v) => {
-              setView(v);
-              sessionStorage.setItem("pl-coaching-view", v);
-            }}
-          />
-        )}
+        <WorkspaceSwitch remembered={workspace} variant="pill" />
       </div>
 
       {!profile && coachWorkspace && <StudentsCard />}
