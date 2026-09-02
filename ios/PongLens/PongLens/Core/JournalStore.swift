@@ -167,6 +167,29 @@ final class JournalStore {
     var recollectEnabled = true
     var loaded = false
 
+    // MARK: - From your coach, seen or not
+
+    /// The newest shared entry's stamp, once the journal has been opened,
+    /// so Home can show a card only while something new is waiting.
+    private static func coachSeenKey(_ userId: UUID) -> String {
+        "pl.coachSeen.\(userId.uuidString.lowercased())"
+    }
+
+    var newestCoachShare: CoachSharedEntry? {
+        coachShared.max { $0.sharedAt < $1.sharedAt }
+    }
+
+    func unseenCoachShare(userId: UUID?) -> CoachSharedEntry? {
+        guard let userId, let newest = newestCoachShare else { return nil }
+        let seen = UserDefaults.standard.string(forKey: Self.coachSeenKey(userId)) ?? ""
+        return newest.sharedAt > seen ? newest : nil
+    }
+
+    func markCoachSharesSeen(userId: UUID?) {
+        guard let userId, let newest = newestCoachShare else { return }
+        UserDefaults.standard.set(newest.sharedAt, forKey: Self.coachSeenKey(userId))
+    }
+
     func entryCount(for tagId: UUID) -> Int {
         entryTags.filter { $0.tagId == tagId }.count
     }

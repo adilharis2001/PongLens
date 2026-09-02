@@ -65,7 +65,7 @@ struct JournalScreen: View {
 
                         if selectedTag == nil {
                             WorkingOnCard(store: store)
-                            if !store.coachShared.isEmpty {
+                            if !store.coachShared.isEmpty && tab != "Coach" {
                                 coachSharedSection
                             }
                             tabs
@@ -98,6 +98,13 @@ struct JournalScreen: View {
         .scrollDismissesKeyboard(.interactively)
         .task {
             if !store.loaded { await store.load(userId: app.userId) }
+            store.markCoachSharesSeen(userId: app.userId)
+        }
+        .onChange(of: store.coachShared) { _, _ in
+            store.markCoachSharesSeen(userId: app.userId)
+        }
+        .sheet(item: $coachEntryOpen) { entry in
+            CoachSharedEntrySheet(entry: entry)
         }
         // Search reads entries, which Recollect does not list. Rather than
         // leave typing dead there, it moves to the list it filters.
@@ -192,11 +199,22 @@ struct JournalScreen: View {
     // MARK: - Search + ask
 
     /// Entries coaches shared with this player. Live documents: the words
-    /// shown are whatever the coach's row says right now.
+    /// shown are whatever the coach's row says right now. The two newest
+    /// sit here; the Coach filter below holds the whole list, so this
+    /// section never grows past the feed it introduces.
     private var coachSharedSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            SectionHeading("From your coach")
-            ForEach(store.coachShared) { entry in
+            HStack {
+                SectionHeading("From your coach")
+                Spacer()
+                if store.coachShared.count > 2 {
+                    Button("See all") { tab = "Coach" }
+                        .font(.plCaption)
+                        .foregroundStyle(PL.cyan)
+                        .buttonStyle(.plain)
+                }
+            }
+            ForEach(store.coachShared.prefix(2)) { entry in
                 Button {
                     coachEntryOpen = entry
                 } label: {
@@ -204,9 +222,6 @@ struct JournalScreen: View {
                 }
                 .buttonStyle(.plain)
             }
-        }
-        .sheet(item: $coachEntryOpen) { entry in
-            CoachSharedEntrySheet(entry: entry)
         }
     }
 
@@ -358,7 +373,11 @@ struct JournalScreen: View {
     // MARK: - Tabs + feed
 
     private var tabs: some View {
+        // "Coach" is a filter, not a tab bar item: it appears once a coach
+        // has shared something, the same way Recollect appears when it is
+        // on. Adil's call over a fourth bottom-bar tab (2026-09-02).
         let names = ["All", "Matches", "Lessons", "Practice"]
+            + (store.coachShared.isEmpty ? [] : ["Coach"])
             + (store.recollectEnabled ? ["Recollect"] : [])
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
@@ -400,6 +419,7 @@ struct JournalScreen: View {
 
     private var feedItems: [FeedItem] {
         var items: [FeedItem] = []
+        if tab == "Coach" { return [] }
         if tab == "All" || tab == "Matches" {
             items += store.notes.map { .note($0) }
         }
@@ -440,7 +460,24 @@ struct JournalScreen: View {
     @ViewBuilder
     private var feed: some View {
         let items = feedItems
-        if !store.loaded {
+        if tab == "Coach" {
+            if store.coachShared.isEmpty {
+                Text("Nothing from a coach yet.")
+                    .font(.plBody)
+                    .foregroundStyle(PL.text400)
+                    .frame(maxWidth: .infinity)
+                    .plCard(padding: 24)
+            } else {
+                ForEach(store.coachShared) { entry in
+                    Button {
+                        coachEntryOpen = entry
+                    } label: {
+                        CoachSharedEntryCard(entry: entry)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } else if !store.loaded {
             ForEach(0..<3, id: \.self) { _ in
                 RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
                     .fill(PL.surface)

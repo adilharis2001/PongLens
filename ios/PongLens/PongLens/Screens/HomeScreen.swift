@@ -9,6 +9,7 @@ struct HomeScreen: View {
     @State private var homeStore = HomeStore()
     @State private var firstStepsHidden = false
     @State private var cameraSheetOpen = false
+    @State private var coachEntryOpen: CoachSharedEntry?
 
     private var ownMatches: [MatchRow] {
         guard let uid = app.userId else { return [] }
@@ -70,6 +71,21 @@ struct HomeScreen: View {
 
                     nextAction
 
+                    // A coach's entry, only while it is new: opening the
+                    // Journal marks it seen and the card goes. Adil's call
+                    // over a fourth tab — what a coach sends arrives here.
+                    if let fresh = journal.unseenCoachShare(userId: app.userId) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            SectionHeading("From your coach")
+                            Button {
+                                coachEntryOpen = fresh
+                            } label: {
+                                CoachSharedEntryCard(entry: fresh)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
                     firstSteps
 
                     if !ownMatches.isEmpty {
@@ -101,6 +117,11 @@ struct HomeScreen: View {
             CameraPlacementSheet()
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $coachEntryOpen, onDismiss: {
+            journal.markCoachSharesSeen(userId: app.userId)
+        }) { entry in
+            CoachSharedEntrySheet(entry: entry)
         }
     }
 
