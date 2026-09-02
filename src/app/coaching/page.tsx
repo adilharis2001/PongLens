@@ -35,10 +35,6 @@ export default async function CoachingPage() {
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
     null;
-  const defaultName =
-    (user.user_metadata?.full_name as string | undefined) ??
-    (user.user_metadata?.name as string | undefined) ??
-    "";
 
   const { data: profile } = await supabase
     .from("coach_profiles")
@@ -52,8 +48,6 @@ export default async function CoachingPage() {
     offeringsRes,
     studentRes,
     notesRes,
-    linksRes,
-    coachedRes,
   ] = await Promise.all([
     profile ? supabase.rpc("coach_queue") : Promise.resolve({ data: [] }),
     profile
@@ -67,33 +61,7 @@ export default async function CoachingPage() {
       : Promise.resolve({ count: 0 }),
     supabase.rpc("student_review_orders"),
     supabase.rpc("note_feed", { p_limit: 30 }),
-    // Whether this user has coaches of their own — it decides if the tab
-    // needs the coach/player view switch at all.
-    supabase
-      .from("coach_links")
-      .select("id", { count: "exact", head: true })
-      .eq("player_id", user.id)
-      .neq("status", "revoked"),
-    // The free-to-paid signal: notes this user left on other players'
-    // matches. Only worth asking when they have no coach page yet.
-    !profile
-      ? supabase
-          .from("notes")
-          .select("match_id, matches!inner(user_id)")
-          .eq("author_id", user.id)
-          .limit(300)
-      : Promise.resolve({ data: [] }),
   ]);
-
-  const coachedNoteOwners = (
-    (coachedRes.data ?? []) as Array<{
-      matches: { user_id: string } | { user_id: string }[];
-    }>
-  )
-    .flatMap((r) => (Array.isArray(r.matches) ? r.matches : [r.matches]))
-    .map((m) => m.user_id)
-    .filter((id) => id !== user.id);
-  const coachedOwners = new Set(coachedNoteOwners);
 
   const { workspace } = await rememberedWorkspace();
 
@@ -157,13 +125,7 @@ export default async function CoachingPage() {
         coachNotes={((notesRes.data ?? []) as NoteFeedRow[]).filter(
           (n) => n.match_owner_id === user.id && n.author_id !== user.id,
         )}
-        nudgePlayerCount={coachedOwners.size}
-        nudgeNoteCount={coachedNoteOwners.length}
-        nudgeDismissed={
-          user.user_metadata?.pl_coach_nudge_dismissed === true
-        }
         userId={user.id}
-        defaultName={defaultName}
         firstSteps={firstSteps}
       />
     </AppShell>
