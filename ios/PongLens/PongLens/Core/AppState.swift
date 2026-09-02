@@ -164,6 +164,11 @@ final class AppState {
 
     var workspace: Workspace = .player
 
+    /// The playing questions were never answered or skipped (159): the
+    /// coach path of onboarding leaves the profile row unstamped. Home
+    /// offers the setup once while this is true.
+    var playerSetupPending = false
+
     private static func workspaceKey(_ uid: UUID) -> String {
         "pl.workspace.\(uid.uuidString.lowercased())"
     }

@@ -1,4 +1,5 @@
 import SwiftUI
+import Supabase
 
 struct HomeScreen: View {
     @Environment(AppState.self) private var app
@@ -10,6 +11,7 @@ struct HomeScreen: View {
     @State private var firstStepsHidden = false
     @State private var cameraSheetOpen = false
     @State private var coachEntryOpen: CoachSharedEntry?
+    @State private var playerSetupOpen = false
 
     private var ownMatches: [MatchRow] {
         guard let uid = app.userId else { return [] }
@@ -69,6 +71,10 @@ struct HomeScreen: View {
                             .plCard(padding: 14)
                     }
 
+                    if app.playerSetupPending {
+                        playerSetupCard
+                    }
+
                     nextAction
 
                     // A coach's entry, only while it is new: opening the
@@ -123,6 +129,43 @@ struct HomeScreen: View {
         }) { entry in
             CoachSharedEntrySheet(entry: entry)
         }
+        .sheet(isPresented: $playerSetupOpen) {
+            PlayerProfileSheet()
+        }
+    }
+
+    /// A coach who switched to playing was never asked how they play (159).
+    /// Offered once, here, where the answers matter; Skip stamps it done.
+    private var playerSetupCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Set up your playing side")
+                .font(.plCardTitle)
+                .foregroundStyle(PL.text100)
+            Text("Handedness, grip and level. Your stats and your coaches read them.")
+                .font(.plBody)
+                .foregroundStyle(PL.text400)
+                .lineSpacing(3)
+            HStack(spacing: 10) {
+                Button("Set up") { playerSetupOpen = true }
+                    .buttonStyle(PLPrimaryButtonStyle())
+                Button("Skip for now") {
+                    Task { await skipPlayerSetup() }
+                }
+                .buttonStyle(PLSecondaryButtonStyle())
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 20)
+    }
+
+    private func skipPlayerSetup() async {
+        guard let uid = app.userId else { return }
+        _ = try? await supa
+            .from("player_profiles")
+            .update(["setup_done_at": AnyJSON.string(ISO8601DateFormatter().string(from: Date()))])
+            .eq("user_id", value: uid.uuidString.lowercased())
+            .execute()
+        app.playerSetupPending = false
     }
 
     @ViewBuilder

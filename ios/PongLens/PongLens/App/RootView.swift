@@ -149,11 +149,12 @@ struct RootView: View {
         // is answered by somebody else's row: a coach who also plays would
         // have skipped their own onboarding entirely once a student
         // accepted them.
-        async let profileQuery = try? await supa
+        struct ProfileRow: Decodable { let setup_done_at: String? }
+        async let profileQuery: [ProfileRow]? = try? await supa
             .from("player_profiles")
-            .select("user_id", head: true, count: .exact)
+            .select("setup_done_at")
             .eq("user_id", value: uid)
-            .execute()
+            .execute().value
         // A coach answers the name and nothing else — same rule as the web
         // page, which reads coach_links before deciding what to show.
         async let coachQuery = try? await supa
@@ -163,8 +164,9 @@ struct RootView: View {
             .limit(1)
             .execute()
         let (profile, coachLink) = await (profileQuery, coachQuery)
-        let hasProfile = (profile?.count ?? 0) > 0
+        let hasProfile = !(profile ?? []).isEmpty
         let isCoach = (coachLink?.count ?? 0) > 0
+        app.playerSetupPending = hasProfile && profile?.first?.setup_done_at == nil
         if name.isEmpty || !hasProfile {
             // isNew: no profile row yet, whatever the name says. Google and
             // Apple hand us a name, so "needs a name" is NOT "brand new" —
