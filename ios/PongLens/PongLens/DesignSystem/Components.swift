@@ -68,7 +68,11 @@ struct PLChooserSheet<Content: View>: View {
             rows()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
+        // The sheet's grabber sits in the top 20pt; the title used to
+        // start right under it and read as touching (Adil, 2026-09-02).
+        .padding(.horizontal, 20)
+        .padding(.top, 36)
+        .padding(.bottom, 20)
     }
 }
 

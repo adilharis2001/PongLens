@@ -614,7 +614,9 @@ export function MatchView({
         .select("id")
         .eq("player_id", userId)
         .neq("status", "revoked")
-        .or(`scope_match_id.eq.${match.id},scope_match_id.is.null`)
+        .or(
+          `scope_match_id.eq.${match.id},and(scope_match_id.is.null,all_matches.eq.true)`,
+        )
         .limit(1),
     ]);
     if (typeof links.count === "number") setShareLinkCount(links.count);

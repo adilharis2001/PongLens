@@ -66,9 +66,12 @@ const pill =
 export function StudentView({
   userId,
   initialStudent,
+  offlineStudents,
 }: {
   userId: string;
   initialStudent: CoachStudentRow;
+  /** Rows on this roster still waiting for an account (161). */
+  offlineStudents: CoachStudentRow[];
 }) {
   const router = useRouter();
   const [student, setStudent] = useState(initialStudent);
@@ -81,6 +84,8 @@ export function StudentView({
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeBusy, setMergeBusy] = useState(false);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -123,6 +128,25 @@ export function StudentView({
   const flash = (line: string) => {
     setNotice(line);
     setTimeout(() => setNotice(null), 2500);
+  };
+
+  /** A student who joined from the general invite link, folded into the
+   *  row the coach had already typed: entries move, the typed name stays,
+   *  the account binds to it (161). */
+  const mergeInto = async (target: CoachStudentRow) => {
+    setMergeBusy(true);
+    const supabase = createClient();
+    const { error } = await supabase.rpc("merge_students", {
+      p_into: target.id,
+      p_from: student.id,
+    });
+    if (error) {
+      setMergeBusy(false);
+      flash("Couldn't merge them. Try again.");
+      return;
+    }
+    router.replace(`/coaching/students/${target.id}`);
+    router.refresh();
   };
 
   const saveEntry = async () => {
@@ -331,6 +355,15 @@ export function StudentView({
               </button>
             </>
           )}
+          {student.player_id && offlineStudents.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setMergeOpen((v) => !v)}
+              className={pill}
+            >
+              Same as an existing student
+            </button>
+          )}
           <button
             type="button"
             onClick={() => void removeStudent()}
@@ -342,6 +375,36 @@ export function StudentView({
       </div>
 
       {notice && <p className="mt-3 text-sm text-cyan-glow">{notice}</p>}
+
+      {mergeOpen && student.player_id && offlineStudents.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-cyan-glow/30 bg-surface p-5">
+          <p className="text-sm text-zinc-200">
+            Pick the student they are. Your entries about them come along
+            and their account connects to that name.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {offlineStudents.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                disabled={mergeBusy}
+                onClick={() => void mergeInto(row)}
+                className="glow-cta rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink disabled:opacity-60"
+              >
+                {row.display_name}
+              </button>
+            ))}
+            <button
+              type="button"
+              disabled={mergeBusy}
+              onClick={() => setMergeOpen(false)}
+              className={pill}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {composerOpen && (
         <div className="mt-4 rounded-2xl border border-edge bg-surface p-4">

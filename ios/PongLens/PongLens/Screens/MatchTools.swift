@@ -587,7 +587,8 @@ struct CoachInviteSheet: View {
     struct PendingInvite: Identifiable {
         let id: UUID
         let token: String
-        let scoped: Bool
+        /// "this match", "all matches" or "matches you share".
+        let access: String
     }
 
     @State private var coaches: [ConnectedCoach] = []
@@ -623,7 +624,7 @@ struct CoachInviteSheet: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("Invite sent")
                                         .foregroundStyle(PL.text100)
-                                    Text(invite.scoped ? "Waiting for them to open it · this match" : "Waiting for them to open it · all matches")
+                                    Text("Waiting for them to open it · \(invite.access)")
                                         .font(.plCaption)
                                         .foregroundStyle(PL.text500)
                                 }
@@ -731,6 +732,7 @@ struct CoachInviteSheet: View {
         let id: UUID
         let coach_id: UUID?
         let scope_match_id: UUID?
+        let all_matches: Bool
         let status: String
         let invite_token: String
     }
@@ -744,7 +746,7 @@ struct CoachInviteSheet: View {
         guard let uid = app.userId else { return }
         async let linksQ: [LinkRow]? = try? await supa
             .from("coach_links")
-            .select("id,coach_id,scope_match_id,status,invite_token")
+            .select("id,coach_id,scope_match_id,all_matches,status,invite_token")
             .eq("player_id", value: uid.uuidString.lowercased())
             .neq("status", value: "revoked")
             .execute().value
@@ -762,7 +764,7 @@ struct CoachInviteSheet: View {
             ConnectedCoach(
                 id: coachId,
                 name: rows.compactMap { nameById[$0.id] }.first ?? "Coach",
-                allMatches: rows.contains { $0.scope_match_id == nil },
+                allMatches: rows.contains { $0.scope_match_id == nil && $0.all_matches },
                 matchLinkId: rows.first { $0.scope_match_id == match.id }?.id,
                 otherMatches: rows.filter { $0.scope_match_id != nil && $0.scope_match_id != match.id }.count
             )
@@ -770,7 +772,14 @@ struct CoachInviteSheet: View {
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         pending = links
             .filter { $0.status == "pending" && $0.coach_id == nil }
-            .map { PendingInvite(id: $0.id, token: $0.invite_token, scoped: $0.scope_match_id != nil) }
+            .map {
+                PendingInvite(
+                    id: $0.id,
+                    token: $0.invite_token,
+                    access: $0.scope_match_id != nil ? "this match"
+                        : $0.all_matches ? "all matches" : "matches you share"
+                )
+            }
         loaded = true
     }
 

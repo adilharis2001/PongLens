@@ -42,7 +42,9 @@ export function ShareWithCoachSheet({
   matchId?: string;
   onLinkCreated?: () => void;
 }) {
-  const [scope, setScope] = useState<"match" | "all">(
+  // "selected" is the Coaching-tab case (161): connect the coach now,
+  // share matches one at a time from their pages.
+  const [scope, setScope] = useState<"match" | "all" | "selected">(
     matchId ? "match" : "all"
   );
   const [creating, setCreating] = useState(false);
@@ -61,7 +63,7 @@ export function ShareWithCoachSheet({
     const [linksRes, namesRes] = await Promise.all([
       supabase
         .from("coach_links")
-        .select("id, coach_id, scope_match_id, status")
+        .select("id, coach_id, scope_match_id, all_matches, status")
         .eq("player_id", userId)
         .eq("status", "accepted"),
       supabase.rpc("player_coach_links"),
@@ -76,12 +78,13 @@ export function ShareWithCoachSheet({
     }
     const byCoach = new Map<
       string,
-      { id: string; scope_match_id: string | null }[]
+      { id: string; scope_match_id: string | null; all_matches: boolean }[]
     >();
     for (const l of (linksRes.data as {
       id: string;
       coach_id: string | null;
       scope_match_id: string | null;
+      all_matches: boolean;
     }[]) ?? []) {
       if (!l.coach_id) continue;
       byCoach.set(l.coach_id, [...(byCoach.get(l.coach_id) ?? []), l]);
@@ -89,7 +92,7 @@ export function ShareWithCoachSheet({
     const rows: ConnectedCoach[] = [...byCoach.entries()].map(([coachId, links]) => ({
       id: coachId,
       name: links.map((l) => names.get(l.id)).find(Boolean) ?? "Coach",
-      allMatches: links.some((l) => l.scope_match_id === null),
+      allMatches: links.some((l) => l.scope_match_id === null && l.all_matches),
       matchLinkId: links.find((l) => l.scope_match_id === matchId)?.id ?? null,
       otherMatches: links.filter(
         (l) => l.scope_match_id !== null && l.scope_match_id !== matchId,
@@ -152,6 +155,7 @@ export function ShareWithCoachSheet({
       .insert({
         player_id: userId,
         scope_match_id: scope === "match" && matchId ? matchId : null,
+        all_matches: scope === "all",
       })
       .select("invite_token")
       .single();
@@ -309,6 +313,25 @@ export function ShareWithCoachSheet({
                   Every match, including future uploads.
                 </p>
               </button>
+              {!matchId && (
+                <button
+                  type="button"
+                  aria-pressed={scope === "selected"}
+                  onClick={() => setScope("selected")}
+                  className={`w-full rounded-xl border p-3.5 text-left transition-colors ${
+                    scope === "selected"
+                      ? "border-cyan-glow/60 bg-cyan-glow/10"
+                      : "border-edge bg-ink/40 hover:border-cyan-glow/40"
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-zinc-100">
+                    Only matches I share
+                  </p>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    You share each match from its page. Change this any time.
+                  </p>
+                </button>
+              )}
             </div>
             <button
               type="button"

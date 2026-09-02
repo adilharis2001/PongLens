@@ -581,37 +581,7 @@ struct CoachLinksManager: View {
                     .foregroundStyle(PL.text500)
             }
             ScrollView {
-                VStack(spacing: 10) {
-                    ForEach(coaching.coachLinks) { link in
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(link.status == "accepted" ? "Coach connected" : "Invite pending")
-                                    .font(.plRowTitle)
-                                    .foregroundStyle(PL.text100)
-                                Text(link.scopeMatchId == nil ? "All matches" : "One match")
-                                    .font(.plCaption)
-                                    .foregroundStyle(PL.text500)
-                            }
-                            Spacer()
-                            if link.status != "accepted", let token = link.inviteToken,
-                               let url = URL(string: "https://www.ponglens.com/coach-invite/\(token)") {
-                                ShareLink(item: url) {
-                                    Text("Copy link")
-                                        .font(.plButtonSecondary)
-                                        .foregroundStyle(PL.text300)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
-                                }
-                            }
-                            Button("Remove") {
-                                Task { await coaching.revokeLink(link) }
-                            }
-                            .buttonStyle(PLSoftDestructiveButtonStyle())
-                        }
-                        .plInnerRow()
-                    }
-                }
+                CoachAccessList()
             }
         }
         .padding(24)

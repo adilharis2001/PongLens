@@ -171,6 +171,26 @@ final class CoachWorkspaceStore {
     /// Archive rather than delete: the entries under the student are the
     /// coach's own record and survive. remove_student (157) also revokes
     /// the coach's links to that player, so "removed" ends match access.
+    /// A student who joined from the general invite link, folded into the
+    /// row the coach had already typed (161): entries move, the typed name
+    /// stays, the account binds to it, the joined row goes.
+    func mergeStudent(_ from: CoachStudentRow, into target: CoachStudentRow, userId: UUID?) async -> Bool {
+        struct Params: Encodable {
+            let p_into: String
+            let p_from: String
+        }
+        do {
+            try await supa
+                .rpc("merge_students", params: Params(
+                    p_into: target.id.uuidString.lowercased(),
+                    p_from: from.id.uuidString.lowercased()
+                ))
+                .execute()
+        } catch { return false }
+        await load(userId: userId)
+        return true
+    }
+
     func archiveStudent(_ student: CoachStudentRow) async -> Bool {
         struct Params: Encodable { let p_student_id: String }
         do {

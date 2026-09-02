@@ -443,7 +443,10 @@ export interface Point {
 export interface CoachLinkRow {
   id: string;
   invite_token: string;
+  coach_id: string | null;
   scope_match_id: string | null;
+  /** With scope_match_id null: every match, or only the ones shared (161). */
+  all_matches: boolean;
   status: "pending" | "accepted" | "revoked";
   coach_name: string | null;
   coach_email: string | null;

@@ -140,16 +140,27 @@ export default async function JoinPage({
     );
   }
 
+  // A brand-new account arrives here before the name step of onboarding,
+  // and the coach's roster copies the name at the moment of joining (161).
+  const needsName = !(
+    (user.user_metadata?.full_name as string | undefined)?.trim() ||
+    (user.user_metadata?.name as string | undefined)?.trim()
+  );
+
   return (
     <Shell>
       <h1 className="text-xl font-semibold">
         {info.coach_name} invited you as a student
       </h1>
       <p className="mt-2 text-sm text-zinc-400">
-        Joining lets them see the matches you upload and share lesson notes
-        straight to your journal.
+        Lesson notes they share land in your journal. You choose which
+        matches they can see.
       </p>
-      <JoinCoach token={token} coachName={info.coach_name} />
+      <JoinCoach
+        token={token}
+        coachName={info.coach_name}
+        needsName={needsName}
+      />
     </Shell>
   );
 }

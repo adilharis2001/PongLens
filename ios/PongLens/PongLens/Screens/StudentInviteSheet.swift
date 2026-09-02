@@ -19,7 +19,7 @@ struct StudentInviteSheet: View {
     @State private var resetAsk = false
 
     var body: some View {
-        PLSheetScaffold(title: student.map { "Invite \($0.displayName)" } ?? "Invite a student") {
+        PLSheetScaffold(title: student.map { "Invite \($0.displayName)" } ?? "Invite a new student") {
             Form {
                 Section {
                     if let url {
@@ -38,7 +38,9 @@ struct StudentInviteSheet: View {
                         .padding(.vertical, 24)
                     }
                 } footer: {
-                    Text("Whoever opens this link and signs in joins as your student. You'll see the matches they upload, and the entries you share reach their journal.")
+                    Text(student == nil
+                         ? "For someone not on your list yet. Whoever opens this link and signs in joins as your student; a student already listed gets their own link from their page. They choose whether you see all their matches or only the ones they share, and the entries you share reach their journal."
+                         : "Opening this link and signing in connects \(student!.displayName) to this row. They choose whether you see all their matches or only the ones they share, and the entries you share reach their journal.")
                 }
 
                 if let url {
