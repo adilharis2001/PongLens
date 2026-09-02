@@ -117,7 +117,7 @@ export function StudentsView({ userId }: { userId: string }) {
             type="button"
             onClick={() => void add()}
             disabled={adding}
-            className="glow-cta mt-3 rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink disabled:opacity-60"
+            className="glow-cta mt-3 w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-60 sm:w-auto sm:py-2"
           >
             {adding ? "Adding…" : "Add"}
           </button>
