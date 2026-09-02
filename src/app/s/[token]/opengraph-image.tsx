@@ -4,6 +4,7 @@ import {
   pointContextLine,
   starredContextLine,
   tagContextLine,
+  type ResolvedShareEntry,
   type ResolvedShareLink,
   type ResolvedStarredPoint,
 } from "./shareData";
@@ -54,6 +55,107 @@ export default async function OgImage({
 }) {
   const { token } = await params;
   const link = await resolve(token);
+
+  // A journal entry token resolves through its own function (154). Its
+  // card must not promise a video: the footer says what the page is —
+  // an entry to read — and the big line is the entry's headline, the same
+  // one the share page itself leads with.
+  let entry: ResolvedShareEntry | null = null;
+  if (!link) {
+    const rows = await rpc<ResolvedShareEntry[]>("resolve_share_entry", token);
+    entry = rows?.[0] ?? null;
+  }
+  if (entry) {
+    const kindLine =
+      entry.entry_kind === "practice"
+        ? "Practice"
+        : entry.coach_name
+          ? `Lesson with ${entry.coach_name}`
+          : "Lesson";
+    const machine = `${kindLine} · ${new Date(
+      entry.entry_created_at
+    ).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })}`;
+    const big = entry.title?.trim() || entry.takeaways?.title || machine;
+    const sub =
+      big === machine
+        ? (entry.owner_name ? `${entry.owner_name}'s journal` : "A training journal")
+        : machine;
+    return new ImageResponse(
+      (
+        <div
+          style={{
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            padding: 72,
+            backgroundColor: "#0a0a0f",
+            backgroundImage:
+              "radial-gradient(ellipse 70% 55% at 50% -10%, rgba(34, 211, 238, 0.18), transparent 60%), radial-gradient(ellipse 45% 40% at 88% 20%, rgba(232, 121, 249, 0.10), transparent 60%)",
+            fontFamily: "sans-serif",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: 9999,
+                border: "5px solid #22d3ee",
+                display: "flex",
+              }}
+            />
+            <div style={{ display: "flex", fontSize: 44, fontWeight: 700 }}>
+              <span style={{ color: "#ffffff" }}>Pong</span>
+              <span style={{ color: "#22d3ee" }}>Lens</span>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            <div
+              style={{
+                fontSize: big.length > 34 ? 56 : 84,
+                fontWeight: 700,
+                color: "#fafafa",
+                lineHeight: 1.05,
+                letterSpacing: -2,
+              }}
+            >
+              {big}
+            </div>
+            <div style={{ fontSize: 36, color: "#a1a1aa" }}>{sub}</div>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                color: "#22d3ee",
+                fontSize: 28,
+                fontWeight: 600,
+              }}
+            >
+              A journal entry
+            </div>
+            <div style={{ fontSize: 28, color: "#52525b" }}>ponglens.com</div>
+          </div>
+        </div>
+      ),
+      size
+    );
+  }
 
   const names = link ? playersLine(link) : null;
   let collectionCount = 0;

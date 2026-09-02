@@ -48,6 +48,21 @@ export async function POST(req: Request) {
     );
   }
   if (!data || data.length === 0) {
+    // Revoking twice is not an error. Another tab, the other platform, or
+    // "Revoke all" may have got there first, and the caller's goal — this
+    // link is off — is already true; a 404 here left share sheets showing
+    // a failure that retrying could never clear. Only a link that is not
+    // the caller's (or does not exist) stays a 404.
+    const { data: already } = await supabase
+      .from("share_links")
+      .select("id")
+      .eq("id", id)
+      .eq("owner", user.id)
+      .not("revoked_at", "is", null)
+      .limit(1);
+    if (already && already.length > 0) {
+      return NextResponse.json({ ok: true });
+    }
     return NextResponse.json({ error: "Link not found" }, { status: 404 });
   }
   return NextResponse.json({ ok: true });

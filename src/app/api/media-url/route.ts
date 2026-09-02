@@ -129,7 +129,10 @@ export async function POST(req: Request) {
       !lesson ||
       !loc ||
       loc.bucket !== "ponglens-media" ||
-      !loc.key.startsWith(`entry/${lesson.user_id}/`)
+      !loc.key.startsWith(`entry/${lesson.user_id}/`) ||
+      // A '..' segment would walk the signed key back out of the owner's
+      // folder after the prefix check passes.
+      loc.key.includes("..")
     ) {
       return NextResponse.json({ error: "Image not found" }, { status: 404 });
     }
