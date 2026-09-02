@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { netSegmentOriented } from "../serve-accuracy/netDeath";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
 import {
@@ -223,7 +224,31 @@ export function ServeDetector({ initialNotes }: { initialNotes: ServeNote[] }) {
         line(match.quad, true);
         ctx.setLineDash([6 * dpr, 5 * dpr]);
         ctx.strokeStyle = "rgba(52, 211, 153, 0.6)";
-        line(match.net, false);
+        // The baked net is the sideline pixel midpoint, which sits well
+        // into the near half under perspective (fixed repo-wide
+        // 2026-09-02). This corpus stores quads in inconsistent corner
+        // order, so the baked endpoints are used only to identify which
+        // opposite edge pair is the sidelines; the line itself is the
+        // projective construction. Normalised coordinates are fine: the
+        // construction commutes with any scaling.
+        const [q0, q1, q2, q3] = match.quad;
+        const mid = (p: readonly number[], q: readonly number[]) =>
+          [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2] as const;
+        const d2 = (p: readonly number[], q: readonly number[]) =>
+          (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2;
+        const err = (a: readonly number[], b: readonly number[]) =>
+          Math.min(
+            d2(a, match.net[0]) + d2(b, match.net[1]),
+            d2(a, match.net[1]) + d2(b, match.net[0]),
+          );
+        // sides q3-q0 & q1-q2 (ends q0-q1, q2-q3) vs the rotated pairing
+        const sidesA = err(mid(q3, q0), mid(q1, q2));
+        const sidesB = err(mid(q0, q1), mid(q2, q3));
+        const seg =
+          sidesA <= sidesB
+            ? netSegmentOriented(q0, q1, q2, q3)
+            : netSegmentOriented(q1, q2, q3, q0);
+        line(seg ? [seg.e1, seg.e2] : match.net, false);
         ctx.setLineDash([]);
         match.quad.forEach(([x, y]) => {
           ctx.beginPath();

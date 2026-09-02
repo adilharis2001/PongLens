@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { netSegment, netSegmentFromQuad } from "./netDeath.ts";
+import { netSegment, netSegmentFromQuad, netSegmentOriented } from "./netDeath.ts";
 
 // Real calibrated corners from the Terry and Koko matches — end-on
 // cameras, where perspective compression is largest and the old
@@ -104,5 +104,39 @@ test("junk quads answer null, not a throw", () => {
   assert.equal(
     netSegmentFromQuad([[1, 2], [3, 4], [5], [7, 8]]),
     null,
+  );
+});
+
+test("the oriented form matches, and end order does not matter", () => {
+  for (const c of [TERRY, KOKO]) {
+    const viaRecord = netSegment(c);
+    const [A, B, C, D] = asQuad(c);
+    const oriented = netSegmentOriented(A, B, C, D);
+    assert.ok(viaRecord && oriented);
+    assert.deepEqual(oriented, viaRecord);
+    // swapping which end is "near" returns the same line, ends swapped
+    const swapped = netSegmentOriented(C, D, A, B);
+    assert.ok(swapped);
+    for (const [got, want] of [
+      [swapped.e1, oriented.e2],
+      [swapped.e2, oriented.e1],
+    ] as const) {
+      assert.ok(Math.abs(got[0] - want[0]) < 1e-6);
+      assert.ok(Math.abs(got[1] - want[1]) < 1e-6);
+    }
+  }
+});
+
+test("mistaking the sides for the ends draws a different line", () => {
+  // The serve-detector corpus stores quads in inconsistent cyclic order,
+  // so its page picks the pairing by matching the baked midpoints first.
+  // This guards that the pairing genuinely matters.
+  const [A, B, C, D] = asQuad(TERRY);
+  const right = netSegmentOriented(A, B, C, D);
+  const wrong = netSegmentOriented(B, C, D, A);
+  assert.ok(right && wrong);
+  assert.ok(
+    Math.abs(right.e1[1] - wrong.e1[1]) > 5,
+    "rotated pairing should give the lengthwise line, not the net",
   );
 });
