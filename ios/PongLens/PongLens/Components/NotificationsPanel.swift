@@ -121,7 +121,9 @@ struct NotificationsPanel: View {
     private func icon(for kind: String) -> String {
         switch kind {
         case "note": "bubble.left"
-        case "coach_joined": "person.badge.plus"
+        case "coach_joined", "student_joined": "person.badge.plus"
+        case "coach_entry": "book.closed"
+        case "student_match_ready": "play.rectangle"
         case "reel_ready": "arrow.down.circle"
         case "reel_failed", "match_failed", "upload_failed": "exclamationmark.triangle"
         case let k where k.hasPrefix("order") || k.hasPrefix("review") || k.hasPrefix("sample"): "creditcard"
