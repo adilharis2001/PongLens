@@ -25,7 +25,7 @@ struct CoachSharedEntryCard: View {
                     .tracking(0.6)
                     .foregroundStyle(PL.cyan)
                 Spacer()
-                Text(PLWhen.day(entry.sharedAt))
+                Text(PGDate.shortDate(entry.sharedAt))
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
             }
@@ -96,7 +96,7 @@ struct CoachSharedEntrySheet: View {
                     }
                     .padding(.top, 8)
 
-                    Text(PLWhen.day(entry.sharedAt))
+                    Text(PGDate.shortDate(entry.sharedAt))
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
 
