@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { netSegmentFromQuad } from "../serve-accuracy/netDeath";
 
 /** One bounce, in the picture and on the table. */
 export interface MissBounce {
@@ -203,9 +204,14 @@ function Picture({ d, card }: { d: MissData; card: MissCard }) {
       ctx.lineWidth = 2;
       ctx.stroke();
 
+      // Derived from the quad, not the payload's baked `net` — the worker
+      // wrote the pixel midpoint of the sidelines until 2026-09-02, which
+      // sits 30-41 cm into the near half under perspective.
+      const seg = netSegmentFromQuad(d.quad);
+      const [n1, n2] = seg ? [seg.e1, seg.e2] : d.net;
       ctx.beginPath();
-      ctx.moveTo(d.net[0][0] * sx, d.net[0][1] * sy);
-      ctx.lineTo(d.net[1][0] * sx, d.net[1][1] * sy);
+      ctx.moveTo(n1[0] * sx, n1[1] * sy);
+      ctx.lineTo(n2[0] * sx, n2[1] * sy);
       ctx.setLineDash([6, 4]);
       ctx.strokeStyle = "#f8fafc";
       ctx.lineWidth = 1.5;

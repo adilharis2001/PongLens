@@ -79,6 +79,27 @@ def apply_shipped_settings(env, pad=None, merge=None):
 
 CORNER_ORDER = ["A_near_1", "B_near_2", "C_far_2", "D_far_1"]
 
+
+def net_segment(H):
+    """The physical net's image: (u=0, v=L/2) and (u=W, v=L/2) mapped back
+    through the calibration, as [[x, y], [x, y]].
+
+    Until 2026-09-02 this was the pixel midpoint of the sidelines, which
+    under perspective sits 30-41 cm into the NEAR half on every camera
+    measured — the far half of the table is compressed, so the real net is
+    always nearer the far end than the pixel midpoint. Every decision rule
+    already projected through H and was unaffected; only the drawn line
+    (and anyone judging against it) was wrong.
+    """
+    inv = np.linalg.inv(np.asarray(H, float))
+
+    def unproject(u, v):
+        p = inv @ np.array([u, v, 1.0])
+        return [float(p[0] / p[2]), float(p[1] / p[2])]
+
+    return [unproject(0.0, points_v2.L_M / 2.0),
+            unproject(points_v2.W_M, points_v2.L_M / 2.0)]
+
 # Every way a pair can be turned away, in the order the detector applies
 # them. The text is what the page shows, so it says what happened rather
 # than naming the constant that stopped it.
@@ -288,9 +309,7 @@ def build(blob, include_all=False, observation_confidence=None,
         raise ValueError("no table quad; nothing to project against")
     H = homography_from_corners({k: tuple(v) for k, v in quad_d.items()})
     quad = [[float(quad_d[k][0]), float(quad_d[k][1])] for k in CORNER_ORDER]
-    a, b, c, d = quad
-    net = [[(a[0] + d[0]) / 2, (a[1] + d[1]) / 2],
-           [(b[0] + c[0]) / 2, (b[1] + c[1]) / 2]]
+    net = net_segment(H)
 
     track, times, bnc = bounce_pixels(blob)
     w, h = float(blob["w"]), float(blob["h"])

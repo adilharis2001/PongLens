@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { netSegmentFromQuad } from "../../../research/serve-accuracy/netDeath";
 import { NORMAL_SPEED_IDX, SPEEDS, SpeedMenu } from "../../../match/[id]/SpeedMenu";
 import { CardTimeline } from "./CardTimeline";
 import {
@@ -272,10 +273,15 @@ export function ServeMissView({
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // the net, through the quad's true centre
+      // The net, derived from the quad rather than the payload's baked
+      // `net` field: the worker wrote the pixel midpoint of the sidelines
+      // until 2026-09-02, which under perspective sits 30-41 cm into the
+      // near half. Deriving here fixes every stored match, old and new.
+      const seg = netSegmentFromQuad(data.quad);
+      const [n1, n2] = seg ? [seg.e1, seg.e2] : data.net;
       ctx.beginPath();
-      ctx.moveTo(data.net[0][0] * sx, data.net[0][1] * sy);
-      ctx.lineTo(data.net[1][0] * sx, data.net[1][1] * sy);
+      ctx.moveTo(n1[0] * sx, n1[1] * sy);
+      ctx.lineTo(n2[0] * sx, n2[1] * sy);
       ctx.setLineDash([6, 4]);
       ctx.strokeStyle = "#f8fafc";
       ctx.lineWidth = 1.5;

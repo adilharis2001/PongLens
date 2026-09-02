@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { netSegmentFromQuad } from "../serve-accuracy/netDeath";
 import {
   pointsShort,
   type MatchScoring,
@@ -163,11 +164,12 @@ function Overlay({ d, t, show }: { d: FullData; t: number; show: boolean }) {
         stroke="rgba(255,255,255,0.85)"
         strokeWidth={2}
       />
+      {/* Derived from the quad: the baked net field was the pixel midpoint of the sidelines, 30-41 cm into the near half under perspective (fixed 2026-09-02). */}
       <line
-        x1={d.net[0][0]}
-        y1={d.net[0][1]}
-        x2={d.net[1][0]}
-        y2={d.net[1][1]}
+        x1={(netSegmentFromQuad(d.quad)?.e1 ?? d.net[0])[0]}
+        y1={(netSegmentFromQuad(d.quad)?.e1 ?? d.net[0])[1]}
+        x2={(netSegmentFromQuad(d.quad)?.e2 ?? d.net[1])[0]}
+        y2={(netSegmentFromQuad(d.quad)?.e2 ?? d.net[1])[1]}
         stroke="#ff3ca0"
         strokeWidth={2}
       />
