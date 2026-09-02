@@ -350,7 +350,7 @@ struct PLTopBar: View {
         HStack {
             LogoWordmark()
             Spacer()
-            HStack(spacing: 20) {
+            HStack(spacing: switchTo == nil ? 20 : 14) {
                 if let switchTo {
                     Button(action: onSwitch) {
                         HStack(spacing: 5) {
@@ -358,7 +358,9 @@ struct PLTopBar: View {
                                 .font(.system(size: 11, weight: .bold))
                             Text(switchTo)
                                 .font(.system(size: 13, weight: .semibold))
+                                .lineLimit(1)
                         }
+                        .fixedSize()
                         .foregroundStyle(PL.text200)
                         .padding(.horizontal, 11)
                         .padding(.vertical, 6)
