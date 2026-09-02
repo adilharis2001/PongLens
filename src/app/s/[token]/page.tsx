@@ -28,6 +28,7 @@ import { ShareResult } from "./ShareResult";
 import { ShareStats } from "./ShareStats";
 import { SharePlacement } from "./SharePlacement";
 import { StarredView, type StarredClip } from "./StarredView";
+import { ShareEntry } from "./ShareEntry";
 import {
   playersLine,
   pointContextLine,
@@ -35,6 +36,7 @@ import {
   sharePointsAsPoints,
   starredContextLine,
   tagContextLine,
+  type ResolvedShareEntry,
   type ResolvedShareLink,
   type ResolvedSharePlacement,
   type ResolvedSharePoint,
@@ -153,6 +155,21 @@ const resolveShareSkips = cache(
   }
 );
 
+// A journal entry link (154). Entry tokens live in the same URL space as
+// match tokens but resolve through their own function — resolve_share_link
+// joins matches and answers nothing for them — so the page asks this only
+// after the match resolver has come up empty.
+const resolveEntry = cache(
+  async (token: string): Promise<ResolvedShareEntry | null> => {
+    if (!token || token.length < 32 || token.length > 128) return null;
+    const supabase = await createClient();
+    const { data } = await supabase.rpc("resolve_share_entry", {
+      p_token: token,
+    });
+    return (data?.[0] as ResolvedShareEntry | undefined) ?? null;
+  }
+);
+
 // Tag links resolve their point set live too (same shape as starred).
 const resolveTagged = cache(
   async (token: string): Promise<ResolvedStarredPoint[]> => {
@@ -172,7 +189,23 @@ export async function generateMetadata({
   const { token } = await params;
   const link = await resolve(token);
   const robots = { index: false, follow: false };
-  if (!link) return { title: "PongLens", robots };
+  if (!link) {
+    const entry = await resolveEntry(token);
+    if (!entry) return { title: "PongLens", robots };
+    const title = entryLines(entry).heading;
+    const description = "A training journal entry on PongLens.";
+    return {
+      title,
+      description,
+      robots,
+      openGraph: { title: `${title} · PongLens`, description },
+      twitter: {
+        card: "summary_large_image",
+        title: `${title} · PongLens`,
+        description,
+      },
+    };
+  }
   const names = playersLine(link);
   const custom = link.title?.trim() || null;
   let title: string;
@@ -207,6 +240,32 @@ function formatDate(iso: string) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+// A shared entry's two header lines. The heading prefers the stored title
+// (the share sheet sends the entry's current headline, and re-sharing
+// refreshes it), then the takeaways title, then the plain kind-and-date
+// line — and when the heading IS that machine line, the subline does not
+// repeat it, same rule the match page applies to its own titles.
+function entryLines(entry: ResolvedShareEntry): {
+  heading: string;
+  subLine: string;
+} {
+  const kindLine =
+    entry.entry_kind === "practice"
+      ? "Practice"
+      : entry.coach_name
+        ? `Lesson with ${entry.coach_name}`
+        : "Lesson";
+  const machineLine = `${kindLine} · ${formatDate(entry.entry_created_at)}`;
+  const heading = entry.title?.trim() || entry.takeaways?.title || machineLine;
+  const subLine = [
+    heading === machineLine ? null : machineLine,
+    entry.owner_name ? `${entry.owner_name}'s journal` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return { heading, subLine };
 }
 
 function LinkOff() {
@@ -308,7 +367,57 @@ export default async function SharePage({
 }) {
   const { token } = await params;
   const link = await resolve(token);
-  if (!link) return <LinkOff />;
+
+  // A journal entry link: its own quiet reading page. No video machinery,
+  // no score — an entry is text, maybe a photo, and a transcript.
+  if (!link) {
+    const entry = await resolveEntry(token);
+    if (!entry) return <LinkOff />;
+    const entrySupportEmail = await getSupportEmail();
+    const { heading, subLine } = entryLines(entry);
+    return (
+      <main className="bg-arena flex min-h-screen flex-col">
+        <div className="mx-auto w-full max-w-md flex-1 px-4 pb-10 sm:max-w-lg">
+          <header className="pt-5 sm:pt-8">
+            <Logo />
+            <h1 className="mt-5 text-2xl font-bold tracking-tight sm:text-3xl">
+              {heading}
+            </h1>
+            <p className="mt-1 text-sm text-zinc-500">{subLine}</p>
+          </header>
+
+          <ShareEntry
+            token={token}
+            entry={{
+              transcript: entry.transcript,
+              takeaways: entry.takeaways,
+              hasImage: Boolean(entry.image_path),
+            }}
+          />
+
+          <Link
+            href="/"
+            className="glow-cta mt-8 block w-full rounded-full bg-cyan-glow px-5 py-3 text-center text-sm font-semibold text-ink"
+          >
+            Start your own journal on PongLens
+          </Link>
+        </div>
+
+        <footer className="mt-8 border-t border-edge/60 px-4 py-6">
+          <div className="mx-auto flex w-full max-w-md flex-col items-center gap-3">
+            <Logo />
+            <a
+              href={`mailto:${entrySupportEmail}?subject=Report%20a%20shared%20journal%20entry`}
+              className="text-xs text-zinc-600 transition-colors hover:text-zinc-400"
+            >
+              Report this entry
+            </a>
+          </div>
+        </footer>
+      </main>
+    );
+  }
+
   const supportEmail = await getSupportEmail();
 
   const names = playersLine(link);

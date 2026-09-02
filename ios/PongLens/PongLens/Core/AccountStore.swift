@@ -23,6 +23,7 @@ struct ShareLinkRow: Codable, Identifiable, Hashable {
         switch kind {
         case "starred": return "Starred points"
         case "tag": return "Tagged points"
+        case "entry": return "Journal entry"
         default: return pointId == nil ? "This match" : "This point"
         }
     }

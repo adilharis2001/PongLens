@@ -114,6 +114,27 @@ export interface ResolvedSharePlacement {
   placement: Point["placement"];
 }
 
+/** Row from resolve_share_entry() (154): one shared journal entry. */
+export interface ResolvedShareEntry {
+  /** owner-written headline (<= 80 chars); null = the takeaways title */
+  title: string | null;
+  entry_kind: "lesson" | "practice";
+  /** who taught it, as the owner typed it; null on practice entries */
+  coach_name: string | null;
+  transcript: string;
+  takeaways: {
+    title: string;
+    themes: { name: string; points: string[] }[];
+  } | null;
+  /** r2://… of the attached photo — server-side only, the page ships a
+   *  boolean and the browser fetches a short-TTL URL from the share
+   *  media route, same as every other stranger-facing file */
+  image_path: string | null;
+  /** metadata name only, never the email local part (130) */
+  owner_name: string | null;
+  entry_created_at: string;
+}
+
 /**
  * The share rows, in the shape the match maths expects.
  *

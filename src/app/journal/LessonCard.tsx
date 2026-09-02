@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { Lesson, Tag } from "@/lib/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PointTags } from "@/app/match/[id]/Tags";
+import { ShareEntrySheet } from "./ShareEntrySheet";
 
 /** The entry's attached photo, signed on mount (same pattern as note
  *  images: a photo should just be there, not wait for a tap). */
@@ -88,6 +89,7 @@ export function LessonCard({
   const [confirmDel, setConfirmDel] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   // Takeaways already filed into Working on this session, plus the quiet
   // one-line notice when the list is full.
   const [filed, setFiled] = useState<Set<string>>(new Set());
@@ -160,6 +162,19 @@ export function LessonCard({
   };
 
   const t = lesson.takeaways;
+
+  // The headline the share link is stored under, so the Account list can
+  // tell shared entries apart: the takeaways title when there is one,
+  // else the same kind-and-date line the card header shows.
+  const shareTitle =
+    t?.title ??
+    `${
+      lesson.kind === "practice"
+        ? "Practice"
+        : lesson.coach_name
+          ? `Lesson with ${lesson.coach_name}`
+          : "Lesson"
+    } · ${shortDateTime(lesson.created_at)}`;
 
   return (
     <li
@@ -325,7 +340,20 @@ export function LessonCard({
                 Edit
               </button>
             )}
-            <span className="ml-auto">
+            <span className="ml-auto flex items-center gap-3">
+              {/* Share sits beside Delete: a public read-only link to
+                  this entry, minted in the sheet it opens. Hidden while
+                  queued for the same reason Edit is — the entry is not
+                  its final self yet. */}
+              {lesson.status !== "queued" && (
+                <button
+                  type="button"
+                  onClick={() => setShareOpen(true)}
+                  className="text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
+                >
+                  Share
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
@@ -344,6 +372,13 @@ export function LessonCard({
             </p>
           )}
         </div>
+
+      <ShareEntrySheet
+        open={shareOpen}
+        lessonId={lesson.id}
+        title={shareTitle}
+        onClose={() => setShareOpen(false)}
+      />
 
       <ConfirmDialog
         open={confirmDel}

@@ -66,8 +66,15 @@ struct AccountScreen: View {
                                     .font(.plRowTitle)
                                     .foregroundStyle(PL.text100)
                                 let matches = Set(store.shareLinks.compactMap(\.matchId)).count
+                                let journal = store.shareLinks.contains { $0.kind == "entry" }
                                 if matches > 0 {
-                                    Text("Across \(matches) match\(matches == 1 ? "" : "es")")
+                                    Text(journal
+                                        ? "Across \(matches) match\(matches == 1 ? "" : "es") and your journal"
+                                        : "Across \(matches) match\(matches == 1 ? "" : "es")")
+                                        .font(.plCaption)
+                                        .foregroundStyle(PL.text500)
+                                } else if journal {
+                                    Text("From your journal")
                                         .font(.plCaption)
                                         .foregroundStyle(PL.text500)
                                 }
