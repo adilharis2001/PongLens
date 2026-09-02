@@ -11,7 +11,7 @@ import { MinutesSection } from "./MinutesSection";
 import { SignOutRow } from "./SignOutRow";
 import { DeleteAccountSection } from "./DeleteAccountSection";
 import {
-  ADMIN_EMAIL,
+  isAdminEmail,
   getCommerceEnabled,
   getMinutePacks,
   getStoragePacks,
@@ -74,7 +74,7 @@ export default async function AccountPage() {
     redirect("/login");
   }
 
-  const isAdmin = user.email === ADMIN_EMAIL;
+  const isAdmin = isAdminEmail(user.email);
   // The RPC re-checks the role server-side; this only decides whether the
   // row is drawn. /testing has its own gate either way.
   const { data: qa } = await supabase.rpc("is_qa");
