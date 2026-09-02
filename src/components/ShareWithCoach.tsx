@@ -235,14 +235,14 @@ export function ShareWithCoachSheet({
                     <span className="block text-xs text-zinc-500">{coachState(c)}</span>
                   </span>
                   {c.allMatches ? (
-                    <span className="text-xs font-medium text-cyan-glow">All matches</span>
+                    <span className="text-sm font-medium text-cyan-glow">All matches</span>
                   ) : busyCoach === c.id ? (
-                    <span className="text-xs text-zinc-500">…</span>
+                    <span className="text-sm text-zinc-500">…</span>
                   ) : c.matchLinkId ? (
                     <button
                       type="button"
                       onClick={() => void unshareWith(c)}
-                      className="rounded-full border border-edge px-3 py-1 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                      className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
                     >
                       Remove
                     </button>
@@ -250,7 +250,7 @@ export function ShareWithCoachSheet({
                     <button
                       type="button"
                       onClick={() => void shareWith(c)}
-                      className="glow-cta rounded-full bg-cyan-glow px-3 py-1 text-xs font-semibold text-ink"
+                      className="glow-cta rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink"
                     >
                       Share
                     </button>

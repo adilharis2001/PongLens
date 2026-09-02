@@ -165,7 +165,7 @@ function BecomeCoachCard({ defaultName }: { defaultName: string }) {
   const [open, setOpen] = useState(false);
   if (open) return <CoachStart defaultName={defaultName} embedded />;
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-5 py-4">
+    <div className="flex flex-col gap-3 rounded-2xl border border-edge bg-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <p className="text-sm font-medium text-zinc-200">Offer paid reviews</p>
         <p className="mt-0.5 text-xs text-zinc-500">
@@ -175,7 +175,7 @@ function BecomeCoachCard({ defaultName }: { defaultName: string }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-2 text-xs font-semibold text-ink"
+        className="glow-cta shrink-0 self-start rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink"
       >
         Set up your page
       </button>
@@ -745,7 +745,7 @@ export function CoachHub({
                     type="button"
                     disabled={connectBusy}
                     onClick={openStripeDashboard}
-                    className="shrink-0 rounded-full border border-edge px-4 py-2 text-xs font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
+                    className="shrink-0 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
                   >
                     {connectBusy ? "Opening" : "Open Stripe"}
                   </button>
@@ -754,7 +754,7 @@ export function CoachHub({
                     type="button"
                     disabled={connectBusy}
                     onClick={connect}
-                    className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-2 text-xs font-semibold text-ink disabled:opacity-60"
+                    className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink disabled:opacity-60"
                   >
                     {connectBusy
                       ? "Opening Stripe"

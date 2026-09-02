@@ -352,12 +352,12 @@ export function StudentView({
             placeholder="What you worked on, what to fix, what comes next."
             className="w-full resize-y rounded-xl border border-edge bg-ink/40 px-3 py-2 text-sm leading-relaxed text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
           />
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <button
               type="button"
               onClick={() => void saveEntry()}
               disabled={saving || !draft.trim()}
-              className="glow-cta rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink disabled:opacity-60"
+              className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-60 sm:w-auto sm:py-2"
             >
               {saving ? "Saving…" : "Save entry"}
             </button>
