@@ -318,12 +318,16 @@ struct AccountScreen: View {
             || !coachWorkspace.students.isEmpty
             || app.metadataFlag("is_coach")
         return group("Coaching") {
-            if coachEligible {
-                navRow(app.workspace == .coach ? "Switch to playing" : "Switch to coaching") {
-                    app.setWorkspace(app.workspace == .coach ? .player : .coach)
-                }
-                rowDivider
+            // Always a row: the way back from the coaching side, the way in
+            // for an account with coach data, and "Set up coaching" for a
+            // plain player deciding to coach — entering stamps the flag,
+            // so it is a door and not a dead end (web has the same).
+            navRow(app.workspace == .coach
+                   ? "Switch to playing"
+                   : coachEligible ? "Switch to coaching" : "Set up coaching") {
+                app.setWorkspace(app.workspace == .coach ? .player : .coach)
             }
+            rowDivider
             HStack(spacing: 12) {
                 Image(systemName: "person.2")
                     .font(.system(size: 15))

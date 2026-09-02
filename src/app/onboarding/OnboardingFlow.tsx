@@ -135,10 +135,14 @@ function Choice({
 export function OnboardingFlow({
   needsName,
   isCoach,
+  isNew,
   next,
 }: {
   needsName: boolean;
   isCoach: boolean;
+  /** No player_profiles row yet. The role question keys on this, not on
+   *  the name — Google and Apple sign-ups arrive with a name. */
+  isNew: boolean;
   next: string;
 }) {
   const router = useRouter();
@@ -147,7 +151,7 @@ export function OnboardingFlow({
   // invite already answered. "player" runs the existing flow; "coach"
   // answers the name and lands in the coaching workspace.
   const [role, setRole] = useState<"player" | "coach" | null>(
-    needsName && !isCoach ? null : "player",
+    isNew && !isCoach ? null : "player",
   );
   const [step, setStep] = useState<"name" | "play">(
     needsName ? "name" : "play"
@@ -255,10 +259,24 @@ export function OnboardingFlow({
   }
 
   if (role === null) {
+    const choose = async (value: "player" | "coach") => {
+      setRole(value);
+      // With a name already on the account (Google, Apple) there is
+      // nothing left to ask a coach: mark, remember the side, write the row.
+      if (value === "coach" && !needsName) {
+        const supabase = createClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        await supabase.auth.updateUser({ data: { is_coach: true } });
+        if (user) setWorkspace(user.id, "coach");
+        void finish({}, "/coaching");
+      }
+    };
     const card = (value: "player" | "coach", title: string, blurb: string) => (
       <button
         type="button"
-        onClick={() => setRole(value)}
+        onClick={() => void choose(value)}
         className="w-full rounded-xl border border-edge bg-ink/40 px-4 py-3 text-left transition-colors hover:border-zinc-500"
       >
         <span className="block text-sm font-medium text-zinc-100">{title}</span>
