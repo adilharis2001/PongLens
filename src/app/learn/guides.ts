@@ -231,7 +231,7 @@ export const guides: Guide[] = [
         heading: "What the score on the video means",
         paragraphs: [
           "After you score at least one point, the player shows the score from that moment in the match. It does not reveal the winner of the point you are about to watch.",
-          "Open Score Keeper when you want the video to pause after each rally and wait for your answer.",
+          "Open Score the Match when you want the video to pause after each rally and wait for your answer.",
         ],
       },
     ],
@@ -316,7 +316,7 @@ export const guides: Guide[] = [
   },
   {
     slug: "score-keeper",
-    title: "Score a match with Score Keeper",
+    title: "Score the match",
     summary:
       "Score the match in one pass, fix bad cuts, and review anything missed.",
     group: "Review and score",
@@ -325,7 +325,7 @@ export const guides: Guide[] = [
       {
         heading: "Quick steps",
         steps: [
-          "Open a match, go to Tools, and choose Score Keeper.",
+          "Open a match, go to Tools, and choose Score the Match.",
           "If asked, confirm the player names and who served first.",
           "Watch the rally. PongLens pauses after an unscored point.",
           "Choose the large button for the player who won. PongLens records the point and continues to the next rally.",
@@ -334,12 +334,12 @@ export const guides: Guide[] = [
         images: [
           {
             src: "/showcase/score-d.jpg",
-            alt: "Score Keeper with the video and scoring controls",
+            alt: "Score the Match with the video and scoring controls",
             kind: "d",
           },
           {
             src: "/showcase/score-m.jpg",
-            alt: "Score Keeper controls on a phone",
+            alt: "Score the Match controls on a phone",
             kind: "m",
             phoneTwin: true,
           },
@@ -360,7 +360,7 @@ export const guides: Guide[] = [
           "Star saves the point without interrupting playback.",
           "Replay starts the current rally again.",
           "The note icon opens notes for the point on screen.",
-          "The open-point icon leaves Score Keeper and opens the full point details.",
+          "The open-point icon leaves Score the Match and opens the full point details.",
           "Skip marks a let or another rally that should not count in the score.",
           "Delete removes warm-up, dead space, or a false point.",
           "Modify can split one fused point into two or three, or join it with the next one or two points.",

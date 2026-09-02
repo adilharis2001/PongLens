@@ -3027,7 +3027,7 @@ export function MatchView({
                     short numbers always fit, and the detail is one row up
                     in the header. */}
                 <span className="shrink-0 text-sm font-semibold">
-                  Score Keeper
+                  Score the Match
                 </span>
                 <span className="flex min-w-0 items-center gap-2">
                   {score.confirmedCount > 0 && (

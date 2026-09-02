@@ -27,7 +27,7 @@ export const WALKTHROUGH = {
     "Playback is built for studying. Hold one side of the screen for double speed, or the other for quarter speed, and zoom in when you want to see your form up close.",
     "You can replay the point you are on, or jump straight to any other point in the match.",
     "And you can stop on a frame to write a note on that point or draw on it, without leaving the video.",
-    "Scoring a match yourself takes under ten minutes in Score Keeper. It plays the points one after another, you tap who won each one, and the score, the game count and the serve rotation keep themselves up to date.",
+    "Scoring a match yourself takes under ten minutes in Score the Match. It plays the points one after another, you tap who won each one, and the score, the game count and the serve rotation keep themselves up to date.",
     "And every point you score becomes the data your analysis is built on.",
     "A scored match can answer real questions you didn't know before, like how many points you win off serve receive, and how you perform during high pressure points.",
     "Keep scoring, and the same picture builds over time.",

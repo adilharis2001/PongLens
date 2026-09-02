@@ -631,7 +631,7 @@ export const Player = forwardRef<
      * Does a score mean anything for this footage — tracksServe on the
      * live match type. Separate from canScore because canScore also gates
      * viewing chrome that practice keeps (the star button): this flag
-     * removes only the invitations to score — the in-player Score Keeper
+     * removes only the invitations to score — the in-player Score the Match
      * pill and the "score first?" ask on the way into watch mode.
      */
     scoringRelevant?: boolean;
@@ -6024,7 +6024,7 @@ export const Player = forwardRef<
                       onClick={() => openScore()}
                       className="whitespace-nowrap rounded-full border border-cyan-glow/50 bg-ink/70 px-3 py-1.5 text-xs font-semibold text-cyan-glow backdrop-blur transition-colors hover:bg-cyan-glow/10 sm:px-3.5"
                     >
-                      Score Keeper
+                      Score the Match
                     </button>
                   )}
                 </>

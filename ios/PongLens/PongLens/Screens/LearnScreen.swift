@@ -341,7 +341,7 @@ struct TutorialVideosScreen: View {
         ("upload", "Upload a match"),
         ("viewer", "Watch it back"),
         ("point", "Score a point"),
-        ("keepscore", "Score Keeper"),
+        ("keepscore", "Score the Match"),
         ("analysis", "Read your match"),
         ("export", "Export and share"),
         ("coach", "You and your coach"),

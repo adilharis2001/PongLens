@@ -28,7 +28,7 @@ const APP_CONTEXT = `PongLens: match analysis for table tennis players. Users up
 - optional placement maps showing where the ball landed
 - coach sharing: invite a coach by link; coach sees matches and leaves coach notes
 - public share links for a point or a match
-- Score Keeper mode: live one-tap scoring over the cut video
+- Score the Match mode: live one-tap scoring over the cut video
 - account page: storage usage and packs, processing minutes, manage share links
 Processing runs on a queue; an email arrives when the match is ready.`;
 

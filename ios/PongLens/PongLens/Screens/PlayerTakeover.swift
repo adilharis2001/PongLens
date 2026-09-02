@@ -1536,7 +1536,7 @@ struct PlayerTakeover: View {
                     dismiss()
                     onKeepScore(at)
                 } label: {
-                    Text("Score Keeper")
+                    Text("Score the Match")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(PL.cyan)
                         .lineLimit(1)

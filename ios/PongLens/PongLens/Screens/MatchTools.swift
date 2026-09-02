@@ -30,13 +30,13 @@ struct ToolsSection: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeading("Tools")
             VStack(spacing: 0) {
-                // Score Keeper's whole job is assigning a winner to each
+                // Score the Match's whole job is assigning a winner to each
                 // point to build a score. Drills have no score, so the row
                 // is not a disabled control, it is absent. Watching,
                 // tagging, starring and noting all stay: they are the
                 // reason to film a practice session at all.
                 if MatchTitle.tracksServe(match.matchType) {
-                    toolRow("Score Keeper", trailing: gamesTrailing) { onOpenPlayer() }
+                    toolRow("Score the Match", trailing: gamesTrailing) { onOpenPlayer() }
                     divider
                 }
                 toolRow("Highlights", trailing: .text(highlightsTrailing)) {

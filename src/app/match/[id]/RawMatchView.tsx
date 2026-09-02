@@ -756,7 +756,7 @@ export function RawMatchView({
       )}
 
       {/* The processed page's Tools card, minus the rows that need points
-          to exist — Score Keeper, Highlights, Placement and Match analysis
+          to exist — Score the Match, Highlights, Placement and Match analysis
           appear once processing creates them. Same rows, same order, same
           chrome, so the page reads as the same product either side of
           processing. A rejected upload (sourceGone) keeps only the rows
