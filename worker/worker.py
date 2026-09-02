@@ -1627,8 +1627,18 @@ def detect_ball(
     attempt_key: str = "manual",
     on_progress: Callable[[float], None] | None = None,
     table_crop: bool = False,
+    corners: dict | None = None,
 ) -> str:
     """blurball.jsonl in the ORIGINAL video's coordinates, always.
+
+    `corners` short-circuits the calibration: a reprocess of a match that
+    already carries a trusted quad passes it through the job's
+    ball_crop_corners option instead of asking the keypoint detector
+    again. The free rung declines weak-but-consistent booth cameras by
+    design (Anton's PingPod frames all score 3.7-5.6 against the 6.0
+    inlier bar), and the paid rungs are deliberately never called from
+    here — so without this, a match whose original calibration came from
+    vision can never be re-detected with the crop.
 
     With table_crop off this is run_blurball unchanged, which is what every
     job does unless it asks otherwise.
@@ -1657,8 +1667,11 @@ def detect_ball(
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import points_endon
         from points_pipeline import keypoint_calibrate, probe
-        calib = keypoint_calibrate(input_video, workdir)
-        corners = (calib or {}).get("corners_px")
+        if corners:
+            log.info("  table crop: using the job's own corners")
+        else:
+            calib = keypoint_calibrate(input_video, workdir)
+            corners = (calib or {}).get("corners_px")
         if corners:
             meta = probe(input_video)
             box = points_endon.ball_crop_box(
@@ -7191,10 +7204,16 @@ def process_job(conn, msg) -> None:
             ball_crop = options.get("ball_crop")
             if ball_crop is None:
                 ball_crop = ball_crop_enabled(conn)
+            crop_corners = options.get("ball_crop_corners")
+            if not (isinstance(crop_corners, dict) and len(crop_corners) == 4
+                    and all(isinstance(v, (list, tuple)) and len(v) == 2
+                            for v in crop_corners.values())):
+                crop_corners = None
             blurball_out = detect_ball(local_input, workdir,
                                        attempt_key=attempt_key,
                                        on_progress=blurball_progress,
-                                       table_crop=bool(ball_crop))
+                                       table_crop=bool(ball_crop),
+                                       corners=crop_corners)
             update_job(conn, job_id, progress=45)
             segments_json = None
             try:
