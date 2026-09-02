@@ -373,7 +373,7 @@ export function AppNav({
           router.push(toCoach ? "/coaching" : "/dashboard");
           router.refresh();
         }}
-        aria-label={workspace === "coach" ? "Switch to playing" : "Switch to coaching"}
+        aria-label={workspace === "coach" ? "Switch to player mode" : "Switch to coach mode"}
         className="flex items-center gap-1.5 rounded-full border border-edge px-3 py-1 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
       >
         <svg
