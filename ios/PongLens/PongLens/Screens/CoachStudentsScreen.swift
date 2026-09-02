@@ -55,7 +55,7 @@ struct CoachStudentsScreen: View {
                             router.addStudentOpen = true
                         }
                         CoachRowDivider()
-                        CoachNavRow(label: "Invite a student", symbol: "link") {
+                        CoachNavRow(label: "Invite a new student", symbol: "link") {
                             inviteOpen = true
                         }
                     }

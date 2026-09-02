@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { createClient } from "@/lib/supabase/server";
 import { StudentView } from "./StudentView";
+import type { CoachStudentRow } from "../StudentsView";
 
 export const metadata: Metadata = {
   title: "Student",
@@ -39,6 +40,18 @@ export default async function StudentPage({
     .maybeSingle();
   if (!student || student.archived_at) notFound();
 
+  // The rows still waiting for an account. A student who joined from the
+  // general invite link can be folded into one of them (161).
+  const { data: offline } = student.player_id
+    ? await supabase
+        .from("coach_students")
+        .select("*")
+        .eq("coach_id", user.id)
+        .is("player_id", null)
+        .is("archived_at", null)
+        .order("created_at", { ascending: true })
+    : { data: [] };
+
   const avatarUrl =
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
@@ -46,7 +59,11 @@ export default async function StudentPage({
 
   return (
     <AppShell avatarUrl={avatarUrl}>
-      <StudentView userId={user.id} initialStudent={student} />
+      <StudentView
+        userId={user.id}
+        initialStudent={student}
+        offlineStudents={(offline ?? []) as CoachStudentRow[]}
+      />
     </AppShell>
   );
 }

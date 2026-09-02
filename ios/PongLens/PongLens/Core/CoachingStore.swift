@@ -1,21 +1,33 @@
 import Foundation
 import Supabase
 
+/// One row of player_coach_links(): the player's own sharing links with
+/// the coach's display fields joined server-side. scope_match_id null is
+/// a CONNECTION; all_matches says whether it carries every match (161).
 struct CoachLinkRow: Codable, Identifiable, Hashable {
     let id: UUID
     let status: String
     let scopeMatchId: UUID?
+    let allMatches: Bool
     let inviteToken: String?
     let coachId: UUID?
+    let coachName: String?
+    let coachEmail: String?
     let createdAt: String
 
     enum CodingKeys: String, CodingKey {
         case id, status
         case scopeMatchId = "scope_match_id"
+        case allMatches = "all_matches"
         case inviteToken = "invite_token"
         case coachId = "coach_id"
+        case coachName = "coach_name"
+        case coachEmail = "coach_email"
         case createdAt = "created_at"
     }
+
+    /// Every match, this connection included.
+    var watchesAll: Bool { scopeMatchId == nil && allMatches }
 }
 
 struct StudentOrderRow: Codable, Identifiable, Hashable {
@@ -73,11 +85,7 @@ final class CoachingStore {
             .from("coach_links").select("id", head: true, count: .exact)
             .eq("coach_id", value: uid).eq("status", value: "accepted").execute()
         async let asPlayerQ: [CoachLinkRow]? = try? supa
-            .from("coach_links")
-            .select("id,status,scope_match_id,invite_token,coach_id,created_at")
-            .eq("player_id", value: uid)
-            .neq("status", value: "revoked")
-            .order("created_at", ascending: false)
+            .rpc("player_coach_links")
             .execute().value
         async let ordersQ: [StudentOrderRow]? = try? supa
             .rpc("student_review_orders").execute().value
@@ -85,7 +93,7 @@ final class CoachingStore {
         let (profile, asCoach, links, orderRows) = await (profileQ, asCoachQ, asPlayerQ, ordersQ)
         isCoach = (profile?.count ?? 0) > 0
         coachesAnyone = (asCoach?.count ?? 0) > 0
-        coachLinks = links ?? []
+        coachLinks = (links ?? []).filter { $0.status != "revoked" }
         orders = orderRows ?? []
         showTab = AppConfig.coachMarketplace
             && (isCoach
@@ -96,11 +104,42 @@ final class CoachingStore {
         loaded = true
     }
 
+    /// The per-coach setting (161): all matches, or only the ones shared
+    /// from a match page. One RPC owns the rule for both platforms; it
+    /// flips the connection row, or makes one for a pair that only ever
+    /// had match-scoped shares. Reloads so the cards read the new state.
+    func setAccess(userId: UUID, coachId: UUID, allMatches: Bool) async -> Bool {
+        struct Params: Encodable {
+            let p_coach_id: String
+            let p_all_matches: Bool
+        }
+        do {
+            try await supa
+                .rpc("set_coach_access", params: Params(
+                    p_coach_id: coachId.uuidString.lowercased(),
+                    p_all_matches: allMatches
+                ))
+                .execute()
+        } catch { return false }
+        await load(userId: userId)
+        return true
+    }
+
     /// Ending a coach ends everything with them (157): every link with
     /// that coach revoked AND the roster binding cleared, so their shared
     /// journal entries stop as well as their match access. A pending
     /// invite nobody accepted carries no coach and is simply flipped.
-    func revokeLink(_ link: CoachLinkRow) async {
+    func revokeLink(_ link: CoachLinkRow, onlyThis: Bool = false) async {
+        if onlyThis {
+            // One shared match taken back; the connection stays.
+            _ = try? await supa
+                .from("coach_links")
+                .update(["status": AnyJSON.string("revoked")])
+                .eq("id", value: link.id.uuidString.lowercased())
+                .execute()
+            coachLinks.removeAll { $0.id == link.id }
+            return
+        }
         if let coachId = link.coachId {
             struct Params: Encodable { let p_coach_id: String }
             _ = try? await supa

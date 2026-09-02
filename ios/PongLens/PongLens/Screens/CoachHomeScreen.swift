@@ -131,7 +131,7 @@ struct CoachHomeScreen: View {
                     router.addStudentOpen = true
                 }
                 CoachRowDivider()
-                CoachNavRow(label: "Invite a student", symbol: "link") { inviteOpen = true }
+                CoachNavRow(label: "Invite a new student", symbol: "link") { inviteOpen = true }
             }
             .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
             .overlay(

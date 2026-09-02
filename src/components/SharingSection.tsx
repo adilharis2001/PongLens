@@ -10,16 +10,20 @@ import type { CoachLinkRow } from "@/lib/types";
  * Player-side sharing, modelled as PEOPLE, not links. Each accepted coach is
  * one row with a scope summary ("All matches" or "N matches") no matter how
  * many underlying coach_links back it — so sharing many matches with one
- * coach stays a single row. Expanding a coach reveals the per-match shares
- * (each revocable) and "Remove coach". Outstanding invites collapse into one
- * quiet "N waiting" line. Primary action is a compact "Add a coach".
+ * coach stays a single row. Expanding a coach reveals their access — all
+ * matches, or only the ones shared from a match page — switchable either
+ * way without removing them (161), the per-match shares (each revocable)
+ * and "Remove coach". Outstanding invites collapse into one quiet "N
+ * waiting" line. Primary action is a compact "Add a coach".
  */
 
 interface CoachGroup {
   key: string;
+  coachId: string | null;
   name: string;
   email: string | null;
   links: CoachLinkRow[];
+  /** A connection row (scope null) carrying every match. */
   watchesAll: boolean;
   /** distinct match ids this coach is scoped to (excludes the all-scope) */
   matchIds: string[];
@@ -113,6 +117,7 @@ export function SharingSection({ userId }: { userId: string }) {
       if (!g) {
         g = {
           key,
+          coachId: l.coach_id,
           name: l.coach_name ?? l.coach_email ?? "Coach",
           email: l.coach_email,
           links: [],
@@ -122,8 +127,9 @@ export function SharingSection({ userId }: { userId: string }) {
         map.set(key, g);
       }
       g.links.push(l);
-      if (l.scope_match_id === null) g.watchesAll = true;
-      else if (!g.matchIds.includes(l.scope_match_id))
+      if (l.scope_match_id === null) {
+        if (l.all_matches) g.watchesAll = true;
+      } else if (!g.matchIds.includes(l.scope_match_id))
         g.matchIds.push(l.scope_match_id);
     }
     return [...map.values()];
@@ -199,7 +205,33 @@ export function SharingSection({ userId }: { userId: string }) {
   const scopeSummary = (g: CoachGroup) =>
     g.watchesAll
       ? "All matches"
-      : `${g.matchIds.length} match${g.matchIds.length === 1 ? "" : "es"}`;
+      : g.matchIds.length === 0
+        ? "No matches shared yet"
+        : `${g.matchIds.length} match${g.matchIds.length === 1 ? "" : "es"}`;
+
+  /** The per-coach setting (161). One RPC owns the rule for both platforms:
+   *  it flips the connection row, or creates one for a pair that only ever
+   *  had match-scoped shares. */
+  const setAccess = useCallback(
+    async (g: CoachGroup, all: boolean) => {
+      if (!g.coachId || g.watchesAll === all) return;
+      setError(null);
+      setBusyIds((prev) => new Set(prev).add(g.key));
+      const supabase = createClient();
+      const { error: rpcError } = await supabase.rpc("set_coach_access", {
+        p_coach_id: g.coachId,
+        p_all_matches: all,
+      });
+      if (rpcError) setError("Couldn't change their access. Try again.");
+      await fetchLinks();
+      setBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(g.key);
+        return next;
+      });
+    },
+    [fetchLinks],
+  );
 
   return (
     <section>
@@ -253,12 +285,36 @@ export function SharingSection({ userId }: { userId: string }) {
                         {g.email}
                       </p>
                     )}
-                    {g.watchesAll ? (
-                      <p className="mt-2 text-sm text-zinc-300">
-                        Watches all your matches, including future uploads.
-                      </p>
-                    ) : (
-                      <ul className="mt-2 space-y-2">
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(
+                        [
+                          [true, "All matches"],
+                          [false, "Only matches I share"],
+                        ] as const
+                      ).map(([all, label]) => (
+                        <button
+                          key={label}
+                          type="button"
+                          aria-pressed={g.watchesAll === all}
+                          disabled={busyIds.has(g.key)}
+                          onClick={() => void setAccess(g, all)}
+                          className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-60 ${
+                            g.watchesAll === all
+                              ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
+                              : "border-edge text-zinc-300 hover:border-zinc-500 hover:text-white"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-sm text-zinc-300">
+                      {g.watchesAll
+                        ? "Watches all your matches, including future uploads."
+                        : "Sees only the matches you share with them from a match page."}
+                    </p>
+                    {!g.watchesAll && g.matchIds.length > 0 && (
+                      <ul className="mt-3 space-y-2">
                         {g.links
                           .filter((l) => l.scope_match_id)
                           .map((l) => (
@@ -273,7 +329,7 @@ export function SharingSection({ userId }: { userId: string }) {
                                 type="button"
                                 onClick={() => void revokeLinks([l.id])}
                                 disabled={busyIds.has(l.id)}
-                                className="shrink-0 text-xs font-medium text-zinc-500 underline underline-offset-2 transition-colors hover:text-red-300 disabled:opacity-60"
+                                className="shrink-0 text-sm font-medium text-zinc-400 transition-colors hover:text-amber-200 disabled:opacity-60"
                               >
                                 {busyIds.has(l.id) ? "Removing…" : "Remove"}
                               </button>
@@ -285,7 +341,7 @@ export function SharingSection({ userId }: { userId: string }) {
                       type="button"
                       onClick={() => void revokeLinks(allIds)}
                       disabled={removing}
-                      className="mt-3 rounded-full border border-red-500/40 bg-red-500/10 px-4 py-1.5 text-xs font-semibold text-red-300 transition-colors hover:border-red-400 disabled:opacity-60"
+                      className="mt-4 rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-60"
                     >
                       {removing ? "Removing…" : "Remove coach"}
                     </button>
@@ -339,14 +395,16 @@ export function SharingSection({ userId }: { userId: string }) {
                     <span className="mt-0.5 block truncate text-xs text-zinc-500">
                       {l.scope_match_id
                         ? `Only ${matchNames.get(l.scope_match_id) ?? "one match"}`
-                        : "All matches"}
+                        : l.all_matches
+                          ? "All matches"
+                          : "Only matches you share"}
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
                     <button
                       type="button"
                       onClick={() => void copyInvite(l)}
-                      className="rounded-full border border-edge bg-surface-2 px-3.5 py-1.5 text-xs font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+                      className="rounded-full border border-edge bg-surface-2 px-4 py-1.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
                     >
                       {copiedId === l.id ? "Copied" : "Copy link"}
                     </button>
@@ -354,7 +412,7 @@ export function SharingSection({ userId }: { userId: string }) {
                       type="button"
                       onClick={() => void revokeLinks([l.id])}
                       disabled={busyIds.has(l.id)}
-                      className="rounded-full border border-red-500/40 bg-red-500/10 px-3.5 py-1.5 text-xs font-semibold text-red-300 transition-colors hover:border-red-400 disabled:opacity-60"
+                      className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-60"
                     >
                       {busyIds.has(l.id) ? "Revoking…" : "Revoke"}
                     </button>

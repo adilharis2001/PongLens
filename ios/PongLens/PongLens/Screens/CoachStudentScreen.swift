@@ -16,8 +16,15 @@ struct CoachStudentScreen: View {
     @State private var renameOpen = false
     @State private var renameDraft = ""
     @State private var archiveAsk = false
+    @State private var mergeAsk = false
 
     private var student: CoachStudentRow? { workspace.student(studentId) }
+
+    /// Rows still waiting for an account: the ones a joined student can be
+    /// folded into (161).
+    private var offlineStudents: [CoachStudentRow] {
+        workspace.activeStudents.filter { !$0.linked && $0.id != studentId }
+    }
 
     private var matches: [MatchRow] {
         guard let playerId = student?.playerId else { return [] }
@@ -61,6 +68,25 @@ struct CoachStudentScreen: View {
             Text(student?.linked == true
                  ? "They come off your list and you stop seeing their matches. Your entries are kept."
                  : "They come off your list. Your entries are kept.")
+        }
+        .confirmationDialog(
+            "Which student are they?",
+            isPresented: $mergeAsk,
+            titleVisibility: .visible
+        ) {
+            ForEach(offlineStudents) { other in
+                Button(other.displayName) {
+                    guard let student else { return }
+                    Task {
+                        if await workspace.mergeStudent(student, into: other, userId: app.userId) {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your entries about them come along, and their account connects to that name.")
         }
     }
 
@@ -161,6 +187,12 @@ struct CoachStudentScreen: View {
                     CoachNavRow(label: "Rename") {
                         renameDraft = student.displayName
                         renameOpen = true
+                    }
+                    if student.linked && !offlineStudents.isEmpty {
+                        CoachRowDivider()
+                        CoachNavRow(label: "Same as an existing student") {
+                            mergeAsk = true
+                        }
                     }
                     CoachRowDivider()
                     CoachNavRow(label: "Remove from students", tint: PL.dangerText) {

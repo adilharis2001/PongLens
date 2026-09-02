@@ -738,7 +738,7 @@ export const guides: Guide[] = [
     slug: "invite-a-coach",
     title: "Invite a coach",
     summary:
-      "Give one coach private access to one match or all your matches.",
+      "Give one coach private access to one match, the matches you choose, or all your matches.",
     group: "Share and export",
     related: ["share-a-link", "for-coaches"],
     sections: [
@@ -746,7 +746,7 @@ export const guides: Guide[] = [
         heading: "Quick steps",
         steps: [
           "Open a match, go to Tools, and choose Coach.",
-          "Choose This match or All my matches.",
+          "Choose This match or All my matches. From the Coaching tab, Add a coach offers All my matches or Only matches I share.",
           "Choose Create invite link.",
           "Copy the link, share it from your device, or let your coach scan the QR code.",
           "Your coach opens the link and signs in. Their access is added automatically.",
@@ -764,13 +764,14 @@ export const guides: Guide[] = [
         bullets: [
           "This match gives the coach access only to the match you have open.",
           "All my matches gives access to every current match and any match you upload later.",
+          "Only matches I share connects the coach without any matches. You share each one from its match page, and you can move the coach to All matches later.",
           "A coach can watch the shared footage, download the cut video, and add notes. They cannot score, edit clips, share links, or change your match.",
         ],
       },
       {
         heading: "Manage coaches and unused invites",
         paragraphs: [
-          "Open Account and find Coaches. An accepted coach shows the matches they can watch. Expand the row to remove one match or remove the coach completely.",
+          "Open Coaching and find Coaches. An accepted coach shows the matches they can watch. Expand the row to switch them between All matches and Only matches I share, remove one match, or remove the coach completely.",
           "An invite that has not been accepted appears as waiting. You can copy it again or revoke it.",
         ],
         tip: "Each invite can be accepted by one coach account. If the link was used by the wrong person or revoked, create a fresh invite.",
@@ -854,7 +855,7 @@ export const guides: Guide[] = [
           "Open Students and add a student by name. They do not need PongLens for you to keep notes.",
           "Write or record an entry after a lesson. PongLens condenses it into a few points.",
           "Share the entry when it is ready. It appears in the student’s Journal, and later edits show there too.",
-          "Send the student their invite link from their page. Joining from it connects their account, and the matches they upload show up under their name.",
+          "Send the student their invite link from their page. Joining from it connects their account. They choose whether you see all their matches or only the ones they share, and you can ask them to change it any time.",
         ],
       },
     ],
