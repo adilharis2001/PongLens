@@ -182,11 +182,55 @@ const TABS = [
 
 const COACHING_TAB = { href: "/coaching", label: "Coaching" } as const;
 
-/** The coaching workspace's spine (156): the hub, and the roster. */
+/**
+ * The coaching workspace's spine (156, three deep since 2026-09-02): the
+ * home for today's work, the roster, and the marketplace. Home and
+ * Students match the iOS app tab for tab; Orders exists on the web only,
+ * because paid reviews never enter the app.
+ */
 const COACH_TABS = [
-  { href: "/coaching", label: "Coaching" },
+  { href: "/coaching", label: "Home" },
   { href: "/coaching/students", label: "Students" },
+  { href: "/coaching/orders", label: "Orders" },
 ] as const;
+
+/** The pages that belong to the marketplace, so the Orders tab lights. */
+function isOrdersTerritory(pathname: string): boolean {
+  return (
+    pathname.startsWith("/coaching/orders") ||
+    pathname.startsWith("/coaching/offerings") ||
+    pathname.startsWith("/coaching/profile") ||
+    pathname.startsWith("/coaching/sponsored")
+  );
+}
+
+function OrdersIcon({ active }: { active: boolean }) {
+  // A receipt — what a review order is to the coach who sold it. The
+  // lines stay visible when the filled active state would swallow them.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-6 w-6"
+      fill={active ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={active ? 0 : 1.8}
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M6 3.5h12v17l-2.4-1.5-2.4 1.5-1.2-.8-1.2.8-2.4-1.5L6 20.5v-17Z"
+      />
+      <path
+        strokeLinecap="round"
+        d="M9 8.5h6M9 12h6M9 15.5h3.5"
+        fill="none"
+        stroke={active ? "#0a0a0a" : "currentColor"}
+        strokeWidth={active ? 1.6 : 1.8}
+      />
+    </svg>
+  );
+}
 
 function tabIcon(label: string, active: boolean) {
   switch (label) {
@@ -198,6 +242,8 @@ function tabIcon(label: string, active: boolean) {
       return <CoachIcon active={active} />;
     case "Students":
       return <StudentsIcon active={active} />;
+    case "Orders":
+      return <OrdersIcon active={active} />;
     default:
       return <JournalIcon active={active} />;
   }
@@ -294,10 +340,14 @@ export function AppNav({
         );
       case "/coaching/students":
         return pathname.startsWith("/coaching/students");
+      case "/coaching/orders":
+        return isOrdersTerritory(pathname);
       case "/coaching":
         return (
           pathname.startsWith("/coaching") &&
-          (workspace !== "coach" || !pathname.startsWith("/coaching/students"))
+          (workspace !== "coach" ||
+            (!pathname.startsWith("/coaching/students") &&
+              !isOrdersTerritory(pathname)))
         );
       default:
         return pathname.startsWith("/journal") || pathname.startsWith("/improve");

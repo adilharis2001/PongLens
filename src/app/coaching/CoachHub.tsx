@@ -1,16 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { QRCodeSVG } from "qrcode.react";
 import { SharingSection } from "@/components/SharingSection";
 import { useWorkspace } from "@/lib/workspace";
 import type { Workspace } from "@/lib/workspaceModel";
-import { WorkspaceSwitch } from "@/app/account/WorkspaceSwitch";
 import { StudentsCard } from "./StudentsCard";
-import { PAYOUT_COUNTRIES } from "@/lib/payments/countries";
 import { formatUsd } from "@/lib/reviews/money";
 import type {
   CoachProfileRow,
@@ -24,12 +21,14 @@ import { createClient } from "@/lib/supabase/client";
 import { CoachStart } from "./CoachStart";
 
 /**
- * The Coaching tab is the whole coaching world in one place, the way the
- * Journal owns notes, lessons and Recollect. For a coach it reads like a
- * workspace: what needs you now, how the business is doing, then the
- * rooms (orders, offerings, your page). For everyone else it holds their
- * side of coaching: the coaches they work with and the reviews they've
- * bought — with the paid-reviews pitch one tap away, never in the way.
+ * The coaching home (restructured 2026-09-02). On the coaching side it is
+ * today's work and nothing else: the orders that need you and a count of
+ * the rest, the roster, the latest entries — the same shape as the iOS
+ * Home, plus the order read the app is not allowed to carry. Everything
+ * about selling — the queue in full, offerings, your page, availability,
+ * payouts — lives one tab over on /coaching/orders. On the playing side
+ * it holds your side of coaching: the coaches you work with and the
+ * reviews you've bought, with the paid-reviews offer one tap away.
  */
 
 function promiseLabel(promisedBy: string | null): {
@@ -88,6 +87,14 @@ export function OrderRow({ order }: { order: CoachQueueItem }) {
   );
 }
 
+export function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+      {children}
+    </h2>
+  );
+}
+
 export function OrderGroup({
   label,
   orders,
@@ -98,9 +105,7 @@ export function OrderGroup({
   if (orders.length === 0) return null;
   return (
     <div className="mt-6">
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-        {label}
-      </h2>
+      <SectionLabel>{label}</SectionLabel>
       <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
         {orders.map((o) => (
           <OrderRow key={o.id} order={o} />
@@ -160,8 +165,8 @@ function CoachNudgeCard({
   );
 }
 
-/** The whistle-tab landing for someone who isn't a coach yet. */
-function BecomeCoachCard({ defaultName }: { defaultName: string }) {
+/** The offer to sell reviews, for anyone without a coach page yet. */
+export function BecomeCoachCard({ defaultName }: { defaultName: string }) {
   const [open, setOpen] = useState(false);
   if (open) return <CoachStart defaultName={defaultName} embedded />;
   return (
@@ -183,7 +188,7 @@ function BecomeCoachCard({ defaultName }: { defaultName: string }) {
   );
 }
 
-function RowLink({
+export function RowLink({
   href,
   label,
   detail,
@@ -209,7 +214,7 @@ function RowLink({
           </span>
         )}
       </span>
-      <span className="flex items-center gap-2 text-xs font-normal text-zinc-500">
+      <span className="flex shrink-0 items-center gap-2 text-xs font-normal text-zinc-500">
         {detail}
         <svg
           viewBox="0 0 24 24"
@@ -226,36 +231,6 @@ function RowLink({
   );
 }
 
-function ActionPill({
-  onClick,
-  href,
-  active,
-  children,
-}: {
-  onClick?: () => void;
-  href?: string;
-  active?: boolean;
-  children: React.ReactNode;
-}) {
-  const cls = `inline-flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-medium transition-colors ${
-    active
-      ? "border-cyan-glow/60 text-cyan-glow"
-      : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/40"
-  }`;
-  if (href) {
-    return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={cls}>
-        {children}
-      </a>
-    );
-  }
-  return (
-    <button type="button" onClick={onClick} className={cls}>
-      {children}
-    </button>
-  );
-}
-
 export function CoachHub({
   workspace,
   profile,
@@ -264,13 +239,11 @@ export function CoachHub({
   offeringCount,
   studentOrders,
   coachNotes,
-  pageOpens7d,
   nudgePlayerCount,
   nudgeNoteCount,
   nudgeDismissed,
   userId,
   defaultName,
-  sponsoredLeft = null,
 }: {
   /** The side the server resolved (158). */
   workspace: Workspace;
@@ -280,33 +253,17 @@ export function CoachHub({
   offeringCount: number;
   studentOrders: StudentOrderItem[];
   coachNotes: NoteFeedRow[];
-  pageOpens7d: number;
   nudgePlayerCount: number;
   nudgeNoteCount: number;
   nudgeDismissed: boolean;
   userId: string;
   defaultName: string;
-  /** Sponsored reviews the coach can still cover (096); null hides it. */
-  sponsoredLeft?: number | null;
 }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const [accepting, setAccepting] = useState(profile?.accepting_orders ?? true);
-  const [maxActive, setMaxActive] = useState(
-    profile?.max_active_orders ?? null,
-  );
-  const [copied, setCopied] = useState(false);
-  const [showQr, setShowQr] = useState(false);
-  const [connectBusy, setConnectBusy] = useState(false);
-  const [payoutCountry, setPayoutCountry] = useState(
-    profile?.payout_country ?? "",
-  );
-  const [connectNote, setConnectNote] = useState<string | null>(null);
   const bootRan = useRef(false);
 
   // One housekeeping pass per visit: quiet deliveries auto-complete and
-  // any unpaid completions release; returning from onboarding re-syncs the
-  // capability flags Stripe just granted.
+  // any unpaid completions release. The Stripe return lands on Orders.
   useEffect(() => {
     if (bootRan.current || !profile) return;
     bootRan.current = true;
@@ -316,19 +273,13 @@ export function CoachHub({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "sweep" }),
       }).catch(() => {});
-      if (searchParams.get("connected") === "1") {
-        await fetch("/api/reviews/connect", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: "sync" }),
-        }).catch(() => {});
-        router.replace("/coaching");
-      }
       router.refresh();
     };
     void boot();
-  }, [router, searchParams, profile]);
+  }, [router, profile]);
 
+  // What needs you now: orders waiting on your move, and the ones inside
+  // a day of their promised date. Five at most; the rest is a count.
   const needsYou = useMemo(() => {
     const q = initialQueue;
     const move = q.filter((o) => o.status === "submitted");
@@ -341,39 +292,22 @@ export function CoachHub({
     return [...move, ...overdue].slice(0, 5);
   }, [initialQueue]);
 
-  const activeCount = useMemo(
-    () =>
-      initialQueue.filter((o) =>
-        [
-          "awaiting_submission",
-          "submitted",
-          "in_review",
-          "clarification",
-          "delivered",
-        ].includes(o.status),
-      ).length,
-    [initialQueue],
-  );
-
-  // The active queue grouped the way the orders page groups it; a laptop
-  // has room to show it on the hub itself.
-  const queueGroups = useMemo(
-    () => ({
-      yourMove: initialQueue.filter((o) => o.status === "submitted"),
-      inProgress: initialQueue.filter(
+  const counts = useMemo(() => {
+    const q = initialQueue;
+    return {
+      toStart: q.filter((o) => o.status === "submitted").length,
+      inProgress: q.filter(
         (o) => o.status === "in_review" || o.status === "clarification",
-      ),
-      waiting: initialQueue.filter(
-        (o) => o.status === "awaiting_submission" || o.status === "delivered",
-      ),
-    }),
-    [initialQueue],
-  );
+      ).length,
+      waiting: q.filter((o) => o.status === "awaiting_submission").length,
+      delivered: q.filter(
+        (o) => o.status === "delivered" || o.status === "completed",
+      ).length,
+    };
+  }, [initialQueue]);
 
-  // Until the three setup steps are done, the coach side of the tab IS
-  // the setup: one checklist, no workspace furniture for a business that
-  // doesn't exist yet. Any order history means the business exists, so
-  // an established coach never falls back in here.
+  // The three setup steps between claiming a handle and the first order.
+  // Orders holds the checklist; Home says how far along it is.
   const payoutsReady =
     !!profile && profile.charges_enabled && profile.payouts_enabled;
   const setupMode =
@@ -381,445 +315,57 @@ export function CoachHub({
     initialQueue.length === 0 &&
     stats.completed_count === 0 &&
     !(offeringCount > 0 && payoutsReady && profile.published);
+  const setupDone =
+    (offeringCount > 0 ? 1 : 0) +
+    (payoutsReady ? 1 : 0) +
+    (profile?.published ? 1 : 0);
+
+  const orderSummary = (() => {
+    const parts: string[] = [];
+    if (counts.toStart > 0) parts.push(`${counts.toStart} to start`);
+    if (counts.inProgress > 0) parts.push(`${counts.inProgress} in progress`);
+    if (counts.waiting > 0) parts.push(`${counts.waiting} waiting on them`);
+    if (counts.delivered > 0) parts.push(`${counts.delivered} delivered`);
+    return parts.length > 0 ? parts.join(" · ") : "No orders yet.";
+  })();
 
   // "Coaching" runs in two directions: you as a coach, and the coaches
   // you have. Which one this page shows is the workspace's decision (158)
   // — the same switch that changes the nav — never a toggle of its own.
-  // Coaching side: the hub for a coach with a page, the roster home for
-  // one without. Playing side: your coaches and the reviews you bought.
   const coachWorkspace = useWorkspace(workspace) === "coach";
-  const showCoach = coachWorkspace && !!profile;
   const showPlayer = !coachWorkspace;
-
-  async function saveAvailability(next: {
-    accepting?: boolean;
-    maxActive?: number | null;
-  }) {
-    if (!profile) return;
-    const supabase = createClient();
-    await supabase
-      .from("coach_profiles")
-      .update({
-        accepting_orders: next.accepting ?? accepting,
-        max_active_orders:
-          next.maxActive === undefined ? maxActive : next.maxActive,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", profile.user_id);
-  }
-
-  /**
-   * Saved on change rather than behind a Save button: the coach is about to
-   * leave for Stripe, and a country sitting unsaved in a select is exactly
-   * the thing that would be lost on the way.
-   */
-  async function savePayoutCountry(code: string) {
-    setPayoutCountry(code);
-    setConnectNote(null);
-    if (!code || !profile) return;
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("coach_profiles")
-      .update({ payout_country: code })
-      .eq("user_id", profile.user_id);
-    if (error) setConnectNote("Could not save that country. Try again.");
-  }
-
-  async function connect() {
-    setConnectBusy(true);
-    setConnectNote(null);
-    try {
-      const res = await fetch("/api/reviews/connect", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "link" }),
-      });
-      const body = (await res.json()) as { url?: string; code?: string };
-      if (res.ok && body.url) {
-        window.location.href = body.url;
-        return;
-      }
-      // Stripe fixes the country forever, so the route refuses rather than
-      // guessing. Say what is missing instead of blaming Stripe for it.
-      if (body.code === "country_required") {
-        setConnectNote("Choose where you are paid first.");
-        setConnectBusy(false);
-        return;
-      }
-    } catch {
-      // fall through
-    }
-    // A dead button reads as a broken page; say what happened.
-    setConnectNote("Stripe didn't answer. Try again in a moment.");
-    setConnectBusy(false);
-  }
-
-  async function openStripeDashboard() {
-    setConnectBusy(true);
-    try {
-      const res = await fetch("/api/reviews/connect", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "dashboard" }),
-      });
-      const body = (await res.json()) as { url?: string | null };
-      if (res.ok && body.url) {
-        window.open(body.url, "_blank", "noopener");
-      }
-    } catch {
-      // quiet; the button re-enables
-    }
-    setConnectBusy(false);
-  }
-
-  const pageUrl = profile
-    ? `${typeof window !== "undefined" ? window.location.origin : ""}/coach/${profile.handle}`
-    : "";
-
-  async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(pageUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch {
-      // clipboard denied; View page still shows the address
-    }
-  }
 
   return (
     <>
-      {/* The workspace switch shares the header row — a whole row for it
-          was vertical space the phone screen didn't have. */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-          Coaching
-        </h1>
-        <WorkspaceSwitch remembered={workspace} variant="pill" />
-      </div>
+      <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Coaching</h1>
 
-      {!profile && coachWorkspace && <StudentsCard />}
+      {/* ---- the coaching side ---- */}
 
-      {profile && showCoach && !setupMode && (
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <ActionPill href={`/coach/${profile.handle}`}>
-            <svg
-              viewBox="0 0 24 24"
-              className="h-3.5 w-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"
+      {coachWorkspace && profile && (
+        <div className="mt-6">
+          <SectionLabel>Orders</SectionLabel>
+          <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+            {!setupMode &&
+              needsYou.map((o) => <OrderRow key={o.id} order={o} />)}
+            {setupMode ? (
+              <RowLink
+                href="/coaching/orders"
+                label="Before your first order"
+                sub="Create an offering, set up payouts, publish your page."
+                detail={`${setupDone} of 3`}
               />
-              <circle cx="12" cy="12" r="2.5" />
-            </svg>
-            View page
-          </ActionPill>
-          <ActionPill onClick={copyLink} active={copied}>
-            <svg
-              viewBox="0 0 24 24"
-              className="h-3.5 w-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <rect x="8" y="8" width="12" height="12" rx="2.5" />
-              <path
-                strokeLinecap="round"
-                d="M4.5 15.5A2.5 2.5 0 0 1 4 14V6.5A2.5 2.5 0 0 1 6.5 4H14c.55 0 1.05.18 1.46.48"
+            ) : (
+              <RowLink
+                href="/coaching/orders"
+                label="All orders"
+                sub={orderSummary}
               />
-            </svg>
-            {copied ? "Copied" : "Copy link"}
-          </ActionPill>
-          <ActionPill onClick={() => setShowQr(!showQr)} active={showQr}>
-            <svg
-              viewBox="0 0 24 24"
-              className="h-3.5 w-3.5"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              aria-hidden="true"
-            >
-              <rect x="4" y="4" width="6" height="6" rx="1" />
-              <rect x="14" y="4" width="6" height="6" rx="1" />
-              <rect x="4" y="14" width="6" height="6" rx="1" />
-              <path d="M14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z" />
-            </svg>
-            QR
-          </ActionPill>
-        </div>
-      )}
-
-      {showQr && profile && showCoach && (
-        <div className="mt-4 flex flex-col items-center gap-3 rounded-2xl border border-edge bg-surface p-6">
-          <div className="rounded-xl bg-white p-4">
-            <QRCodeSVG
-              value={pageUrl}
-              size={180}
-              level="M"
-              marginSize={2}
-              bgColor="#ffffff"
-              fgColor="#0a0a12"
-            />
-          </div>
-          <p className="text-xs text-zinc-500">
-            Scan to open your page. Put it up at the club.
-          </p>
-        </div>
-      )}
-
-      {profile && showCoach && setupMode && (
-        <CoachSetup
-          handle={profile.handle}
-          offeringDone={offeringCount > 0}
-          payoutsDone={payoutsReady}
-          payoutsStarted={!!profile.stripe_account_id}
-          published={profile.published}
-          connectBusy={connectBusy}
-          connectNote={connectNote}
-          onConnect={connect}
-          payoutCountry={payoutCountry}
-          onPayoutCountry={(code) => void savePayoutCountry(code)}
-        />
-      )}
-
-      {profile && showCoach && !setupMode && (
-        <div className="lg:grid lg:grid-cols-3 lg:items-start lg:gap-x-8">
-          {/* The queue. The phone shows the urgent slice and a link out;
-              a laptop has room for the work itself, so the whole active
-              queue lives on the hub there. The pane wrappers are
-              display: contents below lg — the phone column is untouched. */}
-          <div className="contents lg:col-span-2 lg:block">
-            {needsYou.length > 0 && (
-              <div className="lg:hidden">
-                <OrderGroup label="Needs you" orders={needsYou} />
-              </div>
             )}
-            <div className="hidden lg:block">
-              <OrderGroup label="Your move" orders={queueGroups.yourMove} />
-              <OrderGroup label="In progress" orders={queueGroups.inProgress} />
-              <OrderGroup
-                label="Waiting on them"
-                orders={queueGroups.waiting}
-              />
-              {queueGroups.yourMove.length === 0 &&
-                queueGroups.inProgress.length === 0 &&
-                queueGroups.waiting.length === 0 && (
-                  <p className="mt-6 text-sm text-zinc-500">
-                    No active orders.
-                  </p>
-                )}
-              <p className="mt-5">
-                <Link
-                  href="/coaching/orders"
-                  className="text-sm text-zinc-400 transition-colors hover:text-cyan-glow"
-                >
-                  All orders
-                </Link>
-              </p>
-            </div>
-          </div>
-
-          <div className="contents lg:block">
-            {/* Money only, and only once there is money to show — the
-                sponsored count lives on its row below, one home, not two. */}
-            {stats.completed_count > 0 && (
-              <div className="mt-6 flex flex-wrap items-end gap-6 rounded-2xl border border-edge bg-surface px-5 py-4 text-sm">
-                <div>
-                  <p className="text-lg font-semibold tabular-nums text-zinc-100">
-                    {formatUsd(stats.earned_cents)}
-                  </p>
-                  <p className="text-xs text-zinc-500">earned</p>
-                </div>
-                <div>
-                  <p className="text-lg font-semibold tabular-nums text-zinc-100">
-                    {stats.completed_count}
-                  </p>
-                  <p className="text-xs text-zinc-500">completed</p>
-                </div>
-                <div>
-                  <p className="text-lg font-semibold tabular-nums text-zinc-100">
-                    {stats.active_count}
-                  </p>
-                  <p className="text-xs text-zinc-500">active</p>
-                </div>
-              </div>
-            )}
-
-            <div className="mt-6">
-              <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-                <RowLink
-                  href="/coaching/students"
-                  label="Students"
-                  sub="Your roster: lesson notes and their shared matches."
-                />
-                <RowLink
-                  href="/coaching/orders"
-                  label="Orders"
-                  sub="Reviews players have bought from you."
-                  detail={activeCount > 0 ? `${activeCount} active` : undefined}
-                />
-                <RowLink
-                  href="/coaching/offerings"
-                  label="Offerings"
-                  sub="What you sell and the price you set."
-                  detail={String(offeringCount)}
-                />
-                {sponsoredLeft != null && (
-                  <RowLink
-                    href="/coaching/sponsored"
-                    label="Sponsored reviews"
-                    sub="Cover a review for a student. They pay nothing."
-                    detail={`${sponsoredLeft} left`}
-                  />
-                )}
-                <RowLink
-                  href="/coaching/profile"
-                  label="Your page"
-                  sub="Your public page, where players find and buy."
-                  detail={
-                    profile.published
-                      ? `${pageOpens7d} ${
-                          pageOpens7d === 1 ? "open" : "opens"
-                        } this week`
-                      : "Hidden"
-                  }
-                />
-              </div>
-            </div>
-
-            <div className="mt-6">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                Payouts
-              </h2>
-              {!profile.stripe_account_id && (
-                <div className="mb-3 rounded-2xl border border-edge bg-surface px-5 py-4">
-                  <label
-                    htmlFor="payout-country"
-                    className="text-sm font-medium text-zinc-200"
-                  >
-                    Where are you paid?
-                  </label>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    Stripe cannot change this later, so it has to be the
-                    country of the bank account you want the money in.
-                  </p>
-                  <select
-                    id="payout-country"
-                    value={payoutCountry}
-                    onChange={(e) => void savePayoutCountry(e.target.value)}
-                    className="mt-3 rounded-full border border-edge bg-surface-2 px-4 py-2 text-sm text-zinc-200 focus:border-cyan-glow/50 focus:outline-none"
-                  >
-                    <option value="">Choose a country</option>
-                    {PAYOUT_COUNTRIES.map((c) => (
-                      <option key={c.code} value={c.code}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-5 py-4">
-                <div>
-                  <p className="text-sm font-medium text-zinc-200">
-                    {!profile.stripe_account_id
-                      ? "Not set up"
-                      : profile.charges_enabled && profile.payouts_enabled
-                        ? "Ready"
-                        : "Onboarding not finished"}
-                  </p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    {!profile.stripe_account_id
-                      ? "Connect Stripe to sell reviews."
-                      : profile.charges_enabled && profile.payouts_enabled
-                        ? "Stripe pays your bank when an order completes."
-                        : "Stripe needs a few more details from you."}
-                  </p>
-                </div>
-                {profile.charges_enabled && profile.payouts_enabled ? (
-                  <button
-                    type="button"
-                    disabled={connectBusy}
-                    onClick={openStripeDashboard}
-                    className="shrink-0 rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/40 disabled:opacity-60"
-                  >
-                    {connectBusy ? "Opening" : "Open Stripe"}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={connectBusy}
-                    onClick={connect}
-                    className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink disabled:opacity-60"
-                  >
-                    {connectBusy
-                      ? "Opening Stripe"
-                      : profile.stripe_account_id
-                        ? "Finish setup"
-                        : "Set up payouts"}
-                  </button>
-                )}
-              </div>
-              {connectNote && (
-                <p className="mt-2 text-xs text-amber-400">{connectNote}</p>
-              )}
-            </div>
-
-            <div className="mt-6">
-              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                Availability
-              </h2>
-              <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-                <label className="flex cursor-pointer items-center justify-between px-5 py-4 text-sm">
-                  <span className="font-medium text-zinc-200">
-                    Taking new orders
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={accepting}
-                    onChange={(e) => {
-                      setAccepting(e.target.checked);
-                      void saveAvailability({ accepting: e.target.checked });
-                    }}
-                    className="h-5 w-9 cursor-pointer appearance-none rounded-full bg-surface-2 outline outline-1 outline-edge transition-colors checked:bg-cyan-glow/80 before:mt-0.5 before:ml-0.5 before:block before:h-4 before:w-4 before:rounded-full before:bg-zinc-400 before:transition-transform checked:before:translate-x-4 checked:before:bg-ink"
-                  />
-                </label>
-                <div className="flex items-center justify-between px-5 py-4 text-sm">
-                  <div>
-                    <p className="font-medium text-zinc-200">
-                      Most orders at once
-                    </p>
-                    <p className="mt-0.5 text-xs text-zinc-500">
-                      New purchases pause at the limit.
-                    </p>
-                  </div>
-                  <select
-                    value={maxActive ?? ""}
-                    onChange={(e) => {
-                      const v =
-                        e.target.value === "" ? null : Number(e.target.value);
-                      setMaxActive(v);
-                      void saveAvailability({ maxActive: v });
-                    }}
-                    className="rounded-xl border border-edge bg-surface-2 px-3 py-2 text-sm text-zinc-200 outline-none"
-                  >
-                    <option value="">No limit</option>
-                    {[1, 2, 3, 5, 10, 20].map((n) => (
-                      <option key={n} value={n}>
-                        {n}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       )}
+
+      {coachWorkspace && <StudentsCard />}
 
       {/* ---- the player's side of coaching ---- */}
 
@@ -827,9 +373,7 @@ export function CoachHub({
 
       {showPlayer && studentOrders.length > 0 && (
         <div className="mt-8">
-          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Reviews you bought
-          </h2>
+          <SectionLabel>Reviews you bought</SectionLabel>
           <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
             {studentOrders.slice(0, 3).map((o) => (
               <Link
@@ -864,7 +408,7 @@ export function CoachHub({
         </div>
       )}
 
-      {!profile && (
+      {showPlayer && !profile && (
         <div className="mt-8">
           {nudgePlayerCount >= 1 && nudgeNoteCount >= 3 && !nudgeDismissed ? (
             <CoachNudgeCard
@@ -923,9 +467,7 @@ function FromYourCoaches({ notes }: { notes: NoteFeedRow[] }) {
 
   return (
     <div className="mt-8">
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-        From your coaches
-      </h2>
+      <SectionLabel>From your coaches</SectionLabel>
       <div className="space-y-4">
         {groups.map(([matchId, list]) => {
           const newest = list[0];
@@ -943,7 +485,7 @@ function FromYourCoaches({ notes }: { notes: NoteFeedRow[] }) {
                 </p>
                 <Link
                   href={href}
-                  className="shrink-0 text-xs text-zinc-500 hover:text-cyan-glow"
+                  className="shrink-0 text-sm text-zinc-400 hover:text-cyan-glow"
                 >
                   Open the match
                 </Link>
@@ -1003,209 +545,5 @@ function FromYourCoaches({ notes }: { notes: NoteFeedRow[] }) {
         })}
       </div>
     </div>
-  );
-}
-
-/**
- * First visit, nothing set up yet: show the shape of the whole thing in
- * three glances before anything else. Cards, not a tour — the house
- * decision is that spotlight tours don't survive contact with real users.
- */
-/**
- * Setup mode: the three steps between claiming a handle and taking the
- * first order, in the dashboard First-steps idiom. State-derived like
- * that one — the product state IS the checklist, and the workspace
- * replaces it the moment all three are done.
- */
-function CoachSetup({
-  handle,
-  offeringDone,
-  payoutsDone,
-  payoutsStarted,
-  published,
-  connectBusy,
-  connectNote,
-  onConnect,
-  payoutCountry,
-  onPayoutCountry,
-}: {
-  handle: string;
-  offeringDone: boolean;
-  payoutsDone: boolean;
-  payoutsStarted: boolean;
-  published: boolean;
-  connectBusy: boolean;
-  connectNote: string | null;
-  onConnect: () => void;
-  payoutCountry: string;
-  onPayoutCountry: (code: string) => void;
-}) {
-  // Each step carries a line saying what it actually involves. A checklist
-  // is the one place a subtitle earns its keep: the label is the verb, and
-  // a coach setting this up for the first time has no way to know that
-  // payouts means handing Stripe an ID and a bank account.
-  const items: {
-    label: string;
-    hint: string;
-    done: boolean;
-    href?: string;
-    onClick?: () => void;
-  }[] = [
-    {
-      label: "Create an offering",
-      hint: "What you review, what it costs, and how long you take.",
-      done: offeringDone,
-      href: "/coaching/offerings",
-    },
-    {
-      label:
-        payoutsStarted && !payoutsDone
-          ? "Finish payouts setup"
-          : "Set up payouts",
-      hint:
-        payoutsStarted && !payoutsDone
-          ? "Stripe still needs a few details before it can pay you."
-          : "Stripe confirms who you are and connects your bank account.",
-      done: payoutsDone,
-      onClick: onConnect,
-    },
-    {
-      label: "Publish your page",
-      hint: "Makes your page visible to anyone you send the link to.",
-      done: published,
-      href: "/coaching/profile",
-    },
-  ];
-  const doneCount = items.filter((i) => i.done).length;
-
-  const chevron = (
-    <svg
-      viewBox="0 0 24 24"
-      className="ml-auto h-4 w-4 text-zinc-600"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      aria-hidden="true"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
-    </svg>
-  );
-
-  return (
-    <section className="mt-6 rounded-2xl border border-edge bg-surface p-5">
-      <div className="flex items-baseline justify-between gap-4">
-        <h2 className="text-sm font-semibold text-zinc-100">
-          Before your first order
-        </h2>
-        <span className="text-xs tabular-nums text-zinc-500">
-          {doneCount} of {items.length}
-        </span>
-      </div>
-      <ul className="mt-4 space-y-1">
-        {items.map((item) => {
-          const icon = item.done ? (
-            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-cyan-glow/15 text-cyan-glow">
-              <svg
-                viewBox="0 0 24 24"
-                className="h-3 w-3"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="m5 13 4 4 10-10"
-                />
-              </svg>
-            </span>
-          ) : (
-            <span
-              className="h-5 w-5 shrink-0 rounded-full border border-edge"
-              aria-hidden="true"
-            />
-          );
-          // Done steps lose their hint. Once it is ticked the sentence is
-          // advice nobody needs, and three struck-through rows with a line
-          // under each is a wall of grey.
-          const text = item.done ? (
-            <span className="text-sm text-zinc-500 line-through decoration-zinc-700">
-              {item.label}
-            </span>
-          ) : (
-            <span className="min-w-0">
-              <span className="block text-sm text-zinc-200">{item.label}</span>
-              <span className="mt-0.5 block text-xs leading-snug text-zinc-500">
-                {item.hint}
-              </span>
-            </span>
-          );
-          return (
-            <li key={item.label}>
-              {item.done ? (
-                <span className="flex items-center gap-3 rounded-xl px-2 py-2">
-                  {icon}
-                  {text}
-                </span>
-              ) : item.href ? (
-                <Link
-                  href={item.href}
-                  className="flex items-center gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-surface-2"
-                >
-                  {icon}
-                  {text}
-                  {chevron}
-                </Link>
-              ) : (
-                <button
-                  type="button"
-                  disabled={connectBusy}
-                  onClick={item.onClick}
-                  className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-surface-2 disabled:opacity-60"
-                >
-                  {icon}
-                  {text}
-                  {chevron}
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      {!payoutsStarted && (
-        <div className="mt-4 border-t border-edge/60 pt-4">
-          <label
-            htmlFor="payout-country-setup"
-            className="text-xs font-medium text-zinc-300"
-          >
-            Where are you paid?
-          </label>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            Stripe cannot change this later, so it has to be the country of
-            your bank account.
-          </p>
-          <select
-            id="payout-country-setup"
-            value={payoutCountry}
-            onChange={(e) => onPayoutCountry(e.target.value)}
-            className="mt-2 rounded-full border border-edge bg-surface-2 px-4 py-2 text-sm text-zinc-200 focus:border-cyan-glow/50 focus:outline-none"
-          >
-            <option value="">Choose a country</option>
-            {PAYOUT_COUNTRIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-      {connectNote && (
-        <p className="mt-3 text-xs text-amber-400">{connectNote}</p>
-      )}
-      <p className="mt-3 border-t border-edge/60 pt-3 text-xs text-zinc-500">
-        Your page will be at ponglens.com/coach/{handle}.
-      </p>
-    </section>
   );
 }

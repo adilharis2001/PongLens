@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
-import { getCommerceEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import type {
   CoachProfileRow,
@@ -18,9 +17,11 @@ export const metadata: Metadata = {
 };
 
 /**
- * The Coaching tab: the whole coaching world in one place. Coaches get
- * their workspace; everyone gets their coaches and the reviews they've
- * bought. The public storefront stays at /coach/<handle>.
+ * The coaching home. On the coaching side: today's work — a short read of
+ * the order queue, the roster and the latest entries — with the
+ * marketplace one tab over at /coaching/orders. On the playing side: your
+ * coaches and the reviews you've bought. The public storefront stays at
+ * /coach/<handle>.
  */
 export default async function CoachingPage() {
   const supabase = await createClient();
@@ -51,7 +52,6 @@ export default async function CoachingPage() {
     studentRes,
     notesRes,
     linksRes,
-    opensRes,
     coachedRes,
   ] = await Promise.all([
     profile ? supabase.rpc("coach_queue") : Promise.resolve({ data: [] }),
@@ -73,16 +73,6 @@ export default async function CoachingPage() {
       .select("id", { count: "exact", head: true })
       .eq("player_id", user.id)
       .neq("status", "revoked"),
-    // Storefront opens this week (RLS scopes to own rows).
-    profile
-      ? supabase
-          .from("coach_page_views")
-          .select("id", { count: "exact", head: true })
-          .gte(
-            "viewed_at",
-            new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(),
-          )
-      : Promise.resolve({ count: 0 }),
     // The free-to-paid signal: notes this user left on other players'
     // matches. Only worth asking when they have no coach page yet.
     !profile
@@ -104,35 +94,13 @@ export default async function CoachingPage() {
     .filter((id) => id !== user.id);
   const coachedOwners = new Set(coachedNoteOwners);
 
-  // Sponsored reviews left (096), shown as a top-line number on the hub.
-  // The free allowance lands lazily on first use, so an untouched ledger
-  // means the allowance is still waiting, not spent.
-  let sponsoredLeft: number | null = null;
-  if (profile && (await getCommerceEnabled())) {
-    const [{ data: creditRows }, { data: freeRow }] = await Promise.all([
-      supabase.from("sponsored_credit_ledger").select("credits, kind"),
-      supabase
-        .from("app_config")
-        .select("value")
-        .eq("key", "sponsored_free_credits")
-        .maybeSingle(),
-    ]);
-    const rows = creditRows ?? [];
-    const sum = rows.reduce((s, r) => s + (r.credits ?? 0), 0);
-    const hasGrant = rows.some((r) => r.kind === "grant");
-    const free = Number(freeRow?.value ?? "3");
-    sponsoredLeft =
-      sum + (hasGrant ? 0 : Number.isFinite(free) && free > 0 ? free : 0);
-  }
-
   const { workspace } = await rememberedWorkspace();
 
   return (
-    <AppShell avatarUrl={avatarUrl} wide>
+    <AppShell avatarUrl={avatarUrl}>
       <CoachHub
         workspace={workspace}
         profile={(profile as CoachProfileRow | null) ?? null}
-        sponsoredLeft={sponsoredLeft}
         initialQueue={queueRes.data ?? []}
         stats={
           statsRes.data ?? {
@@ -148,7 +116,6 @@ export default async function CoachingPage() {
         coachNotes={((notesRes.data ?? []) as NoteFeedRow[]).filter(
           (n) => n.match_owner_id === user.id && n.author_id !== user.id,
         )}
-        pageOpens7d={(opensRes as { count: number | null }).count ?? 0}
         nudgePlayerCount={coachedOwners.size}
         nudgeNoteCount={coachedNoteOwners.length}
         nudgeDismissed={

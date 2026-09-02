@@ -120,7 +120,7 @@ export async function POST(req: Request) {
     const origin = new URL(req.url).origin;
     const url = await gateway.createOnboardingLink(
       accountId,
-      `${origin}/coaching?connected=1`,
+      `${origin}/coaching/orders?connected=1`,
       `${origin}/coaching?connect_refresh=1`,
     );
     return NextResponse.json({ url });

@@ -1132,7 +1132,7 @@ export function OfferingsEditor({
 
   return (
     <div className="mx-auto max-w-lg lg:max-w-none">
-      <UpLink href="/coaching" label="Coaching" />
+      <UpLink href="/coaching/orders" label="Orders" />
       <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">
         Offerings
       </h1>
