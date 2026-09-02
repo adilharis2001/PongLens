@@ -14,7 +14,7 @@ struct RootView: View {
 
     enum OnboardingGate: Equatable {
         case checking
-        case needed(needsName: Bool, isCoach: Bool)
+        case needed(needsName: Bool, isCoach: Bool, isNew: Bool)
         case done
     }
 
@@ -54,8 +54,8 @@ struct RootView: View {
                         ProgressView().tint(PL.cyan)
                     }
                     .task { await checkOnboarding() }
-                case .needed(let needsName, let isCoach):
-                    OnboardingScreen(needsName: needsName, isCoach: isCoach) { gate = .done }
+                case .needed(let needsName, let isCoach, let isNew):
+                    OnboardingScreen(needsName: needsName, isCoach: isCoach, isNew: isNew) { gate = .done }
                 case .done:
                     // One account, two workspaces. The remembered choice
                     // decides which side of the app stands up; Account
@@ -166,7 +166,10 @@ struct RootView: View {
         let hasProfile = (profile?.count ?? 0) > 0
         let isCoach = (coachLink?.count ?? 0) > 0
         if name.isEmpty || !hasProfile {
-            gate = .needed(needsName: name.isEmpty, isCoach: isCoach)
+            // isNew: no profile row yet, whatever the name says. Google and
+            // Apple hand us a name, so "needs a name" is NOT "brand new" —
+            // keying the role question on it skipped every such account.
+            gate = .needed(needsName: name.isEmpty, isCoach: isCoach, isNew: !hasProfile)
         } else {
             gate = .done
         }

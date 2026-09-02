@@ -66,6 +66,7 @@ export default async function OnboardingPage({
           <OnboardingFlow
             needsName={needsName}
             isCoach={!!coachLink}
+            isNew={!profile}
             next={next}
           />
         </div>

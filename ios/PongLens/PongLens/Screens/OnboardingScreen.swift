@@ -10,6 +10,10 @@ struct OnboardingScreen: View {
     /// all-null profile row is written on their behalf so the gate never
     /// asks again. Same two branches as the web flow.
     let isCoach: Bool
+    /// No player_profiles row yet: the account has never finished setup,
+    /// whichever sign-in brought it here. The role question keys on this,
+    /// not on the name — Google and Apple arrive with a name.
+    let isNew: Bool
     let onDone: () -> Void
 
     @Environment(AppState.self) private var app
@@ -27,9 +31,10 @@ struct OnboardingScreen: View {
     @State private var errorMessage: String?
     @State private var autoFinished = false
 
-    init(needsName: Bool, isCoach: Bool = false, onDone: @escaping () -> Void) {
+    init(needsName: Bool, isCoach: Bool = false, isNew: Bool = true, onDone: @escaping () -> Void) {
         self.needsName = needsName
         self.isCoach = isCoach
+        self.isNew = isNew
         self.onDone = onDone
         _step = State(initialValue: needsName ? 0 : 1)
     }
@@ -92,7 +97,7 @@ struct OnboardingScreen: View {
                             }
                         }
                         .padding(.vertical, 24)
-                    } else if needsName && !isCoach && role == nil {
+                    } else if isNew && !isCoach && role == nil {
                         roleStep
                     } else if step == 0 {
                         nameStep
@@ -156,6 +161,12 @@ struct OnboardingScreen: View {
     private func roleCard(value: String, title: String, blurb: String) -> some View {
         Button {
             role = value
+            // With a name already on the account (Google, Apple) there is
+            // nothing left to ask a coach: mark, switch, write the row.
+            if value == "coach", !needsName {
+                app.setWorkspace(.coach)
+                Task { await saveProfile() }
+            }
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
