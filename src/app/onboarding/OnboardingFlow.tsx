@@ -309,7 +309,7 @@ export function OnboardingFlow({
             selected={role === "both"}
             onClick={() => setRole("both")}
             title="Both"
-            blurb="Your own game and your students, one account, a switch between them."
+            blurb="Your own game and your students, one switch apart."
             icon="people"
           />
         </div>
