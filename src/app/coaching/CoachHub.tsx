@@ -8,6 +8,7 @@ import { SharingSection } from "@/components/SharingSection";
 import { useWorkspace } from "@/lib/workspace";
 import type { Workspace } from "@/lib/workspaceModel";
 import { StudentsCard } from "./StudentsCard";
+import { CoachFirstSteps, type CoachFirstStepsState } from "./CoachFirstSteps";
 import { formatUsd } from "@/lib/reviews/money";
 import type {
   CoachProfileRow,
@@ -140,11 +141,11 @@ function CoachNudgeCard({
       <p className="mt-0.5 text-xs text-zinc-500">
         A page lets them pay you for the deep reviews.
       </p>
-      <div className="mt-3 flex gap-2">
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="glow-cta rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink"
+          className="glow-cta w-full rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink sm:w-auto sm:py-2"
         >
           Set up your page
         </button>
@@ -156,7 +157,7 @@ function CoachNudgeCard({
               data: { pl_coach_nudge_dismissed: true },
             });
           }}
-          className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-400"
+          className="w-full rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-400 sm:w-auto sm:py-2"
         >
           Not now
         </button>
@@ -180,7 +181,7 @@ export function BecomeCoachCard({ defaultName }: { defaultName: string }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="glow-cta shrink-0 self-start rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink"
+        className="glow-cta w-full shrink-0 rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink sm:w-auto sm:py-2"
       >
         Set up your page
       </button>
@@ -244,6 +245,7 @@ export function CoachHub({
   nudgeDismissed,
   userId,
   defaultName,
+  firstSteps,
 }: {
   /** The side the server resolved (158). */
   workspace: Workspace;
@@ -258,6 +260,8 @@ export function CoachHub({
   nudgeDismissed: boolean;
   userId: string;
   defaultName: string;
+  /** The coach's checklist state, or null on the playing side. */
+  firstSteps: CoachFirstStepsState | null;
 }) {
   const router = useRouter();
   const bootRan = useRef(false);
@@ -340,6 +344,12 @@ export function CoachHub({
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Coaching</h1>
 
       {/* ---- the coaching side ---- */}
+
+      {/* First steps: the new-coach checklist. Gone once the roster is
+          established, every step is done, or it was hidden. */}
+      {coachWorkspace && firstSteps && firstSteps.studentCount < 5 && (
+        <CoachFirstSteps state={firstSteps} />
+      )}
 
       {coachWorkspace && profile && (
         <div className="mt-6">

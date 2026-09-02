@@ -9,6 +9,7 @@ import type {
 } from "@/lib/reviews/types";
 import type { NoteFeedRow } from "@/lib/types";
 import { CoachHub } from "./CoachHub";
+import type { CoachFirstStepsState } from "./CoachFirstSteps";
 import { rememberedWorkspace } from "@/lib/workspaceServer";
 
 export const metadata: Metadata = {
@@ -96,6 +97,46 @@ export default async function CoachingPage() {
 
   const { workspace } = await rememberedWorkspace();
 
+  // The coach's first-steps checklist, derived from product state (the
+  // same way the dashboard's is). Only asked for on the coaching side.
+  let firstSteps: CoachFirstStepsState | null = null;
+  if (workspace === "coach") {
+    const [studentsRes, invitesRes, entriesRes, sharedRes] = await Promise.all([
+      supabase
+        .from("coach_students")
+        .select("id, player_id")
+        .eq("coach_id", user.id)
+        .is("archived_at", null)
+        .order("created_at", { ascending: true })
+        .limit(50),
+      supabase.from("coach_student_invites").select("id").limit(1),
+      supabase
+        .from("coach_entries")
+        .select("shared_at")
+        .eq("coach_id", user.id)
+        .limit(100),
+      supabase.from("matches").select("id").neq("user_id", user.id).limit(1),
+    ]);
+    const students = (studentsRes.data ?? []) as {
+      id: string;
+      player_id: string | null;
+    }[];
+    const entries = (entriesRes.data ?? []) as { shared_at: string | null }[];
+    firstSteps = {
+      dismissed: user.user_metadata?.coach_first_steps_dismissed === true,
+      studentCount: students.length,
+      firstStudentId: students[0]?.id ?? null,
+      invited:
+        (invitesRes.data?.length ?? 0) > 0 ||
+        students.some((s) => s.player_id !== null),
+      entryCount: entries.length,
+      anyShared: entries.some((e) => e.shared_at !== null),
+      sharedMatchId: (sharedRes.data?.[0] as { id: string } | undefined)?.id ?? null,
+      hasPage: !!profile,
+      watched: user.user_metadata?.tutorial_started === true,
+    };
+  }
+
   return (
     <AppShell avatarUrl={avatarUrl}>
       <CoachHub
@@ -123,6 +164,7 @@ export default async function CoachingPage() {
         }
         userId={user.id}
         defaultName={defaultName}
+        firstSteps={firstSteps}
       />
     </AppShell>
   );

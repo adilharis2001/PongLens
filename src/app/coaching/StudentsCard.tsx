@@ -112,11 +112,7 @@ export function StudentsCard() {
         </div>
         {students.length === 0 ? (
           <div className="rounded-2xl border border-edge bg-surface p-5">
-            <p className="text-sm font-medium text-zinc-100">No students yet.</p>
-            <p className="mt-1 text-sm text-zinc-400">
-              Add a student to start keeping lesson notes. An invite links
-              them to their PongLens account, and their matches show up here.
-            </p>
+            <p className="text-sm text-zinc-400">No students yet.</p>
           </div>
         ) : (
           <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
