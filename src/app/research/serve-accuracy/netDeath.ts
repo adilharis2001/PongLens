@@ -79,6 +79,21 @@ export function netSegment(
   if (near.length !== 2 || far.length !== 2) return null;
   const [A, B] = near;
   const [D, C] = far;
+  return netSegmentOriented(A, B, C, D);
+}
+
+/**
+ * The construction itself, for callers that already know the quad's
+ * orientation: A-B is one end line, D-C the other, with D adjacent to A
+ * (so A-D and B-C are the sidelines the net must meet). Which end is
+ * "near" does not matter — swapping the ends returns the same line.
+ */
+export function netSegmentOriented(
+  A: readonly number[],
+  B: readonly number[],
+  C: readonly number[],
+  D: readonly number[],
+): { e1: [number, number]; e2: [number, number] } | null {
   const centre = cross(cross(hpt(A), hpt(C)), cross(hpt(B), hpt(D)));
   const vanish = cross(cross(hpt(A), hpt(B)), cross(hpt(D), hpt(C)));
   const line = cross(centre, vanish);
