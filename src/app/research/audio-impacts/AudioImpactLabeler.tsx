@@ -23,7 +23,11 @@ import {
 } from "@/lib/research/audioImpacts";
 import { createClient } from "@/lib/supabase/client";
 import {
+  audioImpactAuditionGain,
+  audioImpactAuditionPhase,
   candidateLoop,
+  candidateSpotlight,
+  canClassifyAudioImpact,
   canReviewAudioImpact,
   filterAudioImpactAssignments,
   firstReviewTarget,
@@ -36,6 +40,8 @@ import {
   roundPointPosition,
   shouldReloadAudioImpactMedia,
   type AudioImpactReviewTarget,
+  type AudioImpactAuditionMode,
+  type AudioImpactAuditionPhase,
   type AudioImpactMediaState,
 } from "./audioImpactView";
 import type {
@@ -70,6 +76,11 @@ const LABELS: Record<
     key: "T",
     title: "Table",
     description: "Ball on the visible match table.",
+  },
+  paddle_table: {
+    key: "C",
+    title: "Paddle + table",
+    description: "Paddle contact and table bounce happen too close to separate.",
   },
   floor: {
     key: "F",
@@ -133,6 +144,21 @@ function waveformPoints(values: readonly number[]): string {
     .join(" ");
 }
 
+function waveformWindow(
+  values: readonly number[],
+  binMs: number,
+  startS: number,
+  endS: number,
+): number[] {
+  if (values.length === 0 || !Number.isFinite(binMs) || binMs <= 0) return [];
+  const startIndex = Math.max(0, Math.floor((startS * 1000) / binMs));
+  const endIndex = Math.min(
+    values.length,
+    Math.ceil((endS * 1000) / binMs) + 1,
+  );
+  return values.slice(startIndex, endIndex);
+}
+
 function labelForAssignment(
   assignment: AudioImpactResearchAssignment | null,
 ): AudioImpactHumanLabel {
@@ -181,11 +207,14 @@ export function AudioImpactLabeler({
   const [pendingSave, setPendingSave] = useState<PendingSave | null>(null);
   const [history, setHistory] = useState<PendingSave[]>([]);
   const [looping, setLooping] = useState(true);
+  const [auditionMode, setAuditionMode] =
+    useState<AudioImpactAuditionMode>("spotlight");
+  const [auditionPhase, setAuditionPhase] =
+    useState<AudioImpactAuditionPhase>("approaching");
+  const [spotlightHeardEventId, setSpotlightHeardEventId] = useState<
+    string | null
+  >(null);
   const [playbackSpeed, setPlaybackSpeedState] = useState(1);
-  const [naturalPlaybackSeen, setNaturalPlaybackSeen] = useState(false);
-  const [contextReadyAssignmentIds, setContextReadyAssignmentIds] = useState(
-    () => new Set<string>(),
-  );
   const videoRef = useRef<HTMLVideoElement>(null);
   const openedAt = useRef(Date.now());
   const playbackCount = useRef(
@@ -218,13 +247,27 @@ export function AudioImpactLabeler({
   const assignmentId = assignment?.id ?? null;
   const eventTimeS = currentEvent?.time_s ?? null;
   const durationS = assignment?.source.duration_s ?? null;
-  const loopWindow = useMemo(
+  const spotlightWindow = useMemo(
+    () =>
+      currentEvent && durationS !== null
+        ? candidateSpotlight(label.events, currentEvent.id, durationS)
+        : null,
+    [currentEvent, durationS, label.events],
+  );
+  const nearbyWindow = useMemo(
     () =>
       eventTimeS !== null && durationS !== null
         ? candidateLoop(eventTimeS, durationS)
         : null,
     [durationS, eventTimeS],
   );
+  const loopWindow =
+    auditionMode === "spotlight"
+      ? spotlightWindow
+      : auditionMode === "nearby"
+        ? nearbyWindow
+        : null;
+  const displayWindow = loopWindow ?? spotlightWindow;
   const visible = useMemo(
     () =>
       filterAudioImpactAssignments(assignments, {
@@ -251,9 +294,6 @@ export function AudioImpactLabeler({
     (event) => event.id === currentEvent?.id,
   );
   const currentPointState = pointReviewState(label);
-  const contextReady = assignment
-    ? contextReadyAssignmentIds.has(assignment.id)
-    : false;
   const progress = audioImpactProgress(
     assignments.map((item) => ({
       status: item.status,
@@ -263,17 +303,34 @@ export function AudioImpactLabeler({
       ),
     })),
   );
-  const waveform = useMemo(
-    () => waveformPoints(assignment?.source.proposal.audio.waveform ?? []),
-    [assignment],
-  );
+  const waveform = useMemo(() => {
+    const audio = assignment?.source.proposal.audio;
+    if (!audio || !displayWindow) return "";
+    return waveformPoints(
+      waveformWindow(
+        audio.waveform,
+        audio.waveform_bin_ms,
+        displayWindow.start_s,
+        displayWindow.end_s,
+      ),
+    );
+  }, [assignment, displayWindow]);
   const assignmentRound = assignment?.source.prefill.round ?? null;
-  const reviewEnabled =
+  const mediaActionsEnabled =
     canReviewAudioImpact(mediaState, saveState) &&
-    contextReady &&
-    naturalPlaybackSeen &&
     assignmentRound !== null &&
     editableRounds.includes(assignmentRound);
+  const classificationEnabled =
+    currentEvent !== null &&
+    canClassifyAudioImpact({
+      media_state: mediaState,
+      save_state: saveState,
+      editable:
+        assignmentRound !== null && editableRounds.includes(assignmentRound),
+      audition_mode: auditionMode,
+      event_id: currentEvent.id,
+      heard_event_id: spotlightHeardEventId,
+    });
   const navigationBlocked = saveState === "saving" || saveState === "error";
 
   const resetMetrics = useCallback((next: AudioImpactResearchAssignment) => {
@@ -317,8 +374,9 @@ export function AudioImpactLabeler({
         setMediaState("loading");
       }
       setLooping(true);
+      setAuditionMode("spotlight");
+      setAuditionPhase("approaching");
       setPlaybackSpeedState(1);
-      setNaturalPlaybackSeen(false);
       setMessage(null);
       setDirty(false);
     },
@@ -410,7 +468,7 @@ export function AudioImpactLabeler({
 
   const saveAndAdvance = useCallback(
     async (kind: AudioImpactKind) => {
-      if (!assignment || !currentEvent || !target || !reviewEnabled) {
+      if (!assignment || !currentEvent || !target || !classificationEnabled) {
         return;
       }
       const previousLabel = label;
@@ -431,7 +489,7 @@ export function AudioImpactLabeler({
       const updated = await persist(assignment, nextLabel, "in_progress");
       if (updated) finishSave(pending, updated);
     },
-    [assignment, currentEvent, finishSave, label, persist, reviewEnabled, target],
+    [assignment, classificationEnabled, currentEvent, finishSave, label, persist, target],
   );
 
   const retrySave = useCallback(async () => {
@@ -472,7 +530,7 @@ export function AudioImpactLabeler({
   }, [assignment, assignments, finishSave, history, label, navigationBlocked, persist, resetMetrics]);
 
   const addMissedSound = useCallback(async () => {
-    if (!assignment || !videoRef.current || !reviewEnabled) return;
+    if (!assignment || !videoRef.current || !mediaActionsEnabled) return;
     const nextLabel = insertManualAudioImpactEvent(
       label,
       videoRef.current.currentTime,
@@ -498,10 +556,10 @@ export function AudioImpactLabeler({
     setPendingSave(pending);
     const updated = await persist(assignment, nextLabel, "in_progress");
     if (updated) finishSave(pending, updated);
-  }, [assignment, finishSave, label, persist, reviewEnabled]);
+  }, [assignment, finishSave, label, mediaActionsEnabled, persist]);
 
   const completePoint = useCallback(async () => {
-    if (!assignment || !target || !reviewEnabled) return;
+    if (!assignment || !target || !mediaActionsEnabled) return;
     const nextLabel = setAudioImpactSequenceComplete(label, true);
     const missing = validateAudioImpactLabel(nextLabel);
     if (missing.length > 0) {
@@ -524,41 +582,48 @@ export function AudioImpactLabeler({
     setPendingSave(pending);
     const updated = await persist(assignment, nextLabel, "submitted");
     if (updated) finishSave(pending, updated);
-  }, [assignment, finishSave, label, persist, reviewEnabled, target]);
+  }, [assignment, finishSave, label, mediaActionsEnabled, persist, target]);
 
-  const setPlaybackSpeed = useCallback((speed: number) => {
+  const playSpotlight = useCallback((speed: number) => {
     const video = videoRef.current;
-    if (!video) return;
+    if (!video || !spotlightWindow) return;
+    setAuditionMode("spotlight");
+    setAuditionPhase("approaching");
+    setLooping(true);
+    video.currentTime = spotlightWindow.start_s;
     video.playbackRate = speed;
     setPlaybackSpeedState(speed);
     if (speed === 0.5) halfSpeedCount.current += 1;
     if (speed === 0.25) quarterSpeedCount.current += 1;
     void video.play().catch(() => undefined);
-  }, []);
+  }, [spotlightWindow]);
+
+  const playNearbyContext = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !nearbyWindow) return;
+    setAuditionMode("nearby");
+    setAuditionPhase("approaching");
+    setLooping(true);
+    video.volume = 1;
+    video.currentTime = nearbyWindow.start_s;
+    video.playbackRate = 1;
+    setPlaybackSpeedState(1);
+    void video.play().catch(() => undefined);
+  }, [nearbyWindow]);
 
   const playFullContext = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
+    setAuditionMode("full");
     setLooping(false);
+    fullContextStartedAtZero.current = true;
+    fullContextInvalidated.current = false;
+    video.volume = 1;
     video.currentTime = 0;
     video.playbackRate = 1;
     setPlaybackSpeedState(1);
     void video.play().catch(() => undefined);
   }, []);
-
-  const startPointReview = useCallback(() => {
-    const video = videoRef.current;
-    if (!video || !assignment) return;
-    setLooping(false);
-    setNaturalPlaybackSeen(false);
-    fullContextStartedAtZero.current = true;
-    fullContextInvalidated.current = false;
-    fullContextPlayed.current = false;
-    video.currentTime = 0;
-    video.playbackRate = 1;
-    setPlaybackSpeedState(1);
-    void video.play().catch(() => undefined);
-  }, [assignment]);
 
   const markMediaUnavailable = useCallback(
     async (id: string, errorMessage: string) => {
@@ -624,23 +689,82 @@ export function AudioImpactLabeler({
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !mediaUrl || !loopWindow) return;
-    if (!contextReady) {
-      setLooping(false);
-      setPlaybackSpeedState(1);
-      video.playbackRate = 1;
-      video.currentTime = 0;
-      return;
-    }
     setLooping(true);
     setPlaybackSpeedState(1);
     video.playbackRate = 1;
     video.currentTime = loopWindow.start_s;
+    video.volume =
+      auditionMode === "spotlight" && eventTimeS !== null
+        ? audioImpactAuditionGain(loopWindow.start_s, eventTimeS)
+        : 1;
     void video.play().catch(() => undefined);
-  }, [contextReady, currentEvent?.id, loopWindow, mediaUrl]);
+  }, [auditionMode, currentEvent?.id, eventTimeS, loopWindow, mediaUrl]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (
+      !video ||
+      !looping ||
+      !loopWindow ||
+      eventTimeS === null ||
+      !currentEvent
+    ) {
+      if (video && auditionMode !== "spotlight") video.volume = 1;
+      return;
+    }
+
+    let animationFrame = 0;
+    const enforceAudition = () => {
+      const currentVideo = videoRef.current;
+      if (!currentVideo) return;
+      if (auditionMode === "spotlight") {
+        currentVideo.volume = audioImpactAuditionGain(
+          currentVideo.currentTime,
+          eventTimeS,
+        );
+        const nextPhase = audioImpactAuditionPhase(
+          currentVideo.currentTime,
+          eventTimeS,
+        );
+        setAuditionPhase((current) =>
+          current === nextPhase ? current : nextPhase,
+        );
+        if (
+          currentVideo.playbackRate === 1 &&
+          currentVideo.currentTime >= eventTimeS &&
+          currentVideo.currentTime <= loopWindow.end_s
+        ) {
+          setSpotlightHeardEventId(currentEvent.id);
+        }
+      } else {
+        currentVideo.volume = 1;
+      }
+      if (
+        currentVideo.currentTime >= loopWindow.end_s ||
+        currentVideo.currentTime < loopWindow.start_s - 0.03
+      ) {
+        currentVideo.currentTime = loopWindow.start_s;
+        if (auditionMode === "spotlight") {
+          currentVideo.volume = audioImpactAuditionGain(
+            loopWindow.start_s,
+            eventTimeS,
+          );
+          setAuditionPhase("approaching");
+        }
+        void currentVideo.play().catch(() => undefined);
+      }
+      animationFrame = window.requestAnimationFrame(enforceAudition);
+    };
+    animationFrame = window.requestAnimationFrame(enforceAudition);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      video.volume = 1;
+    };
+  }, [auditionMode, currentEvent, eventTimeS, looping, loopWindow]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isAudioImpactShortcutTarget(event.target) || !reviewEnabled) return;
+      if (isAudioImpactShortcutTarget(event.target) || !classificationEnabled) return;
       const kind = audioImpactKindForShortcut(event.key);
       if (!kind) return;
       event.preventDefault();
@@ -648,7 +772,7 @@ export function AudioImpactLabeler({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [reviewEnabled, saveAndAdvance]);
+  }, [classificationEnabled, saveAndAdvance]);
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -693,10 +817,46 @@ export function AudioImpactLabeler({
     );
   }
 
-  const markerX = Math.max(
-    0,
-    Math.min(1000, (currentEvent.time_s / assignment.source.duration_s) * 1000),
-  );
+  const displayDurationS = displayWindow
+    ? displayWindow.end_s - displayWindow.start_s
+    : 0;
+  const markerX =
+    displayWindow && displayDurationS > 0
+      ? Math.max(
+          0,
+          Math.min(
+            1000,
+            ((currentEvent.time_s - displayWindow.start_s) / displayDurationS) *
+              1000,
+          ),
+        )
+      : 500;
+  const nearbyMarkers = displayWindow
+    ? label.events.filter(
+        (event) =>
+          event.id !== currentEvent.id &&
+          event.time_s >= displayWindow.start_s &&
+          event.time_s <= displayWindow.end_s,
+      )
+    : [];
+  const loudStartX =
+    displayWindow && displayDurationS > 0
+      ? Math.max(
+          0,
+          ((currentEvent.time_s - 0.055 - displayWindow.start_s) /
+            displayDurationS) *
+            1000,
+        )
+      : markerX;
+  const loudEndX =
+    displayWindow && displayDurationS > 0
+      ? Math.min(
+          1000,
+          ((currentEvent.time_s + 0.085 - displayWindow.start_s) /
+            displayDurationS) *
+            1000,
+        )
+      : markerX;
   const queueIndex = queue.findIndex((item) => item.id === assignment.id);
 
   return (
@@ -870,65 +1030,52 @@ export function AudioImpactLabeler({
                   {assignment.source.venue_label ?? "Unknown venue"} · original match point {assignment.source.source_point_idx}
                 </p>
               </div>
-              {contextReady && (
-                <span className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-300">
-                  Sound {currentEventIndex + 1} of {label.events.length} · {currentEvent.time_s.toFixed(3)} s
-                </span>
-              )}
+              <span className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-300">
+                Sound {currentEventIndex + 1} of {label.events.length} · {currentEvent.time_s.toFixed(3)} s
+              </span>
             </div>
-            {!contextReady && (
-              <div className="mb-3 rounded-xl border border-cyan-glow/30 bg-cyan-glow/10 p-4">
-                <p className="text-lg font-bold text-cyan-50">
-                  First, watch this whole point
-                </p>
-                <p className="mt-1 text-sm text-cyan-100/75">
-                  This point contains {label.events.length} marked sounds. After the video ends, you’ll label those sounds one at a time without leaving this point.
-                </p>
+            <div className="mb-3">
+              <p className="text-sm font-semibold text-zinc-100">
+                Sound {currentEventIndex + 1} of {label.events.length} in this point
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2" aria-label="Sounds in this point">
+                {label.events.map((event, index) => {
+                  const active = event.id === currentEvent.id;
+                  const answered = event.kind !== null;
+                  return (
+                    <button
+                      key={event.id}
+                      type="button"
+                      disabled={navigationBlocked}
+                      onClick={() =>
+                        openTarget({
+                          assignment_id: assignment.id,
+                          event_id: event.id,
+                        })
+                      }
+                      aria-label={`Sound ${index + 1}: ${answered ? LABELS[event.kind!].title : "unanswered"}`}
+                      className={`min-w-9 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition disabled:opacity-40 ${
+                        active
+                          ? "border-cyan-glow bg-cyan-glow text-ink"
+                          : answered
+                            ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                            : "border-edge bg-ink/40 text-zinc-400"
+                      }`}
+                    >
+                      {index + 1}{answered ? " ✓" : ""}
+                    </button>
+                  );
+                })}
               </div>
-            )}
-            {contextReady && (
-              <div className="mb-3">
-                <p className="text-sm font-semibold text-zinc-100">
-                  Sound {currentEventIndex + 1} of {label.events.length} in this point
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2" aria-label="Sounds in this point">
-                  {label.events.map((event, index) => {
-                    const active = event.id === currentEvent.id;
-                    const answered = event.kind !== null;
-                    return (
-                      <button
-                        key={event.id}
-                        type="button"
-                        disabled={navigationBlocked}
-                        onClick={() =>
-                          openTarget({
-                            assignment_id: assignment.id,
-                            event_id: event.id,
-                          })
-                        }
-                        aria-label={`Sound ${index + 1}: ${answered ? LABELS[event.kind!].title : "unanswered"}`}
-                        className={`min-w-9 rounded-lg border px-2.5 py-1.5 text-xs font-bold transition disabled:opacity-40 ${
-                          active
-                            ? "border-cyan-glow bg-cyan-glow text-ink"
-                            : answered
-                              ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
-                              : "border-edge bg-ink/40 text-zinc-400"
-                        }`}
-                      >
-                        {index + 1}{answered ? " ✓" : ""}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            <div className="overflow-hidden rounded-xl bg-black">
+            </div>
+            <div className="relative overflow-hidden rounded-xl bg-black">
               {mediaUrl ? (
+                <>
                 <video
                   ref={videoRef}
                   key={assignment.id}
                   src={mediaUrl}
-                  controls
+                  controls={auditionMode === "full"}
                   playsInline
                   preload="auto"
                   className="aspect-video w-full"
@@ -954,65 +1101,32 @@ export function AudioImpactLabeler({
                   }}
                   onPlay={() => {
                     playbackCount.current += 1;
-                    if (videoRef.current?.playbackRate === 1) {
-                      setNaturalPlaybackSeen(true);
-                    }
                   }}
                   onSeeking={(event) => {
-                    if (!contextReady && event.currentTarget.currentTime > 0.05) {
+                    if (
+                      auditionMode === "full" &&
+                      event.currentTarget.currentTime > 0.05
+                    ) {
                       fullContextInvalidated.current = true;
                     }
                   }}
                   onRateChange={(event) => {
-                    if (!contextReady && event.currentTarget.playbackRate !== 1) {
+                    if (
+                      auditionMode === "full" &&
+                      event.currentTarget.playbackRate !== 1
+                    ) {
                       fullContextInvalidated.current = true;
                     }
                   }}
-                  onTimeUpdate={(event) => {
-                    const video = event.currentTarget;
-                    if (
-                      loopWindow &&
-                      video.playbackRate === 1 &&
-                      video.currentTime >= loopWindow.start_s &&
-                      video.currentTime <= loopWindow.end_s
-                    ) {
-                      setNaturalPlaybackSeen(true);
-                    }
-                    if (!looping || !loopWindow) return;
-                    if (
-                      video.currentTime >= loopWindow.end_s ||
-                      video.currentTime < loopWindow.start_s - 0.05
-                    ) {
-                      video.currentTime = loopWindow.start_s;
-                      void video.play().catch(() => undefined);
-                    }
-                  }}
-                  onEnded={() => {
-                    if (!contextReady) {
-                      const video = videoRef.current;
-                      const verified =
-                        video !== null &&
-                        isVerifiedFullContextPlayback({
-                          started_at_zero: fullContextStartedAtZero.current,
-                          invalidated: fullContextInvalidated.current,
-                          playback_rate: video.playbackRate,
-                          current_time_s: video.currentTime,
-                          duration_s: video.duration,
-                        });
-                      if (!verified) {
-                        fullContextPlayed.current = false;
-                        setMessage(
-                          "Please watch the full point from the beginning at normal speed without skipping.",
-                        );
-                        return;
-                      }
-                      fullContextPlayed.current = true;
-                      setContextReadyAssignmentIds((current) => {
-                        const next = new Set(current);
-                        next.add(assignment.id);
-                        return next;
+                  onEnded={(event) => {
+                    if (auditionMode === "full") {
+                      fullContextPlayed.current ||= isVerifiedFullContextPlayback({
+                        started_at_zero: fullContextStartedAtZero.current,
+                        invalidated: fullContextInvalidated.current,
+                        playback_rate: event.currentTarget.playbackRate,
+                        current_time_s: event.currentTarget.currentTime,
+                        duration_s: event.currentTarget.duration,
                       });
-                      setNaturalPlaybackSeen(false);
                       return;
                     }
                     if (looping && loopWindow && videoRef.current) {
@@ -1021,36 +1135,91 @@ export function AudioImpactLabeler({
                     }
                   }}
                 />
+                {auditionMode === "spotlight" && (
+                  <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center px-4">
+                    <div
+                      className={`rounded-xl border px-5 py-3 text-center shadow-2xl backdrop-blur-sm transition-colors ${
+                        auditionPhase === "target"
+                          ? "scale-105 border-pink-300 bg-pink-500/90 text-white"
+                          : auditionPhase === "approaching"
+                            ? "border-cyan-300/70 bg-black/75 text-cyan-100"
+                            : "border-zinc-500/70 bg-black/75 text-zinc-200"
+                      }`}
+                    >
+                      <p className="text-[10px] font-black uppercase tracking-[0.24em]">
+                        {auditionPhase === "target"
+                          ? "Target sound"
+                          : auditionPhase === "approaching"
+                            ? "Get ready"
+                            : "Target just played"}
+                      </p>
+                      <p className="mt-0.5 text-xl font-black">
+                        {auditionPhase === "target" ? "NOW" : `Sound ${currentEventIndex + 1}`}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                </>
               ) : (
                 <div className="flex aspect-video items-center justify-center text-sm text-zinc-500">
                   {mediaError ?? "Loading protected video…"}
                 </div>
               )}
             </div>
-            {!contextReady ? (
-              <button
-                type="button"
-                disabled={mediaState !== "ready"}
-                onClick={startPointReview}
-                className="mt-3 w-full rounded-xl bg-cyan-glow px-4 py-3 text-sm font-bold text-ink disabled:opacity-40"
-              >
-                Watch full point, then start labeling
-              </button>
-            ) : (
             <div className="mt-3 rounded-xl border border-edge bg-ink/40 p-3">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-pink-500/15 px-3 py-1 text-xs font-bold text-pink-200">
+                  {auditionMode === "spotlight"
+                    ? `Audio spotlight · ${displayDurationS.toFixed(3)} seconds`
+                    : auditionMode === "nearby"
+                      ? `Nearby context · ${displayDurationS.toFixed(2)} seconds`
+                      : "Full point context"}
+                </span>
+                <span className="text-xs text-zinc-400">
+                  {auditionMode === "spotlight"
+                    ? "Only the marked instant is full volume; surrounding audio is muffled."
+                    : "Return to the isolated target before choosing a label."}
+                </span>
+              </div>
               <svg
                 viewBox="0 0 1000 52"
                 preserveAspectRatio="none"
                 className="h-16 w-full"
                 role="img"
-                aria-label="Point audio waveform with current sound marker"
+                aria-label="Zoomed audio waveform with isolated target marker"
               >
+                <rect
+                  x={loudStartX}
+                  y="0"
+                  width={Math.max(2, loudEndX - loudStartX)}
+                  height="52"
+                  fill="rgb(244 114 182 / .16)"
+                />
                 <polyline
                   points={waveform}
                   fill="none"
                   stroke="rgb(34 211 238 / .65)"
                   strokeWidth="2"
                 />
+                {nearbyMarkers.map((event) => {
+                  const x =
+                    displayWindow && displayDurationS > 0
+                      ? ((event.time_s - displayWindow.start_s) /
+                          displayDurationS) *
+                        1000
+                      : 0;
+                  return (
+                    <line
+                      key={event.id}
+                      x1={x}
+                      x2={x}
+                      y1="8"
+                      y2="52"
+                      stroke="rgb(161 161 170 / .5)"
+                      strokeWidth="2"
+                    />
+                  );
+                })}
                 <line
                   x1={markerX}
                   x2={markerX}
@@ -1063,33 +1232,33 @@ export function AudioImpactLabeler({
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    if (!videoRef.current || !loopWindow) return;
-                    setLooping(true);
-                    videoRef.current.currentTime = loopWindow.start_s;
-                    videoRef.current.playbackRate = 1;
-                    setPlaybackSpeedState(1);
-                    void videoRef.current.play().catch(() => undefined);
-                  }}
+                  onClick={() => playSpotlight(1)}
                   className="rounded-lg border border-cyan-glow/40 px-3 py-2 text-sm text-cyan-100"
                 >
-                  Replay loop · 1x
+                  Replay isolated target · 1x
                 </button>
                 <button
                   type="button"
-                  disabled={!naturalPlaybackSeen}
-                  onClick={() => setPlaybackSpeed(0.5)}
+                  disabled={spotlightHeardEventId !== currentEvent.id}
+                  onClick={() => playSpotlight(0.5)}
                   className={`rounded-lg border px-3 py-2 text-sm disabled:opacity-35 ${playbackSpeed === 0.5 ? "border-cyan-glow text-cyan-100" : "border-edge text-zinc-300"}`}
                 >
                   0.5x
                 </button>
                 <button
                   type="button"
-                  disabled={!naturalPlaybackSeen}
-                  onClick={() => setPlaybackSpeed(0.25)}
+                  disabled={spotlightHeardEventId !== currentEvent.id}
+                  onClick={() => playSpotlight(0.25)}
                   className={`rounded-lg border px-3 py-2 text-sm disabled:opacity-35 ${playbackSpeed === 0.25 ? "border-cyan-glow text-cyan-100" : "border-edge text-zinc-300"}`}
                 >
                   0.25x
+                </button>
+                <button
+                  type="button"
+                  onClick={playNearbyContext}
+                  className={`rounded-lg border px-3 py-2 text-sm ${auditionMode === "nearby" ? "border-cyan-glow text-cyan-100" : "border-edge text-zinc-300"}`}
+                >
+                  Hear nearby context
                 </button>
                 <button
                   type="button"
@@ -1100,7 +1269,6 @@ export function AudioImpactLabeler({
                 </button>
               </div>
             </div>
-            )}
           </article>
           {message && (
             <div
@@ -1122,36 +1290,13 @@ export function AudioImpactLabeler({
         </section>
 
         <aside className="space-y-4 xl:sticky xl:top-20 xl:h-[calc(100vh-6rem)] xl:overflow-y-auto">
-          {!contextReady ? (
-            <article className="rounded-2xl border border-cyan-glow/25 bg-surface/95 p-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
-                Point {pointNumber} setup
-              </p>
-              <h2 className="mt-1 text-lg font-bold">What you’ll do</h2>
-              <ol className="mt-4 space-y-3 text-sm text-zinc-300">
-                <li className="rounded-xl border border-edge bg-ink/35 p-3">
-                  <strong className="text-zinc-100">1. Watch this point once.</strong>
-                  <span className="mt-1 block text-xs text-zinc-400">This makes it clear which game point you are reviewing.</span>
-                </li>
-                <li className="rounded-xl border border-edge bg-ink/35 p-3">
-                  <strong className="text-zinc-100">2. Label each marked sound.</strong>
-                  <span className="mt-1 block text-xs text-zinc-400">You will stay inside this point for all {label.events.length} sounds.</span>
-                </li>
-                <li className="rounded-xl border border-edge bg-ink/35 p-3">
-                  <strong className="text-zinc-100">3. Finish the point.</strong>
-                  <span className="mt-1 block text-xs text-zinc-400">The next point opens only after you explicitly finish this one.</span>
-                </li>
-              </ol>
-            </article>
-          ) : (
-          <>
           <article className="rounded-2xl border border-cyan-glow/25 bg-surface/95 p-4">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-glow">
               Point {pointNumber} · sound {currentEventIndex + 1} of {label.events.length}
             </p>
             <h2 className="mt-1 text-lg font-bold">Label sound {currentEventIndex + 1}</h2>
             <p className="mt-1 text-sm text-zinc-400">
-              Listen to the short loop and identify the sound at the pink marker. Sounds from other games are Background court.
+              Label only the instant that becomes loud when “TARGET SOUND — NOW” flashes. The default replay is under half a second; nearby sounds are muffled. Sounds from other games are Background court.
             </p>
             <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
               {AUDIO_IMPACT_KINDS.map((kind) => {
@@ -1161,7 +1306,7 @@ export function AudioImpactLabeler({
                   <button
                     key={kind}
                     type="button"
-                    disabled={!reviewEnabled}
+                    disabled={!classificationEnabled}
                     onClick={() => void saveAndAdvance(kind)}
                     className={`rounded-xl border p-3 text-left transition disabled:opacity-50 ${
                       active
@@ -1232,7 +1377,7 @@ export function AudioImpactLabeler({
               </button>
               <button
                 type="button"
-                disabled={!reviewEnabled}
+                disabled={!mediaActionsEnabled}
                 onClick={() => void addMissedSound()}
                 className="col-span-2 rounded-lg border border-magenta-glow/30 px-3 py-2 text-sm text-magenta-soft disabled:opacity-30"
               >
@@ -1240,7 +1385,7 @@ export function AudioImpactLabeler({
               </button>
               <button
                 type="button"
-                disabled={!reviewEnabled || !currentPointState.complete}
+                disabled={!mediaActionsEnabled || !currentPointState.complete}
                 onClick={() => void completePoint()}
                 className="col-span-2 rounded-lg bg-cyan-glow px-3 py-3 text-sm font-bold text-ink disabled:opacity-50"
               >
@@ -1252,8 +1397,6 @@ export function AudioImpactLabeler({
               </button>
             </div>
           </article>
-          </>
-          )}
         </aside>
       </div>
     </main>

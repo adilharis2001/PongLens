@@ -76,7 +76,7 @@ test("desktop reviewer mounts one protected video and durable assignment saves",
   assert.match(labeler, /canReviewAudioImpact\(mediaState, saveState\)/);
   assert.match(labeler, /saveState === "error"/);
   assert.match(labeler, /editableRounds\.includes\(assignmentRound\)/);
-  assert.match(labeler, /naturalPlaybackSeen/);
+  assert.match(labeler, /spotlightHeardEventId/);
 });
 
 test("reviewer exposes every plain-language class without model hints", () => {
@@ -85,6 +85,7 @@ test("reviewer exposes every plain-language class without model hints", () => {
   for (const text of [
     "Paddle",
     "Table",
+    "Paddle + table",
     "Ball on floor",
     "Shoe / footstep",
     "Shoe squeak",
@@ -95,33 +96,41 @@ test("reviewer exposes every plain-language class without model hints", () => {
     "No clear impact",
     "Unsure",
   ]) {
-    assert.match(labeler, new RegExp(text.replace("/", "\\/")));
+    assert.match(
+      labeler,
+      new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+    );
   }
   assert.doesNotMatch(labeler, /Shoe \/ stomp/);
   assert.doesNotMatch(labeler, /detector_scores|candidate\.strength|confidence hint/i);
 });
 
-test("reviewer makes the point-first hierarchy and transitions explicit", () => {
+test("reviewer starts with the isolated sound and keeps full-point context optional", () => {
   const labeler = read("./AudioImpactLabeler.tsx");
 
   for (const text of [
-    "Watch full point, then start labeling",
     "sounds in this point",
     "Label sound",
+    "Play full point context",
     "Finish Point",
     "and open Point",
   ]) {
     assert.match(labeler, new RegExp(text));
   }
+  assert.doesNotMatch(labeler, /First, watch this whole point/);
+  assert.doesNotMatch(labeler, /Watch full point, then start labeling/);
+  assert.doesNotMatch(labeler, /Please watch the full point from the beginning/);
   assert.match(labeler, /nextReviewTargetInPoint/);
+  assert.doesNotMatch(labeler, /fullContextPlayed\.current = false/);
+  assert.match(labeler, /fullContextPlayed\.current \|\|=/);
 });
 
-test("reviewer starts naturally, supports deliberate replay speeds, and guards shortcuts", () => {
+test("reviewer spotlights the target, supports deliberate replay speeds, and guards shortcuts", () => {
   const labeler = read("./AudioImpactLabeler.tsx");
 
   assert.match(labeler, /playbackRate = 1/);
-  assert.match(labeler, /setPlaybackSpeed\(0\.5\)/);
-  assert.match(labeler, /setPlaybackSpeed\(0\.25\)/);
+  assert.match(labeler, /playSpotlight\(0\.5\)/);
+  assert.match(labeler, /playSpotlight\(0\.25\)/);
   assert.match(labeler, /isAudioImpactShortcutTarget\(event\.target\)/);
   assert.match(labeler, /Undo/);
   assert.match(labeler, /Previous/);

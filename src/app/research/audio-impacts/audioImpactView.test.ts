@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  audioImpactAuditionGain,
+  audioImpactAuditionPhase,
   candidateLoop,
+  candidateSpotlight,
+  canClassifyAudioImpact,
   canReviewAudioImpact,
   filterAudioImpactAssignments,
   firstReviewTarget,
@@ -90,10 +94,115 @@ function assignment(
   };
 }
 
-test("candidate loop uses one second of context and clamps to the clip", () => {
-  assert.deepEqual(candidateLoop(0.2, 8), { start_s: 0, end_s: 1.2 });
-  assert.deepEqual(candidateLoop(4, 8), { start_s: 3, end_s: 5 });
-  assert.deepEqual(candidateLoop(7.7, 8), { start_s: 6.7, end_s: 8 });
+test("nearby context is shorter than the former two-second loop and clamps to the clip", () => {
+  assert.deepEqual(candidateLoop(0.2, 8), { start_s: 0, end_s: 0.95 });
+  assert.deepEqual(candidateLoop(4, 8), { start_s: 3.25, end_s: 4.75 });
+  assert.deepEqual(candidateLoop(7.7, 8), { start_s: 6.95, end_s: 8 });
+});
+
+test("spotlight excludes neighboring serve contacts from the exact reported point", () => {
+  const events = [2.765, 3.161, 3.443, 3.815, 4.074].map((time_s, index) => ({
+    id: `sound-${index + 4}`,
+    time_s,
+  }));
+
+  const window = candidateSpotlight(events, "sound-6", 6.9403);
+
+  assert.deepEqual(window, { start_s: 3.302, end_s: 3.629 });
+  assert.ok(window.end_s - window.start_s < 0.4);
+  assert.ok(events[1].time_s < window.start_s);
+  assert.ok(events[3].time_s > window.end_s);
+});
+
+test("spotlight midpoint boundaries keep even tightly spaced markers out", () => {
+  const events = [4.074, 4.849, 4.891].map((time_s, index) => ({
+    id: `tight-${index + 1}`,
+    time_s,
+  }));
+
+  assert.deepEqual(candidateSpotlight(events, "tight-2", 6.9403), {
+    start_s: 4.689,
+    end_s: 4.87,
+  });
+});
+
+test("audio spotlight makes only the marked transient loud and identifies its phase", () => {
+  const target = 3.443;
+
+  assert.equal(audioImpactAuditionGain(target, target), 1);
+  assert.ok(audioImpactAuditionGain(target - 0.14, target) <= 0.12);
+  assert.ok(audioImpactAuditionGain(target + 0.16, target) <= 0.12);
+  assert.equal(audioImpactAuditionPhase(target - 0.1, target), "approaching");
+  assert.equal(audioImpactAuditionPhase(target, target), "target");
+  assert.equal(audioImpactAuditionPhase(target + 0.15, target), "after");
+});
+
+test("classification unlocks only after this event reaches NOW in the spotlight", () => {
+  const ready = {
+    media_state: "ready" as const,
+    save_state: "idle" as const,
+    editable: true,
+    event_id: "sound-6",
+    heard_event_id: "sound-6",
+  };
+
+  assert.equal(canClassifyAudioImpact({ ...ready, audition_mode: "spotlight" }), true);
+  assert.equal(canClassifyAudioImpact({ ...ready, audition_mode: "nearby" }), false);
+  assert.equal(canClassifyAudioImpact({ ...ready, audition_mode: "full" }), false);
+  assert.equal(
+    canClassifyAudioImpact({
+      ...ready,
+      audition_mode: "spotlight",
+      heard_event_id: null,
+    }),
+    false,
+  );
+  assert.equal(
+    canClassifyAudioImpact({
+      ...ready,
+      audition_mode: "spotlight",
+      heard_event_id: "sound-5",
+    }),
+    false,
+  );
+});
+
+test("classification does not require a full-point context playback", () => {
+  assert.equal(
+    canClassifyAudioImpact({
+      media_state: "ready",
+      save_state: "idle",
+      editable: true,
+      audition_mode: "spotlight",
+      event_id: "sound-1",
+      heard_event_id: "sound-1",
+    }),
+    true,
+  );
+});
+
+test("optional full-point playback is counted only when watched normally from the start", () => {
+  const complete = {
+    started_at_zero: true,
+    invalidated: false,
+    playback_rate: 1,
+    current_time_s: 5.98,
+    duration_s: 6,
+  };
+
+  assert.equal(isVerifiedFullContextPlayback(complete), true);
+  assert.equal(
+    isVerifiedFullContextPlayback({ ...complete, invalidated: true }),
+    false,
+  );
+  assert.equal(
+    isVerifiedFullContextPlayback({ ...complete, playback_rate: 1.5 }),
+    false,
+  );
+  assert.equal(
+    isVerifiedFullContextPlayback({ ...complete, current_time_s: 4 }),
+    false,
+  );
 });
 
 test("first target chooses the first unresolved sound before submitted points", () => {
@@ -205,34 +314,6 @@ test("explicit point completion never skips an answered unsubmitted point", () =
     assignment_id: "two",
     event_id: "two-1",
   });
-});
-
-test("full-point context unlocks only after an unskipped normal-speed ending", () => {
-  const complete = {
-    started_at_zero: true,
-    invalidated: false,
-    playback_rate: 1,
-    current_time_s: 5.98,
-    duration_s: 6,
-  };
-
-  assert.equal(isVerifiedFullContextPlayback(complete), true);
-  assert.equal(
-    isVerifiedFullContextPlayback({ ...complete, invalidated: true }),
-    false,
-  );
-  assert.equal(
-    isVerifiedFullContextPlayback({ ...complete, playback_rate: 1.5 }),
-    false,
-  );
-  assert.equal(
-    isVerifiedFullContextPlayback({ ...complete, current_time_s: 4 }),
-    false,
-  );
-  assert.equal(
-    isVerifiedFullContextPlayback({ ...complete, started_at_zero: false }),
-    false,
-  );
 });
 
 test("previous target follows chronological review order even when answered", () => {

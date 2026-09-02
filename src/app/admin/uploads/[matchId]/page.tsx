@@ -124,14 +124,18 @@ export default async function AdminUploadPage({
   const { matchId } = await params;
   const { supabase, avatarUrl } = await requireAdmin();
 
-  const [{ data, error }, themesRes, evidenceRes] = await Promise.all([
-    supabase.rpc("admin_upload_detail", { p_match_id: matchId }),
-    // The shared vocabulary, fetched once for the page rather than per
-    // card — every card's picker offers the same list.
-    supabase.rpc("admin_themes_list"),
-    // The touches and the worker's own call, for the winner rules (151).
-    supabase.rpc("admin_point_evidence", { p_match_id: matchId }),
-  ]);
+  const [{ data, error }, themesRes, evidenceRes, labelsRes] =
+    await Promise.all([
+      supabase.rpc("admin_upload_detail", { p_match_id: matchId }),
+      // The shared vocabulary, fetched once for the page rather than per
+      // card — every card's picker offers the same list.
+      supabase.rpc("admin_themes_list"),
+      // The touches and the worker's own call, for the winner rules (151).
+      supabase.rpc("admin_point_evidence", { p_match_id: matchId }),
+      // The admin's stored event corrections (154), so a label filed last
+      // week is still on its dot today.
+      supabase.rpc("admin_event_labels", { p_match_id: matchId }),
+    ]);
   if (error || !data) notFound();
   const detail = data as UploadDetail;
   const themes = (themesRes.data ?? []) as {
@@ -188,6 +192,13 @@ export default async function AdminUploadPage({
           readings={readings}
           readingSummary={summary}
           themes={themes.map((t) => ({ id: t.id, label: t.label }))}
+          eventLabels={((labelsRes.data ?? []) as {
+            t: number | string;
+            label: string;
+          }[]).map((l) => ({
+            t: Number(l.t),
+            label: l.label as import("../serveMiss").BounceLabel,
+          }))}
           ends={{
             tapEnd,
             rallyEnd: { on: rallyEndOn, bufferS: rallyEndBufferS },

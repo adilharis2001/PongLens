@@ -2075,11 +2075,28 @@ struct PlayerTakeover: View {
     }
 
     func serveLine(_ info: ServeInfo?) -> String {
-        switch info?.server {
+        let who: String? = switch info?.server {
         case .user: "You serve"
         case .opponent: "\(match.opponentName ?? "They") serve\(match.opponentName == nil ? "" : "s")"
-        case nil: ""
+        case nil: nil
         }
+        // Say WHICH rally you are on, in words. The lit chip alone was not
+        // reading as "you are here": colour on that strip already means who
+        // won, and position is easy to lose in a long match — especially one
+        // with deletions, where the numbers no longer match the strip's
+        // own order. A number here is unambiguous wherever the strip is
+        // scrolled to.
+        guard let n = currentPointNumber else { return who ?? "" }
+        guard let who else { return "Point \(n)" }
+        return "Point \(n) · \(who)"
+    }
+
+    /// Where the playhead is, numbered as the strip numbers it.
+    var currentPointNumber: Int? {
+        guard let id = displayTarget?.id,
+              let i = points.firstIndex(where: { $0.id == id })
+        else { return nil }
+        return i + 1
     }
 
     /// The point ticker: numbered rings colored by winner, the current one
@@ -2087,7 +2104,25 @@ struct PlayerTakeover: View {
     func chipStrip(targetId: UUID?) -> some View {
         let full = fullScore
         let removed = removedDots
-        let offers = insertOffers
+        // Only the two seams touching the rally you are ON. An offer keyed
+        // by chip X is drawn BEFORE X, so "the one after the current card"
+        // is keyed by the card that follows it. Scattered down the whole
+        // strip the dashes read as decoration; against the current card
+        // they read as "something is missing right here", which is the only
+        // moment the question is live.
+        let clipped = points.filter { $0.cutT0 != nil }
+        let here: Set<UUID> = {
+            guard let targetId,
+                  let i = clipped.firstIndex(where: { $0.id == targetId })
+            else { return [] }
+            var out: Set<UUID> = [targetId]
+            if i + 1 < clipped.count { out.insert(clipped[i + 1].id) }
+            return out
+        }()
+        let offers = insertOffers.filter { here.contains($0.key) }
+        // The end of the match belongs to the last card, so it only shows
+        // while you are standing on it.
+        let tail = clipped.last?.id == targetId ? insertTail : nil
         // Once for the strip, not once per chip: the rule walks every
         // visible rally, and it is read inside a ForEach body.
         let markers = SideChanges.byPoint(
@@ -2139,6 +2174,9 @@ struct PlayerTakeover: View {
                     ForEach(removed[nil] ?? [], id: \.self) { id in
                         removedDot(id)
                     }
+                    if let tail {
+                        insertDot(tail)
+                    }
                 }
                 .padding(.vertical, 5)
                 .padding(.horizontal, 2)
@@ -2146,6 +2184,25 @@ struct PlayerTakeover: View {
             .onChange(of: targetId) { _, id in
                 guard let id else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            // ALSO on appear. onChange alone never fires for the target the
+            // strip opens with, so Keep score always opened scrolled to the
+            // left. That was invisible while a deleted point left a 10pt
+            // dot behind; at 36pt a run of deletions at the front of a match
+            // pushes the current chip clean off screen, which is how it
+            // surfaced. Same for the count changing under it — inserting a
+            // card or restoring a point moves everything along.
+            .onAppear {
+                guard let id = targetId else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            .onChange(of: points.count) { _, _ in
+                guard let id = targetId else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     proxy.scrollTo(id, anchor: .center)
                 }
             }

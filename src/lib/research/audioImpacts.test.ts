@@ -198,10 +198,11 @@ test("progress counts sounds separately from submitted points", () => {
   );
 });
 
-test("the eleven one-key shortcuts map to distinct labels", () => {
+test("the twelve one-key shortcuts include a simultaneous paddle-and-table label", () => {
   assert.deepEqual(AUDIO_IMPACT_KINDS, [
     "paddle",
     "table",
+    "paddle_table",
     "floor",
     "shoe",
     "shoe_squeak",
@@ -213,12 +214,44 @@ test("the eleven one-key shortcuts map to distinct labels", () => {
     "unsure",
   ]);
   assert.deepEqual(
-    ["p", "T", "f", "H", "q", "S", "n", "B", "o", "X", "u"].map(
+    ["p", "T", "c", "f", "H", "q", "S", "n", "B", "o", "X", "u"].map(
       audioImpactKindForShortcut,
     ),
     AUDIO_IMPACT_KINDS,
   );
   assert.equal(audioImpactKindForShortcut("z"), null);
+});
+
+test("hydration preserves existing answers while accepting the additive combined class", () => {
+  const existing = hydrateAudioImpactLabel(
+    {
+      schema_version: 1,
+      sequence_complete: true,
+      events: [
+        {
+          id: "candidate-a",
+          candidate_id: "candidate-a",
+          time_s: 1,
+          origin: "proposal",
+          kind: "paddle",
+        },
+        {
+          id: "candidate-b",
+          candidate_id: "candidate-b",
+          time_s: 2,
+          origin: "proposal",
+          kind: "paddle_table",
+        },
+      ],
+    },
+    [candidate("candidate-a", 1), candidate("candidate-b", 2)],
+  );
+
+  assert.deepEqual(
+    existing.events.map((event) => event.kind),
+    ["paddle", "paddle_table"],
+  );
+  assert.equal(existing.sequence_complete, true);
 });
 
 test("shortcuts are ignored for editable and interactive targets", () => {

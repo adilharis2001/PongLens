@@ -8,6 +8,7 @@ import numpy as np
 
 from worker.train_audio_impacts import (
     AUDIO_IMPACT_CLASSES,
+    _predictions,
     build_grouped_folds,
     compare_cnn_to_linear,
     evaluate_predictions,
@@ -32,7 +33,7 @@ from worker.train_audio_impacts import (
 
 
 class TaxonomyTests(unittest.TestCase):
-    def test_shoe_squeak_and_stomp_are_distinct_trainable_classes(self):
+    def test_combined_contact_and_foot_sounds_are_distinct_trainable_classes(self):
         self.assertEqual(
             AUDIO_IMPACT_CLASSES,
             (
@@ -46,8 +47,40 @@ class TaxonomyTests(unittest.TestCase):
                 "background",
                 "other",
                 "no_impact",
+                "paddle_table",
             ),
         )
+
+    def test_legacy_artifact_class_order_remains_usable(self):
+        legacy_classes = (
+            "paddle",
+            "table",
+            "floor",
+            "shoe",
+            "shoe_squeak",
+            "stomp",
+            "net",
+            "background",
+            "other",
+            "no_impact",
+        )
+        probabilities = np.asarray([[0, 0, 0, 0, 0, 1, 0, 0, 0, 0]])
+
+        predictions = _predictions(
+            probabilities,
+            0.5,
+            classes=legacy_classes,
+        )
+        report = evaluate_predictions(
+            [event("legacy", "stomp")],
+            predictions,
+            partition="development",
+            probabilities=probabilities,
+            classes=legacy_classes,
+        )
+
+        self.assertEqual(predictions, ["stomp"])
+        self.assertEqual(set(report["classes"]), set(legacy_classes))
 
 
 def event(
@@ -286,10 +319,10 @@ class MetricTests(unittest.TestCase):
             partition="sealed",
             probabilities=np.asarray(
                 [
-                    [0.9, 0.1, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0.4, 0.6, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0.3, 0.7, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0.1, 0.9, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0.9, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0.4, 0.6, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0.3, 0.7, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0.1, 0.9, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                 ]
             ),
         )
@@ -434,8 +467,8 @@ class LinearExperimentTests(unittest.TestCase):
     def test_round_b_acquisition_combines_model_uncertainty_and_low_band_confounds(self):
         probabilities = np.asarray(
             [
-                [0.51, 0.49, 0, 0, 0, 0, 0, 0, 0, 0],
-                [0.9, 0.1, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0.51, 0.49, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0.9, 0.1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
             ]
         )
         candidates = [
@@ -468,7 +501,7 @@ class LinearExperimentTests(unittest.TestCase):
 
     def test_round_b_acquisition_treats_squeaks_and_stomps_as_confounds(self):
         components = pool_acquisition_components(
-            np.asarray([[0, 0, 0, 0, 0.4, 0.6, 0, 0, 0, 0]]),
+            np.asarray([[0, 0, 0, 0, 0.4, 0.6, 0, 0, 0, 0, 0]]),
             [{"detector_origins": [], "detector_scores": {}}],
             duration_s=1.0,
         )
