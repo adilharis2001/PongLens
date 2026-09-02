@@ -9,6 +9,7 @@ import { Logo } from "@/components/Logo";
 import { NotificationBell } from "@/components/NotificationBell";
 import { createClient } from "@/lib/supabase/client";
 import { useWorkspace } from "@/lib/workspace";
+import { routeTerritory, type Workspace } from "@/lib/workspaceModel";
 
 /**
  * Signed-in navigation shell.
@@ -202,39 +203,27 @@ function tabIcon(label: string, active: boolean) {
 }
 
 /**
- * The Coaching tab shows for anyone with a coaching relationship, in any
- * direction: a coach profile, matches shared with you, coaches you've
- * invited, or reviews you've bought. Everyone else keeps three tabs and
- * finds coaching through the funnel. Cached in sessionStorage so the bar
+ * The player bar's Coaching tab is the STUDENT direction only (158):
+ * coaches you have, reviews you've bought. Being a coach never adds it —
+ * the coaching workspace is reached through the switch or a coach link,
+ * so the two sides stay apart. Cached in sessionStorage so the bar
  * doesn't pop in a tab after first paint; refreshed quietly each mount.
  */
-function useIsCoach(): boolean {
+function useStudentSide(): boolean {
   // Hydrates false (matching the server), then flips from the session
   // cache in the first effect — reading storage during render is a
   // hydration mismatch.
-  const [isCoach, setIsCoach] = useState(false);
+  const [studentSide, setStudentSide] = useState(false);
   useEffect(() => {
     let alive = true;
-    if (sessionStorage.getItem("pl-coach-tab") === "1") setIsCoach(true);
+    if (sessionStorage.getItem("pl-student-side") === "1") setStudentSide(true);
     const check = async () => {
       const supabase = createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
-      const [profile, asCoach, asPlayer, orders] = await Promise.all([
-        supabase
-          .from("coach_profiles")
-          .select("user_id")
-          .eq("user_id", user.id)
-          .maybeSingle(),
-        supabase
-          .from("coach_links")
-          .select("id")
-          .eq("coach_id", user.id)
-          .eq("status", "accepted")
-          .limit(1)
-          .maybeSingle(),
+      const [asPlayer, orders] = await Promise.all([
         supabase
           .from("coach_links")
           .select("id")
@@ -249,37 +238,41 @@ function useIsCoach(): boolean {
           .limit(1)
           .maybeSingle(),
       ]);
-      const coach = Boolean(
-        profile.data || asCoach.data || asPlayer.data || orders.data,
-      );
-      sessionStorage.setItem("pl-coach-tab", coach ? "1" : "0");
-      if (alive) setIsCoach(coach);
+      const coach = Boolean(asPlayer.data || orders.data);
+      sessionStorage.setItem("pl-student-side", coach ? "1" : "0");
+      if (alive) setStudentSide(coach);
     };
     void check();
     return () => {
       alive = false;
     };
   }, []);
-  return isCoach;
+  return studentSide;
 }
 
 export function AppNav({
   avatarUrl,
   wide,
+  remembered = "player",
 }: {
   avatarUrl: string | null;
   wide?: boolean;
+  /** The side the server resolved from the cookie and the coach flag. */
+  remembered?: Workspace;
 }) {
   const pathname = usePathname();
-  const isCoach = useIsCoach();
-  const workspace = useWorkspace();
+  const studentSide = useStudentSide();
+  const chosen = useWorkspace(remembered);
+  // Route territory wins over the remembered choice, and it is known on
+  // both server and client, so the first paint is already right.
+  const workspace: Workspace = routeTerritory(pathname) ?? chosen;
   // The coaching workspace swaps the spine wholesale: same bar, other
   // side of the table. The player bar keeps its Coaching tab for the
   // student direction (your coaches, reviews you bought).
   const tabs =
     workspace === "coach"
       ? [...COACH_TABS]
-      : isCoach
+      : studentSide
         ? [...TABS, COACHING_TAB]
         : [...TABS];
   const activeTab = (href: string) => {

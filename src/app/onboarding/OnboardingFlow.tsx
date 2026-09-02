@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { displayNameError, normalizeDisplayName } from "@/lib/auth/profile";
 import { createClient } from "@/lib/supabase/client";
+import { setWorkspace } from "@/lib/workspace";
 
 /**
  * First-login setup, cut to what actually changes something:
@@ -141,6 +142,13 @@ export function OnboardingFlow({
   next: string;
 }) {
   const router = useRouter();
+  // The Upwork question (158), asked once of brand-new accounts: which
+  // side of the table are you on. Invite-born coaches never see it — the
+  // invite already answered. "player" runs the existing flow; "coach"
+  // answers the name and lands in the coaching workspace.
+  const [role, setRole] = useState<"player" | "coach" | null>(
+    needsName && !isCoach ? null : "player",
+  );
   const [step, setStep] = useState<"name" | "play">(
     needsName ? "name" : "play"
   );
@@ -152,11 +160,14 @@ export function OnboardingFlow({
   const [error, setError] = useState<string | null>(null);
   const autoFinished = useRef(false);
 
-  const finish = async (fields: {
-    handedness?: Handedness | null;
-    grip?: Grip | null;
-    level?: Level | null;
-  }) => {
+  const finish = async (
+    fields: {
+      handedness?: Handedness | null;
+      grip?: Grip | null;
+      level?: Level | null;
+    },
+    destination: string = next,
+  ) => {
     if (saving) return;
     setSaving(true);
     setError(null);
@@ -185,7 +196,7 @@ export function OnboardingFlow({
       setError("We couldn't save that. Try again.");
       return;
     }
-    router.replace(next);
+    router.replace(destination);
     router.refresh();
   };
 
@@ -213,6 +224,17 @@ export function OnboardingFlow({
       void finish({});
       return;
     }
+    if (role === "coach") {
+      // A chosen coach: the flag and the cookie put the coaching side up
+      // first, and the all-null row keeps the gate quiet.
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      await supabase.auth.updateUser({ data: { is_coach: true } });
+      if (user) setWorkspace(user.id, "coach");
+      void finish({}, "/coaching");
+      return;
+    }
     setStep("play");
   };
 
@@ -229,6 +251,33 @@ export function OnboardingFlow({
   if (isCoach && !needsName) {
     return (
       <p className="py-6 text-center text-sm text-zinc-400">Setting up…</p>
+    );
+  }
+
+  if (role === null) {
+    const card = (value: "player" | "coach", title: string, blurb: string) => (
+      <button
+        type="button"
+        onClick={() => setRole(value)}
+        className="w-full rounded-xl border border-edge bg-ink/40 px-4 py-3 text-left transition-colors hover:border-zinc-500"
+      >
+        <span className="block text-sm font-medium text-zinc-100">{title}</span>
+        <span className="mt-0.5 block text-xs text-zinc-500">{blurb}</span>
+      </button>
+    );
+    return (
+      <>
+        <h1 className="text-center text-xl font-semibold">
+          How will you use PongLens?
+        </h1>
+        <p className="mt-2 text-center text-sm text-zinc-400">
+          You can add the other side later from Account.
+        </p>
+        <div className="mt-7 space-y-3">
+          {card("player", "I play", "Film your matches and review your game.")}
+          {card("coach", "I coach", "Keep lesson notes and follow your students' matches.")}
+        </div>
+      </>
     );
   }
 

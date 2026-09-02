@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { resolvePendingCoachInviteDestination } from "./coachInvite";
 import { safeNextPath } from "./paths";
+import { WORKSPACE_COOKIE, signInDestination } from "@/lib/workspaceModel";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 
@@ -48,6 +49,21 @@ export async function completeSignIn(
     /^[0-9a-f-]{36}$/i.test(pendingJoin)
   ) {
     destination = `/join/${pendingJoin}`;
+  }
+
+  // A plain sign-in lands on the side this account works from (158):
+  // the remembered cookie, else the coach flag, else the player home.
+  // An explicit ?next= is always honoured as-is.
+  if (destination === fallbackDestination) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    destination = signInDestination({
+      requested: destination,
+      cookie: cookieStore.get(WORKSPACE_COOKIE)?.value,
+      userId: user?.id ?? null,
+      isCoach: user?.user_metadata?.is_coach === true,
+    });
   }
 
   const { origin } = new URL(request.url);

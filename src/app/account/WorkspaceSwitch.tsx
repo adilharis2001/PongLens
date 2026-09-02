@@ -4,21 +4,32 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { setWorkspace, useWorkspace } from "@/lib/workspace";
+import type { Workspace } from "@/lib/workspaceModel";
 
 /**
  * The Upwork move (156): one account, a playing side and a coaching side.
  * Anyone with coach data — students, an accepted link as a coach, a coach
- * page, or the onboarding answer in metadata — gets "Switch to coaching";
- * everyone else gets "Set up coaching" (157), which marks the account and
- * opens the workspace, so a coach who signed up on the web is not stuck
- * waiting for an invite. Someone already standing in the coaching
- * workspace always gets the way back.
+ * page, or the coach flag — gets "Switch to coaching"; everyone else gets
+ * "Set up coaching" (157), which marks the account and opens the
+ * workspace, so a coach who signed up on the web is not stuck waiting for
+ * an invite. Someone already standing in the coaching workspace always
+ * gets the way back. Switching to coaching stamps the flag either way,
+ * so a fresh device lands on the right side (158).
+ *
+ * Two dresses: the Account row, and a pill for the coaching page header.
  */
-export function WorkspaceSwitch() {
+export function WorkspaceSwitch({
+  remembered,
+  variant = "row",
+}: {
+  remembered: Workspace;
+  variant?: "row" | "pill";
+}) {
   const router = useRouter();
-  const workspace = useWorkspace();
+  const workspace = useWorkspace(remembered);
   const [userId, setUserId] = useState<string | null>(null);
   const [eligible, setEligible] = useState(false);
+  const [flagged, setFlagged] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -31,6 +42,7 @@ export function WorkspaceSwitch() {
       if (!user || !alive) return;
       setUserId(user.id);
       if (user.user_metadata?.is_coach === true) {
+        setFlagged(true);
         setEligible(true);
         return;
       }
@@ -74,16 +86,29 @@ export function WorkspaceSwitch() {
 
   const flip = async () => {
     setBusy(true);
-    if (!coaching && !eligible) {
-      // Entering the coaching side marks the account a coach for good, so
-      // the switcher still offers itself on another device or the app.
+    if (!coaching && !flagged) {
       const supabase = createClient();
       await supabase.auth.updateUser({ data: { is_coach: true } });
+      setFlagged(true);
       setEligible(true);
     }
     setWorkspace(userId, coaching ? "player" : "coach");
     router.push(coaching ? "/dashboard" : "/coaching");
+    router.refresh();
   };
+
+  if (variant === "pill") {
+    return (
+      <button
+        type="button"
+        onClick={() => void flip()}
+        disabled={busy}
+        className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white disabled:opacity-60"
+      >
+        {label}
+      </button>
+    );
+  }
 
   return (
     <button

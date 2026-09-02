@@ -1,4 +1,5 @@
 import { AppNav } from "@/components/AppNav";
+import { rememberedWorkspace } from "@/lib/workspaceServer";
 
 /**
  * Shared chrome for signed-in pages: nav (top header on desktop, bottom
@@ -7,7 +8,7 @@ import { AppNav } from "@/components/AppNav";
  * their edges stay aligned) for pages that lay out side-by-side on a
  * laptop — the coaching hub and workspace.
  */
-export function AppShell({
+export async function AppShell({
   avatarUrl,
   wide,
   hasFab,
@@ -24,9 +25,10 @@ export function AppShell({
   hasFab?: boolean;
   children: React.ReactNode;
 }) {
+  const { workspace } = await rememberedWorkspace();
   return (
     <>
-      <AppNav avatarUrl={avatarUrl} wide={wide} />
+      <AppNav avatarUrl={avatarUrl} wide={wide} remembered={workspace} />
       <main
         className={`bg-arena flex-1 ${
           hasFab ? "pb-48 md:pb-32" : "pb-32 md:pb-16"
