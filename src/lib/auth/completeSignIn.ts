@@ -15,8 +15,9 @@ export async function completeSignIn(
 ) {
   const cookieStore = await cookies();
   const pendingInvite = cookieStore.get("pending_coach_invite")?.value;
+  const pendingJoin = cookieStore.get("pending_student_invite")?.value;
   const fallbackDestination = safeNextPath(next);
-  const destination = await resolvePendingCoachInviteDestination(
+  let destination = await resolvePendingCoachInviteDestination(
     pendingInvite,
     fallbackDestination,
     {
@@ -37,6 +38,18 @@ export async function completeSignIn(
     },
   );
 
+  // A stashed join link routes the fresh session back to the join page —
+  // never auto-accepted here, because joining grants the coach access to
+  // this player's matches and the page asks first. The coach-invite path
+  // above wins when both are somehow present.
+  if (
+    destination === fallbackDestination &&
+    pendingJoin &&
+    /^[0-9a-f-]{36}$/i.test(pendingJoin)
+  ) {
+    destination = `/join/${pendingJoin}`;
+  }
+
   const { origin } = new URL(request.url);
   const forwardedHost = request.headers.get("x-forwarded-host");
   const base =
@@ -45,5 +58,6 @@ export async function completeSignIn(
       : origin;
   const response = NextResponse.redirect(`${base}${destination}`);
   response.cookies.delete("pending_coach_invite");
+  response.cookies.delete("pending_student_invite");
   return response;
 }

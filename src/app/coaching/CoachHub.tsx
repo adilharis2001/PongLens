@@ -670,6 +670,11 @@ export function CoachHub({
             <div className="mt-6">
               <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
                 <RowLink
+                  href="/coaching/students"
+                  label="Students"
+                  sub="Your roster: lesson notes and their shared matches."
+                />
+                <RowLink
                   href="/coaching/orders"
                   label="Orders"
                   sub="Reviews players have bought from you."

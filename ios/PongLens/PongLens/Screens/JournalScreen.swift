@@ -32,6 +32,7 @@ struct JournalScreen: View {
         let lesson: LessonRow
     }
     @State private var editRequest: EditRequest?
+    @State private var coachEntryOpen: CoachSharedEntry?
     @State private var ask = AskState()
 
     private let feedCap = 30
@@ -64,6 +65,9 @@ struct JournalScreen: View {
 
                         if selectedTag == nil {
                             WorkingOnCard(store: store)
+                            if !store.coachShared.isEmpty {
+                                coachSharedSection
+                            }
                             tabs
                             if tab == "Recollect" {
                                 RecollectSection(journal: store) { source in
@@ -186,6 +190,25 @@ struct JournalScreen: View {
     }
 
     // MARK: - Search + ask
+
+    /// Entries coaches shared with this player. Live documents: the words
+    /// shown are whatever the coach's row says right now.
+    private var coachSharedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeading("From your coach")
+            ForEach(store.coachShared) { entry in
+                Button {
+                    coachEntryOpen = entry
+                } label: {
+                    CoachSharedEntryCard(entry: entry)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .sheet(item: $coachEntryOpen) { entry in
+            CoachSharedEntrySheet(entry: entry)
+        }
+    }
 
     private var searchField: some View {
         HStack(spacing: 10) {

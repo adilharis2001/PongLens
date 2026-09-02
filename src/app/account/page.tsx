@@ -18,6 +18,7 @@ import {
   getSupportEmail,
 } from "@/lib/config";
 import { RecollectSetting } from "./RecollectSetting";
+import { WorkspaceSwitch } from "./WorkspaceSwitch";
 
 export const metadata: Metadata = {
   title: "Account",
@@ -146,6 +147,7 @@ export default async function AccountPage() {
           <RecollectSetting
             initialEnabled={recollectPreference?.enabled !== false}
           />
+          <WorkspaceSwitch />
         </div>
       </div>
 

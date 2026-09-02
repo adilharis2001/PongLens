@@ -151,6 +151,51 @@ final class AppState {
         }?.value == "on"
     }
 
+    // MARK: - Workspace
+
+    /// Which side of the app this account is using: playing or coaching.
+    /// A per-user choice, remembered on the device; the coaching side only
+    /// offers itself to accounts with coach data (links, a roster, or the
+    /// onboarding answer in metadata).
+    enum Workspace: String {
+        case player
+        case coach
+    }
+
+    var workspace: Workspace = .player
+
+    private static func workspaceKey(_ uid: UUID) -> String {
+        "pl.workspace.\(uid.uuidString.lowercased())"
+    }
+
+    /// Resolve the remembered choice for the signed-in user. Accounts that
+    /// answered "coach" at onboarding and never chose since land on the
+    /// coaching side; everyone else starts as a player.
+    func loadWorkspace() {
+        guard let uid = userId else {
+            workspace = .player
+            return
+        }
+        if let stored = UserDefaults.standard.string(forKey: Self.workspaceKey(uid)),
+           let value = Workspace(rawValue: stored) {
+            workspace = value
+        } else {
+            workspace = metadataFlag("is_coach") ? .coach : .player
+        }
+    }
+
+    func setWorkspace(_ value: Workspace) {
+        workspace = value
+        guard let uid = userId else { return }
+        UserDefaults.standard.set(value.rawValue, forKey: Self.workspaceKey(uid))
+        // Entering the coaching side marks the account a coach for good,
+        // so the switcher still offers itself from a fresh install or
+        // another device — the roster alone only exists once loaded.
+        if value == .coach, !metadataFlag("is_coach") {
+            Task { await setMetadataFlag("is_coach", true) }
+        }
+    }
+
     func metadataFlag(_ key: String) -> Bool {
         guard case .signedIn(let session) = phase else { return false }
         return session.user.userMetadata[key]?.boolValue ?? false

@@ -112,5 +112,20 @@ export async function updateSession(request: NextRequest) {
     });
   }
 
+  // The student-side twin (156): a coach's join link. Same dropped-?next=
+  // problem, different remedy — the cookie only routes the student BACK to
+  // /join/<token> after sign-in. Joining stays a button they press there,
+  // because accepting hands the coach access to their matches.
+  const joinMatch = path.match(/^\/join\/([0-9a-f-]{36})\/?$/i);
+  if (!user && joinMatch) {
+    supabaseResponse.cookies.set("pending_student_invite", joinMatch[1], {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 60,
+    });
+  }
+
   return supabaseResponse;
 }

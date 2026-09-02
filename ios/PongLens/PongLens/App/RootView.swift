@@ -10,6 +10,7 @@ struct RootView: View {
     @State private var notifications = NotificationsStore()
     @State private var coaching = CoachingStore()
     @State private var coach = CoachStore()
+    @State private var coachWorkspace = CoachWorkspaceStore()
 
     enum OnboardingGate: Equatable {
         case checking
@@ -56,7 +57,14 @@ struct RootView: View {
                 case .needed(let needsName, let isCoach):
                     OnboardingScreen(needsName: needsName, isCoach: isCoach) { gate = .done }
                 case .done:
-                    MainTabView()
+                    // One account, two workspaces. The remembered choice
+                    // decides which side of the app stands up; Account
+                    // switches it, and the whole tree swaps.
+                    if app.workspace == .coach {
+                        CoachTabView()
+                    } else {
+                        MainTabView()
+                    }
                 }
             }
         }
@@ -68,6 +76,7 @@ struct RootView: View {
         .environment(notifications)
         .environment(coaching)
         .environment(coach)
+        .environment(coachWorkspace)
         .overlay {
             if !splashDone {
                 SplashScreen()
@@ -121,6 +130,7 @@ struct RootView: View {
             notifications = NotificationsStore()
             coaching = CoachingStore()
             coach = CoachStore()
+            coachWorkspace = CoachWorkspaceStore()
             gate = .checking
         }
     }
@@ -129,6 +139,7 @@ struct RootView: View {
     /// OR there is no player_profiles row.
     private func checkOnboarding() async {
         guard case .signedIn(let session) = app.phase else { return }
+        app.loadWorkspace()
         let uid = session.user.id.uuidString.lowercased()
         let meta = session.user.userMetadata
         let name = (meta["full_name"]?.stringValue ?? meta["name"]?.stringValue ?? "")
