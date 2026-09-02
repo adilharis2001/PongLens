@@ -113,7 +113,7 @@ struct CoachTabView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 PLTopBar(
                     unreadCount: notifications.unreadCount,
-                    switchTo: "Playing",
+                    switchTo: app.playerSetupPending ? nil : "Playing",
                     onSwitch: { app.setWorkspace(.player) },
                     onBell: { bellOpen = true },
                     onAvatar: { path.append("account") }

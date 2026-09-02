@@ -107,7 +107,12 @@ struct MainTabView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 PLTopBar(
                     unreadCount: notifications.unreadCount,
-                    switchTo: coachEligible ? "Coaching" : nil,
+                    // Only an account with BOTH sides set up gets the
+                    // pill (Adil, 2026-09-02): "Both" at onboarding, or a
+                    // player who set up coaching from Account. A coach who
+                    // merely switched here still has the playing questions
+                    // pending, and their way back stays in Account.
+                    switchTo: coachEligible && !app.playerSetupPending ? "Coaching" : nil,
                     onSwitch: { app.setWorkspace(.coach) },
                     onBell: { bellOpen = true },
                     onAvatar: { path.append("account") }
