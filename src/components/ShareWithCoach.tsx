@@ -4,9 +4,23 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ShareQR } from "@/components/ShareQR";
 
+interface ConnectedCoach {
+  id: string;
+  name: string;
+  allMatches: boolean;
+  matchLinkId: string | null;
+  otherMatches: number;
+}
+
 /**
- * Coach-invite sheet. Creates a pending coach_links row (scoped to one
- * match or all matches) and hands back an invite URL to copy or share.
+ * Share with coach. Your connected coaches come first, by name, with what
+ * they can see and a one-tap share for this match (160) — the invite link
+ * below is only for a coach you have not connected yet. A player-written,
+ * match-scoped accepted link is the direct grant; the coach hears about it
+ * the same way they hear about a student's match turning ready.
+ *
+ * The invite half creates a pending coach_links row (scoped to one match
+ * or all matches) and hands back an invite URL to copy or share.
  *
  * Two exports:
  *   ShareWithCoachSheet — the controlled sheet body. The ShareSheet's
@@ -35,6 +49,55 @@ export function ShareWithCoachSheet({
   const [link, setLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [coaches, setCoaches] = useState<ConnectedCoach[] | null>(null);
+  const [busyCoach, setBusyCoach] = useState<string | null>(null);
+
+  const loadCoaches = useCallback(async () => {
+    if (!matchId) {
+      setCoaches([]);
+      return;
+    }
+    const supabase = createClient();
+    const [linksRes, namesRes] = await Promise.all([
+      supabase
+        .from("coach_links")
+        .select("id, coach_id, scope_match_id, status")
+        .eq("player_id", userId)
+        .eq("status", "accepted"),
+      supabase.rpc("player_coach_links"),
+    ]);
+    const names = new Map<string, string>();
+    for (const n of (namesRes.data as {
+      id: string;
+      coach_name: string | null;
+      coach_email: string | null;
+    }[]) ?? []) {
+      names.set(n.id, n.coach_name ?? n.coach_email ?? "Coach");
+    }
+    const byCoach = new Map<
+      string,
+      { id: string; scope_match_id: string | null }[]
+    >();
+    for (const l of (linksRes.data as {
+      id: string;
+      coach_id: string | null;
+      scope_match_id: string | null;
+    }[]) ?? []) {
+      if (!l.coach_id) continue;
+      byCoach.set(l.coach_id, [...(byCoach.get(l.coach_id) ?? []), l]);
+    }
+    const rows: ConnectedCoach[] = [...byCoach.entries()].map(([coachId, links]) => ({
+      id: coachId,
+      name: links.map((l) => names.get(l.id)).find(Boolean) ?? "Coach",
+      allMatches: links.some((l) => l.scope_match_id === null),
+      matchLinkId: links.find((l) => l.scope_match_id === matchId)?.id ?? null,
+      otherMatches: links.filter(
+        (l) => l.scope_match_id !== null && l.scope_match_id !== matchId,
+      ).length,
+    }));
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    setCoaches(rows);
+  }, [userId, matchId]);
 
   useEffect(() => {
     if (!open) return;
@@ -42,7 +105,43 @@ export function ShareWithCoachSheet({
     setLink(null);
     setError(null);
     setCopied(false);
-  }, [open, matchId]);
+    void loadCoaches();
+  }, [open, matchId, loadCoaches]);
+
+  const shareWith = async (coach: ConnectedCoach) => {
+    if (!matchId) return;
+    setBusyCoach(coach.id);
+    const supabase = createClient();
+    const { error: dbError } = await supabase.from("coach_links").insert({
+      player_id: userId,
+      coach_id: coach.id,
+      scope_match_id: matchId,
+      status: "accepted",
+    });
+    if (dbError) setError("Couldn't share it. Try again.");
+    await loadCoaches();
+    setBusyCoach(null);
+    onLinkCreated?.();
+  };
+
+  const unshareWith = async (coach: ConnectedCoach) => {
+    if (!coach.matchLinkId) return;
+    setBusyCoach(coach.id);
+    const supabase = createClient();
+    await supabase.from("coach_links").delete().eq("id", coach.matchLinkId);
+    await loadCoaches();
+    setBusyCoach(null);
+    onLinkCreated?.();
+  };
+
+  const coachState = (c: ConnectedCoach) =>
+    c.allMatches
+      ? "Sees all your matches"
+      : c.matchLinkId
+        ? "Has this match"
+        : c.otherMatches > 0
+          ? `Has ${c.otherMatches} other match${c.otherMatches === 1 ? "" : "es"}`
+          : "Doesn't have this match";
 
   const createLink = useCallback(async () => {
     setCreating(true);
@@ -123,6 +222,50 @@ export function ShareWithCoachSheet({
             </svg>
           </button>
         </div>
+        {matchId && coaches && coaches.length > 0 && (
+          <div className="mt-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Your coaches
+            </p>
+            <div className="mt-2 divide-y divide-edge/60 overflow-hidden rounded-xl border border-edge bg-surface-2/60">
+              {coaches.map((c) => (
+                <div key={c.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-zinc-100">{c.name}</span>
+                    <span className="block text-xs text-zinc-500">{coachState(c)}</span>
+                  </span>
+                  {c.allMatches ? (
+                    <span className="text-xs font-medium text-cyan-glow">All matches</span>
+                  ) : busyCoach === c.id ? (
+                    <span className="text-xs text-zinc-500">…</span>
+                  ) : c.matchLinkId ? (
+                    <button
+                      type="button"
+                      onClick={() => void unshareWith(c)}
+                      className="rounded-full border border-edge px-3 py-1 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                    >
+                      Remove
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void shareWith(c)}
+                      className="glow-cta rounded-full bg-cyan-glow px-3 py-1 text-xs font-semibold text-ink"
+                    >
+                      Share
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-zinc-500">
+              Sharing hands them this match. Take it back any time from Coaching.
+            </p>
+            <p className="mt-5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Invite another coach
+            </p>
+          </div>
+        )}
 
         {!link ? (
           <>

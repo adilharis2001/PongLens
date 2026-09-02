@@ -39,7 +39,14 @@ final class CoachRouter {
     /// from a student's own page.
     var newEntryOpen = false
     var newEntryStudent: CoachStudentRow?
-    var composer: CoachComposerRequest?
+    /// Writing is a sheet, like the journal composer; recording is the
+    /// full-screen recorder, like a player's lesson. Two presentations,
+    /// so each gets the chrome its twin has.
+    var composeWrite: CoachComposerRequest?
+    var composeRecord: CoachComposerRequest?
+    /// The Add a student sheet, reachable from Students and from Home's
+    /// first-run card.
+    var addStudentOpen = false
 
     #if DEBUG
     /// Headless-verification hooks, the coach side's --dev-* set: land on
@@ -141,14 +148,19 @@ struct CoachTabView: View {
                 // chooser settles: a cover raised while the sheet is
                 // still up can be dropped by the loser of the dismissal.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    router.composer = CoachComposerRequest(mode: mode, student: student)
+                    let request = CoachComposerRequest(mode: mode, student: student)
+                    if mode == .write { router.composeWrite = request } else { router.composeRecord = request }
                 }
             }
             .presentationDetents([.height(300)])
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
-        .fullScreenCover(item: $router.composer) { request in
+        .sheet(item: $router.composeWrite) { request in
+            CoachEntryComposer(request: request)
+                .presentationDetents([.large])
+        }
+        .fullScreenCover(item: $router.composeRecord) { request in
             CoachEntryComposer(request: request)
         }
         .sheet(isPresented: $devInviteOpen) {
@@ -195,7 +207,7 @@ struct CoachTabView: View {
             }
             if router.devComposeWrite {
                 router.devComposeWrite = false
-                router.composer = CoachComposerRequest(
+                router.composeWrite = CoachComposerRequest(
                     mode: .write, student: workspace.activeStudents.first
                 )
             }

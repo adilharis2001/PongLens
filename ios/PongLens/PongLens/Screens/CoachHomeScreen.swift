@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// The coaching workspace's front page: what students sent, what was
-/// written lately, and the two actions a coach reaches for between
-/// lessons. Everything here is a doorway — the roster is the real home
-/// of each student's record.
+/// The coaching workspace's front page, built the way the player's Home
+/// is: a title, then cards and grouped rows, and the New entry pill as the
+/// one create door. Nothing floats at the top — the roster is the first
+/// card, and everything else is a doorway into a student.
 struct CoachHomeScreen: View {
     @Environment(AppState.self) private var app
     @Environment(CoachRouter.self) private var router
@@ -36,7 +36,7 @@ struct CoachHomeScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 28) {
                 Text("Coaching")
                     .font(.plPageTitle)
                     .tracking(-0.6)
@@ -45,34 +45,27 @@ struct CoachHomeScreen: View {
                 if workspace.loadFailed && !workspace.loaded {
                     loadFailedState
                 } else if workspace.loaded && workspace.activeStudents.isEmpty {
-                    emptyState
-                } else {
-                    quickActions
+                    firstStudentCard
+                } else if workspace.loaded {
+                    studentsGroup
 
                     if !studentMatches.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            SectionHeading("From your students")
-                            VStack(spacing: 0) {
-                                ForEach(Array(studentMatches.prefix(6).enumerated()), id: \.element.id) { i, match in
-                                    NavigationLink(value: match) {
-                                        CoachMatchLine(
-                                            match: match,
-                                            studentName: studentName(ownerId: match.userId)
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
-                                    if i < min(studentMatches.count, 6) - 1 {
-                                        Divider().overlay(PL.edge)
-                                    }
+                        CoachGroup("From your students") {
+                            ForEach(Array(studentMatches.prefix(6).enumerated()), id: \.element.id) { i, match in
+                                NavigationLink(value: match) {
+                                    CoachMatchLine(match: match, studentName: studentName(ownerId: match.userId))
                                 }
+                                .buttonStyle(.plain)
+                                if i < min(studentMatches.count, 6) - 1 { CoachRowDivider() }
                             }
-                            .plCard(padding: 0)
                         }
                     }
 
-                    if !recentEntries.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            SectionHeading("Recent entries")
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionHeading("Recent entries")
+                        if recentEntries.isEmpty {
+                            CoachEmptyLine(text: "No entries yet. New entry writes the first.")
+                        } else {
                             ForEach(recentEntries.prefix(5)) { entry in
                                 NavigationLink(value: entry) {
                                     CoachEntryCard(
@@ -85,41 +78,70 @@ struct CoachHomeScreen: View {
                             }
                         }
                     }
-
-                    if studentMatches.isEmpty && recentEntries.isEmpty {
-                        Text("Nothing here yet. Write your first entry, or open Students to see who has shared matches.")
-                            .font(.plBody)
-                            .foregroundStyle(PL.text400)
-                            .padding(.top, 8)
-                    }
                 }
             }
             .padding(20)
-            .padding(.bottom, 96)
+            .padding(.top, 12)
+            .padding(.bottom, 120)
         }
+        .refreshable { await workspace.load(userId: app.userId) }
         .sheet(isPresented: $inviteOpen) {
             StudentInviteSheet(student: nil)
         }
     }
 
-    private var quickActions: some View {
-        HStack(spacing: 10) {
-            Button {
-                router.newEntryStudent = nil
-                router.newEntryOpen = true
-            } label: {
-                Label("New entry", systemImage: "square.and.pencil")
-                    .font(.plButtonSecondary)
+    /// The roster at a glance: the same grouped rows the Students tab
+    /// draws, capped, with the tab one row away.
+    private var studentsGroup: some View {
+        CoachGroup("Students") {
+            let shown = Array(workspace.activeStudents.prefix(4))
+            ForEach(Array(shown.enumerated()), id: \.element.id) { i, student in
+                NavigationLink(value: student) {
+                    CoachStudentLine(student: student, entryCount: workspace.entries(for: student.id).count)
+                }
+                .buttonStyle(.plain)
+                if i < shown.count - 1 { CoachRowDivider() }
             }
-            .buttonStyle(PLSecondaryButtonStyle())
-            Button {
-                inviteOpen = true
-            } label: {
-                Label("Invite a student", systemImage: "person.badge.plus")
-                    .font(.plButtonSecondary)
+            if workspace.activeStudents.count > shown.count {
+                CoachRowDivider()
+                CoachNavRow(label: "All students") { router.tab = .students }
             }
-            .buttonStyle(PLSecondaryButtonStyle())
         }
+    }
+
+    /// The first-run card, in the same shape as the player's "Add your
+    /// first match": a symbol, a bold line, one paragraph, one row.
+    private var firstStudentCard: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "person.2.fill")
+                .font(.system(size: 34))
+                .foregroundStyle(PL.cyan)
+                .padding(.top, 6)
+            Text("Add your first student")
+                .font(.plCardTitle)
+                .foregroundStyle(PL.text100)
+            Text("Keep lesson notes on each student and share them when they're ready. An invite links them to their PongLens account, and the matches they upload show up here.")
+                .font(.plBody)
+                .foregroundStyle(PL.text400)
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+            VStack(spacing: 0) {
+                CoachNavRow(label: "Add a student", symbol: "person.badge.plus") {
+                    router.tab = .students
+                    router.addStudentOpen = true
+                }
+                CoachRowDivider()
+                CoachNavRow(label: "Invite a student", symbol: "link") { inviteOpen = true }
+            }
+            .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                    .strokeBorder(PL.edge, lineWidth: 1)
+            )
+            .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity)
+        .plCard(padding: 24)
     }
 
     private var loadFailedState: some View {
@@ -133,29 +155,53 @@ struct CoachHomeScreen: View {
             Button("Try again") {
                 Task { await workspace.load(userId: app.userId) }
             }
-            .buttonStyle(PLSecondaryButtonStyle())
+            .buttonStyle(PLPrimaryButtonStyle())
+            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 20)
     }
+}
 
-    private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("No students yet.")
-                .font(.plCardTitle)
-                .foregroundStyle(PL.text100)
-            Text("Add a student to start keeping lesson notes. An invite links them to their PongLens account, and their matches show up here.")
-                .font(.plBody)
-                .foregroundStyle(PL.text400)
-                .lineSpacing(3)
-            HStack(spacing: 10) {
-                Button("Add a student") { router.tab = .students }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                Button("Invite") { inviteOpen = true }
-                    .buttonStyle(PLSecondaryButtonStyle())
+/// One student as a grouped row: initial, name, a quiet second line.
+struct CoachStudentLine: View {
+    let student: CoachStudentRow
+    var entryCount: Int = 0
+    var matchCount: Int = 0
+
+    private var summary: String {
+        guard student.linked else { return "Not on PongLens yet" }
+        var parts: [String] = []
+        if matchCount > 0 { parts.append("\(matchCount) match\(matchCount == 1 ? "" : "es")") }
+        if entryCount > 0 { parts.append("\(entryCount) entr\(entryCount == 1 ? "y" : "ies")") }
+        return parts.isEmpty ? "On PongLens" : parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(PL.surface2)
+                Text(String(student.displayName.prefix(1)).uppercased())
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(student.linked ? PL.cyan : PL.text500)
             }
+            .frame(width: 36, height: 36)
+            .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(student.displayName)
+                    .font(.system(size: 16))
+                    .foregroundStyle(PL.textBody)
+                Text(summary)
+                    .font(.system(size: 13))
+                    .foregroundStyle(PL.text500)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(PL.text600)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .plCard(padding: 20)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
     }
 }

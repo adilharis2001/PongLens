@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// One entry, and everything the coach does with it: read it, share it,
-/// fix the words, tie it to a match, or delete it. Sharing is a live
-/// grant — edits after sharing show on the student's side — and the
-/// screen says so at the moment it matters.
+/// One entry, in the journal's language: the lesson card's own body and
+/// its quiet text-button row (Transcript, Edit, Delete), with sharing as
+/// a grouped card above it. Sharing is a live grant — edits after sharing
+/// show on the student's side — and the card says so at the moment it
+/// matters.
 struct CoachEntryScreen: View {
     let entryId: UUID
 
@@ -13,14 +14,12 @@ struct CoachEntryScreen: View {
     @Environment(LibraryStore.self) private var library
 
     @State private var editOpen = false
-    @State private var draft = ""
-    @State private var savingWords = false
-    @State private var editError: String?
     @State private var sharing = false
     @State private var linkURL: URL?
     @State private var mintingLink = false
     @State private var linkCopied = false
     @State private var matchPickerOpen = false
+    @State private var transcriptOpen = false
     @State private var deleteAsk = false
     @State private var errorLine: String?
 
@@ -37,6 +36,12 @@ struct CoachEntryScreen: View {
         guard let id = lesson?.matchId else { return nil }
         return library.matches.first { $0.id == id }
     }
+    private var matchChoices: [MatchRow] {
+        guard let playerId = student?.playerId else { return [] }
+        return library.matches
+            .filter { $0.userId == playerId }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
 
     var body: some View {
         ZStack {
@@ -46,8 +51,12 @@ struct CoachEntryScreen: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
-        .sheet(isPresented: $editOpen) { editSheet }
-        .sheet(isPresented: $matchPickerOpen) { matchPicker }
+        .sheet(isPresented: $editOpen) {
+            if let entry { CoachEntryEditSheet(entry: entry, initial: lesson?.transcript ?? "") }
+        }
+        .sheet(isPresented: $matchPickerOpen) {
+            if let entry { matchPicker(entry) }
+        }
         .confirmationDialog(
             "Delete this entry?",
             isPresented: $deleteAsk,
@@ -70,72 +79,41 @@ struct CoachEntryScreen: View {
 
     private func content(_ entry: CoachEntryRow, _ student: CoachStudentRow) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 22) {
                 Button {
                     dismiss()
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 12, weight: .semibold))
-                        Text("Back")
+                        Text(student.displayName)
                     }
                 }
                 .buttonStyle(PLSecondaryButtonStyle())
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Text(student.displayName)
-                            .font(.plSection)
-                            .tracking(0.6)
-                            .foregroundStyle(PL.cyan)
-                        Text(PLWhen.day(entry.createdAt))
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text500)
-                        Spacer()
-                        Menu {
-                            Button("Edit the words") { openEditor() }
-                            if student.linked, !matchChoices.isEmpty {
-                                Button(linkedMatch == nil ? "Link a match" : "Change the match") {
-                                    matchPickerOpen = true
-                                }
-                            }
-                            if lesson?.matchId != nil {
-                                Button("Unlink the match") {
-                                    Task { _ = await workspace.setMatch(entry, matchId: nil) }
-                                }
-                            }
-                            Button("Delete entry", role: .destructive) { deleteAsk = true }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(PL.text400)
-                                .frame(width: 34, height: 34)
-                                .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
-                                .contentShape(Circle())
-                        }
-                    }
-                    if let title = lesson?.takeaways?.title, !title.isEmpty {
-                        Text(title)
-                            .font(.plPageTitle)
-                            .tracking(-0.6)
-                            .foregroundStyle(PL.textBody)
-                    }
-                }
+                Text(lesson?.takeaways?.title.flatMap { $0.isEmpty ? nil : $0 } ?? "Entry")
+                    .font(.plPageTitle)
+                    .tracking(-0.6)
+                    .foregroundStyle(PL.textBody)
 
-                shareCard(entry, student)
+                shareGroup(entry, student)
+
+                entryCard(entry)
 
                 if let match = linkedMatch {
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionHeading("Match")
+                    CoachGroup("Match") {
                         NavigationLink(value: match) {
                             CoachMatchLine(match: match)
                         }
                         .buttonStyle(.plain)
-                        .plCard(padding: 0)
+                    }
+                } else if student.linked, !matchChoices.isEmpty {
+                    CoachGroup {
+                        CoachNavRow(label: "Link one of their matches", symbol: "play.rectangle") {
+                            matchPickerOpen = true
+                        }
                     }
                 }
-
-                entryBody
 
                 if let errorLine {
                     Text(errorLine)
@@ -144,34 +122,30 @@ struct CoachEntryScreen: View {
                 }
             }
             .padding(20)
-            .padding(.bottom, 40)
+            .padding(.bottom, 60)
         }
     }
 
     // MARK: - Sharing
 
     @ViewBuilder
-    private func shareCard(_ entry: CoachEntryRow, _ student: CoachStudentRow) -> some View {
+    private func shareGroup(_ entry: CoachEntryRow, _ student: CoachStudentRow) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             if student.linked {
                 if entry.sharedAt != nil {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 10) {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 15))
+                            .font(.system(size: 16))
                             .foregroundStyle(PL.cyan)
-                        Text("Shared with \(student.displayName). Edits show on their side.")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text300)
-                        Spacer()
-                        Button("Stop sharing") {
-                            Task {
-                                sharing = true
-                                _ = await workspace.setShared(entry, shared: false)
-                                sharing = false
-                            }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Shared with \(student.displayName)")
+                                .font(.plRowTitle)
+                                .foregroundStyle(PL.text100)
+                            Text("Edits show on their side.")
+                                .font(.plCaption)
+                                .foregroundStyle(PL.text500)
                         }
-                        .buttonStyle(PLSecondaryButtonStyle())
-                        .disabled(sharing)
+                        Spacer()
                     }
                 } else {
                     Button {
@@ -188,39 +162,44 @@ struct CoachEntryScreen: View {
                     .disabled(sharing)
                 }
             } else {
-                Text("\(student.displayName) isn't on PongLens. Send them the link — it opens without an account, and joining from it connects you.")
-                    .font(.plCaption)
+                Text("\(student.displayName) isn't on PongLens. Send the link below; it opens without an account, and joining from it connects you.")
+                    .font(.plBody)
                     .foregroundStyle(PL.text400)
+                    .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if let linkURL {
-                HStack(spacing: 10) {
+            HStack(spacing: 16) {
+                if let linkURL {
                     ShareLink(item: linkURL) {
-                        Label("Send the link", systemImage: "square.and.arrow.up")
-                            .font(.plButtonSecondary)
+                        Text("Send link")
                     }
-                    .buttonStyle(PLSecondaryButtonStyle())
-                    Button(linkCopied ? "Copied" : "Copy") {
+                    Button(linkCopied ? "Copied" : "Copy link") {
                         UIPasteboard.general.string = linkURL.absoluteString
                         linkCopied = true
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            linkCopied = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { linkCopied = false }
+                    }
+                } else {
+                    Button(mintingLink ? "Getting the link…" : "Get a link") {
+                        Task { await mintLink(entry) }
+                    }
+                    .disabled(mintingLink)
+                }
+                Spacer()
+                if student.linked, entry.sharedAt != nil {
+                    Button("Stop sharing") {
+                        Task {
+                            sharing = true
+                            _ = await workspace.setShared(entry, shared: false)
+                            sharing = false
                         }
                     }
-                    .buttonStyle(PLSecondaryButtonStyle())
+                    .disabled(sharing)
                 }
-            } else {
-                Button {
-                    Task { await mintLink(entry) }
-                } label: {
-                    Label(mintingLink ? "Getting the link…" : "Get a link",
-                          systemImage: "link")
-                        .font(.plButtonSecondary)
-                }
-                .buttonStyle(PLSecondaryButtonStyle())
-                .disabled(mintingLink)
             }
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(PL.text400)
+            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
@@ -229,30 +208,31 @@ struct CoachEntryScreen: View {
     private func mintLink(_ entry: CoachEntryRow) async {
         guard let uid = app.userId else { return }
         mintingLink = true
-        let title = lesson?.takeaways?.title
-        linkURL = await workspace.entryLinkURL(owner: uid, entry: entry, title: title)
+        linkURL = await workspace.entryLinkURL(owner: uid, entry: entry, title: lesson?.takeaways?.title)
         mintingLink = false
         if linkURL == nil {
             errorLine = "Couldn't get a link. Try again."
         }
     }
 
-    // MARK: - Body
+    // MARK: - The entry itself, as the journal draws one
 
-    @ViewBuilder
-    private var entryBody: some View {
-        if let takeaways = lesson?.takeaways, !(takeaways.themes ?? []).isEmpty {
-            VStack(alignment: .leading, spacing: 18) {
-                ForEach(takeaways.themes ?? [], id: \.name) { theme in
-                    VStack(alignment: .leading, spacing: 7) {
+    private func entryCard(_ entry: CoachEntryRow) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Entry · \(PGDate.shortDate(entry.createdAt))")
+                .font(.system(size: 13))
+                .foregroundStyle(PL.text500)
+
+            if let takeaways = lesson?.takeaways, !(takeaways.themes ?? []).isEmpty {
+                ForEach(Array((takeaways.themes ?? []).enumerated()), id: \.offset) { _, theme in
+                    VStack(alignment: .leading, spacing: 6) {
                         Text(theme.name.uppercased())
                             .font(.plSection)
                             .tracking(0.6)
                             .foregroundStyle(PL.cyan)
-                        ForEach(theme.points, id: \.self) { point in
+                        ForEach(Array(theme.points.enumerated()), id: \.offset) { _, point in
                             HStack(alignment: .top, spacing: 8) {
-                                Circle().fill(PL.text600)
-                                    .frame(width: 4, height: 4)
+                                Circle().fill(PL.text600).frame(width: 4, height: 4)
                                     .padding(.top, 7)
                                 Text(point)
                                     .font(.plBody)
@@ -262,121 +242,116 @@ struct CoachEntryScreen: View {
                             }
                         }
                     }
+                    .padding(.top, 2)
                 }
-                DisclosureGroup {
-                    Text(lesson?.transcript ?? "")
-                        .font(.plBody)
-                        .foregroundStyle(PL.text300)
-                        .lineSpacing(4)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 8)
-                } label: {
-                    Text("Transcript")
-                        .font(.plRowTitle)
-                        .foregroundStyle(PL.text400)
-                }
-                .tint(PL.text400)
-            }
-        } else {
-            Text(lesson?.transcript ?? "")
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
-                .lineSpacing(4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    // MARK: - Edit
-
-    private func openEditor() {
-        draft = lesson?.transcript ?? ""
-        editError = nil
-        editOpen = true
-    }
-
-    private var editSheet: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 12) {
-                TextEditor(text: $draft)
+            } else if lesson?.status == "queued" {
+                Text("Reading it through…")
+                    .font(.plBody)
+                    .foregroundStyle(PL.text400)
+            } else {
+                Text(lesson?.transcript ?? "")
                     .font(.plBody)
                     .foregroundStyle(PL.text200)
-                    .lineSpacing(4)
-                    .scrollContentBackground(.hidden)
-                    .padding(10)
-                    .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
-                            .strokeBorder(PL.edge, lineWidth: 1)
-                    )
-                if let editError {
-                    Text(editError)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.dangerText)
-                }
-                HStack(spacing: 10) {
-                    Button(savingWords ? "Saving…" : "Save") {
-                        Task { await saveWords() }
-                    }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                    .disabled(savingWords || draft.trimmingCharacters(in: .whitespaces).isEmpty)
-                    Button("Cancel") { editOpen = false }
-                        .buttonStyle(PLSecondaryButtonStyle())
-                        .disabled(savingWords)
-                }
+                    .lineSpacing(3)
             }
-            .padding(20)
-            .background(ArenaBackground())
-            .toolbar(.hidden, for: .navigationBar)
+
+            HStack(spacing: 16) {
+                if lesson?.takeaways != nil {
+                    Button(transcriptOpen ? "Hide transcript" : "Transcript") {
+                        withAnimation { transcriptOpen.toggle() }
+                    }
+                }
+                if lesson?.takeaways == nil {
+                    Button("Edit") { editOpen = true }
+                }
+                Spacer()
+                Button("Delete") { deleteAsk = true }
+            }
+            .font(.system(size: 14, weight: .medium))
+            .foregroundStyle(PL.text400)
+            .buttonStyle(.plain)
+
+            if transcriptOpen {
+                Text(lesson?.transcript ?? "")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text400)
+                    .lineSpacing(3)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 16)
     }
 
-    private func saveWords() async {
-        guard let entry else { return }
-        savingWords = true
-        editError = await workspace.saveWords(
-            entry, transcript: draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        savingWords = false
-        if editError == nil { editOpen = false }
-    }
+    // MARK: - Match picker
 
-    // MARK: - Match link
-
-    private var matchChoices: [MatchRow] {
-        guard let playerId = student?.playerId else { return [] }
-        return library.matches
-            .filter { $0.userId == playerId }
-            .sorted { $0.createdAt > $1.createdAt }
-    }
-
-    private var matchPicker: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Link a match")
-                    .font(.plPageTitle)
-                    .tracking(-0.6)
-                    .foregroundStyle(PL.textBody)
-                VStack(spacing: 0) {
-                    ForEach(Array(matchChoices.enumerated()), id: \.element.id) { i, match in
-                        Button {
-                            guard let entry else { return }
-                            matchPickerOpen = false
-                            Task { _ = await workspace.setMatch(entry, matchId: match.id) }
-                        } label: {
-                            CoachMatchLine(match: match)
-                        }
-                        .buttonStyle(.plain)
-                        if i < matchChoices.count - 1 {
-                            Divider().overlay(PL.edge)
-                        }
+    private func matchPicker(_ entry: CoachEntryRow) -> some View {
+        PLSheetScaffold(title: "Link a match", doneLabel: "Cancel") {
+            List {
+                ForEach(matchChoices) { match in
+                    Button {
+                        matchPickerOpen = false
+                        Task { _ = await workspace.setMatch(entry, matchId: match.id) }
+                    } label: {
+                        CoachMatchLine(match: match)
+                            .padding(.horizontal, -16)
                     }
+                    .buttonStyle(.plain)
                 }
-                .plCard(padding: 0)
             }
-            .padding(20)
         }
         .presentationDetents([.medium, .large])
-        .presentationBackground(PL.surface)
-        .presentationDragIndicator(.visible)
+    }
+}
+
+/// Correcting the words of an entry that has no distilled note: the same
+/// sheet chrome as the journal's editors, Save top right.
+struct CoachEntryEditSheet: View {
+    let entry: CoachEntryRow
+    let initial: String
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(CoachWorkspaceStore.self) private var workspace
+
+    @State private var draft: String
+    @State private var saving = false
+    @State private var errorMessage: String?
+
+    init(entry: CoachEntryRow, initial: String) {
+        self.entry = entry
+        self.initial = initial
+        _draft = State(initialValue: initial)
+    }
+
+    var body: some View {
+        PLSheetScaffold(
+            title: "Edit entry",
+            doneLabel: saving ? "Saving…" : "Save",
+            doneDisabled: saving || draft.trimmingCharacters(in: .whitespaces).isEmpty || draft == initial,
+            onDone: {
+                Task {
+                    saving = true
+                    errorMessage = await workspace.saveWords(
+                        entry, transcript: draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    )
+                    saving = false
+                    if errorMessage == nil { dismiss() }
+                }
+            }
+        ) {
+            Form {
+                Section {
+                    TextField("The entry", text: $draft, axis: .vertical)
+                        .lineLimit(8...24)
+                }
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.plBody)
+                            .foregroundStyle(PL.dangerText)
+                    }
+                }
+            }
+            .plKeyboardDismiss()
+        }
     }
 }

@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// Creating an entry, both ways in. Writing gets a plain editor; audio
-/// gets the same recorder a player's lesson uses, pointed at the coach's
-/// journal instead of their own. When the chooser did not already say
-/// which student, picking one is the first step — an entry about nobody
-/// has nowhere to live.
+/// Creating an entry, in the journal composer's own chrome: title in the
+/// bar, Save top right, a grouped form. The student is a picker in the
+/// form when the chooser did not already say who; recording opens the
+/// same full-screen recorder a player's lesson uses, pointed at the
+/// coach's journal instead of their own.
 struct CoachEntryComposer: View {
     let request: CoachComposerRequest
 
@@ -12,179 +12,130 @@ struct CoachEntryComposer: View {
     @Environment(AppState.self) private var app
     @Environment(CoachWorkspaceStore.self) private var workspace
 
-    @State private var student: CoachStudentRow?
+    @State private var studentId: UUID?
     @State private var draft = ""
+    @State private var summarize = true
     @State private var saving = false
-    @State private var errorLine: String?
+    @State private var errorMessage: String?
 
-    var body: some View {
-        ZStack {
-            ArenaBackground()
-            if let student {
-                switch request.mode {
-                case .write:
-                    editor(student)
-                case .record:
-                    LessonRecordScreen(
-                        hideAuthorField: true,
-                        saveAs: { transcript in
-                            await save(student: student, transcript: transcript, summarize: true)
-                        },
-                        onSaved: {}
-                    )
-                }
-            } else {
-                studentPicker
-            }
-        }
-        .preferredColorScheme(.dark)
-        .onAppear {
-            student = request.student
-        }
+    private var student: CoachStudentRow? {
+        studentId.flatMap { workspace.student($0) }
     }
 
-    // MARK: - Student picker
-
-    private var studentPicker: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Text("Who is this about?")
-                        .font(.plPageTitle)
-                        .tracking(-0.6)
-                        .foregroundStyle(PL.textBody)
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(PL.text400)
-                            .frame(width: 34, height: 34)
-                            .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close")
-                }
-                .padding(.top, 8)
-
-                if workspace.activeStudents.isEmpty {
-                    Text("No students yet. Add one in Students first.")
-                        .font(.plBody)
-                        .foregroundStyle(PL.text400)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(Array(workspace.activeStudents.enumerated()), id: \.element.id) { i, row in
-                            Button {
-                                student = row
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Text(row.displayName)
-                                        .font(.plRowTitle)
-                                        .foregroundStyle(PL.text100)
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 12, weight: .semibold))
-                                        .foregroundStyle(PL.text500)
-                                }
-                                .padding(14)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            if i < workspace.activeStudents.count - 1 {
-                                Divider().overlay(PL.edge)
-                            }
-                        }
-                    }
-                    .plCard(padding: 0)
-                }
+    var body: some View {
+        Group {
+            switch request.mode {
+            case .write:
+                editor
+            case .record:
+                recorder
             }
-            .padding(24)
+        }
+        .onAppear {
+            if studentId == nil { studentId = request.student?.id ?? workspace.activeStudents.first?.id }
         }
     }
 
     // MARK: - Writing
 
-    private func editor(_ student: CoachStudentRow) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("New entry")
-                        .font(.plPageTitle)
-                        .tracking(-0.6)
-                        .foregroundStyle(PL.textBody)
-                    Text(student.displayName)
-                        .font(.plSection)
-                        .tracking(0.6)
-                        .foregroundStyle(PL.cyan)
-                }
-                Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(PL.text400)
-                        .frame(width: 34, height: 34)
-                        .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Close")
-            }
-            .padding(.top, 8)
-
-            TextEditor(text: $draft)
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
-                .lineSpacing(4)
-                .scrollContentBackground(.hidden)
-                .padding(10)
-                .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
-                        .strokeBorder(PL.edge, lineWidth: 1)
-                )
-                .frame(maxHeight: .infinity)
-
-            Text("What you worked on, what to fix, what comes next. Share it from the entry when it's ready.")
-                .font(.plCaption)
-                .foregroundStyle(PL.text500)
-
-            if let errorLine {
-                Text(errorLine)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.dangerText)
-            }
-
-            Button(saving ? "Saving…" : "Save entry") {
+    private var editor: some View {
+        PLSheetScaffold(
+            title: "New entry",
+            doneLabel: saving ? "Saving…" : "Save",
+            doneDisabled: saving || student == nil
+                || draft.trimmingCharacters(in: .whitespaces).isEmpty,
+            onDone: {
                 Task {
-                    let ok = await save(
-                        student: student,
-                        transcript: draft.trimmingCharacters(in: .whitespacesAndNewlines),
-                        summarize: false
-                    )
-                    if ok { dismiss() }
+                    guard let student else { return }
+                    if await save(student: student, transcript: draft, summarize: summarize) {
+                        dismiss()
+                    }
                 }
             }
-            .buttonStyle(PLPrimaryButtonStyle())
-            .disabled(saving || draft.trimmingCharacters(in: .whitespaces).isEmpty)
-            .frame(maxWidth: .infinity)
+        ) {
+            Form {
+                Section {
+                    Picker("Student", selection: $studentId) {
+                        ForEach(workspace.activeStudents) { row in
+                            Text(row.displayName).tag(Optional(row.id))
+                        }
+                    }
+                }
+
+                Section {
+                    TextField(
+                        "What you worked on, what to fix, what comes next",
+                        text: $draft, axis: .vertical
+                    )
+                    .lineLimit(8...20)
+                }
+
+                Section {
+                    Toggle("Condense and summarize", isOn: $summarize)
+                } footer: {
+                    Text("Summarizing reads the whole entry through and writes it up as short points, so saving takes a few seconds longer.")
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.plBody)
+                            .foregroundStyle(PL.dangerText)
+                    }
+                }
+            }
+            .plKeyboardDismiss()
         }
-        .padding(24)
-        .plKeyboardDismiss()
+    }
+
+    // MARK: - Recording
+
+    @ViewBuilder
+    private var recorder: some View {
+        if let student {
+            LessonRecordScreen(
+                hideAuthorField: true,
+                saveAs: { transcript in
+                    await save(student: student, transcript: transcript, summarize: true)
+                },
+                onSaved: {}
+            )
+        } else {
+            // The chooser opened without a student and the roster is
+            // empty: nothing to record about. Say so rather than record
+            // into nowhere.
+            ZStack {
+                ArenaBackground()
+                VStack(spacing: 14) {
+                    Text("Add a student first")
+                        .font(.plCardTitle)
+                        .foregroundStyle(PL.text100)
+                    Text("Entries live under a student. Add one in Students, then record.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.text400)
+                        .multilineTextAlignment(.center)
+                    Button("Close") { dismiss() }
+                        .buttonStyle(PLSecondaryButtonStyle())
+                }
+                .padding(32)
+            }
+            .preferredColorScheme(.dark)
+        }
     }
 
     // MARK: - Save
 
     private func save(student: CoachStudentRow, transcript: String, summarize: Bool) async -> Bool {
-        guard let uid = app.userId, !transcript.isEmpty else { return false }
+        let words = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let uid = app.userId, !words.isEmpty else { return false }
         saving = true
-        errorLine = nil
+        errorMessage = nil
         let entry = await workspace.createEntry(
-            coachId: uid,
-            studentId: student.id,
-            transcript: transcript,
-            summarize: summarize
+            coachId: uid, studentId: student.id, transcript: words, summarize: summarize
         )
         saving = false
         if entry == nil {
-            errorLine = "Couldn't save the entry. Try again."
+            errorMessage = "Couldn't save the entry. Try again."
             return false
         }
         return true

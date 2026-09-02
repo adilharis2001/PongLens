@@ -1,16 +1,15 @@
 import SwiftUI
 
-/// The roster. Every student the coach works with, on PongLens or not;
-/// tapping through is where their matches and journal live.
+/// The roster, as grouped rows like the Account page: every student the
+/// coach works with, on PongLens or not, with "Add a student" as the last
+/// row the way Account ends its coaching group with "Add a coach".
 struct CoachStudentsScreen: View {
     @Environment(AppState.self) private var app
+    @Environment(CoachRouter.self) private var router
     @Environment(CoachWorkspaceStore.self) private var workspace
     @Environment(LibraryStore.self) private var library
 
-    @State private var addOpen = false
-    @State private var newName = ""
-    @State private var adding = false
-    @State private var addError: String?
+    @State private var inviteOpen = false
 
     private func matchCount(for student: CoachStudentRow) -> Int {
         guard let playerId = student.playerId else { return 0 }
@@ -18,150 +17,122 @@ struct CoachStudentsScreen: View {
     }
 
     var body: some View {
+        @Bindable var router = router
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack {
-                    Text("Students")
-                        .font(.plPageTitle)
-                        .tracking(-0.6)
-                        .foregroundStyle(PL.textBody)
-                    Spacer()
-                    Button("Add a student") {
-                        newName = ""
-                        addError = nil
-                        addOpen = true
-                    }
-                    .buttonStyle(PLSecondaryButtonStyle())
-                }
+            VStack(alignment: .leading, spacing: 28) {
+                Text("Students")
+                    .font(.plPageTitle)
+                    .tracking(-0.6)
+                    .foregroundStyle(PL.textBody)
 
                 if workspace.loadFailed && !workspace.loaded {
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 12) {
                         Text("Couldn't load your students. Check your connection.")
                             .font(.plBody)
                             .foregroundStyle(PL.text400)
                         Button("Try again") {
                             Task { await workspace.load(userId: app.userId) }
                         }
-                        .buttonStyle(PLSecondaryButtonStyle())
+                        .buttonStyle(PLPrimaryButtonStyle())
+                        .frame(maxWidth: .infinity)
                     }
-                } else if workspace.loaded && workspace.activeStudents.isEmpty {
-                    Text("No students yet.")
-                        .font(.plBody)
-                        .foregroundStyle(PL.text400)
-                } else {
-                    VStack(spacing: 0) {
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .plCard(padding: 20)
+                } else if workspace.loaded {
+                    CoachGroup {
                         ForEach(Array(workspace.activeStudents.enumerated()), id: \.element.id) { i, student in
                             NavigationLink(value: student) {
-                                row(student)
+                                CoachStudentLine(
+                                    student: student,
+                                    entryCount: workspace.entries(for: student.id).count,
+                                    matchCount: matchCount(for: student)
+                                )
                             }
                             .buttonStyle(.plain)
-                            if i < workspace.activeStudents.count - 1 {
-                                Divider().overlay(PL.edge)
-                            }
+                            CoachRowDivider()
+                        }
+                        CoachNavRow(label: "Add a student", symbol: "person.badge.plus") {
+                            router.addStudentOpen = true
+                        }
+                        CoachRowDivider()
+                        CoachNavRow(label: "Invite a student", symbol: "link") {
+                            inviteOpen = true
                         }
                     }
-                    .plCard(padding: 0)
+
+                    if workspace.activeStudents.isEmpty {
+                        Text("No students yet.")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text400)
+                    }
                 }
             }
             .padding(20)
-            .padding(.bottom, 96)
+            .padding(.top, 12)
+            .padding(.bottom, 120)
         }
-        .sheet(isPresented: $addOpen) {
-            addSheet
-                .presentationDetents([.height(260)])
-                .presentationBackground(PL.surface)
-                .presentationDragIndicator(.visible)
+        .refreshable { await workspace.load(userId: app.userId) }
+        .sheet(isPresented: $router.addStudentOpen) {
+            AddStudentSheet()
+        }
+        .sheet(isPresented: $inviteOpen) {
+            StudentInviteSheet(student: nil)
         }
     }
+}
 
-    private func row(_ student: CoachStudentRow) -> some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(PL.surface2)
-                Text(String(student.displayName.prefix(1)).uppercased())
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(student.linked ? PL.cyan : PL.text500)
-            }
-            .frame(width: 36, height: 36)
-            .overlay(Circle().strokeBorder(PL.edge, lineWidth: 1))
+/// The composer's chrome for one field: title in the bar, Add top right,
+/// a grouped form. Same scaffold the journal's composer stands in.
+struct AddStudentSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var app
+    @Environment(CoachWorkspaceStore.self) private var workspace
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(student.displayName)
-                    .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
-                if student.linked {
-                    let matches = matchCount(for: student)
-                    let entries = workspace.entries(for: student.id).count
-                    Text(summary(matches: matches, entries: entries))
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
-                } else {
-                    Text("Not on PongLens yet")
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
+    @State private var name = ""
+    @State private var adding = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        PLSheetScaffold(
+            title: "Add a student",
+            doneLabel: adding ? "Adding…" : "Add",
+            doneDisabled: adding || name.trimmingCharacters(in: .whitespaces).isEmpty,
+            onDone: { Task { await add() } }
+        ) {
+            Form {
+                Section {
+                    TextField("Their name", text: $name)
+                        .textContentType(.name)
+                        .submitLabel(.done)
+                        .onSubmit { Task { await add() } }
+                } footer: {
+                    Text("They don't need the app for you to keep notes. Invite them later and everything connects.")
+                }
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.plBody)
+                            .foregroundStyle(PL.dangerText)
+                    }
                 }
             }
-            Spacer()
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(PL.text500)
+            .plKeyboardDismiss()
         }
-        .padding(14)
-        .contentShape(Rectangle())
-    }
-
-    private func summary(matches: Int, entries: Int) -> String {
-        var parts: [String] = []
-        if matches > 0 { parts.append("\(matches) match\(matches == 1 ? "" : "es")") }
-        if entries > 0 { parts.append("\(entries) entr\(entries == 1 ? "y" : "ies")") }
-        return parts.isEmpty ? "On PongLens" : parts.joined(separator: " · ")
-    }
-
-    private var addSheet: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Add a student")
-                .font(.plPageTitle)
-                .tracking(-0.6)
-                .foregroundStyle(PL.textBody)
-            TextField("Their name", text: $newName)
-                .plField()
-                .submitLabel(.done)
-                .onSubmit { Task { await add() } }
-            Text("They don't need the app for you to keep notes. Invite them later and everything connects.")
-                .font(.plCaption)
-                .foregroundStyle(PL.text500)
-                .fixedSize(horizontal: false, vertical: true)
-            if let addError {
-                Text(addError)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.dangerText)
-            }
-            Button(adding ? "Adding…" : "Add") {
-                Task { await add() }
-            }
-            .buttonStyle(PLPrimaryButtonStyle())
-            .disabled(adding)
-            .frame(maxWidth: .infinity)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .presentationDetents([.medium])
     }
 
     private func add() async {
         guard let uid = app.userId else { return }
-        let clean = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else {
-            addError = "Enter their name to add them."
-            return
-        }
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
         adding = true
-        addError = nil
+        errorMessage = nil
         let row = await workspace.addStudent(coachId: uid, name: clean)
         adding = false
         if row == nil {
-            addError = "Couldn't add them. Try again."
+            errorMessage = "Couldn't add them. Try again."
         } else {
-            addOpen = false
+            dismiss()
         }
     }
 }

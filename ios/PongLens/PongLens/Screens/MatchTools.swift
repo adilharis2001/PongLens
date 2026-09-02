@@ -563,11 +563,38 @@ struct PlacementRequestSheet: View {
 
 // MARK: - Coach invite
 
+/// Share with coach. Your connected coaches come first, by name, with
+/// what they can see and a one-tap share for this match — the link is
+/// only for a coach you have not connected yet. A player-written,
+/// match-scoped accepted link is the direct grant (160); the coach hears
+/// about it the same way they hear about a student's match turning ready.
 struct CoachInviteSheet: View {
     let match: MatchRow
 
     @Environment(AppState.self) private var app
     @Environment(\.dismiss) private var dismiss
+
+    struct ConnectedCoach: Identifiable {
+        let id: UUID
+        let name: String
+        /// An accepted link with no scope: every match, this one included.
+        let allMatches: Bool
+        /// The accepted link scoped to THIS match, when there is one.
+        let matchLinkId: UUID?
+        let otherMatches: Int
+    }
+
+    struct PendingInvite: Identifiable {
+        let id: UUID
+        let token: String
+        let scoped: Bool
+    }
+
+    @State private var coaches: [ConnectedCoach] = []
+    @State private var pending: [PendingInvite] = []
+    @State private var loaded = false
+    @State private var busyCoach: UUID?
+
     @State private var scope = "match"
     @State private var link: URL?
     @State private var creating = false
@@ -577,6 +604,41 @@ struct CoachInviteSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if loaded && !coaches.isEmpty {
+                    Section {
+                        ForEach(coaches) { coach in
+                            coachRow(coach)
+                        }
+                    } header: {
+                        Text("Your coaches")
+                    } footer: {
+                        Text("Sharing hands them this match. Take it back any time from Account.")
+                    }
+                }
+
+                if !pending.isEmpty {
+                    Section {
+                        ForEach(pending) { invite in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Invite sent")
+                                        .foregroundStyle(PL.text100)
+                                    Text(invite.scoped ? "Waiting for them to open it · this match" : "Waiting for them to open it · all matches")
+                                        .font(.plCaption)
+                                        .foregroundStyle(PL.text500)
+                                }
+                                Spacer()
+                                ShareLink(item: URL(string: "https://www.ponglens.com/coach-invite/\(invite.token)")!) {
+                                    Text("Send again")
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    } header: {
+                        Text("Invites sent")
+                    }
+                }
+
                 Section {
                     Picker("Share", selection: $scope) {
                         Text("This match").tag("match")
@@ -584,12 +646,8 @@ struct CoachInviteSheet: View {
                     }
                     .pickerStyle(.segmented)
                     .disabled(link != nil)
-                } footer: {
-                    Text("They can watch your matches, point by point, and leave coach notes.")
-                }
 
-                if let link {
-                    Section {
+                    if let link {
                         Text(link.absoluteString)
                             .font(.system(size: 13, design: .monospaced))
                             .foregroundStyle(PL.text300)
@@ -602,9 +660,7 @@ struct CoachInviteSheet: View {
                             QRCodeView(url: link)
                                 .listRowBackground(Color.clear)
                         }
-                    }
-                } else {
-                    Section {
+                    } else {
                         Button(creating ? "Creating…" : "Create invite link") {
                             Task { await create() }
                         }
@@ -615,6 +671,10 @@ struct CoachInviteSheet: View {
                                 .foregroundStyle(PL.dangerText)
                         }
                     }
+                } header: {
+                    Text(coaches.isEmpty && pending.isEmpty ? "Invite a coach" : "Invite another coach")
+                } footer: {
+                    Text("For a coach you haven't connected yet. They open the link, sign in, and can watch your matches point by point and leave notes.")
                 }
             }
             .tint(PL.cyan)
@@ -628,6 +688,124 @@ struct CoachInviteSheet: View {
             }
         }
         .preferredColorScheme(.dark)
+        .task { await load() }
+    }
+
+    @ViewBuilder
+    private func coachRow(_ coach: ConnectedCoach) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(coach.name)
+                    .foregroundStyle(PL.text100)
+                Text(coach.allMatches
+                     ? "Sees all your matches"
+                     : coach.matchLinkId != nil
+                        ? "Has this match"
+                        : coach.otherMatches > 0
+                            ? "Has \(coach.otherMatches) other match\(coach.otherMatches == 1 ? "" : "es")"
+                            : "Doesn't have this match")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+            }
+            Spacer()
+            if coach.allMatches {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(PL.cyan)
+            } else if busyCoach == coach.id {
+                ProgressView().tint(PL.cyan)
+            } else if coach.matchLinkId != nil {
+                Button("Remove") { Task { await unshare(coach) } }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(PL.text400)
+            } else {
+                Button("Share") { Task { await share(coach) } }
+                    .buttonStyle(.borderless)
+                    .fontWeight(.semibold)
+            }
+        }
+    }
+
+    // MARK: - Data
+
+    private struct LinkRow: Decodable {
+        let id: UUID
+        let coach_id: UUID?
+        let scope_match_id: UUID?
+        let status: String
+        let invite_token: String
+    }
+    private struct NameRow: Decodable {
+        let id: UUID
+        let coach_name: String?
+        let coach_email: String?
+    }
+
+    private func load() async {
+        guard let uid = app.userId else { return }
+        async let linksQ: [LinkRow]? = try? await supa
+            .from("coach_links")
+            .select("id,coach_id,scope_match_id,status,invite_token")
+            .eq("player_id", value: uid.uuidString.lowercased())
+            .neq("status", value: "revoked")
+            .execute().value
+        async let namesQ: [NameRow]? = try? await supa
+            .rpc("player_coach_links").execute().value
+        let (links, names) = await (linksQ ?? [], namesQ ?? [])
+        let nameById = Dictionary(uniqueKeysWithValues: names.map { ($0.id, $0.coach_name ?? $0.coach_email ?? "Coach") })
+
+        var grouped: [UUID: [LinkRow]] = [:]
+        for row in links where row.status == "accepted" {
+            guard let coachId = row.coach_id else { continue }
+            grouped[coachId, default: []].append(row)
+        }
+        coaches = grouped.map { coachId, rows in
+            ConnectedCoach(
+                id: coachId,
+                name: rows.compactMap { nameById[$0.id] }.first ?? "Coach",
+                allMatches: rows.contains { $0.scope_match_id == nil },
+                matchLinkId: rows.first { $0.scope_match_id == match.id }?.id,
+                otherMatches: rows.filter { $0.scope_match_id != nil && $0.scope_match_id != match.id }.count
+            )
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        pending = links
+            .filter { $0.status == "pending" && $0.coach_id == nil }
+            .map { PendingInvite(id: $0.id, token: $0.invite_token, scoped: $0.scope_match_id != nil) }
+        loaded = true
+    }
+
+    private func share(_ coach: ConnectedCoach) async {
+        guard let uid = app.userId else { return }
+        busyCoach = coach.id
+        struct Insert: Encodable {
+            let player_id: String
+            let coach_id: String
+            let scope_match_id: String
+            let status: String
+        }
+        _ = try? await supa
+            .from("coach_links")
+            .insert(Insert(
+                player_id: uid.uuidString.lowercased(),
+                coach_id: coach.id.uuidString.lowercased(),
+                scope_match_id: match.id.uuidString.lowercased(),
+                status: "accepted"
+            ))
+            .execute()
+        await load()
+        busyCoach = nil
+    }
+
+    private func unshare(_ coach: ConnectedCoach) async {
+        guard let linkId = coach.matchLinkId else { return }
+        busyCoach = coach.id
+        _ = try? await supa
+            .from("coach_links")
+            .delete()
+            .eq("id", value: linkId.uuidString.lowercased())
+            .execute()
+        await load()
+        busyCoach = nil
     }
 
     private func create() async {
@@ -651,6 +829,7 @@ struct CoachInviteSheet: View {
                 .execute()
                 .value
             link = URL(string: "https://www.ponglens.com/coach-invite/\(row.invite_token)")
+            await load()
         } catch {
             errorMessage = "Couldn't create the link. Try again."
         }
