@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { studentSummary } from "@/lib/coach/entryView";
@@ -18,7 +19,10 @@ export function StudentsView({ userId }: { userId: string }) {
   const [students, setStudents] = useState<CoachStudentRow[] | null>(null);
   const [entryCounts, setEntryCounts] = useState<Record<string, number>>({});
   const [matchCounts, setMatchCounts] = useState<Record<string, number>>({});
-  const [addOpen, setAddOpen] = useState(false);
+  // ?add=1 opens the form straight away — the checklist's "Add your
+  // first student" lands here with nothing else to tap.
+  const searchParams = useSearchParams();
+  const [addOpen, setAddOpen] = useState(searchParams.get("add") === "1");
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);

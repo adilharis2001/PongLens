@@ -847,6 +847,16 @@ export const guides: Guide[] = [
           "The player receives a notification for your note. Point notes and overall notes also appear in the player’s Journal.",
         ],
       },
+      {
+        heading: "Keep lesson notes on each student",
+        steps: [
+          "Switch to the coaching side from Account, or from the switch at the top if you also play.",
+          "Open Students and add a student by name. They do not need PongLens for you to keep notes.",
+          "Write or record an entry after a lesson. PongLens condenses it into a few points.",
+          "Share the entry when it is ready. It appears in the student’s Journal, and later edits show there too.",
+          "Send the student their invite link from their page. Joining from it connects their account, and the matches they upload show up under their name.",
+        ],
+      },
     ],
   },
 ];
