@@ -609,3 +609,29 @@ test("inferred-bounce marker copy distinguishes time-only evidence from a table 
     "4.00s · continuous flight preferred · diagnostic (score 0.30) · normal miss reason unknown · time only"
   );
 });
+
+test("a label is stored and found under the artifact's own rounding", () => {
+  // Events carry times rounded to 2dp on the way out of the worker; the
+  // key must reproduce that exactly, or a stored label silently stops
+  // matching its dot.
+  assert.equal(serveMiss.labelKey(76.26), "76.26");
+  assert.equal(serveMiss.labelKey(76.2), "76.20");
+  const labels = new Map<string, serveMiss.BounceLabel>([["76.26", "paddle_contact"]]);
+  assert.equal(serveMiss.labelFor(labels, 76.26), "paddle_contact");
+  assert.equal(serveMiss.labelFor(labels, 76.25), null);
+  assert.equal(serveMiss.labelFor(null, 76.26), null);
+  assert.equal(serveMiss.labelFor(undefined, 76.26), null);
+});
+
+test("every label has a colour and a name, and the vocabulary is closed", () => {
+  // The chips, the legend and three drawing surfaces all iterate these;
+  // a label without a tone would render invisibly rather than erroring.
+  assert.deepEqual(
+    serveMiss.BOUNCE_LABELS.map((l) => l.value).sort(),
+    Object.keys(serveMiss.LABEL_TONE).sort()
+  );
+  for (const { value, copy } of serveMiss.BOUNCE_LABELS) {
+    assert.equal(serveMiss.bounceLabelCopy(value), copy);
+    assert.match(serveMiss.LABEL_TONE[value], /^#[0-9a-f]{6}$/);
+  }
+});

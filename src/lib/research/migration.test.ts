@@ -48,6 +48,13 @@ const audioImpactFootClassesUrl = new URL(
 const audioImpactFootClasses = existsSync(audioImpactFootClassesUrl)
   ? readFileSync(audioImpactFootClassesUrl, "utf8").toLowerCase()
   : "";
+const audioImpactCombinedContactUrl = new URL(
+  "../../../supabase/migrations/155_audio_impact_combined_contact.sql",
+  import.meta.url,
+);
+const audioImpactCombinedContact = existsSync(audioImpactCombinedContactUrl)
+  ? readFileSync(audioImpactCombinedContactUrl, "utf8").toLowerCase()
+  : "";
 const serveFollowupExport = readFileSync(
   new URL(
     "../../../supabase/migrations/059_serve_followup_export.sql",
@@ -181,6 +188,25 @@ test("audio impact foot taxonomy migration keeps shoe, squeak, and stomp distinc
     /frozen audio-impact assignments are read-only/,
   );
   assert.match(audioImpactFootClasses, /media unavailable assignments cannot be labeled/);
+});
+
+test("audio impact combined-contact migration is additive and keeps lifecycle guards", () => {
+  assert.match(
+    audioImpactCombinedContact,
+    /create or replace function public\.validate_audio_impact_assignment\(\)/,
+  );
+  assert.match(audioImpactCombinedContact, /'paddle_table'/);
+  assert.match(audioImpactCombinedContact, /round c is sealed/);
+  assert.match(
+    audioImpactCombinedContact,
+    /frozen audio-impact assignments are read-only/,
+  );
+  assert.match(
+    audioImpactCombinedContact,
+    /media unavailable assignments cannot be labeled/,
+  );
+  assert.doesNotMatch(audioImpactCombinedContact, /delete\s+from\s+public\.research_assignments/);
+  assert.doesNotMatch(audioImpactCombinedContact, /update\s+public\.research_assignments/);
 });
 
 test("serve follow-up export includes evidence while retaining the admin gate", () => {

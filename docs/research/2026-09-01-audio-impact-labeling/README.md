@@ -11,11 +11,13 @@ The protected desktop reviewer is:
 - Local: <http://localhost:3000/research/audio-impacts>
 - Batch slug: `audio-impact-labeling-recent-v1`
 
-The eleven stored answers are paddle, table, floor, shoe/footstep, shoe squeak,
-stomp, net, background court, other, no clear impact, and unsure. `unsure`
-completes a review answer but is excluded from training and evaluation. The
-older combined shoe/stomp taxonomy is superseded by these three distinct foot
-classes.
+The twelve stored answers are paddle, table, paddle + table, floor,
+shoe/footstep, shoe squeak, stomp, net, background court, other, no clear
+impact, and unsure. `Paddle + table` records contacts too close in time to
+separate; it remains its own class rather than being forced into either
+single-impact label. `unsure` completes a review answer but is excluded from
+training and evaluation. The older combined shoe/stomp taxonomy is superseded
+by these three distinct foot classes.
 
 ## Prerequisites
 
@@ -263,7 +265,7 @@ Otherwise it leaves the pending evidence untouched for investigation.
 ## Reading the report
 
 Reports include confusion matrices; precision, recall, F1, and counts for all
-ten trainable classes; macro F1; paddle/table balanced accuracy and ROC AUC;
+eleven trainable classes; macro F1; paddle/table balanced accuracy and ROC AUC;
 abstention coverage; and separate recording and venue summaries. Classes with
 fewer than 30 A/B examples or 15 C examples are marked `data_insufficient`
 without being merged.

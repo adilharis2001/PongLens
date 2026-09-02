@@ -251,3 +251,117 @@ export function gapWorthOffering(
   if (!seam.prev || !seam.next) return seam;
   return seam.gapTo - seam.gapFrom >= GAP_WORTH_OFFERING_S ? seam : null;
 }
+
+/**
+ * Whether the cut video can actually show this card, or whether the
+ * ScoreKeeper has to play the card's OWN clip instead.
+ *
+ * The cut video is never re-assembled. An inserted card gets a cut_t0 so
+ * the strip can show it, but if the seam it went into had footage removed,
+ * that footage is not in the cut file — so playing from its cut_t0 plays
+ * whatever comes next and the rally is silently skipped. Terry 2, card 45:
+ * 12.5s removed at its seam, 14.5s of rally, and the cut jumps straight
+ * from card 44's end to card 46's start.
+ *
+ * The test is room. Between the previous card's rally END and the next
+ * card's rally START, the cut holds some number of seconds; if that is less
+ * than this card's own duration, the cut cannot be showing it. A normally
+ * cut card always has room by construction — the cut was built around it.
+ *
+ * Returns false when it cannot tell (no neighbours, missing timings), which
+ * keeps the cut as the default and matches every card that predates this.
+ */
+export function needsOwnClip(
+  prevPoint: Neighbour,
+  point: Neighbour,
+  nextPoint: Neighbour,
+  pad: ClipPad,
+  /** The cut file's real length, when the caller has the metadata. Only
+   *  the one-sided cases need it: a card at the match's edge has a file
+   *  edge where a neighbour would be. */
+  cutDuration?: number | null
+): boolean {
+  const self = spanOf(point, pad);
+  if (!self) return false;
+  const prev = spanOf(prevPoint, pad);
+  const next = spanOf(nextPoint, pad);
+  const needed = self.t1 - self.t0;
+  // Half a second of slack throughout: pads and rounding move these by
+  // fractions, and a false positive costs a needless file swap.
+  if (prev && next) {
+    return next.rallyStart - prev.rallyEnd + 0.5 < needed;
+  }
+  // A card at the start or the end of the match: the room is bounded by
+  // the file itself, so it needs the cut's real duration. A neighbour that
+  // EXISTS but cannot anchor (legacy, no cut_t0) is not a file edge — that
+  // stays "cannot tell", which keeps the cut as the default.
+  if (cutDuration == null || cutDuration <= 0) return false;
+  if (prev && nextPoint === null) {
+    return cutDuration - prev.rallyEnd + 0.5 < needed;
+  }
+  if (next && prevPoint === null) {
+    return next.rallyStart + 0.5 < needed;
+  }
+  return false;
+}
+
+/**
+ * Which cards, over a whole timeline, the cut video cannot show.
+ *
+ * `rows` is the PHYSICAL timeline — deleted cards included, because their
+ * footage still occupies the cut and they are true brackets for how much
+ * room a seam holds. Order does not matter; anything without a cut anchor
+ * is ignored.
+ *
+ * A RETROFITTED card must never bracket its neighbours. insert_point and
+ * split_point both mint idx = max + 1, so a card whose idx is larger than
+ * a later card's was added to the timeline after the cut was built — and
+ * its span can describe footage the cut does not hold. On the Terry seam,
+ * bracketing naively with the insert flagged real card 46 as unplayable,
+ * because the insert's 14.5s virtual span overhangs 46's room. The room a
+ * neighbour has is always measured between cards the cut was BUILT from.
+ * (Known miss, accepted: two separate rallies inserted into one seam can
+ * each fit the seam's room alone and neither gets flagged.)
+ */
+export function ownClipIds(
+  rows: (NonNullable<Neighbour> & { idx: number })[],
+  pad: ClipPad,
+  cutDuration?: number | null
+): Set<string> {
+  const cut = rows
+    .filter((p) => p.cut_t0 !== null)
+    .sort((a, b) => Number(a.cut_t0) - Number(b.cut_t0));
+  // idx of the earliest-created card AFTER each position; a card created
+  // later than something that follows it was retrofitted in.
+  const minIdxAfter: number[] = new Array(cut.length).fill(Infinity);
+  for (let i = cut.length - 2; i >= 0; i--) {
+    minIdxAfter[i] = Math.min(cut[i + 1].idx, minIdxAfter[i + 1]);
+  }
+  const retro = cut.map((p, i) => p.idx > minIdxAfter[i]);
+  const out = new Set<string>();
+  for (let i = 0; i < cut.length; i++) {
+    let prev: Neighbour = null;
+    for (let j = i - 1; j >= 0; j--) {
+      if (!retro[j]) { prev = cut[j]; break; }
+    }
+    let next: Neighbour = null;
+    for (let j = i + 1; j < cut.length; j++) {
+      if (!retro[j]) { next = cut[j]; break; }
+    }
+    // A card the cut was BUILT around never detours, whatever its local
+    // geometry says. The room heuristic misreads hand-edited overlaps —
+    // on Terry 2, card idx 26 sits against a neighbour whose adjusted
+    // span overlaps its own, room measured 4.8s for a 5.5s rally, and the
+    // cut shows the card perfectly well. Only a card with the retrofit
+    // signature may take a two-sided detour; the match's edges keep the
+    // file-end test for everyone, because the file edge is a hard fact —
+    // a real first or last card never trips it (its clip IS the cut's
+    // edge), and a tail insert (idx max+1, in order, so not inverted) is
+    // exactly what it exists to catch.
+    if (prev && next && !retro[i]) continue;
+    if (needsOwnClip(prev, cut[i], next, pad, cutDuration)) {
+      out.add(cut[i].id);
+    }
+  }
+  return out;
+}

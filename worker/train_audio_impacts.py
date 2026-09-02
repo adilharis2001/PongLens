@@ -39,6 +39,7 @@ AUDIO_IMPACT_CLASSES = (
     "background",
     "other",
     "no_impact",
+    "paddle_table",
 )
 EXCLUDED_CLASSES = {"unsure"}
 DEVELOPMENT_ROUNDS = {"A", "B"}
@@ -397,11 +398,25 @@ def build_grouped_folds(
     return folds
 
 
+def _validated_class_order(classes: Sequence[str]) -> tuple[str, ...]:
+    class_order = tuple(map(str, classes))
+    if not class_order or len(set(class_order)) != len(class_order):
+        raise ValueError("audio-impact class order must be nonempty and unique")
+    unknown = set(class_order).difference(AUDIO_IMPACT_CLASSES)
+    if unknown:
+        raise ValueError(
+            "audio-impact class order contains unknown classes: "
+            + ", ".join(sorted(unknown))
+        )
+    return class_order
+
+
 def _class_metrics(
     truth: Sequence[str],
     predictions: Sequence[str | None],
     *,
     partition: str,
+    classes: Sequence[str] = AUDIO_IMPACT_CLASSES,
 ) -> dict[str, dict[str, Any]]:
     minimum = (
         MIN_DEVELOPMENT_EXAMPLES
@@ -409,7 +424,7 @@ def _class_metrics(
         else MIN_SEALED_EXAMPLES
     )
     result = {}
-    for kind in AUDIO_IMPACT_CLASSES:
+    for kind in classes:
         true_positive = sum(t == kind and p == kind for t, p in zip(truth, predictions))
         false_positive = sum(t != kind and p == kind for t, p in zip(truth, predictions))
         false_negative = sum(t == kind and p != kind for t, p in zip(truth, predictions))
@@ -443,11 +458,11 @@ def _paddle_table_balanced_accuracy(
 
 
 def _paddle_table_roc_auc(
-    truth: Sequence[str], probabilities: np.ndarray | None
+    truth: Sequence[str], probabilities: np.ndarray | None, classes: Sequence[str]
 ) -> float | None:
     if probabilities is None:
         return None
-    paddle_index = AUDIO_IMPACT_CLASSES.index("paddle")
+    paddle_index = tuple(classes).index("paddle")
     positives = [
         float(probabilities[index, paddle_index])
         for index, kind in enumerate(truth)
@@ -474,21 +489,36 @@ def evaluate_predictions(
     *,
     partition: str,
     probabilities: np.ndarray | None = None,
+    classes: Sequence[str] = AUDIO_IMPACT_CLASSES,
 ) -> dict[str, Any]:
+    class_order = _validated_class_order(classes)
     if partition not in {"development", "sealed"}:
         raise ValueError("partition must be development or sealed")
     if len(examples) != len(predictions):
         raise ValueError("examples and predictions must have the same length")
     if probabilities is not None and probabilities.shape != (
         len(examples),
-        len(AUDIO_IMPACT_CLASSES),
+        len(class_order),
     ):
         raise ValueError("probability matrix has the wrong shape")
     truth = [str(row["kind"]) for row in examples]
+    unknown_truth = set(truth).difference(class_order)
+    unknown_predictions = {
+        value for value in predictions if value is not None
+    }.difference(class_order)
+    if unknown_truth or unknown_predictions:
+        raise ValueError("examples or predictions use classes absent from the model")
     accepted = sum(value is not None for value in predictions)
-    classes = _class_metrics(truth, predictions, partition=partition)
+    class_metrics = _class_metrics(
+        truth,
+        predictions,
+        partition=partition,
+        classes=class_order,
+    )
     supported_f1 = [
-        value["f1"] for value in classes.values() if value[f"{partition}_count"] > 0
+        value["f1"]
+        for value in class_metrics.values()
+        if value[f"{partition}_count"] > 0
     ]
     accepted_indices = [
         index for index, prediction in enumerate(predictions) if prediction is not None
@@ -499,6 +529,7 @@ def evaluate_predictions(
         selective_truth,
         selective_predictions,
         partition=partition,
+        classes=class_order,
     )
     selective_supported_f1 = [
         value["f1"]
@@ -531,17 +562,19 @@ def evaluate_predictions(
             selective_truth,
             selective_predictions,
         ),
-        "paddle_table_roc_auc": _paddle_table_roc_auc(truth, probabilities),
-        "classes": classes,
+        "paddle_table_roc_auc": _paddle_table_roc_auc(
+            truth, probabilities, class_order
+        ),
+        "classes": class_metrics,
         "confusion_matrix": {
             actual: {
                 predicted: sum(
                     left == actual and (right or "abstain") == predicted
                     for left, right in zip(truth, predictions)
                 )
-                for predicted in (*AUDIO_IMPACT_CLASSES, "abstain")
+                for predicted in (*class_order, "abstain")
             }
-            for actual in AUDIO_IMPACT_CLASSES
+            for actual in class_order
         },
         "venues": {},
         "recordings": {},
@@ -559,6 +592,7 @@ def evaluate_predictions(
             venue_truth,
             venue_predictions,
             partition=partition,
+            classes=class_order,
         )
         venue_supported_f1 = [
             value["f1"]
@@ -576,6 +610,7 @@ def evaluate_predictions(
             venue_selective_truth,
             venue_selective_predictions,
             partition=partition,
+            classes=class_order,
         )
         venue_selective_supported_f1 = [
             value["f1"]
@@ -624,9 +659,9 @@ def evaluate_predictions(
                         left == actual and (right or "abstain") == predicted
                         for left, right in zip(venue_truth, venue_predictions)
                     )
-                    for predicted in (*AUDIO_IMPACT_CLASSES, "abstain")
+                    for predicted in (*class_order, "abstain")
                 }
-                for actual in AUDIO_IMPACT_CLASSES
+                for actual in class_order
             },
             "paddle_table_balanced_accuracy": _paddle_table_balanced_accuracy(
                 venue_truth, venue_predictions
@@ -640,6 +675,7 @@ def evaluate_predictions(
             "paddle_table_roc_auc": _paddle_table_roc_auc(
                 venue_truth,
                 probabilities[indices] if probabilities is not None else None,
+                class_order,
             ),
         }
     recordings = sorted(
@@ -666,6 +702,7 @@ def evaluate_predictions(
                 recording_truth,
                 recording_predictions,
                 partition=partition,
+                classes=class_order,
             ),
         }
     return report
@@ -849,11 +886,19 @@ def _linear_probabilities(model: Mapping[str, Any], features: np.ndarray) -> np.
     return exponential / exponential.sum(axis=1, keepdims=True)
 
 
-def _predictions(probabilities: np.ndarray, threshold: float) -> list[str | None]:
+def _predictions(
+    probabilities: np.ndarray,
+    threshold: float,
+    *,
+    classes: Sequence[str] = AUDIO_IMPACT_CLASSES,
+) -> list[str | None]:
+    class_order = _validated_class_order(classes)
+    if probabilities.ndim != 2 or probabilities.shape[1] != len(class_order):
+        raise ValueError("probability matrix does not match the model class order")
     indices = probabilities.argmax(axis=1)
     confidence = probabilities.max(axis=1)
     return [
-        AUDIO_IMPACT_CLASSES[index] if confidence[row] >= threshold else None
+        class_order[index] if confidence[row] >= threshold else None
         for row, index in enumerate(indices)
     ]
 
@@ -864,16 +909,20 @@ def pool_acquisition_components(
     *,
     low_threshold_candidates: Sequence[Mapping[str, Any]] = (),
     duration_s: float | None = None,
+    classes: Sequence[str] = AUDIO_IMPACT_CLASSES,
 ) -> dict[str, float]:
+    class_order = _validated_class_order(classes)
     if len(probabilities) != len(candidates):
         raise ValueError("candidate and probability counts differ")
+    if probabilities.ndim != 2 or probabilities.shape[1] != len(class_order):
+        raise ValueError("probability matrix does not match the model class order")
     uncertainty = (
         float(np.mean(1.0 - probabilities.max(axis=1)))
         if candidates
         else 1.0
     )
     confound_indices = [
-        AUDIO_IMPACT_CLASSES.index(kind)
+        class_order.index(kind)
         for kind in (
             "floor",
             "shoe",
@@ -884,6 +933,7 @@ def pool_acquisition_components(
             "other",
             "no_impact",
         )
+        if kind in class_order
     ]
     confound_probability = (
         float(np.mean(probabilities[:, confound_indices].sum(axis=1)))
@@ -1055,6 +1105,7 @@ def score_round_b_pool(
         raise ValueError("A-model feature definition is not current")
     if artifact.get("detector_manifest_sha256") != audit["detector_manifest_sha256"]:
         raise ValueError("A-model detector binding differs from the audited proposals")
+    class_order = _validated_class_order(artifact.get("classes") or ())
     model = {
         "mean": artifact["mean"],
         "scale": artifact["scale"],
@@ -1125,12 +1176,13 @@ def score_round_b_pool(
             )
             probabilities = _linear_probabilities(model, features)
         else:
-            probabilities = np.empty((0, len(AUDIO_IMPACT_CLASSES)))
+            probabilities = np.empty((0, len(class_order)))
         scores[point_id] = pool_acquisition_components(
             probabilities,
             candidates,
             low_threshold_candidates=proposal.get("low_threshold_candidates") or [],
             duration_s=float(proposal.get("duration_s") or 0.0),
+            classes=class_order,
         )
     envelope = {
         "schema_version": 1,
@@ -1486,6 +1538,7 @@ def score_sealed(
         raise ValueError("frozen model hash does not match artifact contents")
     if canonical_hash(threshold_payload) != artifact["threshold_sha256"]:
         raise ValueError("frozen threshold hash does not match artifact contents")
+    class_order = _validated_class_order(artifact.get("classes") or ())
     probabilities = _linear_probabilities(
         {
             "mean": artifact["mean"],
@@ -1496,9 +1549,14 @@ def score_sealed(
     )
     report = evaluate_predictions(
         examples,
-        _predictions(probabilities, float(artifact["abstention_threshold"])),
+        _predictions(
+            probabilities,
+            float(artifact["abstention_threshold"]),
+            classes=class_order,
+        ),
         partition="sealed",
         probabilities=probabilities,
+        classes=class_order,
     )
     report["model_sha256"] = artifact["model_sha256"]
     report["threshold_sha256"] = artifact["threshold_sha256"]

@@ -210,3 +210,114 @@ struct InsertSeamPair: Identifiable {
     let prevNumber: Int?
     let nextNumber: Int?
 }
+
+/// Whether the cut video can actually show this card, or whether the
+/// ScoreKeeper has to play the card's OWN clip instead.
+///
+/// The cut video is never re-assembled. An inserted card gets a cutT0 so the
+/// strip can show it, but if the seam it went into had footage removed, that
+/// footage is not in the cut file — so playing from its cutT0 plays whatever
+/// comes next and the rally is silently skipped. Terry 2, card 45: 12.5s
+/// removed at its seam, 14.5s of rally, and the cut jumps straight from card
+/// 44's end to card 46's start.
+///
+/// The test is room: between the previous rally's END and the next rally's
+/// START the cut holds some seconds, and if that is less than this card's
+/// own duration the cut cannot be showing it. A normally cut card always has
+/// room, because the cut was built around it.
+func needsOwnClip(
+    _ prevPoint: InsertNeighbour?,
+    _ point: InsertNeighbour?,
+    _ nextPoint: InsertNeighbour?,
+    pad: ClipPad,
+    /// The cut file's real length, when the caller has the metadata. Only
+    /// the one-sided cases need it: a card at the match's edge has a file
+    /// edge where a neighbour would be.
+    cutDuration: Double? = nil
+) -> Bool {
+    guard let selfSpan = insertSpanOf(point, pad: pad) else { return false }
+    let prev = insertSpanOf(prevPoint, pad: pad)
+    let next = insertSpanOf(nextPoint, pad: pad)
+    let needed = selfSpan.t1 - selfSpan.t0
+    // Half a second of slack throughout: pads and rounding move these by
+    // fractions, and a false positive costs a needless file swap.
+    if let prev, let next {
+        return next.rallyStart - prev.rallyEnd + 0.5 < needed
+    }
+    // A card at the start or the end of the match: the room is bounded by
+    // the file itself, so it needs the cut's real duration. A neighbour
+    // that EXISTS but cannot anchor (legacy, no cutT0) is not a file edge —
+    // that stays "cannot tell", which keeps the cut as the default.
+    guard let cutDuration, cutDuration > 0 else { return false }
+    if let prev, nextPoint == nil {
+        return cutDuration - prev.rallyEnd + 0.5 < needed
+    }
+    if let next, prevPoint == nil {
+        return next.rallyStart + 0.5 < needed
+    }
+    return false
+}
+
+/// Which cards, over a whole timeline, the cut video cannot show.
+///
+/// `rows` is the PHYSICAL timeline — deleted cards included, because their
+/// footage still occupies the cut and they are true brackets for how much
+/// room a seam holds. Order does not matter; anything without a cut anchor
+/// is ignored.
+///
+/// A RETROFITTED card must never bracket its neighbours. insert_point and
+/// split_point both mint idx = max + 1, so a card whose idx is larger than
+/// a later card's was added to the timeline after the cut was built — and
+/// its span can describe footage the cut does not hold. On the Terry seam,
+/// bracketing naively with the insert flagged real card 46 as unplayable,
+/// because the insert's 14.5s virtual span overhangs 46's room. The room a
+/// neighbour has is always measured between cards the cut was BUILT from.
+/// (Known miss, accepted: two separate rallies inserted into one seam can
+/// each fit the seam's room alone and neither gets flagged.)
+func ownClipIds(
+    _ rows: [MatchPoint], pad: ClipPad, cutDuration: Double? = nil
+) -> Set<UUID> {
+    let cut = rows
+        .compactMap { p -> (n: InsertNeighbour, idx: Int)? in
+            guard let n = p.insertNeighbour else { return nil }
+            return (n, p.idx)
+        }
+        .sorted { $0.n.cutT0 < $1.n.cutT0 }
+    // idx of the earliest-created card AFTER each position; a card created
+    // later than something that follows it was retrofitted in.
+    var minIdxAfter = [Int](repeating: Int.max, count: cut.count)
+    if cut.count >= 2 {
+        for i in stride(from: cut.count - 2, through: 0, by: -1) {
+            minIdxAfter[i] = min(cut[i + 1].idx, minIdxAfter[i + 1])
+        }
+    }
+    let retro = cut.enumerated().map { i, p in p.idx > minIdxAfter[i] }
+    var out = Set<UUID>()
+    for i in cut.indices {
+        var prev: InsertNeighbour?
+        for j in stride(from: i - 1, through: 0, by: -1) where !retro[j] {
+            prev = cut[j].n
+            break
+        }
+        var next: InsertNeighbour?
+        for j in (i + 1)..<cut.count where !retro[j] {
+            next = cut[j].n
+            break
+        }
+        // A card the cut was BUILT around never detours, whatever its
+        // local geometry says. The room heuristic misreads hand-edited
+        // overlaps — on Terry 2, card idx 26 sits against a neighbour
+        // whose adjusted span overlaps its own, room measured 4.8s for a
+        // 5.5s rally, and the cut shows the card perfectly well. Only a
+        // card with the retrofit signature may take a two-sided detour;
+        // the match's edges keep the file-end test for everyone, because
+        // the file edge is a hard fact — a real first or last card never
+        // trips it, and a tail insert (idx max+1, in order, so not
+        // inverted) is exactly what it exists to catch.
+        if prev != nil, next != nil, !retro[i] { continue }
+        if needsOwnClip(prev, cut[i].n, next, pad: pad, cutDuration: cutDuration) {
+            out.insert(cut[i].n.id)
+        }
+    }
+    return out
+}
