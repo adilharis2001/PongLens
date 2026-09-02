@@ -4,6 +4,7 @@ import { getCommerceEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
 import { HomeOverview } from "./HomeOverview";
+import { PlayerSetupCard } from "./PlayerSetupCard";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -41,6 +42,15 @@ export default async function DashboardPage() {
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
     null;
+  // The playing questions never answered or skipped (159): the coach path
+  // of onboarding leaves the row unstamped, and this is the day they
+  // switched sides.
+  const { data: profileRow } = await supabase
+    .from("player_profiles")
+    .select("setup_done_at")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const playerSetupPending = Boolean(profileRow) && !profileRow?.setup_done_at;
 
   return (
     <AppShell avatarUrl={avatarUrl} hasFab>
@@ -49,6 +59,7 @@ export default async function DashboardPage() {
       </h1>
 
       <div className="mt-8">
+        {playerSetupPending && <PlayerSetupCard userId={user.id} />}
         <HomeOverview
           userId={user.id}
           accountName={accountName}

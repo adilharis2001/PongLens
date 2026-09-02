@@ -696,14 +696,17 @@ struct PlayerProfileSheet: View {
             let handedness: String?
             let grip: String?
             let level: String?
+            let setup_done_at: String
         }
         _ = try? await supa
             .from("player_profiles")
             .upsert(Upsert(
                 user_id: uid.uuidString.lowercased(),
-                handedness: handedness, grip: grip, level: level
+                handedness: handedness, grip: grip, level: level,
+                setup_done_at: ISO8601DateFormatter().string(from: Date())
             ))
             .execute()
+        app.playerSetupPending = false
         saving = false
         dismiss()
     }
