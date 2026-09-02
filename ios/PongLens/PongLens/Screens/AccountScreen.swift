@@ -93,7 +93,11 @@ struct AccountScreen: View {
                         .padding(16)
                     }
 
-                    coachingSection
+                    // Your coaches are a playing-side thing, like Your
+                    // game: on the coaching side they are one switch away.
+                    if app.workspace != .coach {
+                        coachingSection
+                    }
 
                     if store.commerceEnabled && app.workspace != .coach {
                         minutesSection
@@ -105,6 +109,8 @@ struct AccountScreen: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
+
+                    profileTypeSection
 
                     group("Support") {
                         linkRow("How-to guides", value: "learn")
@@ -302,13 +308,12 @@ struct AccountScreen: View {
         .padding(16)
     }
 
-    /// The free half of coaching, rehomed here from the old Coaching tab:
-    /// who can watch your matches, and the invite that adds someone. Same
-    /// idea as Public links, one card up — paid coaching stays on the web
-    /// and has no surface in the app.
-    private var coachingSection: some View {
-        let accepted = coaching.coachLinks.filter { $0.status == "accepted" }.count
-        let pending = coaching.coachLinks.count - accepted
+    /// The two sides of the account, in one place on both sides, right
+    /// above Support — the same group in the same spot as the web's
+    /// Account page. It used to be the first row of the Coaching group
+    /// here and lived in two different groups on the web, so the same
+    /// row had three homes (Adil, 2026-09-02).
+    private var profileTypeSection: some View {
         // The coaching workspace offers itself to anyone with coach data:
         // an accepted student, a roster, a coach page, or the onboarding
         // answer. Adding a student inside the workspace keeps it open.
@@ -317,17 +322,27 @@ struct AccountScreen: View {
             || coaching.coachesAnyone
             || !coachWorkspace.students.isEmpty
             || app.metadataFlag("is_coach")
-        return group("Coaching") {
+        return group("Profile type") {
             // Always a row: the way back from the coaching side, the way in
-            // for an account with coach data, and "Set up coaching" for a
+            // for an account with coach data, and "Set up coach mode" for a
             // plain player deciding to coach — entering stamps the flag,
             // so it is a door and not a dead end (web has the same).
             navRow(app.workspace == .coach
-                   ? "Switch to playing"
-                   : coachEligible ? "Switch to coaching" : "Set up coaching") {
+                   ? "Switch to player mode"
+                   : coachEligible ? "Switch to coach mode" : "Set up coach mode") {
                 app.setWorkspace(app.workspace == .coach ? .player : .coach)
             }
-            rowDivider
+        }
+    }
+
+    /// The free half of coaching, rehomed here from the old Coaching tab:
+    /// who can watch your matches, and the invite that adds someone. Same
+    /// idea as Public links, one card up — paid coaching stays on the web
+    /// and has no surface in the app.
+    private var coachingSection: some View {
+        let accepted = coaching.coachLinks.filter { $0.status == "accepted" }.count
+        let pending = coaching.coachLinks.count - accepted
+        return group("Coaching") {
             HStack(spacing: 12) {
                 Image(systemName: "person.2")
                     .font(.system(size: 15))

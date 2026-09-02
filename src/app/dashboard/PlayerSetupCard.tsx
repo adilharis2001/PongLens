@@ -28,17 +28,17 @@ export function PlayerSetupCard({ userId }: { userId: string }) {
       <p className="mt-1 text-sm text-zinc-400">
         Handedness, grip and level. Your stats and your coaches read them.
       </p>
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
         <Link
           href="/account/player"
-          className="glow-cta rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink"
+          className="glow-cta w-full rounded-full bg-cyan-glow px-4 py-2.5 text-center text-sm font-semibold text-ink sm:w-auto sm:py-2"
         >
           Set up
         </Link>
         <button
           type="button"
           onClick={() => void skip()}
-          className="rounded-full border border-edge px-4 py-2 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+          className="w-full rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white sm:w-auto sm:py-2"
         >
           Skip for now
         </button>

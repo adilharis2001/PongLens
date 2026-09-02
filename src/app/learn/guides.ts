@@ -850,7 +850,7 @@ export const guides: Guide[] = [
       {
         heading: "Keep lesson notes on each student",
         steps: [
-          "Switch to the coaching side from Account, or from the switch at the top if you also play.",
+          "Switch to coach mode under Profile type in Account, or from the switch at the top if you also play.",
           "Open Students and add a student by name. They do not need PongLens for you to keep notes.",
           "Write or record an entry after a lesson. PongLens condenses it into a few points.",
           "Share the entry when it is ready. It appears in the student’s Journal, and later edits show there too.",

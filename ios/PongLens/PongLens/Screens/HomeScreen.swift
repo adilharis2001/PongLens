@@ -145,11 +145,21 @@ struct HomeScreen: View {
                 .font(.plBody)
                 .foregroundStyle(PL.text400)
                 .lineSpacing(3)
-            HStack(spacing: 10) {
-                Button("Set up") { playerSetupOpen = true }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                Button("Skip for now") {
+            // Both fill the row, the primary first: the width comes from
+            // the label, not from a frame after the style.
+            VStack(spacing: 10) {
+                Button {
+                    playerSetupOpen = true
+                } label: {
+                    Text("Set up")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PLPrimaryButtonStyle())
+                Button {
                     Task { await skipPlayerSetup() }
+                } label: {
+                    Text("Skip for now")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PLSecondaryButtonStyle())
             }

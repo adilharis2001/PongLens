@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { setWorkspace, useWorkspace } from "@/lib/workspace";
 import type { Workspace } from "@/lib/workspaceModel";
@@ -9,80 +9,44 @@ import type { Workspace } from "@/lib/workspaceModel";
 /**
  * The Upwork move (156): one account, a playing side and a coaching side.
  * Anyone with coach data — students, an accepted link as a coach, a coach
- * page, or the coach flag — gets "Switch to coaching"; everyone else gets
- * "Set up coaching" (157), which marks the account and opens the
+ * page, or the coach flag — gets "Switch to coach mode"; everyone else
+ * gets "Set up coach mode" (157), which marks the account and opens the
  * workspace, so a coach who signed up on the web is not stuck waiting for
  * an invite. Someone already standing in the coaching workspace always
  * gets the way back. Switching to coaching stamps the flag either way,
  * so a fresh device lands on the right side (158).
  *
- * Two dresses: the Account row, and a pill for the coaching page header.
+ * One row, under "Profile type" on the Account page, on both sides. The
+ * top-bar pill in AppNav is the other door, for accounts with both sides
+ * set up. The page decides the label server-side and passes it in, so the
+ * row draws with the page: a card that fills in a beat later read as a
+ * glitch once the row had a card of its own.
  */
 export function WorkspaceSwitch({
   remembered,
-  variant = "row",
+  userId,
+  flagged: initialFlagged,
+  eligible: initialEligible,
 }: {
   remembered: Workspace;
-  variant?: "row" | "pill";
+  userId: string;
+  /** user_metadata.is_coach, read server-side. */
+  flagged: boolean;
+  /** The flag, or any coach data: a page, an accepted link, a roster. */
+  eligible: boolean;
 }) {
   const router = useRouter();
   const workspace = useWorkspace(remembered);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [eligible, setEligible] = useState(false);
-  const [flagged, setFlagged] = useState(false);
+  const [eligible, setEligible] = useState(initialEligible);
+  const [flagged, setFlagged] = useState(initialFlagged);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || !alive) return;
-      setUserId(user.id);
-      if (user.user_metadata?.is_coach === true) {
-        setFlagged(true);
-        setEligible(true);
-        return;
-      }
-      const [profile, asCoach, roster] = await Promise.all([
-        supabase
-          .from("coach_profiles")
-          .select("user_id")
-          .eq("user_id", user.id)
-          .maybeSingle(),
-        supabase
-          .from("coach_links")
-          .select("id")
-          .eq("coach_id", user.id)
-          .eq("status", "accepted")
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from("coach_students")
-          .select("id")
-          .eq("coach_id", user.id)
-          .limit(1)
-          .maybeSingle(),
-      ]);
-      if (alive) {
-        setEligible(Boolean(profile.data || asCoach.data || roster.data));
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  if (!userId) return null;
 
   const coaching = workspace === "coach";
   const label = coaching
-    ? "Switch to playing"
+    ? "Switch to player mode"
     : eligible
-      ? "Switch to coaching"
-      : "Set up coaching";
+      ? "Switch to coach mode"
+      : "Set up coach mode";
 
   const flip = async () => {
     setBusy(true);
@@ -97,30 +61,17 @@ export function WorkspaceSwitch({
     router.refresh();
   };
 
-  if (variant === "pill") {
-    return (
-      <button
-        type="button"
-        onClick={() => void flip()}
-        disabled={busy}
-        className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white disabled:opacity-60"
-      >
-        {label}
-      </button>
-    );
-  }
-
   return (
     <button
       type="button"
       onClick={() => void flip()}
       disabled={busy}
-      className="flex w-full items-center justify-between px-4 py-3.5 text-left text-sm font-medium text-zinc-100 transition-colors hover:bg-surface-2 disabled:opacity-60"
+      className="flex w-full items-center justify-between px-5 py-4 text-left text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2 disabled:opacity-60"
     >
       {label}
       <svg
         viewBox="0 0 24 24"
-        className="h-4 w-4 text-zinc-600"
+        className="h-4 w-4 text-zinc-500"
         fill="none"
         stroke="currentColor"
         strokeWidth={2}
