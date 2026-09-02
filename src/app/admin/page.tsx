@@ -7,6 +7,7 @@ import {
   ADMIN_PAGES,
   ADMIN_WORKSPACES,
   hubDetail,
+  type OutreachCounts,
   type PortalCounts,
 } from "./adminPageView";
 
@@ -22,14 +23,20 @@ export const metadata: Metadata = {
  */
 export default async function AdminPage() {
   const { supabase, avatarUrl } = await requireAdmin();
-  const [{ data }, { count: backlogOpen }] = await Promise.all([
-    supabase.rpc("admin_portal_counts"),
-    supabase
-      .from("backlog_items")
-      .select("id", { count: "exact", head: true })
-      .neq("lane", "done"),
-  ]);
+  const [{ data }, { count: backlogOpen }, { data: outreachData }] =
+    await Promise.all([
+      supabase.rpc("admin_portal_counts"),
+      supabase
+        .from("backlog_items")
+        .select("id", { count: "exact", head: true })
+        .neq("lane", "done"),
+      supabase.rpc("admin_outreach_counts"),
+    ]);
   const counts = (data as PortalCounts | null) ?? null;
+  const outreach =
+    ((outreachData as OutreachCounts[] | null)?.[0] as
+      | OutreachCounts
+      | undefined) ?? null;
 
   return (
     <AppShell avatarUrl={avatarUrl}>
@@ -37,7 +44,7 @@ export default async function AdminPage() {
 
       <ul className="mt-8 grid gap-3 sm:grid-cols-2">
         {ADMIN_PAGES.map((page) => {
-          const detail = hubDetail(page.key, counts, backlogOpen);
+          const detail = hubDetail(page.key, counts, backlogOpen, outreach);
           return (
             <li key={page.key}>
               <Link

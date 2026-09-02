@@ -12,6 +12,7 @@ export const ADMIN_PAGES = [
   { key: "costs", href: "/admin/costs", title: "Platform costs" },
   { key: "reviews", href: "/admin/reviews", title: "Paid reviews" },
   { key: "commerce", href: "/admin/commerce", title: "Commerce" },
+  { key: "outreach", href: "/admin/outreach", title: "Outreach and feedback" },
   // "QA access" rather than "Testing": this page is who holds the QA role
   // and which billing mode the admin is in. The tester's own workspace is
   // /testing, in ADMIN_WORKSPACES below, and two cards both called Testing
@@ -45,6 +46,12 @@ export interface PortalCounts {
   matches: number;
 }
 
+/** admin_outreach_counts (162): who is waiting for outreach attention. */
+export interface OutreachCounts {
+  to_contact: number;
+  follow_ups_due: number;
+}
+
 export interface HubDetail {
   text: string;
   /** pending work the admin should look at — rendered in the accent color */
@@ -66,9 +73,12 @@ export function hubDetail(
    *  admin_portal_counts: the backlog is the operator's list, not
    *  platform state, and it should not ride along in an RPC every other
    *  card depends on. */
-  backlogOpen?: number | null
+  backlogOpen?: number | null,
+  /** Its own query too, for the same reason as the backlog: the outreach
+   *  numbers must not blank every other card when their RPC fails. */
+  outreach?: OutreachCounts | null
 ): HubDetail | null {
-  // Answered before the counts guard — the two numbers load separately,
+  // Answered before the counts guard — these numbers load separately,
   // and one failing must not blank the other's card.
   if (key === "backlog") {
     if (typeof backlogOpen !== "number" || backlogOpen <= 0) return null;
@@ -76,6 +86,24 @@ export function hubDetail(
       text: `${backlogOpen} open`,
       attention: false,
     };
+  }
+  if (key === "outreach") {
+    if (!outreach) return null;
+    const parts: string[] = [];
+    if (outreach.to_contact > 0) {
+      parts.push(`${outreach.to_contact} to contact`);
+    }
+    if (outreach.follow_ups_due > 0) {
+      parts.push(
+        `${outreach.follow_ups_due} follow-up${
+          outreach.follow_ups_due === 1 ? "" : "s"
+        } due`
+      );
+    }
+    if (parts.length === 0) return null;
+    // A due follow-up is a promise with a date on it; being merely new is
+    // not urgent.
+    return { text: parts.join(" · "), attention: outreach.follow_ups_due > 0 };
   }
   if (!counts) return null;
   switch (key) {

@@ -86,3 +86,21 @@ test("the backlog count survives a failed portal-counts load", () => {
     attention: false,
   });
 });
+
+// A due follow-up is a promise with a date on it, so it gets the accent;
+// merely-new signups are information, not urgency.
+test("the outreach card surfaces its queues, due follow-ups with urgency", () => {
+  assert.deepEqual(
+    hubDetail("outreach", COUNTS, null, { to_contact: 3, follow_ups_due: 0 }),
+    { text: "3 to contact", attention: false }
+  );
+  assert.deepEqual(
+    hubDetail("outreach", null, null, { to_contact: 2, follow_ups_due: 1 }),
+    { text: "2 to contact · 1 follow-up due", attention: true }
+  );
+  assert.equal(
+    hubDetail("outreach", COUNTS, null, { to_contact: 0, follow_ups_due: 0 }),
+    null
+  );
+  assert.equal(hubDetail("outreach", COUNTS, null, null), null);
+});
