@@ -561,6 +561,62 @@ struct PlacementRequestSheet: View {
     }
 }
 
+// MARK: - Coach analysis row
+
+/// The coach's door to the same analysis sheet the owner opens from Tools
+/// (Adil, 2026-09-02): a coach sees what a share link shows, and Tools
+/// itself stays owner-only because every other row there is an owner
+/// action.
+struct CoachAnalysisRow: View {
+    let match: MatchRow
+    let model: MatchDetailModel
+    let score: MatchScore
+
+    @State private var open = false
+
+    private var trailing: String {
+        let serving = computeServing(
+            model.visible, firstServer: match.firstServer.flatMap(Winner.init(rawValue:))
+        )
+        return statsRowSummary(
+            computeMatchStats(model.visible, serving: serving, score: score)
+        )
+    }
+
+    var body: some View {
+        Button { open = true } label: {
+            HStack {
+                Text("Match analysis")
+                    .font(.system(size: 16))
+                    .foregroundStyle(PL.textBody)
+                Spacer()
+                Text(trailing)
+                    .font(.plBody)
+                    .foregroundStyle(PL.text500)
+                    .lineLimit(1)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PL.text600)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                .strokeBorder(PL.edge, lineWidth: 1)
+        )
+        .sheet(isPresented: $open) {
+            AnalysisSheet(match: match, model: model, score: score)
+                .presentationDetents([.large])
+                .presentationBackground(PL.surface)
+                .presentationDragIndicator(.visible)
+        }
+    }
+}
+
 // MARK: - Coach invite
 
 /// Share with coach. Your connected coaches come first, by name, with

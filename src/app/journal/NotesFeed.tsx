@@ -25,13 +25,19 @@ import { FabButton } from "@/components/Fab";
 import { journalTagsForOwner } from "@/lib/journal/tags";
 import { JournalEditor } from "./JournalEditor";
 import { NoteEditor } from "./NoteEditor";
-import { CoachShared } from "./CoachShared";
+import { SharedEntryCard, type SharedEntry } from "./CoachShared";
 import { AskPanel, MAX_QUESTION_CHARS, askable } from "./AskPanel";
 import { askExamples, topOpponentFromNotes } from "@/lib/ask/examples";
 import { Recollect } from "./Recollect";
 import type { RecollectSource } from "@/lib/recollect/types";
 
-type Section = "all" | "matches" | "lessons" | "practice" | "recollect";
+type Section =
+  | "all"
+  | "matches"
+  | "lessons"
+  | "practice"
+  | "coach"
+  | "recollect";
 
 /**
  * Export a tag's points as ONE video across every match (042). Request →
@@ -211,6 +217,10 @@ export function NotesFeed({
   const [noteEditing, setNoteEditing] = useState<Lesson | null>(null);
   const [cap, setCap] = useState(FEED_CAP);
   const [lessons, setLessons] = useState<Lesson[]>([]);
+  // Entries coaches shared with this player (read-only, live). They sit
+  // among the player's own entries under All and under their own tab
+  // (Adil, 2026-09-02), not in a section of their own.
+  const [shared, setShared] = useState<SharedEntry[]>([]);
   // point rows for the active tag; null while loading
   const [taggedRows, setTaggedRows] = useState<TaggedPointRow[] | null>(null);
   // Entry tagging: the owner's whole vocabulary plus entry_tags rows.
@@ -246,6 +256,9 @@ export function NotesFeed({
       .neq("kind", "coach")
       .order("created_at", { ascending: false })
       .then(({ data }) => setLessons((data as Lesson[]) ?? []));
+    void supabase.rpc("coach_shared_entries").then(({ data }) => {
+      setShared((data as SharedEntry[]) ?? []);
+    });
     void supabase
       .from("tags")
       .select("*")
@@ -494,6 +507,21 @@ export function NotesFeed({
 
   const filteredNotes = (rows ?? []).filter(noteMatches);
   const filteredLessons = lessons.filter(lessonMatches);
+  const filteredShared = shared.filter(
+    (e) =>
+      tokens.length === 0 ||
+      hits(
+        [
+          e.transcript,
+          e.coach_name,
+          e.takeaways?.title,
+          ...(e.takeaways?.themes?.flatMap((t) => [t.name, ...t.points]) ?? []),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+      )
+  );
 
   // Own matches only — note_feed also carries students' matches for a
   // coach, and a name from those would name someone Ask cannot see.
@@ -543,10 +571,17 @@ export function NotesFeed({
     : railTags;
 
   // Section contents, recent first everywhere.
-  const feedItems: (
+  type FeedItem =
     | { type: "note"; note: NoteFeedRow }
     | { type: "lesson"; lesson: Lesson }
-  )[] = [
+    | { type: "shared"; entry: SharedEntry };
+  const feedStamp = (x: FeedItem) =>
+    x.type === "note"
+      ? x.note.created_at
+      : x.type === "lesson"
+        ? x.lesson.created_at
+        : x.entry.shared_at;
+  const feedItems: FeedItem[] = [
     ...(section === "all" || section === "matches"
       ? filteredNotes.map((n) => ({ type: "note" as const, note: n }))
       : []),
@@ -561,11 +596,10 @@ export function NotesFeed({
               .filter((l) => l.kind === "practice")
               .map((l) => ({ type: "lesson" as const, lesson: l }))
           : []),
-  ].sort((a, b) => {
-    const ca = a.type === "note" ? a.note.created_at : a.lesson.created_at;
-    const cb = b.type === "note" ? b.note.created_at : b.lesson.created_at;
-    return cb.localeCompare(ca);
-  });
+    ...(section === "all" || section === "coach"
+      ? filteredShared.map((e) => ({ type: "shared" as const, entry: e }))
+      : []),
+  ].sort((a, b) => feedStamp(b).localeCompare(feedStamp(a)));
 
   // Matches section: the same notes grouped by match, groups ordered by
   // their latest note.
@@ -618,7 +652,7 @@ export function NotesFeed({
         if (matchFilter) clearMatchFilter();
       }}
       aria-pressed={section === value}
-      className={`rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
+      className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
         section === value
           ? "bg-surface-2 text-white"
           : "text-zinc-500 hover:text-zinc-300"
@@ -722,7 +756,8 @@ export function NotesFeed({
     setRows((rs) => (rs ? rs.filter((r) => r.id !== id) : rs));
   }, []);
 
-  const empty = (rows?.length ?? 0) === 0 && lessons.length === 0;
+  const empty =
+    (rows?.length ?? 0) === 0 && lessons.length === 0 && shared.length === 0;
 
   return (
     <div>
@@ -901,8 +936,6 @@ export function NotesFeed({
         />
       )}
 
-      {!activeTag && <CoachShared />}
-
       {!activeTag &&
         rows !== null &&
         (!empty || recollectEnabled) && (
@@ -911,6 +944,7 @@ export function NotesFeed({
           {sectionTab("matches", "Matches")}
           {sectionTab("lessons", "Lessons")}
           {sectionTab("practice", "Practice")}
+          {shared.length > 0 && sectionTab("coach", "From your coach")}
           {recollectEnabled && sectionTab("recollect", "Recollect")}
         </div>
       )}
@@ -1141,7 +1175,9 @@ export function NotesFeed({
             ? "No practice entries yet. New starts one."
             : section === "lessons"
               ? "No lessons yet. New saves your first."
-              : "Nothing found."}
+              : section === "coach"
+                ? "Nothing from a coach yet."
+                : "Nothing found."}
         </p>
       ) : (
         <>
@@ -1149,7 +1185,13 @@ export function NotesFeed({
             {feedItems.slice(0, cap).map((item) =>
               item.type === "lesson"
                 ? lessonItem(item.lesson)
-                : noteCard(item.note, false)
+                : item.type === "shared"
+                  ? (
+                    <li key={`shared-${item.entry.entry_id}`}>
+                      <SharedEntryCard entry={item.entry} />
+                    </li>
+                  )
+                  : noteCard(item.note, false)
             )}
           </ul>
           {feedItems.length > cap && (
