@@ -271,6 +271,22 @@ test("ownClipIds flags the insert and never its real neighbours", () => {
   assert.deepEqual([...ids], ["c45"]);
 });
 
+test("a hand-edited overlap never flags a real card", () => {
+  // Terry 2, cards idx 25/26/27 verbatim (pads 0.3/0.4 there, but the
+  // shape holds at any pad): 27's adjusted span starts BEFORE 26 ends, so
+  // the room heuristic measures less room than rally — and the cut shows
+  // 26 perfectly well. Only the retrofit signature may take a two-sided
+  // detour; 26 keeps idx order and must stay on the cut.
+  const rows = [
+    { ...pt("i25", 343.28, 348.48, 268.22), idx: 25 },
+    { ...pt("i26", 349.68, 355.18, 274.63), idx: 26 },
+    { ...pt("i27", 354.68, 364.24, 278.23, { end: true }), idx: 27 },
+    { ...pt("i73", 364.24, 373.79, 287.79, { start: true }), idx: 73 },
+    { ...pt("i28", 374.99, 379.99, 298.54), idx: 28 },
+  ];
+  assert.equal(ownClipIds(rows, { pre: 0.3, post: 0.4 }, 710.7).size, 0);
+});
+
 test("ownClipIds is quiet on an untouched timeline", () => {
   const rows = [
     { ...pt("a", 10, 18, 0), idx: 0 },

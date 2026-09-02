@@ -304,6 +304,17 @@ func ownClipIds(
             next = cut[j].n
             break
         }
+        // A card the cut was BUILT around never detours, whatever its
+        // local geometry says. The room heuristic misreads hand-edited
+        // overlaps — on Terry 2, card idx 26 sits against a neighbour
+        // whose adjusted span overlaps its own, room measured 4.8s for a
+        // 5.5s rally, and the cut shows the card perfectly well. Only a
+        // card with the retrofit signature may take a two-sided detour;
+        // the match's edges keep the file-end test for everyone, because
+        // the file edge is a hard fact — a real first or last card never
+        // trips it, and a tail insert (idx max+1, in order, so not
+        // inverted) is exactly what it exists to catch.
+        if prev != nil, next != nil, !retro[i] { continue }
         if needsOwnClip(prev, cut[i].n, next, pad: pad, cutDuration: cutDuration) {
             out.insert(cut[i].n.id)
         }

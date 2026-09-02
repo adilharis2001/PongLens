@@ -792,9 +792,16 @@ struct PlayerTakeover: View {
                 VStack {
                     Spacer()
                     Text(String(
-                        format: "t=%.2f dur=%.1f rate=%.2f pin=%@ stall=%@",
+                        format: "t=%.2f dur=%.1f rate=%.2f pin=%@ stall=%@ det=%d/%d%@ item=%@",
                         currentT, duration, player.rate,
-                        endPausedId == nil ? "-" : "P", stalled ? "Y" : "N"
+                        endPausedId == nil ? "-" : "P", stalled ? "Y" : "N",
+                        ownClips.count, clipItems.count,
+                        detourId == nil ? "-" : "*",
+                        {
+                            let d = player.currentItem?.duration.seconds
+                            return (d?.isFinite ?? false)
+                                ? String(format: "%.1f", d!) : "?"
+                        }()
                     ))
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.yellow)
@@ -3373,6 +3380,12 @@ struct PlayerTakeover: View {
         // corrected and playing straight past the evidence is no use.
         let guarded = Date().timeIntervalSince(lastPlayAt) < 0.5
         for p in points {
+            // An ownClip card's boundary belongs to its DETOUR surface
+            // alone: on the cut clock its stop lands inside a NEIGHBOUR's
+            // footage (that overhang is the definition of needing a
+            // detour), so firing it here paused the cut mid-way through
+            // the next rally, labelled with the one that already played.
+            guard !ownClips.contains(p.id) else { continue }
             guard let stop = stopAt(p), stop > prev, stop <= t else { continue }
             // Crossing a DIFFERENT rally's boundary retires the consumed
             // one — its end can stop the video again on a later replay.
@@ -3595,9 +3608,18 @@ struct PlayerTakeover: View {
             if let tp = points.first(where: { $0.id == tail.id }) { jumpAfter(tp) }
             return
         }
-        let stop = isUnscored(p)
+        var stop = isUnscored(p)
             ? pauseEnd(p, pad, nextStart: nil)
             : effectiveEnd(p, pad, app.endOptions)
+        // The clip is cut to the SAME pads the stop lands on, so boundary
+        // and file end can coincide to the frame — and then the answer
+        // pause races DidPlayToEnd and loses half the time. Pull the stop
+        // a beat inside the file so the pause always wins; the remaining
+        // sliver plays out on resume and ends the detour normally.
+        if let s = stop, let fd = player.currentItem?.duration.seconds,
+           fd.isFinite, fd > 0 {
+            stop = min(s, detourBase + fd - 0.15)
+        }
         // Re-arm on a replay, same rule as the main loop.
         if endPauseBlockedId == id, stop == nil || t < stop! - 1.5 {
             endPauseBlockedId = nil
@@ -3629,7 +3651,14 @@ struct PlayerTakeover: View {
         }
         exitDetour()
         if let nt = next?.cutT0 {
-            endPauseBlockedId = nil
+            // The card's boundary stays CONSUMED across the hand-back —
+            // uniquely for a detour card it overhangs FORWARD past the
+            // next card's start (the virtual overlap), so re-arming it
+            // here made the cut pause a second time on the rally that
+            // just finished, two seconds into its neighbour. The next
+            // card's own boundary re-arms itself: crossing a different
+            // rally's stop retires this id.
+            endPauseBlockedId = id
             seek(to: nt)
             play()
         } else if mode == .score, phase == .play {

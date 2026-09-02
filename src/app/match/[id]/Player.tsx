@@ -2222,6 +2222,12 @@ export const Player = forwardRef<
           const startCut =
             startP?.cut_t0 == null ? null : Number(startP.cut_t0);
           for (const p of ps) {
+            // An ownClip card's boundary belongs to its DETOUR surface
+            // alone: on the cut clock its stop lands inside a NEIGHBOUR's
+            // footage (that overhang is the definition of needing a
+            // detour), so firing it here paused the cut mid-way through
+            // the next rally, labelled with the one that already played.
+            if (ownClipSetRef.current.has(p.id)) continue;
             const end = stopAt(p);
             if (end === null || end <= prev || end > t) continue;
             if (p.id !== endPauseFiredRef.current) {
@@ -2299,9 +2305,18 @@ export const Player = forwardRef<
       // Watching through (watch mode, or a scored card in score mode with
       // its boundary already consumed) ends at the card's effective end:
       // past it is ball retrieval the cut never shows for any other card.
-      const stop = isUnscored(p)
+      let stop = isUnscored(p)
         ? pauseEnd(p, cpad, null)
         : effectiveEnd(p, cpad, endsRef.current);
+      // The clip is cut to the SAME pads the stop lands on, so boundary
+      // and file end can coincide to the frame — and then the answer
+      // pause races 'ended' and loses half the time. Pull the stop a beat
+      // inside the file so the pause always wins; the remaining sliver
+      // plays out on resume and ends the detour normally.
+      const fd = dv.duration;
+      if (stop !== null && Number.isFinite(fd) && fd > 0) {
+        stop = Math.min(stop, detourBaseRef.current + fd - 0.15);
+      }
       if (modeRef.current !== "score" || phase !== "play") {
         const end = effectiveEnd(p, cpad, endsRef.current);
         if (prev !== null && end !== null && end > prev && end <= t) {
@@ -2368,7 +2383,13 @@ export const Player = forwardRef<
               pt.id !== id && pt.cut_t0 !== null && Number(pt.cut_t0) > t0
           );
     if (next?.cut_t0 != null) {
-      endPauseFiredRef.current = null;
+      // The card's boundary stays CONSUMED across the hand-back —
+      // uniquely for a detour card it overhangs FORWARD past the next
+      // card's start (the virtual overlap), so re-arming it here made
+      // the cut pause a second time on the rally that just finished,
+      // two seconds into its neighbour. The next card's own boundary
+      // re-arms itself: crossing a different rally's stop retires this.
+      endPauseFiredRef.current = id;
       seekTo(Number(next.cut_t0));
       playNow();
     } else if (modeRef.current === "score" && phase === "play") {

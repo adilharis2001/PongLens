@@ -136,6 +136,21 @@ func runInsertGeometryParityChecks() {
     check(ownClipIds(terry, pad: PAD, cutDuration: 720) == [c45],
           "ownClipIds flags the insert and never its real neighbours")
 
+    // Terry 2, cards idx 25/26/27 verbatim: 27's adjusted span starts
+    // BEFORE 26 ends, so the room heuristic measures less room than
+    // rally — and the cut shows 26 perfectly well. Only the retrofit
+    // signature may take a two-sided detour.
+    let overlap = [
+        mp(25, 343.28, 348.48, 268.22),
+        mp(26, 349.68, 355.18, 274.63),
+        mp(27, 354.68, 364.24, 278.23, tightEnd: true),
+        mp(73, 364.24, 373.79, 287.79, tightStart: true),
+        mp(28, 374.99, 379.99, 298.54),
+    ]
+    check(ownClipIds(overlap, pad: ClipPad(pre: 0.3, post: 0.4),
+                     cutDuration: 710.7).isEmpty,
+          "a hand-edited overlap never flags a real card")
+
     let plain = [
         mp(0, 10, 18, 0),
         mp(1, 25, 31, 12.3),
