@@ -217,12 +217,18 @@ struct OnboardingScreen: View {
                     .foregroundStyle(PL.dangerText)
             }
 
-            Button(saving ? "Saving…" : "Continue") {
+            // The label carries the width, not the button: a frame outside
+            // the style leaves a narrow pill centred in a wide row, which is
+            // what shipped in 103 and read as broken under three full-width
+            // cards. Web's Continue is w-full on every step.
+            Button {
                 Task { await continueFromRole() }
+            } label: {
+                Text(saving ? "Saving…" : "Continue")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(PLPrimaryButtonStyle())
             .disabled(role == nil || saving)
-            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -312,12 +318,14 @@ struct OnboardingScreen: View {
             // Enabled whatever the field holds, and it says why when the
             // answer is no. Disabling it left the very first button of the
             // product inert with no explanation.
-            Button(saving ? "Saving…" : "Continue") {
+            Button {
                 Task { await saveName() }
+            } label: {
+                Text(saving ? "Saving…" : "Continue")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(PLPrimaryButtonStyle())
             .disabled(saving)
-            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 24)
@@ -397,14 +405,16 @@ struct OnboardingScreen: View {
                     .foregroundStyle(PL.dangerText)
             }
 
-            Button(saving
-                ? "Saving…"
-                : (handedness != nil || grip != nil || level != nil ? "Done" : "Skip for now")) {
+            Button {
                 Task { await saveProfile(setupDone: true) }
+            } label: {
+                Text(saving
+                    ? "Saving…"
+                    : (handedness != nil || grip != nil || level != nil ? "Done" : "Skip for now"))
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(PLPrimaryButtonStyle())
             .disabled(saving)
-            .frame(maxWidth: .infinity)
 
             Text("You can change any of this later in Account.")
                 .font(.plCaption)
