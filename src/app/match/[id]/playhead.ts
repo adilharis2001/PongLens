@@ -239,6 +239,37 @@ const SKIP_MERGE_GAP_S = 1;
 /** Float slop when comparing two cut-clock seconds for "same moment". */
 const EDGE_EPS_S = 0.01;
 
+/**
+ * The one merge rule for skip spans, shared by skipSpans and the match
+ * page's own deleted-span builder (they drifted: the page still merged
+ * at 0.01 while this module had learned to fuse runs, so a mid-match
+ * string of deleted rallies multi-hopped on the owner's player and
+ * jumped cleanly on the share page). `visibleStarts` are the kept
+ * rallies' cut starts, sorted — no merge may ever span one.
+ */
+export function mergeSkipSpans(
+  spans: { start: number; end: number }[],
+  visibleStarts: number[]
+): { start: number; end: number }[] {
+  const merged: { start: number; end: number }[] = [];
+  for (const sp of spans) {
+    const last = merged[merged.length - 1];
+    // Only a genuine forward gap can hide a kept rally; overlapping spans
+    // invert this range and match nothing, which is the intent.
+    const overAKeptRally =
+      last !== undefined &&
+      visibleStarts.some(
+        (s) => s >= last.end - EDGE_EPS_S && s <= sp.start + EDGE_EPS_S
+      );
+    if (last && !overAKeptRally && sp.start <= last.end + SKIP_MERGE_GAP_S) {
+      last.end = Math.max(last.end, sp.end);
+    } else {
+      merged.push({ ...sp });
+    }
+  }
+  return merged;
+}
+
 export function skipSpans(
   rows: Point[],
   pad: ClipPad,
@@ -279,23 +310,7 @@ export function skipSpans(
   const visibleStarts = visible
     .map((p) => Number(p.cut_t0))
     .sort((a, b) => a - b);
-  const merged: { start: number; end: number }[] = [];
-  for (const sp of spans) {
-    const last = merged[merged.length - 1];
-    // Only a genuine forward gap can hide a kept rally; overlapping spans
-    // invert this range and match nothing, which is the intent.
-    const overAKeptRally =
-      last !== undefined &&
-      visibleStarts.some(
-        (s) => s >= last.end - EDGE_EPS_S && s <= sp.start + EDGE_EPS_S
-      );
-    if (last && !overAKeptRally && sp.start <= last.end + SKIP_MERGE_GAP_S) {
-      last.end = Math.max(last.end, sp.end);
-    } else {
-      merged.push({ ...sp });
-    }
-  }
-  return merged;
+  return mergeSkipSpans(spans, visibleStarts);
 }
 
 /**

@@ -17,6 +17,40 @@ struct TimeSpan: Equatable {
     var end: Double
 }
 
+/// Two skips closer than this fuse into one. The cut keeps a sliver of
+/// footage between adjacent clips — a few tenths of a second of padding
+/// belonging to no card — so a RUN of deleted rallies came out as a run
+/// of separate seeks with a flash of dead footage between each. Measured
+/// on the web (shared Louis match): nineteen jumps and 6.5s of played
+/// warm-up before the first real point. The tolerance is not what makes
+/// this safe — the kept-rally guard in mergeSkips is.
+let SKIP_MERGE_GAP_S = 1.0
+/// Float slop when comparing two cut-clock seconds for "same moment".
+let EDGE_EPS_S = 0.01
+
+/// The one merge rule for skip spans, mirroring playhead.ts
+/// mergeSkipSpans: near-adjacent skips fuse, and no fuse may ever span a
+/// rally somebody kept. `keptStarts` are the visible points' cut starts,
+/// sorted. Overlapping spans invert the guard's range and match nothing,
+/// which is the intent.
+func mergeSkips(_ spans: [TimeSpan], keptStarts: [Double]) -> [TimeSpan] {
+    var merged: [TimeSpan] = []
+    for s in spans {
+        if var last = merged.last {
+            let overAKeptRally = keptStarts.contains {
+                $0 >= last.end - EDGE_EPS_S && $0 <= s.start + EDGE_EPS_S
+            }
+            if !overAKeptRally, s.start <= last.end + SKIP_MERGE_GAP_S {
+                last.end = max(last.end, s.end)
+                merged[merged.count - 1] = last
+                continue
+            }
+        }
+        merged.append(s)
+    }
+    return merged
+}
+
 /// Deleted rallies as footage extents, merged. Their span is dead
 /// everywhere: playback jumps out of it and no landing may sit inside it.
 ///
@@ -35,16 +69,7 @@ func deletedSpans(
         if end > cutT0 { out.append(TimeSpan(start: cutT0, end: end)) }
     }
     out.sort { $0.start < $1.start }
-    var merged: [TimeSpan] = []
-    for s in out {
-        if var last = merged.last, s.start <= last.end {
-            last.end = max(last.end, s.end)
-            merged[merged.count - 1] = last
-        } else {
-            merged.append(s)
-        }
-    }
-    return merged
+    return mergeSkips(out, keptStarts: starts)
 }
 
 /// Rallies marked Skipped, as footage extents. Deleted footage is dead
@@ -238,16 +263,9 @@ func skipSpans(all: [MatchPoint], pad: ClipPad, ends: EndOptions) -> [TimeSpan] 
         }
     }
     spans.sort { $0.start < $1.start }
-    var merged: [TimeSpan] = []
-    for s in spans {
-        if var last = merged.last, s.start <= last.end + 0.01 {
-            last.end = max(last.end, s.end)
-            merged[merged.count - 1] = last
-        } else {
-            merged.append(s)
-        }
-    }
-    return merged
+    return mergeSkips(
+        spans, keptStarts: visible.compactMap(\.cutT0).sorted()
+    )
 }
 
 /// A quiet stretch has to be at least this long to read as "between points".

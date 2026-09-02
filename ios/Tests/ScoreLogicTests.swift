@@ -436,6 +436,39 @@ func runAllChecks() {
            "the last rally's tail stops at its own padded end")
         eq(skipSpans(all: [a, b], pad: PADW, ends: EndOptions(tapEnd: true)), [],
            "an untapped rally leaves no span")
+
+        // Run fusion (playhead.ts parity): three deleted warm-up cards,
+        // each separated by the sliver of padding the cut keeps between
+        // adjacent clips, fuse into ONE jump. The web match that found
+        // this played 6.5s of warm-up across nineteen separate jumps.
+        let w1 = mkPoint(4, deleted: true, cutT0: 0, t0: 100, t1: 104)
+        let w2 = mkPoint(5, deleted: true, cutT0: 7, t0: 110, t1: 114)
+        let w3 = mkPoint(6, deleted: true, cutT0: 14, t0: 120, t1: 124)
+        let first = mkPoint(7, cutT0: 30, t0: 140, t1: 144)
+        eq(skipSpans(all: [w1, w2, w3, first], pad: PADW, ends: EndOptions.off),
+           [TimeSpan(start: 0, end: 20.5)],
+           "a run of deleted cards fuses into one jump, not one per card")
+
+        // The guard, not the tolerance, makes merging safe: a KEPT rally
+        // in the gap between two deleted ones is never fused across.
+        let j1 = mkPoint(8, deleted: true, cutT0: 0, t0: 100, t1: 104)
+        let keep = mkPoint(9, cutT0: 6.5, t0: 110, t1: 114)
+        let j2 = mkPoint(10, deleted: true, cutT0: 20, t0: 130, t1: 134)
+        let lastKept = mkPoint(11, cutT0: 40, t0: 150, t1: 154)
+        let guarded = skipSpans(
+            all: [j1, keep, j2, lastKept], pad: PADW, ends: EndOptions.off)
+        eq(guarded.count, 2, "a merge never spans a rally somebody kept")
+        check(!guarded.contains { 6.5 > $0.start && 6.5 < $0.end },
+              "the kept rally's start is inside no span")
+
+        // 5s of un-carded footage between two deleted cards is not
+        // padding, so it is not assumed dead: two jumps stay two.
+        let g1 = mkPoint(12, deleted: true, cutT0: 0, t0: 100, t1: 104)
+        let g2 = mkPoint(13, deleted: true, cutT0: 11.5, t0: 110, t1: 114)
+        let g3 = mkPoint(14, cutT0: 30, t0: 140, t1: 144)
+        eq(skipSpans(all: [g1, g2, g3], pad: PADW, ends: EndOptions.off),
+           [TimeSpan(start: 0, end: 6.5), TimeSpan(start: 11.5, end: 18)],
+           "a gap wider than the tolerance stays two jumps")
     }
 
     // MARK: - Footage extents

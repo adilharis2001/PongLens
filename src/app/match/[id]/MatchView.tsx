@@ -46,7 +46,7 @@ import { usePlacementLifecycle } from "./usePlacementLifecycle";
 import { AnalysisCards } from "./AnalysisCards";
 import { computeMatchAnalysis } from "./matchAnalysis";
 import { computeMatchStats, statsRowSummary } from "./matchStats";
-import { paddedEnd,
+import { mergeSkipSpans, paddedEnd,
   type EndOptions,
 } from "./playhead";
 import { clipPad } from "./clipEdit";
@@ -1054,16 +1054,12 @@ export function MatchView({
       })
       .filter((s) => s.end > s.start)
       .sort((a, b) => a.start - b.start);
-    const merged: { start: number; end: number }[] = [];
-    for (const s of spans) {
-      const last = merged[merged.length - 1];
-      if (last && s.start <= last.end + 0.01) {
-        last.end = Math.max(last.end, s.end);
-      } else {
-        merged.push({ ...s });
-      }
-    }
-    return merged;
+    // The shared merge (playhead.ts): a run of deleted rallies fuses into
+    // one jump — the cut keeps slivers of unowned padding between clips,
+    // and the old 0.01 tolerance turned a deleted warm-up into a hop per
+    // rally — while the kept-rally guard keeps a fuse from ever spanning
+    // a rally somebody kept.
+    return mergeSkipSpans(spans, [...visibleStarts].sort((a, b) => a - b));
   }, [orderedPoints, pad]);
 
   // 0-based game index per point, from the confirmed score's boundaries.
