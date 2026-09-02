@@ -13,13 +13,21 @@ struct CoachHomeScreen: View {
     @State private var inviteOpen = false
 
     /// Students' matches, newest first. The library already holds them —
-    /// RLS delivers every match a coach link covers — so this only keeps
-    /// the ones that are not the coach's own.
+    /// RLS delivers every match a coach link covers — so this keeps the
+    /// ones owned by someone on the live roster. A match reachable only
+    /// through a paid review order belongs to the web's orders pages.
     private var studentMatches: [MatchRow] {
-        guard let uid = app.userId else { return [] }
+        let owners = Set(workspace.activeStudents.compactMap(\.playerId))
         return library.matches
-            .filter { $0.userId != uid }
+            .filter { owners.contains($0.userId) }
             .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    /// Entries for students still on the roster; an archived student's
+    /// record stays reachable from their entries, not from Home.
+    private var recentEntries: [CoachEntryRow] {
+        let live = Set(workspace.activeStudents.map(\.id))
+        return workspace.entries.filter { live.contains($0.studentId) }
     }
 
     private func studentName(ownerId: UUID) -> String {
@@ -34,7 +42,9 @@ struct CoachHomeScreen: View {
                     .tracking(-0.6)
                     .foregroundStyle(PL.textBody)
 
-                if workspace.loaded && workspace.activeStudents.isEmpty {
+                if workspace.loadFailed && !workspace.loaded {
+                    loadFailedState
+                } else if workspace.loaded && workspace.activeStudents.isEmpty {
                     emptyState
                 } else {
                     quickActions
@@ -60,10 +70,10 @@ struct CoachHomeScreen: View {
                         }
                     }
 
-                    if !workspace.entries.isEmpty {
+                    if !recentEntries.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             SectionHeading("Recent entries")
-                            ForEach(workspace.entries.prefix(5)) { entry in
+                            ForEach(recentEntries.prefix(5)) { entry in
                                 NavigationLink(value: entry) {
                                     CoachEntryCard(
                                         entry: entry,
@@ -76,7 +86,7 @@ struct CoachHomeScreen: View {
                         }
                     }
 
-                    if studentMatches.isEmpty && workspace.entries.isEmpty {
+                    if studentMatches.isEmpty && recentEntries.isEmpty {
                         Text("Nothing here yet. Write your first entry, or open Students to see who has shared matches.")
                             .font(.plBody)
                             .foregroundStyle(PL.text400)
@@ -110,6 +120,23 @@ struct CoachHomeScreen: View {
             }
             .buttonStyle(PLSecondaryButtonStyle())
         }
+    }
+
+    private var loadFailedState: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Couldn't load your students.")
+                .font(.plCardTitle)
+                .foregroundStyle(PL.text100)
+            Text("Check your connection and try again.")
+                .font(.plBody)
+                .foregroundStyle(PL.text400)
+            Button("Try again") {
+                Task { await workspace.load(userId: app.userId) }
+            }
+            .buttonStyle(PLSecondaryButtonStyle())
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 20)
     }
 
     private var emptyState: some View {

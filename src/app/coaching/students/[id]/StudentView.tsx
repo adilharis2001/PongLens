@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { entryTitle as entryTitleOf, matchLabel } from "@/lib/coach/entryView";
 import type { CoachStudentRow } from "../StudentsView";
 
 /**
@@ -54,18 +56,8 @@ function day(iso: string): string {
   });
 }
 
-function matchLabel(match: MatchRow): string {
-  if (match.opponent_name) return `vs ${match.opponent_name}`;
-  if (match.original_name) return match.original_name;
-  return match.match_type === "practice" ? "Practice" : "Match";
-}
-
 function entryTitle(lesson: LessonRow | undefined): string {
-  const title = lesson?.takeaways?.title?.trim();
-  if (title) return title;
-  const words = (lesson?.transcript ?? "").replace(/\s+/g, " ").trim();
-  if (!words) return "Entry";
-  return words.length > 72 ? `${words.slice(0, 72)}…` : words;
+  return entryTitleOf(lesson?.transcript, lesson?.takeaways);
 }
 
 const pill =
@@ -78,6 +70,7 @@ export function StudentView({
   userId: string;
   initialStudent: CoachStudentRow;
 }) {
+  const router = useRouter();
   const [student, setStudent] = useState(initialStudent);
   const [entries, setEntries] = useState<EntryRow[]>([]);
   const [lessons, setLessons] = useState<Record<string, LessonRow>>({});
@@ -236,6 +229,44 @@ export function StudentView({
     flash("Link copied.");
   };
 
+  const removeStudent = async () => {
+    if (
+      !window.confirm(
+        student.player_id
+          ? "Remove this student? They come off your list and you stop seeing their matches. Your entries are kept."
+          : "Remove this student? They come off your list. Your entries are kept.",
+      )
+    )
+      return;
+    const supabase = createClient();
+    const { error } = await supabase.rpc("remove_student", {
+      p_student_id: student.id,
+    });
+    if (error) {
+      flash("Couldn't remove them. Try again.");
+      return;
+    }
+    router.replace("/coaching/students");
+    router.refresh();
+  };
+
+  /** Turn off every live invite link for this student; the next copy
+   *  mints a fresh one. For a link that got forwarded too far. */
+  const resetInvite = async () => {
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("coach_student_invites")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("coach_id", userId)
+      .eq("student_id", student.id)
+      .is("revoked_at", null);
+    if (error) {
+      flash("Couldn't reset the link. Try again.");
+      return;
+    }
+    flash("Old invite links are off. Copy a new one when you're ready.");
+  };
+
   const copyInvite = async () => {
     const supabase = createClient();
     const { data: existing } = await supabase
@@ -291,10 +322,22 @@ export function StudentView({
             New entry
           </button>
           {!student.player_id && (
-            <button type="button" onClick={() => void copyInvite()} className={pill}>
-              Copy invite link
-            </button>
+            <>
+              <button type="button" onClick={() => void copyInvite()} className={pill}>
+                Copy invite link
+              </button>
+              <button type="button" onClick={() => void resetInvite()} className={pill}>
+                Reset invite link
+              </button>
+            </>
           )}
+          <button
+            type="button"
+            onClick={() => void removeStudent()}
+            className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200"
+          >
+            Remove
+          </button>
         </div>
       </div>
 

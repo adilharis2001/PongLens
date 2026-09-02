@@ -121,6 +121,17 @@ export function CoachShared() {
                       {entry.transcript}
                     </p>
                   )}
+                  <p className="text-xs text-zinc-500">
+                    Something wrong with this?{" "}
+                    <a
+                      className="underline underline-offset-2 hover:text-zinc-300"
+                      href={`mailto:support@ponglens.com?subject=${encodeURIComponent("Report a shared entry")}&body=${encodeURIComponent(`Entry ${entry.entry_id} from ${entry.coach_name}.\n\nWhat is wrong with it:\n`)}`}
+                    >
+                      Report it
+                    </a>
+                    . To stop hearing from this coach, remove them under
+                    Coaching.
+                  </p>
                 </div>
               )}
             </div>

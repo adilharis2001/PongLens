@@ -44,7 +44,21 @@ struct CoachSharedEntrySheet: View {
     let entry: CoachSharedEntry
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @Environment(LibraryStore.self) private var library
+
+    /// A report goes to support as mail, with the entry named. Leaving the
+    /// coach lives in Account, where coaches are managed.
+    private var reportURL: URL? {
+        var parts = URLComponents()
+        parts.scheme = "mailto"
+        parts.path = "support@ponglens.com"
+        parts.queryItems = [
+            URLQueryItem(name: "subject", value: "Report a shared entry"),
+            URLQueryItem(name: "body", value: "Entry \(entry.entryId.uuidString.lowercased()) from \(entry.coachName).\n\nWhat is wrong with it:\n"),
+        ]
+        return parts.url
+    }
 
     private var linkedMatch: MatchRow? {
         guard let id = entry.matchId else { return nil }
@@ -133,6 +147,20 @@ struct CoachSharedEntrySheet: View {
                             .font(.plCaption)
                             .foregroundStyle(PL.text500)
                     }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("To stop hearing from this coach, remove them under Coaching in Account.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Report this entry") {
+                            if let reportURL { openURL(reportURL) }
+                        }
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text400)
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 8)
                 }
                 .padding(24)
             }

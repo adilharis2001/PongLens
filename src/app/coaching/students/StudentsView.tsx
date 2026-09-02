@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { studentSummary } from "@/lib/coach/entryView";
 
 export interface CoachStudentRow {
   id: string;
@@ -74,17 +75,12 @@ export function StudentsView({ userId }: { userId: string }) {
     void load();
   };
 
-  const summary = (student: CoachStudentRow) => {
-    if (!student.player_id) return "Not on PongLens yet";
-    const matches = matchCounts[student.player_id] ?? 0;
-    const entries = entryCounts[student.id] ?? 0;
-    const parts: string[] = [];
-    if (matches > 0)
-      parts.push(`${matches} match${matches === 1 ? "" : "es"}`);
-    if (entries > 0)
-      parts.push(`${entries} entr${entries === 1 ? "y" : "ies"}`);
-    return parts.length > 0 ? parts.join(" · ") : "On PongLens";
-  };
+  const summary = (student: CoachStudentRow) =>
+    studentSummary(
+      Boolean(student.player_id),
+      student.player_id ? (matchCounts[student.player_id] ?? 0) : 0,
+      entryCounts[student.id] ?? 0,
+    );
 
   return (
     <div>

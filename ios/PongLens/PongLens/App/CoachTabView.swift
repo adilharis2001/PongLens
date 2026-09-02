@@ -160,6 +160,13 @@ struct CoachTabView: View {
                     if let match = library.matches.first(where: { $0.id == matchId }) {
                         path.append(match)
                     }
+                },
+                onOpenHref: { href in
+                    // A student joining lands on the roster.
+                    if href.hasPrefix("/coaching/students") {
+                        bellOpen = false
+                        router.tab = .students
+                    }
                 }
             )
             .presentationDetents([.medium, .large])

@@ -43,16 +43,20 @@ struct AccountScreen: View {
 
                     identity
 
-                    group("Your game") {
-                        linkRow("My stats", value: "stats")
-                        rowDivider
-                        linkRow("Tactics", value: "stats-tactics")
-                        rowDivider
-                        linkRow("Starred points", value: "starred")
-                        rowDivider
-                        navRow("Player profile") { profileOpen = true }
-                        rowDivider
-                        recollectRow
+                    // The playing side's rooms. On the coaching side they
+                    // are one switch away, not on this page.
+                    if app.workspace != .coach {
+                        group("Your game") {
+                            linkRow("My stats", value: "stats")
+                            rowDivider
+                            linkRow("Tactics", value: "stats-tactics")
+                            rowDivider
+                            linkRow("Starred points", value: "starred")
+                            rowDivider
+                            navRow("Player profile") { profileOpen = true }
+                            rowDivider
+                            recollectRow
+                        }
                     }
 
                     group("Public links") {
@@ -91,7 +95,7 @@ struct AccountScreen: View {
 
                     coachingSection
 
-                    if store.commerceEnabled {
+                    if store.commerceEnabled && app.workspace != .coach {
                         minutesSection
                         storageSection
                         if let message = purchases.errorMessage {

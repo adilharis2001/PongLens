@@ -199,6 +199,17 @@ export default async function PrivacyPage() {
           coach&apos;s access ends when you do. Notes they already left stay
           on your match.
         </p>
+        <p>
+          Coaches can keep lesson notes about their students inside
+          PongLens. A coach may add a student by name before that student
+          has an account; those notes belong to the coach and are visible
+          only to them until the coach shares an entry with you. When you
+          join a coach from their invite link, the entries they share appear
+          in your journal, and the coach can see the matches you upload.
+          You can leave a coach at any time from your account: their access
+          to your matches ends and their shared entries stop reaching you.
+          The coach keeps their own notes.
+        </p>
       </section>
 
       <section>

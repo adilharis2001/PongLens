@@ -272,6 +272,14 @@ struct MainTabView: View {
                     if let match = library.matches.first(where: { $0.id == matchId }) {
                         path.append(match)
                     }
+                },
+                onOpenHref: { href in
+                    // "shared a lesson note" lands on the journal, where the
+                    // From your coach section sits at the top.
+                    if href.hasPrefix("/journal") {
+                        bellOpen = false
+                        router.tab = .journal
+                    }
                 }
             )
             .presentationDetents([.medium, .large])
