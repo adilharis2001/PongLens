@@ -2,17 +2,21 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
-import { UpLink } from "@/components/UpLink";
-import type { CoachQueueItem } from "@/lib/reviews/types";
+import { sponsoredLeftFor } from "@/lib/reviews/sponsoredLeft";
+import type { CoachProfileRow, CoachQueueItem } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/server";
-import { OrderGroup } from "../CoachHub";
+import { OrdersHub } from "./OrdersHub";
 
 export const metadata: Metadata = {
   title: "Orders",
   robots: { index: false, follow: false },
 };
 
-/** Every order the coach has ever taken, grouped by whose move it is. */
+/**
+ * The marketplace tab of the coaching workspace: every order the coach
+ * has taken, the page players buy from, availability and payouts. A
+ * coach without a page gets the offer to make one.
+ */
 export default async function CoachOrdersPage() {
   const supabase = await createClient();
   const {
@@ -20,53 +24,63 @@ export default async function CoachOrdersPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login?next=/coaching/orders");
 
-  const { data: profile } = await supabase
-    .from("coach_profiles")
-    .select("user_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if (!profile) redirect("/coaching");
-
-  const { data } = await supabase.rpc("coach_queue");
-  const queue = (data ?? []) as CoachQueueItem[];
-
-  const groups = {
-    yourMove: queue.filter((o) => o.status === "submitted"),
-    inProgress: queue.filter(
-      (o) => o.status === "in_review" || o.status === "clarification",
-    ),
-    waiting: queue.filter(
-      (o) => o.status === "awaiting_submission" || o.status === "delivered",
-    ),
-    done: queue.filter((o) =>
-      ["completed", "declined", "cancelled"].includes(o.status),
-    ),
-  };
-
   const avatarUrl =
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
     null;
+  const defaultName =
+    (user.user_metadata?.full_name as string | undefined) ??
+    (user.user_metadata?.name as string | undefined) ??
+    "";
+
+  const { data: profile } = await supabase
+    .from("coach_profiles")
+    .select("*")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const [queueRes, statsRes, offeringsRes, opensRes, sponsoredLeft] =
+    await Promise.all([
+      profile ? supabase.rpc("coach_queue") : Promise.resolve({ data: [] }),
+      profile
+        ? supabase.rpc("coach_review_stats")
+        : Promise.resolve({ data: null }),
+      profile
+        ? supabase
+            .from("offerings")
+            .select("id", { count: "exact", head: true })
+            .eq("coach_id", user.id)
+        : Promise.resolve({ count: 0 }),
+      // Storefront opens this week (RLS scopes to own rows).
+      profile
+        ? supabase
+            .from("coach_page_views")
+            .select("id", { count: "exact", head: true })
+            .gte(
+              "viewed_at",
+              new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(),
+            )
+        : Promise.resolve({ count: 0 }),
+      profile ? sponsoredLeftFor(supabase) : Promise.resolve(null),
+    ]);
 
   return (
-    <AppShell avatarUrl={avatarUrl} wide>
-      <div className="mx-auto max-w-lg lg:max-w-none">
-        <UpLink href="/coaching" label="Coaching" />
-        <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">
-          Orders
-        </h1>
-        {queue.length === 0 && (
-          <p className="mt-6 text-sm text-zinc-500">No orders yet.</p>
-        )}
-        {/* Every group keeps its own mt-6, so the grid rows top-align
-            without the wrapper needing a gap of its own. */}
-        <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-x-8">
-          <OrderGroup label="Your move" orders={groups.yourMove} />
-          <OrderGroup label="In progress" orders={groups.inProgress} />
-          <OrderGroup label="Waiting on them" orders={groups.waiting} />
-          <OrderGroup label="Done" orders={groups.done} />
-        </div>
-      </div>
+    <AppShell avatarUrl={avatarUrl}>
+      <OrdersHub
+        profile={(profile as CoachProfileRow | null) ?? null}
+        queue={(queueRes.data ?? []) as CoachQueueItem[]}
+        stats={
+          statsRes.data ?? {
+            active_count: 0,
+            completed_count: 0,
+            earned_cents: 0,
+          }
+        }
+        offeringCount={(offeringsRes as { count: number | null }).count ?? 0}
+        pageOpens7d={(opensRes as { count: number | null }).count ?? 0}
+        sponsoredLeft={sponsoredLeft}
+        defaultName={defaultName}
+      />
     </AppShell>
   );
 }

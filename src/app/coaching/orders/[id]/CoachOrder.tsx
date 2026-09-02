@@ -131,7 +131,7 @@ export function CoachOrder({
 
   const header = (
     <>
-      <UpLink href="/coaching" label="Coaching" />
+      <UpLink href="/coaching/orders" label="Orders" />
       <div className="mt-2 flex items-baseline justify-between gap-4">
         <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
           {detail.student_name}

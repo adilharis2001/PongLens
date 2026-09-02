@@ -700,7 +700,7 @@ export function ProfileEditor({ profile }: { profile: CoachProfileRow }) {
   return (
     <div className="mx-auto max-w-lg lg:max-w-none lg:grid lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-x-10">
       <div className="lg:col-span-2">
-        <UpLink href="/coaching" label="Coaching" />
+        <UpLink href="/coaching/orders" label="Orders" />
         <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">
           Your page
         </h1>

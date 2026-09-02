@@ -155,7 +155,7 @@ export function SponsoredManager({
 
   return (
     <div className="mx-auto max-w-2xl">
-      <UpLink href="/coaching" label="Coaching" />
+      <UpLink href="/coaching/orders" label="Orders" />
       <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
         Sponsored reviews
       </h1>
