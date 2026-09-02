@@ -632,11 +632,11 @@ struct MatchDetailScreen: View {
     }
 
     /// The aggregate exists once placement ran or any point carries data.
+    /// A coach sees it too (Adil, 2026-09-02): the maps are what a share
+    /// link shows, and generation still lives in the owner's Tools.
     private var showPlacementAggregate: Bool {
-        isOwner && (
-            current.placementStatus == "ready"
-                || model.visible.contains { $0.placement != nil }
-        )
+        current.placementStatus == "ready"
+            || model.visible.contains { $0.placement != nil }
     }
 
     /// First visible point of each game, for the checkpoint chips.
@@ -737,6 +737,11 @@ struct MatchDetailScreen: View {
                                 )
                             }
                             pointsSection(proxy: proxy)
+                            // The owner opens the analysis from Tools; a
+                            // coach gets the same sheet from this row.
+                            if !isOwner && tracksServe {
+                                CoachAnalysisRow(match: current, model: model, score: score)
+                            }
                             if showPlacementAggregate {
                                 PlacementAggregateSection(
                                     points: model.visible,
@@ -1754,6 +1759,7 @@ struct MatchDetailScreen: View {
                             number: number,
                             displayServer: serving[point.id]?.server ?? point.displayServer,
                             scoring: tracksServe,
+                            coachView: !isOwner,
                             noteCount: notesStore.count(for: point.id),
                             tagCount: tagsStore.tags(for: point.id).count,
                             onOpen: {

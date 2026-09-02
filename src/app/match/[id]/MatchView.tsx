@@ -44,6 +44,14 @@ import {
 import { PlacementToolsRow } from "./PlacementToolsRow";
 import { usePlacementLifecycle } from "./usePlacementLifecycle";
 import { AnalysisCards } from "./AnalysisCards";
+import { ShareResult } from "@/app/s/[token]/ShareResult";
+import { ShareStats } from "@/app/s/[token]/ShareStats";
+import { SharePlacement } from "@/app/s/[token]/SharePlacement";
+import {
+  collectServePlacementObservations,
+  collectTrustedPlacementObservations,
+  trustedPlacementPointCount,
+} from "@/lib/placement/placementAggregate";
 import { computeMatchAnalysis } from "./matchAnalysis";
 import { computeMatchStats, statsRowSummary } from "./matchStats";
 import { mergeSkipSpans, paddedEnd,
@@ -1153,6 +1161,29 @@ export function MatchView({
     [match]
   );
   const placementNotice = placementNoticeForViewer(placement.view, isOwner);
+  // A coach's maps are the public share page's maps (Adil, 2026-09-02):
+  // the same collectors, the same three-point floor, the same read-only
+  // deck. The owner keeps the interactive aggregate below.
+  const coachPlacement = useMemo(() => {
+    if (isOwner) return null;
+    if (match.placement_status !== "ready" || placementFlagged) return null;
+    const observations = (
+      placementServesOnly
+        ? collectServePlacementObservations
+        : collectTrustedPlacementObservations
+    )({ points: visiblePoints, userSide, gameIndexByPoint, serving });
+    const mapped = trustedPlacementPointCount(observations);
+    return mapped < 3 ? null : { observations, mapped };
+  }, [
+    isOwner,
+    match.placement_status,
+    placementFlagged,
+    placementServesOnly,
+    visiblePoints,
+    userSide,
+    gameIndexByPoint,
+    serving,
+  ]);
   const showPointPlacementNotice = showPlacementDeepDive(
     placement.view,
     false,
@@ -4220,6 +4251,37 @@ export function MatchView({
           practice never collects any, so for it this whole section could
           only ever say "score a full game", which is an instruction to do
           the one thing practice removed. */}
+      {/* A coach sees the scored half of the match the way a share link
+          shows it (Adil, 2026-09-02): the result, the stats and the maps,
+          in the public page's own components, so the two never drift. The
+          owner keeps the interactive deck below. */}
+      {!isOwner && scored && score.games.length > 0 && (
+        <ShareResult
+          you={mapLabels.you}
+          them={mapLabels.them}
+          games={score.games}
+          gamesYou={score.gamesYou}
+          gamesThem={score.gamesThem}
+        />
+      )}
+      {!isOwner && scored && (
+        <ShareStats
+          stats={stats}
+          momentum={analysis.momentum}
+          you={mapLabels.you}
+          them={mapLabels.them}
+        />
+      )}
+      {!isOwner && coachPlacement && (
+        <SharePlacement
+          observations={coachPlacement.observations}
+          mappedPoints={coachPlacement.mapped}
+          totalPoints={visiblePoints.length}
+          labels={mapLabels}
+          servesOnly={placementServesOnly}
+        />
+      )}
+
       {isOwner && scored && (
         <div ref={matchStatsRef} className="scroll-mt-32">
           <AnalysisCards

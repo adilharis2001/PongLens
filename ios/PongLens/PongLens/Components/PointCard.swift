@@ -13,6 +13,12 @@ struct PointCard: View {
     /// the score anatomy — server chip, winner text, You/Them/Skip pills —
     /// and the row becomes number · duration · tag/star/delete.
     var scoring = true
+    /// A coach looking at a student's match (Adil, 2026-09-02): the row
+    /// reads as the web's coach view — "Player served", "Opponent won" —
+    /// and carries none of the owner's controls. Scoring, tagging,
+    /// starring and deleting are the owner's; a coach opens the point
+    /// and leaves notes.
+    var coachView = false
     var noteCount = 0
     var tagCount = 0
     let onOpen: () -> Void
@@ -79,7 +85,7 @@ struct PointCard: View {
             }
             .buttonStyle(.plain)
 
-            if scoring {
+            if scoring && !coachView {
                 VStack(spacing: 8) {
                     answerPill("You", selected: point.confirmedWinner == .user, tint: PL.cyan, action: onYou)
                     answerPill("Them", selected: point.confirmedWinner == .opponent, tint: PL.magentaSoft, action: onThem)
@@ -87,6 +93,14 @@ struct PointCard: View {
                 }
             }
 
+            if coachView {
+                if point.starred {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Color(hex: 0xFFD230))
+                        .padding(.leading, 2)
+                }
+            } else {
             VStack(spacing: 16) {
                 Button(action: onTag) {
                     Image(systemName: "tag")
@@ -108,6 +122,7 @@ struct PointCard: View {
                 .buttonStyle(.plain)
             }
             .padding(.leading, 2)
+            }
         }
         .plCard(padding: 16)
     }
@@ -122,8 +137,8 @@ struct PointCard: View {
     private var winnerLabel: (text: String, color: Color)? {
         if point.isLet { return ("Skipped", PL.warningText) }
         switch point.confirmedWinner {
-        case .user: return ("I won", PL.successText)
-        case .opponent: return ("They won", PL.text400)
+        case .user: return (coachView ? "Player won" : "I won", PL.successText)
+        case .opponent: return (coachView ? "Opponent won" : "They won", PL.text400)
         case nil: return nil
         }
     }
@@ -132,9 +147,9 @@ struct PointCard: View {
     private var serverChip: some View {
         switch displayServer {
         case .user:
-            chipBody("I served", tint: PL.cyan, textColor: PL.cyan)
+            chipBody(coachView ? "Player served" : "I served", tint: PL.cyan, textColor: PL.cyan)
         case .opponent:
-            chipBody("They served", tint: PL.magenta, textColor: PL.magentaSoft)
+            chipBody(coachView ? "Opponent served" : "They served", tint: PL.magenta, textColor: PL.magentaSoft)
         case nil:
             Text("Server")
                 .font(.system(size: 11, weight: .medium))
@@ -152,8 +167,12 @@ struct PointCard: View {
     private func chipBody(_ label: String, tint: Color, textColor: Color) -> some View {
         HStack(spacing: 4) {
             Text(label)
-            Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .semibold))
+            // The chevron promises the owner's "fix server" menu; a coach
+            // has no such menu.
+            if !coachView {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+            }
         }
         .font(.system(size: 11, weight: .medium))
         .foregroundStyle(textColor)

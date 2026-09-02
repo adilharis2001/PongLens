@@ -36,6 +36,7 @@ export interface AskSource {
     | "note"
     | "lesson"
     | "practice"
+    | "coach"
     | "match"
     | "working_on"
     | "tags"
@@ -245,6 +246,47 @@ function lessonBlock(
   return parts.join("\n");
 }
 
+/** An entry a coach shared with the player (156): their words, read as
+ *  material like everything else, never as instructions. */
+export interface CoachEntryLite {
+  entry_id: string;
+  coach_name: string;
+  transcript: string;
+  takeaways: {
+    title?: string | null;
+    themes?: { name: string; points: string[] }[] | null;
+  } | null;
+  shared_at: string;
+}
+
+function coachEntryBlock(
+  e: CoachEntryLite,
+  id: string,
+  includeTranscript: boolean,
+): string {
+  const head = [
+    `[${id}]`,
+    `Entry your coach ${e.coach_name} shared`,
+    shortDate(e.shared_at),
+    e.takeaways?.title ? `"${e.takeaways.title}"` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const parts = [head];
+  if (e.takeaways?.themes?.length) {
+    parts.push("Takeaways:");
+    for (const theme of e.takeaways.themes) {
+      parts.push(`  ${theme.name}: ${theme.points.join("; ")}`);
+    }
+  }
+  if ((includeTranscript || !e.takeaways?.themes?.length) && e.transcript.trim()) {
+    parts.push("What the coach wrote:");
+    parts.push(e.transcript.trim());
+  }
+  return parts.join("\n");
+}
+
 function noteBlock(n: NoteFeedRow, id: string, title: string): string {
   const head = [
     `[${id}]`,
@@ -274,6 +316,9 @@ function noteBlock(n: NoteFeedRow, id: string, title: string): string {
 export interface CorpusInput {
   notes: NoteFeedRow[];
   lessons: Lesson[];
+  /** Entries coaches shared with the player. Optional: older callers and
+   *  the tier tests build without them. */
+  coachEntries?: CoachEntryLite[];
   stats: AggregateStats | null;
   matchTitles: Map<string, { title: string; when: string }>;
   focusPoints: { label: string; done: boolean }[];
@@ -303,6 +348,9 @@ export function buildAtCoverage(
 
   const lessons = input.lessons.filter((l) => recentEnough(l.created_at));
   const notes = input.notes.filter((n) => recentEnough(n.created_at));
+  const coachEntries = (input.coachEntries ?? []).filter((e) =>
+    recentEnough(e.shared_at),
+  );
 
   if (input.profile) {
     const bits = [
@@ -362,6 +410,17 @@ export function buildAtCoverage(
           (l.coach_name ? ` with ${l.coach_name}` : ""),
       href: `/journal#journal-entry-${l.id}`,
       when: l.created_at,
+    });
+  });
+  coachEntries.forEach((e, i) => {
+    const id = `c${i + 1}`;
+    writing.push(coachEntryBlock(e, id, coverage === "full"));
+    sources.push({
+      id,
+      kind: "coach",
+      title: e.takeaways?.title || `From your coach ${e.coach_name}`,
+      href: "/journal",
+      when: e.shared_at,
     });
   });
   notes.forEach((n, i) => {

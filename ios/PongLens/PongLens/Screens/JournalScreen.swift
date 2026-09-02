@@ -65,9 +65,6 @@ struct JournalScreen: View {
 
                         if selectedTag == nil {
                             WorkingOnCard(store: store)
-                            if !store.coachShared.isEmpty && tab != "Coach" {
-                                coachSharedSection
-                            }
                             tabs
                             if tab == "Recollect" {
                                 RecollectSection(journal: store) { source in
@@ -197,33 +194,6 @@ struct JournalScreen: View {
     }
 
     // MARK: - Search + ask
-
-    /// Entries coaches shared with this player. Live documents: the words
-    /// shown are whatever the coach's row says right now. The two newest
-    /// sit here; the Coach filter below holds the whole list, so this
-    /// section never grows past the feed it introduces.
-    private var coachSharedSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                SectionHeading("From your coach")
-                Spacer()
-                if store.coachShared.count > 2 {
-                    Button("See all") { tab = "Coach" }
-                        .font(.plCaption)
-                        .foregroundStyle(PL.cyan)
-                        .buttonStyle(.plain)
-                }
-            }
-            ForEach(store.coachShared.prefix(2)) { entry in
-                Button {
-                    coachEntryOpen = entry
-                } label: {
-                    CoachSharedEntryCard(entry: entry)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
 
     private var searchField: some View {
         HStack(spacing: 10) {
@@ -373,11 +343,12 @@ struct JournalScreen: View {
     // MARK: - Tabs + feed
 
     private var tabs: some View {
-        // "Coach" is a filter, not a tab bar item: it appears once a coach
-        // has shared something, the same way Recollect appears when it is
-        // on. Adil's call over a fourth bottom-bar tab (2026-09-02).
+        // "From your coach" is a filter, not a tab bar item: it appears
+        // once a coach has shared something, the same way Recollect appears
+        // when it is on. Its entries also sit under All, the way the web's
+        // journal reads (Adil, 2026-09-02) — no section of their own.
         let names = ["All", "Matches", "Lessons", "Practice"]
-            + (store.coachShared.isEmpty ? [] : ["Coach"])
+            + (store.coachShared.isEmpty ? [] : ["From your coach"])
             + (store.recollectEnabled ? ["Recollect"] : [])
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
@@ -401,11 +372,13 @@ struct JournalScreen: View {
     private enum FeedItem: Identifiable {
         case note(NoteFeedRow)
         case lesson(LessonRow)
+        case coach(CoachSharedEntry)
 
         var id: UUID {
             switch self {
             case .note(let n): n.id
             case .lesson(let l): l.id
+            case .coach(let e): e.entryId
             }
         }
 
@@ -413,17 +386,20 @@ struct JournalScreen: View {
             switch self {
             case .note(let n): n.createdAt
             case .lesson(let l): l.createdAt
+            case .coach(let e): e.sharedAt
             }
         }
     }
 
     private var feedItems: [FeedItem] {
         var items: [FeedItem] = []
-        if tab == "Coach" { return [] }
         if tab == "All" || tab == "Matches" {
             items += store.notes.map { .note($0) }
         }
-        if tab != "Matches" {
+        if tab == "All" || tab == "From your coach" {
+            items += store.coachShared.map { .coach($0) }
+        }
+        if tab != "Matches", tab != "From your coach" {
             items += store.lessons
                 .filter { lesson in
                     switch tab {
@@ -449,6 +425,13 @@ struct JournalScreen: View {
                             theme.name.lowercased().contains(q)
                                 || theme.points.contains { $0.lowercased().contains(q) }
                         }
+                case .coach(let e):
+                    e.transcript.lowercased().contains(q)
+                        || e.coachName.lowercased().contains(q)
+                        || (e.takeaways?.themes ?? []).contains { theme in
+                            theme.name.lowercased().contains(q)
+                                || theme.points.contains { $0.lowercased().contains(q) }
+                        }
                 }
             }
         }
@@ -460,31 +443,14 @@ struct JournalScreen: View {
     @ViewBuilder
     private var feed: some View {
         let items = feedItems
-        if tab == "Coach" {
-            if store.coachShared.isEmpty {
-                Text("Nothing from a coach yet.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text400)
-                    .frame(maxWidth: .infinity)
-                    .plCard(padding: 24)
-            } else {
-                ForEach(store.coachShared) { entry in
-                    Button {
-                        coachEntryOpen = entry
-                    } label: {
-                        CoachSharedEntryCard(entry: entry)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        } else if !store.loaded {
+        if !store.loaded {
             ForEach(0..<3, id: \.self) { _ in
                 RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
                     .fill(PL.surface)
                     .frame(height: 96)
                     .opacity(0.6)
             }
-        } else if items.isEmpty && store.notes.isEmpty && store.lessons.isEmpty {
+        } else if items.isEmpty && store.notes.isEmpty && store.lessons.isEmpty && store.coachShared.isEmpty {
             VStack(spacing: 12) {
                 Text("📓").font(.system(size: 40))
                 Text("Your journal starts here")
@@ -513,6 +479,13 @@ struct JournalScreen: View {
                     LessonCardView(lesson: lesson, store: store, onEdit: {
                         editRequest = EditRequest(lesson: lesson)
                     })
+                case .coach(let entry):
+                    Button {
+                        coachEntryOpen = entry
+                    } label: {
+                        CoachSharedEntryCard(entry: entry)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             if items.count > feedCap, !showAll {
@@ -527,6 +500,7 @@ struct JournalScreen: View {
         switch tab {
         case "Lessons": "No lessons yet. New saves your first."
         case "Practice": "No practice entries yet. New starts one."
+        case "From your coach": "Nothing from a coach yet."
         default: "Nothing found."
         }
     }
