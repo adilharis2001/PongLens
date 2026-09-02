@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { netSegmentFromQuad } from "../serve-accuracy/netDeath";
 import { createClient } from "@/lib/supabase/client";
 import { SIDECAM_CASES, type SidecamCase } from "./data";
 
@@ -47,11 +48,12 @@ function Overlay({
         stroke="rgba(255,255,255,0.85)"
         strokeWidth={2}
       />
+      {/* Derived from the quad: the baked net field was the pixel midpoint of the sidelines, 30-41 cm into the near half under perspective (fixed 2026-09-02). */}
       <line
-        x1={c.net[0][0]}
-        y1={c.net[0][1]}
-        x2={c.net[1][0]}
-        y2={c.net[1][1]}
+        x1={(netSegmentFromQuad(c.quad)?.e1 ?? c.net[0])[0]}
+        y1={(netSegmentFromQuad(c.quad)?.e1 ?? c.net[0])[1]}
+        x2={(netSegmentFromQuad(c.quad)?.e2 ?? c.net[1])[0]}
+        y2={(netSegmentFromQuad(c.quad)?.e2 ?? c.net[1])[1]}
         stroke="#ff3ca0"
         strokeWidth={2}
       />

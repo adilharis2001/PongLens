@@ -88,6 +88,29 @@ export function netSegment(
   return { e1, e2 };
 }
 
+/**
+ * The same construction for a quad stored as an ordered array —
+ * [A near-left, B near-right, C far-right, D far-left], the CORNER_ORDER
+ * the worker writes into serves.json. The payload also carries a `net`
+ * field, but until 2026-09-02 the worker computed it as the pixel
+ * midpoint of the sidelines, which sits 30-41 cm into the near half on
+ * every camera measured. Viewers derive the net from the quad instead,
+ * so every match ever processed draws it right with no backfill.
+ */
+export function netSegmentFromQuad(
+  quad: readonly (readonly number[])[] | null | undefined,
+): { e1: [number, number]; e2: [number, number] } | null {
+  if (!quad || quad.length !== 4) return null;
+  const [a, b, c, d] = quad;
+  if ([a, b, c, d].some((p) => !p || p.length < 2)) return null;
+  return netSegment({
+    A_near_1: [a[0], a[1]],
+    B_near_2: [b[0], b[1]],
+    C_far_2: [c[0], c[1]],
+    D_far_1: [d[0], d[1]],
+  });
+}
+
 export interface NetDeath {
   loser: "near" | "far";
   /** Source time of the turn. */
