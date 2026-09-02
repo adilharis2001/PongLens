@@ -281,7 +281,7 @@ struct LoginScreen: View {
             // the one-time token a magic link carries; when the fixed code
             // is switched off (or wrong) this returns nothing and the
             // address gets the ordinary emailed-code path below.
-            if clean.lowercased() == "reviewer@ponglens.com",
+            if Self.reviewerAddresses.contains(clean.lowercased()),
                let tokenHash = await reviewerTokenHash(email: clean.lowercased()) {
                 try await supa.auth.verifyOTP(tokenHash: tokenHash, type: .email)
             } else {
@@ -292,6 +292,13 @@ struct LoginScreen: View {
         }
         verifying = false
     }
+
+    /// The two App Review accounts (158): a player and a coach. The app
+    /// hardcodes the addresses, never the codes — those live server-side.
+    private static let reviewerAddresses: Set<String> = [
+        "reviewer@ponglens.com",
+        "coach-reviewer@ponglens.com",
+    ]
 
     /// Deliberately not APIClient: there is no session yet to attach, and
     /// the route is unauthenticated by design.
