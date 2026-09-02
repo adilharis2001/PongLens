@@ -4,10 +4,12 @@ import {
   activityLine,
   buildQueues,
   isStuck,
+  personQueueFor,
   queueFor,
   queueReason,
   touchLine,
   type OutreachRow,
+  type PersonRow,
 } from "./outreachView.ts";
 
 const NOW = new Date("2026-09-02T18:00:00Z");
@@ -131,6 +133,40 @@ test("the roster lines skip zeros and mention the coach side", () => {
   assert.equal(
     activityLine(row({ matches: 1, is_coach: true })),
     "1 match · coach side"
+  );
+});
+
+function person(over: Partial<PersonRow> = {}): PersonRow {
+  return {
+    id: "p1",
+    name: "Club Player",
+    email: null,
+    status: "new",
+    follow_up_on: null,
+    created_by: "aber97@gmail.com",
+    created_at: "2026-09-01T10:00:00Z",
+    last_outreach_at: null,
+    last_feedback_at: null,
+    touches: 0,
+    ...over,
+  };
+}
+
+// Hand-added people have no product activity, so only two queues can
+// claim one: a due follow-up, or never contacted.
+test("hand-added people queue on follow-ups and newness only", () => {
+  assert.equal(personQueueFor(person(), NOW), "to_contact");
+  assert.equal(
+    personQueueFor(
+      person({ status: "contacted", follow_up_on: "2026-09-01" }),
+      NOW
+    ),
+    "due"
+  );
+  assert.equal(personQueueFor(person({ status: "contacted" }), NOW), null);
+  assert.equal(
+    personQueueFor(person({ status: "closed", follow_up_on: "2026-08-01" }), NOW),
+    null
   );
 });
 

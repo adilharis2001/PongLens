@@ -33,14 +33,30 @@ export interface OutreachRow {
 export type TouchKind = "outreach" | "feedback" | "note";
 export type TouchChannel = "email" | "dm" | "in_person";
 
+/** A touch is about exactly one of a platform user or a hand-added person. */
 export interface TouchRow {
   id: string;
-  user_id: string;
+  user_id: string | null;
+  person_id: string | null;
   kind: TouchKind;
   channel: TouchChannel | null;
   body: string;
   author: string;
   at: string;
+}
+
+/** Someone Anton added by hand: no account, so no product stats. */
+export interface PersonRow {
+  id: string;
+  name: string;
+  email: string | null;
+  status: OutreachStatus;
+  follow_up_on: string | null;
+  created_by: string;
+  created_at: string;
+  last_outreach_at: string | null;
+  last_feedback_at: string | null;
+  touches: number;
 }
 
 export const STATUS_COPY: Record<OutreachStatus, string> = {
@@ -131,6 +147,40 @@ export function queueFor(row: OutreachRow, now: Date): QueueKey | null {
   return null;
 }
 
+/**
+ * A hand-added person has no activity to be stuck or quiet about, so only
+ * two queues can claim one: a due follow-up, or never contacted.
+ */
+export function personQueueFor(p: PersonRow, now: Date): QueueKey | null {
+  if (p.status === "closed") return null;
+  if (p.follow_up_on && p.follow_up_on <= now.toISOString().slice(0, 10)) {
+    return "due";
+  }
+  if (p.status === "new") return "to_contact";
+  return null;
+}
+
+export function buildPersonQueues(
+  people: PersonRow[],
+  now: Date
+): Record<QueueKey, PersonRow[]> {
+  const queues: Record<QueueKey, PersonRow[]> = {
+    due: [],
+    stuck: [],
+    to_contact: [],
+    quiet: [],
+  };
+  for (const p of people) {
+    const key = personQueueFor(p, now);
+    if (key) queues[key].push(p);
+  }
+  queues.due.sort((a, b) =>
+    (a.follow_up_on ?? "").localeCompare(b.follow_up_on ?? "")
+  );
+  queues.to_contact.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return queues;
+}
+
 export function buildQueues(
   rows: OutreachRow[],
   now: Date
@@ -210,7 +260,10 @@ export function activityLine(row: OutreachRow): string {
 }
 
 /** The contact summary: last touch either way, or never contacted. */
-export function touchLine(row: OutreachRow): string {
+export function touchLine(row: {
+  last_outreach_at: string | null;
+  last_feedback_at: string | null;
+}): string {
   if (row.last_feedback_at && row.last_outreach_at) {
     const feedback = new Date(row.last_feedback_at).getTime();
     const outreach = new Date(row.last_outreach_at).getTime();
