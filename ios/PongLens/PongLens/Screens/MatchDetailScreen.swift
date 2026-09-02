@@ -720,6 +720,19 @@ struct MatchDetailScreen: View {
                                     },
                                     onScrollToPlacement: {
                                         withAnimation { proxy.scrollTo("placement-maps", anchor: .top) }
+                                    },
+                                    onRowChanged: {
+                                        // The Tools rows render from this
+                                        // screen's captured row: refetch it
+                                        // so "Your side" / details reflect
+                                        // the save immediately, then square
+                                        // the library list too.
+                                        Task {
+                                            if let fresh = await model.refetchMatch(current.id) {
+                                                live = fresh
+                                            }
+                                            await library.load()
+                                        }
                                     }
                                 )
                             }

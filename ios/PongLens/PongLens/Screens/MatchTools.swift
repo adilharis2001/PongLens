@@ -10,9 +10,13 @@ struct ToolsSection: View {
     let onOpenPlayer: () -> Void
     let onScrollToNotes: () -> Void
     let onScrollToPlacement: () -> Void
+    /// Called after a sheet writes to the match row (details, your side).
+    /// The screen refetches its own copy — this card renders from a
+    /// captured MatchRow, and reloading the library alone left the rows'
+    /// trailing text stale, which read as the save not working.
+    let onRowChanged: () -> Void
 
     @Environment(AppState.self) private var app
-    @Environment(LibraryStore.self) private var library
     @State private var shareOpen = false
     @State private var highlightsOpen = false
     @State private var coachOpen = false
@@ -131,14 +135,14 @@ struct ToolsSection: View {
         }
         .sheet(isPresented: $detailsOpen) {
             MatchDetailsEditor(match: match) {
-                Task { await library.load() }
+                onRowChanged()
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $sideOpen) {
             YourSideSheet(match: match) {
-                Task { await library.load() }
+                onRowChanged()
             }
             .presentationDetents([.medium])
             .presentationBackground(PL.surface)
@@ -146,7 +150,10 @@ struct ToolsSection: View {
         }
         .sheet(isPresented: $placementOpen) {
             PlacementRequestSheet(match: match) {
-                Task { await library.load() }
+                // Same staleness as details/side: the row's "Generating…"
+                // comes from match.placementStatus, so the screen's copy
+                // must refresh or the tap looks like it did nothing.
+                onRowChanged()
             }
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
@@ -961,7 +968,9 @@ struct YourSideSheet: View {
     let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var app
     @State private var saving = false
+    @State private var errorMessage: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -978,26 +987,85 @@ struct YourSideSheet: View {
                 sideButton("Bottom of video", side: "near")
                 sideButton("Top of video", side: "far")
             }
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.plBody)
+                    .foregroundStyle(PL.warningText)
+            }
             Spacer()
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// The web's chooseSide, column for column (MatchView
+    /// handleSetUserSide): the side, plus the name-fill — your account
+    /// name onto your side, the opponent field onto the other — filling
+    /// only what is empty, so a name someone typed is never overwritten.
+    /// Errors are SHOWN, not swallowed: an expired session answers 204
+    /// and changes nothing, and fire-and-forget made that look exactly
+    /// like a write that worked.
+    private func save(_ side: String) async {
+        saving = true
+        errorMessage = nil
+        defer { saving = false }
+        let id = match.id.uuidString.lowercased()
+        struct Names: Decodable {
+            let playerNearName: String?
+            let playerFarName: String?
+            enum CodingKeys: String, CodingKey {
+                case playerNearName = "player_near_name"
+                case playerFarName = "player_far_name"
+            }
+        }
+        let names: Names? = try? await supa
+            .from("matches")
+            .select("player_near_name, player_far_name")
+            .eq("id", value: id)
+            .single()
+            .execute()
+            .value
+        let account = app.displayName
+        let opp = (match.opponentName ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        var near = (names?.playerNearName ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        var far = (names?.playerFarName ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        if side == "near" {
+            if near.isEmpty { near = account }
+            if far.isEmpty { far = opp }
+        } else {
+            if far.isEmpty { far = account }
+            if near.isEmpty { near = opp }
+        }
+        let opponent = (side == "near" ? far : near)
+            .trimmingCharacters(in: .whitespaces)
+        var fields: [String: AnyJSON] = [
+            "user_side": .string(side),
+            "player_near_name": near.isEmpty ? .null : .string(near),
+            "player_far_name": far.isEmpty ? .null : .string(far),
+        ]
+        if !opponent.isEmpty { fields["opponent_name"] = .string(opponent) }
+        do {
+            try await supa
+                .from("matches")
+                .update(fields)
+                .eq("id", value: id)
+                .execute()
+        } catch {
+            errorMessage =
+                "That didn't save. Check your connection and try again."
+            return
+        }
+        onSaved()
+        dismiss()
+    }
+
     private func sideButton(_ label: String, side: String) -> some View {
         let active = match.userSide == side
         return Button {
-            Task {
-                saving = true
-                _ = try? await supa
-                    .from("matches")
-                    .update(["user_side": AnyJSON.string(side)])
-                    .eq("id", value: match.id.uuidString.lowercased())
-                    .execute()
-                saving = false
-                onSaved()
-                dismiss()
-            }
+            Task { await save(side) }
         } label: {
             Text(label)
                 .font(.system(size: 14, weight: .semibold))

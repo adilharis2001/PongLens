@@ -37,6 +37,17 @@ final class AppState {
         return name == "player" ? "P" : String(name.prefix(1)).uppercased()
     }
 
+    /// The account's full display name, for the chooseSide name-fill
+    /// (YourSideSheet writes it into player_*_name the way the web does).
+    /// Empty when the account has never had a name — the fill then leaves
+    /// the column alone rather than inventing one.
+    var displayName: String {
+        guard case .signedIn(let session) = phase else { return "" }
+        let meta = session.user.userMetadata
+        return (meta["full_name"]?.stringValue ?? meta["name"]?.stringValue)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+    }
+
     /// First name for the "Hey {name} 👋" greeting, mirroring the web's fallbacks.
     var firstName: String {
         guard case .signedIn(let session) = phase else { return "player" }
