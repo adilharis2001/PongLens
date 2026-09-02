@@ -16,6 +16,7 @@ struct StudentInviteSheet: View {
     @State private var url: URL?
     @State private var failed = false
     @State private var copied = false
+    @State private var resetAsk = false
 
     var body: some View {
         ZStack {
@@ -55,6 +56,12 @@ struct StudentInviteSheet: View {
                             }
                             .buttonStyle(PLSecondaryButtonStyle())
                         }
+                        Button("Reset link") { resetAsk = true }
+                            .buttonStyle(PLSoftDestructiveButtonStyle())
+                        Text("Reset turns off every copy of this link that is out there. Use it if it reached someone it shouldn't have.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                            .fixedSize(horizontal: false, vertical: true)
                     } else if failed {
                         Text("Couldn't get the link. Close this and try again.")
                             .font(.plCaption)
@@ -74,6 +81,20 @@ struct StudentInviteSheet: View {
             guard let uid = app.userId else { return }
             url = await workspace.inviteURL(coachId: uid, studentId: student?.id)
             failed = url == nil
+        }
+        .confirmationDialog("Reset this invite link?", isPresented: $resetAsk, titleVisibility: .visible) {
+            Button("Reset", role: .destructive) {
+                Task {
+                    guard let uid = app.userId else { return }
+                    url = nil
+                    _ = await workspace.revokeInvites(coachId: uid, studentId: student?.id)
+                    url = await workspace.inviteURL(coachId: uid, studentId: student?.id)
+                    failed = url == nil
+                }
+            }
+            Button("Keep", role: .cancel) {}
+        } message: {
+            Text("The old link stops working. You get a new one straight away.")
         }
     }
 }

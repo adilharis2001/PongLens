@@ -7,15 +7,19 @@ import { setWorkspace, useWorkspace } from "@/lib/workspace";
 
 /**
  * The Upwork move (156): one account, a playing side and a coaching side.
- * Offered to anyone with coach data — students of their own, an accepted
- * link as a coach, a coach page, or the onboarding answer in metadata —
- * and to anyone already standing in the coaching workspace, so the way
- * back never disappears.
+ * Anyone with coach data — students, an accepted link as a coach, a coach
+ * page, or the onboarding answer in metadata — gets "Switch to coaching";
+ * everyone else gets "Set up coaching" (157), which marks the account and
+ * opens the workspace, so a coach who signed up on the web is not stuck
+ * waiting for an invite. Someone already standing in the coaching
+ * workspace always gets the way back.
  */
 export function WorkspaceSwitch() {
   const router = useRouter();
   const workspace = useWorkspace();
+  const [userId, setUserId] = useState<string | null>(null);
   const [eligible, setEligible] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -24,9 +28,10 @@ export function WorkspaceSwitch() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || !alive) return;
+      setUserId(user.id);
       if (user.user_metadata?.is_coach === true) {
-        if (alive) setEligible(true);
+        setEligible(true);
         return;
       }
       const [profile, asCoach, roster] = await Promise.all([
@@ -58,21 +63,36 @@ export function WorkspaceSwitch() {
     };
   }, []);
 
-  if (!eligible && workspace !== "coach") return null;
+  if (!userId) return null;
 
   const coaching = workspace === "coach";
-  const flip = () => {
-    setWorkspace(coaching ? "player" : "coach");
+  const label = coaching
+    ? "Switch to playing"
+    : eligible
+      ? "Switch to coaching"
+      : "Set up coaching";
+
+  const flip = async () => {
+    setBusy(true);
+    if (!coaching && !eligible) {
+      // Entering the coaching side marks the account a coach for good, so
+      // the switcher still offers itself on another device or the app.
+      const supabase = createClient();
+      await supabase.auth.updateUser({ data: { is_coach: true } });
+      setEligible(true);
+    }
+    setWorkspace(userId, coaching ? "player" : "coach");
     router.push(coaching ? "/dashboard" : "/coaching");
   };
 
   return (
     <button
       type="button"
-      onClick={flip}
-      className="flex w-full items-center justify-between px-4 py-3.5 text-left text-sm font-medium text-zinc-100 transition-colors hover:bg-surface-2"
+      onClick={() => void flip()}
+      disabled={busy}
+      className="flex w-full items-center justify-between px-4 py-3.5 text-left text-sm font-medium text-zinc-100 transition-colors hover:bg-surface-2 disabled:opacity-60"
     >
-      {coaching ? "Switch to playing" : "Switch to coaching"}
+      {label}
       <svg
         viewBox="0 0 24 24"
         className="h-4 w-4 text-zinc-600"

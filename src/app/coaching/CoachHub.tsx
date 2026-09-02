@@ -7,6 +7,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { Segmented } from "@/app/match/[id]/placementTable";
 import { SharingSection } from "@/components/SharingSection";
+import { useWorkspace } from "@/lib/workspace";
+import { StudentsCard } from "./StudentsCard";
 import { PAYOUT_COUNTRIES } from "@/lib/payments/countries";
 import { formatUsd } from "@/lib/reviews/money";
 import type {
@@ -395,7 +397,10 @@ export function CoachHub({
     if (stored === "coach" || stored === "player") setView(stored);
   }, [dual]);
   const showCoach = !!profile && (!dual || view === "coach");
-  const showPlayer = !profile || (dual && view === "player");
+  // In the coaching workspace a coach without a marketplace page gets a
+  // coach home (StudentsCard) instead of the player side of this page.
+  const coachWorkspace = useWorkspace() === "coach";
+  const showPlayer = (!profile && !coachWorkspace) || (dual && view === "player");
 
   async function saveAvailability(next: {
     accepting?: boolean;
@@ -515,6 +520,8 @@ export function CoachHub({
           />
         )}
       </div>
+
+      {!profile && coachWorkspace && <StudentsCard />}
 
       {profile && showCoach && !setupMode && (
         <div className="mt-4 flex flex-wrap items-center gap-2">

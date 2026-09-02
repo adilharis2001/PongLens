@@ -74,6 +74,9 @@ final class CoachWorkspaceStore {
     /// Lesson content keyed by lesson id, for the entries above only.
     var lessons: [UUID: LessonRow] = [:]
     var loaded = false
+    /// The roster query itself failed (offline, expired session). Screens
+    /// say so rather than showing "No students yet." over a network error.
+    var loadFailed = false
 
     var activeStudents: [CoachStudentRow] {
         students.filter { $0.archivedAt == nil }
@@ -115,7 +118,12 @@ final class CoachWorkspaceStore {
             .execute().value
 
         let (s, e, l) = await (studentsQ, entriesQ, lessonsQ)
-        students = s ?? []
+        guard let s else {
+            loadFailed = true
+            return
+        }
+        loadFailed = false
+        students = s
         entries = e ?? []
         lessons = Dictionary(uniqueKeysWithValues: (l ?? []).map { ($0.id, $0) })
         loaded = true
@@ -161,17 +169,36 @@ final class CoachWorkspaceStore {
     }
 
     /// Archive rather than delete: the entries under the student are the
-    /// coach's own record and survive.
+    /// coach's own record and survive. remove_student (157) also revokes
+    /// the coach's links to that player, so "removed" ends match access.
     func archiveStudent(_ student: CoachStudentRow) async -> Bool {
-        let stamp = ISO8601DateFormatter().string(from: Date())
+        struct Params: Encodable { let p_student_id: String }
         do {
             try await supa
-                .from("coach_students")
-                .update(["archived_at": AnyJSON.string(stamp)])
-                .eq("id", value: student.id.uuidString.lowercased())
+                .rpc("remove_student", params: Params(p_student_id: student.id.uuidString.lowercased()))
                 .execute()
         } catch { return false }
         students.removeAll { $0.id == student.id }
+        return true
+    }
+
+    /// Turn off every live invite link for a student (or the general one),
+    /// for a link that got forwarded too far. The next inviteURL call
+    /// mints a fresh token.
+    func revokeInvites(coachId: UUID, studentId: UUID?) async -> Bool {
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        do {
+            var query = try supa
+                .from("coach_student_invites")
+                .update(["revoked_at": AnyJSON.string(stamp)])
+                .eq("coach_id", value: coachId.uuidString.lowercased())
+            if let studentId {
+                query = query.eq("student_id", value: studentId.uuidString.lowercased())
+            } else {
+                query = query.is("student_id", value: nil)
+            }
+            try await query.is("revoked_at", value: nil).execute()
+        } catch { return false }
         return true
     }
 

@@ -5,6 +5,9 @@ import SwiftUI
 struct NotificationsPanel: View {
     let store: NotificationsStore
     let onOpenMatch: (UUID) -> Void
+    /// Rows without a match (a coach's shared entry, a student joining)
+    /// hand their href here; each tab view maps it to its own tab.
+    var onOpenHref: (String) -> Void = { _ in }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -69,6 +72,8 @@ struct NotificationsPanel: View {
         Button {
             if let matchId = row.matchId {
                 onOpenMatch(matchId)
+            } else {
+                onOpenHref(row.href)
             }
         } label: {
             HStack(alignment: .top, spacing: 12) {

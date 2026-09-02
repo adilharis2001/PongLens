@@ -135,10 +135,41 @@ export function SharingSection({ userId }: { userId: string }) {
       setError(null);
       setBusyIds((prev) => new Set([...prev, ...ids]));
       const supabase = createClient();
-      const { error: dbError } = await supabase
+      // leave_coach (157) revokes every link with that coach AND clears the
+      // roster binding, so their shared journal entries stop as well as
+      // their match access. A plain status flip left the entries flowing.
+      const { data: rows } = await supabase
         .from("coach_links")
-        .update({ status: "revoked" })
+        .select("coach_id")
         .in("id", ids);
+      const coachIds = [
+        ...new Set(
+          ((rows as { coach_id: string | null }[]) ?? [])
+            .map((r) => r.coach_id)
+            .filter((c): c is string => Boolean(c)),
+        ),
+      ];
+      let dbError: unknown = null;
+      if (coachIds.length === 0) {
+        // Pending invites nobody accepted yet carry no coach: flip them.
+        ({ error: dbError } = await supabase
+          .from("coach_links")
+          .update({ status: "revoked" })
+          .in("id", ids));
+      } else {
+        for (const coachId of coachIds) {
+          const { error } = await supabase.rpc("leave_coach", {
+            p_coach_id: coachId,
+          });
+          if (error) dbError = error;
+        }
+        // Links that hold no coach yet (pending) still need the flip.
+        await supabase
+          .from("coach_links")
+          .update({ status: "revoked" })
+          .in("id", ids)
+          .is("coach_id", null);
+      }
       setBusyIds((prev) => {
         const n = new Set(prev);
         ids.forEach((i) => n.delete(i));

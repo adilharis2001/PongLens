@@ -34,7 +34,17 @@ struct CoachStudentsScreen: View {
                     .buttonStyle(PLSecondaryButtonStyle())
                 }
 
-                if workspace.loaded && workspace.activeStudents.isEmpty {
+                if workspace.loadFailed && !workspace.loaded {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Couldn't load your students. Check your connection.")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text400)
+                        Button("Try again") {
+                            Task { await workspace.load(userId: app.userId) }
+                        }
+                        .buttonStyle(PLSecondaryButtonStyle())
+                    }
+                } else if workspace.loaded && workspace.activeStudents.isEmpty {
                     Text("No students yet.")
                         .font(.plBody)
                         .foregroundStyle(PL.text400)

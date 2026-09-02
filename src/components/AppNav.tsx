@@ -384,7 +384,7 @@ export function AppNav({
                     far outside the content column and gets missed. Looks
                     exactly like its neighbours — the destination is the
                     difference, not the styling. */}
-                {i === 0 && (
+                {i === 0 && workspace !== "coach" && (
                   <Link
                     onClick={guard}
                     href="/upload"
@@ -428,7 +428,15 @@ export function AppNav({
         className="fixed inset-x-0 bottom-0 z-50 border-t border-edge/70 bg-ink/90 backdrop-blur-md md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className={`grid h-16 ${isCoach ? "grid-cols-4" : "grid-cols-3"}`}>
+        <div
+          className={`grid h-16 ${
+            tabs.length === 2
+              ? "grid-cols-2"
+              : tabs.length === 4
+                ? "grid-cols-4"
+                : "grid-cols-3"
+          }`}
+        >
           {tabs.map((t) => {
             const active = activeTab(t.href);
             return (

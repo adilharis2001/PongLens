@@ -96,13 +96,25 @@ final class CoachingStore {
         loaded = true
     }
 
+    /// Ending a coach ends everything with them (157): every link with
+    /// that coach revoked AND the roster binding cleared, so their shared
+    /// journal entries stop as well as their match access. A pending
+    /// invite nobody accepted carries no coach and is simply flipped.
     func revokeLink(_ link: CoachLinkRow) async {
-        _ = try? await supa
-            .from("coach_links")
-            .update(["status": AnyJSON.string("revoked")])
-            .eq("id", value: link.id.uuidString.lowercased())
-            .execute()
-        coachLinks.removeAll { $0.id == link.id }
+        if let coachId = link.coachId {
+            struct Params: Encodable { let p_coach_id: String }
+            _ = try? await supa
+                .rpc("leave_coach", params: Params(p_coach_id: coachId.uuidString.lowercased()))
+                .execute()
+            coachLinks.removeAll { $0.coachId == coachId }
+        } else {
+            _ = try? await supa
+                .from("coach_links")
+                .update(["status": AnyJSON.string("revoked")])
+                .eq("id", value: link.id.uuidString.lowercased())
+                .execute()
+            coachLinks.removeAll { $0.id == link.id }
+        }
     }
 }
 
