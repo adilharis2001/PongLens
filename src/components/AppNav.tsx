@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { confirmLeaveDuringUpload } from "@/lib/uploadGuard";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Fragment, useEffect, useState } from "react";
 import { Logo } from "@/components/Logo";
 import { NotificationBell } from "@/components/NotificationBell";
 import { createClient } from "@/lib/supabase/client";
-import { useWorkspace } from "@/lib/workspace";
+import { setWorkspace, useWorkspace } from "@/lib/workspace";
+import { useCoachEligible } from "@/lib/coachEligible";
 import { routeTerritory, type Workspace } from "@/lib/workspaceModel";
 
 /**
@@ -261,7 +262,9 @@ export function AppNav({
   remembered?: Workspace;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const studentSide = useStudentSide();
+  const { eligible: coachEligible, userId } = useCoachEligible();
   const chosen = useWorkspace(remembered);
   // Route territory wins over the remembered choice, and it is known on
   // both server and client, so the first paint is already right.
@@ -305,6 +308,39 @@ export function AppNav({
   const guard = (e: React.MouseEvent) => {
     if (!confirmLeaveDuringUpload()) e.preventDefault();
   };
+
+  // The side switch (158): one tap between playing and coaching, only for
+  // accounts that have both. A label over an icon — "Coaching" on the
+  // playing side, "Playing" on the coaching side — so it never reads as
+  // "your coach". Everyone else keeps the door in Account.
+  const sideSwitch =
+    coachEligible && userId ? (
+      <button
+        type="button"
+        onClick={() => {
+          const toCoach = workspace !== "coach";
+          setWorkspace(userId, toCoach ? "coach" : "player");
+          router.push(toCoach ? "/coaching" : "/dashboard");
+          router.refresh();
+        }}
+        aria-label={workspace === "coach" ? "Switch to playing" : "Switch to coaching"}
+        className="flex items-center gap-1.5 rounded-full border border-edge px-3 py-1 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          className="h-3.5 w-3.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M7 8h10m0 0-3-3m3 3-3 3M17 16H7m0 0 3-3m-3 3 3 3" />
+        </svg>
+        {workspace === "coach" ? "Playing" : "Coaching"}
+      </button>
+    ) : null;
 
   const avatarLink = (
     <Link
@@ -397,6 +433,7 @@ export function AppNav({
             {/* peripheral cluster: a hairline and some air keep the bell
                 and avatar from crowding the destination pills */}
             <span className="ml-3 flex items-center gap-2.5 border-l border-edge/60 pl-4">
+              {sideSwitch}
               <NotificationBell />
               {avatarLink}
             </span>
@@ -409,6 +446,7 @@ export function AppNav({
         <div className="flex h-14 items-center justify-between px-5">
           <Logo href="/" onClick={guard} />
           <div className="flex items-center gap-3">
+            {sideSwitch}
             <NotificationBell />
             {avatarLink}
           </div>

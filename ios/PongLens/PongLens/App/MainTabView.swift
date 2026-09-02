@@ -55,6 +55,12 @@ struct MainTabView: View {
         let context: CameraPlacementSheet.Context
     }
 
+    /// A coaching side exists: the flag, a marketplace page, or someone's
+    /// accepted coach. The top-bar switch shows only then.
+    private var coachEligible: Bool {
+        coaching.isCoach || coaching.coachesAnyone || app.metadataFlag("is_coach")
+    }
+
     /// Everything the chooser used to do inline, now also reachable from
     /// the far side of the camera guide.
     private func beginNewMatch(_ choice: NewMatchChoice) {
@@ -101,6 +107,8 @@ struct MainTabView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 PLTopBar(
                     unreadCount: notifications.unreadCount,
+                    switchTo: coachEligible ? "Coaching" : nil,
+                    onSwitch: { app.setWorkspace(.coach) },
                     onBell: { bellOpen = true },
                     onAvatar: { path.append("account") }
                 )
@@ -329,6 +337,12 @@ struct MainTabView: View {
 struct PLTopBar: View {
     @Environment(AppState.self) private var app
     var unreadCount = 0
+    /// The side switch (158): the OTHER side's name, shown only for
+    /// accounts that have both. A word over an icon — "Coaching" on the
+    /// playing side, "Playing" on the coaching side — so it never reads
+    /// as "your coach". Nil hides it; everyone else keeps Account's row.
+    var switchTo: String? = nil
+    var onSwitch: () -> Void = {}
     var onBell: () -> Void = {}
     var onAvatar: () -> Void = {}
 
@@ -337,6 +351,24 @@ struct PLTopBar: View {
             LogoWordmark()
             Spacer()
             HStack(spacing: 20) {
+                if let switchTo {
+                    Button(action: onSwitch) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.left.arrow.right")
+                                .font(.system(size: 11, weight: .bold))
+                            Text(switchTo)
+                                .font(.system(size: 13, weight: .semibold))
+                        }
+                        .foregroundStyle(PL.text200)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 6)
+                        .background(PL.surface2, in: Capsule())
+                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Switch to \(switchTo.lowercased())")
+                }
                 Button(action: onBell) {
                     Image(systemName: "bell")
                         .font(.system(size: 19, weight: .medium))
