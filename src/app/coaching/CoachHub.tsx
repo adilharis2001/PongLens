@@ -18,7 +18,6 @@ import type {
 } from "@/lib/reviews/types";
 import { orderStatusLabel } from "@/lib/reviews/types";
 import type { NoteFeedRow } from "@/lib/types";
-import { createClient } from "@/lib/supabase/client";
 import { CoachStart } from "./CoachStart";
 
 /**
@@ -116,56 +115,6 @@ export function OrderGroup({
   );
 }
 
-/**
- * The free-to-paid nudge: someone already leaving notes on other
- * players' matches is a coach in everything but the page. Shown once;
- * Not now stores a user_metadata flag and it never comes back.
- */
-function CoachNudgeCard({
-  playerCount,
-  defaultName,
-}: {
-  playerCount: number;
-  defaultName: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [hidden, setHidden] = useState(false);
-  if (hidden) return <BecomeCoachCard defaultName={defaultName} />;
-  if (open) return <CoachStart defaultName={defaultName} embedded />;
-  return (
-    <div className="rounded-2xl border border-cyan-glow/30 bg-surface px-5 py-4">
-      <p className="text-sm font-medium text-zinc-200">
-        You already coach{" "}
-        {playerCount === 1 ? "a player" : `${playerCount} players`} here.
-      </p>
-      <p className="mt-0.5 text-xs text-zinc-500">
-        A page lets them pay you for the deep reviews.
-      </p>
-      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="glow-cta w-full rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink sm:w-auto sm:py-2"
-        >
-          Set up your page
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setHidden(true);
-            void createClient().auth.updateUser({
-              data: { pl_coach_nudge_dismissed: true },
-            });
-          }}
-          className="w-full rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-400 sm:w-auto sm:py-2"
-        >
-          Not now
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /** The offer to sell reviews, for anyone without a coach page yet. */
 export function BecomeCoachCard({ defaultName }: { defaultName: string }) {
   const [open, setOpen] = useState(false);
@@ -240,11 +189,7 @@ export function CoachHub({
   offeringCount,
   studentOrders,
   coachNotes,
-  nudgePlayerCount,
-  nudgeNoteCount,
-  nudgeDismissed,
   userId,
-  defaultName,
   firstSteps,
 }: {
   /** The side the server resolved (158). */
@@ -255,11 +200,7 @@ export function CoachHub({
   offeringCount: number;
   studentOrders: StudentOrderItem[];
   coachNotes: NoteFeedRow[];
-  nudgePlayerCount: number;
-  nudgeNoteCount: number;
-  nudgeDismissed: boolean;
   userId: string;
-  defaultName: string;
   /** The coach's checklist state, or null on the playing side. */
   firstSteps: CoachFirstStepsState | null;
 }) {
@@ -418,18 +359,6 @@ export function CoachHub({
         </div>
       )}
 
-      {showPlayer && !profile && (
-        <div className="mt-8">
-          {nudgePlayerCount >= 1 && nudgeNoteCount >= 3 && !nudgeDismissed ? (
-            <CoachNudgeCard
-              playerCount={nudgePlayerCount}
-              defaultName={defaultName}
-            />
-          ) : (
-            <BecomeCoachCard defaultName={defaultName} />
-          )}
-        </div>
-      )}
     </>
   );
 }

@@ -1062,8 +1062,20 @@ export function NotesFeed({
           </p>
           <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-zinc-500">
             Notes from your matches collect here on their own. Add a lesson
-            or a practice entry with New. Type it, speak it, or paste it.
+            or a practice entry. Type it, speak it, or paste it.
           </p>
+          {/* The floating New sits in a far corner on a wide screen; the
+              empty state offers the same action where the eye already is,
+              the way Matches offers its first upload (Adil, 2026-09-02).
+              On a phone the floating button is right under the thumb and
+              overlaps this card, so there it stays the only one. */}
+          <button
+            type="button"
+            onClick={() => setComposeOpen(true)}
+            className="glow-cta mx-auto mt-5 hidden rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink md:block"
+          >
+            New entry
+          </button>
         </div>
       ) : section === "matches" ? (
         <>
