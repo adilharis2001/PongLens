@@ -8,13 +8,6 @@ import {
   isProtectedAppPath,
   loginPathForDestination,
 } from "@/lib/auth/paths";
-import {
-  WORKSPACE_COOKIE,
-  WORKSPACE_COOKIE_MAX_AGE,
-  formatWorkspaceCookie,
-  parseWorkspaceCookie,
-  routeTerritory,
-} from "@/lib/workspaceModel";
 
 /**
  * Refreshes the Supabase auth session on every matched request and
@@ -119,27 +112,11 @@ export async function updateSession(request: NextRequest) {
     });
   }
 
-  // Landing on unambiguous territory (158) is sticky: a coach link from a
-  // notification switches the remembered side, so the shared pages that
-  // follow keep the same bar. Only written when it actually changes.
-  const territory = user ? routeTerritory(path) : null;
-  if (
-    user &&
-    territory &&
-    parseWorkspaceCookie(request.cookies.get(WORKSPACE_COOKIE)?.value, user.id) !==
-      territory
-  ) {
-    supabaseResponse.cookies.set(
-      WORKSPACE_COOKIE,
-      formatWorkspaceCookie(user.id, territory),
-      {
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        path: "/",
-        maxAge: WORKSPACE_COOKIE_MAX_AGE,
-      },
-    );
-  }
+  // The remembered side (158) is written by the nav from a page that
+  // actually rendered, never here: the router prefetches every link in
+  // view and this runs for those requests too, with Next's prefetch
+  // header already stripped, so there is nothing to tell a warm-up from
+  // a visit. See rememberLanding in src/lib/workspace.ts.
 
   // The student-side twin (156): a coach's join link. Same dropped-?next=
   // problem, different remedy — the cookie only routes the student BACK to

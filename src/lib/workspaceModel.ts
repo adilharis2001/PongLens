@@ -9,10 +9,14 @@
  *   3. the account's coach flag, for a fresh device;
  *   4. player.
  *
- * Landing on unambiguous territory is sticky: the middleware writes the
- * cookie, so the shared pages that follow (a match, Account) keep the
- * same bar. No React, no Next — importable from middleware, server
- * components and client code alike, and tested with node --test.
+ * Landing on unambiguous territory is sticky: the nav writes the cookie
+ * from the page that rendered (rememberLanding in workspace.ts), so the
+ * shared pages that follow (a match, Account) keep the same bar. Not the
+ * middleware: it also runs for the router's prefetches, with Next's
+ * prefetch header already stripped, and a match page's link to /matches
+ * was switching coaches to the player side on sight (2026-09-03). No
+ * React, no Next — importable from middleware, server components and
+ * client code alike, and tested with node --test.
  */
 
 export type Workspace = "player" | "coach";

@@ -442,6 +442,7 @@ export function MatchView({
   gameEndDetection = false,
   ends = { tapEnd: false },
   hasOriginal = false,
+  up = { href: "/matches", label: "Matches" },
 }: {
   match: Match;
   initialPoints: Point[];
@@ -459,6 +460,9 @@ export function MatchView({
   /** The match owner's display name, for viewers who are not the owner
    *  (match_owner_name, migration 034). null for the owner's own view. */
   ownerName: string | null;
+  /** Where the pill at the top climbs to: the owner's library, or for a
+   *  coach the student's page. Chosen by the page, which knows both. */
+  up?: { href: string; label: string };
   strictness: string;
   /** Display names for the note authors on this match, so the thread can
    * name each coach rather than labelling all of them "Coach". */
@@ -2596,8 +2600,8 @@ export function MatchView({
           leftover. The same control reappears in the bar below once the
           header scrolls away, so it is never off screen. */}
       <Link
-        href="/matches"
-        className="group inline-flex items-center gap-2 rounded-full border border-edge bg-surface/70 py-1.5 pl-1.5 pr-4 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+        href={up.href}
+        className="group inline-flex max-w-full items-center gap-2 rounded-full border border-edge bg-surface/70 py-1.5 pl-1.5 pr-4 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
       >
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-2 text-zinc-400 transition-colors group-hover:text-cyan-glow">
           <svg
@@ -2615,7 +2619,7 @@ export function MatchView({
             />
           </svg>
         </span>
-        Matches
+        <span className="truncate">{up.label}</span>
       </Link>
 
       {/* header — the title gets the full width; the score sits on the
@@ -4380,8 +4384,8 @@ export function MatchView({
               >
                 <div className="flex items-center gap-2 py-1.5 pl-1.5 pr-3">
                   <Link
-                    href="/matches"
-                    aria-label="Back to matches"
+                    href={up.href}
+                    aria-label={`Back to ${up.label}`}
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-zinc-300 transition-colors hover:text-cyan-glow"
                   >
                     <svg

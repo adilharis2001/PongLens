@@ -6,6 +6,7 @@ import {
   WORKSPACE_COOKIE_MAX_AGE,
   formatWorkspaceCookie,
   parseWorkspaceCookie,
+  routeTerritory,
   type Workspace,
 } from "@/lib/workspaceModel";
 
@@ -40,6 +41,23 @@ export function setWorkspace(userId: string, value: Workspace) {
     formatWorkspaceCookie(userId, value),
   )}; Path=/; Max-Age=${WORKSPACE_COOKIE_MAX_AGE}; SameSite=Lax${secure}`;
   window.dispatchEvent(new CustomEvent(EVENT, { detail: value }));
+}
+
+/**
+ * Landing on unambiguous territory is sticky (158): a coach link from a
+ * notification switches the remembered side, so the shared pages that
+ * follow (a match, Account) keep the same bar. Written from the page
+ * that rendered, which only a real visit does. It used to be the
+ * middleware's job, and the middleware also runs for the router's
+ * prefetch of every link in view — with Next's prefetch header stripped
+ * before it looks — so a match page's link to /matches switched a coach
+ * to the player side the moment they opened a student's match.
+ */
+export function rememberLanding(userId: string, pathname: string) {
+  const territory = routeTerritory(pathname);
+  if (!territory) return;
+  if (parseWorkspaceCookie(readCookie(), userId) === territory) return;
+  setWorkspace(userId, territory);
 }
 
 /**

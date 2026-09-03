@@ -8,7 +8,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Logo } from "@/components/Logo";
 import { NotificationBell } from "@/components/NotificationBell";
 import { createClient } from "@/lib/supabase/client";
-import { setWorkspace, useWorkspace } from "@/lib/workspace";
+import { rememberLanding, setWorkspace, useWorkspace } from "@/lib/workspace";
 import { useCoachEligible } from "@/lib/coachEligible";
 import { routeTerritory, type Workspace } from "@/lib/workspaceModel";
 
@@ -315,6 +315,11 @@ export function AppNav({
   // Route territory wins over the remembered choice, and it is known on
   // both server and client, so the first paint is already right.
   const workspace: Workspace = routeTerritory(pathname) ?? chosen;
+  // ...and standing on it is remembered, so the shared pages after it
+  // keep this bar. From here, not the middleware: see rememberLanding.
+  useEffect(() => {
+    if (userId) rememberLanding(userId, pathname);
+  }, [userId, pathname]);
   // The coaching workspace swaps the spine wholesale: same bar, other
   // side of the table. The player bar keeps its Coaching tab for the
   // student direction (your coaches, reviews you bought).
@@ -339,7 +344,12 @@ export function AppNav({
           (pathname.startsWith("/match/") && workspace !== "coach")
         );
       case "/coaching/students":
-        return pathname.startsWith("/coaching/students");
+        // A student's match is reached from their page, so it lights
+        // Students the way the library owns /match on the player side.
+        return (
+          pathname.startsWith("/coaching/students") ||
+          (pathname.startsWith("/match/") && workspace === "coach")
+        );
       case "/coaching/orders":
         return isOrdersTerritory(pathname);
       case "/coaching":
