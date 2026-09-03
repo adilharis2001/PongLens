@@ -219,6 +219,57 @@ export function tapeMove(
  * order. Overlaps are merged. A player jumps a span's footage while
  * playing (never mid-scrub): seek to `end` when currentTime lands inside.
  */
+/**
+ * Two skips closer than this fuse into one.
+ *
+ * The cut keeps a sliver of footage between adjacent clips — a few tenths
+ * of a second of padding belonging to no card — so a RUN of deleted
+ * rallies came out as a run of separate jumps with a flash of dead footage
+ * between each, and every jump costs a seek. Measured on the shared Louis
+ * match, whose first nineteen rallies were a deleted warm-up: nineteen
+ * jumps, 6.5s of warm-up played between them, before the first real point.
+ * Under the old 0.01 tolerance not one of those nineteen fused.
+ *
+ * A second is comfortably inside the padding it targets and comfortably
+ * under the shortest rally — but the tolerance is not what makes this
+ * safe. `overAKeptRally` is: no merge may ever span a point somebody kept,
+ * at any tolerance.
+ */
+const SKIP_MERGE_GAP_S = 1;
+/** Float slop when comparing two cut-clock seconds for "same moment". */
+const EDGE_EPS_S = 0.01;
+
+/**
+ * The one merge rule for skip spans, shared by skipSpans and the match
+ * page's own deleted-span builder (they drifted: the page still merged
+ * at 0.01 while this module had learned to fuse runs, so a mid-match
+ * string of deleted rallies multi-hopped on the owner's player and
+ * jumped cleanly on the share page). `visibleStarts` are the kept
+ * rallies' cut starts, sorted — no merge may ever span one.
+ */
+export function mergeSkipSpans(
+  spans: { start: number; end: number }[],
+  visibleStarts: number[]
+): { start: number; end: number }[] {
+  const merged: { start: number; end: number }[] = [];
+  for (const sp of spans) {
+    const last = merged[merged.length - 1];
+    // Only a genuine forward gap can hide a kept rally; overlapping spans
+    // invert this range and match nothing, which is the intent.
+    const overAKeptRally =
+      last !== undefined &&
+      visibleStarts.some(
+        (s) => s >= last.end - EDGE_EPS_S && s <= sp.start + EDGE_EPS_S
+      );
+    if (last && !overAKeptRally && sp.start <= last.end + SKIP_MERGE_GAP_S) {
+      last.end = Math.max(last.end, sp.end);
+    } else {
+      merged.push({ ...sp });
+    }
+  }
+  return merged;
+}
+
 export function skipSpans(
   rows: Point[],
   pad: ClipPad,
@@ -253,16 +304,13 @@ export function skipSpans(
     }
   }
   spans.sort((a, b) => a.start - b.start);
-  const merged: { start: number; end: number }[] = [];
-  for (const sp of spans) {
-    const last = merged[merged.length - 1];
-    if (last && sp.start <= last.end + 0.01) {
-      last.end = Math.max(last.end, sp.end);
-    } else {
-      merged.push({ ...sp });
-    }
-  }
-  return merged;
+  // A rally somebody KEPT may never be fused across — the guard, not the
+  // tolerance, is what makes merging safe. Sorted here rather than trusted
+  // from the caller: skipSpans takes whatever row order it is handed.
+  const visibleStarts = visible
+    .map((p) => Number(p.cut_t0))
+    .sort((a, b) => a - b);
+  return mergeSkipSpans(spans, visibleStarts);
 }
 
 /**

@@ -63,14 +63,6 @@ struct TableGhost: View {
     /// Roll in degrees from the motion manager; drawn as the level line.
     let level: Double
     var session: AVCaptureSession? = nil
-    /// The live table check. Optional twice over: the model may be absent
-    /// and the user may prefer the plain ghost — either way this view
-    /// behaves exactly as it did before the engine existed.
-    var finder: TableFinderEngine? = nil
-    /// Whether to draw the target table. Off when the live check is the
-    /// chosen overlay: two quads over a busy hall is more picture than
-    /// anyone can read, and the check's caption already says where to go.
-    var showTarget = true
 
     @AppStorage("pl-ghost-side") private var rightSide = true
     /// True once the user has flipped the side by hand. From then on the
@@ -79,50 +71,10 @@ struct TableGhost: View {
     @AppStorage("pl-ghost-behind") private var behind = GhostPose.behind
     @State private var dragStart: Double?
     @State private var distanceShown = false
-    /// A manual gesture quiets the live check briefly — the user is
-    /// saying "let me drive" and the ghost should not fight them.
-    @State private var manualUntil = Date.distantPast
-    @State private var goodAnnounced = false
-    /// Long-press anywhere on the ghost: the engine's one-line truth.
-    @State private var showDiag = false
-    /// Drives the searching dot's breathing.
-    @State private var pulse = false
-
-    /// The theme gallery's way of showing the detected state without a
-    /// camera: fixed corners, rendered exactly as a live find would be.
-    var previewDetection: [SIMD2<Double>]? = nil
-    /// Same, for the amber "found but the gate said no" state.
-    var previewDebug: [SIMD2<Double>]? = nil
-    /// The gallery's way of showing a worded state: beside a sighting it
-    /// is a framing cue, on its own it is the reason nothing was found.
-    var previewNote: String? = nil
-    /// The gallery's way of showing the angle meter without a camera.
-    var previewAngle: Double? = nil
     /// Which side the profile's handedness says to start on, or nil when
     /// the profile does not say. Only a DEFAULT: it applies while the
     /// user has never touched the flip, and the flip wins forever after.
     var preferredRightSide: Bool? = nil
-
-    /// The engine's word, unless the user recently took the wheel.
-    private var liveState: TableFinderEngine.State? {
-        if let previewDetection { return .good(previewDetection) }
-        if previewDebug != nil { return .sighted(previewNote) }
-        if let previewNote { return .searching(previewNote) }
-        guard let finder, Date() >= manualUntil,
-              finder.recording == false else { return nil }
-        return finder.state
-    }
-
-    /// Where the model currently thinks the table is. Drawn whether or
-    /// not the gate accepted it, because "I can see it, I am not sure
-    /// about your angle yet" is useful and silence is not. A manual
-    /// gesture does not suppress this the way it suppresses the verdict:
-    /// the user resizing the target still wants to see the real table.
-    private var liveSighting: [SIMD2<Double>]? {
-        if let previewDebug { return previewDebug }
-        guard let finder, finder.recording == false else { return nil }
-        return finder.sighting
-    }
 
     var body: some View {
         GeometryReader { geo in
@@ -137,126 +89,18 @@ struct TableGhost: View {
             )
             ZStack {
                 Canvas { context, size in
-                    if case .good(let corners) = liveState {
-                        drawDetected(corners, size: size, in: &context)
-                    } else {
-                        if showTarget { drawTable(camera, in: &context) }
-                        // Two quads: teal is where to aim, amber is where
-                        // the table actually is. Walking them together is
-                        // the whole instruction, and it survives not
-                        // reading the caption. Amber, never green — this
-                        // is "seen", not "accepted".
-                        if let sighted = liveSighting {
-                            drawDetected(sighted, size: size, in: &context,
-                                         tint: Color(hex: 0xFBBF24))
-                        } else if showDiag, let raw = finder?.debugCorners {
-                            // Under the confidence bar. Only worth seeing
-                            // with the readout up, and in a colour that
-                            // cannot be mistaken for a real sighting.
-                            drawDetected(raw, size: size, in: &context,
-                                         tint: Color(hex: 0xF87171))
-                        }
-                    }
+                    drawTable(camera, in: &context)
                     drawLevelLine(size: size, in: &context)
                 }
                 overlayChrome(height: geo.size.height)
             }
             .contentShape(Rectangle())
-            // Only when the target is drawn: there is nothing to adjust
-            // otherwise, and a stray touch would silence the live check
-            // for four seconds for no reason.
-            .gesture(showTarget ? ghostDrag(height: geo.size.height) : nil)
+            .gesture(ghostDrag(height: geo.size.height))
             .onAppear {
-                pulse = true
                 if !sideChosen, let preferred = preferredRightSide {
                     rightSide = preferred
                 }
             }
-            .onChange(of: finder?.sighting == nil) { _, lost in
-                // A light tick the moment the table is picked up. At
-                // exactly that point the user is looking at the tripod
-                // rather than the screen, which is the case every
-                // scanning SDK adds haptics for.
-                if lost == false {
-                    UIImpactFeedbackGenerator(style: .light)
-                        .impactOccurred()
-                }
-            }
-            .onChange(of: liveState) { _, next in
-                if case .good = next {
-                    if !goodAnnounced {
-                        goodAnnounced = true
-                        UINotificationFeedbackGenerator()
-                            .notificationOccurred(.success)
-                    }
-                } else {
-                    goodAnnounced = false
-                }
-            }
-        }
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.6).onEnded { _ in
-                showDiag.toggle()
-            }
-        )
-        .overlay(alignment: .bottomTrailing) {
-            if showDiag, let finder {
-                Text(finder.diag)
-                    .font(.system(size: 10, weight: .medium,
-                                  design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.85))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.black.opacity(0.6),
-                                in: RoundedRectangle(cornerRadius: 8))
-                    .padding(.trailing, 96)
-                    .padding(.bottom, 12)
-            }
-        }
-    }
-
-    /// The detected table, drawn where it actually is: model-input pixels
-    /// mapped through the aspect-fill the preview uses (video width fits
-    /// the view width; the vertical crop is centred).
-    private func drawDetected(_ corners: [SIMD2<Double>], size: CGSize,
-                              in context: inout GraphicsContext,
-                              tint: Color? = nil) {
-        let scaleX = size.width / Double(TableFinderCore.inputWidth)
-        let frameH = size.width * 9 / 16
-        let scaleY = frameH / Double(TableFinderCore.inputHeight)
-        let yOffset = (frameH - size.height) / 2
-        let mapped = corners.map {
-            CGPoint(x: $0.x * scaleX, y: $0.y * scaleY - yOffset)
-        }
-        guard mapped.count == 4 else { return }
-        let green = tint ?? Color(hex: 0x34D399)
-
-        var quad = Path()
-        quad.move(to: mapped[0])
-        for point in mapped.dropFirst() { quad.addLine(to: point) }
-        quad.closeSubpath()
-        context.fill(quad, with: .color(green.opacity(0.12)))
-        context.stroke(quad, with: .color(green.opacity(0.9)),
-                       style: StrokeStyle(lineWidth: 2.5))
-
-        // The net's base, by the same midpoint approximation the offline
-        // scoring validated.
-        let netLeft = CGPoint(x: (mapped[0].x + mapped[3].x) / 2,
-                              y: (mapped[0].y + mapped[3].y) / 2)
-        let netRight = CGPoint(x: (mapped[1].x + mapped[2].x) / 2,
-                               y: (mapped[1].y + mapped[2].y) / 2)
-        var net = Path()
-        net.move(to: netLeft)
-        net.addLine(to: netRight)
-        context.stroke(net, with: .color(green.opacity(0.5)),
-                       style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
-
-        for (index, point) in mapped.enumerated() {
-            let r: CGFloat = index < 2 ? 5 : 4
-            context.fill(
-                Path(ellipseIn: CGRect(x: point.x - r, y: point.y - r,
-                                       width: r * 2, height: r * 2)),
-                with: .color(green))
         }
     }
 
@@ -278,7 +122,6 @@ struct TableGhost: View {
         DragGesture(minimumDistance: 8)
             .onChanged { value in
                 if dragStart == nil { dragStart = clampedBehind }
-                manualUntil = Date().addingTimeInterval(4)
                 let span = GhostPose.behindRange.upperBound
                     - GhostPose.behindRange.lowerBound
                 // The whole corridor in about two thirds of the screen's
@@ -304,126 +147,22 @@ struct TableGhost: View {
 
     // MARK: - Chrome
 
-    /// The advice that stands whether or not the check ever works.
     private var placementLine: String {
         rightSide
             ? "Stand behind the right corner, about head height"
             : "Stand behind the left corner, about head height"
     }
 
-    private var captionText: String {
-        switch liveState {
-        case .good:
-            return "That's the angle. Tap record."
-        case .adjust(let cue):
-            return cue
-        case .sighted(let cue):
-            // A cue when the table is running off the frame, and the
-            // plain fact otherwise: seen, angle still being judged.
-            return cue ?? "Found the table. Checking the angle."
-        case .searching(let reason):
-            // With nothing specific to report, the placement instruction
-            // stays put rather than becoming "looking for the table". If
-            // the model never finds it, the last thing on screen should
-            // still be the advice that gets the user to a usable angle
-            // on their own. The dot is what says the check is running.
-            return reason ?? placementLine
-        case nil:
-            return placementLine
-        }
-    }
-
-    private var captionColor: Color {
-        switch liveState {
-        case .good: Color(hex: 0x34D399)
-        case .adjust, .sighted: Color(hex: 0xFBBF24)
-        // A stated reason is something the user may be able to fix, so
-        // it reads as a nudge; the standing placement line does not.
-        case .searching(let reason):
-            reason == nil
-                ? Color(hex: 0x2DD4BF).opacity(0.9)
-                : Color(hex: 0xFBBF24)
-        case nil: Color(hex: 0x2DD4BF).opacity(0.9)
-        }
-    }
-
-    /// The live check as one dot: grey and breathing while it looks,
-    /// amber once it can see the table, green when the angle is right.
-    /// Nil when no engine is running, so the pill looks exactly as it
-    /// did before any of this existed.
-    private var statusColor: Color? {
-        switch liveState {
-        case .good: Color(hex: 0x34D399)
-        case .adjust, .sighted: Color(hex: 0xFBBF24)
-        case .searching: Color.white.opacity(0.6)
-        case nil: nil
-        }
-    }
-
-    /// The check's one number made visible: how far round the side the
-    /// camera stands, as a dot travelling toward the green zone. The cue
-    /// above says which way to walk; this shows the walk working, which
-    /// is the difference between an instruction and feedback. 33 degrees
-    /// is where the cue stops (TableFinderCore.verdict), 38 is the arc
-    /// the ghost teaches, so the zone's left edge is the moment the
-    /// nagging ends.
-    private func angleMeter(_ angle: Double) -> some View {
-        let lo = 15.0, hi = 48.0, zone = 33.0
-        let frac = min(max((angle - lo) / (hi - lo), 0), 1)
-        let zoneFrac = (zone - lo) / (hi - lo)
-        let inZone = angle >= zone
-        return GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.22))
-                Capsule()
-                    .fill(Color(hex: 0x34D399).opacity(0.45))
-                    .frame(width: geo.size.width * (1 - zoneFrac))
-                    .offset(x: geo.size.width * zoneFrac)
-                Circle()
-                    .fill(inZone ? Color(hex: 0x34D399) : Color(hex: 0xFBBF24))
-                    .frame(width: 8, height: 8)
-                    .offset(x: geo.size.width * frac - 4, y: -2.5)
-                    .animation(.easeOut(duration: 0.25), value: frac)
-            }
-        }
-        .frame(width: 128, height: 3)
-        .padding(.top, 2)
-    }
-
-    private var isSearching: Bool {
-        if case .searching = liveState { return true }
-        return false
-    }
-
     private func overlayChrome(height: CGFloat) -> some View {
         VStack(spacing: 8) {
-            HStack(spacing: 7) {
-                if let statusColor {
-                    Circle()
-                        .fill(statusColor)
-                        .frame(width: 6, height: 6)
-                        .opacity(isSearching && pulse ? 0.25 : 1)
-                        .animation(
-                            isSearching
-                                ? .easeInOut(duration: 0.9)
-                                    .repeatForever(autoreverses: true)
-                                : .easeInOut(duration: 0.2),
-                            value: pulse)
-                }
-                Text(captionText)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(captionColor)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color.black.opacity(0.45), in: Capsule())
-            .padding(.top, height * 0.18)
-            .animation(.easeInOut(duration: 0.2), value: captionText)
-
-            if let angle = previewAngle ?? finder?.liveAngle,
-               liveState != nil {
-                angleMeter(angle)
-            }
+            Text(placementLine)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color(hex: 0x2DD4BF).opacity(0.9))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.black.opacity(0.45), in: Capsule())
+                .padding(.top, height * 0.18)
+                .animation(.easeInOut(duration: 0.2), value: placementLine)
 
             if distanceShown {
                 Text(String(format: "%.1f m behind the end line", clampedBehind))
@@ -441,7 +180,6 @@ struct TableGhost: View {
             HStack {
                 Button {
                     sideChosen = true
-                    manualUntil = Date().addingTimeInterval(4)
                     withAnimation(.easeInOut(duration: 0.25)) { rightSide.toggle() }
                 } label: {
                     HStack(spacing: 6) {

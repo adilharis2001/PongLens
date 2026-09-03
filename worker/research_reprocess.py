@@ -45,8 +45,10 @@ VENV_PY = f"{TTVID}/vendor/venv/bin/python"
 BLURBALL_INFER = f"{TTVID}/vendor/blurball_infer.py"
 POINTS_PIPELINE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "points_pipeline.py")
+CARD_AUDIO = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "card_audio.py")
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MEDIA_BUCKET = "ponglens-media"
 # Where a run publishes. `research/endon` is the original set and the
 # default, so every existing invocation keeps writing where it always did.
@@ -104,7 +106,7 @@ def resolve(conn, match_id):
     with conn.cursor() as cur:
         cur.execute(
             "select m.id, m.opponent_name, m.venue, m.created_at::date, "
-            "       j.input_path, m.match_json_path "
+            "       j.input_path, m.match_json_path, j.options "
             "from public.matches m left join public.jobs j on j.id = m.job_id "
             "where m.id = %s", (match_id,))
         row = cur.fetchone()
@@ -119,8 +121,50 @@ def resolve(conn, match_id):
     return {
         "id": str(row[0]), "opponent": row[1], "venue": row[2],
         "created": row[3].isoformat(), "input_path": row[4],
+        "options": row[6] if isinstance(row[6], dict) else {},
         "prod_cards": prod,
     }
+
+
+def trim_as_production_did(raw, work, options):
+    """Cut the raw down to the window the job was processed inside (096).
+
+    A library job can be processed inside a trim window, and when it is,
+    every timestamp production holds — the points rows, and so `prod_cards`
+    below — is in the TRIMMED timebase. Re-running the assembler on the
+    whole raw puts its evidence in a different clock, and because both
+    clocks start at zero and run at the same rate the result looks entirely
+    normal: the ball, the bounces and the serve verdict for a card simply
+    belong to a rally minutes away.
+
+    Two matches were published that way before this was noticed, one of
+    them shifted by four minutes. Both were republished.
+
+    The same input-seeked stream copy the worker uses, so the head lands on
+    the same keyframe and the two clocks agree to the frame rather than to
+    the claim — apply_trim opens up to one GOP early, which for the two
+    matches above was about a second short of the requested cut.
+    """
+    t1 = options.get("trim_end_s")
+    if t1 is None:
+        return raw
+    t0 = float(options.get("trim_start_s") or 0.0)
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=nw=1:nk=1", raw],
+        capture_output=True, text=True, check=True)
+    real = float(probe.stdout.strip())
+    if t0 <= 0.5 and float(t1) >= real - 0.5:
+        return raw
+    out = os.path.join(work, "trimmed" + (os.path.splitext(raw)[1] or ".mp4"))
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-ss", f"{max(0.0, t0):.3f}",
+         "-i", raw, "-t", f"{max(0.0, float(t1) - t0):.3f}", "-c", "copy",
+         "-avoid_negative_ts", "make_zero", out],
+        check=True)
+    print(f"  trimmed to the processed window {t0:.1f}s-{float(t1):.1f}s "
+          f"(raw is {real:.1f}s)")
+    return out
 
 
 def download(s3, uri, dest):
@@ -153,11 +197,14 @@ def run_one(conn, s3, env, match_id, workroot, skip_video=False,
     t0 = time.time()
 
     download(s3, info["input_path"], raw)
+    # Everything below works on the file PRODUCTION worked on, which for a
+    # trimmed job is not the raw. See trim_as_production_did.
+    video = trim_as_production_did(raw, work, info["options"])
 
     blurball = os.path.join(work, "blurball.jsonl")
     if not os.path.exists(blurball):
         print("  blurball inference (the slow part)…")
-        subprocess.run([VENV_PY, BLURBALL_INFER, "--video", raw,
+        subprocess.run([VENV_PY, BLURBALL_INFER, "--video", video,
                         "--out", blurball], check=True)
 
     outdir = os.path.join(work, "points_out")
@@ -165,7 +212,7 @@ def run_one(conn, s3, env, match_id, workroot, skip_video=False,
     print("  points pipeline (v2 + endon fallback, exactly as production)…")
     subprocess.run(
         [VENV_PY, POINTS_PIPELINE, "points", "--blurball", blurball,
-         "--video", raw, "--outdir", outdir, "--strictness", "normal",
+         "--video", video, "--outdir", outdir, "--strictness", "normal",
          "--cut-mode", "plays", "--pipeline", "v2", "--endon-fallback",
          "--evidence-dump", dump],
         check=True, cwd=work)
@@ -187,6 +234,17 @@ def run_one(conn, s3, env, match_id, workroot, skip_video=False,
     blob["created"] = info["created"]
     blob["prod_cards"] = [[round(a, 2), round(b, 2)]
                           for a, b in info["prod_cards"]]
+    # What the microphone heard, on the assembler's own clock — the fourth
+    # row of the portal's per-card timeline. Seconds, on a file that is
+    # already local, so it runs here rather than costing a second download.
+    try:
+        audio_out = os.path.join(work, "audio.json")
+        subprocess.run([VENV_PY, CARD_AUDIO, "--video", video,
+                        "--out", audio_out], check=True)
+        with open(audio_out) as fh:
+            blob["audio"] = json.load(fh)
+    except Exception as e:                                   # noqa: BLE001
+        print(f"  !! audio skipped: {e}")
     with open(dump, "w") as fh:
         json.dump(blob, fh, separators=(",", ":"))
 
@@ -197,12 +255,14 @@ def run_one(conn, s3, env, match_id, workroot, skip_video=False,
         mp4 = os.path.join(work, "review.mp4")
         if not os.path.exists(mp4):
             print("  encoding the review video…")
-            review_video(raw, mp4)
+            review_video(video, mp4)
         s3.upload_file(mp4, MEDIA_BUCKET, f"{prefix}/{match_id}.mp4",
                        ExtraArgs={"ContentType": "video/mp4"})
         print(f"  uploaded review.mp4 ({os.path.getsize(mp4) / 1e6:.0f} MB)")
 
     os.remove(raw)  # 12 GB of raws will not fit if we keep them
+    if video != raw and os.path.exists(video):
+        os.remove(video)
     mins = (time.time() - t0) / 60
     print(f"  done in {mins:.1f} min — {len(blob['cards'])} cards, "
           f"route {blob['route']}, {blob['serves_per_min']} serves/min "

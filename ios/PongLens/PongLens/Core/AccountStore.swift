@@ -23,6 +23,7 @@ struct ShareLinkRow: Codable, Identifiable, Hashable {
         switch kind {
         case "starred": return "Starred points"
         case "tag": return "Tagged points"
+        case "entry": return "Journal entry"
         default: return pointId == nil ? "This match" : "This point"
         }
     }
@@ -176,6 +177,9 @@ final class NotificationsStore {
         var list = [
             "note", "match_ready", "match_failed", "upload_failed",
             "reel_ready", "reel_failed", "coach_joined",
+            // Coach workspace (156): an entry shared with you, a student
+            // joining, a student's match turning ready.
+            "coach_entry", "student_joined", "student_match_ready",
         ]
         if AppConfig.coachMarketplace {
             list += [

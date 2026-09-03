@@ -30,6 +30,10 @@ struct MatchJob: Decodable, Equatable {
 final class MatchDetailModel {
     var points: [MatchPoint] = []
     var videoURL: URL?
+    /// The game-end detector's evidence for this match (140/146), or nil
+    /// when it has none — every match processed before the stage existed,
+    /// and every one the detector refused.
+    var matchStructure: MatchStructure?
     var loaded = false
     var error: String?
     var job: MatchJob?
@@ -149,6 +153,25 @@ final class MatchDetailModel {
         } catch {
             // Hero stays a poster; playback reports its own error.
         }
+        // The game-end detector's evidence, read here rather than off the
+        // MatchRow the list handed over: that row comes from librarySelect,
+        // which deliberately leaves this column out (a JSONB blob on every
+        // row of a list that fetches the whole library). Fetched on load
+        // rather than on one of the refetch paths, so a match shows its
+        // markers the moment it opens rather than after the first edit.
+        struct StructureRow: Decodable { let matchStructure: MatchStructure?
+            enum CodingKeys: String, CodingKey {
+                case matchStructure = "match_structure"
+            } }
+        let row: StructureRow? = try? await supa
+            .from("matches")
+            .select("match_structure")
+            .eq("id", value: match.id.uuidString.lowercased())
+            .single()
+            .execute()
+            .value
+        matchStructure = row?.matchStructure
+
         loaded = true
     }
 
@@ -194,7 +217,7 @@ final class MatchDetailModel {
     func refetchMatch(_ id: UUID) async -> MatchRow? {
         try? await supa
             .from("matches")
-            .select(MatchRow.librarySelect)
+            .select(MatchRow.detailSelect)
             .eq("id", value: id.uuidString.lowercased())
             .single()
             .execute()
@@ -252,6 +275,27 @@ final class MatchDetailModel {
         struct Res: Decodable { let url: String? }
         let res: Res? = try? await API.post(
             "api/media-url", Req(matchId: match.id.uuidString.lowercased())
+        )
+        return res?.url.flatMap(URL.init)
+    }
+
+    /// Streamable link to the ORIGINAL upload — the file as it came off
+    /// the phone, before the dead time was cut out. Offered when the cut
+    /// came out poor.
+    ///
+    /// Minted on tap rather than alongside the cut in `load`: it is a
+    /// six-hour presigned URL, and signing one on every open of every
+    /// match, for a control most people never press, buys nothing.
+    ///
+    /// Nil means the file is genuinely gone — only possible on matches
+    /// processed before mid-August 2026, since the retention sweep never
+    /// expires an original a library row still points at.
+    func originalURL(_ match: MatchRow) async -> URL? {
+        struct Req: Encodable { let matchId: String; let rawPreview: Bool }
+        struct Res: Decodable { let url: String? }
+        let res: Res? = try? await API.post(
+            "api/media-url",
+            Req(matchId: match.id.uuidString.lowercased(), rawPreview: true)
         )
         return res?.url.flatMap(URL.init)
     }
@@ -403,9 +447,20 @@ struct MatchDetailScreen: View {
         let url: URL
         let startAt: Double?
         let mode: PlayerMode
+        /// Which file this URL points at. `.original` stands down every
+        /// position the player knows, because they are all cut seconds
+        /// and the original does not share that clock. Defaulted so the
+        /// six existing call sites keep saying what they already said.
+        var source: PlayerSource = .cut
     }
 
     @State private var playerRequest: PlayerRequest?
+    /// The Original pill is mid-flight (the presigned URL is a round trip).
+    @State private var openingOriginal = false
+    /// The original could not be reached. Only possible on matches
+    /// processed before mid-August 2026: since then the retention sweep
+    /// skips any upload a library row still points at.
+    @State private var originalMissing = false
     @State private var pointSheetOpen = false
     /// Where Keep score should resume when a point opened FROM the pad is
     /// closed. Nil for a point opened from the list, which has no pad to
@@ -413,7 +468,17 @@ struct MatchDetailScreen: View {
     @State private var scoreReturnPoint: Double?
     @State private var pointSheetIndex = 0
     @State private var pointsExpanded = false
+    /// A game pill's target when the list had to expand first: the jump
+    /// finishes when that row appears (see `jump`).
+    @State private var pendingJump: UUID?
     @State private var showGamesDetail = false
+    /// The spoken score's own disclosure, for the unscored state where it
+    /// stands in the score slot.
+    @State private var showSpokenDetail = false
+    /// Editing the spoken score after the fact. Local override so a save
+    /// shows immediately without refetching the row.
+    @State private var spokenOverride: [SpokenGameScore]??
+    @State private var spokenSheetOpen = false
     @State private var filtersOpen = false
     @State private var winnerFilter: WinnerFilter = .anyone
     @State private var onlyFilter: OnlyFilter = .everything
@@ -430,14 +495,31 @@ struct MatchDetailScreen: View {
     @State private var strictness = "normal"
     @State private var processBusy = false
     @State private var processError: String?
+    /// Is the process card open? Closed on a fresh upload, open on a
+    /// failed one — see processCard.
+    @State private var processOpen = false
     @State private var detailsOpen = false
     @State private var shareOpen = false
     @State private var deleteAsk = false
     @State private var deleting = false
+    /// The detected side-change marker the owner tapped in the point list.
+    @State private var sideChangeSheet: MatchPoint?
 
     private let pointsPreview = 10
 
     private var current: MatchRow { live ?? match }
+
+    /// Spoken rows to display: the local edit if one happened, else the
+    /// row's. Empty array means "had them, all removed".
+    private var spokenRows: [SpokenGameScore] {
+        (spokenOverride ?? current.spokenScores) ?? []
+    }
+
+    /// The scored result owns the slot whenever it exists; spoken only
+    /// stands in while it does not.
+    private var scoredOwnsSlot: Bool {
+        tracksServe && score.confirmedCount > 0
+    }
 
     /// Does a score mean anything here — tracksServe on the LIVE type, so
     /// changing it in Match details reacts without a reload. Gates every
@@ -475,6 +557,55 @@ struct MatchDetailScreen: View {
         )
     }
 
+    /// Where the video says the players swapped ends and the score has
+    /// not said so yet (140/146). Marker only — never folded into the
+    /// boundary walk, so nothing about the score changes. Fades as the
+    /// match gets scored: a real boundary within three rallies silences
+    /// its detection. See Core/SideChanges.swift.
+    private var sideChanges: [UUID: SideChanges.Marker] {
+        SideChanges.byPoint(
+            evidence: model.matchStructure,
+            visiblePoints: model.visible,
+            boundaryAfter: Set(score.boundaryAfter.keys),
+            enabled: app.gameEndDetection,
+            scoredType: tracksServe
+        )
+    }
+
+    /// The video saw them swap ends and the score has not said so.
+    /// Dashed, because the solid line means "a game ended here and the
+    /// score proves it" and this is a different claim.
+    @ViewBuilder
+    private func sideChangeDivider(_ point: MatchPoint) -> some View {
+        // fixedSize, or the two flexible rules either side squeeze the
+        // capsule until "Players changed ends" wraps onto two lines. The
+        // text takes what it needs and the rules take the rest.
+        let label = Text(SideChanges.label)
+            .font(.plCaption)
+            .foregroundStyle(isOwner ? PL.text400 : PL.text500)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .overlay(Capsule().strokeBorder(PL.edge, style: PLDash.style))
+        let row = HStack(spacing: 8) {
+            PLDash().stroke(PL.edge, style: PLDash.style)
+                .frame(height: 1).frame(maxWidth: .infinity)
+            label
+            PLDash().stroke(PL.edge, style: PLDash.style)
+                .frame(height: 1).frame(maxWidth: .infinity)
+        }
+        if isOwner {
+            Button { sideChangeSheet = point } label: { row }
+                .buttonStyle(.plain)
+                .padding(.vertical, 2)
+                .accessibilityLabel(
+                    "The players changed ends here — tap to answer")
+        } else {
+            row.padding(.vertical, 2)
+        }
+    }
+
     private var filteredPoints: [MatchPoint] {
         model.visible.filter { p in
             switch winnerFilter {
@@ -504,11 +635,11 @@ struct MatchDetailScreen: View {
     }
 
     /// The aggregate exists once placement ran or any point carries data.
+    /// A coach sees it too (Adil, 2026-09-02): the maps are what a share
+    /// link shows, and generation still lives in the owner's Tools.
     private var showPlacementAggregate: Bool {
-        isOwner && (
-            current.placementStatus == "ready"
-                || model.visible.contains { $0.placement != nil }
-        )
+        current.placementStatus == "ready"
+            || model.visible.contains { $0.placement != nil }
     }
 
     /// First visible point of each game, for the checkpoint chips.
@@ -546,7 +677,9 @@ struct MatchDetailScreen: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: "chevron.left")
                                         .font(.system(size: 12, weight: .semibold))
-                                    Text("Matches")
+                                    // A coach came from the student's
+                                    // screen, not a library of their own.
+                                    Text(isOwner ? "Matches" : "Back")
                                 }
                             }
                             .buttonStyle(PLSecondaryButtonStyle())
@@ -592,10 +725,30 @@ struct MatchDetailScreen: View {
                                     },
                                     onScrollToPlacement: {
                                         withAnimation { proxy.scrollTo("placement-maps", anchor: .top) }
+                                    },
+                                    onRowChanged: {
+                                        // The Tools rows render from this
+                                        // screen's captured row: refetch it
+                                        // so "Your side" / details reflect
+                                        // the save immediately, then square
+                                        // the library list too.
+                                        Task {
+                                            if let fresh = await model.refetchMatch(current.id) {
+                                                live = fresh
+                                            }
+                                            await library.load()
+                                        }
                                     }
                                 )
                             }
                             pointsSection(proxy: proxy)
+                            // The owner opens the analysis from Tools. A
+                            // coach reads it on the page (Adil, 2026-09-03),
+                            // like the maps below and like the web's coach
+                            // view; behind a row it went unnoticed.
+                            if !isOwner && tracksServe {
+                                coachAnalysisSection
+                            }
                             if showPlacementAggregate {
                                 PlacementAggregateSection(
                                     points: model.visible,
@@ -609,7 +762,7 @@ struct MatchDetailScreen: View {
                             }
                             overallNotesSection
                         } else {
-                            rawSection
+                            rawSection(proxy: proxy)
                         }
                     }
                     .padding(20)
@@ -639,6 +792,9 @@ struct MatchDetailScreen: View {
             await reasonsStore.load(ownerId: match.userId)
             if match.status != .ready {
                 await model.loadRawState(match)
+                // A failed match opens itself: the reason and the retry
+                // are why anyone is on this screen.
+                if match.status == .failed { processOpen = true }
                 watchKick += 1
             }
             if let pointId = openPointId,
@@ -666,6 +822,11 @@ struct MatchDetailScreen: View {
             guard watchKick > 0 else { return }
             await watchProcessing()
         }
+        .alert("The original is no longer available", isPresented: $originalMissing) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("This match was processed before we started keeping originals. The full video still plays.")
+        }
         .fullScreenCover(item: $playerRequest) { request in
             PlayerTakeover(
                 match: current,
@@ -674,6 +835,7 @@ struct MatchDetailScreen: View {
                 videoURL: request.url,
                 startAt: request.startAt,
                 mode: request.mode,
+                source: request.source,
                 reasonsStore: reasonsStore,
                 notesStore: notesStore,
                 tagsStore: tagsStore,
@@ -745,7 +907,7 @@ struct MatchDetailScreen: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $filtersOpen) {
-            PointFilterSheet(winner: $winnerFilter, only: $onlyFilter)
+            PointFilterSheet(winner: $winnerFilter, only: $onlyFilter, coachView: !isOwner)
                 .presentationDetents([.medium])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
@@ -753,7 +915,8 @@ struct MatchDetailScreen: View {
         .sheet(isPresented: $shareOpen) {
             ShareLinksSheet(
                 match: current,
-                starredCount: model.visible.filter(\.starred).count
+                starredCount: model.visible.filter(\.starred).count,
+                processed: current.status == .ready
             )
             .presentationDetents([.medium, .large])
             .presentationBackground(PL.surface)
@@ -773,6 +936,29 @@ struct MatchDetailScreen: View {
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
+        }
+        // Two answers and a way out. "Game ended here" writes the SAME
+        // override the owner could pin by hand, so a game ended from a
+        // marker is indistinguishable afterwards from one ended any other
+        // way — the detector never gets a private path into the score.
+        .confirmationDialog(
+            "The players changed ends here",
+            isPresented: Binding(
+                get: { sideChangeSheet != nil },
+                set: { if !$0 { sideChangeSheet = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: sideChangeSheet
+        ) { point in
+            Button("Game ended here") {
+                Task { await model.setBoundary(point, next: .end) }
+            }
+            Button("They just changed ends") {
+                Task { await model.dismissSideChange(point) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            Text("This usually means the game ended.")
         }
         .alert("Delete this match?", isPresented: $deleteAsk) {
             Button("Delete", role: .destructive) {
@@ -805,7 +991,11 @@ struct MatchDetailScreen: View {
             } label: {
                 Label("Edit details", systemImage: "pencil")
             }
-            if current.status == .ready {
+            // Share works before processing too (153): the link plays the
+            // original upload, then upgrades to the cut once processing
+            // lands. Only a rejected upload, whose file is gone, has
+            // nothing to share.
+            if !sourceGone {
                 Button {
                     shareOpen = true
                 } label: {
@@ -900,7 +1090,7 @@ struct MatchDetailScreen: View {
                 // scored and then re-tagged as practice keeps its winner
                 // rows, and a games total beside "Practice" reads as a
                 // contradiction. Flip the type back and it returns.
-                if tracksServe, score.confirmedCount > 0 {
+                if scoredOwnsSlot {
                     Button {
                         withAnimation(.easeOut(duration: 0.15)) {
                             showGamesDetail.toggle()
@@ -919,6 +1109,16 @@ struct MatchDetailScreen: View {
                         }
                     }
                     .buttonStyle(.plain)
+                } else if !spokenRows.isEmpty {
+                    // No scored result yet: the spoken score stands in
+                    // the slot, muted and labelled, so which one is the
+                    // record is answered by weight before the label.
+                    SpokenGamesToggle(rows: spokenRows,
+                                      open: showSpokenDetail) {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            showSpokenDetail.toggle()
+                        }
+                    }
                 }
             }
             if showGamesDetail, !score.games.isEmpty {
@@ -926,7 +1126,93 @@ struct MatchDetailScreen: View {
                     .font(.plCaption)
                     .monospacedDigit()
                     .foregroundStyle(PL.text400)
+                // The record, then the testimony, one weight apart. Tap
+                // the spoken line to fix it.
+                if !spokenRows.isEmpty {
+                    Button {
+                        spokenSheetOpen = true
+                    } label: {
+                        Text("Spoken  ").font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(PL.text600)
+                        + Text(SpokenSummary.line(spokenRows))
+                            .font(.plCaption)
+                            .monospacedDigit()
+                            .foregroundStyle(PL.text500)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
+            if showSpokenDetail, !scoredOwnsSlot, !spokenRows.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Button {
+                        spokenSheetOpen = true
+                    } label: {
+                        Text(SpokenSummary.line(spokenRows))
+                            .font(.plCaption)
+                            .monospacedDigit()
+                            .foregroundStyle(PL.text400)
+                    }
+                    .buttonStyle(.plain)
+                    // Spoken is the appetizer; the analysis only comes
+                    // from scoring the points. The nudge rides the peek,
+                    // which is the moment someone is thinking about the
+                    // score at all.
+                    if tracksServe, current.status == .ready,
+                       let url = model.videoURL {
+                        Button {
+                            playerRequest = PlayerRequest(
+                                url: url, startAt: nil, mode: .score)
+                        } label: {
+                            Text("Score the match to unlock your analysis")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(PL.cyan)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $spokenSheetOpen) {
+            SpokenScoreSheet(youLabel: spokenYouLabel,
+                             rows: spokenRows,
+                             onSave: { game, you, them in
+                                 saveSpoken(game: game, you: you, them: them)
+                             },
+                             onRemove: { game in removeSpoken(game: game) })
+        }
+    }
+
+    /// The uploader's own label on the spoken board, same rule as the
+    /// record screen: the account's first name, or "You".
+    private var spokenYouLabel: String {
+        let name = app.firstName
+        guard name != "player", name.count <= 10 else { return "You" }
+        return name.prefix(1).uppercased() + name.dropFirst()
+    }
+
+    private func saveSpoken(game: Int, you: Int, them: Int) {
+        var rows = spokenRows
+        rows.removeAll { $0.game == game }
+        rows.append(SpokenGameScore(game: game, you: you, them: them))
+        rows.sort { $0.game < $1.game }
+        persistSpoken(rows)
+    }
+
+    private func removeSpoken(game: Int) {
+        persistSpoken(spokenRows.filter { $0.game != game })
+    }
+
+    /// Optimistic: the screen updates now, the row write follows. An
+    /// empty list stores null, so the slot disappears cleanly rather
+    /// than leaving an empty board behind.
+    private func persistSpoken(_ rows: [SpokenGameScore]) {
+        spokenOverride = rows.isEmpty ? .some(nil) : .some(rows)
+        struct Patch: Encodable { let spoken_scores: [SpokenGameScore]? }
+        Task {
+            _ = try? await supa.from("matches")
+                .update(Patch(spoken_scores: rows.isEmpty ? nil : rows))
+                .eq("id", value: match.id.uuidString)
+                .execute()
         }
     }
 
@@ -973,6 +1259,35 @@ struct MatchDetailScreen: View {
                         .foregroundStyle(PL.text500)
                 }
                 Spacer()
+                // The uncut upload, for when the cut came out poor. Beside
+                // the download rather than in Tools, because Tools is
+                // `if isOwner` and a coach looking at a bad cut wants the
+                // original for the same reason the player does. Labelled
+                // "Original" rather than repeating "Full video", which the
+                // caption two inches left already says about the cut.
+                if current.status == .ready, hasOriginal {
+                    Button {
+                        Task { await openOriginal() }
+                    } label: {
+                        HStack(spacing: 5) {
+                            if openingOriginal {
+                                ProgressView().controlSize(.mini).tint(PL.text300)
+                            } else {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 11, weight: .semibold))
+                            }
+                            Text("Original")
+                                .font(.system(size: 14, weight: .medium))
+                        }
+                        .foregroundStyle(PL.text300)
+                        .padding(.horizontal, 14)
+                        .frame(height: 38)
+                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(openingOriginal)
+                    .accessibilityLabel("Watch the original video")
+                }
                 if current.status == .ready {
                     Button {
                         Task {
@@ -1007,6 +1322,32 @@ struct MatchDetailScreen: View {
     /// by deleting the file, keeping only the match so the uploader can
     /// read why. Matches the web's RawMatchView, which hides its player
     /// and its process card on the same condition.
+    /// Is there an original upload left to watch? raw_path is set at
+    /// upload and never cleared on the success path, and r2_raw_sweep
+    /// skips any object a live library row points at — so for anything
+    /// uploaded since the commerce flip this is simply true, for good.
+    /// Rows older than that read null; their originals are on the ordinary
+    /// 30-day clock and mostly gone already.
+    private var hasOriginal: Bool {
+        current.rawPath?.hasPrefix("r2://ponglens-raw/") == true
+    }
+
+    /// Mint the six-hour streaming link and open the takeover on it. On
+    /// tap, not on load: signing one for every viewer of every match, for
+    /// a button most never press, buys nothing.
+    private func openOriginal() async {
+        guard !openingOriginal else { return }
+        openingOriginal = true
+        defer { openingOriginal = false }
+        if let url = await model.originalURL(current) {
+            playerRequest = PlayerRequest(
+                url: url, startAt: nil, mode: .watch, source: .original
+            )
+        } else {
+            originalMissing = true
+        }
+    }
+
     private var sourceGone: Bool {
         current.status == .failed && current.rawPath == nil
     }
@@ -1016,7 +1357,7 @@ struct MatchDetailScreen: View {
     /// the pipeline runs, the failure sentence when it broke, and the
     /// process decision with real numbers when the video just sits there.
     @ViewBuilder
-    private var rawSection: some View {
+    private func rawSection(proxy: ScrollViewProxy) -> some View {
         if model.jobRunning || current.status == .processing {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Processing")
@@ -1045,8 +1386,19 @@ struct MatchDetailScreen: View {
             processCard
         }
 
-        if !sourceGone {
-            rawDetailsCard
+        // The processed page's Tools card, minus the rows that need
+        // points to exist. Details editing hands back to this screen's
+        // own editor (the same one the ellipsis menu opens), replacing
+        // the summary card that used to sit here — one editor, one door.
+        if isOwner {
+            RawToolsSection(
+                match: current,
+                sourceGone: sourceGone,
+                onEditDetails: { detailsOpen = true },
+                onScrollToNotes: {
+                    withAnimation { proxy.scrollTo("overall-notes", anchor: .top) }
+                }
+            )
         }
         // The same overall-notes thread the processed page ends with.
         // Notes were the invisible half of the raw player: its note button
@@ -1054,143 +1406,189 @@ struct MatchDetailScreen: View {
         overallNotesSection
     }
 
-    /// What the details sheet edits, readable without opening it. On the
-    /// web these fields sit as a form on the raw page — a fresh upload is
-    /// where names get filled in, and a value behind a menu might as well
-    /// not exist.
-    private var rawDetailsCard: some View {
-        Button {
-            detailsOpen = true
-        } label: {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Match details")
-                        .font(.plCardTitle)
-                        .foregroundStyle(PL.text100)
-                    Text(rawDetailsSummary)
-                        .font(.plBody)
-                        .foregroundStyle(PL.text500)
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 8)
-                Text(isOwner ? "Edit" : "")
-                    .font(.plButtonSecondary)
-                    .foregroundStyle(PL.text300)
-                if isOwner {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(PL.text600)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .plCard(padding: 16)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isOwner)
-    }
-
-    private var rawDetailsSummary: String {
-        var parts: [String] = []
-        if let opp = current.opponentName?.trimmingCharacters(in: .whitespaces),
-           !opp.isEmpty { parts.append("vs \(opp)") }
-        if let venue = current.venue?.trimmingCharacters(in: .whitespaces),
-           !venue.isEmpty { parts.append(venue) }
-        if let type = current.matchType,
-           let label = MatchTitle.typeLabel[type] { parts.append(label) }
-        return parts.isEmpty
-            ? "Add the opponent, venue, and type."
-            : parts.joined(separator: " · ")
-    }
 
 
-
+    /// Turning the upload into points: the primary decision on this
+    /// screen, and the only one that spends minutes.
+    ///
+    /// COLLAPSED BY DEFAULT. It used to sit permanently open, so a screen
+    /// whose job is "watch this and decide" led with a trim bar, two
+    /// settings and a price. Closed it states the offer and the cost in
+    /// one line and gets out of the way; the controls are one tap down for
+    /// the person who actually wants them. Same shape as the details card
+    /// below it.
+    ///
+    /// The exception is a match that FAILED. Its reason and its retry are
+    /// the whole point of the screen, so that one opens itself.
     private var processCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Break it into points")
-                .font(.plCardTitle)
-                .foregroundStyle(PL.text100)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.22)) { processOpen.toggle() }
+            } label: {
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Break it into points")
+                            .font(.plCardTitle)
+                            .foregroundStyle(PL.text100)
+                        Text("Every rally as its own clip")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                    }
+                    Spacer(minLength: 8)
+                    // The price, before the tap. It is what decides whether
+                    // anyone opens this at all.
+                    if let charge = minutesCharge {
+                        Text("\(charge) min")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(PL.text300)
+                            .monospacedDigit()
+                    }
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(PL.text500)
+                        .rotationEffect(.degrees(processOpen ? 180 : 0))
+                }
+                .padding(20)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            // Outside the fold: a failure is the reason someone opened this
+            // screen, and hiding it behind a chevron would be a lie of
+            // omission.
             if current.status == .failed {
                 Text(model.job?.userMessage ?? "Processing failed, and your minutes came back.")
                     .font(.plBody)
                     .foregroundStyle(PL.warningText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
             }
-            if let duration = current.durationS, duration > 10 {
-                RawTrimBar(
-                    duration: duration,
-                    start: $trimStart,
-                    end: Binding(
-                        get: { trimEnd ?? duration },
-                        set: { trimEnd = $0 }
-                    )
-                )
-                if trimmed {
-                    Button("Reset trim") {
-                        trimStart = 0
-                        trimEnd = nil
-                    }
-                    .buttonStyle(PLSecondaryButtonStyle())
-                }
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Toggle("Placement maps", isOn: $placementOn)
-                    .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
-                    .tint(PL.cyan.opacity(0.6))
-                Text("Where every ball landed. Adds processing time.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Text("Cut strictness")
-                    .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
-                Text("How much room to leave around each point.")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-                HStack(spacing: 4) {
-                    ForEach(["tight", "normal", "loose"], id: \.self) { level in
-                        let active = strictness == level
-                        Button(level.capitalized) { strictness = level }
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(active ? PL.cyan : PL.text400)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(
-                                active ? PL.cyan.opacity(0.15) : .clear,
-                                in: RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
+
+            if processOpen {
+                Rectangle().fill(PL.edge).frame(height: 1)
+
+                VStack(alignment: .leading, spacing: 18) {
+                    if let duration = current.durationS, duration > 10 {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("What to process")
+                                    .font(.plRowTitle)
+                                    .foregroundStyle(PL.text100)
+                                Spacer()
+                                if trimmed {
+                                    Button("Reset") {
+                                        trimStart = 0
+                                        trimEnd = nil
+                                    }
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(PL.cyan)
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            RawTrimBar(
+                                duration: duration,
+                                start: $trimStart,
+                                end: Binding(
+                                    get: { trimEnd ?? duration },
+                                    set: { trimEnd = $0 }
+                                )
                             )
-                            .buttonStyle(.plain)
+                        }
                     }
+
+                    Divider().overlay(PL.edge)
+
+                    // One shape for both settings: name on the left, the
+                    // control on the right, the sentence underneath. They
+                    // used to be built differently from each other, which
+                    // is most of why the card read as unfinished.
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle(isOn: $placementOn) {
+                            Text("Placement maps")
+                                .font(.plRowTitle)
+                                .foregroundStyle(PL.text100)
+                        }
+                        .tint(PL.cyan)
+                        Text("Where each serve landed. Adds processing time.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                    }
+
+                    Divider().overlay(PL.edge)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Cut strictness")
+                            .font(.plRowTitle)
+                            .foregroundStyle(PL.text100)
+                        Text("How much room to leave around each point.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                        HStack(spacing: 4) {
+                            ForEach(["tight", "normal", "loose"], id: \.self) { level in
+                                let active = strictness == level
+                                Button(level.capitalized) {
+                                    withAnimation(.easeOut(duration: 0.15)) { strictness = level }
+                                }
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(active ? PL.ink : PL.text400)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 9)
+                                .background(
+                                    active ? PL.cyan : .clear,
+                                    in: RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
+                                )
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(3)
+                        .background(PL.ink.opacity(0.5), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                        .padding(.top, 8)
+                    }
+
+                    if let processError {
+                        Text(processError)
+                            .font(.plCaption)
+                            .foregroundStyle(PL.warningText)
+                    }
+
+                    // Full width, with the balance under it rather than
+                    // floating alongside. A hugging pill beside a loose
+                    // sentence was the single scrappiest thing on this
+                    // screen.
+                    VStack(spacing: 8) {
+                        Button {
+                            Task { await runProcess() }
+                        } label: {
+                            // The width has to be on the LABEL, not on the
+                            // Button: PLPrimaryButtonStyle paints its
+                            // capsule around whatever the label measures,
+                            // so a frame outside the style stretches the
+                            // tap target and leaves the pill hugging in
+                            // the middle. That was the "not optimised"
+                            // look — a small capsule adrift in a wide card.
+                            Text(processBusy ? "Starting…" : chargeLabel)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(PLPrimaryButtonStyle())
+                        .disabled(processBusy || !enoughMinutes)
+                        if let balance = model.minutesBalance {
+                            Text(
+                                enoughMinutes
+                                    ? "\(balance) minutes left"
+                                    : "Not enough minutes. You have \(balance)."
+                            )
+                            .font(.plCaption)
+                            .foregroundStyle(enoughMinutes ? PL.text500 : PL.warningText)
+                        }
+                    }
+                    .padding(.top, 2)
                 }
-                .padding(3)
-                .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                        .strokeBorder(PL.edge, lineWidth: 1)
-                )
-                .padding(.top, 5)
-            }
-            if let processError {
-                Text(processError)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.warningText)
-            }
-            HStack(spacing: 12) {
-                Button(processBusy ? "Starting…" : chargeLabel) {
-                    Task { await runProcess() }
-                }
-                .buttonStyle(PLPrimaryButtonStyle())
-                .disabled(processBusy || !enoughMinutes)
-                if let balance = model.minutesBalance {
-                    Text("You have \(balance).")
-                        .font(.plCaption)
-                        .foregroundStyle(enoughMinutes ? PL.text400 : PL.warningText)
-                }
+                .padding(20)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .plCard()
+        .plCard(padding: 0)
     }
 
     /// The kept window's length — what the charge is quoted on. The
@@ -1289,7 +1687,42 @@ struct MatchDetailScreen: View {
         .id("overall-notes")
     }
 
+    // MARK: - Match analysis (coach)
+
+    private var coachAnalysisSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeading("Match analysis")
+            AnalysisCards(
+                bundle: MatchAnalysisBundle(match: current, model: model, score: score),
+                coachView: true
+            )
+        }
+    }
+
     // MARK: - Points
+
+    /// A point row's scroll anchor. A string of its own, NOT the point's
+    /// UUID: the ForEach already claims that UUID as the row's identity,
+    /// and with two views answering to one id `scrollTo` matches neither
+    /// and does nothing at all. Every scroll on this screen that has
+    /// always worked ("overall-notes", "placement-maps") aims at a
+    /// string, and this is why.
+    private func anchor(_ id: UUID) -> String { "point-\(id.uuidString)" }
+
+    /// A game pill's jump. Two things had to be true for it to move, and
+    /// neither was: the row needs an id `scrollTo` can find (above), and
+    /// it has to exist. The list shows ten points until it is expanded,
+    /// so a game starting past the tenth has no row yet — expand, then
+    /// let that row's own appearance finish the jump.
+    private func jump(to id: UUID, all: [MatchPoint], proxy: ScrollViewProxy) {
+        let shown = pointsExpanded ? all : Array(all.prefix(pointsPreview))
+        if shown.contains(where: { $0.id == id }) {
+            withAnimation { proxy.scrollTo(anchor(id), anchor: .center) }
+        } else {
+            pendingJump = id
+            pointsExpanded = true
+        }
+    }
 
     @ViewBuilder
     private func pointsSection(proxy: ScrollViewProxy) -> some View {
@@ -1318,17 +1751,22 @@ struct MatchDetailScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(gameStarts, id: \.id) { start in
-                            Button("Game \(start.game)") {
-                                pointsExpanded = true
-                                withAnimation {
-                                    proxy.scrollTo(start.id, anchor: .center)
-                                }
+                            // Padding and the capsule belong INSIDE the
+                            // label: hung on the Button from outside they
+                            // only move it, so the tap target stayed the
+                            // width of the glyphs and every miss on the
+                            // pill did nothing (Adil, 2026-09-03).
+                            Button {
+                                jump(to: start.id, all: all, proxy: proxy)
+                            } label: {
+                                Text("Game \(start.game)")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(PL.text400)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                                    .contentShape(Capsule())
                             }
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(PL.text400)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 4)
-                            .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
                             .buttonStyle(.plain)
                         }
                     }
@@ -1356,6 +1794,10 @@ struct MatchDetailScreen: View {
                     .plCard(padding: 24)
             } else {
                 let shown = (pointsExpanded || filtersActive) ? all : Array(all.prefix(pointsPreview))
+                // Once for the list, not once per row: `sideChanges` walks
+                // every visible point, and a computed property read inside
+                // a ForEach body is read for every row that renders.
+                let markers = sideChanges
                 VStack(spacing: 10) {
                     ForEach(shown) { point in
                         let number = (model.visible.firstIndex(of: point) ?? 0) + 1
@@ -1364,6 +1806,7 @@ struct MatchDetailScreen: View {
                             number: number,
                             displayServer: serving[point.id]?.server ?? point.displayServer,
                             scoring: tracksServe,
+                            coachView: !isOwner,
                             noteCount: notesStore.count(for: point.id),
                             tagCount: tagsStore.tags(for: point.id).count,
                             onOpen: {
@@ -1379,7 +1822,20 @@ struct MatchDetailScreen: View {
                             onStar: { Task { await model.toggleStar(point) } },
                             onDelete: { Task { await model.softDelete(point) } }
                         )
-                        .id(point.id)
+                        .id(anchor(point.id))
+                        .onAppear {
+                            guard pendingJump == point.id else { return }
+                            pendingJump = nil
+                            // The row exists now, but the list around it
+                            // is still laying out and a scroll in the
+                            // same pass is dropped. One turn later it
+                            // lands.
+                            DispatchQueue.main.async {
+                                withAnimation {
+                                    proxy.scrollTo(anchor(point.id), anchor: .center)
+                                }
+                            }
+                        }
                         if tracksServe, !filtersActive, let boundary = score.boundaryAfter[point.id] {
                             Text("Game \(boundary.game) ends \(boundary.you)-\(boundary.them) · game \(boundary.game + 1) begins")
                                 .font(.plCaption)
@@ -1387,6 +1843,19 @@ struct MatchDetailScreen: View {
                                 .foregroundStyle(PL.text500)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 2)
+                        } else if tracksServe, !filtersActive,
+                                  markers[point.id] != nil {
+                            // The video saw them swap and the score has
+                            // not said so. Dashed, because the line above
+                            // means "a game ended here and the score
+                            // proves it" and this is a different claim.
+                            //
+                            // filtersActive is excluded for the same
+                            // reason as the line above: with a filter on,
+                            // the neighbouring card is not the
+                            // neighbouring rally, so a between-rallies
+                            // marker lies about what sits either side.
+                            sideChangeDivider(point)
                         }
                     }
                 }
@@ -1411,26 +1880,37 @@ struct MatchDetailScreen: View {
 struct PointFilterSheet: View {
     @Binding var winner: WinnerFilter
     @Binding var only: OnlyFilter
+    /// A coach reads the player's match, so "I won" would be the coach
+    /// speaking. The point cards' own words instead.
+    var coachView = false
+
+    private func winnerLabel(_ filter: WinnerFilter) -> String {
+        switch filter {
+        case .anyone: return "Anyone"
+        case .me: return coachView ? "Player won" : "I won"
+        case .them: return coachView ? "Opponent won" : "They won"
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             SectionHeading("Winner")
-            segmentRow(WinnerFilter.allCases, selection: $winner)
+            segmentRow(WinnerFilter.allCases, selection: $winner, label: winnerLabel)
             SectionHeading("Only")
-            segmentRow(OnlyFilter.allCases, selection: $only)
+            segmentRow(OnlyFilter.allCases, selection: $only, label: \.rawValue)
             Spacer()
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func segmentRow<T: RawRepresentable & CaseIterable & Hashable>(
-        _ options: T.AllCases, selection: Binding<T>
-    ) -> some View where T.RawValue == String {
+    private func segmentRow<T: CaseIterable & Hashable>(
+        _ options: T.AllCases, selection: Binding<T>, label: @escaping (T) -> String
+    ) -> some View {
         HStack(spacing: 8) {
             ForEach(Array(options), id: \.self) { option in
                 let active = selection.wrappedValue == option
-                Button(option.rawValue) {
+                Button(label(option)) {
                     selection.wrappedValue = option
                 }
                 .font(.system(size: 12, weight: .medium))

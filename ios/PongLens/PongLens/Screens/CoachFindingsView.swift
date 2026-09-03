@@ -25,6 +25,14 @@ struct CoachFindingsSection: View {
     @State private var takeoverNotes = NotesStore()
     @State private var takeoverOpen = false
     @State private var takeoverLoading = false
+    /// Which file the takeover is about to show. The original shares no
+    /// clock with the cut, so PlayerTakeover has to be told — see
+    /// PlayerSource. One cover serves both rather than a third
+    /// presentation modifier on the same view.
+    @State private var takeoverSource: PlayerSource = .cut
+    @State private var originalURL: URL?
+    @State private var originalLoading = false
+    @State private var originalMissing = false
     @State private var takeoverTagPointId: UUID?
 
     var body: some View {
@@ -37,6 +45,12 @@ struct CoachFindingsSection: View {
                 CutPlayerView(
                     store: store, player: player, currentIndex: $currentIndex,
                     onExpand: { Task { await openTakeover() } },
+                    // The uncut upload, in the one place a coach actually
+                    // works. This player is the CUT; when the cut lost a
+                    // rally, the original is the only honest answer.
+                    onOriginal: hasOriginal
+                        ? { Task { await openOriginal() } } : nil,
+                    originalBusy: originalLoading,
                     expandBusy: takeoverLoading
                 )
                 Button("Add to a pattern") {
@@ -135,7 +149,35 @@ struct CoachFindingsSection: View {
         .fullScreenCover(isPresented: $takeoverOpen) {
             takeoverBody
         }
+        .alert("The original is no longer available", isPresented: $originalMissing) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("This match was processed before we started keeping originals. The full video still plays.")
+        }
         .onDisappear { player.pause() }
+    }
+
+    /// Does this match still have its original upload? raw_path is set at
+    /// upload and never cleared on the success path, and the retention
+    /// sweep skips any object a live library row points at.
+    private var hasOriginal: Bool {
+        store.match?.rawPath?.hasPrefix("r2://ponglens-raw/") == true
+    }
+
+    /// The original, in the same full-screen player, with every
+    /// cut-relative position stood down.
+    private func openOriginal() async {
+        guard let match = store.match, !originalLoading else { return }
+        player.pause()
+        originalLoading = true
+        originalURL = await detailModel.originalURL(match)
+        originalLoading = false
+        if originalURL != nil {
+            takeoverSource = .original
+            takeoverOpen = true
+        } else {
+            originalMissing = true
+        }
     }
 
     /// Loads the match-page model once, then hands the cut to the real
@@ -143,6 +185,7 @@ struct CoachFindingsSection: View {
     private func openTakeover() async {
         guard let match = store.match else { return }
         player.pause()
+        takeoverSource = .cut
         takeoverLoading = true
         if detailModel.videoURL == nil {
             await detailModel.load(match)
@@ -154,16 +197,23 @@ struct CoachFindingsSection: View {
 
     @ViewBuilder
     private var takeoverBody: some View {
-        if let match = store.match, let url = detailModel.videoURL {
+        if let match = store.match,
+           let url = takeoverSource == .original ? originalURL : detailModel.videoURL {
             PlayerTakeover(
                 match: match,
                 model: detailModel,
                 pad: clipPad(strictness: nil, stored: match.clipPads),
                 videoURL: url,
-                startAt: currentIndex.flatMap {
-                    store.points.indices.contains($0) ? store.points[$0].cutT0 : nil
-                },
+                // The point on screen is a second in the CUT. Handing it
+                // to the original would open at an arbitrary moment.
+                startAt: takeoverSource == .cut
+                    ? currentIndex.flatMap {
+                        store.points.indices.contains($0)
+                            ? store.points[$0].cutT0 : nil
+                    }
+                    : nil,
                 mode: .watch,
+                source: takeoverSource,
                 notesStore: takeoverNotes,
                 onTagPoint: { point in takeoverTagPointId = point.id }
             )
@@ -291,6 +341,10 @@ private struct CutPlayerView: View {
     let player: AVPlayer
     @Binding var currentIndex: Int?
     var onExpand: (() -> Void)?
+    /// Open the uncut upload. Nil when there is no original left, so the
+    /// chip is absent rather than dead.
+    var onOriginal: (() -> Void)?
+    var originalBusy = false
     var expandBusy = false
 
     @Environment(AppState.self) private var app
@@ -326,10 +380,35 @@ private struct CutPlayerView: View {
                     .buttonStyle(.plain)
                     .opacity(playing ? 0.0001 : 1)
                 }
-                if let onExpand {
+                if onExpand != nil || onOriginal != nil {
                     VStack {
                         HStack {
+                            if let onOriginal {
+                                Button {
+                                    onOriginal()
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        if originalBusy {
+                                            ProgressView()
+                                                .controlSize(.mini).tint(.white)
+                                        } else {
+                                            Image(systemName: "play.fill")
+                                                .font(.system(size: 9, weight: .bold))
+                                        }
+                                        Text("Original")
+                                            .font(.system(size: 12, weight: .semibold))
+                                    }
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 10)
+                                    .frame(height: 28)
+                                    .background(.black.opacity(0.45), in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(originalBusy)
+                                .accessibilityLabel("Watch the original video")
+                            }
                             Spacer()
+                            if let onExpand {
                             Button {
                                 onExpand()
                             } label: {
@@ -348,6 +427,7 @@ private struct CutPlayerView: View {
                             .buttonStyle(.plain)
                             .disabled(expandBusy)
                             .accessibilityLabel("Open the full player")
+                            }
                         }
                         Spacer()
                     }

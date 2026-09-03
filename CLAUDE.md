@@ -344,6 +344,74 @@ full record is `docs/research/2026-08-23-placement-yield.md` and
 
 ---
 
+## Ground truth: score, winner and who served
+
+Adil's own scoring is the trusted record, and it answers more than it looks
+like it does. It took months to notice that it already contains the server.
+
+**The matches he vouches for** (his list, 2026-08-28) — scoring, winner and
+first server all reliable: Lester 6-0, Julian 3-1, Chris 3-2, Rowel 2-2,
+Julian 0-3 (Oct 2025), Chris Pingpod 1-3, Prabhas LYTTC 0-3, Ishan LYTTC
+1-3, Ali LYTTC 0-3, Kumar LYTTC 0-3, Bradley LYTTC 3-0, Vaibhav PingPod
+1-4, Jacky LYTTC 0-3, Ryuchi Matchpoint 3-0, David Matchpoint 3-0. **Not**
+Lester 2. Roughly 1,100 scored points between them.
+
+- **Who served comes from `computeServing`** in `src/app/match/[id]/serving.ts`
+  — the ITTF rotation the scorekeeper UI itself runs, so lets, deleted
+  points and `server_override` are handled exactly as Adil saw them. Call
+  that function; never re-derive the rotation. It handles game boundaries,
+  deuce, and an override re-anchoring everything downstream, and a second
+  implementation would get one of those wrong. Runs outside Next with
+  `node --experimental-strip-types` (copy it with `gameScore.ts` and
+  `sides.ts` and add the `.ts` extension to their imports).
+- **`matches.user_side` turns "user"/"opponent" into near/far.** The rotation
+  answers in terms of the uploader; the table is in terms of the camera.
+- **Placement already stores the verdict, per point, for BOTH hypotheses.**
+  `points.placement -> hypotheses -> near|far -> hard_reasons`. Read the
+  hypothesis matching the rotation's server and look for
+  `serve_first_bounce_on_receiver_half`. No video, no ball tracking, one query.
+- **This ruler is binary, which is why it works.** The serve-start taps
+  (`serve_start_at_cut_s`, `point_boundaries`) are unbiased but only 90%
+  accurate to 0.71s, measured by comparing the two passes Adil made over the
+  same Ishan and Prabhas videos. The defect being hunted is ~0.4s, so timing
+  marks cannot resolve it and a whole day was lost proving that. Which half
+  of the table a ball bounced on has no such problem.
+- **`serve_first_bounce_on_receiver_half` does not mean what its name says.**
+  `_table_half` returns None when a bounce has no table coordinates, and the
+  caller treats None the same as "wrong half", so the reason fires for
+  "unknown" as well as for "receiver's". Always split the two before quoting
+  a number — a first pass that did not reported 27% for what is really two
+  different faults.
+- **"Sol calibrated it" does NOT mean the table is wrong.** Sol is not
+  reproducible between runs, which matters for backfilling and nothing else.
+  Adil inspected the quads on Prabhas, Ishan, Ali and Chris 1-3 and they are
+  good. Judge a table by looking at it, not by which rung produced it. The
+  genuinely bad ones are the retired **pink-rim** calibrator (Vaibhav,
+  Julian 11 Aug) and the five that found no table at all.
+- **Serve-placement coverage, measured 2026-08-28 on the seven good-table
+  matches with placement (527 scored points): 62% of serves draw a dot.**
+  Use `diagnoseServePlacement` in `placementAggregate.ts` — the product's
+  single implementation, so the end-swap between games and the 0.7 trust
+  threshold are applied for you. Per match it ranges 47% (Ishan) to 81%
+  (Chris 22 Aug). Why the rest do not draw:
+  - **no landing at all — 15%.** The biggest cause by some way. We know a
+    serve happened and not where it finished.
+  - **wrong half — 9%**, plus **first bounce wrong half — 3%.** This is the
+    misread-serve family, the one everything was blamed on. It is second.
+  - landing off the table 5%, bounces not consecutive 3%, no serve shot 2%.
+  Both families lose the dot silently; the clip is unaffected, which is why
+  none of this was noticed for months.
+- **Two attempts to recover the missing first bounce are dead.** Relaxing the
+  bounce detector's frame-gap and apex rules: 7 of 18 moved serves landed
+  closer to the hand marks, 10 further away. And searching placement's own
+  richer candidate list — which carries audio and visual confidence — found
+  an earlier bounce on the server's half on **0 of 177** flagged points. The
+  bounce is not in any record we hold. Do not re-propose a look-back.
+- **Only 8 of the 16 carry placement data.** The rest cannot be measured this
+  way, Kumar most annoyingly — it has 47 serve taps and no placement.
+
+---
+
 ## What we refuse to process
 
 Two gates run before anything expensive. Both sit in `worker.py` and both

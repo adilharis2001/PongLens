@@ -23,6 +23,22 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
 
     var state: State = .idle
     var elapsed: TimeInterval = 0
+    /// The frame rate actually in force, which is not always the one
+    /// asked for. Published so the settings picker can show the truth
+    /// rather than the request.
+    private(set) var activeFPS: Int = 30
+    /// Set when a requested frame rate could not be reached, cleared as
+    /// soon as one can. The record screen shows it as a banner.
+    private(set) var frameRateNote: String?
+
+    /// Seconds recorded since the shutter, across segment rolls.
+    ///
+    /// `elapsed` is the CURRENT segment's clock and goes back to zero
+    /// every 45 minutes when the file rolls, which is right for the
+    /// countdown banner and wrong for anything asking "how long has this
+    /// been running". Kept separate rather than derived, because a wall
+    /// clock would keep counting through a pause and this must not.
+    var sessionElapsed: TimeInterval = 0
     /// 1-based segment of this session — "Part 2" after a 45-minute roll.
     var segment = 1
     /// Recording, but held between points: the current file is closed and
@@ -40,16 +56,22 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     var onSegment: ((URL, TimeInterval) -> Void)?
     /// Manual stop finished — the session's last file is banked.
     var onSessionEnd: (() -> Void)?
-    /// Upright preview frames for the live table check. Written once from
-    /// the main actor before the session starts, read on the tap queue —
-    /// the nonisolated(unsafe) is that handshake, not an invitation.
-    nonisolated(unsafe) var onPreviewFrame: ((CVPixelBuffer) -> Void)?
+    /// Match audio, for the spoken-score listener. Written once from the
+    /// main actor before the session starts, read on the tap queue — the
+    /// nonisolated(unsafe) is that handshake, not an invitation. Nil
+    /// unless the setting is on, so it costs nothing when it is off.
+    nonisolated(unsafe) var onAudioBuffer: ((CMSampleBuffer) -> Void)?
+    /// Whether the session would take a second read of the microphone.
+    /// Published rather than assumed: a capture session can refuse an
+    /// output, and a listener wired to one that was never added hears
+    /// nothing for ever without a word of explanation.
+    private(set) var audioTapReady = false
 
     let session = AVCaptureSession()
     private let output = AVCaptureMovieFileOutput()
-    private let previewTap = AVCaptureVideoDataOutput()
-    private let previewTapQueue = DispatchQueue(
-        label: "com.ponglens.preview-tap", qos: .utility)
+    private let audioTap = AVCaptureAudioDataOutput()
+    private let audioTapQueue = DispatchQueue(
+        label: "com.ponglens.audio-tap", qos: .utility)
     private var device: AVCaptureDevice?
     private var timer: Timer?
     private var rollPending = false
@@ -129,6 +151,17 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     // MARK: - Setup
 
     func configure(fps: Int) async {
+        // Idempotent. This used to be called again for every frame-rate
+        // change, and the second call always failed: a session already
+        // holding a video input refuses another, so the guard below fell
+        // through to "the camera isn't available on this device" — with a
+        // perfectly good camera still running behind the message. Rate is
+        // a property of the device, not the shape of the session, so it
+        // is set directly and nothing is rebuilt.
+        if device != nil, !session.inputs.isEmpty {
+            setFrameRate(fps)
+            return
+        }
         let camera = await AVCaptureDevice.requestAccess(for: .video)
         let mic = await AVCaptureDevice.requestAccess(for: .audio)
         guard camera else {
@@ -179,23 +212,20 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         if session.canAddOutput(output) {
             session.addOutput(output)
         }
-        // The table check reads the same session's frames; BGRA so the
-        // engine never touches YUV, late frames dropped so it can never
-        // back-pressure the recording.
-        previewTap.videoSettings = [
-            kCVPixelBufferPixelFormatTypeKey as String:
-                kCVPixelFormatType_32BGRA]
-        previewTap.alwaysDiscardsLateVideoFrames = true
-        previewTap.setSampleBufferDelegate(self, queue: previewTapQueue)
-        if session.canAddOutput(previewTap) {
-            session.addOutput(previewTap)
+        // The same microphone the recording uses, read a second time. The
+        // handler is nil unless someone turned the setting on, so an
+        // ordinary match delivers buffers to nothing and stops there.
+        audioTap.setSampleBufferDelegate(self, queue: audioTapQueue)
+        if session.canAddOutput(audioTap) {
+            session.addOutput(audioTap)
+            audioTapReady = true
         }
         // Crash insurance: fragments every 5 seconds keep everything up to
         // the last few seconds playable no matter how the process dies.
         output.movieFragmentInterval = CMTime(seconds: 5, preferredTimescale: 600)
         session.commitConfiguration()
 
-        applyFrameRate(fps)
+        setFrameRate(fps)
         if let connection = output.connection(with: .video) {
             if output.availableVideoCodecTypes.contains(.hevc) {
                 output.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
@@ -211,19 +241,92 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         state = .ready
     }
 
-    private func applyFrameRate(_ fps: Int) {
-        guard let device else { return }
-        let target = CMTime(value: 1, timescale: CMTimeScale(fps))
-        guard let range = device.activeFormat.videoSupportedFrameRateRanges.first,
-              Double(fps) <= range.maxFrameRate else { return }
+    /// Set the capture rate, switching to a format that can carry it when
+    /// the active one cannot. Returns the rate actually in force.
+    ///
+    /// The old version only ever looked at the format the session preset
+    /// had already chosen, and only at the FIRST of its rate ranges. When
+    /// that format topped out at 30 — which is what a 1080p preset picks
+    /// on plenty of phones — asking for 60 silently did nothing: the
+    /// setting said 60, the camera recorded 30, and nobody was told.
+    /// Anything that reports a rate it did not deliver is worse than a
+    /// rate it cannot deliver.
+    @discardableResult
+    func setFrameRate(_ fps: Int) -> Int {
+        guard let device else { activeFPS = fps; return fps }
+        let target = Double(fps)
+
+        func carries(_ format: AVCaptureDevice.Format) -> Bool {
+            format.videoSupportedFrameRateRanges.contains {
+                $0.minFrameRate <= target + 0.01
+                    && target <= $0.maxFrameRate + 0.01
+            }
+        }
+
+        let chosen: AVCaptureDevice.Format? =
+            carries(device.activeFormat) ? device.activeFormat
+                                         : bestFormat(carrying: target)
+        guard let chosen else {
+            // Leave the camera exactly as it is and say so. Falling back
+            // silently is how the old bug hid.
+            frameRateNote =
+                "This phone can't record 1080p at \(fps) fps. Still recording at \(activeFPS)."
+            return activeFPS
+        }
+
+        let duration = CMTime(value: 1, timescale: CMTimeScale(fps))
+        session.beginConfiguration()
         do {
             try device.lockForConfiguration()
-            device.activeVideoMinFrameDuration = target
-            device.activeVideoMaxFrameDuration = target
+            // Setting a format hands format choice to the device and
+            // supersedes the session preset. Every candidate is 1920x1080,
+            // so the recorded size does not move.
+            if chosen != device.activeFormat { device.activeFormat = chosen }
+            device.activeVideoMinFrameDuration = duration
+            device.activeVideoMaxFrameDuration = duration
             device.unlockForConfiguration()
+            activeFPS = fps
+            frameRateNote = nil
         } catch {
-            // The default cadence still records.
+            frameRateNote = "Couldn't change the frame rate. Still recording at \(activeFPS)."
         }
+        session.commitConfiguration()
+        // A format change can clamp the zoom, so restate it rather than
+        // letting the buttons drift out of step with the lens.
+        setDisplayZoom(displayZoom)
+        return activeFPS
+    }
+
+    /// The gentlest 1080p format that can carry a rate: the lowest ceiling
+    /// that still covers it, so asking for 60 does not land on a 240 fps
+    /// slow-motion format with its worse low-light behaviour, and full
+    /// sensor readout ahead of a binned one where there is a choice.
+    private func bestFormat(carrying target: Double) -> AVCaptureDevice.Format? {
+        guard let device else { return nil }
+        return device.formats
+            .filter { format in
+                let size = CMVideoFormatDescriptionGetDimensions(
+                    format.formatDescription)
+                guard size.width == 1920, size.height == 1080 else { return false }
+                return format.videoSupportedFrameRateRanges.contains {
+                    $0.minFrameRate <= target + 0.01
+                        && target <= $0.maxFrameRate + 0.01
+                }
+            }
+            .min { lhs, rhs in
+                let l = lhs.videoSupportedFrameRateRanges
+                    .map(\.maxFrameRate).max() ?? 0
+                let r = rhs.videoSupportedFrameRateRanges
+                    .map(\.maxFrameRate).max() ?? 0
+                if l != r { return l < r }
+                return !lhs.isVideoBinned && rhs.isVideoBinned
+            }
+    }
+
+    /// What this phone can actually offer, for the settings picker.
+    func supportedFrameRates(from candidates: [Int]) -> [Int] {
+        guard device != nil else { return candidates }
+        return candidates.filter { bestFormat(carrying: Double($0)) != nil }
     }
 
     /// Set the zoom in the numbers on the buttons. Everything else in
@@ -282,6 +385,7 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         interruptionNote = nil
         segment = 1
         elapsed = 0
+        sessionElapsed = 0
         chunks = []
         beginChunk()
         UIApplication.shared.isIdleTimerDisabled = true
@@ -316,6 +420,7 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
             || ProcessInfo.processInfo.thermalState == .critical
         guard state == .recording, !isPaused else { return }
         elapsed += 1
+        sessionElapsed += 1
         // The cap: finalize this file and keep rolling into the next one.
         if elapsed >= Self.maxSegmentS, !rollPending, !stopRequested, !pausePending, !cancelPending {
             rollPending = true
@@ -586,26 +691,32 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     }
 }
 
-// MARK: - Preview tap for the live table check
+// MARK: - Audio tap
 
-extension Recorder: AVCaptureVideoDataOutputSampleBufferDelegate {
-    /// Point every video connection the same way up. The preview computes
-    /// the angle in its own layout pass and hands it here.
+extension Recorder: AVCaptureAudioDataOutputSampleBufferDelegate {
+    nonisolated func captureOutput(_ output: AVCaptureOutput,
+                                   didOutput sampleBuffer: CMSampleBuffer,
+                                   from connection: AVCaptureConnection) {
+        guard let handler = onAudioBuffer else { return }
+        handler(sampleBuffer)
+    }
+}
+
+// MARK: - Orientation
+
+extension Recorder {
+    /// Point the recorded file the same way up as the viewfinder. The
+    /// preview computes the angle in its own layout pass and hands it here.
     ///
-    /// There are three connections and for a long time only two of them
-    /// were set: the preview layer, so the viewfinder looked right, and
-    /// this tap, so the table check saw what the viewfinder saw. The movie
-    /// output — the only one that reaches the file — kept AVFoundation's
-    /// default, which is portrait. So a match filmed in landscape, through
-    /// a viewfinder that looked perfectly correct, was written to disk
+    /// This was missed for a long time: the preview layer was rotated, so
+    /// the viewfinder looked right, while the movie output — the only
+    /// connection that reaches the file — kept AVFoundation's default,
+    /// which is portrait. So a match filmed in landscape, through a
+    /// viewfinder that looked perfectly correct, was written to disk
     /// flagged as portrait and played back on its side. Nothing on a
     /// simulator can catch that: there is no camera, so no build ever
     /// produced a real recording until one reached a real match.
     func setCaptureRotation(_ angle: CGFloat) {
-        if let tap = previewTap.connection(with: .video),
-           tap.isVideoRotationAngleSupported(angle) {
-            tap.videoRotationAngle = angle
-        }
         // The file's own rotation is fixed when the chunk opens and must
         // not move afterwards: changing it mid-recording turns the picture
         // over halfway through the video.
@@ -613,15 +724,5 @@ extension Recorder: AVCaptureVideoDataOutputSampleBufferDelegate {
               let movie = output.connection(with: .video),
               movie.isVideoRotationAngleSupported(angle) else { return }
         movie.videoRotationAngle = angle
-    }
-
-    nonisolated func captureOutput(_ output: AVCaptureOutput,
-                                   didOutput sampleBuffer: CMSampleBuffer,
-                                   from connection: AVCaptureConnection) {
-        guard output === previewTap,
-              let handler = onPreviewFrame,
-              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
-        else { return }
-        handler(pixelBuffer)
     }
 }

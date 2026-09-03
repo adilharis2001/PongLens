@@ -84,14 +84,17 @@ func computeServingInputs(
 
     for p in visiblePoints {
         if let anchor = p.serverOverride {
-            // The rotation keeps its slot phase (servesInBlock is NOT
-            // reset): an override relabels WHO is serving, not where the
-            // 2-serve blocks fall. If it contradicts the walk, the game's
-            // first-server parity re-anchors with it.
-            if let current = cur, let first = gameFirst, anchor != current {
-                gameFirst = otherServer(first)
-            }
-            if cur == nil {
+            // A CONTRADICTING override starts a new 2-serve block here and
+            // flips the game's first-server parity with it. An override
+            // that AGREES is a pure pin and changes nothing. See the long
+            // note in serving.ts for why the block restarts: the commonest
+            // cause of a wrong rotation is a rally the cut MISSED, which is
+            // a block boundary that moved, and preserving the phase there
+            // costs an override on every remaining card instead of one.
+            if cur == nil || anchor != cur {
+                if cur != nil, let first = gameFirst {
+                    gameFirst = otherServer(first)
+                }
                 servesInBlock = 0
             }
             cur = anchor

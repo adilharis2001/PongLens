@@ -807,11 +807,11 @@ struct CameraRealSetups: View {
 
     private static let setups: [(file: String, caption: String)] = [
         ("camera-ref-1",
-         "2.7 m to the side, level with the near end, 0.9 m above the table."),
+         "9 ft to the side, level with the near end, 3 ft above the table."),
         ("camera-ref-2",
-         "2.8 m to the side, just past the near end, 1.0 m up."),
+         "9 ft to the side, just past the near end, 3 ft up."),
         ("camera-ref-3",
-         "2.1 m to the side and a little further back. A busy hall, and the table is still clear."),
+         "7 ft to the side and a little further back. A busy hall, and the table is still clear."),
     ]
 
     /// Loose files in Resources/, the same as guides.json, so they ride the

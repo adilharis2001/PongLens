@@ -1,0 +1,50 @@
+-- Placement is told where the serve is.
+--
+-- Read per job by worker.placement_serve_seed_enabled and passed to the
+-- points pipeline as --placement-serve-seed, so turning it off is one UPDATE
+-- with no deploy and no restart.
+--
+-- WHAT WAS WRONG. points_pipeline computed the serve contact, wrote it onto
+-- the point as `serve_s`, and called reconstruct_placement six lines later
+-- without passing it. The two ran over the same window and never spoke. Left
+-- to itself, placement anchors its walk on the FIRST bounce inside the card,
+-- and on a serve that bounce is very often the server tapping the ball on the
+-- table before serving. The serve's own two bounces are then two events too
+-- late to be picked, and the point is refused for a landing that was never
+-- the landing — so the serve dot never reaches the placement map.
+--
+-- The seed is a FILTER, not an override: candidates before the serve are
+-- dropped and the existing rules choose from what remains. It stays safe when
+-- the detector is a shot late, because `serve_s` sits CONTACT_LOOKBACK_S
+-- (0.81 s) BEFORE the bounce it found, which is still earlier than the
+-- serve's real first bounce.
+--
+-- MEASURED on four matches with a good table, by calling the real
+-- solve_hypothesis on the stored candidates rather than simulating it. The
+-- unseeded pass reproduces production's own serve verdict on 112 of 114
+-- points, which is what makes the seeded pass worth reading:
+--
+--     12  refused serves now draw   (5 no_landing, 5 wrong_half,
+--      0  drawn serves stop drawing  2 first_bounce_wrong_half)
+--     63  unchanged
+--
+-- Nothing is removed, narrowed or flagged: a card that has a serve today
+-- keeps it, and clips are untouched. Crossing cards carry no serve_s, so they
+-- are unaffected by construction.
+--
+-- Only new processing is affected. Matches already in the database keep the
+-- placement they were built with until they are reprocessed.
+--
+-- NOT added to the app_config public allow-list (107). No public page renders
+-- it, and a key stays private until someone has a reason to publish it.
+--
+-- Rollback is this, and a worker restart is not needed:
+--   update public.app_config set value = 'off' where key = 'placement_serve_seed';
+--
+-- Forward-only and safe to re-run. DO NOTHING rather than an upsert on
+-- purpose: this seeds a setting, and a replayed migration must not quietly
+-- undo a rollback someone made deliberately in the dashboard.
+
+insert into public.app_config (key, value) values
+  ('placement_serve_seed', 'on')
+on conflict (key) do nothing;

@@ -479,6 +479,34 @@ def _candidate_kind(candidate: Mapping[str, Any]) -> str:
     return aliases.get(str(kinds[0]), str(kinds[0])) if kinds else "unknown"
 
 
+# How far before the serve contact the candidate walk may still look. Small
+# on purpose: the point is to exclude the server's pre-serve ball tap, and
+# CONTACT_LOOKBACK_S already puts serve_s well before the real first bounce.
+SERVE_SEED_MARGIN_S = 0.05
+
+# NOT ADDED, and measured: a parked-speck guard on bounce candidates.
+#
+# points_v2.bounces() refuses a bounce whose ball moved less than
+# BOUNCE_MOTION_PX (3 px) between frames — "a parked speck must not manufacture
+# a bounce". extract_candidates below has no such test, so a stationary blob
+# that jitters a few pixels emits a bounce repeatedly in the same place. That
+# asymmetry is real: over 4,656 candidates on eight matches, 4% sat in a
+# cluster of 3+ bounces within 15 px and 2 s, and 41 points contained one.
+#
+# Porting the guard here was measured on 2026-08-28 across four matches and 394
+# points, running the real reconstruction with and without it:
+#
+#     bounce candidates removed        75
+#     serve verdicts improved           4
+#     serve verdicts made WORSE         1
+#
+# Four gained against one lost is not worth a change to how every placement map
+# is built, so it was reverted. Note the trap in getting here: the 16 refused
+# serves whose two "bounces" sit within 25 px of each other are NOT the same
+# population — a ball bouncing repeatedly in one small area moves plenty
+# between frames. Do not re-propose this guard on the 25 px number.
+
+
 def _table_half(candidate: Mapping[str, Any]) -> str | None:
     v = candidate.get("v")
     if v is None:
@@ -1021,6 +1049,7 @@ def reconstruct_placement(
     fps: float,
     width: int,
     audio_impacts: Iterable[Any] | None = None,
+    serve_s: float | None = None,
 ) -> dict[str, Any]:
     candidates = extract_candidates(
         det,
@@ -1032,6 +1061,44 @@ def reconstruct_placement(
         width,
         audio_impacts or [],
     )
+    # WHERE THE POINT STARTS, when the serve detector knows.
+    #
+    # Until 2026-08-28 this function was never told. points_pipeline computed
+    # the serve contact, wrote it onto the point as `serve_s`, and called this
+    # six lines later without passing it — the two ran over the same window and
+    # never spoke.
+    #
+    # Left to itself the walk anchors on the FIRST bounce in the card, and that
+    # is very often the server tapping the ball on the table before serving.
+    # The serve's own two bounces are then two events too late to be chosen, so
+    # the pair becomes (pre-serve tap, paddle contact) and the point is refused
+    # for a landing that was never the landing.
+    #
+    # Seeding is a filter and not an override: everything before the serve is
+    # dropped and the existing rules pick from what is left. It is safe even
+    # when the detector is a shot late, because `serve_s` sits
+    # CONTACT_LOOKBACK_S (0.81s) BEFORE the bounce it found, which is still
+    # earlier than the serve's real first bounce.
+    #
+    # Measured on four matches with a good table by calling solve_hypothesis
+    # on the stored candidates, once as production saw them and once seeded.
+    # The unseeded pass reproduces production's serve verdict on 112 of 114
+    # points, which is what makes the seeded pass worth reading:
+    #
+    #     12  refused serves now draw     (5 no_landing, 5 wrong_half,
+    #      0  drawn serves stop drawing    2 first_bounce_wrong_half)
+    #     63  unchanged
+    #
+    # An earlier estimate of 19 counted candidate pairs with the right shape
+    # rather than running the solver, and did not survive it. Crossing cards
+    # carry no serve_s, so they are unaffected by construction.
+    if serve_s is not None:
+        cutoff = float(serve_s) - SERVE_SEED_MARGIN_S
+        candidates = [
+            candidate
+            for candidate in candidates
+            if float(candidate.get("t", 0.0)) >= cutoff
+        ]
     annotated_segments = []
     for segment in track.get("segments", []):
         annotated = dict(segment)

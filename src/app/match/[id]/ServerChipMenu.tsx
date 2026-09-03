@@ -29,6 +29,7 @@ export function ServerChipMenu({
   isOwner,
   neutralLabels,
   onPointUpdate,
+  onSetServer,
 }: {
   point: Point;
   serve: ServeInfo | undefined;
@@ -39,6 +40,10 @@ export function ServerChipMenu({
    *  override menu. undefined for a normal match. */
   neutralLabels?: { you: string; them: string };
   onPointUpdate: (pointId: string, patch: Partial<Point>) => void;
+  /** Set (or clear, with null) this point's serve correction. Lives on the
+   *  host because a correction also clears the corrections after it, which
+   *  needs the whole timeline — see MatchView.setServerOverride. */
+  onSetServer: (value: MatchServer | null) => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -61,15 +66,12 @@ export function ServerChipMenu({
 
   const save = useCallback(
     async (
-      patch: Partial<
-        Pick<Point, "server_override" | "is_let" | "confirmed_winner">
-      >
+      patch: Partial<Pick<Point, "is_let" | "confirmed_winner">>
     ) => {
       if (busy) return;
       setBusy(true);
       setOpen(false);
       const prev = {
-        server_override: point.server_override,
         is_let: point.is_let,
         confirmed_winner: point.confirmed_winner,
       };
@@ -82,14 +84,20 @@ export function ServerChipMenu({
       setBusy(false);
       if (error) onPointUpdate(point.id, prev);
     },
-    [
-      busy,
-      point.id,
-      point.server_override,
-      point.is_let,
-      point.confirmed_winner,
-      onPointUpdate,
-    ]
+    [busy, point.id, point.is_let, point.confirmed_winner, onPointUpdate]
+  );
+
+  // Serve corrections go through the host, not `save`: the write clears
+  // every correction after this one, which is a whole-timeline decision.
+  const applyServer = useCallback(
+    async (value: MatchServer | null) => {
+      if (busy) return;
+      setBusy(true);
+      setOpen(false);
+      await onSetServer(value);
+      setBusy(false);
+    },
+    [busy, onSetServer]
   );
 
   // Skipped chip: the reason label when it says something ("Let",
@@ -185,7 +193,7 @@ export function ServerChipMenu({
                 onClick={(e) => {
                   e.stopPropagation();
                   setSavedFlash(true);
-                  void save({ server_override: item.value });
+                  void applyServer(item.value);
                 }}
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-ink/60"
               >
@@ -200,7 +208,7 @@ export function ServerChipMenu({
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation();
-                  void save({ server_override: null });
+                  void applyServer(null);
                 }}
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-200 transition-colors hover:bg-ink/60"
               >

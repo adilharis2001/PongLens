@@ -11,13 +11,15 @@ import { MinutesSection } from "./MinutesSection";
 import { SignOutRow } from "./SignOutRow";
 import { DeleteAccountSection } from "./DeleteAccountSection";
 import {
-  ADMIN_EMAIL,
+  isAdminEmail,
   getCommerceEnabled,
   getMinutePacks,
   getStoragePacks,
   getSupportEmail,
 } from "@/lib/config";
 import { RecollectSetting } from "./RecollectSetting";
+import { WorkspaceSwitch } from "./WorkspaceSwitch";
+import { rememberedWorkspace } from "@/lib/workspaceServer";
 
 export const metadata: Metadata = {
   title: "Account",
@@ -72,13 +74,41 @@ export default async function AccountPage() {
     redirect("/login");
   }
 
-  const isAdmin = user.email === ADMIN_EMAIL;
+  const isAdmin = isAdminEmail(user.email);
   // The RPC re-checks the role server-side; this only decides whether the
   // row is drawn. /testing has its own gate either way.
   const { data: qa } = await supabase.rpc("is_qa");
   const isQa = qa === true;
   const supportEmail = await getSupportEmail();
   const commerceEnabled = await getCommerceEnabled();
+  const { workspace } = await rememberedWorkspace();
+  const coachSide = workspace === "coach";
+  // The Profile type row's label: the coach flag, or any coach data — a
+  // page, an accepted link as a coach, a roster. Decided here so the row
+  // draws with the page rather than a beat after it.
+  const coachFlagged = user.user_metadata?.is_coach === true;
+  const coachEligible =
+    coachFlagged ||
+    (await Promise.all([
+      supabase
+        .from("coach_profiles")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .maybeSingle(),
+      supabase
+        .from("coach_links")
+        .select("id")
+        .eq("coach_id", user.id)
+        .eq("status", "accepted")
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from("coach_students")
+        .select("id")
+        .eq("coach_id", user.id)
+        .limit(1)
+        .maybeSingle(),
+    ]).then((rows) => rows.some((r) => Boolean(r.data))));
   const [minutePacks, storagePacks] = commerceEnabled
     ? await Promise.all([getMinutePacks(), getStoragePacks()])
     : [[], []];
@@ -135,19 +165,23 @@ export default async function AccountPage() {
       )}
 
       {/* 3 — highest-frequency destinations on this tab. Player profile
-          is set-once data, so it lives behind a row, not on the page. */}
-      <div className="mt-8">
-        <SectionLabel>Your game</SectionLabel>
-        <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-          <RowLink href="/stats" label="My stats" />
-          <RowLink href="/stats?view=tactics" label="Tactics" />
-          <RowLink href="/starred" label="Starred points" />
-          <RowLink href="/account/player" label="Player profile" />
-          <RecollectSetting
-            initialEnabled={recollectPreference?.enabled !== false}
-          />
+          is set-once data, so it lives behind a row, not on the page. On
+          the coaching side the playing rooms are one switch away, not
+          here (158). */}
+      {!coachSide && (
+        <div className="mt-8">
+          <SectionLabel>Your game</SectionLabel>
+          <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+            <RowLink href="/stats" label="My stats" />
+            <RowLink href="/stats?view=tactics" label="Tactics" />
+            <RowLink href="/starred" label="Starred points" />
+            <RowLink href="/account/player" label="Player profile" />
+            <RecollectSetting
+              initialEnabled={recollectPreference?.enabled !== false}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 4 — the whole coaching world (your coaches, bought reviews,
           the coach workspace) lives on the Coaching tab now */}
@@ -155,19 +189,38 @@ export default async function AccountPage() {
         <ShareLinksSection />
       </div>
 
-      {/* 5 — resource management sits mid-low */}
-      {commerceEnabled && (
+      {/* 5 — resource management sits mid-low; playing-side only */}
+      {commerceEnabled && !coachSide && (
         <div id="minutes" className="mt-8 scroll-mt-20">
           <SectionLabel>Processing minutes</SectionLabel>
           <MinutesSection packs={minutePacks} />
         </div>
       )}
-      <div id="storage" className="mt-8 scroll-mt-20">
-        <SectionLabel>Storage</SectionLabel>
-        <StorageSection packs={commerceEnabled ? storagePacks : []} />
+      {!coachSide && (
+        <div id="storage" className="mt-8 scroll-mt-20">
+          <SectionLabel>Storage</SectionLabel>
+          <StorageSection packs={commerceEnabled ? storagePacks : []} />
+        </div>
+      )}
+
+      {/* 6 — the two sides of the account, in one place on both sides.
+          It used to sit at the foot of "Your game" on the playing side
+          and under its own "Workspace" label on the coaching side, so
+          the same row had two homes and two names (Adil, 2026-09-02).
+          iOS Account has the same group in the same spot. */}
+      <div className="mt-8">
+        <SectionLabel>Profile type</SectionLabel>
+        <div className="overflow-hidden rounded-2xl border border-edge bg-surface">
+          <WorkspaceSwitch
+            remembered={workspace}
+            userId={user.id}
+            flagged={coachFlagged}
+            eligible={coachEligible}
+          />
+        </div>
       </div>
 
-      {/* 6 — support block, just above legal */}
+      {/* 7 — support block, just above legal */}
       <div className="mt-8">
         <SectionLabel>Support</SectionLabel>
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
@@ -197,7 +250,7 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 7 — legal, last among the links */}
+      {/* 8 — legal, last among the links */}
       <div className="mt-8">
         <SectionLabel>Legal</SectionLabel>
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
@@ -206,7 +259,7 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 8 — the exits, alone at the very bottom. Closing the account sits
+      {/* 9 — the exits, alone at the very bottom. Closing the account sits
           under signing out, quieter than it but reachable without asking
           anyone: Apple requires it in the app, and it is the right thing
           regardless. */}

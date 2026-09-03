@@ -287,3 +287,52 @@ test("an ending that cannot explain the point's own end is refused", () => {
   const good = pt({ rally_end_cut_s: 52.6 });
   assert.equal(effectiveEnd(good, PAD, RALLY), 53.1);
 });
+
+test("a run of deleted cards fuses into one jump, not one per card", () => {
+  // Three deleted warm-up cards, each separated by the sliver of padding
+  // the cut keeps between adjacent clips. Padded spans: 0..6.5, 7..13.5,
+  // 14..20.5 — 0.5s gaps. The real match that found this played 6.5s of
+  // warm-up across nineteen separate jumps.
+  const rows = [
+    pt({ id: "w1", cut_t0: 0, t0: 100, t1: 104, deleted: true }),
+    pt({ id: "w2", cut_t0: 7, t0: 110, t1: 114, deleted: true }),
+    pt({ id: "w3", cut_t0: 14, t0: 120, t1: 124, deleted: true }),
+    pt({ id: "first", cut_t0: 30, t0: 140, t1: 144 }),
+  ];
+  assert.deepEqual(skipSpans(rows, PAD, OFF), [{ start: 0, end: 20.5 }]);
+});
+
+test("a merge never spans a rally somebody kept", () => {
+  // Same shape, but a KEPT rally sits in the gap between the two deleted
+  // ones. Fusing would jump straight over it. Two spans, and the kept
+  // rally plays.
+  const rows = [
+    pt({ id: "j1", cut_t0: 0, t0: 100, t1: 104, deleted: true }),
+    pt({ id: "keep", cut_t0: 6.5, t0: 110, t1: 114 }),
+    pt({ id: "j2", cut_t0: 20, t0: 130, t1: 134, deleted: true }),
+    pt({ id: "last", cut_t0: 40, t0: 150, t1: 154 }),
+  ];
+  const spans = skipSpans(rows, PAD, OFF);
+  assert.equal(spans.length, 2);
+  // The kept rally's start is inside no span.
+  for (const sp of spans) {
+    assert.ok(
+      !(6.5 > sp.start && 6.5 < sp.end),
+      `span ${sp.start}-${sp.end} swallowed the kept rally`
+    );
+  }
+});
+
+test("a gap wider than the tolerance stays two jumps", () => {
+  // 5s of un-carded footage between two deleted cards: not padding, so it
+  // is not assumed dead.
+  const rows = [
+    pt({ id: "j1", cut_t0: 0, t0: 100, t1: 104, deleted: true }),
+    pt({ id: "j2", cut_t0: 11.5, t0: 110, t1: 114, deleted: true }),
+    pt({ id: "first", cut_t0: 30, t0: 140, t1: 144 }),
+  ];
+  assert.deepEqual(skipSpans(rows, PAD, OFF), [
+    { start: 0, end: 6.5 },
+    { start: 11.5, end: 18 },
+  ]);
+});

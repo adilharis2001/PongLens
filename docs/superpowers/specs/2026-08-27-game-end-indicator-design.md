@@ -1,6 +1,7 @@
 # Game-end indicator — design
 
-**Status:** proposed, 2026-08-27
+**Status:** SHIPPED 2026-08-28. Two things changed from this
+document during the build; both are recorded in section 12 at the end.
 **Surfaces:** worker (already built), web scorekeeper, web point list, iOS
 scorekeeper, iOS point list
 **Kill switch:** `app_config.game_end_detection` (already exists, 140)
@@ -856,3 +857,77 @@ been used for a while, and it needs a rule for never interrupting twice.
 **My recommendation:** A, then B. A is nearly free given what rule 6
 already does, and it is the only one of the three that makes the player's
 score more accurate rather than just easier to navigate.
+
+
+---
+
+## 12. What actually shipped, and where it differs from above
+
+Built and deployed 2026-08-28. Migration is **146**, not 143 — another
+session took 143, 144 and 145 while this was being written.
+
+### The suppression window is 3, not 1
+
+Section 4 rule 6 proposed silencing a detected marker only when a real
+boundary sat within ±1, and showing the ±2/±3 disagreement as a feature.
+Adil's instruction on reading the spec was the opposite, and it is the
+better call:
+
+> "when we reach the actual game boundary, you can replace that indicator
+> or separator with the end of the score... Even if it's not the exact
+> end, if it's some other point... You can automatically delete the
+> separator that's close by."
+
+`SCORE_BOUNDARY_SUPPRESS = 3`, which is not a round number picked to
+please: it is the owner's own measured scoring drift. Over 49 confirmed
+fires, six landed one to four rallies from the scored boundary and every
+one of those six fired on a LONGER break than the score had. The
+changeover is the long gap; the score is what moved.
+
+The idea in section 11A — surfacing the disagreement and offering to move
+the boundary — is not dead, it is just no longer the default. It would
+now be an explicit second state rather than a side effect of the
+suppression window.
+
+### The label is "Players changed ends"
+
+Shipped as recommended, for the deciding-game reason in section 3.
+`SIDE_CHANGE_LABEL` / `SideChanges.label` is one constant per platform if
+that is ever revisited.
+
+### Verified end to end on production
+
+On `b7a01f05` (Lester 2, 118 rallies, 45 scored, five detections):
+
+| | result |
+| --- | --- |
+| markers drawn in the point list | 3 |
+| score dividers | 2 |
+| detections silenced by a nearby boundary | 2 |
+| Keep score strip | the same 3 and 2 |
+
+"They just changed ends" wrote `side_change_dismissed`, the marker count
+went 3 → 2, and it stayed 2 through a full reload — so the column, the
+grant and the read path all work. "Game ended here" wrote
+`game_end_override = 'end'` and the marker turned into a score divider:
+3 → 2 markers, 2 → 3 dividers, in one tap. Both were undone afterwards;
+the match carries only the two pins it had before.
+
+### Two things bit during the build, both worth remembering
+
+**A long transaction blocked the migration for twenty minutes.** Another
+session's `research_reprocess.py` held an hour-long transaction on
+`public.points`, and `ALTER TABLE` needs an exclusive lock. Waiting for it
+without a `lock_timeout` would have queued AHEAD of every other query on
+that table and stalled the app and the worker behind it, so the fix was a
+3-second timeout and a retry every minute — it landed on attempt 20. Then
+`backfill_side_changes` did the same thing to itself: psycopg2 holds a
+transaction open from the first statement until a commit, so the
+eligibility read was still holding a lock four minutes into a four-hour
+run. It commits that read now.
+
+**Two uncommitted scripts were deleted mid-session** by another session's
+`git clean`, and a commit was lost to another's `git reset`. Both were
+recovered, but the rule stands and it is already in CLAUDE.md: with
+concurrent sessions on one checkout, commit early and check `git log`
+before pushing.

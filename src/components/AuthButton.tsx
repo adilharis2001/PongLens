@@ -24,9 +24,18 @@ export function AuthButton() {
   return (
     <Link
       href={signedIn ? "/dashboard" : "/login"}
-      className="rounded-full border border-cyan-glow/40 px-4 py-1.5 text-sm font-medium text-cyan-glow transition-colors hover:border-cyan-glow hover:bg-cyan-glow/10"
+      className="whitespace-nowrap rounded-full border border-cyan-glow/40 px-3 py-1.5 text-sm font-medium text-cyan-glow transition-colors hover:border-cyan-glow hover:bg-cyan-glow/10 sm:px-4"
     >
-      {signedIn ? "Open PongLens" : "Sign in"}
+      {signedIn ? (
+        // The full name won't share a phone-width row with the logo and the
+        // audience link without crowding all three, so below sm it yields.
+        <>
+          <span className="sm:hidden">Open app</span>
+          <span className="hidden sm:inline">Open PongLens</span>
+        </>
+      ) : (
+        "Sign in"
+      )}
     </Link>
   );
 }

@@ -1,4 +1,4 @@
-import type { DetectedEvent } from "./serveAccuracyModel";
+import type { DetectedEvent } from "./serveAccuracyModel.ts";
 
 /**
  * The ball bouncing itself out, with nobody hitting it.

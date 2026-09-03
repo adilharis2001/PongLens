@@ -44,6 +44,7 @@ export function ShareSheet({
   names,
   tagOptions,
   scored = false,
+  processed = true,
 }: {
   open: boolean;
   onClose: () => void;
@@ -62,6 +63,10 @@ export function ShareSheet({
    *  draw. False hides the toggle entirely rather than offering a choice
    *  with no effect. */
   scored?: boolean;
+  /** False before processing. The starred teaching row assumes points
+   *  exist to star; on an unprocessed match they don't, so the row is
+   *  not teaching, it is noise. */
+  processed?: boolean;
   /** this match's tags with tagged-point counts; rows for count > 0 */
   tagOptions?: { id: string; label: string; count: number }[];
 }) {
@@ -324,8 +329,11 @@ export function ShareSheet({
         <div className="mt-4 space-y-2">
           {/* starred points — match context only. Zero starred: the row
               stays as a muted teaching line (non-creating) instead of
-              disappearing, so the feature is never invisible. */}
+              disappearing, so the feature is never invisible. Before
+              processing there are no points to star, so the row is
+              absent rather than teaching the impossible. */}
           {!pointId &&
+            processed &&
             ((starredCount ?? 0) > 0 ? (
               <button
                 type="button"

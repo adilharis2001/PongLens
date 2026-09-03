@@ -9,12 +9,12 @@
     "lint": "eslint",
     "test:auth": "node --test --experimental-strip-types src/lib/auth/*.test.ts",
     "test:learn": "node --test --experimental-strip-types src/app/learn/guides.test.ts",
-    "test:match-structure": "node --test --experimental-strip-types 'src/app/match/[[]id[]]/matchStructure.test.ts' 'src/app/match/[[]id[]]/gameScore.test.ts' 'src/app/match/[[]id[]]/playhead.test.ts' 'src/app/match/[[]id[]]/tapZone.test.ts' src/lib/research/matchStructureMigration.test.ts 'src/app/match/[[]id[]]/highlights.test.ts'",
-    "test:costs": "node --test --experimental-strip-types src/lib/costs/*.test.ts src/app/admin/costDashboardView.test.ts src/app/admin/adminPageView.test.ts src/app/admin/players/playersView.test.ts src/app/admin/uploads/uploadView.test.ts",
+    "test:match-structure": "node --test --experimental-strip-types 'src/app/match/[[]id[]]/matchStructure.test.ts' 'src/app/match/[[]id[]]/gameScore.test.ts' 'src/app/match/[[]id[]]/serving.test.ts' 'src/app/match/[[]id[]]/insertGeometry.test.ts' 'src/app/match/[[]id[]]/playhead.test.ts' 'src/app/match/[[]id[]]/tapZone.test.ts' src/lib/research/matchStructureMigration.test.ts 'src/app/match/[[]id[]]/highlights.test.ts' 'src/app/match/[[]id[]]/sideChanges.test.ts'",
+    "test:costs": "node --test --experimental-strip-types src/lib/costs/*.test.ts src/app/admin/costDashboardView.test.ts src/app/admin/adminPageView.test.ts src/app/admin/players/playersView.test.ts src/app/admin/uploads/uploadView.test.ts src/app/admin/uploads/serveMiss.test.ts src/app/admin/outreach/outreachView.test.ts",
     "test:placement": "node --test --experimental-strip-types src/lib/placement/*.test.ts",
     "test:scorecard": "node --test --experimental-strip-types 'src/app/match/[[]id[]]/scorecard.test.ts'",
     "test:matches": "node --test --experimental-strip-types src/app/matches/*.test.ts",
-    "test:research": "node --test --experimental-strip-types src/lib/research/*.test.ts src/app/research/researchDashboard.test.ts src/app/research/crossing-review/crossingReviewView.test.ts src/app/research/serve-detector/serveDetectorView.test.ts src/app/research/recall/recallView.test.ts src/app/research/spin/serveSpinView.test.ts src/app/research/serve-accuracy/segments.test.ts",
+    "test:research": "node --test --experimental-strip-types src/lib/research/*.test.ts src/app/research/researchDashboard.test.ts src/app/research/audio-impacts/*.test.ts src/app/research/crossing-review/crossingReviewView.test.ts src/app/research/serve-detector/serveDetectorView.test.ts src/app/research/recall/recallView.test.ts src/app/research/spin/serveSpinView.test.ts src/app/research/themes/themeView.test.ts src/app/research/serve-accuracy/segments.test.ts src/app/research/serve-accuracy/buckets.test.ts src/app/research/serve-accuracy/touches.test.ts src/app/research/serve-accuracy/netDeath.test.ts src/app/research/serve-accuracy/trackSubstitution.test.ts",
     "test:journal": "node --test --experimental-strip-types src/lib/journal/*.test.ts src/lib/recollect/*.test.ts",
     "test:marketing": "node --test --experimental-strip-types src/app/marketing/marketingDashboard.test.ts src/app/marketing/coach-outreach/outreach.test.ts scripts/marketing/language.test.ts scripts/marketing/notify.test.ts src/lib/marketing/voice.test.ts",
     "test:upload": "node --test --experimental-strip-types src/components/youtubeVideoId.test.ts src/app/dashboard/pendingUploads.test.ts src/lib/cameraGuideGate.test.ts",
@@ -28,6 +28,7 @@
     "test:starred": "node --test --experimental-strip-types src/app/starred/starred.test.ts"
   },
   "dependencies": {
+    "@apple/app-store-server-library": "^3.1.0",
     "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.110.7",
     "@uppy/aws-s3": "^5.1.0",

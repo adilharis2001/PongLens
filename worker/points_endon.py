@@ -134,6 +134,119 @@ def in_prism(hull, x, y):
     return cv2.pointPolygonTest(hull, (float(x), float(y)), False) >= 0
 
 
+# ---------------------------------------------------------------------------
+# ball-detection crop (2026-09-01)
+# ---------------------------------------------------------------------------
+# The detector resizes every frame to 512x288 before it looks at it. At
+# Westchester that leaves the ball about two pixels across, which is most of
+# why it is found in half the frames and scored 9 out of 100 when it is.
+# Cropping to the table before that shrink hands the same model a bigger
+# ball, and drops the neighbouring courts on the way.
+#
+# Margins are generous because a ball that leaves the box is invisible: 35%
+# of the prism's width to each side, 60% of its height above.
+#
+# Below the table is different, and gets a tenth of that. What is down there
+# is floor: a retrieval bounce, someone's shoes. The rally happens ABOVE the
+# surface, which is the whole reason the prism is a lifted quad and not a
+# rectangle. Terry is why this is a separate number — anchoring the trim to
+# the padded bottom kept 273px of his floor and 26px of his air, and his
+# serves fell from 13 to 4.
+CROP_PAD_X = 0.35
+CROP_PAD_Y = 0.60
+CROP_PAD_BELOW = 0.15
+CROP_SIDE_M = 1.3
+
+
+def ball_crop_box(corners_px, width=1920, height=1080):
+    """(x, y, w, h) around the table for ball detection, or None.
+
+    Three rules learned from real matches, each the wrong way round first:
+
+    THE SIDE ROOM IS MEASURED IN METRES, NOT FRACTIONS. A fraction of the
+    hull's pixel width gives a side-on camera a fraction of the table's
+    2.74 m length but an end-on camera a fraction of its 1.525 m width --
+    Terry's servers got 0.61 m of side room against Kyle's 1.75 m, and of
+    the 18 serves the first crop genuinely cut on the labelled 12-match
+    corpus (2026-09-01), 13 left through the sides, 82% of them real.
+    Every match with a sideways cut had under 1.1 m; every match with
+    none had 1.3 m or more. So the pad is floored at CROP_SIDE_M,
+    converted at the near end line's own scale.
+
+    NEVER COMPENSATE ACROSS THE FRAME. Holding 16:9 by widening the short
+    axis reaches further into the room, and the room is where the other
+    tables are. Jose's table sits against the left edge, so widening pulled
+    a neighbouring court into the very crop meant to exclude one, and his
+    gain was the smallest of four (+8% against +61% and +226%). When the
+    box is too tall, the aspect is held by SHRINKING the height; when it
+    is too wide, by GROWING the height -- vertical growth reaches floor
+    and air at this table, never the court alongside.
+
+    WHICH ALSO SAVES THE END-ON CASE. On a camera behind the players the
+    table is squashed flat, so 1.6 m of air above it dominates the prism
+    and compensating horizontally blew Terry's box out to 1776x1000 -- no
+    crop at all.
+
+    Even dimensions throughout: libx264 refuses odd ones.
+    """
+    hull = prism_polygon(corners_px)
+    if hull is None or len(hull) < 3:
+        return None
+    pts = np.asarray(hull, float).reshape(-1, 2)
+    x0, y0 = pts.min(axis=0)
+    x1, y1 = pts.max(axis=0)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    near = sorted((p for n, p in corners_px.items() if "near" in n),
+                  key=lambda p: p[0])
+    A, B = near
+    ppm = float(np.hypot(B[0] - A[0], B[1] - A[1])) / V2.W_M
+    px = max((x1 - x0) * CROP_PAD_X, CROP_SIDE_M * ppm)
+    py = (y1 - y0) * CROP_PAD_Y
+    below = (y1 - y0) * CROP_PAD_BELOW
+    cx0, cy0 = max(0.0, x0 - px), max(0.0, y0 - py)
+    cx1, cy1 = min(float(width), x1 + px), min(float(height), y1 + below)
+    w, h = cx1 - cx0, cy1 - cy0
+    if w <= 0 or h <= 0:
+        return None
+    target = width / height
+    if w / h < target:                      # too tall: the surplus is air
+        # ANCHOR THE BOTTOM. A prism is a table plus 1.6 m of air above it,
+        # so its vertical midpoint sits well over the surface, and trimming
+        # symmetrically about it takes the table's own near edge off —
+        # Terry's box came out 296-732 against a table reaching 741. The
+        # air is what we can afford to lose; the surface is not.
+        h2 = w / target
+        cy1 = min(float(height), y1 + below)
+        cy0 = max(0.0, cy1 - h2)
+        cy1 = min(float(height), cy0 + h2)
+    else:                                   # too wide: grow the height
+        # The sides are where the servers stand and are never traded
+        # away. Growing vertically reaches floor and air at this table,
+        # never the court alongside; w <= frame width, so the 16:9
+        # height always fits the frame. Bottom stays anchored just under
+        # the near edge and the surplus goes to the air above, where the
+        # serve toss and the rally live.
+        h2 = w / target
+        cy1 = min(float(height), y1 + below)
+        cy0 = cy1 - h2
+        if cy0 < 0.0:
+            cy0 = 0.0
+            cy1 = min(float(height), h2)
+    bx, by = int(cx0) // 2 * 2, int(cy0) // 2 * 2
+    bw, bh = int(cx1 - bx) // 2 * 2, int(cy1 - by) // 2 * 2
+    if bw >= 0.92 * width and bh >= 0.92 * height:
+        # a near-camera table plus real side room is most of the frame;
+        # an encode that enlarges the ball by 8% is not worth running
+        return None
+    if bw < 64 or bh < 64:
+        return None
+    # A crop that is the whole frame buys nothing and costs an encode.
+    if bw >= width and bh >= height:
+        return None
+    return (bx, by, bw, bh)
+
+
 def final_exits(track, fps, hull):
     """Moments the ball leaves the prism and does not come back."""
     fr = sorted(track)

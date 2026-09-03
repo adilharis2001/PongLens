@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { netSegmentFromQuad } from "../serve-accuracy/netDeath";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/components/Logo";
 import { RECALL_MATCHES, type RecallMatch, type RecallRegion } from "./data";
@@ -225,12 +226,17 @@ export function RecallReview({ initialNotes }: { initialNotes: RecallNote[] }) {
           ctx.fillStyle = "rgba(52,211,153,0.95)";
           ctx.fill();
         }
-        if (data.net) {
+        // Derived from the quad: the baked net field was the pixel
+        // midpoint of the sidelines, 30-41 cm into the near half under
+        // perspective (fixed 2026-09-02).
+        const seg = netSegmentFromQuad(data.quad);
+        const net = seg ? [seg.e1, seg.e2] : data.net;
+        if (net) {
           ctx.setLineDash([6 * dpr, 5 * dpr]);
           ctx.strokeStyle = "rgba(52,211,153,0.65)";
           ctx.beginPath();
-          ctx.moveTo(X(data.net[0][0]), Y(data.net[0][1]));
-          ctx.lineTo(X(data.net[1][0]), Y(data.net[1][1]));
+          ctx.moveTo(X(net[0][0]), Y(net[0][1]));
+          ctx.lineTo(X(net[1][0]), Y(net[1][1]));
           ctx.stroke();
           ctx.setLineDash([]);
         }

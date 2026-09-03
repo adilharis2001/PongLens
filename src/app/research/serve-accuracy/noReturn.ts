@@ -1,6 +1,6 @@
-import type { DetectedEvent } from "./serveAccuracyModel";
-import { netSegment } from "./netDeath";
-import { inPrism, prismPolygon, type Pt } from "./prism";
+import type { DetectedEvent } from "./serveAccuracyModel.ts";
+import { netSegment } from "./netDeath.ts";
+import { inPrism, prismPolygon, type Pt } from "./prism.ts";
 
 /**
  * The fourth way to see a point end: the ball never came back over the net.

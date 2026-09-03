@@ -31,6 +31,7 @@ interface AskSource {
     | "practice"
     | "match"
     | "working_on"
+    | "coach"
     | "tags"
     | "profile";
   title: string;
@@ -62,6 +63,7 @@ const KIND_LABEL: Record<AskSource["kind"], string> = {
   practice: "Practice",
   match: "Match",
   working_on: "Working on",
+  coach: "From your coach",
   tags: "Tags",
   profile: "Profile",
 };

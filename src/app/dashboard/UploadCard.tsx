@@ -1416,7 +1416,12 @@ export function UploadCard({
       and answering here means the match page and the scoring pad never
       ask again. Skippable: unanswered leaves first_server null and the
       detector's guess still runs. */}
-  const serveCard = (
+  // Practice and drills have no serve rotation, so there is no first
+  // server to be right or wrong about. tracksServe reads the type chosen
+  // in this same form, so picking Practice retires the question while the
+  // form is still open — the iOS recording sheet has behaved this way
+  // since it was written and the web never learned it.
+  const serveCard = !tracksServe(form.matchType || null) ? null : (
     <FirstServerPicker
       value={form.firstServer}
       opponentName={form.opponent}

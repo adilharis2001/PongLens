@@ -55,6 +55,12 @@ struct MainTabView: View {
         let context: CameraPlacementSheet.Context
     }
 
+    /// A coaching side exists: the flag, a marketplace page, or someone's
+    /// accepted coach. The top-bar switch shows only then.
+    private var coachEligible: Bool {
+        coaching.isCoach || coaching.coachesAnyone || app.metadataFlag("is_coach")
+    }
+
     /// Everything the chooser used to do inline, now also reachable from
     /// the far side of the camera guide.
     private func beginNewMatch(_ choice: NewMatchChoice) {
@@ -101,6 +107,13 @@ struct MainTabView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 PLTopBar(
                     unreadCount: notifications.unreadCount,
+                    // Only an account with BOTH sides set up gets the
+                    // pill (Adil, 2026-09-02): "Both" at onboarding, or a
+                    // player who set up coaching from Account. A coach who
+                    // merely switched here still has the playing questions
+                    // pending, and their way back stays in Account.
+                    switchTo: coachEligible && !app.playerSetupPending ? "Coaching" : nil,
+                    onSwitch: { app.setWorkspace(.coach) },
                     onBell: { bellOpen = true },
                     onAvatar: { path.append("account") }
                 )
@@ -165,7 +178,13 @@ struct MainTabView: View {
                     // LearnScreen — reachable only once Learn is already on
                     // the stack, which is exactly not the case when the
                     // first-steps checklist links to a guide from Home.
-                    if route.hasPrefix("guide:"),
+                    // "feedback:<matchId>" opens the feedback board with
+                    // that match pre-selected — the match pages' "Report
+                    // an issue" rows, so the report arrives with context.
+                    if route.hasPrefix("feedback:"),
+                       let id = UUID(uuidString: String(route.dropFirst(9))) {
+                        FeedbackScreen(matchId: id)
+                    } else if route.hasPrefix("guide:"),
                        let guide = GuideLibrary.shared.guides.first(
                            where: { $0.slug == String(route.dropFirst(6)) }
                        ) {
@@ -266,6 +285,14 @@ struct MainTabView: View {
                     if let match = library.matches.first(where: { $0.id == matchId }) {
                         path.append(match)
                     }
+                },
+                onOpenHref: { href in
+                    // "shared a lesson note" lands on the journal, where the
+                    // From your coach section sits at the top.
+                    if href.hasPrefix("/journal") {
+                        bellOpen = false
+                        router.tab = .journal
+                    }
                 }
             )
             .presentationDetents([.medium, .large])
@@ -315,6 +342,12 @@ struct MainTabView: View {
 struct PLTopBar: View {
     @Environment(AppState.self) private var app
     var unreadCount = 0
+    /// The side switch (158): the OTHER side's name, shown only for
+    /// accounts that have both. A word over an icon — "Coaching" on the
+    /// playing side, "Playing" on the coaching side — so it never reads
+    /// as "your coach". Nil hides it; everyone else keeps Account's row.
+    var switchTo: String? = nil
+    var onSwitch: () -> Void = {}
     var onBell: () -> Void = {}
     var onAvatar: () -> Void = {}
 
@@ -322,7 +355,27 @@ struct PLTopBar: View {
         HStack {
             LogoWordmark()
             Spacer()
-            HStack(spacing: 20) {
+            HStack(spacing: switchTo == nil ? 20 : 14) {
+                if let switchTo {
+                    Button(action: onSwitch) {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.left.arrow.right")
+                                .font(.system(size: 11, weight: .bold))
+                            Text(switchTo)
+                                .font(.system(size: 13, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                        .fixedSize()
+                        .foregroundStyle(PL.text200)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 6)
+                        .background(PL.surface2, in: Capsule())
+                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Switch to \(switchTo.lowercased())")
+                }
                 Button(action: onBell) {
                     Image(systemName: "bell")
                         .font(.system(size: 19, weight: .medium))

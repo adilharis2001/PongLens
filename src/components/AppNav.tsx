@@ -3,11 +3,14 @@
 import Link from "next/link";
 import { confirmLeaveDuringUpload } from "@/lib/uploadGuard";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Fragment, useEffect, useState } from "react";
 import { Logo } from "@/components/Logo";
 import { NotificationBell } from "@/components/NotificationBell";
 import { createClient } from "@/lib/supabase/client";
+import { rememberLanding, setWorkspace, useWorkspace } from "@/lib/workspace";
+import { useCoachEligible } from "@/lib/coachEligible";
+import { routeTerritory, type Workspace } from "@/lib/workspaceModel";
 
 /**
  * Signed-in navigation shell.
@@ -124,6 +127,33 @@ function PersonIcon() {
   );
 }
 
+function StudentsIcon({ active }: { active: boolean }) {
+  // Two people — the roster.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-6 w-6"
+      fill={active ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={active ? 0 : 1.8}
+      aria-hidden="true"
+    >
+      <circle cx="9" cy="8.5" r="3.5" />
+      <path
+        strokeLinecap="round"
+        d="M3 19.5c.9-2.9 3.2-4.5 6-4.5s5.1 1.6 6 4.5"
+      />
+      <path
+        strokeLinecap="round"
+        d="M15.5 5.6a3 3 0 0 1 0 5.8M17.6 15.4c1.7.6 2.9 1.9 3.4 4.1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+      />
+    </svg>
+  );
+}
+
 function CoachIcon({ active }: { active: boolean }) {
   // A whistle: coaching's oldest tool.
   return (
@@ -152,6 +182,56 @@ const TABS = [
 
 const COACHING_TAB = { href: "/coaching", label: "Coaching" } as const;
 
+/**
+ * The coaching workspace's spine (156, three deep since 2026-09-02): the
+ * home for today's work, the roster, and the marketplace. Home and
+ * Students match the iOS app tab for tab; Orders exists on the web only,
+ * because paid reviews never enter the app.
+ */
+const COACH_TABS = [
+  { href: "/coaching", label: "Home" },
+  { href: "/coaching/students", label: "Students" },
+  { href: "/coaching/orders", label: "Orders" },
+] as const;
+
+/** The pages that belong to the marketplace, so the Orders tab lights. */
+function isOrdersTerritory(pathname: string): boolean {
+  return (
+    pathname.startsWith("/coaching/orders") ||
+    pathname.startsWith("/coaching/offerings") ||
+    pathname.startsWith("/coaching/profile") ||
+    pathname.startsWith("/coaching/sponsored")
+  );
+}
+
+function OrdersIcon({ active }: { active: boolean }) {
+  // A receipt — what a review order is to the coach who sold it. The
+  // lines stay visible when the filled active state would swallow them.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="h-6 w-6"
+      fill={active ? "currentColor" : "none"}
+      stroke="currentColor"
+      strokeWidth={active ? 0 : 1.8}
+      aria-hidden="true"
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M6 3.5h12v17l-2.4-1.5-2.4 1.5-1.2-.8-1.2.8-2.4-1.5L6 20.5v-17Z"
+      />
+      <path
+        strokeLinecap="round"
+        d="M9 8.5h6M9 12h6M9 15.5h3.5"
+        fill="none"
+        stroke={active ? "#0a0a0a" : "currentColor"}
+        strokeWidth={active ? 1.6 : 1.8}
+      />
+    </svg>
+  );
+}
+
 function tabIcon(label: string, active: boolean) {
   switch (label) {
     case "Home":
@@ -160,45 +240,37 @@ function tabIcon(label: string, active: boolean) {
       return <MatchesIcon active={active} />;
     case "Coaching":
       return <CoachIcon active={active} />;
+    case "Students":
+      return <StudentsIcon active={active} />;
+    case "Orders":
+      return <OrdersIcon active={active} />;
     default:
       return <JournalIcon active={active} />;
   }
 }
 
 /**
- * The Coaching tab shows for anyone with a coaching relationship, in any
- * direction: a coach profile, matches shared with you, coaches you've
- * invited, or reviews you've bought. Everyone else keeps three tabs and
- * finds coaching through the funnel. Cached in sessionStorage so the bar
+ * The player bar's Coaching tab is the STUDENT direction only (158):
+ * coaches you have, reviews you've bought. Being a coach never adds it —
+ * the coaching workspace is reached through the switch or a coach link,
+ * so the two sides stay apart. Cached in sessionStorage so the bar
  * doesn't pop in a tab after first paint; refreshed quietly each mount.
  */
-function useIsCoach(): boolean {
+function useStudentSide(): boolean {
   // Hydrates false (matching the server), then flips from the session
   // cache in the first effect — reading storage during render is a
   // hydration mismatch.
-  const [isCoach, setIsCoach] = useState(false);
+  const [studentSide, setStudentSide] = useState(false);
   useEffect(() => {
     let alive = true;
-    if (sessionStorage.getItem("pl-coach-tab") === "1") setIsCoach(true);
+    if (sessionStorage.getItem("pl-student-side") === "1") setStudentSide(true);
     const check = async () => {
       const supabase = createClient();
       const {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return;
-      const [profile, asCoach, asPlayer, orders] = await Promise.all([
-        supabase
-          .from("coach_profiles")
-          .select("user_id")
-          .eq("user_id", user.id)
-          .maybeSingle(),
-        supabase
-          .from("coach_links")
-          .select("id")
-          .eq("coach_id", user.id)
-          .eq("status", "accepted")
-          .limit(1)
-          .maybeSingle(),
+      const [asPlayer, orders] = await Promise.all([
         supabase
           .from("coach_links")
           .select("id")
@@ -213,30 +285,50 @@ function useIsCoach(): boolean {
           .limit(1)
           .maybeSingle(),
       ]);
-      const coach = Boolean(
-        profile.data || asCoach.data || asPlayer.data || orders.data,
-      );
-      sessionStorage.setItem("pl-coach-tab", coach ? "1" : "0");
-      if (alive) setIsCoach(coach);
+      const coach = Boolean(asPlayer.data || orders.data);
+      sessionStorage.setItem("pl-student-side", coach ? "1" : "0");
+      if (alive) setStudentSide(coach);
     };
     void check();
     return () => {
       alive = false;
     };
   }, []);
-  return isCoach;
+  return studentSide;
 }
 
 export function AppNav({
   avatarUrl,
   wide,
+  remembered = "player",
 }: {
   avatarUrl: string | null;
   wide?: boolean;
+  /** The side the server resolved from the cookie and the coach flag. */
+  remembered?: Workspace;
 }) {
   const pathname = usePathname();
-  const isCoach = useIsCoach();
-  const tabs = isCoach ? [...TABS, COACHING_TAB] : [...TABS];
+  const router = useRouter();
+  const studentSide = useStudentSide();
+  const { eligible: coachEligible, userId } = useCoachEligible();
+  const chosen = useWorkspace(remembered);
+  // Route territory wins over the remembered choice, and it is known on
+  // both server and client, so the first paint is already right.
+  const workspace: Workspace = routeTerritory(pathname) ?? chosen;
+  // ...and standing on it is remembered, so the shared pages after it
+  // keep this bar. From here, not the middleware: see rememberLanding.
+  useEffect(() => {
+    if (userId) rememberLanding(userId, pathname);
+  }, [userId, pathname]);
+  // The coaching workspace swaps the spine wholesale: same bar, other
+  // side of the table. The player bar keeps its Coaching tab for the
+  // student direction (your coaches, reviews you bought).
+  const tabs =
+    workspace === "coach"
+      ? [...COACH_TABS]
+      : studentSide
+        ? [...TABS, COACHING_TAB]
+        : [...TABS];
   const activeTab = (href: string) => {
     switch (href) {
       case "/dashboard":
@@ -247,9 +339,26 @@ export function AppNav({
         // told you that you were somewhere you were not. Nothing lights
         // there now — uploading is a task, not a destination, which is the
         // whole reason it has no tab of its own.
-        return pathname === "/matches" || pathname.startsWith("/match/");
+        return (
+          pathname === "/matches" ||
+          (pathname.startsWith("/match/") && workspace !== "coach")
+        );
+      case "/coaching/students":
+        // A student's match is reached from their page, so it lights
+        // Students the way the library owns /match on the player side.
+        return (
+          pathname.startsWith("/coaching/students") ||
+          (pathname.startsWith("/match/") && workspace === "coach")
+        );
+      case "/coaching/orders":
+        return isOrdersTerritory(pathname);
       case "/coaching":
-        return pathname.startsWith("/coaching");
+        return (
+          pathname.startsWith("/coaching") &&
+          (workspace !== "coach" ||
+            (!pathname.startsWith("/coaching/students") &&
+              !isOrdersTerritory(pathname)))
+        );
       default:
         return pathname.startsWith("/journal") || pathname.startsWith("/improve");
     }
@@ -259,6 +368,39 @@ export function AppNav({
   const guard = (e: React.MouseEvent) => {
     if (!confirmLeaveDuringUpload()) e.preventDefault();
   };
+
+  // The side switch (158): one tap between playing and coaching, only for
+  // accounts that have both. A label over an icon — "Coaching" on the
+  // playing side, "Playing" on the coaching side — so it never reads as
+  // "your coach". Everyone else keeps the door in Account.
+  const sideSwitch =
+    coachEligible && userId ? (
+      <button
+        type="button"
+        onClick={() => {
+          const toCoach = workspace !== "coach";
+          setWorkspace(userId, toCoach ? "coach" : "player");
+          router.push(toCoach ? "/coaching" : "/dashboard");
+          router.refresh();
+        }}
+        aria-label={workspace === "coach" ? "Switch to player mode" : "Switch to coach mode"}
+        className="flex items-center gap-1.5 rounded-full border border-edge px-3 py-1 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          className="h-3.5 w-3.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M7 8h10m0 0-3-3m3 3-3 3M17 16H7m0 0 3-3m-3 3 3 3" />
+        </svg>
+        {workspace === "coach" ? "Playing" : "Coaching"}
+      </button>
+    ) : null;
 
   const avatarLink = (
     <Link
@@ -331,7 +473,7 @@ export function AppNav({
                     far outside the content column and gets missed. Looks
                     exactly like its neighbours — the destination is the
                     difference, not the styling. */}
-                {i === 0 && (
+                {i === 0 && workspace !== "coach" && (
                   <Link
                     onClick={guard}
                     href="/upload"
@@ -351,6 +493,7 @@ export function AppNav({
             {/* peripheral cluster: a hairline and some air keep the bell
                 and avatar from crowding the destination pills */}
             <span className="ml-3 flex items-center gap-2.5 border-l border-edge/60 pl-4">
+              {sideSwitch}
               <NotificationBell />
               {avatarLink}
             </span>
@@ -363,6 +506,7 @@ export function AppNav({
         <div className="flex h-14 items-center justify-between px-5">
           <Logo href="/" onClick={guard} />
           <div className="flex items-center gap-3">
+            {sideSwitch}
             <NotificationBell />
             {avatarLink}
           </div>
@@ -375,7 +519,15 @@ export function AppNav({
         className="fixed inset-x-0 bottom-0 z-50 border-t border-edge/70 bg-ink/90 backdrop-blur-md md:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className={`grid h-16 ${isCoach ? "grid-cols-4" : "grid-cols-3"}`}>
+        <div
+          className={`grid h-16 ${
+            tabs.length === 2
+              ? "grid-cols-2"
+              : tabs.length === 4
+                ? "grid-cols-4"
+                : "grid-cols-3"
+          }`}
+        >
           {tabs.map((t) => {
             const active = activeTab(t.href);
             return (

@@ -45,7 +45,41 @@ export async function GET(req: Request) {
   });
   const link = links?.[0];
   if (!link) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+    // Not a match-family link. A journal entry link (154) resolves through
+    // its own function; the only media an entry has is its attached photo.
+    // The function is the real gate (155): it returns image_path only when
+    // the key sits inside the AUTHOR's own entry/<user_id>/ folder, because
+    // image_path is a client-writable column and a forged value must not
+    // let one user's link sign another user's photo. The checks here are a
+    // second layer: right bucket, entry space, and no '..' segment that
+    // could walk the signed key somewhere else after the prefix passes.
+    const { data: entries } = await supabase.rpc("resolve_share_entry", {
+      p_token: token,
+    });
+    const entry = entries?.[0];
+    const loc = parseR2(entry?.image_path);
+    if (
+      !entry ||
+      !loc ||
+      loc.bucket !== "ponglens-media" ||
+      !loc.key.startsWith("entry/") ||
+      loc.key.includes("..")
+    ) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+    try {
+      const signed = await presignGet(loc.bucket, loc.key, {
+        expiresSeconds: TTL_SECONDS,
+        disposition: "inline",
+      });
+      return NextResponse.json({ url: signed });
+    } catch (e) {
+      console.error("share media error:", e);
+      return NextResponse.json(
+        { error: "Could not create a media link. Try again shortly." },
+        { status: 500 }
+      );
+    }
   }
 
   try {
@@ -129,8 +163,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ url: signed });
     }
 
-    // Match link, no point: the cut video.
-    const loc = parseR2(link.cut_path);
+    // Match link, no point: the cut video, or — for a match that has not
+    // been processed — the original upload (153). Cut first, so the same
+    // link upgrades the moment processing finishes.
+    const loc = parseR2(link.cut_path) ?? parseR2(link.raw_path);
     if (!loc) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }

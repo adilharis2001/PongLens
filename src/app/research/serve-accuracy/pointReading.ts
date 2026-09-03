@@ -1,17 +1,17 @@
-import { ballDiedLoser, ballDiedReasonCopy, findBallDied } from "./ballDied";
+import { ballDiedLoser, ballDiedReasonCopy, findBallDied } from "./ballDied.ts";
 import {
   findOffTable,
   offTableLoser,
   offTableWithheld,
   type OffTableCall,
-} from "./offTable";
-import { findNoReturn, noReturnLoser } from "./noReturn";
-import { isRecovered, repairEvents, repairTrust, type RepairTrust } from "./segments";
+} from "./offTable.ts";
+import { findNoReturn, noReturnLoser } from "./noReturn.ts";
+import { isRecovered, repairEvents, repairTrust, type RepairTrust } from "./segments.ts";
 import {
   type DetectedEvent,
   type ServeAccuracyMatch,
   type ServeAccuracyRow,
-} from "./serveAccuracyModel";
+} from "./serveAccuracyModel.ts";
 
 /**
  * One reading of one point, and the only one the page makes.

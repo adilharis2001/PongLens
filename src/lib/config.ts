@@ -29,6 +29,26 @@ const FALLBACK_SUPPORT_EMAIL = "support@ponglens.com";
  */
 export const ADMIN_EMAIL = "adilharis2001@gmail.com";
 
+/**
+ * Everyone the admin surfaces open for. Anton was added 2026-09-02 so he
+ * can read the behind-the-scenes of uploads; is_admin() (migration 161)
+ * carries the same two literals, and the two lists must move together —
+ * a name in one and not the other gets pages that render but RPCs that
+ * refuse, which reads as a broken portal rather than a permissions gap.
+ *
+ * ADMIN_EMAIL above stays singular on purpose: the worker uses it as the
+ * operational identity — failure mail, export receipts, the digest — and
+ * none of that should follow a second reader of the dashboard.
+ */
+export const ADMIN_EMAILS: readonly string[] = [
+  ADMIN_EMAIL,
+  "aber97@gmail.com",
+];
+
+export function isAdminEmail(email: string | null | undefined): boolean {
+  return !!email && ADMIN_EMAILS.includes(email);
+}
+
 async function getConfigValue(key: string): Promise<string | null> {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -159,6 +179,22 @@ export const getPlacementServesOnly = cache(async (): Promise<boolean> => {
  */
 export const getTapEndPlayback = cache(async (): Promise<boolean> => {
   return (await getConfigValue("tap_end_playback")) === "on";
+});
+
+/**
+ * The game-end indicator (2026-08-26, 140).
+ *
+ * On, a marker is drawn between two rallies where the video shows the
+ * players swapping ends — in Keep score's strip and in the point list.
+ * Off, or on any fetch failure, there is no marker anywhere and every
+ * match scores exactly as it did. Applied at read time, so it covers
+ * matches processed before the flag existed and rollback is one UPDATE.
+ *
+ * The marker never changes a score by itself. Tapping it can, because
+ * that writes the same game_end_override the owner could pin by hand.
+ */
+export const getGameEndDetection = cache(async (): Promise<boolean> => {
+  return (await getConfigValue("game_end_detection")) === "on";
 });
 
 /**

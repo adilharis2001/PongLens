@@ -136,13 +136,18 @@ export default async function CoachInvitePage({
   return (
     <Shell>
       <h1 className="text-xl font-semibold">
-        {info.player_name} shared{" "}
-        {info.scope === "all" ? "their matches" : "a match"} with you
+        {info.scope === "selected"
+          ? `${info.player_name} added you as their coach`
+          : `${info.player_name} shared ${
+              info.scope === "all" ? "their matches" : "a match"
+            } with you`}
       </h1>
       <p className="mt-2 text-sm text-zinc-400">
         {info.scope === "all"
           ? "You can watch all their matches, point by point, and leave coach notes."
-          : "You can watch this match, point by point, and leave coach notes."}
+          : info.scope === "selected"
+            ? "They will share matches with you one at a time. You can watch each one, point by point, and leave coach notes."
+            : "You can watch this match, point by point, and leave coach notes."}
       </p>
       <AcceptInvite token={token} />
     </Shell>

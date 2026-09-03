@@ -10,10 +10,11 @@ struct RootView: View {
     @State private var notifications = NotificationsStore()
     @State private var coaching = CoachingStore()
     @State private var coach = CoachStore()
+    @State private var coachWorkspace = CoachWorkspaceStore()
 
     enum OnboardingGate: Equatable {
         case checking
-        case needed(needsName: Bool, isCoach: Bool)
+        case needed(needsName: Bool, isCoach: Bool, isNew: Bool)
         case done
     }
 
@@ -53,10 +54,17 @@ struct RootView: View {
                         ProgressView().tint(PL.cyan)
                     }
                     .task { await checkOnboarding() }
-                case .needed(let needsName, let isCoach):
-                    OnboardingScreen(needsName: needsName, isCoach: isCoach) { gate = .done }
+                case .needed(let needsName, let isCoach, let isNew):
+                    OnboardingScreen(needsName: needsName, isCoach: isCoach, isNew: isNew) { gate = .done }
                 case .done:
-                    MainTabView()
+                    // One account, two workspaces. The remembered choice
+                    // decides which side of the app stands up; Account
+                    // switches it, and the whole tree swaps.
+                    if app.workspace == .coach {
+                        CoachTabView()
+                    } else {
+                        MainTabView()
+                    }
                 }
             }
         }
@@ -68,6 +76,7 @@ struct RootView: View {
         .environment(notifications)
         .environment(coaching)
         .environment(coach)
+        .environment(coachWorkspace)
         .overlay {
             if !splashDone {
                 SplashScreen()
@@ -121,6 +130,7 @@ struct RootView: View {
             notifications = NotificationsStore()
             coaching = CoachingStore()
             coach = CoachStore()
+            coachWorkspace = CoachWorkspaceStore()
             gate = .checking
         }
     }
@@ -129,6 +139,7 @@ struct RootView: View {
     /// OR there is no player_profiles row.
     private func checkOnboarding() async {
         guard case .signedIn(let session) = app.phase else { return }
+        app.loadWorkspace()
         let uid = session.user.id.uuidString.lowercased()
         let meta = session.user.userMetadata
         let name = (meta["full_name"]?.stringValue ?? meta["name"]?.stringValue ?? "")
@@ -138,11 +149,12 @@ struct RootView: View {
         // is answered by somebody else's row: a coach who also plays would
         // have skipped their own onboarding entirely once a student
         // accepted them.
-        async let profileQuery = try? await supa
+        struct ProfileRow: Decodable { let setup_done_at: String? }
+        async let profileQuery: [ProfileRow]? = try? await supa
             .from("player_profiles")
-            .select("user_id", head: true, count: .exact)
+            .select("setup_done_at")
             .eq("user_id", value: uid)
-            .execute()
+            .execute().value
         // A coach answers the name and nothing else — same rule as the web
         // page, which reads coach_links before deciding what to show.
         async let coachQuery = try? await supa
@@ -152,10 +164,14 @@ struct RootView: View {
             .limit(1)
             .execute()
         let (profile, coachLink) = await (profileQuery, coachQuery)
-        let hasProfile = (profile?.count ?? 0) > 0
+        let hasProfile = !(profile ?? []).isEmpty
         let isCoach = (coachLink?.count ?? 0) > 0
+        app.playerSetupPending = hasProfile && profile?.first?.setup_done_at == nil
         if name.isEmpty || !hasProfile {
-            gate = .needed(needsName: name.isEmpty, isCoach: isCoach)
+            // isNew: no profile row yet, whatever the name says. Google and
+            // Apple hand us a name, so "needs a name" is NOT "brand new" —
+            // keying the role question on it skipped every such account.
+            gate = .needed(needsName: name.isEmpty, isCoach: isCoach, isNew: !hasProfile)
         } else {
             gate = .done
         }

@@ -156,6 +156,45 @@ export function ShareView({
     return computeMatchScore(asPoints.slice(0, upto));
   }, [showScore, scored, activeRow, timeline, asPoints]);
 
+  /**
+   * A shared match opens where the match starts, not at 0:00.
+   *
+   * Everything before the first kept rally is footage the owner already
+   * deleted — a warm-up, a camera being aimed — and on the Louis link that
+   * was three minutes and sixteen seconds of it. Playback jumps dead
+   * footage, so it was never going to be WATCHED, but it was still the
+   * poster frame and still the first thing playback had to chew through,
+   * on the one page where a stranger's first impression is not ours to
+   * retake. The scrubber still reaches it; nothing is hidden, it just is
+   * not where the video opens.
+   *
+   * Paused, so this is a seek and not a play — the page's own rule that
+   * nothing starts itself is untouched. Once per mount: a re-signed media
+   * URL (the page mints short-TTL links) must never haul a viewer who is
+   * ten minutes in back to the beginning.
+   */
+  const openedAtStart = useRef(false);
+  useEffect(() => {
+    if (kind !== "match" || openedAtStart.current || !videoUrl) return;
+    const start = timeline[0]?.at ?? 0;
+    // Sub-second warm-ups are not worth a seek and its rebuffer.
+    if (!(start > 0.5)) return;
+    const v = videoElRef.current;
+    if (!v) return;
+    const apply = () => {
+      if (openedAtStart.current) return;
+      openedAtStart.current = true;
+      v.currentTime = start;
+      setPlayheadT(start);
+    };
+    if (v.readyState >= 1) {
+      apply();
+      return;
+    }
+    v.addEventListener("loadedmetadata", apply, { once: true });
+    return () => v.removeEventListener("loadedmetadata", apply);
+  }, [kind, timeline, videoUrl]);
+
   const seekTo = useCallback((seconds: number) => {
     const v = videoElRef.current;
     if (!v) return;

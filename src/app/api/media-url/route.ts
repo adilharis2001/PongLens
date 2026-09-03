@@ -24,10 +24,19 @@ export const runtime = "nodejs";
  *                            match_reels row is read under RLS, whose select
  *                            policy is owner-scoped)
  *   { matchId, raw }      -> original raw upload, attachment disposition.
- *                            Only while the 30-day raw retention still holds
- *                            the object: HEAD-checked here, so a gone upload
- *                            returns { available: false } (200) and the
- *                            Export sheet simply hides the row.
+ *                            Resolved through the source job, whose select
+ *                            policy is owner-only, so this one is a
+ *                            download for the owner and nobody else.
+ *                            HEAD-checked, so a gone upload returns
+ *                            { available: false } (200) and the Export
+ *                            sheet simply hides the row.
+ *   { matchId, rawPreview } -> the SAME original, inline, so it streams in a
+ *                            <video>. The raw view of an unprocessed match
+ *                            and the "Original" pill on a processed one.
+ *                            Open to everyone has_match_access() admits,
+ *                            deliberately: watching the uncut footage when
+ *                            the cut came out poor is as much a coach's
+ *                            need as the player's.
  *   { matchId }           -> full cut video, attachment disposition
  *                            (falls back to the source job's result when
  *                            match.cut_path is null)
@@ -120,7 +129,10 @@ export async function POST(req: Request) {
       !lesson ||
       !loc ||
       loc.bucket !== "ponglens-media" ||
-      !loc.key.startsWith(`entry/${lesson.user_id}/`)
+      !loc.key.startsWith(`entry/${lesson.user_id}/`) ||
+      // A '..' segment would walk the signed key back out of the owner's
+      // folder after the prefix check passes.
+      loc.key.includes("..")
     ) {
       return NextResponse.json({ error: "Image not found" }, { status: 404 });
     }
@@ -295,11 +307,19 @@ export async function POST(req: Request) {
     }
 
     if (rawPreview) {
-      // The raw view's player: sign the original straight off the match
-      // row, inline — the same URL the match page hands RawMatchView
-      // server-side. This is how the iOS app streams an unprocessed
-      // match, where no processing job exists yet for the raw branch
-      // below to lean on.
+      // The original upload, inline so it streams in a <video>. Serves the
+      // raw view of an unprocessed match AND the "Original" pill on a
+      // processed one — the file is the same object either way, and
+      // r2_raw_sweep never expires it while the library row points at it.
+      //
+      // raw_path only — deliberately NOT the source job's input_path that
+      // the { raw } download below falls back to. raw_path means the
+      // retention sweep is protecting the object; input_path only means a
+      // job once pointed there, and those files age out on the ordinary
+      // 30-day clock. The UI draws its pill from the same column without
+      // probing, so widening this to input_path would put a control on
+      // matches whose file is already gone. The HEAD below still runs, so
+      // a caller that asks anyway gets an honest answer.
       const loc = parseR2(match.raw_path);
       if (!loc || loc.bucket !== RAW_BUCKET) {
         return NextResponse.json({ available: false });
@@ -316,20 +336,22 @@ export async function POST(req: Request) {
     }
 
     if (raw) {
-      // Original raw upload, downloadable only while the 30-day retention
-      // sweep still holds it. The source job's input_path points at
-      // ponglens-raw; HEAD-check before signing so a gone upload reports
-      // { available: false } (the Export sheet hides the row) rather than
-      // handing back a link that 404s.
-      if (!match.job_id) {
-        return NextResponse.json({ available: false });
+      // Original raw upload as a download. raw_path first: it is the
+      // retention-protected object (r2_raw_sweep keeps it while the
+      // library row exists), and an UNPROCESSED match has no job_id yet.
+      // Older rows with a null raw_path fall back to the source job's
+      // input_path, which ages out on the 30-day clock. HEAD-check before
+      // signing so a gone upload reports { available: false } (the Export
+      // sheet hides the row) rather than handing back a link that 404s.
+      let loc = parseR2(match.raw_path);
+      if ((!loc || loc.bucket !== RAW_BUCKET) && match.job_id) {
+        const { data: job } = await supabase
+          .from("jobs")
+          .select("input_path")
+          .eq("id", match.job_id)
+          .single();
+        loc = parseR2(job?.input_path);
       }
-      const { data: job } = await supabase
-        .from("jobs")
-        .select("input_path")
-        .eq("id", match.job_id)
-        .single();
-      const loc = parseR2(job?.input_path);
       if (!loc || loc.bucket !== RAW_BUCKET) {
         return NextResponse.json({ available: false });
       }

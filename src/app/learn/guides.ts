@@ -231,7 +231,7 @@ export const guides: Guide[] = [
         heading: "What the score on the video means",
         paragraphs: [
           "After you score at least one point, the player shows the score from that moment in the match. It does not reveal the winner of the point you are about to watch.",
-          "Open Score Keeper when you want the video to pause after each rally and wait for your answer.",
+          "Open Score the Match when you want the video to pause after each rally and wait for your answer.",
         ],
       },
     ],
@@ -316,7 +316,7 @@ export const guides: Guide[] = [
   },
   {
     slug: "score-keeper",
-    title: "Score a match with Score Keeper",
+    title: "Score the match",
     summary:
       "Score the match in one pass, fix bad cuts, and review anything missed.",
     group: "Review and score",
@@ -325,7 +325,7 @@ export const guides: Guide[] = [
       {
         heading: "Quick steps",
         steps: [
-          "Open a match, go to Tools, and choose Score Keeper.",
+          "Open a match, go to Tools, and choose Score the Match.",
           "If asked, confirm the player names and who served first.",
           "Watch the rally. PongLens pauses after an unscored point.",
           "Choose the large button for the player who won. PongLens records the point and continues to the next rally.",
@@ -334,12 +334,12 @@ export const guides: Guide[] = [
         images: [
           {
             src: "/showcase/score-d.jpg",
-            alt: "Score Keeper with the video and scoring controls",
+            alt: "Score the Match with the video and scoring controls",
             kind: "d",
           },
           {
             src: "/showcase/score-m.jpg",
-            alt: "Score Keeper controls on a phone",
+            alt: "Score the Match controls on a phone",
             kind: "m",
             phoneTwin: true,
           },
@@ -360,7 +360,7 @@ export const guides: Guide[] = [
           "Star saves the point without interrupting playback.",
           "Replay starts the current rally again.",
           "The note icon opens notes for the point on screen.",
-          "The open-point icon leaves Score Keeper and opens the full point details.",
+          "The open-point icon leaves Score the Match and opens the full point details.",
           "Skip marks a let or another rally that should not count in the score.",
           "Delete removes warm-up, dead space, or a false point.",
           "Modify can split one fused point into two or three, or join it with the next one or two points.",
@@ -738,7 +738,7 @@ export const guides: Guide[] = [
     slug: "invite-a-coach",
     title: "Invite a coach",
     summary:
-      "Give one coach private access to one match or all your matches.",
+      "Give one coach private access to one match, the matches you choose, or all your matches.",
     group: "Share and export",
     related: ["share-a-link", "for-coaches"],
     sections: [
@@ -746,7 +746,7 @@ export const guides: Guide[] = [
         heading: "Quick steps",
         steps: [
           "Open a match, go to Tools, and choose Coach.",
-          "Choose This match or All my matches.",
+          "Choose This match or All my matches. From the Coaching tab, Add a coach offers All my matches or Only matches I share.",
           "Choose Create invite link.",
           "Copy the link, share it from your device, or let your coach scan the QR code.",
           "Your coach opens the link and signs in. Their access is added automatically.",
@@ -764,13 +764,14 @@ export const guides: Guide[] = [
         bullets: [
           "This match gives the coach access only to the match you have open.",
           "All my matches gives access to every current match and any match you upload later.",
+          "Only matches I share connects the coach without any matches. You share each one from its match page, and you can move the coach to All matches later.",
           "A coach can watch the shared footage, download the cut video, and add notes. They cannot score, edit clips, share links, or change your match.",
         ],
       },
       {
         heading: "Manage coaches and unused invites",
         paragraphs: [
-          "Open Account and find Coaches. An accepted coach shows the matches they can watch. Expand the row to remove one match or remove the coach completely.",
+          "Open Coaching and find Coaches. An accepted coach shows the matches they can watch. Expand the row to switch them between All matches and Only matches I share, remove one match, or remove the coach completely.",
           "An invite that has not been accepted appears as waiting. You can copy it again or revoke it.",
         ],
         tip: "Each invite can be accepted by one coach account. If the link was used by the wrong person or revoked, create a fresh invite.",
@@ -845,6 +846,16 @@ export const guides: Guide[] = [
         paragraphs: [
           "Overall notes are for themes that apply across several points, such as serve selection or movement between strokes.",
           "The player receives a notification for your note. Point notes and overall notes also appear in the player’s Journal.",
+        ],
+      },
+      {
+        heading: "Keep lesson notes on each student",
+        steps: [
+          "Switch to coach mode under Profile type in Account, or from the switch at the top if you also play.",
+          "Open Students and add a student by name. They do not need PongLens for you to keep notes.",
+          "Write or record an entry after a lesson. PongLens condenses it into a few points.",
+          "Share the entry when it is ready. It appears in the student’s Journal, and later edits show there too.",
+          "Send the student their invite link from their page. Joining from it connects their account. They choose whether you see all their matches or only the ones they share, and you can ask them to change it any time.",
         ],
       },
     ],

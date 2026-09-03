@@ -37,6 +37,17 @@ final class AppState {
         return name == "player" ? "P" : String(name.prefix(1)).uppercased()
     }
 
+    /// The account's full display name, for the chooseSide name-fill
+    /// (YourSideSheet writes it into player_*_name the way the web does).
+    /// Empty when the account has never had a name — the fill then leaves
+    /// the column alone rather than inventing one.
+    var displayName: String {
+        guard case .signedIn(let session) = phase else { return "" }
+        let meta = session.user.userMetadata
+        return (meta["full_name"]?.stringValue ?? meta["name"]?.stringValue)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
+    }
+
     /// First name for the "Hey {name} 👋" greeting, mirroring the web's fallbacks.
     var firstName: String {
         guard case .signedIn(let session) = phase else { return "player" }
@@ -96,6 +107,12 @@ final class AppState {
     /// than to zero — zero is the most dangerous setting there is.
     var unscoredRallyEndBufferS = 0.5
 
+    /// app_config game_end_detection (140): a marker between two rallies
+    /// where the video shows the players swapping ends. False on any
+    /// failure — a build that cannot reach the config should behave like
+    /// the build before the flag existed, not like a half-flipped one.
+    var gameEndDetection = false
+
     /// What the players and the picker pass to Playhead.effectiveEnd.
     var endOptions: EndOptions {
         EndOptions(
@@ -114,6 +131,7 @@ final class AppState {
             .in("key", values: [
                 "placement_serves_only", "tap_end_playback",
                 "unscored_rally_end", "unscored_rally_end_buffer_s",
+                "game_end_detection",
             ])
             .execute().value
         placementServesOnly = (rows?.first {
@@ -128,6 +146,59 @@ final class AppState {
         unscoredRallyEndBufferS = rows?.first {
             $0.key == "unscored_rally_end_buffer_s"
         }?.value.flatMap(Double.init).map { max(0, $0) } ?? 0.5
+        gameEndDetection = rows?.first {
+            $0.key == "game_end_detection"
+        }?.value == "on"
+    }
+
+    // MARK: - Workspace
+
+    /// Which side of the app this account is using: playing or coaching.
+    /// A per-user choice, remembered on the device; the coaching side only
+    /// offers itself to accounts with coach data (links, a roster, or the
+    /// onboarding answer in metadata).
+    enum Workspace: String {
+        case player
+        case coach
+    }
+
+    var workspace: Workspace = .player
+
+    /// The playing questions were never answered or skipped (159): the
+    /// coach path of onboarding leaves the profile row unstamped. Home
+    /// offers the setup once while this is true.
+    var playerSetupPending = false
+
+    private static func workspaceKey(_ uid: UUID) -> String {
+        "pl.workspace.\(uid.uuidString.lowercased())"
+    }
+
+    /// Resolve the remembered choice for the signed-in user. Accounts that
+    /// answered "coach" at onboarding and never chose since land on the
+    /// coaching side; everyone else starts as a player.
+    func loadWorkspace() {
+        guard let uid = userId else {
+            workspace = .player
+            return
+        }
+        if let stored = UserDefaults.standard.string(forKey: Self.workspaceKey(uid)),
+           let value = Workspace(rawValue: stored) {
+            workspace = value
+        } else {
+            workspace = metadataFlag("is_coach") ? .coach : .player
+        }
+    }
+
+    func setWorkspace(_ value: Workspace) {
+        workspace = value
+        guard let uid = userId else { return }
+        UserDefaults.standard.set(value.rawValue, forKey: Self.workspaceKey(uid))
+        // Entering the coaching side marks the account a coach for good,
+        // so the switcher still offers itself from a fresh install or
+        // another device — the roster alone only exists once loaded.
+        if value == .coach, !metadataFlag("is_coach") {
+            Task { await setMetadataFlag("is_coach", true) }
+        }
     }
 
     func metadataFlag(_ key: String) -> Bool {

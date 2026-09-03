@@ -1,0 +1,2869 @@
+{
+ "cases": [
+  {
+   "name": "plain detection on an unscored match",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [],
+   "enabled": true,
+   "scored_type": true,
+   "expect": [
+    {
+     "pointId": "00000000-0000-4000-8000-000000000001",
+     "confidence": 0.9,
+     "anchor": "point_id"
+    }
+   ]
+  },
+  {
+   "name": "flag off",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [],
+   "enabled": false,
+   "scored_type": true,
+   "expect": []
+  },
+  {
+   "name": "practice match",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [],
+   "enabled": true,
+   "scored_type": false,
+   "expect": []
+  },
+  {
+   "name": "withheld evidence",
+   "evidence": {
+    "version": 2,
+    "status": "withheld",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [],
+   "enabled": true,
+   "scored_type": true,
+   "expect": []
+  },
+  {
+   "name": "unconfirmed change",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": false,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [],
+   "enabled": true,
+   "scored_type": true,
+   "expect": []
+  },
+  {
+   "name": "deleted anchor recovered from the gap",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001",
+      "gap_t0": 30
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [],
+   "enabled": true,
+   "scored_type": true,
+   "expect": [
+    {
+     "pointId": "00000000-0000-4000-8000-000000000006",
+     "confidence": 0.9,
+     "anchor": "gap_time"
+    }
+   ]
+  },
+  {
+   "name": "anchor gone with no gap",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000021"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [],
+   "enabled": true,
+   "scored_type": true,
+   "expect": []
+  },
+  {
+   "name": "after the last rally",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000020"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [],
+   "enabled": true,
+   "scored_type": true,
+   "expect": []
+  },
+  {
+   "name": "boundary at p5 silences p5",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [
+    "00000000-0000-4000-8000-000000000001"
+   ],
+   "enabled": true,
+   "scored_type": true,
+   "expect": []
+  },
+  {
+   "name": "boundary at p2 silences p5",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [
+    "00000000-0000-4000-8000-000000000004"
+   ],
+   "enabled": true,
+   "scored_type": true,
+   "expect": []
+  },
+  {
+   "name": "boundary at p8 silences p5",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [
+    "00000000-0000-4000-8000-000000000009"
+   ],
+   "enabled": true,
+   "scored_type": true,
+   "expect": []
+  },
+  {
+   "name": "boundary at p1 is too far to silence p5",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [
+    "00000000-0000-4000-8000-000000000003"
+   ],
+   "enabled": true,
+   "scored_type": true,
+   "expect": [
+    {
+     "pointId": "00000000-0000-4000-8000-000000000001",
+     "confidence": 0.9,
+     "anchor": "point_id"
+    }
+   ]
+  },
+  {
+   "name": "boundary at p9 is too far to silence p5",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [
+    "00000000-0000-4000-8000-000000000010"
+   ],
+   "enabled": true,
+   "scored_type": true,
+   "expect": [
+    {
+     "pointId": "00000000-0000-4000-8000-000000000001",
+     "confidence": 0.9,
+     "anchor": "point_id"
+    }
+   ]
+  },
+  {
+   "name": "owner pinned an end nearby",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": "end",
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [],
+   "enabled": true,
+   "scored_type": true,
+   "expect": []
+  },
+  {
+   "name": "owner held the game open",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": "continue",
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [],
+   "enabled": true,
+   "scored_type": true,
+   "expect": []
+  },
+  {
+   "name": "dismissed",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     },
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000013"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": true
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [],
+   "enabled": true,
+   "scored_type": true,
+   "expect": [
+    {
+     "pointId": "00000000-0000-4000-8000-000000000013",
+     "confidence": 0.9,
+     "anchor": "point_id"
+    }
+   ]
+  },
+  {
+   "name": "three detections, none scored",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     },
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000012"
+     },
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000018"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [],
+   "enabled": true,
+   "scored_type": true,
+   "expect": [
+    {
+     "pointId": "00000000-0000-4000-8000-000000000001",
+     "confidence": 0.9,
+     "anchor": "point_id"
+    },
+    {
+     "pointId": "00000000-0000-4000-8000-000000000012",
+     "confidence": 0.9,
+     "anchor": "point_id"
+    },
+    {
+     "pointId": "00000000-0000-4000-8000-000000000018",
+     "confidence": 0.9,
+     "anchor": "point_id"
+    }
+   ]
+  },
+  {
+   "name": "three detections, first game scored",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     },
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000012"
+     },
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000018"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [
+    "00000000-0000-4000-8000-000000000008"
+   ],
+   "enabled": true,
+   "scored_type": true,
+   "expect": [
+    {
+     "pointId": "00000000-0000-4000-8000-000000000012",
+     "confidence": 0.9,
+     "anchor": "point_id"
+    },
+    {
+     "pointId": "00000000-0000-4000-8000-000000000018",
+     "confidence": 0.9,
+     "anchor": "point_id"
+    }
+   ]
+  },
+  {
+   "name": "three detections, two games scored",
+   "evidence": {
+    "version": 2,
+    "status": "ready",
+    "algorithm": "side-change-v2",
+    "side_changes": [
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000001"
+     },
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000012"
+     },
+     {
+      "kind": "side_change",
+      "after_idx": 0,
+      "before_idx": 1,
+      "confidence": 0.9,
+      "confirmed": true,
+      "after_point_id": "00000000-0000-4000-8000-000000000018"
+     }
+    ]
+   },
+   "points": [
+    {
+     "id": "00000000-0000-4000-8000-000000000002",
+     "t1": 5,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000003",
+     "t1": 10,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000004",
+     "t1": 15,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000005",
+     "t1": 20,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000006",
+     "t1": 25,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000001",
+     "t1": 30,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000007",
+     "t1": 35,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000008",
+     "t1": 40,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000009",
+     "t1": 45,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000010",
+     "t1": 50,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000011",
+     "t1": 55,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000012",
+     "t1": 60,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000013",
+     "t1": 65,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000014",
+     "t1": 70,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000015",
+     "t1": 75,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000016",
+     "t1": 80,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000017",
+     "t1": 85,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000018",
+     "t1": 90,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000019",
+     "t1": 95,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    },
+    {
+     "id": "00000000-0000-4000-8000-000000000020",
+     "t1": 100,
+     "game_end_override": null,
+     "side_change_dismissed": false
+    }
+   ],
+   "boundary_after": [
+    "00000000-0000-4000-8000-000000000008",
+    "00000000-0000-4000-8000-000000000012"
+   ],
+   "enabled": true,
+   "scored_type": true,
+   "expect": [
+    {
+     "pointId": "00000000-0000-4000-8000-000000000018",
+     "confidence": 0.9,
+     "anchor": "point_id"
+    }
+   ]
+  }
+ ]
+}

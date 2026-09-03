@@ -61,3 +61,54 @@ export async function fulfillPurchase(opts: {
   }
   return data === true;
 }
+
+/**
+ * Grant an Apple in-app purchase. The signature has already been checked
+ * by the route; this is the write.
+ *
+ * Returns false when the purchase was already granted — a retried
+ * request, or the app re-presenting a transaction after a crash. That is
+ * a normal outcome and callers should treat it as success.
+ *
+ * No receipt email, on purpose. Apple mails the customer its own receipt
+ * for every in-app purchase, and a second one from us for the same money
+ * reads like a double charge.
+ */
+export async function fulfillApplePurchase(opts: {
+  purchaseId: string;
+  transactionId: string;
+}): Promise<boolean> {
+  const { data, error } = await createAdminClient().rpc(
+    "fulfill_apple_purchase",
+    {
+      p_purchase_id: opts.purchaseId,
+      p_transaction_id: opts.transactionId,
+    },
+  );
+  if (error) {
+    // Throwing gives the phone a 500, and the phone must then NOT finish
+    // the transaction: StoreKit will re-present it on the next launch and
+    // we get another go at granting money that has already been taken.
+    console.error("apple purchase fulfillment failed:", error);
+    throw new Error("fulfillment failed");
+  }
+  return data === true;
+}
+
+/**
+ * Reverse an Apple purchase after Apple refunds it. Idempotent on status,
+ * so a redelivered notification is harmless.
+ */
+export async function refundApplePurchase(
+  transactionId: string,
+): Promise<boolean> {
+  const { data, error } = await createAdminClient().rpc(
+    "refund_apple_purchase",
+    { p_transaction_id: transactionId },
+  );
+  if (error) {
+    console.error("apple refund failed:", error);
+    throw new Error("refund failed");
+  }
+  return data === true;
+}

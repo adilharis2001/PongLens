@@ -1,4 +1,4 @@
-import type { DetectedEvent } from "./serveAccuracyModel";
+import type { DetectedEvent } from "./serveAccuracyModel.ts";
 
 /**
  * The third way to see a point end: the ball turns round at the net.
@@ -79,6 +79,21 @@ export function netSegment(
   if (near.length !== 2 || far.length !== 2) return null;
   const [A, B] = near;
   const [D, C] = far;
+  return netSegmentOriented(A, B, C, D);
+}
+
+/**
+ * The construction itself, for callers that already know the quad's
+ * orientation: A-B is one end line, D-C the other, with D adjacent to A
+ * (so A-D and B-C are the sidelines the net must meet). Which end is
+ * "near" does not matter — swapping the ends returns the same line.
+ */
+export function netSegmentOriented(
+  A: readonly number[],
+  B: readonly number[],
+  C: readonly number[],
+  D: readonly number[],
+): { e1: [number, number]; e2: [number, number] } | null {
   const centre = cross(cross(hpt(A), hpt(C)), cross(hpt(B), hpt(D)));
   const vanish = cross(cross(hpt(A), hpt(B)), cross(hpt(D), hpt(C)));
   const line = cross(centre, vanish);
@@ -86,6 +101,29 @@ export function netSegment(
   const e2 = dehom(cross(line, cross(hpt(B), hpt(C))));
   if (!e1 || !e2) return null;
   return { e1, e2 };
+}
+
+/**
+ * The same construction for a quad stored as an ordered array —
+ * [A near-left, B near-right, C far-right, D far-left], the CORNER_ORDER
+ * the worker writes into serves.json. The payload also carries a `net`
+ * field, but until 2026-09-02 the worker computed it as the pixel
+ * midpoint of the sidelines, which sits 30-41 cm into the near half on
+ * every camera measured. Viewers derive the net from the quad instead,
+ * so every match ever processed draws it right with no backfill.
+ */
+export function netSegmentFromQuad(
+  quad: readonly (readonly number[])[] | null | undefined,
+): { e1: [number, number]; e2: [number, number] } | null {
+  if (!quad || quad.length !== 4) return null;
+  const [a, b, c, d] = quad;
+  if ([a, b, c, d].some((p) => !p || p.length < 2)) return null;
+  return netSegment({
+    A_near_1: [a[0], a[1]],
+    B_near_2: [b[0], b[1]],
+    C_far_2: [c[0], c[1]],
+    D_far_1: [d[0], d[1]],
+  });
 }
 
 export interface NetDeath {

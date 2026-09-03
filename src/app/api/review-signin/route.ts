@@ -35,6 +35,7 @@ export const runtime = "nodejs";
  */
 
 const REVIEWER_NAME = "PongLens Reviewer";
+const COACH_REVIEWER_NAME = "PongLens Coach";
 
 function equalConstantTime(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
@@ -64,26 +65,55 @@ export async function POST(req: Request) {
     return NextResponse.json({ code: "invalid" }, { status: 400 });
   }
 
+  // Two reviewer accounts (158): a player and a coach, each with its own
+  // fixed code, so App Review can walk both sides of the app — the coach
+  // one starts on the coaching side and the player one is its student.
+  // Each pair is its own kill switch; blank either half and that door
+  // is gone. Both pairs are checked with the same constant-time rule.
   const admin = createAdminClient();
   const { data: rows } = await admin
     .from("app_config")
     .select("key, value")
-    .in("key", ["review_signin_email", "review_signin_code"]);
+    .in("key", [
+      "review_signin_email",
+      "review_signin_code",
+      "review_signin_coach_email",
+      "review_signin_coach_code",
+    ]);
   const config = Object.fromEntries(
     (rows ?? []).map((r) => [r.key as string, String(r.value ?? "")])
   );
-  const wantEmail = (config.review_signin_email ?? "").trim().toLowerCase();
-  const wantCode = (config.review_signin_code ?? "").trim();
-  if (!wantEmail || !wantCode) {
+  const pairs = [
+    {
+      email: (config.review_signin_email ?? "").trim().toLowerCase(),
+      code: (config.review_signin_code ?? "").trim(),
+      name: REVIEWER_NAME,
+      coach: false,
+    },
+    {
+      email: (config.review_signin_coach_email ?? "").trim().toLowerCase(),
+      code: (config.review_signin_coach_code ?? "").trim(),
+      name: COACH_REVIEWER_NAME,
+      coach: true,
+    },
+  ].filter((p) => p.email && p.code);
+  if (pairs.length === 0) {
     return NextResponse.json({ code: "disabled" }, { status: 404 });
   }
 
-  const ok =
-    equalConstantTime(email, wantEmail) && equalConstantTime(code, wantCode);
-  if (!ok) {
+  // Every pair is compared, whatever matched, so the count of
+  // comparisons never says which address is real.
+  let matched: (typeof pairs)[number] | null = null;
+  for (const pair of pairs) {
+    const hit =
+      equalConstantTime(email, pair.email) && equalConstantTime(code, pair.code);
+    if (hit) matched = pair;
+  }
+  if (!matched) {
     await sleep(1500);
     return NextResponse.json({ code: "invalid" }, { status: 401 });
   }
+  const wantEmail = matched.email;
 
   let link = await admin.auth.admin.generateLink({
     type: "magiclink",
@@ -93,7 +123,9 @@ export async function POST(req: Request) {
     const { error: createError } = await admin.auth.admin.createUser({
       email: wantEmail,
       email_confirm: true,
-      user_metadata: { full_name: REVIEWER_NAME },
+      user_metadata: matched.coach
+        ? { full_name: matched.name, is_coach: true }
+        : { full_name: matched.name },
     });
     if (createError && !String(createError.message).includes("already")) {
       console.error("review-signin create:", createError);

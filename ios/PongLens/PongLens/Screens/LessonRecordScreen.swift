@@ -14,6 +14,16 @@ import UIKit
 /// screen.
 struct LessonRecordScreen: View {
 
+    /// The coaching workspace hides "Who taught it?" — the coach is the
+    /// one recording, and the student was chosen before this opened.
+    var hideAuthorField = false
+
+    /// When set, the reviewed transcript is handed here instead of being
+    /// written to the player's own journal. The coaching workspace uses
+    /// this to file the entry under a student; everything else about the
+    /// screen behaves identically.
+    var saveAs: ((String) async -> Bool)? = nil
+
     /// Called once the lesson has been saved, so the journal behind can
     /// reload. The entry is written from here rather than handed onward.
     let onSaved: () -> Void
@@ -388,9 +398,11 @@ struct LessonRecordScreen: View {
         VStack(spacing: 0) {
             header
 
-            TextField("Who taught it?", text: $coachName)
-                .plField()
-                .padding(.top, 16)
+            if !hideAuthorField {
+                TextField("Who taught it?", text: $coachName)
+                    .plField()
+                    .padding(.top, 16)
+            }
 
             Picker("", selection: $reviewTab) {
                 ForEach(ReviewTab.allCases, id: \.self) { tab in
@@ -655,13 +667,19 @@ struct LessonRecordScreen: View {
     private func save() async {
         saving = true
         saveFailed = false
-        let ok = await store.saveEntry(
-            transcript: draft.trimmingCharacters(in: .whitespacesAndNewlines),
-            kind: "lesson",
-            coachName: coachName.trimmingCharacters(in: .whitespaces).isEmpty
-                ? nil : coachName.trimmingCharacters(in: .whitespaces),
-            summarize: true
-        )
+        let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ok: Bool
+        if let saveAs {
+            ok = await saveAs(words)
+        } else {
+            ok = await store.saveEntry(
+                transcript: words,
+                kind: "lesson",
+                coachName: coachName.trimmingCharacters(in: .whitespaces).isEmpty
+                    ? nil : coachName.trimmingCharacters(in: .whitespaces),
+                summarize: true
+            )
+        }
         saving = false
         guard ok else {
             saveFailed = true

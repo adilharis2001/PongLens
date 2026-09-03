@@ -310,7 +310,7 @@ export default function CoachesPage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <SiteHeader />
+      <SiteHeader audience="coaches" />
       <main className="flex-1">
         {/* HERO — the home page's treatment: full-bleed animation, scrims
             that keep the copy legible, and the storefront itself standing

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { ADMIN_EMAIL } from "@/lib/config";
+import { isAdminEmail } from "@/lib/config";
 import { headObject, presignGet } from "@/lib/r2";
 
 export const runtime = "nodejs";
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user || user.email !== ADMIN_EMAIL) {
+  if (!user || !isAdminEmail(user.email)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
 

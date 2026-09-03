@@ -1,0 +1,903 @@
+{
+ "cards": {
+  "25765e26:157.50": {
+   "verdict": "missed"
+  },
+  "25765e26:258.45": {
+   "ball_visible": "unsure",
+   "bounce_where": "unsure",
+   "outcome": "retrieval",
+   "points_in_clip": "unsure",
+   "server": "unsure",
+   "tracker": "unsure",
+   "verdict": "fair"
+  },
+  "25765e26:284.30": {
+   "bounce_where": "our_table",
+   "note": "Again, this was also just a ball being passed to the opponent. There was no serve here.",
+   "outcome": "retrieval",
+   "tracker": "fine",
+   "verdict": "fair"
+  },
+  "25765e26:327.22": {
+   "verdict": "missed"
+  },
+  "25765e26:427.80": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 2.78,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "25765e26:46.45": {
+   "bounce_where": "our_table",
+   "note": "Again, this was just a ball being passed to the opponent. There was no serve here.",
+   "outcome": "retrieval",
+   "tracker": "fine",
+   "verdict": "fair"
+  },
+  "25765e26:472.58": {
+   "verdict": "missed"
+  },
+  "25765e26:486.00": {
+   "serve_at": 5.44,
+   "verdict": "missed"
+  },
+  "25765e26:61.06": {
+   "serve_at": 6.28,
+   "verdict": "missed"
+  },
+  "25765e26:684.08": {
+   "verdict": "fair"
+  },
+  "25765e26:753.08": {
+   "verdict": "missed"
+  },
+  "25765e26:764.58": {
+   "verdict": "missed"
+  },
+  "25765e26:79.40": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "note": "The server served long to the opponent's backhand. The opponent hit the ball and hit it long on the server's side. He missed the receive, and the ball went long on the server's side.",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 1.33,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "25765e26:87.00": {
+   "verdict": "missed"
+  },
+  "47b83b9b:102.68": {
+   "verdict": "missed"
+  },
+  "47b83b9b:1022.07": {
+   "verdict": "fair"
+  },
+  "47b83b9b:114.58": {
+   "verdict": "missed"
+  },
+  "47b83b9b:184.88": {
+   "verdict": "fair"
+  },
+  "47b83b9b:201.06": {
+   "verdict": "fair"
+  },
+  "47b83b9b:235.50": {
+   "verdict": "missed"
+  },
+  "47b83b9b:33.08": {
+   "verdict": "missed"
+  },
+  "47b83b9b:41.38": {
+   "verdict": "missed"
+  },
+  "47b83b9b:414.59": {
+   "verdict": "missed"
+  },
+  "47b83b9b:475.42": {
+   "verdict": "missed"
+  },
+  "47b83b9b:561.26": {
+   "verdict": "missed"
+  },
+  "47b83b9b:590.80": {
+   "verdict": "missed"
+  },
+  "47b83b9b:6.80": {
+   "bounce_where": "our_table",
+   "note": "This is just a ball toss being passed to the opponent, and then the trail kept moving around obnoxiously throughout the screen for attaching to white things.",
+   "outcome": "retrieval",
+   "tracker": "fine",
+   "verdict": "fair"
+  },
+  "47b83b9b:603.90": {
+   "verdict": "missed"
+  },
+  "47b83b9b:612.00": {
+   "serve_at": 4.75,
+   "verdict": "missed"
+  },
+  "47b83b9b:634.50": {
+   "verdict": "missed"
+  },
+  "47b83b9b:68.50": {
+   "verdict": "missed"
+  },
+  "47b83b9b:687.28": {
+   "verdict": "missed"
+  },
+  "47b83b9b:712.83": {
+   "verdict": "missed"
+  },
+  "47b83b9b:759.38": {
+   "serve_at": 6.43,
+   "verdict": "missed"
+  },
+  "47b83b9b:770.58": {
+   "serve_at": 9.71,
+   "verdict": "missed"
+  },
+  "47b83b9b:848.92": {
+   "ball_visible": "unsure",
+   "bounce_where": "unsure",
+   "outcome": "retrieval",
+   "points_in_clip": "unsure",
+   "server": "near",
+   "tracker": "unsure",
+   "verdict": "missed"
+  },
+  "47b83b9b:865.03": {
+   "verdict": "fair"
+  },
+  "47b83b9b:888.08": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 1.92,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "47b83b9b:912.40": {
+   "verdict": "missed"
+  },
+  "47b83b9b:928.73": {
+   "verdict": "fair"
+  },
+  "47b83b9b:935.90": {
+   "verdict": "missed"
+  },
+  "74542390:118.36": {
+   "verdict": "missed"
+  },
+  "74542390:151.00": {
+   "verdict": "missed"
+  },
+  "74542390:157.50": {
+   "verdict": "missed"
+  },
+  "74542390:16.00": {
+   "verdict": "missed"
+  },
+  "74542390:174.50": {
+   "verdict": "missed"
+  },
+  "74542390:189.99": {
+   "verdict": "fair"
+  },
+  "74542390:208.50": {
+   "verdict": "missed"
+  },
+  "74542390:218.50": {
+   "verdict": "fair"
+  },
+  "74542390:231.98": {
+   "verdict": "missed"
+  },
+  "74542390:243.08": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 5.58,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "74542390:261.00": {
+   "verdict": "missed"
+  },
+  "74542390:277.80": {
+   "verdict": "missed"
+  },
+  "74542390:292.50": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "unsure",
+   "serve_at": 4.47,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "74542390:331.92": {
+   "ball_visible": "faint",
+   "bounce_where": "our_table",
+   "note": "This was again a pretty simple point. The ball is visible for the most part. The server served, the opponent pushed, and then the server attacked the third ball on the opponent's side. Although I will say the coordinates on the table are slightly off on the far side in this scenario, that shouldn't affect the specific coin point because the near side is the one that's served.",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 2.37,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "74542390:346.90": {
+   "verdict": "missed"
+  },
+  "74542390:393.65": {
+   "ball_visible": "unsure",
+   "bounce_where": "unsure",
+   "outcome": "unsure",
+   "points_in_clip": "unsure",
+   "server": "unsure",
+   "tracker": "unsure",
+   "verdict": "unclear"
+  },
+  "74542390:405.59": {
+   "verdict": "missed"
+  },
+  "74542390:436.44": {
+   "verdict": "missed"
+  },
+  "74542390:445.90": {
+   "verdict": "fair"
+  },
+  "74542390:471.00": {
+   "verdict": "missed"
+  },
+  "74542390:498.36": {
+   "verdict": "fair"
+  },
+  "74542390:557.50": {
+   "verdict": "fair"
+  },
+  "74542390:588.17": {
+   "verdict": "missed"
+  },
+  "74542390:625.92": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 2.08,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "74542390:637.76": {
+   "verdict": "missed"
+  },
+  "74542390:65.03": {
+   "verdict": "missed"
+  },
+  "74542390:681.68": {
+   "verdict": "missed"
+  },
+  "74542390:706.82": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "note": "This one, the far side served. The receiver on the near side missed, and the ball just went long, so that's what happened here.",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 1.91,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "77fc4dee:1058.28": {
+   "ball_visible": "faint",
+   "bounce_where": "our_table",
+   "note": "This one, the nearside serve: there is a very minor obstruction because the nearside is serving with his butt to the camera, so his ball toss is not visible, but the bounce on the table is clearly visible. For whatever reason, I guess the serve wasn't detected. And yeah, this basically involved the receiver returning the serve. It clicked the net and then came back on the table, and the server just missed.",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 1.38,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "77fc4dee:1068.00": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "note": "yeah, this one, the nearside serve with his butt to the camera again, mostly visible. The receiver just missed the receive completely and hit the ball long and wide up in the air, and it never came down again",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 3.05,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "77fc4dee:1075.90": {
+   "verdict": "fair"
+  },
+  "77fc4dee:1149.73": {
+   "verdict": "fair"
+  },
+  "77fc4dee:1157.40": {
+   "verdict": "fair"
+  },
+  "77fc4dee:1270.50": {
+   "verdict": "missed"
+  },
+  "77fc4dee:1285.00": {
+   "verdict": "fair"
+  },
+  "77fc4dee:1298.38": {
+   "verdict": "fair"
+  },
+  "77fc4dee:1355.62": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "note": "the nearside served and the farside just hit it straight into the net",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 0.63,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "77fc4dee:140.58": {
+   "verdict": "fair"
+  },
+  "77fc4dee:191.02": {
+   "verdict": "fair"
+  },
+  "77fc4dee:248.36": {
+   "verdict": "fair"
+  },
+  "77fc4dee:393.91": {
+   "ball_visible": "unsure",
+   "bounce_where": "unsure",
+   "outcome": "knockup",
+   "points_in_clip": "none",
+   "server": "unsure",
+   "verdict": "fair"
+  },
+  "77fc4dee:417.04": {
+   "verdict": "missed"
+  },
+  "77fc4dee:470.61": {
+   "verdict": "fair"
+  },
+  "77fc4dee:485.93": {
+   "verdict": "missed"
+  },
+  "77fc4dee:527.00": {
+   "verdict": "missed"
+  },
+  "77fc4dee:557.68": {
+   "verdict": "missed"
+  },
+  "77fc4dee:594.65": {
+   "verdict": "missed"
+  },
+  "77fc4dee:609.99": {
+   "verdict": "missed"
+  },
+  "77fc4dee:627.40": {
+   "verdict": "missed"
+  },
+  "77fc4dee:635.00": {
+   "verdict": "missed"
+  },
+  "77fc4dee:703.44": {
+   "verdict": "fair"
+  },
+  "77fc4dee:783.50": {
+   "ball_visible": "clear",
+   "note": "in this one, the far side is serving, and he hit it straight into the net, so there was no bounce on the near side. This is just a service fault, yes, and it fell back on the server side. I'm not answering the \"Where did the ball actually land?\" question just because you're not giving me the options, and I don't know why your decision is so just know that this was a service error. This is one of the examples of a service error where you might not clearly see both bounces on the table, but the server just hit the net and came back.",
+   "outcome": "net_back",
+   "points_in_clip": "one",
+   "serve_at": 6.96,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "77fc4dee:804.21": {
+   "verdict": "missed"
+  },
+  "77fc4dee:824.40": {
+   "ball_visible": "clear",
+   "outcome": "retrieval",
+   "tracker": "fine",
+   "verdict": "fair"
+  },
+  "77fc4dee:919.14": {
+   "verdict": "fair"
+  },
+  "77fc4dee:957.00": {
+   "verdict": "missed"
+  },
+  "77fc4dee:977.22": {
+   "verdict": "fair"
+  },
+  "77fc4dee:989.50": {
+   "verdict": "missed"
+  },
+  "7e02fbb9:117.96": {
+   "verdict": "missed"
+  },
+  "7e02fbb9:165.40": {
+   "ball_visible": "faint",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 0.81,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "7e02fbb9:21.00": {
+   "verdict": "fair"
+  },
+  "7e02fbb9:229.50": {
+   "verdict": "missed"
+  },
+  "7e02fbb9:265.65": {
+   "ball_visible": "faint",
+   "bounce_where": "our_table",
+   "note": "so near side served, and the receiver just directly hit the net. Again, the server's butt is to the camera, so it's not as evident to see, but yeah, it's one small thing to keep in mind I still think the first bounce on the table is actually pretty hard to see in this scenario because his butt or his body does block the first bounce a little bit.",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 7.75,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "7e02fbb9:275.15": {
+   "ball_visible": "faint",
+   "bounce_where": "our_table",
+   "note": "Same happened here as well, exact same copy of point number 18. Yeah, no different from point number 18. Serve, receiver straight up hit the net, and nothing else happened. His body might have hit the first bounce on the table because the camera was positioned there",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 7.05,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "7e02fbb9:284.90": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 0.78,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "7e02fbb9:298.90": {
+   "ball_visible": "faint",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 1.67,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "7e02fbb9:306.40": {
+   "verdict": "missed"
+  },
+  "7e02fbb9:360.46": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "note": "so this one, the far player served, was a genuine serve. The receiver on the near side completely missed it, and then the ball just went long and wide away from the table. It looked fine for the most part, except for the small distractions that the tracker was making",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 3.02,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "7e02fbb9:398.56": {
+   "verdict": "missed"
+  },
+  "7e02fbb9:502.00": {
+   "verdict": "missed"
+  },
+  "7e02fbb9:540.87": {
+   "bounce_where": "our_table",
+   "note": "Again, this was just a ball being thrown to the opponent. No serve here.",
+   "outcome": "retrieval",
+   "tracker": "fine",
+   "verdict": "fair"
+  },
+  "7e02fbb9:562.00": {
+   "verdict": "missed"
+  },
+  "7e02fbb9:689.02": {
+   "verdict": "missed"
+  },
+  "7e02fbb9:702.40": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "note": "Okay, so this one is the opposite of that. This time, the far side served, and then the receiver just made the receive straight into the net.",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 1.37,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "7e02fbb9:720.75": {
+   "verdict": "missed"
+  },
+  "7e02fbb9:728.90": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 1.89,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "7e02fbb9:841.08": {
+   "verdict": "missed"
+  },
+  "7e02fbb9:874.27": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 2.75,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "7e02fbb9:900.90": {
+   "ball_visible": "faint",
+   "bounce_where": "our_table",
+   "note": "This one, again, is the same as point numbers 18 and 19. The server on the near side served his butt slightly, blocked the first bounce on the table, and then the receiver just dumped it straight into the net.",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 0.86,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "7e02fbb9:96.11": {
+   "verdict": "missed"
+  },
+  "840b4635:186.00": {
+   "ball_visible": "clear",
+   "outcome": "toss_miss",
+   "points_in_clip": "one",
+   "serve_at": 6.91,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "840b4635:263.22": {
+   "verdict": "fair"
+  },
+  "840b4635:344.40": {
+   "verdict": "missed"
+  },
+  "9ef09000:154.90": {
+   "serve_at": 5.19,
+   "verdict": "missed"
+  },
+  "9ef09000:174.62": {
+   "verdict": "missed"
+  },
+  "9ef09000:204.73": {
+   "verdict": "unclear"
+  },
+  "9ef09000:290.07": {
+   "serve_at": 0.73,
+   "verdict": "missed"
+  },
+  "9ef09000:329.22": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 0.69,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "9ef09000:345.06": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "none",
+   "serve_at": 0.92,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "9ef09000:360.77": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "note": "this one was fine. The far player served, and it looked like the receiver just missed entirely. The ball trail looked fine. Obviously, there were distractions in between, but nothing major",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 3.77,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "9ef09000:377.00": {
+   "verdict": "missed"
+  },
+  "9ef09000:391.50": {
+   "verdict": "missed"
+  },
+  "9ef09000:403.50": {
+   "verdict": "missed"
+  },
+  "9ef09000:424.10": {
+   "verdict": "missed"
+  },
+  "9ef09000:449.38": {
+   "verdict": "missed"
+  },
+  "9ef09000:460.65": {
+   "verdict": "missed"
+  },
+  "9ef09000:491.56": {
+   "verdict": "missed"
+  },
+  "9ef09000:509.47": {
+   "verdict": "missed"
+  },
+  "9ef09000:533.95": {
+   "verdict": "missed"
+  },
+  "9ef09000:552.00": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 0.82,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "9ef09000:557.80": {
+   "verdict": "missed"
+  },
+  "9ef09000:574.44": {
+   "verdict": "missed"
+  },
+  "9ef09000:586.00": {
+   "verdict": "missed"
+  },
+  "9ef09000:601.00": {
+   "verdict": "missed"
+  },
+  "9ef09000:632.13": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 0.96,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "9ef09000:638.90": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 0.55,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "9ef09000:648.51": {
+   "verdict": "missed"
+  },
+  "9ef09000:66.50": {
+   "verdict": "missed"
+  },
+  "9ef09000:682.40": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "note": "the far side served. Again, the receiver just missed straight up",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 0.89,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "9ef09000:694.63": {
+   "verdict": "missed"
+  },
+  "9ef09000:704.07": {
+   "verdict": "missed"
+  },
+  "9ef09000:711.29": {
+   "verdict": "missed"
+  },
+  "9ef09000:717.90": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "two_plus",
+   "serve_at": 0.72,
+   "server": "near",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "9ef09000:726.90": {
+   "verdict": "missed"
+  },
+  "bfc9b31b:14.27": {
+   "verdict": "missed"
+  },
+  "bfc9b31b:146.93": {
+   "verdict": "fair"
+  },
+  "bfc9b31b:204.33": {
+   "note": "Again, this was also just the ball being thrown to the opponent. No serve here.",
+   "outcome": "retrieval",
+   "tracker": "fine",
+   "verdict": "fair"
+  },
+  "bfc9b31b:268.92": {
+   "verdict": "fair"
+  },
+  "bfc9b31b:300.30": {
+   "verdict": "missed"
+  },
+  "bfc9b31b:382.00": {
+   "verdict": "fair"
+  },
+  "bfc9b31b:400.32": {
+   "bounce_where": "our_table",
+   "note": "This is also just the ball being thrown to the opponent. There was no serve here.",
+   "outcome": "retrieval",
+   "tracker": "fine",
+   "verdict": "fair"
+  },
+  "bfc9b31b:527.14": {
+   "verdict": "missed"
+  },
+  "bfc9b31b:562.50": {
+   "verdict": "missed"
+  },
+  "bfc9b31b:646.00": {
+   "bounce_where": "our_table",
+   "note": "Again, this was also just the ball toss from the opponent to the server. No official serve here.",
+   "outcome": "retrieval",
+   "tracker": "fine",
+   "verdict": "fair"
+  },
+  "bfc9b31b:870.49": {
+   "ball_visible": "clear",
+   "bounce_where": "our_table",
+   "outcome": "rally",
+   "points_in_clip": "one",
+   "serve_at": 0.67,
+   "server": "far",
+   "tracker": "fine",
+   "verdict": "missed"
+  },
+  "ec6490f4:1094.38": {
+   "verdict": "fair"
+  },
+  "ec6490f4:15.68": {
+   "verdict": "fair"
+  },
+  "ec6490f4:153.12": {
+   "verdict": "missed"
+  },
+  "ec6490f4:164.90": {
+   "verdict": "missed"
+  },
+  "ec6490f4:23.90": {
+   "ball_visible": "unsure",
+   "bounce_where": "unsure",
+   "outcome": "retrieval",
+   "points_in_clip": "unsure",
+   "server": "unsure",
+   "tracker": "unsure",
+   "verdict": "fair"
+  },
+  "ec6490f4:549.84": {
+   "verdict": "fair"
+  },
+  "ec6490f4:586.00": {
+   "verdict": "missed"
+  },
+  "ec6490f4:769.00": {
+   "verdict": "fair"
+  },
+  "ec6490f4:774.53": {
+   "verdict": "fair"
+  }
+ },
+ "counts": {
+  "described": 52,
+  "fair": 44,
+  "labelled": 175,
+  "missed": 129,
+  "noPoint": 12
+ },
+ "matches": {
+  "25765e26": {
+   "anchored": 80,
+   "cards": 70,
+   "neighbour": "none",
+   "noServe": 14,
+   "quad": "good"
+  },
+  "47b83b9b": {
+   "anchored": 69,
+   "cards": 87,
+   "neighbour": "none",
+   "noServe": 27,
+   "quad": "good"
+  },
+  "74542390": {
+   "anchored": 51,
+   "cards": 57,
+   "neighbour": "none",
+   "noServe": 28,
+   "quad": "far_short"
+  },
+  "77fc4dee": {
+   "anchored": 76,
+   "cards": 126,
+   "neighbour": "partial",
+   "noServe": 30,
+   "quad": "good"
+  },
+  "7e02fbb9": {
+   "anchored": 72,
+   "cards": 79,
+   "neighbour": "none",
+   "noServe": 22,
+   "quad": "good"
+  },
+  "840b4635": {
+   "anchored": 90,
+   "cards": 30,
+   "neighbour": "full",
+   "noServe": 3,
+   "quad": "good"
+  },
+  "9ef09000": {
+   "anchored": 54,
+   "cards": 67,
+   "neighbour": "none",
+   "noServe": 31,
+   "quad": "good"
+  },
+  "bfc9b31b": {
+   "anchored": 88,
+   "cards": 88,
+   "neighbour": "none",
+   "noServe": 11,
+   "quad": "good"
+  },
+  "ec6490f4": {
+   "anchored": 92,
+   "cards": 106,
+   "neighbour": "none",
+   "noServe": 9,
+   "quad": "good"
+  }
+ }
+}

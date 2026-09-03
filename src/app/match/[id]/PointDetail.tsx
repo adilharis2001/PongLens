@@ -94,6 +94,7 @@ export function PointDetail({
   gameIndex,
   gameEnd,
   onSetGameOverride,
+  onSetServer,
   mapLabels,
   neutral = false,
   scored = true,
@@ -142,6 +143,9 @@ export function PointDetail({
   /** Write this point's game_end_override ('end' | 'continue' | null =
    * auto). Optimistic in MatchView; resolves false on a failed save. */
   onSetGameOverride: (v: GameEndOverride) => Promise<boolean>;
+  /** Answer "Who served?". The host owns it because a correction
+   *  also clears the corrections after this point. */
+  onSetServer: (value: "user" | "opponent") => void | Promise<void>;
   mapLabels: MapLabels;
   /** Neutral / third-party match (see MatchView's `neutral`): the scorecard
    * names the two players instead of "Me"/"Them"/"I won". Normal = false. */
@@ -689,6 +693,7 @@ export function PointDetail({
           mapLabels={mapLabels}
           flash={flash}
           onPointUpdate={onPointUpdate}
+          onSetServer={onSetServer}
           customReasons={customReasons}
           onCreateCustomReason={onCreateCustomReason}
         />

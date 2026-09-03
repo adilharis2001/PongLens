@@ -1,3 +1,4 @@
+import StoreKit
 import SwiftUI
 import Supabase
 
@@ -6,7 +7,9 @@ struct AccountScreen: View {
     @Environment(\.openURL) private var openURL
     @Environment(AppState.self) private var app
     @Environment(CoachingStore.self) private var coaching
+    @Environment(CoachWorkspaceStore.self) private var coachWorkspace
     @State private var store = AccountStore()
+    @State private var purchases = PurchaseStore()
     @State private var editingName = false
     @State private var nameDraft = ""
     @State private var linksOpen = false
@@ -40,16 +43,20 @@ struct AccountScreen: View {
 
                     identity
 
-                    group("Your game") {
-                        linkRow("My stats", value: "stats")
-                        rowDivider
-                        linkRow("Tactics", value: "stats-tactics")
-                        rowDivider
-                        linkRow("Starred points", value: "starred")
-                        rowDivider
-                        navRow("Player profile") { profileOpen = true }
-                        rowDivider
-                        recollectRow
+                    // The playing side's rooms. On the coaching side they
+                    // are one switch away, not on this page.
+                    if app.workspace != .coach {
+                        group("Your game") {
+                            linkRow("My stats", value: "stats")
+                            rowDivider
+                            linkRow("Tactics", value: "stats-tactics")
+                            rowDivider
+                            linkRow("Starred points", value: "starred")
+                            rowDivider
+                            navRow("Player profile") { profileOpen = true }
+                            rowDivider
+                            recollectRow
+                        }
                     }
 
                     group("Public links") {
@@ -64,8 +71,15 @@ struct AccountScreen: View {
                                     .font(.plRowTitle)
                                     .foregroundStyle(PL.text100)
                                 let matches = Set(store.shareLinks.compactMap(\.matchId)).count
+                                let journal = store.shareLinks.contains { $0.kind == "entry" }
                                 if matches > 0 {
-                                    Text("Across \(matches) match\(matches == 1 ? "" : "es")")
+                                    Text(journal
+                                        ? "Across \(matches) match\(matches == 1 ? "" : "es") and your journal"
+                                        : "Across \(matches) match\(matches == 1 ? "" : "es")")
+                                        .font(.plCaption)
+                                        .foregroundStyle(PL.text500)
+                                } else if journal {
+                                    Text("From your journal")
                                         .font(.plCaption)
                                         .foregroundStyle(PL.text500)
                                 }
@@ -79,12 +93,24 @@ struct AccountScreen: View {
                         .padding(16)
                     }
 
-                    coachingSection
+                    // Your coaches are a playing-side thing, like Your
+                    // game: on the coaching side they are one switch away.
+                    if app.workspace != .coach {
+                        coachingSection
+                    }
 
-                    if store.commerceEnabled {
+                    if store.commerceEnabled && app.workspace != .coach {
                         minutesSection
                         storageSection
+                        if let message = purchases.errorMessage {
+                            Text(message)
+                                .font(.plCaption)
+                                .foregroundStyle(PL.text400)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
+
+                    profileTypeSection
 
                     group("Support") {
                         linkRow("How-to guides", value: "learn")
@@ -136,6 +162,16 @@ struct AccountScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .plKeyboardDismiss()
         .task { await store.load(userId: app.userId) }
+        .task {
+            // The balance on screen has to move when a purchase lands,
+            // including one that completes minutes later through an
+            // approved Ask to Buy.
+            purchases.onGranted = { [weak store] in
+                await store?.load(userId: app.userId)
+            }
+            await purchases.load()
+            purchases.startListening()
+        }
         .sheet(isPresented: $linksOpen) {
             ShareLinksManager(store: store)
                 .presentationDetents([.medium, .large])
@@ -272,6 +308,33 @@ struct AccountScreen: View {
         .padding(16)
     }
 
+    /// The two sides of the account, in one place on both sides, right
+    /// above Support — the same group in the same spot as the web's
+    /// Account page. It used to be the first row of the Coaching group
+    /// here and lived in two different groups on the web, so the same
+    /// row had three homes (Adil, 2026-09-02).
+    private var profileTypeSection: some View {
+        // The coaching workspace offers itself to anyone with coach data:
+        // an accepted student, a roster, a coach page, or the onboarding
+        // answer. Adding a student inside the workspace keeps it open.
+        let coachEligible = app.workspace == .coach
+            || coaching.isCoach
+            || coaching.coachesAnyone
+            || !coachWorkspace.students.isEmpty
+            || app.metadataFlag("is_coach")
+        return group("Profile type") {
+            // Always a row: the way back from the coaching side, the way in
+            // for an account with coach data, and "Set up coach mode" for a
+            // plain player deciding to coach — entering stamps the flag,
+            // so it is a door and not a dead end (web has the same).
+            navRow(app.workspace == .coach
+                   ? "Switch to player mode"
+                   : coachEligible ? "Switch to coach mode" : "Set up coach mode") {
+                app.setWorkspace(app.workspace == .coach ? .player : .coach)
+            }
+        }
+    }
+
     /// The free half of coaching, rehomed here from the old Coaching tab:
     /// who can watch your matches, and the invite that adds someone. Same
     /// idea as Public links, one card up — paid coaching stays on the web
@@ -330,6 +393,41 @@ struct AccountScreen: View {
                     .lineSpacing(3)
             }
             .padding(16)
+            packRows(purchases.minutePacks)
+        }
+    }
+
+    /// The buy rows under a balance. Empty unless in-app purchase is
+    /// switched on server-side AND Apple returned the products, so a
+    /// half-configured store shows nothing rather than a button that
+    /// cannot work.
+    @ViewBuilder
+    private func packRows(_ packs: [BuyablePack]) -> some View {
+        ForEach(packs) { pack in
+            if let product = purchases.products[pack.productId] {
+                rowDivider
+                HStack(spacing: 12) {
+                    Text(pack.label)
+                        .font(.plRowTitle)
+                        .foregroundStyle(PL.text100)
+                    Spacer()
+                    Button {
+                        Task { await purchases.buy(pack) }
+                    } label: {
+                        // Apple's own price string: already localised, in
+                        // the customer's currency, and the number the
+                        // payment sheet will actually show.
+                        Text(purchases.busyKey == pack.key ? "…" : product.displayPrice)
+                            .font(.plButtonSecondary)
+                            .monospacedDigit()
+                    }
+                    .buttonStyle(PLSecondaryButtonStyle())
+                    .disabled(purchases.busyKey != nil)
+                    .opacity(purchases.busyKey != nil && purchases.busyKey != pack.key ? 0.5 : 1)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
         }
     }
 
@@ -363,6 +461,7 @@ struct AccountScreen: View {
                     .lineSpacing(3)
             }
             .padding(16)
+            packRows(purchases.storagePacks)
         }
     }
 
@@ -482,37 +581,7 @@ struct CoachLinksManager: View {
                     .foregroundStyle(PL.text500)
             }
             ScrollView {
-                VStack(spacing: 10) {
-                    ForEach(coaching.coachLinks) { link in
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(link.status == "accepted" ? "Coach connected" : "Invite pending")
-                                    .font(.plRowTitle)
-                                    .foregroundStyle(PL.text100)
-                                Text(link.scopeMatchId == nil ? "All matches" : "One match")
-                                    .font(.plCaption)
-                                    .foregroundStyle(PL.text500)
-                            }
-                            Spacer()
-                            if link.status != "accepted", let token = link.inviteToken,
-                               let url = URL(string: "https://www.ponglens.com/coach-invite/\(token)") {
-                                ShareLink(item: url) {
-                                    Text("Copy link")
-                                        .font(.plButtonSecondary)
-                                        .foregroundStyle(PL.text300)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
-                                }
-                            }
-                            Button("Remove") {
-                                Task { await coaching.revokeLink(link) }
-                            }
-                            .buttonStyle(PLSoftDestructiveButtonStyle())
-                        }
-                        .plInnerRow()
-                    }
-                }
+                CoachAccessList()
             }
         }
         .padding(24)
@@ -612,14 +681,17 @@ struct PlayerProfileSheet: View {
             let handedness: String?
             let grip: String?
             let level: String?
+            let setup_done_at: String
         }
         _ = try? await supa
             .from("player_profiles")
             .upsert(Upsert(
                 user_id: uid.uuidString.lowercased(),
-                handedness: handedness, grip: grip, level: level
+                handedness: handedness, grip: grip, level: level,
+                setup_done_at: ISO8601DateFormatter().string(from: Date())
             ))
             .execute()
+        app.playerSetupPending = false
         saving = false
         dismiss()
     }

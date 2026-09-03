@@ -186,6 +186,11 @@ export interface Match {
   // pre-048 matches — the app falls back to the per-strictness table
   // (clipEdit.ts CLIP_PAD, the values those older clips were cut with).
   clip_pads?: { pre: number; post: number } | null;
+  // Game scores the player called out at the phone while recording (iOS
+  // "Call out the score", 152). What the player SAID, kept apart from the
+  // scores derived from points; "you" is the uploader's own score. Only
+  // fully-heard games are stored.
+  spoken_scores?: { game: number; you: number; them: number }[] | null;
   // Placement generation is optional and may fail without failing the match.
   placement_status: MatchPlacementStatus;
   placement_retry_count: 0 | 1;
@@ -427,6 +432,10 @@ export interface Point {
   // rule can't prove because a cut ate points (a game pinned closed at
   // 10-7 counted for nobody). Cleared with the 'end' it belongs to.
   game_winner_override: "user" | "opponent" | null;
+  // Owner hid the detected side-change marker that sits after this point
+  // (146). DISPLAY ONLY — never read by the boundary walk in gameScore.ts
+  // and never part of a score. See sideChanges.ts.
+  side_change_dismissed: boolean;
 }
 
 // Returned by the player_coach_links() RPC (player's own sharing links,
@@ -434,7 +443,10 @@ export interface Point {
 export interface CoachLinkRow {
   id: string;
   invite_token: string;
+  coach_id: string | null;
   scope_match_id: string | null;
+  /** With scope_match_id null: every match, or only the ones shared (161). */
+  all_matches: boolean;
   status: "pending" | "accepted" | "revoked";
   coach_name: string | null;
   coach_email: string | null;

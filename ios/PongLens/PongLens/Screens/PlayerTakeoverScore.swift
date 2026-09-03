@@ -422,6 +422,85 @@ extension PlayerTakeover {
     /// The sheet grows by the "who won it?" block, which only a score the
     /// rule cannot decide gets. One detent sized for the taller case leaves
     /// a band of empty sheet under the common one.
+    /// The detected side change, tapped in the ticker (140/146).
+    ///
+    /// Two answers and a way out. "Game ended here" runs pinEndAt, the
+    /// same call every other Game-ended path makes, so a game ended from
+    /// a marker is indistinguishable afterwards from one ended by the flag
+    /// button — the detector never gets a private route into the score.
+    @ViewBuilder
+    func sideChangeSheet(_ point: MatchPoint) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("The players changed ends here")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(PL.text100)
+            Text("This usually means the game ended.")
+                .font(.plBody)
+                .foregroundStyle(PL.text400)
+                .padding(.top, 4)
+
+            Divider().overlay(PL.edge).padding(.vertical, 18)
+
+            Button {
+                sideChangeBreak = nil
+                pinEndAt(point)
+                showFlash("Game ended")
+            } label: {
+                sideChangeAction(
+                    icon: "flag.fill",
+                    title: "Game ended here",
+                    detail: "Closes the game at this rally",
+                    tint: PL.cyan
+                )
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                sideChangeBreak = nil
+                Task { await model.dismissSideChange(point) }
+                showFlash("Hidden")
+            } label: {
+                sideChangeAction(
+                    icon: "eye.slash",
+                    title: "They just changed ends",
+                    detail: "Hides this marker, nothing else",
+                    tint: PL.text200
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 10)
+
+            Spacer(minLength: 0)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func sideChangeAction(
+        icon: String, title: String, detail: String, tint: Color
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 14, weight: .semibold))
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PL.text500)
+            }
+            Spacer()
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(PL.ink.opacity(0.45), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(PL.edge, lineWidth: 1)
+        )
+    }
+
     func gameBreakSheetHeight(_ brk: GameBreak) -> CGFloat {
         gameWinner(GameSummary(you: brk.you, them: brk.them, winnerOverride: nil)) == nil
             ? 360 : 250

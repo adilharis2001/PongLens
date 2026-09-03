@@ -103,6 +103,7 @@ export function PlayerProfileSection({
         ...next,
         fh_rubber_name: next.fh_rubber_name?.trim() || null,
         bh_rubber_name: next.bh_rubber_name?.trim() || null,
+        setup_done_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" }

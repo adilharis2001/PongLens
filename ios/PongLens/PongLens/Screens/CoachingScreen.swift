@@ -296,49 +296,21 @@ struct CoachingScreen: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .plCard(padding: 18)
             } else {
-                VStack(spacing: 10) {
-                    ForEach(coaching.coachLinks) { link in
-                        HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(link.status == "accepted" ? "Coach connected" : "Invite pending")
-                                    .font(.plRowTitle)
-                                    .foregroundStyle(PL.text100)
-                                Text(link.scopeMatchId == nil ? "All matches" : "One match")
-                                    .font(.plCaption)
-                                    .foregroundStyle(PL.text500)
-                            }
-                            Spacer()
-                            if link.status != "accepted", let token = link.inviteToken,
-                               let url = URL(string: "https://www.ponglens.com/coach-invite/\(token)") {
-                                ShareLink(item: url) {
-                                    Text("Copy link")
-                                        .font(.plButtonSecondary)
-                                        .foregroundStyle(PL.text300)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 6)
-                                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
-                                }
-                            }
-                            Button("Remove") {
-                                Task { await coaching.revokeLink(link) }
-                            }
-                            .buttonStyle(PLSoftDestructiveButtonStyle())
-                        }
-                        .plInnerRow()
-                    }
-                }
+                CoachAccessList()
             }
         }
     }
 }
 
-/// The all-matches coach invite (the match-scoped variant lives on the
-/// match page's Tools). The QR is for handing your phone to the coach at
-/// the table — same link, no typing.
+/// The coach invite from the Coaching tab (the match-scoped variant lives
+/// on the match page's Tools): all matches, or only the ones shared later
+/// from a match page (161). The QR is for handing your phone to the coach
+/// at the table — same link, no typing.
 struct AllMatchesCoachInvite: View {
     @Environment(AppState.self) private var app
     @Environment(CoachingStore.self) private var coaching
     @Environment(\.dismiss) private var dismiss
+    @State private var allMatches = true
     @State private var link: URL?
     @State private var creating = false
     @State private var errorMessage: String?
@@ -371,10 +343,17 @@ struct AllMatchesCoachInvite: View {
                                 .listRowBackground(Color.clear)
                         }
                     } footer: {
-                        Text("They can watch all your matches, point by point, and leave coach notes.")
+                        Text(allMatches
+                             ? "They can watch all your matches, point by point, and leave coach notes."
+                             : "They can watch the matches you share with them, point by point, and leave coach notes.")
                     }
                 } else {
                     Section {
+                        Picker("Access", selection: $allMatches) {
+                            Text("All my matches").tag(true)
+                            Text("Only matches I share").tag(false)
+                        }
+                        .pickerStyle(.segmented)
                         Button(creating ? "Creating…" : "Create invite link") {
                             Task { await create() }
                         }
@@ -385,7 +364,9 @@ struct AllMatchesCoachInvite: View {
                                 .foregroundStyle(PL.dangerText)
                         }
                     } footer: {
-                        Text("They can watch all your matches, point by point, and leave coach notes.")
+                        Text(allMatches
+                             ? "Every match, including future uploads. You can change this later under Your coaches."
+                             : "You share each match from its page. You can change this later under Your coaches.")
                     }
                 }
             }
@@ -408,12 +389,13 @@ struct AllMatchesCoachInvite: View {
         errorMessage = nil
         struct Insert: Encodable {
             let player_id: String
+            let all_matches: Bool
         }
         struct TokenRow: Decodable { let invite_token: String }
         do {
             let row: TokenRow = try await supa
                 .from("coach_links")
-                .insert(Insert(player_id: uid.uuidString.lowercased()))
+                .insert(Insert(player_id: uid.uuidString.lowercased(), all_matches: allMatches))
                 .select("invite_token")
                 .single()
                 .execute()

@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
-import { getCommerceEnabled } from "@/lib/config";
 import { createClient } from "@/lib/supabase/server";
 import type {
   CoachProfileRow,
@@ -10,6 +9,8 @@ import type {
 } from "@/lib/reviews/types";
 import type { NoteFeedRow } from "@/lib/types";
 import { CoachHub } from "./CoachHub";
+import type { CoachFirstStepsState } from "./CoachFirstSteps";
+import { rememberedWorkspace } from "@/lib/workspaceServer";
 
 export const metadata: Metadata = {
   title: "Coaching",
@@ -17,9 +18,11 @@ export const metadata: Metadata = {
 };
 
 /**
- * The Coaching tab: the whole coaching world in one place. Coaches get
- * their workspace; everyone gets their coaches and the reviews they've
- * bought. The public storefront stays at /coach/<handle>.
+ * The coaching home. On the coaching side: today's work — a short read of
+ * the order queue, the roster and the latest entries — with the
+ * marketplace one tab over at /coaching/orders. On the playing side: your
+ * coaches and the reviews you've bought. The public storefront stays at
+ * /coach/<handle>.
  */
 export default async function CoachingPage() {
   const supabase = await createClient();
@@ -32,10 +35,6 @@ export default async function CoachingPage() {
     (user.user_metadata?.avatar_url as string | undefined) ??
     (user.user_metadata?.picture as string | undefined) ??
     null;
-  const defaultName =
-    (user.user_metadata?.full_name as string | undefined) ??
-    (user.user_metadata?.name as string | undefined) ??
-    "";
 
   const { data: profile } = await supabase
     .from("coach_profiles")
@@ -49,9 +48,6 @@ export default async function CoachingPage() {
     offeringsRes,
     studentRes,
     notesRes,
-    linksRes,
-    opensRes,
-    coachedRes,
   ] = await Promise.all([
     profile ? supabase.rpc("coach_queue") : Promise.resolve({ data: [] }),
     profile
@@ -65,70 +61,55 @@ export default async function CoachingPage() {
       : Promise.resolve({ count: 0 }),
     supabase.rpc("student_review_orders"),
     supabase.rpc("note_feed", { p_limit: 30 }),
-    // Whether this user has coaches of their own — it decides if the tab
-    // needs the coach/player view switch at all.
-    supabase
-      .from("coach_links")
-      .select("id", { count: "exact", head: true })
-      .eq("player_id", user.id)
-      .neq("status", "revoked"),
-    // Storefront opens this week (RLS scopes to own rows).
-    profile
-      ? supabase
-          .from("coach_page_views")
-          .select("id", { count: "exact", head: true })
-          .gte(
-            "viewed_at",
-            new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(),
-          )
-      : Promise.resolve({ count: 0 }),
-    // The free-to-paid signal: notes this user left on other players'
-    // matches. Only worth asking when they have no coach page yet.
-    !profile
-      ? supabase
-          .from("notes")
-          .select("match_id, matches!inner(user_id)")
-          .eq("author_id", user.id)
-          .limit(300)
-      : Promise.resolve({ data: [] }),
   ]);
 
-  const coachedNoteOwners = (
-    (coachedRes.data ?? []) as Array<{
-      matches: { user_id: string } | { user_id: string }[];
-    }>
-  )
-    .flatMap((r) => (Array.isArray(r.matches) ? r.matches : [r.matches]))
-    .map((m) => m.user_id)
-    .filter((id) => id !== user.id);
-  const coachedOwners = new Set(coachedNoteOwners);
+  const { workspace } = await rememberedWorkspace();
 
-  // Sponsored reviews left (096), shown as a top-line number on the hub.
-  // The free allowance lands lazily on first use, so an untouched ledger
-  // means the allowance is still waiting, not spent.
-  let sponsoredLeft: number | null = null;
-  if (profile && (await getCommerceEnabled())) {
-    const [{ data: creditRows }, { data: freeRow }] = await Promise.all([
-      supabase.from("sponsored_credit_ledger").select("credits, kind"),
+  // The coach's first-steps checklist, derived from product state (the
+  // same way the dashboard's is). Only asked for on the coaching side.
+  let firstSteps: CoachFirstStepsState | null = null;
+  if (workspace === "coach") {
+    const [studentsRes, invitesRes, entriesRes, sharedRes] = await Promise.all([
       supabase
-        .from("app_config")
-        .select("value")
-        .eq("key", "sponsored_free_credits")
-        .maybeSingle(),
+        .from("coach_students")
+        .select("id, player_id")
+        .eq("coach_id", user.id)
+        .is("archived_at", null)
+        .order("created_at", { ascending: true })
+        .limit(50),
+      supabase.from("coach_student_invites").select("id").limit(1),
+      supabase
+        .from("coach_entries")
+        .select("shared_at")
+        .eq("coach_id", user.id)
+        .limit(100),
+      supabase.from("matches").select("id").neq("user_id", user.id).limit(1),
     ]);
-    const rows = creditRows ?? [];
-    const sum = rows.reduce((s, r) => s + (r.credits ?? 0), 0);
-    const hasGrant = rows.some((r) => r.kind === "grant");
-    const free = Number(freeRow?.value ?? "3");
-    sponsoredLeft =
-      sum + (hasGrant ? 0 : Number.isFinite(free) && free > 0 ? free : 0);
+    const students = (studentsRes.data ?? []) as {
+      id: string;
+      player_id: string | null;
+    }[];
+    const entries = (entriesRes.data ?? []) as { shared_at: string | null }[];
+    firstSteps = {
+      dismissed: user.user_metadata?.coach_first_steps_dismissed === true,
+      studentCount: students.length,
+      firstStudentId: students[0]?.id ?? null,
+      invited:
+        (invitesRes.data?.length ?? 0) > 0 ||
+        students.some((s) => s.player_id !== null),
+      entryCount: entries.length,
+      anyShared: entries.some((e) => e.shared_at !== null),
+      sharedMatchId: (sharedRes.data?.[0] as { id: string } | undefined)?.id ?? null,
+      hasPage: !!profile,
+      watched: user.user_metadata?.tutorial_started === true,
+    };
   }
 
   return (
-    <AppShell avatarUrl={avatarUrl} wide>
+    <AppShell avatarUrl={avatarUrl}>
       <CoachHub
+        workspace={workspace}
         profile={(profile as CoachProfileRow | null) ?? null}
-        sponsoredLeft={sponsoredLeft}
         initialQueue={queueRes.data ?? []}
         stats={
           statsRes.data ?? {
@@ -144,15 +125,8 @@ export default async function CoachingPage() {
         coachNotes={((notesRes.data ?? []) as NoteFeedRow[]).filter(
           (n) => n.match_owner_id === user.id && n.author_id !== user.id,
         )}
-        hasCoachLinks={(linksRes.count ?? 0) > 0}
-        pageOpens7d={(opensRes as { count: number | null }).count ?? 0}
-        nudgePlayerCount={coachedOwners.size}
-        nudgeNoteCount={coachedNoteOwners.length}
-        nudgeDismissed={
-          user.user_metadata?.pl_coach_nudge_dismissed === true
-        }
         userId={user.id}
-        defaultName={defaultName}
+        firstSteps={firstSteps}
       />
     </AppShell>
   );

@@ -10,6 +10,8 @@ import { MEDIA_BUCKET, getObject } from "@/lib/r2";
 import { requireAdmin } from "../../requireAdmin";
 import { UploadView } from "./UploadView";
 import type { MatchJson, UploadDetail } from "../uploadView";
+import { hydrateServeMissData, type ServeMissData } from "../serveMiss";
+import { readCards, type TrackArtifact } from "../pointReadings";
 
 export const metadata: Metadata = {
   title: "Upload",
@@ -46,6 +48,74 @@ async function readMatchJson(path: string | null): Promise<MatchJson | null> {
   }
 }
 
+/**
+ * The per-card serve diagnosis, if one has been written for this match.
+ *
+ * Two places, in order. Production writes it beside match.json, so a match
+ * processed since the worker learned to keeps its own copy. The research
+ * prefix is where the earlier offline pass left eleven of them, and reading
+ * it means those matches show the diagnosis today rather than after a
+ * reprocess.
+ *
+ * Absent is the ordinary case, not an error: the page simply does not offer
+ * the section.
+ */
+async function readServeMisses(
+  matchJsonPath: string | null,
+  matchId: string
+): Promise<ServeMissData | null> {
+  const prefix = `r2://${MEDIA_BUCKET}/`;
+  const keys: string[] = [];
+  if (matchJsonPath?.startsWith(prefix)) {
+    keys.push(
+      matchJsonPath.slice(prefix.length).replace(/match\.json$/, "serves.json")
+    );
+  }
+  keys.push(`research/crossings/${matchId}.serves.json`);
+  for (const key of keys) {
+    try {
+      const object = await getObject(MEDIA_BUCKET, key);
+      if (!object) continue;
+      return JSON.parse(
+        new TextDecoder().decode(object.body)
+      ) as ServeMissData;
+    } catch {
+      // A malformed or unreadable diagnosis costs the section, not the page.
+    }
+  }
+  return null;
+}
+
+/**
+ * The undecimated ball track, read on the SERVER.
+ *
+ * Written beside serves.json by the same publisher, so the two always
+ * describe the same cards. About 400 KB a match — fine for one server-side
+ * fetch, and the reason the winner rules run here rather than in the
+ * browser. The admin trail now receives only its time/x/y rows; confidence
+ * stays server-side with the winner rules. Absent on any match diagnosed
+ * before the worker wrote it, which costs full-rate drawing and the two
+ * rules that need a track, while the thinned serves.json trail still works.
+ */
+async function readTracks(
+  matchJsonPath: string | null
+): Promise<TrackArtifact | null> {
+  const prefix = `r2://${MEDIA_BUCKET}/`;
+  if (!matchJsonPath?.startsWith(prefix)) return null;
+  const key = matchJsonPath
+    .slice(prefix.length)
+    .replace(/match\.json$/, "tracks.json");
+  try {
+    const object = await getObject(MEDIA_BUCKET, key);
+    if (!object) return null;
+    return JSON.parse(
+      new TextDecoder().decode(object.body)
+    ) as TrackArtifact;
+  } catch {
+    return null;
+  }
+}
+
 export default async function AdminUploadPage({
   params,
 }: {
@@ -54,22 +124,57 @@ export default async function AdminUploadPage({
   const { matchId } = await params;
   const { supabase, avatarUrl } = await requireAdmin();
 
-  const { data, error } = await supabase.rpc("admin_upload_detail", {
-    p_match_id: matchId,
-  });
+  const [{ data, error }, themesRes, evidenceRes, labelsRes] =
+    await Promise.all([
+      supabase.rpc("admin_upload_detail", { p_match_id: matchId }),
+      // The shared vocabulary, fetched once for the page rather than per
+      // card — every card's picker offers the same list.
+      supabase.rpc("admin_themes_list"),
+      // The touches and the worker's own call, for the winner rules (151).
+      supabase.rpc("admin_point_evidence", { p_match_id: matchId }),
+      // The admin's stored event corrections (154), so a label filed last
+      // week is still on its dot today.
+      supabase.rpc("admin_event_labels", { p_match_id: matchId }),
+    ]);
   if (error || !data) notFound();
   const detail = data as UploadDetail;
+  const themes = (themesRes.data ?? []) as {
+    id: string;
+    label: string;
+    points: number;
+  }[];
 
   // The three playback flags come from app_config on the server, exactly as
   // the match page reads them. Hardcoding them would make the admin watch
   // different boundaries from the owner, which is the one thing this page
   // must not do.
-  const [matchJson, tapEnd, rallyEndOn, rallyEndBufferS] = await Promise.all([
-    readMatchJson(detail.match.match_json_path),
-    getTapEndPlayback(),
-    getUnscoredRallyEnd(),
-    getUnscoredRallyEndBufferS(),
-  ]);
+  const [matchJson, serveMisses, tracks, tapEnd, rallyEndOn, rallyEndBufferS] =
+    await Promise.all([
+      readMatchJson(detail.match.match_json_path),
+      readServeMisses(detail.match.match_json_path, matchId),
+      readTracks(detail.match.match_json_path),
+      getTapEndPlayback(),
+      getUnscoredRallyEnd(),
+      getUnscoredRallyEndBufferS(),
+    ]);
+
+  // The three winner rules, asked here rather than in the browser: the
+  // candidates and the track together are most of a megabyte, and only the
+  // verdicts are worth sending.
+  const { readings, summary } = readCards({
+    detail,
+    evidence: evidenceRes.data ?? [],
+    matchJson,
+    tracks,
+  });
+  const hydratedServeMisses = serveMisses
+    ? hydrateServeMissData(
+        serveMisses,
+        tracks,
+        matchJson?.source?.fps,
+        matchJson
+      )
+    : null;
 
   return (
     <>
@@ -83,6 +188,17 @@ export default async function AdminUploadPage({
         <UploadView
           detail={detail}
           matchJson={matchJson}
+          serveMisses={hydratedServeMisses}
+          readings={readings}
+          readingSummary={summary}
+          themes={themes.map((t) => ({ id: t.id, label: t.label }))}
+          eventLabels={((labelsRes.data ?? []) as {
+            t: number | string;
+            label: string;
+          }[]).map((l) => ({
+            t: Number(l.t),
+            label: l.label as import("../serveMiss").BounceLabel,
+          }))}
           ends={{
             tapEnd,
             rallyEnd: { on: rallyEndOn, bufferS: rallyEndBufferS },

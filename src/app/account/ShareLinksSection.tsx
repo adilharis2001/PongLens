@@ -14,8 +14,9 @@ import { deriveMatchTitleParts } from "@/lib/matchTitle";
 
 interface ShareLinkRow {
   id: string;
-  kind: "point" | "match" | "starred" | "tag";
-  match_id: string;
+  kind: "point" | "match" | "starred" | "tag" | "entry";
+  /** null on journal entry links (154) — they name a lesson, not a match */
+  match_id: string | null;
   point_id: string | null;
   token: string;
   title: string | null;
@@ -29,8 +30,14 @@ function kindLabel(kind: ShareLinkRow["kind"]) {
       ? "Starred points"
       : kind === "tag"
         ? "Tagged points"
-        : "Match";
+        : kind === "entry"
+          ? "Journal entry"
+          : "Match";
 }
+
+// Journal entry links have no match to group under; they share one
+// "Journal" group at the end of the list.
+const JOURNAL_GROUP = "journal";
 
 export function ShareLinksSection() {
   const [links, setLinks] = useState<ShareLinkRow[] | null>(null);
@@ -50,7 +57,9 @@ export function ShareLinksSection() {
       .order("created_at", { ascending: false });
     const rows = (data ?? []) as ShareLinkRow[];
     setLinks(rows);
-    const matchIds = [...new Set(rows.map((l) => l.match_id))];
+    const matchIds = [
+      ...new Set(rows.map((l) => l.match_id).filter((id): id is string => id !== null)),
+    ];
     if (matchIds.length > 0) {
       const { data: matches } = await supabase
         .from("matches")
@@ -119,19 +128,26 @@ export function ShareLinksSection() {
     }
   }, []);
 
-  // Group by match so the expanded list reads by opponent, not a flat wall.
+  // Group by match so the expanded list reads by opponent, not a flat
+  // wall. Journal entry links pool into one "Journal" group at the end.
   const groups = useMemo(() => {
     const map = new Map<string, ShareLinkRow[]>();
     for (const l of links ?? []) {
-      const arr = map.get(l.match_id) ?? [];
+      const key = l.match_id ?? JOURNAL_GROUP;
+      const arr = map.get(key) ?? [];
       arr.push(l);
-      map.set(l.match_id, arr);
+      map.set(key, arr);
     }
-    return [...map.entries()];
+    const entries = [...map.entries()];
+    entries.sort((a, b) =>
+      a[0] === JOURNAL_GROUP ? 1 : b[0] === JOURNAL_GROUP ? -1 : 0
+    );
+    return entries;
   }, [links]);
 
   const count = links?.length ?? 0;
-  const matchCount = groups.length;
+  const matchCount = groups.filter(([key]) => key !== JOURNAL_GROUP).length;
+  const journalCount = (links ?? []).filter((l) => l.kind === "entry").length;
 
   return (
     <section>
@@ -167,7 +183,11 @@ export function ShareLinksSection() {
                 {count} active link{count === 1 ? "" : "s"}
               </p>
               <p className="mt-0.5 text-xs text-zinc-500">
-                Across {matchCount} match{matchCount === 1 ? "" : "es"}
+                {matchCount > 0 && journalCount > 0
+                  ? `Across ${matchCount} match${matchCount === 1 ? "" : "es"} and your journal`
+                  : matchCount > 0
+                    ? `Across ${matchCount} match${matchCount === 1 ? "" : "es"}`
+                    : "From your journal"}
               </p>
             </div>
             <button
@@ -186,7 +206,9 @@ export function ShareLinksSection() {
                 {groups.map(([matchId, rows]) => (
                   <div key={matchId}>
                     <p className="px-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                      {matchNames.get(matchId) ?? "Match"}
+                      {matchId === JOURNAL_GROUP
+                        ? "Journal"
+                        : (matchNames.get(matchId) ?? "Match")}
                     </p>
                     <ul className="mt-2 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
                       {rows.map((link) => (

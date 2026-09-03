@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { Point } from "@/lib/types";
 import type { ServeInfo } from "../../../match/[id]/serving";
 import {
@@ -14,6 +15,18 @@ import {
   pointFlags,
   type UploadPointRow,
 } from "../uploadView";
+import {
+  reasonShort,
+  reasonTone,
+  type BounceLabel,
+  type MissBounce,
+  type MissCard,
+  type ServeMissData,
+} from "../serveMiss";
+import type { CardReading } from "../pointReadings";
+import { CardFacts } from "./CardFacts";
+import { CardReview, type Theme } from "./CardReview";
+import { ServeMissView } from "./ServeMissView";
 
 /**
  * One card, as the owner sees it plus what the machine did to make it.
@@ -38,7 +51,22 @@ export function PointCard({
   pad,
   ends,
   playable,
+  selected = false,
+  compact = false,
+  showAnalysis = true,
   onPlay,
+  miss,
+  missData,
+  eventLabels,
+  onEventLabel,
+  reading,
+  cutOffset,
+  videoUrl,
+  review,
+  vocabulary,
+  onNoteChange,
+  onThemeToggle,
+  onThemeCreated,
 }: {
   row: UploadPointRow;
   serve: ServeInfo | null;
@@ -49,8 +77,39 @@ export function PointCard({
   pad: ClipPad;
   ends: EndOptions;
   playable: boolean;
+  /** Drawn as the current card, when a pane beside the list is showing it. */
+  selected?: boolean;
+  /** The list is an INDEX, not the work: beside a pane that repeats every
+   *  fact in full, a card only needs enough to pick it out. Dropping the
+   *  gap and the flags here takes a card from four wrapped lines to two,
+   *  which is the difference between seeing three cards and seeing eight. */
+  compact?: boolean;
+  /** Whether this card may expand its own evidence. False on a laptop,
+   *  where the pane beside the list owns it — two players of the same
+   *  rally, side by side, is the failure mode. */
+  showAnalysis?: boolean;
   onPlay: () => void;
+  /** Why this card was built with no serve. Absent on a card that has one,
+   *  and on every match with no diagnosis written for it. */
+  miss?: MissCard | null;
+  missData?: ServeMissData | null;
+  /** The admin's event corrections and how to file one (154). */
+  eventLabels?: ReadonlyMap<string, BounceLabel>;
+  onEventLabel?: (bounce: MissBounce, label: BounceLabel | null) => void;
+  /** Every rule's answer for this card. Null on a match with no placement,
+   *  or one processed before any of it was recorded. */
+  reading?: CardReading | null;
+  cutOffset?: number | null;
+  videoUrl?: string | null;
+  /** The operator's note and themes for this card. Only rendered where the
+   *  list owns the expansion — on a laptop the pane holds it instead. */
+  review?: { note: string; themeIds: string[] } | null;
+  vocabulary?: Theme[];
+  onNoteChange?: (pointId: string, body: string) => void;
+  onThemeToggle?: (pointId: string, themeId: string, on: boolean) => void;
+  onThemeCreated?: (theme: Theme) => void;
 }) {
+  const [openMiss, setOpenMiss] = useState(false);
   const flags = pointFlags(row);
   const gap = gapLabel(row.gapBeforeS);
 
@@ -78,12 +137,18 @@ export function PointCard({
         type="button"
         onClick={onPlay}
         disabled={!playable}
-        className={`flex w-full items-center gap-3 rounded-2xl border border-edge bg-surface p-4 text-left transition-colors ${
-          playable ? "hover:border-cyan-glow/40" : "cursor-default"
+        className={`flex w-full items-center gap-2.5 rounded-xl border bg-surface text-left transition-colors ${
+          compact ? "px-3 py-2" : "p-4"
+        } ${
+          selected ? "border-cyan-glow/70" : "border-edge"
+        } ${playable && !selected ? "hover:border-cyan-glow/40" : ""} ${
+          playable ? "" : "cursor-default"
         } ${row.deleted ? "opacity-60" : ""}`}
       >
         <span
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-medium tabular-nums ${
+          className={`flex shrink-0 items-center justify-center rounded-full font-medium tabular-nums ${
+            compact ? "h-6 w-6 text-xs" : "h-9 w-9 text-sm"
+          } ${
             row.deleted
               ? "bg-surface-2 text-zinc-600"
               : "bg-surface-2 text-zinc-300"
@@ -95,16 +160,32 @@ export function PointCard({
         <span className="min-w-0 flex-1">
           {/* What the owner sees */}
           <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className={`text-sm font-medium ${outcome.tone}`}>
+            <span
+              className={`font-medium ${compact ? "text-xs" : "text-sm"} ${outcome.tone}`}
+            >
               {outcome.label}
             </span>
             {serve?.server && (
-              <span className="text-sm text-zinc-500">
+              <span
+                className={`truncate text-zinc-500 ${compact ? "text-xs" : "text-sm"}`}
+              >
                 {serve.server === "user" ? names.user : names.opponent} served
               </span>
             )}
-            {row.starred && <span className="text-sm text-cyan-glow">★</span>}
-            {row.notes > 0 && (
+            {review && (review.note || review.themeIds.length > 0) && (
+              <span
+                className={compact ? "text-xs text-cyan-glow" : "text-sm text-cyan-glow"}
+                title="Reviewed"
+              >
+                ✎
+              </span>
+            )}
+            {row.starred && (
+              <span className={compact ? "text-xs text-cyan-glow" : "text-sm text-cyan-glow"}>
+                ★
+              </span>
+            )}
+            {row.notes > 0 && !compact && (
               <span className="text-sm text-zinc-500">
                 {row.notes} {row.notes === 1 ? "note" : "notes"}
               </span>
@@ -118,13 +199,29 @@ export function PointCard({
               {formatClock(row.t0)} → {formatClock(row.t1)}
             </span>
             <span className="tabular-nums">{row.lengthS.toFixed(1)}s</span>
-            {gap && <span className="tabular-nums">{gap}</span>}
-            {trimmedS >= 0.1 && (
+            {gap && !compact && <span className="tabular-nums">{gap}</span>}
+            {trimmedS >= 0.1 && !compact && (
               <span className="tabular-nums text-cyan-glow/80">
                 {trimmedS.toFixed(1)}s trimmed
               </span>
             )}
-            {flags.map((f) => (
+            {miss &&
+              (typeof miss.serve_s === "number" ? (
+                <span className="rounded border border-edge px-1.5 py-px text-zinc-400">
+                  serve +{(miss.serve_s - row.t0).toFixed(1)}s
+                </span>
+              ) : (
+                <span
+                  className="rounded border px-1.5 py-px"
+                  style={{
+                    borderColor: `${reasonTone(miss.why.reason)}66`,
+                    color: reasonTone(miss.why.reason),
+                  }}
+                >
+                  no serve: {reasonShort(miss.why.reason)}
+                </span>
+              ))}
+            {(compact ? [] : flags).map((f) => (
               <span
                 key={f.label}
                 className={
@@ -139,7 +236,7 @@ export function PointCard({
           </span>
         </span>
 
-        {playable && (
+        {playable && !compact && (
           <svg
             viewBox="0 0 24 24"
             className="h-5 w-5 shrink-0 text-zinc-600"
@@ -150,6 +247,51 @@ export function PointCard({
           </svg>
         )}
       </button>
+
+      {showAnalysis && (
+        <div className="mt-1">
+          <button
+            type="button"
+            onClick={() => setOpenMiss((v) => !v)}
+            className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-400 transition-colors hover:text-white"
+          >
+            {openMiss
+              ? "Close"
+              : miss && missData
+                ? typeof miss.serve_s === "number"
+                  ? "Show the ball"
+                  : "Why no serve"
+                : "Add a note"}
+          </button>
+          {openMiss && (
+            <>
+              {reading && <CardFacts reading={reading} names={names} />}
+              {miss && missData && (
+                <ServeMissView
+                  data={missData}
+                  card={miss}
+                  cutOffset={cutOffset ?? 0}
+                  videoUrl={videoUrl ?? null}
+                  labels={eventLabels}
+                  onLabel={onEventLabel}
+                />
+              )}
+              {review && vocabulary && onNoteChange && onThemeToggle &&
+                onThemeCreated && (
+                  <CardReview
+                    pointId={row.id}
+                    note={review.note}
+                    themeIds={review.themeIds}
+                    vocabulary={vocabulary}
+                    onNoteChange={onNoteChange}
+                    onThemeToggle={onThemeToggle}
+                    onThemeCreated={onThemeCreated}
+                  />
+                )}
+            </>
+          )}
+        </div>
+      )}
     </li>
   );
 }

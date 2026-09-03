@@ -80,6 +80,10 @@ VENV_PY = f"{TTVID}/vendor/venv/bin/python"          # numpy+cv2 (+torch)
 BLURBALL_INFER = f"{TTVID}/vendor/blurball_infer.py"
 POINTS_PIPELINE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "points_pipeline.py")
+# Also under VENV_PY: it needs scipy, which the worker's own venv does not
+# carry and should not start carrying for one diagnostic row.
+CARD_AUDIO = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "card_audio.py")
 MATCH_STRUCTURE_SCRIPT = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "extract_match_structure_rtmpose.py",
@@ -1614,6 +1618,103 @@ def run_blurball(
         if code != 0:
             raise subprocess.CalledProcessError(code, BLURBALL_INFER)
     return blurball_out
+
+
+def detect_ball(
+    input_video: str,
+    workdir: str,
+    *,
+    attempt_key: str = "manual",
+    on_progress: Callable[[float], None] | None = None,
+    table_crop: bool = False,
+    corners: dict | None = None,
+) -> str:
+    """blurball.jsonl in the ORIGINAL video's coordinates, always.
+
+    `corners` short-circuits the calibration: a reprocess of a match that
+    already carries a trusted quad passes it through the job's
+    ball_crop_corners option instead of asking the keypoint detector
+    again. The free rung declines weak-but-consistent booth cameras by
+    design (Anton's PingPod frames all score 3.7-5.6 against the 6.0
+    inlier bar), and the paid rungs are deliberately never called from
+    here — so without this, a match whose original calibration came from
+    vision can never be re-detected with the crop.
+
+    With table_crop off this is run_blurball unchanged, which is what every
+    job does unless it asks otherwise.
+
+    With it on, the table is found FIRST, inference runs on a crop around
+    it, and the positions are shifted back before anyone else reads them.
+    The detector resizes every frame to 512x288, so a ball that was two
+    pixels across arrives at three and a half, and the neighbouring courts
+    are not in the picture to be found at all. Measured over four matches:
+    bounces on the uploader's own table up 24-143%, serves up 8-226%.
+
+    THE VIDEO ITSELF IS NEVER CROPPED. Only the detector sees the crop; the
+    cards, the clips and the geometry all still read the untouched file.
+    Cropping the video instead was tried and cuts the near player's legs
+    off on an end-on camera.
+
+    Fails open in every direction — no table, no usable box, a failed
+    encode — because a match processed on full-frame detections is the
+    outcome we have today, and a match that fails to process is not.
+    """
+    if not table_crop:
+        return run_blurball(input_video, workdir, attempt_key=attempt_key,
+                            on_progress=on_progress)
+    box = None
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import points_endon
+        from points_pipeline import keypoint_calibrate, probe
+        if corners:
+            log.info("  table crop: using the job's own corners")
+        else:
+            calib = keypoint_calibrate(input_video, workdir)
+            corners = (calib or {}).get("corners_px")
+        if corners:
+            meta = probe(input_video)
+            box = points_endon.ball_crop_box(
+                corners, meta["width"], meta["height"])
+        if box is None:
+            log.info("  table crop: no usable box, detecting on the full frame")
+    except Exception:                                       # noqa: BLE001
+        log.warning("  table crop: calibration failed, full frame",
+                    exc_info=True)
+        box = None
+    if box is None:
+        return run_blurball(input_video, workdir, attempt_key=attempt_key,
+                            on_progress=on_progress)
+
+    bx, by, bw, bh = box
+    cropped = os.path.join(workdir, "ball_crop.mp4")
+    log.info("  table crop: %dx%d at (%d,%d) for detection only", bw, bh, bx, by)
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", input_video,
+             "-vf", f"crop={bw}:{bh}:{bx}:{by}", "-an",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", cropped],
+            check=True, timeout=2 * 3600)
+    except Exception:                                       # noqa: BLE001
+        log.warning("  table crop: encode failed, full frame", exc_info=True)
+        return run_blurball(input_video, workdir, attempt_key=attempt_key,
+                            on_progress=on_progress)
+
+    raw_out = run_blurball(cropped, workdir, attempt_key=attempt_key,
+                           on_progress=on_progress)
+    import points_v2
+    shifted = os.path.join(workdir, "blurball.jsonl")
+    tmp = raw_out + ".crop"
+    os.replace(raw_out, tmp)
+    n = points_v2.shift_detections(tmp, shifted, float(bx), float(by))
+    log.info("  table crop: %d detections shifted back to full-frame "
+             "coordinates", n)
+    for path in (cropped, tmp):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    return shifted
 
 
 def run_cut(
@@ -3785,6 +3886,133 @@ def extract_thumb(clip_path: str, out_path: str, seek_s: float) -> bool:
                 pass
 
 
+def merge_card_audio(input_video: str, outdir: str) -> int:
+    """Add what the microphone heard to the assembler's evidence dump.
+
+    The portal draws four rows under each card — the ear, the ball
+    detector, the bounces it called, the serve it anchored. The last three
+    are already in the dump; this is the first, and it has to be measured
+    here because nothing downstream still has the audio on the assembler's
+    clock.
+
+    Handed `input_video`, which is the file the assembler was handed:
+    trimmed exactly as it was. Reading the stored raw instead would put
+    every impact `trim_start` seconds early on a trimmed upload, and the
+    error is invisible — the row simply lines up with the wrong rally.
+
+    About four seconds for a half-hour match, and no bearing on anything
+    the player sees, so a failure is logged and dropped. Returns the number
+    of impacts found, or 0.
+    """
+    dump = os.path.join(outdir, "evidence.json")
+    if not os.path.exists(dump):
+        return 0
+    out = os.path.join(outdir, "audio.json")
+    # The vendor interpreter, where scipy lives — the same one that runs
+    # blurball and the points pipeline. The worker's own environment has
+    # never carried the scientific stack and does not start here.
+    subprocess.run([VENV_PY, CARD_AUDIO, "--video", input_video,
+                    "--out", out], check=True, timeout=1800)
+    with open(out) as fh:
+        audio = json.load(fh)
+    with open(dump) as fh:
+        blob = json.load(fh)
+    blob["audio"] = audio
+    with open(dump, "w") as fh:
+        json.dump(blob, fh, separators=(",", ":"))
+    rate = len(audio["impacts"]) / max(audio["duration"], 1)
+    log.info("  card audio: %d impacts over %.0fs (%.1f/s)",
+             len(audio["impacts"]), audio["duration"], rate)
+    return len(audio["impacts"])
+
+
+def publish_card_diagnosis(outdir: str, key_prefix: str,
+                           serve_pad: str | None = None,
+                           serve_merge: str | None = None,
+                           blurball_out: str | None = None) -> int:
+    """Distil the assembler's evidence dump into the portal's per-card view.
+
+    Returns the bytes uploaded, or 0 when there was nothing to publish —
+    which is the ordinary case for a v1 match, an uncalibrated one, or any
+    upload whose assembler declined to run. Callers treat a missing file as
+    "no diagnosis for this match", never as a failure.
+
+    Deliberately the same builder the research page uses
+    (research_serve_misses.build), with include_all so the portal gets the
+    cards that DID find a serve too — the question there is whether the
+    placement and the first bounce are right, which only makes sense on a
+    card that has one.
+    """
+    dump = os.path.join(outdir, "evidence.json")
+    if not os.path.exists(dump):
+        return 0
+    import points_v2
+    from publish_card_diagnosis import (blurball_confidence,
+                                        trim_for_transport,
+                                        write_point_tracks)
+    from research_serve_misses import build as build_card_diagnosis
+
+    # The serve rule reads two of its constants from app_config per job, so
+    # importing the detector gives its module defaults rather than what this
+    # match was actually cut with. Pin them to the job's own values: a page
+    # that recomputes the verdict at different settings than production used
+    # disagrees with the cards it is drawn on top of, and reads as evidence
+    # while doing it. The research page learned this the expensive way.
+    # Defaulted HERE and not in the signature: the constants are defined
+    # further down this file, and a default argument is evaluated at import,
+    # so naming them up there takes the whole worker down on startup.
+    points_v2.PAIR_SURFACE_PAD_M = float(
+        serve_pad if serve_pad is not None else SERVE_SURFACE_PAD_DEFAULT)
+    points_v2.CLUSTER_S = float(
+        serve_merge if serve_merge is not None else SERVE_MERGE_S_DEFAULT)
+
+    with open(dump) as fh:
+        blob = json.load(fh)
+    blob.setdefault("match_id", key_prefix.rsplit("/", 1)[-1])
+    confidence_path = (
+        blurball_out if blurball_out and os.path.exists(blurball_out) else None
+    )
+    confidence = (blurball_confidence(confidence_path)
+                  if confidence_path else None)
+    try:
+        page = trim_for_transport(build_card_diagnosis(
+            blob,
+            include_all=True,
+            observation_confidence=confidence,
+            confidence_provenance=("measured" if confidence is not None
+                                   else "missing"),
+        ))
+    except ValueError as e:
+        # No table quad; there is nothing to project bounces against.
+        log.info("  card diagnosis skipped: %s", e)
+        return 0
+
+    dest = os.path.join(outdir, "serves.json")
+    with open(dest, "w") as fh:
+        json.dump(page, fh, separators=(",", ":"))
+    size = os.path.getsize(dest)
+    r2().upload_file(dest, R2_MEDIA_BUCKET, f"{key_prefix}/serves.json",
+                     ExtraArgs={"ContentType": "application/json"})
+
+    # The undecimated track, for the winner rules and the admin trail. The
+    # browser receives only time/x/y after the server strips confidence;
+    # all winner-rule work stays on the server. Built from the same dump,
+    # so the two artifacts cannot describe different cards.
+    # BlurBall's own detections, confidence and all. Without them the two
+    # rules that read the track cannot be trusted and the reader ignores it.
+    tracks = write_point_tracks(
+        blob, outdir,
+        blurball_out if blurball_out and os.path.exists(blurball_out) else None)
+    size += os.path.getsize(tracks)
+    r2().upload_file(tracks, R2_MEDIA_BUCKET, f"{key_prefix}/tracks.json",
+                     ExtraArgs={"ContentType": "application/json"})
+
+    anchored = sum(1 for c in page["cards"] if c.get("serve_s") is not None)
+    log.info("  card diagnosis: %d cards (%d with a serve), %.0f KB",
+             len(page["cards"]), anchored, size / 1024)
+    return size
+
+
 def insert_points(
     conn,
     match_id: str,
@@ -4146,6 +4374,24 @@ def points_pipeline_version(conn) -> str:
         return "v1"
 
 
+def ball_crop_enabled(conn) -> bool:
+    """Whether ball detection runs on a crop around the table:
+    app_config.ball_crop.
+
+    Same contract as the switches around it — read per job, so one UPDATE
+    turns it on or off with no deploy and no restart, and a config read
+    that errors FAILS OPEN to the full frame, which is what every match
+    got before this switch existed. A job's own options still override in
+    either direction. Measured 2026-09-01 over 13 labelled matches: real
+    serves at disagreed timestamps 36 -> 48 of 76 against the full frame,
+    junk 7 -> 3, and no venue type measured worse.
+    """
+    try:
+        return get_config(conn, "ball_crop") == "on"
+    except Exception:
+        return False
+
+
 def endon_fallback_enabled(conn) -> bool:
     """Whether a match whose serve detector found nothing gets the
     end-on assembler instead: app_config.points_endon_fallback.
@@ -4164,6 +4410,67 @@ def endon_fallback_enabled(conn) -> bool:
         return False
 
 
+# The pre-2026-08-28 serve tolerances. These are deliberately the OLD numbers
+# rather than a mirror of what points_v2 now says: a missing config row, or a
+# config read that fails, has to reproduce the behaviour a match would have
+# had yesterday. That is what makes deploying the code and flipping the
+# setting two separate events, and what makes the rollback one UPDATE.
+SERVE_SURFACE_PAD_DEFAULT = "0.15"
+SERVE_MERGE_S_DEFAULT = "1.5"
+
+
+def serve_motif_settings(conn) -> tuple[str, str]:
+    """How much slack a serve's two bounces get, and how close together two
+    readings have to be to count as one serve: app_config.serve_surface_pad_m
+    and app_config.serve_merge_s.
+
+    Read per job like the switches above, so retuning either is one UPDATE
+    with no deploy and no restart.
+
+    A value that is not a number falls back and logs rather than raising. A
+    typo in one config row should cost the tolerance it was meant to set, not
+    every upload on the platform — and the fallback is the rule the match
+    would have got anyway.
+    """
+    def read(key: str, fallback: str) -> str:
+        try:
+            value = get_config(conn, key)
+        except Exception:
+            return fallback
+        if value is None:
+            return fallback
+        try:
+            float(value)
+        except (TypeError, ValueError):
+            log.warning("app_config.%s is not a number (%r) — using %s",
+                        key, value, fallback)
+            return fallback
+        return value
+
+    return (read("serve_surface_pad_m", SERVE_SURFACE_PAD_DEFAULT),
+            read("serve_merge_s", SERVE_MERGE_S_DEFAULT))
+
+
+def placement_serve_seed_enabled(conn) -> bool:
+    """Whether placement starts its walk at the serve the assembler found:
+    app_config.placement_serve_seed.
+
+    Placement used to re-derive the start of the point from the first bounce
+    inside the card, and that bounce is very often the server tapping the ball
+    on the table before serving — so the serve's own two bounces were two
+    events too late to be chosen. The serve time was already computed and
+    written onto the point; it simply was never handed over.
+
+    Read per job like the switches above. A read that errors leaves placement
+    on the path it takes today, because a config outage must not quietly
+    change how a match is reconstructed.
+    """
+    try:
+        return get_config(conn, "placement_serve_seed") == "on"
+    except Exception:
+        return False
+
+
 def run_points_subprocess(
     input_video: str,
     blurball_out: str,
@@ -4172,6 +4479,9 @@ def run_points_subprocess(
     *,
     pipeline: str = "v1",
     endon_fallback: bool = False,
+    serve_surface_pad: str = SERVE_SURFACE_PAD_DEFAULT,
+    serve_merge_s: str = SERVE_MERGE_S_DEFAULT,
+    placement_serve_seed: bool = False,
     attempt_key: str = "manual",
 ) -> str:
     """The points pipeline in plays cut mode, run BEFORE the cut so the
@@ -4190,11 +4500,24 @@ def run_points_subprocess(
         # needs a table and candidate detections) and notes the fallback
         # in match.json when it cannot; match.json's "pipeline" key is the
         # truth about what happened.
-        cmd += ["--pipeline", "v2"]
+        cmd += ["--pipeline", "v2",
+                "--serve-surface-pad", str(serve_surface_pad),
+                "--serve-merge-s", str(serve_merge_s),
+                # Every signal the assembler saw, kept so the admin portal
+                # can show per-card evidence — the ball, the bounces, and
+                # the rule that accepted or refused each serve pair. None
+                # of it is otherwise recoverable: it lives for seconds
+                # inside the assembler and is discarded, and getting it
+                # back later costs a full re-run of blurball over the
+                # video. Written to the workdir and never shipped whole;
+                # publish_card_diagnosis distils it to ~120 KB.
+                "--evidence-dump", os.path.join(outdir, "evidence.json")]
         if endon_fallback:
             cmd.append("--endon-fallback")
     if options.get("placement"):
         cmd.append("--placement")
+        if placement_serve_seed:
+            cmd.append("--placement-serve-seed")
     log.info("  points pipeline (strictness=%s placement=%s cut=plays "
              "pipeline=%s)…",
              strictness, bool(options.get("placement")), pipeline)
@@ -4339,6 +4662,29 @@ def run_points_stage(
             f"{key_prefix}/match.json",
             ExtraArgs={"ContentType": "application/json"},
         )
+        # Per-card evidence for the admin portal: the ball track, the
+        # bounces and the rule that accepted or refused each serve pair,
+        # for EVERY card. Distilled from the evidence dump the points run
+        # just wrote, which stays in the workdir — the dump is megabytes of
+        # raw track, this is ~120 KB.
+        #
+        # Best effort on purpose. A player's match is ready whether or not
+        # an internal diagnostic got written, so nothing in this block may
+        # fail the job.
+        try:
+            # Two steps, two try blocks: no audio is a missing row on one
+            # page, and it must not cost the ball track and the bounces
+            # that were already measured.
+            try:
+                merge_card_audio(input_video, outdir)
+            except Exception:                               # noqa: BLE001
+                log.warning("  card audio skipped", exc_info=True)
+            diag_pad, diag_merge = serve_motif_settings(conn)
+            other_bytes += publish_card_diagnosis(
+                outdir, key_prefix, diag_pad, diag_merge, blurball_out)
+        except Exception:                                   # noqa: BLE001
+            log.warning("  card diagnosis skipped", exc_info=True)
+
         calib_dbg = os.path.join(outdir, "calib_debug.jpg")
         if os.path.exists(calib_dbg):
             other_bytes += os.path.getsize(calib_dbg)
@@ -6853,16 +7199,32 @@ def process_job(conn, msg) -> None:
                     last_pct[0] = pct
                     update_job(conn, job_id, progress=pct)
 
-            blurball_out = run_blurball(local_input, workdir,
-                                        attempt_key=attempt_key,
-                                        on_progress=blurball_progress)
+            # the job's own option wins in either direction; absent, the
+            # app_config switch decides
+            ball_crop = options.get("ball_crop")
+            if ball_crop is None:
+                ball_crop = ball_crop_enabled(conn)
+            crop_corners = options.get("ball_crop_corners")
+            if not (isinstance(crop_corners, dict) and len(crop_corners) == 4
+                    and all(isinstance(v, (list, tuple)) and len(v) == 2
+                            for v in crop_corners.values())):
+                crop_corners = None
+            blurball_out = detect_ball(local_input, workdir,
+                                       attempt_key=attempt_key,
+                                       on_progress=blurball_progress,
+                                       table_crop=bool(ball_crop),
+                                       corners=crop_corners)
             update_job(conn, job_id, progress=45)
             segments_json = None
             try:
+                serve_pad, serve_merge = serve_motif_settings(conn)
                 outdir = run_points_subprocess(
                     local_input, blurball_out, workdir, options,
                     pipeline=points_pipeline_version(conn),
                     endon_fallback=endon_fallback_enabled(conn),
+                    serve_surface_pad=serve_pad,
+                    serve_merge_s=serve_merge,
+                    placement_serve_seed=placement_serve_seed_enabled(conn),
                     attempt_key=attempt_key)
                 mj = os.path.join(outdir, "match.json")
                 with open(mj) as fh:

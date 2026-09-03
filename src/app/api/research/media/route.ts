@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import {
+  isAudioImpactRoundUnlocked,
+  type AudioImpactStudyPhase,
+  type AudioImpactStudyRound,
+} from "@/lib/research/audioImpactStudy";
 import { isResearchMediaKey } from "@/lib/research/labeling";
 import { MEDIA_BUCKET, presignGet } from "@/lib/r2";
 import { createClient } from "@/lib/supabase/server";
@@ -28,7 +33,7 @@ export async function POST(request: Request) {
   // and only the source attached to that assignment; admins retain QA access.
   const { data: assignment } = await supabase
     .from("research_assignments")
-    .select("source_id")
+    .select("source_id,batch_id")
     .eq("id", assignmentId)
     .maybeSingle();
   if (!assignment) {
@@ -36,11 +41,28 @@ export async function POST(request: Request) {
   }
   const { data: source } = await supabase
     .from("research_sources")
-    .select("media_key")
+    .select("media_key,prefill")
     .eq("id", assignment.source_id)
     .maybeSingle();
   if (!source || !isResearchMediaKey(source.media_key)) {
     return NextResponse.json({ error: "Media not found" }, { status: 404 });
+  }
+  if (source.media_key.startsWith("research/audio-impacts/")) {
+    const { data: studyState } = await supabase
+      .from("audio_impact_research_state")
+      .select("phase")
+      .eq("batch_id", assignment.batch_id)
+      .maybeSingle();
+    const round = String((source.prefill as { round?: string } | null)?.round ?? "");
+    if (
+      !studyState ||
+      !isAudioImpactRoundUnlocked(
+        studyState.phase as AudioImpactStudyPhase,
+        round as AudioImpactStudyRound,
+      )
+    ) {
+      return NextResponse.json({ error: "Research round is sealed" }, { status: 423 });
+    }
   }
 
   try {

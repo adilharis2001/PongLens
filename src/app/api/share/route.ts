@@ -11,6 +11,10 @@ export const runtime = "nodejs";
  *   { matchId, pointId }           -> link to one point
  *   { matchId, kind: 'starred' }   -> link to the currently-starred points
  *                                     (live: resolved at view time)
+ *   { lessonId }                   -> link to one journal entry (154).
+ *                                     Live the same way: the page shows
+ *                                     the entry as it currently reads,
+ *                                     and deleting the entry kills it.
  *
  * Optional `title` (trimmed, capped at 80 chars, empty -> null): the
  * owner's headline for the public page and OG card. When the body carries
@@ -54,6 +58,7 @@ export async function POST(req: Request) {
   let matchId: string;
   let pointId: string;
   let tagId: string;
+  let lessonId: string;
   let requestedKind: string;
   let title: string | null = null;
   let titleProvided = false;
@@ -64,6 +69,7 @@ export async function POST(req: Request) {
     matchId = String(body.matchId ?? "");
     pointId = String(body.pointId ?? "");
     tagId = String(body.tagId ?? "");
+    lessonId = String(body.lessonId ?? "");
     requestedKind = String(body.kind ?? "");
     if ("title" in body) {
       titleProvided = true;
@@ -76,6 +82,87 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+
+  // A journal entry link (154): its own flow, because nothing below —
+  // ownership, the kind lattice, the score toggle — is about a match.
+  if (lessonId) {
+    if (!UUID_RE.test(lessonId) || matchId || pointId || tagId || requestedKind) {
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    }
+    // Strict ownership, same rule as a match: only the author publishes.
+    // The lessons read is already RLS-scoped to the author, so someone
+    // else's id answers no row; the explicit check keeps the rule visible.
+    const { data: lesson } = await supabase
+      .from("lessons")
+      .select("id, user_id")
+      .eq("id", lessonId)
+      .maybeSingle();
+    if (!lesson || lesson.user_id !== user.id) {
+      return NextResponse.json({ error: "Entry not found" }, { status: 404 });
+    }
+
+    const existingEntry = supabase
+      .from("share_links")
+      .select("id, token, title")
+      .eq("lesson_id", lessonId)
+      .eq("kind", "entry")
+      .is("revoked_at", null);
+    const { data: foundEntry } = await existingEntry.limit(1);
+    if (foundEntry && foundEntry.length > 0) {
+      let storedTitle = foundEntry[0].title as string | null;
+      if (titleProvided && title !== storedTitle) {
+        const { error: patchError } = await supabase
+          .from("share_links")
+          .update({ title })
+          .eq("id", foundEntry[0].id);
+        if (!patchError) storedTitle = title;
+      }
+      return NextResponse.json({
+        id: foundEntry[0].id,
+        token: foundEntry[0].token,
+        title: storedTitle,
+        url: `${shareBase(req)}/s/${foundEntry[0].token}`,
+      });
+    }
+
+    const entryToken = randomBytes(24).toString("base64url");
+    const { data: createdEntry, error: entryError } = await supabase
+      .from("share_links")
+      .insert({
+        owner: user.id,
+        lesson_id: lessonId,
+        kind: "entry",
+        token: entryToken,
+        title,
+      })
+      .select("id, token, title")
+      .single();
+    if (entryError || !createdEntry) {
+      if (entryError?.code === "23505") {
+        const { data: raced } = await existingEntry.limit(1);
+        if (raced && raced.length > 0) {
+          return NextResponse.json({
+            id: raced[0].id,
+            token: raced[0].token,
+            title: raced[0].title ?? null,
+            url: `${shareBase(req)}/s/${raced[0].token}`,
+          });
+        }
+      }
+      console.error("share create error:", entryError);
+      return NextResponse.json(
+        { error: "Could not create the link. Try again." },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({
+      id: createdEntry.id,
+      token: createdEntry.token,
+      title: createdEntry.title ?? null,
+      url: `${shareBase(req)}/s/${createdEntry.token}`,
+    });
+  }
+
   if (
     !UUID_RE.test(matchId) ||
     (pointId && !UUID_RE.test(pointId)) ||

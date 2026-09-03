@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildPointRows,
+  cardCanOpen,
   formatClock,
+  fpsLabel,
   gapLabel,
   gbLabel,
   pointFlags,
@@ -48,6 +50,8 @@ function point(overrides: Partial<AdminUploadPoint>): AdminUploadPoint {
     placement_status: null,
     placement_flagged: false,
     notes: 0,
+    admin_note: null,
+    admin_theme_ids: [],
     ...overrides,
   };
 }
@@ -93,6 +97,13 @@ test("point rows order by time, measure gaps, and number only the visible", () =
   // The owner's numbering skips removed points, so the card after a
   // removed one must not jump — this is the number shown in the app.
   assert.deepEqual(rows.map((r) => r.displayNo), [1, 2, null, 3]);
+});
+
+test("desktop Admin can open card diagnostics when the cut video is unavailable", () => {
+  assert.equal(cardCanOpen(12.5, false, true), true);
+  assert.equal(cardCanOpen(12.5, false, false), false);
+  assert.equal(cardCanOpen(12.5, true, false), true);
+  assert.equal(cardCanOpen(null, true, true), false);
 });
 
 test("numeric strings from the RPC are coerced before arithmetic", () => {
@@ -428,4 +439,29 @@ test("an unprocessed upload is explained, not shown as broken", () => {
   const lines = troubleLines(detail({ status: "uploaded", has_cut: false }));
   assert.equal(lines[0].tone, "amber");
   assert.equal(lines[0].title, "Not processed yet");
+});
+
+test("every rate a phone reports for 30 fps reads as 30", () => {
+  // All four of these appear across the last twenty-five uploads.
+  for (const measured of [29.976, 29.986, 29.999, 30.0]) {
+    assert.equal(fpsLabel(measured).value, "30 fps");
+  }
+  assert.equal(fpsLabel(59.94).value, "60 fps");
+  assert.equal(fpsLabel(23.976).value, "24 fps");
+});
+
+test("the measured rate is kept underneath, and dropped when it adds nothing", () => {
+  assert.equal(fpsLabel(29.976).detail, "29.976 measured");
+  assert.equal(fpsLabel(30).detail, null);
+});
+
+test("a rate near nothing standard is reported, not rounded into a category", () => {
+  assert.equal(fpsLabel(45).value, "45.00 fps");
+  assert.equal(fpsLabel(45).detail, null);
+});
+
+test("a missing frame rate is not recorded, never zero", () => {
+  assert.equal(fpsLabel(null).value, "Not recorded");
+  assert.equal(fpsLabel(undefined).value, "Not recorded");
+  assert.equal(fpsLabel(0).value, "Not recorded");
 });

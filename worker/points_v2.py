@@ -54,6 +54,12 @@ BOUNCE_REVERSAL_PX = 1.0
 # --- serve motif ---
 PAIR_MAX_S = 1.60        # a serve's two bounces are close together
 NET_MARGIN_M = 0.20      # clearly one side of the net
+# The same question asked of a BOUNCE rather than of the flying ball. Kept
+# separate because NET_MARGIN_M above also drives the crossing detector, and
+# moving it there changes rally extents, card boundaries and the assembler
+# route — 0.20 -> 0.10 adds 8% more crossings on the review corpus. This one
+# touches nothing but whether a serve's two bounces are on opposite halves.
+SERVE_NET_MARGIN_M = 0.20
 BACKTRACK_MAX_M = 0.50   # tolerated backward travel between the bounces
 APEX_MIN_PX = 8.0        # the ball must leave the table between them
 CONTACT_LOOKBACK_S = 0.81  # first bounce - K = contact (physical, not tuned)
@@ -61,14 +67,41 @@ CONTACT_LOOKBACK_S = 0.81  # first bounce - K = contact (physical, not tuned)
 # deliberately generous; a bounce is a contact and has to be on the surface.
 # Three of the pairs Adil picked out by eye were a floor, a barrier and a
 # shoe (2026-08-17 notes analysis).
-PAIR_SURFACE_PAD_M = 0.15
+#
+# But "on the surface" is only ever known to within the error this pipeline
+# carries, and 0.15 was smaller than that error. Two things stack inside it.
+# The homography maps the CENTRE of the tracked ball onto the table plane
+# and the centre sits a ball radius above it, so a contact always projects
+# outward — worst at the far end, where the camera's ray onto the table is
+# flattest. And the quad's own corners are a few pixels out, which displaces
+# the mapping in whatever direction they happen to be wrong.
+#
+# Only the first of those has a direction, which is why widening the far end
+# alone looked like the careful fix. It is not: measured over 11 matches,
+# far-end-only recovered 21 cards and all four sides recovered 47, while the
+# signal that would expose a wider net catching the neighbouring table's ball
+# — detections landing outside every card — went from 2 to 3. Widened
+# 2026-08-28, after a person watched every card it adds: 48 right, 4 wrong. Do not narrow this back on the geometric argument alone —
+# the geometry is right about the far end and wrong about the total.
+#
+# It travels with CLUSTER_S below. Alone it lets all 7 of those mistakes
+# through; the merge is what caps them at 4.
+# Record: docs/superpowers/specs/2026-08-28-serve-surface-slack-design.md
+PAIR_SURFACE_PAD_M = 0.45
 # Crossings in the 1.5s before the first bounce. Two means a rally was
 # already running and this pair is two shots of it. One is allowed because
 # the crossing detector fires on noise often enough that demanding zero
 # costs 47 real serves their head.
 PRIOR_CROSS_WINDOW_S = 1.5
 PRIOR_CROSS_MAX = 1
-CLUSTER_S = 1.5          # pairs this close together describe one serve
+# Pairs this close together describe one serve, and the earliest is kept.
+# Nobody serves twice inside 2.5s, so a second reading in that window is
+# either the same serve found again or a receiver's return mistaken for one.
+# Raised from 1.5 with PAIR_SURFACE_PAD_M above and measured with it: on its
+# own it drops 25 detections and one card's anchor for nothing, because most
+# of what it merges was already inside a single card and a card is only
+# anchored once.
+CLUSTER_S = 2.5
 # NOTE deliberately absent: ranking a cluster by the turn angle between its
 # bounces. Strongest single signal in the corpus (17° on a real serve, 132°
 # mid-rally) and measured WORSE as a chooser — the old first-of-cluster rule
@@ -174,6 +207,36 @@ def load_multi(path):
     return out if any_c else None
 
 
+def shift_detections(src, dst, dx, dy):
+    """Rewrite a detections jsonl with every position moved by (dx, dy).
+
+    The one seam in table-cropped detection. Inference runs on a crop, so
+    the model reports positions in the crop's own pixels; adding the crop
+    origin puts them back in the original video's frame, where the table
+    corners, the homography, the cards and the clips all live. Everything
+    downstream then reads a file it cannot distinguish from a full-frame
+    one, which is why nothing else in the pipeline had to change.
+
+    Both shapes are shifted: "x"/"y" is the chosen ball, "c" the candidate
+    cloud the continuity chain actually walks. Missing either one leaves
+    half the file in the wrong coordinate system.
+    """
+    n = 0
+    with open(src) as fh, open(dst, "w") as out:
+        for line in fh:
+            r = json.loads(line)
+            if r.get("x") is not None:
+                r["x"] = round(float(r["x"]) + dx, 2)
+                r["y"] = round(float(r["y"]) + dy, 2)
+                n += 1
+            if r.get("c"):
+                r["c"] = [[round(float(p[0]) + dx, 2),
+                           round(float(p[1]) + dy, 2), *p[2:]]
+                          for p in r["c"]]
+            out.write(json.dumps(r) + "\n")
+    return n
+
+
 def build_track(cand, scale=1.0):
     """Continuity chain over the candidate cloud -> {frame: (x, y)}.
 
@@ -236,7 +299,14 @@ def in_corridor(u, v):
     return -0.7 <= u <= W_M + 0.7 and -1.5 <= v <= L_M + 1.5
 
 
-def on_surface(p, pad=PAIR_SURFACE_PAD_M):
+def on_surface(p, pad=None):
+    # The tolerance is read at call time rather than bound as a default
+    # argument. cmd_points overrides PAIR_SURFACE_PAD_M from app_config
+    # before the assembler runs, and Python evaluates a default once at
+    # import — so `pad=PAIR_SURFACE_PAD_M` would have frozen the old value
+    # and left the config key doing nothing at all, silently.
+    if pad is None:
+        pad = PAIR_SURFACE_PAD_M
     return bool(-pad <= p[0] <= W_M + pad and -pad <= p[1] <= L_M + pad)
 
 
@@ -307,7 +377,13 @@ def crossings(track, H, fps):
     return out
 
 
-def serve_motifs(track, bnc, H, fps, scale=1.0, cross=()):
+def _note(reject, fps, f0, f1, gate):
+    """Append one refused pair to the diagnostic sink. See serve_motifs."""
+    if reject is not None:
+        reject.append((round(f0 / fps, 3), round(f1 / fps, 3), gate))
+
+
+def serve_motifs(track, bnc, H, fps, scale=1.0, cross=(), reject=None):
     """Bounce pairs that only a serve produces -> [dict].
 
     Pair rules, in the order they earn their keep:
@@ -318,6 +394,15 @@ def serve_motifs(track, bnc, H, fps, scale=1.0, cross=()):
          to the server bounces on both halves and is otherwise perfect
       5. it does not travel backwards on the way (no bat in between)
       6. no rally was already running when it started
+
+    `reject` is an optional list. Pass one and every pair this function turns
+    down is appended to it as (first-bounce-s, second-bounce-s, gate-name),
+    and every bounce dropped for being off the surface as (t, None, ...).
+    It is a diagnostic sink and nothing else reads it: a card with no serve
+    otherwise leaves no record of WHICH rule refused, so every question about
+    the misses has to be answered by re-deriving the rule somewhere else, and
+    a copy of a rule can be right about a decision the shipped code does not
+    make. Collecting it here keeps the answer and the behaviour the same code.
     """
     cross = np.asarray(cross, float)
     proj = {}
@@ -326,6 +411,12 @@ def serve_motifs(track, bnc, H, fps, scale=1.0, cross=()):
         if p:
             proj[f] = p
     marked = [(f, proj.get(f)) for f, _x, _y in bnc]
+    if reject is not None:
+        for f, p in marked:
+            if not p:
+                reject.append((round(f / fps, 3), None, "no_table_coords"))
+            elif not on_surface(p):
+                reject.append((round(f / fps, 3), None, "bounce_off_surface"))
     marked = [(f, p) for f, p in marked if p and on_surface(p)]
     out = []
     for i, (f0, p0) in enumerate(marked):
@@ -335,22 +426,28 @@ def serve_motifs(track, bnc, H, fps, scale=1.0, cross=()):
             if dt <= 0.05:
                 continue
             if dt > PAIR_MAX_S:
+                _note(reject, fps, f0, f1, "pair_too_far_apart")
                 break
             s1 = 1 if p1[1] > NET_V else -1
             if s1 == s0:
+                _note(reject, fps, f0, f1, "same_side_of_net")
                 continue
-            if (abs(p0[1] - NET_V) < NET_MARGIN_M
-                    or abs(p1[1] - NET_V) < NET_MARGIN_M):
+            if (abs(p0[1] - NET_V) < SERVE_NET_MARGIN_M
+                    or abs(p1[1] - NET_V) < SERVE_NET_MARGIN_M):
+                _note(reject, fps, f0, f1, "bounce_too_near_net")
                 continue
             span = [f for f in track if f0 < f < f1]
             if len(span) < 2:
+                _note(reject, fps, f0, f1, "ball_untracked_between")
                 continue
             ys = [track[f][1] for f in span]
             apex = min(ys)
             if min(track[f0][1], track[f1][1]) - apex < APEX_MIN_PX * scale:
+                _note(reject, fps, f0, f1, "no_apex")
                 continue
             vs = [proj[f][1] for f in span if f in proj]
             if not vs:
+                _note(reject, fps, f0, f1, "no_table_coords_between")
                 continue
             direction = 1 if p1[1] > p0[1] else -1
             back, run = 0.0, p0[1]
@@ -360,10 +457,12 @@ def serve_motifs(track, bnc, H, fps, scale=1.0, cross=()):
                     back = max(back, -d)
                 run = v
             if back > BACKTRACK_MAX_M:
+                _note(reject, fps, f0, f1, "travelled_backwards")
                 continue
             t0 = f0 / fps
             if len(cross) and int(((cross >= t0 - PRIOR_CROSS_WINDOW_S)
                                    & (cross < t0 - 0.05)).sum()) > PRIOR_CROSS_MAX:
+                _note(reject, fps, f0, f1, "rally_already_running")
                 continue
             out.append({
                 "bounce1_s": round(t0, 3),

@@ -335,13 +335,16 @@ def analyzer_python() -> str:
     return str(local) if local.exists() else "python3"
 
 
-def analyze_audio(path: Path) -> dict:
+def analyze_audio(path: Path, source_id: str | None = None) -> dict:
+    command = [
+        analyzer_python(),
+        str(ROOT / "worker/research_audio_candidates.py"),
+        str(path),
+    ]
+    if source_id:
+        command.extend(["--source-id", source_id])
     completed = subprocess.run(
-        [
-            analyzer_python(),
-            str(ROOT / "worker/research_audio_candidates.py"),
-            str(path),
-        ],
+        command,
         capture_output=True,
         text=True,
         check=True,
@@ -372,7 +375,7 @@ def build_source(
     media_bytes = local_path.read_bytes()
     media_hash = hashlib.sha256(media_bytes).hexdigest()
     video = probe_video(local_path)
-    audio = analyze_audio(local_path)
+    audio = analyze_audio(local_path, source_id=source_id)
     visual = relative_visual_candidates(
         point,
         video["duration_s"],

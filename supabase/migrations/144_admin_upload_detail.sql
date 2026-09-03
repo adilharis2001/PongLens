@@ -268,7 +268,16 @@ begin
         'placement_status',     p.placement ->> 'status',
         'placement_flagged',    p.placement_flagged,
         'notes',                (select count(*) from public.notes n
-                                  where n.point_id = p.id)
+                                  where n.point_id = p.id),
+        -- The OPERATOR's own review (150), not the player's. Carried on
+        -- the card so the page can show what was written last time
+        -- without a second round trip per point.
+        'admin_note',           (select an.body from public.admin_point_notes an
+                                  where an.point_id = p.id),
+        'admin_theme_ids',      coalesce((
+                                  select jsonb_agg(pt.theme_id)
+                                    from public.admin_point_themes pt
+                                   where pt.point_id = p.id), '[]'::jsonb)
       ) order by p.t0, p.idx)
       from public.points p where p.match_id = p_match_id
     ), '[]'::jsonb)

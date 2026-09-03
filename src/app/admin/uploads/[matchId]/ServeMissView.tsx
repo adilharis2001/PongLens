@@ -1,0 +1,809 @@
+"use client";
+
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { netSegmentFromQuad } from "../../../research/serve-accuracy/netDeath";
+import { NORMAL_SPEED_IDX, SPEEDS, SpeedMenu } from "../../../match/[id]/SpeedMenu";
+import { CardTimeline } from "./CardTimeline";
+import {
+  BOUNCE_LABELS,
+  LABEL_TONE,
+  TABLE_L_M,
+  TABLE_W_M,
+  bounceLabelCopy,
+  labelFor,
+  courtTrajectory,
+  inferredBounceMarkerTitle,
+  inferredBounceMarkers,
+  reasonShort,
+  reasonTone,
+  tablePathSegments,
+  tableTrailAt,
+  type BounceLabel,
+  type MissBounce,
+  type MissCard,
+  type ServeMissData,
+  type TableTrackPoint,
+  type TableTrackSegment,
+} from "../serveMiss";
+
+/**
+ * One card the assembler built without a serve, and why.
+ *
+ * The picture carries the table in pink, the net through the quad's true
+ * centre in white, the play prism in cyan, the ball in yellow and every
+ * bounce ringed — green where it landed on the playing surface, red where
+ * it did not. The map beside it is the same bounces looking down on the
+ * table, numbered in order, so "both on the same half" is something you can
+ * SEE rather than take on trust.
+ *
+ * THE CLOCK. Everything in the diagnosis is in source seconds; the video is
+ * the cut. `cutOffset` is added on the way in and never anywhere else, so
+ * there is exactly one line in this file where the two clocks meet.
+ */
+
+/** The serve's own bounces. Not green or red — those already mean
+ *  on and off the playing surface, and a serve bounce can be either. */
+export const SERVE_BOUNCE = "#e879f9";
+
+const METRES_TO_PX = 65.5;
+const SIDE_MARGIN_M = 0.45;
+const END_MARGIN_M = 0.7;
+const COURT_VIEW_W = (TABLE_W_M + SIDE_MARGIN_M * 2) * METRES_TO_PX;
+const COURT_VIEW_H = (TABLE_L_M + END_MARGIN_M * 2) * METRES_TO_PX;
+const COURT_X = SIDE_MARGIN_M * METRES_TO_PX;
+const COURT_Y = END_MARGIN_M * METRES_TO_PX;
+const COURT_W = TABLE_W_M * METRES_TO_PX;
+const COURT_H = TABLE_L_M * METRES_TO_PX;
+
+function courtXY(u: number, v: number) {
+  return {
+    x: (u + SIDE_MARGIN_M) * METRES_TO_PX,
+    y: (TABLE_L_M + END_MARGIN_M - v) * METRES_TO_PX,
+  };
+}
+
+/** Two SVG nodes no matter how many full-rate observations a card carries. */
+const CompleteCourtPath = memo(function CompleteCourtPath({
+  points,
+  segments,
+}: {
+  points: TableTrackPoint[];
+  segments: TableTrackSegment[];
+}) {
+  const lineData = segments
+    .map(({ from, to }) => {
+      const a = courtXY(from.u, from.v);
+      const b = courtXY(to.u, to.v);
+      return `M${a.x},${a.y}L${b.x},${b.y}`;
+    })
+    .join("");
+  // A near-zero stroked segment with a round cap reads as a dot, while all
+  // raw observations remain consolidated into one DOM node.
+  const dotData = points
+    .map((point) => {
+      const p = courtXY(point.u, point.v);
+      return `M${p.x},${p.y}l0.01,0`;
+    })
+    .join("");
+  return (
+    <g pointerEvents="none" aria-label="Complete best estimate path">
+      <path
+        d={lineData}
+        fill="none"
+        stroke="#facc15"
+        strokeWidth="0.8"
+        strokeLinecap="round"
+        opacity="0.22"
+      />
+      <path
+        d={dotData}
+        fill="none"
+        stroke="#facc15"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        opacity="0.3"
+      />
+    </g>
+  );
+});
+
+export function ServeMissView({
+  data,
+  card,
+  cutOffset,
+  videoUrl,
+  labels,
+  onLabel,
+}: {
+  data: ServeMissData;
+  card: MissCard;
+  /** Seconds to add to a source time to reach the cut video. */
+  cutOffset: number;
+  videoUrl: string | null;
+  /** The admin's event corrections for this match, keyed by labelKey(t).
+   *  Absent (an older caller) and the whole labeling surface stays off. */
+  labels?: ReadonlyMap<string, BounceLabel>;
+  /** Files one correction; null withdraws it. Storage is the caller's. */
+  onLabel?: (bounce: MissBounce, label: BounceLabel | null) => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [t, setT] = useState(card.t0);
+  const [playing, setPlaying] = useState(false);
+  // Per instance, never module-scoped: several cards can be expanded at
+  // once on a phone and one rate for all of them would move the others.
+  const [rate, setRate] = useState<number>(SPEEDS[NORMAL_SPEED_IDX]);
+  // The presentation time of the frame ACTUALLY on screen. See the draw
+  // loop for why currentTime is not good enough below about half speed.
+  const frameTime = useRef<number | null>(null);
+  // The bounce picked for relabeling, by its source time. Selecting seeks
+  // the video to it, so the frame being judged is on screen while judging.
+  const [selectedT, setSelectedT] = useState<number | null>(null);
+
+  const cutT0 = card.t0 + cutOffset;
+  const cutT1 = card.t1 + cutOffset;
+
+  const selectBounce = useCallback(
+    (sourceSeconds: number) => {
+      setSelectedT(sourceSeconds);
+      const v = videoRef.current;
+      if (v) {
+        v.pause();
+        v.currentTime = sourceSeconds + cutOffset;
+      }
+    },
+    [cutOffset]
+  );
+
+  // A new card must not inherit the last card's selection: the times would
+  // point at a bounce this card does not have.
+  useEffect(() => {
+    setSelectedT(null);
+  }, [card.t0]);
+
+  // Park the poster inside the card rather than at the top of the match.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const seek = () => {
+      v.currentTime = cutT0;
+    };
+    if (v.readyState >= 1) seek();
+    else v.addEventListener("loadedmetadata", seek, { once: true });
+    // A <video> removed from the document keeps playing, with sound.
+    return () => {
+      v.pause();
+    };
+  }, [cutT0]);
+
+  // playbackRate survives a seek but not a change of src, and this video's
+  // src is a presigned URL that can be renewed under it. Setting
+  // defaultPlaybackRate too means the element comes back at the chosen rate
+  // rather than silently at 1x while the pill still reads 0.1x.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.playbackRate = rate;
+    v.defaultPlaybackRate = rate;
+  }, [rate, videoUrl]);
+
+  useEffect(() => {
+    let raf = 0;
+    let vfc = 0;
+    const v0 = videoRef.current;
+    // requestVideoFrameCallback hands back the media time of the frame the
+    // compositor just showed. currentTime does not: it runs on continuously
+    // while a single frame is held, which at 1x is a third of a frame and
+    // invisible, and at 0.1x is a whole frame — the overlay would draw the
+    // ball a frame ahead of the picture it is drawn on, at exactly the
+    // speed someone is using to check the tracking frame by frame.
+    type FrameMeta = { mediaTime: number };
+    type WithVFC = HTMLVideoElement & {
+      requestVideoFrameCallback?: (
+        cb: (now: number, meta: FrameMeta) => void
+      ) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    };
+    const vfcHost = v0 as WithVFC | null;
+    const onFrame = (_now: number, meta: FrameMeta) => {
+      frameTime.current = meta.mediaTime;
+      if (vfcHost?.requestVideoFrameCallback) {
+        vfc = vfcHost.requestVideoFrameCallback(onFrame);
+      }
+    };
+    if (vfcHost?.requestVideoFrameCallback) {
+      vfc = vfcHost.requestVideoFrameCallback(onFrame);
+    }
+    // Derived in here, not in the render: `card.serve_bounces ?? []` is a
+    // fresh array every render, and as a dependency it tore this effect —
+    // and the frame callback with it — down and up again on every tick.
+    const servePair = card.serve_bounces ?? [];
+    const draw = () => {
+      raf = requestAnimationFrame(draw);
+      const v = videoRef.current;
+      const c = canvasRef.current;
+      if (!v || !c) return;
+      const w = v.clientWidth;
+      const h = v.clientHeight;
+      if (!w || !h) return;
+      if (c.width !== w || c.height !== h) {
+        c.width = w;
+        c.height = h;
+      }
+      const ctx = c.getContext("2d");
+      if (!ctx) return;
+      ctx.clearRect(0, 0, w, h);
+      const sx = w / data.w;
+      const sy = h / data.h;
+      // THE one conversion: the video's clock, read back into the
+      // assembler's. Everything below is source seconds.
+      const now = (frameTime.current ?? v.currentTime) - cutOffset;
+      setT(now);
+
+      if (!v.paused && now > card.t1) {
+        v.pause();
+        v.currentTime = cutT0;
+      }
+
+      // the play prism — how high above the table a ball may plausibly be
+      ctx.beginPath();
+      data.prism.forEach(([px, py], i) => {
+        const X = px * sx;
+        const Y = py * sy;
+        if (i === 0) ctx.moveTo(X, Y);
+        else ctx.lineTo(X, Y);
+      });
+      ctx.closePath();
+      ctx.strokeStyle = "rgba(0,220,255,0.55)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // the table
+      ctx.beginPath();
+      data.quad.forEach(([px, py], i) => {
+        const X = px * sx;
+        const Y = py * sy;
+        if (i === 0) ctx.moveTo(X, Y);
+        else ctx.lineTo(X, Y);
+      });
+      ctx.closePath();
+      ctx.strokeStyle = "#ff2d95";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // The net, derived from the quad rather than the payload's baked
+      // `net` field: the worker wrote the pixel midpoint of the sidelines
+      // until 2026-09-02, which under perspective sits 30-41 cm into the
+      // near half. Deriving here fixes every stored match, old and new.
+      const seg = netSegmentFromQuad(data.quad);
+      const [n1, n2] = seg ? [seg.e1, seg.e2] : data.net;
+      ctx.beginPath();
+      ctx.moveTo(n1[0] * sx, n1[1] * sy);
+      ctx.lineTo(n2[0] * sx, n2[1] * sy);
+      ctx.setLineDash([6, 4]);
+      ctx.strokeStyle = "#f8fafc";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // the ball, the half second behind the playhead
+      let prev: { x: number; y: number } | null = null;
+      for (const [pt, fx, fy] of card.track) {
+        const age = now - pt;
+        if (age < 0 || age > 0.5) {
+          prev = null;
+          continue;
+        }
+        const X = fx * w;
+        const Y = fy * h;
+        const fade = 1 - age / 0.5;
+        if (prev) {
+          ctx.globalAlpha = 0.15 + 0.5 * fade;
+          ctx.beginPath();
+          ctx.moveTo(prev.x, prev.y);
+          ctx.lineTo(X, Y);
+          ctx.strokeStyle = "#facc15";
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 0.3 + 0.7 * fade;
+        ctx.beginPath();
+        ctx.arc(X, Y, age < 0.06 ? 4 : 2, 0, Math.PI * 2);
+        ctx.fillStyle = "#facc15";
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        prev = { x: X, y: Y };
+      }
+
+      // every bounce, held a third of a second either side so a 30fps
+      // event is visible at all. The serve's own two are drawn in magenta
+      // whatever the surface says: on a card carrying ten identical rings,
+      // which two the serve rule accepted is the thing you cannot see.
+      for (const b of card.bounces) {
+        const age = now - b.t;
+        if (age < -0.34 || age > 0.34) continue;
+        const fade = 1 - Math.abs(age) / 0.34;
+        const isServe = servePair.some((st) => Math.abs(st - b.t) < 0.02);
+        const label = labelFor(labels, b.t);
+        ctx.globalAlpha =
+          (0.25 + 0.75 * fade) * (label === "not_ball" ? 0.5 : 1);
+        ctx.beginPath();
+        ctx.arc(b.x * w, b.y * h, 5 + 8 * (1 - fade), 0, Math.PI * 2);
+        // The human's colour outranks the machine's: a serve bounce
+        // relabeled as a paddle contact is a wrong serve, and keeping it
+        // magenta would go on asserting the thing being corrected.
+        ctx.strokeStyle = label
+          ? LABEL_TONE[label]
+          : isServe
+            ? SERVE_BOUNCE
+            : b.onSurface
+              ? "#50ff78"
+              : "#ff5050";
+        ctx.lineWidth = isServe || label ? 3.5 : 2.5;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    };
+    raf = requestAnimationFrame(draw);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (vfc && vfcHost?.cancelVideoFrameCallback) {
+        vfcHost.cancelVideoFrameCallback(vfc);
+      }
+    };
+  }, [data, card, cutOffset, cutT0, labels]);
+
+  const why = card.why;
+  const inferred = useMemo(() => inferredBounceMarkers(card), [card]);
+
+  return (
+    <div className="mt-3 rounded-2xl border border-edge bg-surface-2/40 p-3">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
+      <div className="min-w-0 lg:flex-[2]">
+      {/* Sized on the div, never the video: a media element has no
+          intrinsic size until metadata arrives, and the canvas measures
+          the video, so a self-sized video makes the overlay jump. */}
+      <div
+        className="relative overflow-hidden rounded-xl bg-black"
+        style={{ aspectRatio: `${data.w} / ${data.h}` }}
+      >
+        {videoUrl ? (
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            preload="metadata"
+            playsInline
+            muted
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            className="absolute inset-0 block h-full w-full"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-xs text-zinc-500">No video for this card.</p>
+          </div>
+        )}
+        <canvas
+          ref={canvasRef}
+          className="pointer-events-none absolute left-0 top-0 h-full w-full"
+        />
+      </div>
+
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            const v = videoRef.current;
+            if (!v) return;
+            if (v.paused) {
+              if (v.currentTime < cutT0 || v.currentTime > cutT1) {
+                v.currentTime = cutT0;
+              }
+              void v.play();
+            } else v.pause();
+          }}
+          className="shrink-0 rounded-full border border-edge px-3 py-1 text-sm text-zinc-200 transition-colors hover:border-cyan-glow/40"
+        >
+          {playing ? "Pause" : "Play"}
+        </button>
+        <input
+          type="range"
+          aria-label="Scrub this card"
+          min={card.t0}
+          max={card.t1}
+          step={0.04}
+          value={Math.min(Math.max(t, card.t0), card.t1)}
+          onChange={(e) => {
+            const v = videoRef.current;
+            if (v) v.currentTime = Number(e.target.value) + cutOffset;
+          }}
+          className="h-1 min-w-0 flex-1 accent-cyan-400"
+        />
+        <span className="w-20 shrink-0 text-right text-xs tabular-nums text-zinc-500">
+          {Math.max(0, t - card.t0).toFixed(1)}s / {card.dur.toFixed(1)}s
+        </span>
+        {/* Opens upward, over the picture: below this row is the timeline,
+            and a menu that covered it would hide the thing being read. */}
+        <SpeedMenu
+          value={rate}
+          onChange={setRate}
+          drop="up"
+          className="rounded-full border border-edge px-3 py-1 text-xs tabular-nums text-zinc-300 transition-colors hover:border-cyan-glow/40"
+        />
+      </div>
+
+      {/* What each sensor recorded across the same seconds. Under the
+          picture rather than beside it: the rows and the video share an
+          x axis only if they share a width. */}
+      <CardTimeline
+        card={card}
+        t={t}
+        onSeek={(sourceSeconds) => {
+          const v = videoRef.current;
+          if (v) v.currentTime = sourceSeconds + cutOffset;
+        }}
+        labels={labels}
+        selectedT={selectedT}
+        onSelectBounce={onLabel ? selectBounce : undefined}
+      />
+
+      {onLabel && (
+        <LabelBar
+          card={card}
+          labels={labels}
+          selectedT={selectedT}
+          onLabel={onLabel}
+          onClose={() => setSelectedT(null)}
+        />
+      )}
+
+      </div>
+
+      <div className="flex min-w-0 flex-row gap-3 lg:flex-1">
+        <div className="w-24 shrink-0 sm:w-32 lg:w-40">
+          <Court
+            card={card}
+            t={t}
+            labels={labels}
+            selectedT={selectedT}
+            onSelect={onLabel ? selectBounce : undefined}
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          {typeof card.serve_s === "number" ? (
+            <p className="text-sm text-zinc-300">
+              Serve found {(card.serve_s - card.t0).toFixed(2)}s into the
+              card. The rings are every bounce the detector saw — green on
+              the playing surface, red off it — so the first bounce and
+              where it landed can be checked against the picture.
+            </p>
+          ) : (
+            <p className="text-sm text-zinc-300">
+              {data.reasons[why.reason] ?? reasonShort(why.reason)}
+            </p>
+          )}
+          <p className="mt-1 text-xs text-zinc-500">
+            {why.bounces} bounce{why.bounces === 1 ? "" : "s"} in the card,{" "}
+            {why.on_surface} on the table surface, {why.pairs} pair
+            {why.pairs === 1 ? "" : "s"} tested.
+            {card.crossings.length > 0 &&
+              ` ${card.crossings.length} net crossing${card.crossings.length === 1 ? "" : "s"}.`}
+          </p>
+          {why.detail.length > 0 && (
+            <ul className="mt-2 space-y-1">
+              {why.detail.slice(0, 8).map(([a, b, rule], i) => (
+                <li
+                  key={`${a}-${b}-${i}`}
+                  className="flex items-center gap-2 text-xs"
+                >
+                  <span
+                    className="inline-block h-2 w-2 shrink-0 rounded-full"
+                    style={{ background: reasonTone(rule) }}
+                  />
+                  <span className="tabular-nums text-zinc-500">
+                    {(a - card.t0).toFixed(2)}s + {(b - a).toFixed(2)}s
+                  </span>
+                  <span className="min-w-0 text-zinc-400">
+                    {reasonShort(rule)}
+                  </span>
+                </li>
+              ))}
+              {why.detail.length > 8 && (
+                <li className="text-xs text-zinc-600">
+                  and {why.detail.length - 8} more pairs
+                </li>
+              )}
+            </ul>
+          )}
+          {inferred.length > 0 && (
+            <div className="mt-4 border-t border-edge pt-3">
+              <p className="text-sm font-medium text-zinc-300">
+                Inferred bounce evidence
+              </p>
+              <ul className="mt-2 space-y-2">
+                {inferred.slice(0, 8).map((marker) => (
+                  <li key={marker.id} className="text-xs text-zinc-400">
+                    <p className="text-zinc-300">
+                      {inferredBounceMarkerTitle(marker, card.t0)}
+                    </p>
+                    <p className="mt-0.5 text-zinc-500">{marker.missDetail}</p>
+                  </li>
+                ))}
+                {inferred.length > 8 && (
+                  <li className="text-xs text-zinc-600">
+                    and {inferred.length - 8} more diagnostic candidates
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+      </div>
+    </div>
+  );
+}
+
+/** The reconstructed best-estimate path and bounces, looking down. */
+/**
+ * The relabeling control for one selected bounce.
+ *
+ * The detector's own call is shown as CONTEXT and never pre-selected — the
+ * fused labeling page's rule, kept for the same reason: a pre-ticked answer
+ * teaches the labeler to confirm rather than to look. Only a label the
+ * human actually filed lights a chip.
+ *
+ * No save button. A tap files it, exactly as the note box and the themes
+ * work everywhere else on this page.
+ */
+function LabelBar({
+  card,
+  labels,
+  selectedT,
+  onLabel,
+  onClose,
+}: {
+  card: MissCard;
+  labels?: ReadonlyMap<string, BounceLabel>;
+  selectedT: number | null;
+  onLabel: (bounce: MissBounce, label: BounceLabel | null) => void;
+  onClose: () => void;
+}) {
+  if (selectedT === null) {
+    return (
+      <p className="mt-1 text-[11px] text-zinc-600">
+        Tap a bounce dot to say what it really was.
+      </p>
+    );
+  }
+  const bounce = card.bounces.find(
+    (b) => Math.abs(b.t - selectedT) < 0.001
+  );
+  if (!bounce) return null;
+  const current = labelFor(labels, bounce.t);
+
+  return (
+    <div className="mt-2 rounded-xl border border-edge bg-surface-2/50 p-3">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <p className="text-xs text-zinc-300 tabular-nums">
+          Event at {(bounce.t - card.t0).toFixed(2)}s
+        </p>
+        <p className="text-xs text-zinc-500">
+          detector: bounce, {bounce.onSurface ? "on" : "off"} the playing
+          surface
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-auto rounded-full border border-edge px-2.5 py-0.5 text-xs text-zinc-400 transition-colors hover:text-white"
+        >
+          Done
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {BOUNCE_LABELS.map(({ value, copy }) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => onLabel(bounce, value === current ? null : value)}
+            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+              value === current
+                ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
+                : "border-edge text-zinc-300 hover:border-cyan-glow/40"
+            }`}
+          >
+            <i
+              className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle"
+              style={{ background: LABEL_TONE[value] }}
+            />
+            {copy}
+          </button>
+        ))}
+        {current && (
+          <button
+            type="button"
+            onClick={() => onLabel(bounce, null)}
+            className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-500 transition-colors hover:text-white"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <p className="mt-1.5 text-[11px] text-zinc-600">
+        {current
+          ? `Saved: ${bounceLabelCopy(current).toLowerCase()}. Tap again to withdraw it.`
+          : "Saved the moment you tap. This builds training data; the pipeline's own reading is unchanged."}
+      </p>
+    </div>
+  );
+}
+
+function Court({
+  card,
+  t,
+  labels,
+  selectedT,
+  onSelect,
+}: {
+  card: MissCard;
+  t: number;
+  labels?: ReadonlyMap<string, BounceLabel>;
+  selectedT?: number | null;
+  onSelect?: (sourceSeconds: number) => void;
+}) {
+  const VIEW_W = COURT_VIEW_W;
+  const VIEW_H = COURT_VIEW_H;
+  const TX = COURT_X;
+  const TY = COURT_Y;
+  const TW = COURT_W;
+  const TH = COURT_H;
+  const xy = courtXY;
+  const projectedTrack = useMemo(() => courtTrajectory(card), [card]);
+  const pathSegments = useMemo(
+    () => tablePathSegments(projectedTrack),
+    [projectedTrack]
+  );
+  const trail = tableTrailAt(projectedTrack, t);
+  const placed = card.bounces.filter((b) => b.u !== null && b.v !== null);
+  return (
+    <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="w-full">
+      <rect
+        x={TX}
+        y={TY}
+        width={TW}
+        height={TH}
+        rx="3"
+        fill="#0f2557"
+        stroke="#cbd5e1"
+        strokeWidth="1.5"
+      />
+      <line
+        x1={TX}
+        y1={TY + TH / 2}
+        x2={TX + TW}
+        y2={TY + TH / 2}
+        stroke="#f8fafc"
+        strokeWidth="1.75"
+        strokeDasharray="4 2"
+      />
+      {/* Keep the complete estimate visible at rest. The brighter layer
+          below follows the playhead and marks the current ball. */}
+      <CompleteCourtPath points={projectedTrack} segments={pathSegments} />
+      <g pointerEvents="none" aria-label="Recent best estimate trail">
+        {trail.map((point, index) => {
+          const position = xy(point.u, point.v);
+          const previous = index > 0 ? trail[index - 1] : null;
+          const previousPosition = previous
+            ? xy(previous.u, previous.v)
+            : null;
+          const alpha = 0.15 + 0.85 * point.opacity;
+          return (
+            <g key={`${point.t}-${index}`}>
+              {point.connectsFromPrevious && previousPosition && (
+                <line
+                  x1={previousPosition.x}
+                  y1={previousPosition.y}
+                  x2={position.x}
+                  y2={position.y}
+                  stroke="#facc15"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  opacity={alpha}
+                />
+              )}
+              <circle
+                cx={position.x}
+                cy={position.y}
+                r={index === trail.length - 1 ? 2.8 : 1.65}
+                fill="#facc15"
+                opacity={alpha}
+              />
+            </g>
+          );
+        })}
+      </g>
+      {placed.map((b, i) => {
+        const p = xy(b.u as number, b.v as number);
+        const live = Math.abs(t - b.t) < 0.34;
+        const isServe = (card.serve_bounces ?? []).some(
+          (st) => Math.abs(st - b.t) < 0.02
+        );
+        const label = labelFor(labels, b.t);
+        const selected =
+          selectedT != null && Math.abs(selectedT - b.t) < 0.001;
+        return (
+          <g
+            key={`${b.t}-${i}`}
+            className={onSelect ? "cursor-pointer" : undefined}
+            onClick={onSelect ? () => onSelect(b.t) : undefined}
+          >
+            <title>
+              {`${(b.t - card.t0).toFixed(2)}s into the card · `
+                + `${b.u?.toFixed(2)}, ${b.v?.toFixed(2)} m · `
+                + `${b.onSurface ? "on the surface" : "off the surface"}`
+                + (isServe ? " · the serve" : "")
+                + (label ? ` · you said: ${bounceLabelCopy(label)}` : "")}
+            </title>
+            {selected && (
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r="8"
+                fill="none"
+                stroke="#f8fafc"
+                strokeWidth="1"
+              />
+            )}
+            {/* Hit area: a 3.5px dot is no tap target. */}
+            <circle cx={p.x} cy={p.y} r="9" fill="transparent" />
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={live ? 6 : 3.5}
+              fill={
+                label
+                  ? LABEL_TONE[label]
+                  : isServe
+                    ? SERVE_BOUNCE
+                    : b.onSurface
+                      ? "#50ff78"
+                      : "#ff5050"
+              }
+              fillOpacity={
+                label === "not_ball" ? 0.35 : live ? 0.95 : isServe || label ? 0.75 : 0.4
+              }
+              stroke="#0c1222"
+              strokeWidth="0.75"
+            />
+            <text
+              x={p.x}
+              y={p.y - 5}
+              textAnchor="middle"
+              fontSize="6"
+              fill="#94a3b8"
+            >
+              {i + 1}
+            </text>
+          </g>
+        );
+      })}
+      <text x={TX} y={TY + TH + 11} fontSize="7" fill="#71717a">
+        near end
+      </text>
+      <text x={TX} y={TY - 5} fontSize="7" fill="#71717a">
+        far end
+      </text>
+      <text
+        x={TX + TW}
+        y={TY - 5}
+        textAnchor="end"
+        fontSize="7"
+        fill="#facc15"
+      >
+        Best estimate path
+      </text>
+    </svg>
+  );
+}

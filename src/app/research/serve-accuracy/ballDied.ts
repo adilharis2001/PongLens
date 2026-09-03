@@ -1,11 +1,11 @@
-import type { DetectedEvent } from "./serveAccuracyModel";
+import type { DetectedEvent } from "./serveAccuracyModel.ts";
 import {
   deadRunLoser,
   deadRunReasonCopy,
   findDeadRuns,
   type DeadRun,
-} from "./deadRun";
-import { findNetDeath, netDeathLoser, type NetDeath } from "./netDeath";
+} from "./deadRun.ts";
+import { findNetDeath, netDeathLoser, type NetDeath } from "./netDeath.ts";
 
 /**
  * The ball died on the table, and the side it died on lost the point.

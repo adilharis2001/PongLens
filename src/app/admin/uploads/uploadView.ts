@@ -29,6 +29,38 @@ export interface CalibrationAgreement {
   tables_seen?: number;
 }
 
+export interface PlacementEventJson {
+  event_id?: string | null;
+  t?: number;
+  u?: number | null;
+  v?: number | null;
+  x?: number | null;
+  y?: number | null;
+  confidence?: number;
+}
+
+export interface PlacementCandidateJson extends PlacementEventJson {
+  id?: string;
+  kind?: string;
+  kinds?: string[];
+  visual_confidence?: number;
+  audio_confidence?: number;
+}
+
+export interface PlacementShotJson {
+  seq?: number;
+  contact_t?: number | null;
+  contact?: PlacementEventJson | null;
+  serve_first_bounce?: PlacementEventJson | null;
+  landing?: PlacementEventJson | null;
+}
+
+export interface PlacementHypothesisJson {
+  status?: string;
+  confidence?: number;
+  shots?: PlacementShotJson[];
+}
+
 export interface MatchJson {
   version?: number;
   /** Which card assembly ran. Absent on matches processed before 119. */
@@ -59,7 +91,17 @@ export interface MatchJson {
   notes?: string[];
   cut_mode?: string;
   cut_segments?: [number, number][];
-  points?: { idx?: number; serve_s?: number | null }[];
+  points?: Array<{
+    idx?: number;
+    t0?: number;
+    t1?: number;
+    serve_s?: number | null;
+    placement?: {
+      status?: string;
+      candidates?: PlacementCandidateJson[];
+      hypotheses?: Record<string, PlacementHypothesisJson>;
+    } | null;
+  }>;
   /** Phase 2 — a structured twin of the `route ...` sentence in notes[]. */
   assembly?: {
     pipeline?: string;
@@ -98,6 +140,23 @@ export interface AdminUploadPoint {
   placement_status: string | null;
   placement_flagged: boolean;
   notes: number;
+  /** The OPERATOR's own review (150). Distinct from `notes`, which counts
+   *  the player's own notes on their point. */
+  admin_note: string | null;
+  admin_theme_ids: string[];
+}
+
+/**
+ * A desktop Admin card opens an evidence pane even when its cut video is
+ * unavailable. Phones still require video because their card action opens
+ * the playback takeover rather than the side-by-side diagnosis.
+ */
+export function cardCanOpen(
+  cutT0: number | null,
+  hasCutVideo: boolean,
+  isDesktop: boolean
+): boolean {
+  return cutT0 !== null && (hasCutVideo || isDesktop);
 }
 
 export interface UploadDetail {
@@ -311,6 +370,12 @@ export interface AssemblyReading {
   cards: number | null;
   serves: number | null;
   crossings: number | null;
+  /** Cards the assembler managed to anchor on a detected serve, and the
+   *  ones it could not. Counted from the cards themselves rather than from
+   *  the notes line, so they are right even where the sentence is not. Null
+   *  when the file predates per-card serve marks. */
+  cardsWithServe: number | null;
+  cardsWithoutServe: number | null;
   /** Why v2 was asked for and did not run. */
   fallbackReason: string | null;
   /** The router's own threshold, for explaining the decision. */
@@ -353,11 +418,23 @@ export function readAssembly(matchJson: MatchJson | null): AssemblyReading {
     cards: null,
     serves: null,
     crossings: null,
+    cardsWithServe: null,
+    cardsWithoutServe: null,
     fallbackReason: null,
     threshold: SERVE_RATE_MIN,
   };
   if (!matchJson) return base;
   base.pipeline = matchJson.pipeline ?? null;
+
+  // Per-card serve coverage, straight from the cards. A v1 match has no
+  // serve marks at all, so counting there would report every card as a
+  // miss; only v2 files are asked.
+  const cardList = matchJson.points;
+  if (base.pipeline === "v2" && Array.isArray(cardList) && cardList.length) {
+    const withServe = cardList.filter((c) => typeof c.serve_s === "number").length;
+    base.cardsWithServe = withServe;
+    base.cardsWithoutServe = cardList.length - withServe;
+  }
 
   // 1. The structured block, once the worker writes one.
   const structured = matchJson.assembly;
@@ -370,6 +447,8 @@ export function readAssembly(matchJson: MatchJson | null): AssemblyReading {
       servesPerMin: structured.serves_per_min ?? null,
       cameraShape: structured.camera_shape ?? null,
       cards: structured.cards ?? null,
+      cardsWithServe: base.cardsWithServe,
+      cardsWithoutServe: base.cardsWithoutServe,
     };
   }
 
@@ -455,6 +534,37 @@ export function retentionPct(
     return null;
   }
   return Math.min(100, Math.round((cutSeconds / srcSeconds) * 100));
+}
+
+/**
+ * The frame rate a phone actually recorded at, and the measured number.
+ *
+ * Nothing arrives at a round rate: 29.976, 29.986, 29.999 and 30.0 all
+ * appear across the last twenty-five uploads and every one of them is a
+ * 30 fps recording. The rate people mean is the standard one, so that is
+ * what the value says, with what was measured underneath.
+ *
+ * Snapped to the nearest of the rates cameras actually shoot, and only
+ * when it is genuinely close — anything else is reported as it was
+ * measured rather than rounded into a category it does not belong to.
+ *
+ * Read from match.json, which the pipeline probes on the file it was
+ * handed. A trim is a stream copy, so a trimmed job's rate is still the
+ * uploaded one.
+ */
+const STANDARD_FPS = [24, 25, 30, 48, 50, 60, 120, 240];
+
+export function fpsLabel(
+  fps: number | null | undefined
+): { value: string; detail: string | null } {
+  if (fps == null || !Number.isFinite(fps) || fps <= 0) {
+    return { value: "Not recorded", detail: null };
+  }
+  const near = STANDARD_FPS.find((r) => Math.abs(fps - r) <= r * 0.02);
+  return {
+    value: near ? `${near} fps` : `${fps.toFixed(2)} fps`,
+    detail: near && Math.abs(fps - near) > 0.005 ? `${fps.toFixed(3)} measured` : null,
+  };
 }
 
 export function gbLabel(bytes: number): string {

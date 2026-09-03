@@ -20,12 +20,19 @@ import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { CoachCta } from "@/components/reviews/CoachCta";
+import { OriginalVideoButton } from "@/components/OriginalVideo";
 import {
   computeMatchScore,
   sortPoints,
   type GameEndOverride,
 } from "./gameScore";
 import { GamesPair, GamesToggle, ScoreLine } from "./ScoreLine";
+import {
+  SpokenGamesToggle,
+  SpokenLine,
+  SpokenScoreEditor,
+  cleanSpoken,
+} from "./SpokenScore";
 import { ReelRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 import { HighlightsRow } from "./HighlightsRow";
 import { NoteComposer, NoteItem } from "./Notes";
@@ -37,9 +44,17 @@ import {
 import { PlacementToolsRow } from "./PlacementToolsRow";
 import { usePlacementLifecycle } from "./usePlacementLifecycle";
 import { AnalysisCards } from "./AnalysisCards";
+import { ShareResult } from "@/app/s/[token]/ShareResult";
+import { ShareStats } from "@/app/s/[token]/ShareStats";
+import { SharePlacement } from "@/app/s/[token]/SharePlacement";
+import {
+  collectServePlacementObservations,
+  collectTrustedPlacementObservations,
+  trustedPlacementPointCount,
+} from "@/lib/placement/placementAggregate";
 import { computeMatchAnalysis } from "./matchAnalysis";
 import { computeMatchStats, statsRowSummary } from "./matchStats";
-import { paddedEnd,
+import { mergeSkipSpans, paddedEnd,
   type EndOptions,
 } from "./playhead";
 import { clipPad } from "./clipEdit";
@@ -62,6 +77,11 @@ import {
   userFirstServerUpdate,
 } from "./matchStructure";
 import { normalizeCustomReasonLabel } from "./scorecard";
+import {
+  SIDE_CHANGE_LABEL,
+  sideChangesByPoint,
+  type SideChangeMarker,
+} from "./sideChanges.ts";
 import {
   placementNoticeForViewer,
   scrollToReadyPlacement,
@@ -262,25 +282,39 @@ function useIsDesktop() {
 }
 
 /**
- * Full-video card: the Player's poster (the ONLY match-footage video)
- * plus ONE header action — the ↓ icon for the owner (downloads the cut
- * video directly), a plain Download button for coach viewers. Everything
+ * Full-video card: the Player's poster plus the actions that are about
+ * the match's FOOTAGE — watch the original, download the cut. Everything
  * else (score, share, coach, export) lives in the Tools card below.
  * Tapping the poster opens the Player takeover in watch mode.
  *
+ * The rule here used to be "ONE header action", and the card used to be
+ * the only match-footage video on the page. Both were retired by the
+ * Original pill, and the narrower rule that replaces them still does the
+ * work the old one did: THIS CARD HOLDS THE MATCH'S VIDEOS, ONE SHORTCUT
+ * EACH; ACTIONS LIVE IN TOOLS. Placement and Match analysis are not
+ * videos and still have no business here.
+ *
+ * The Original pill cannot live in Tools, which is why it is here: Tools
+ * is `{isOwner && (`, and a coach looking at a poor cut wants the
+ * original for the same reason the player does.
+ *
  * The ↓ stays as a one-tap shortcut for the plain full-match (no-score)
  * download — the most common export. The Tools "Export" row opens the full
- * menu (full match with/without score, starred points, raw upload); this
+ * menu (full match with/without score, starred points, the original); this
  * quick affordance is deliberately kept alongside it.
  */
 function DownloadCard({
   matchId,
   isOwner,
+  hasOriginal,
   children,
 }: {
   matchId: string;
   /** Owner gets the quiet ↓ icon; coach viewers the plain Download pill. */
   isOwner: boolean;
+  /** Is there an original upload left to watch? Server-resolved, so the
+   *  pill is correct at first paint rather than appearing a beat late. */
+  hasOriginal: boolean;
   /** The Player (poster preview while closed). */
   children: React.ReactNode;
 }) {
@@ -318,6 +352,7 @@ function DownloadCard({
           <p className="text-xs text-zinc-500">Playtime only</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {hasOriginal && <OriginalVideoButton matchId={matchId} />}
           {isOwner ? (
             <button
               type="button"
@@ -404,7 +439,10 @@ export function MatchView({
   initialPointTags,
   initialLossReasonLabels = [],
   placementServesOnly = false,
+  gameEndDetection = false,
   ends = { tapEnd: false },
+  hasOriginal = false,
+  up = { href: "/matches", label: "Matches" },
 }: {
   match: Match;
   initialPoints: Point[];
@@ -422,6 +460,9 @@ export function MatchView({
   /** The match owner's display name, for viewers who are not the owner
    *  (match_owner_name, migration 034). null for the owner's own view. */
   ownerName: string | null;
+  /** Where the pill at the top climbs to: the owner's library, or for a
+   *  coach the student's page. Chosen by the page, which knows both. */
+  up?: { href: string; label: string };
   strictness: string;
   /** Display names for the note authors on this match, so the thread can
    * name each coach rather than labelling all of them "Coach". */
@@ -435,12 +476,21 @@ export function MatchView({
    *  match page and the share link cannot disagree about what the maps
    *  show for the same match. */
   placementServesOnly?: boolean;
+  /** app_config game_end_detection (140). Draws a marker between two
+   *  rallies where the video shows the players swapping ends. Read on the
+   *  server; off means no marker anywhere and no behaviour change at all. */
+  gameEndDetection?: boolean;
   /** Which endings trim a point (playhead.effectiveEnd): the winner tap
    *  plus half a second on a scored point (tap_end_playback, 138), the
    *  observed rally end plus its buffer on an unscored one
    *  (unscored_rally_end, 143). Both read on the server, so the match
    *  page and the share link cannot disagree about the same match. */
   ends?: EndOptions;
+  /** Is there an original upload left to watch? Resolved on the server
+   *  from matches.raw_path, falling back to the source job's input_path
+   *  for rows that predate the column — so the pill is right at first
+   *  paint instead of appearing a beat later and shifting the layout. */
+  hasOriginal?: boolean;
 }) {
   const [points, setPoints] = useState<Point[]>(initialPoints);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
@@ -448,6 +498,8 @@ export function MatchView({
   const [pointTags, setPointTags] = useState<PointTag[]>(initialPointTags);
   // Timeline tagging: which point's picker is open (the star's sibling).
   const [tagPickerPoint, setTagPickerPoint] = useState<Point | null>(null);
+  /** The detected side-change marker the owner tapped in the point list. */
+  const [sideChangeSheet, setSideChangeSheet] = useState<Point | null>(null);
   const [opponentName, setOpponentName] = useState(match.opponent_name ?? "");
   const [userSide, setUserSide] = useState<Side | null>(match.user_side);
   const [nearName, setNearName] = useState(match.player_near_name ?? "");
@@ -574,7 +626,9 @@ export function MatchView({
         .select("id")
         .eq("player_id", userId)
         .neq("status", "revoked")
-        .or(`scope_match_id.eq.${match.id},scope_match_id.is.null`)
+        .or(
+          `scope_match_id.eq.${match.id},and(scope_match_id.is.null,all_matches.eq.true)`,
+        )
         .limit(1),
     ]);
     if (typeof links.count === "number") setShareLinkCount(links.count);
@@ -1014,16 +1068,12 @@ export function MatchView({
       })
       .filter((s) => s.end > s.start)
       .sort((a, b) => a.start - b.start);
-    const merged: { start: number; end: number }[] = [];
-    for (const s of spans) {
-      const last = merged[merged.length - 1];
-      if (last && s.start <= last.end + 0.01) {
-        last.end = Math.max(last.end, s.end);
-      } else {
-        merged.push({ ...s });
-      }
-    }
-    return merged;
+    // The shared merge (playhead.ts): a run of deleted rallies fuses into
+    // one jump — the cut keeps slivers of unowned padding between clips,
+    // and the old 0.01 tolerance turned a deleted warm-up into a hop per
+    // rally — while the kept-rally guard keeps a fuse from ever spanning
+    // a rally somebody kept.
+    return mergeSkipSpans(spans, [...visibleStarts].sort((a, b) => a - b));
   }, [orderedPoints, pad]);
 
   // 0-based game index per point, from the confirmed score's boundaries.
@@ -1115,6 +1165,29 @@ export function MatchView({
     [match]
   );
   const placementNotice = placementNoticeForViewer(placement.view, isOwner);
+  // A coach's maps are the public share page's maps (Adil, 2026-09-02):
+  // the same collectors, the same three-point floor, the same read-only
+  // deck. The owner keeps the interactive aggregate below.
+  const coachPlacement = useMemo(() => {
+    if (isOwner) return null;
+    if (match.placement_status !== "ready" || placementFlagged) return null;
+    const observations = (
+      placementServesOnly
+        ? collectServePlacementObservations
+        : collectTrustedPlacementObservations
+    )({ points: visiblePoints, userSide, gameIndexByPoint, serving });
+    const mapped = trustedPlacementPointCount(observations);
+    return mapped < 3 ? null : { observations, mapped };
+  }, [
+    isOwner,
+    match.placement_status,
+    placementFlagged,
+    placementServesOnly,
+    visiblePoints,
+    userSide,
+    gameIndexByPoint,
+    serving,
+  ]);
   const showPointPlacementNotice = showPlacementDeepDive(
     placement.view,
     false,
@@ -1259,6 +1332,30 @@ export function MatchView({
     });
     return out;
   }, [visiblePoints, score]);
+  /**
+   * Where the video says the players swapped ends and the score has not
+   * said so yet (140/146). Purely a marker: it is never folded into the
+   * boundary walk, so nothing below this line changes what a match scores.
+   * Fades as the match gets scored — see sideChanges.ts.
+   */
+  const sideChanges = useMemo(
+    () =>
+      sideChangesByPoint({
+        evidence: match.match_structure,
+        visiblePoints,
+        boundaryAfter: score.boundaryAfter,
+        enabled: gameEndDetection,
+        scoredType: scored,
+      }),
+    [
+      match.match_structure,
+      visiblePoints,
+      score.boundaryAfter,
+      gameEndDetection,
+      scored,
+    ]
+  );
+
   /**
    * The match split into games — the same boundary walk the score uses, so
    * "Game 3" here is the Game 3 everywhere else. Feeds the unscore picker,
@@ -1547,20 +1644,45 @@ export function MatchView({
     [setSkipped]
   );
 
-  // Optimistic server correction (the Player's serve ball). Rotation
-  // re-anchors from the most recent override, so one fix heals the rest.
+  // Optimistic serve correction. The Keep-score serve balls, the point
+  // sheet's "Who served?" and the point-list chip menu ALL land here, so
+  // there is one implementation of what a correction means. `next: null`
+  // clears this point's own correction.
+  //
+  // set_server_override (migration 100) writes the anchor and clears every
+  // correction AFTER it in the same statement. The rotation anchors to the
+  // most recent override before each point, so a stale correction further
+  // down the match used to win over this one and quietly undo it from
+  // there on — fixing one rotation meant re-tapping every correction
+  // downstream. Corrections BEFORE this one stand: they anchor a stretch
+  // this one does not speak for.
   const setServerOverride = useCallback(
-    async (point: Point, next: "user" | "opponent") => {
+    async (point: Point, next: "user" | "opponent" | null) => {
+      const i = visiblePoints.findIndex((p) => p.id === point.id);
+      // The clear is mirrored locally as well as written: the rows go
+      // clean either way, but the chips downstream would keep their
+      // override styling until a reload.
+      const stale =
+        i < 0
+          ? []
+          : visiblePoints
+              .slice(i + 1)
+              .filter((p) => p.server_override !== null)
+              .map((p) => ({ id: p.id, was: p.server_override }));
       const prev = point.server_override;
       updatePoint(point.id, { server_override: next });
+      for (const s of stale) updatePoint(s.id, { server_override: null });
       const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update({ server_override: next })
-        .eq("id", point.id);
-      if (error) updatePoint(point.id, { server_override: prev });
+      const { error } = await supabase.rpc("set_server_override", {
+        p_id: point.id,
+        p_value: next,
+      });
+      if (error) {
+        updatePoint(point.id, { server_override: prev });
+        for (const s of stale) updatePoint(s.id, { server_override: s.was });
+      }
     },
-    [updatePoint]
+    [updatePoint, visiblePoints]
   );
 
   // Optimistic game-boundary override write (Keep score's pills and the
@@ -1616,6 +1738,23 @@ export function MatchView({
         .update({ game_winner_override: next })
         .eq("id", point.id);
       if (error) updatePoint(point.id, { game_winner_override: prev });
+    },
+    [updatePoint]
+  );
+
+  // Hide a detected side-change marker (146). Display only, and
+  // deliberately NOT a 'continue' override: 'continue' suppresses the
+  // automatic 11-clear-by-2 rule from here on, which is a real change to
+  // the score, and saying "they just changed ends" must cost nothing.
+  const dismissSideChange = useCallback(
+    async (point: Point) => {
+      updatePoint(point.id, { side_change_dismissed: true });
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ side_change_dismissed: true })
+        .eq("id", point.id);
+      if (error) updatePoint(point.id, { side_change_dismissed: false });
     },
     [updatePoint]
   );
@@ -1873,6 +2012,12 @@ export function MatchView({
    *  and in the floating bar independently. */
   const [barScoreOpen, setBarScoreOpen] = useState(false);
   const [headerScoreOpen, setHeaderScoreOpen] = useState(false);
+  /** The spoken score's own disclosure while it stands in the slot. */
+  const [spokenOpen, setSpokenOpen] = useState(false);
+  const [spokenEditing, setSpokenEditing] = useState(false);
+  const [spokenRows, setSpokenRows] = useState(() =>
+    cleanSpoken(match.spoken_scores)
+  );
   /** Owner-only match settings (unscore / delete) next to the title. */
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [confirmUnscore, setConfirmUnscore] = useState(false);
@@ -2041,6 +2186,69 @@ export function MatchView({
       ps.some((p) => p.id === newPoint.id) ? ps : [...ps, newPoint]
     );
   }, []);
+
+  /**
+   * Add a card for a rally the cut missed.
+   *
+   * insert_point (101) does the whole thing in one statement: creates the
+   * card, trims each neighbour only where the new window overlapped it, and
+   * clears the serve corrections after it — an insert changes the rotation
+   * from here on, so a correction downstream was answering a rotation that
+   * no longer exists.
+   *
+   * The rotation itself needs nothing else. It is a COUNT of cards, so
+   * restoring the beat fixes who served every later point, the score, the
+   * deuce switch and the game boundaries at once, with no correction at all.
+   */
+  const insertMissingPoint = useCallback(
+    async (
+      prevPoint: Point | null,
+      nextPoint: Point | null,
+      t0: number,
+      t1: number,
+      cutT0: number,
+      winner: "user" | "opponent" | null
+    ): Promise<boolean> => {
+      const supabase = createClient();
+      const { data, error } = await supabase.rpc("insert_point", {
+        p_prev_id: prevPoint?.id ?? null,
+        p_next_id: nextPoint?.id ?? null,
+        p_t0: t0,
+        p_t1: t1,
+        p_cut_t0: cutT0,
+      });
+      if (error || !data) return false;
+      const created = data as Point;
+      addSplitPoint(created);
+      // Mirror what the RPC did to the neighbours and to any stale
+      // corrections, so the strip is truthful before any refetch.
+      if (prevPoint && prevPoint.t1 !== null && Number(prevPoint.t1) > t0) {
+        updatePoint(prevPoint.id, { t1: t0, edited: true });
+      }
+      if (nextPoint && nextPoint.t0 !== null && Number(nextPoint.t0) < t1) {
+        updatePoint(nextPoint.id, { t0: t1, edited: true });
+      }
+      for (const p of visiblePoints) {
+        if (p.server_override === null) continue;
+        if (p.t0 !== null && Number(p.t0) > t0) {
+          updatePoint(p.id, { server_override: null });
+        }
+      }
+      // The clip has to be cut from the raw: this footage is either missing
+      // from the cut video entirely or shared with a neighbour that just
+      // gave it up.
+      scheduleReclip();
+      if (winner) void setWinner(created, winner);
+      return true;
+    },
+    [
+      addSplitPoint,
+      updatePoint,
+      visiblePoints,
+      scheduleReclip,
+      setWinner,
+    ]
+  );
 
   // The Adjust save — ONE timing write for both surfaces (the pad's Modify
   // and the point view's). Tight flags dissolve when their edge moved
@@ -2392,8 +2600,8 @@ export function MatchView({
           leftover. The same control reappears in the bar below once the
           header scrolls away, so it is never off screen. */}
       <Link
-        href="/matches"
-        className="group inline-flex items-center gap-2 rounded-full border border-edge bg-surface/70 py-1.5 pl-1.5 pr-4 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+        href={up.href}
+        className="group inline-flex max-w-full items-center gap-2 rounded-full border border-edge bg-surface/70 py-1.5 pl-1.5 pr-4 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
       >
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-surface-2 text-zinc-400 transition-colors group-hover:text-cyan-glow">
           <svg
@@ -2411,7 +2619,7 @@ export function MatchView({
             />
           </svg>
         </span>
-        Matches
+        <span className="truncate">{up.label}</span>
       </Link>
 
       {/* header — the title gets the full width; the score sits on the
@@ -2564,20 +2772,79 @@ export function MatchView({
               and then re-tagged as practice keeps its winner rows in the
               database, and a games total beside the word "Practice" reads
               as a contradiction. Flip the type back and the score returns. */}
-          {scored && score.confirmedCount > 0 && (
+          {scored && score.confirmedCount > 0 ? (
             <GamesToggle
               score={score}
               open={headerScoreOpen}
               onToggle={() => setHeaderScoreOpen((o) => !o)}
               className="text-lg font-bold tracking-tight sm:text-xl lg:text-2xl"
             />
+          ) : (
+            spokenRows.length > 0 && (
+              // No scored result yet: the spoken score stands in the
+              // slot, muted and labelled. Which number is the record is
+              // answered by weight before anyone reads the label.
+              <SpokenGamesToggle
+                rows={spokenRows}
+                open={spokenOpen}
+                onToggle={() => setSpokenOpen((o) => !o)}
+                className="text-lg sm:text-xl"
+              />
+            )
           )}
         </div>
         {headerScoreOpen && scored && score.confirmedCount > 0 && (
-          <ScoreLine
-            wrap
-            score={score}
-            className="mt-2 text-sm font-semibold tabular-nums"
+          <>
+            <ScoreLine
+              wrap
+              score={score}
+              className="mt-2 text-sm font-semibold tabular-nums"
+            />
+            {/* The record, then the testimony, one weight apart. */}
+            {spokenRows.length > 0 && !spokenEditing && (
+              <button
+                type="button"
+                onClick={() => isOwner && setSpokenEditing(true)}
+                className="mt-1.5 flex items-baseline gap-2 text-left"
+              >
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600">
+                  Spoken
+                </span>
+                <SpokenLine rows={spokenRows} className="text-sm" />
+              </button>
+            )}
+          </>
+        )}
+        {spokenOpen && !(scored && score.confirmedCount > 0) && !spokenEditing && (
+          <div className="mt-2 space-y-1.5">
+            <button
+              type="button"
+              onClick={() => isOwner && setSpokenEditing(true)}
+              className="block text-left"
+            >
+              <SpokenLine rows={spokenRows} className="text-sm font-semibold" />
+            </button>
+            {/* Spoken is the appetizer. The analysis only comes from
+                scoring the points, and the nudge rides the peek. */}
+            {isOwner && hasCutOffsets && scored && (
+              <button
+                type="button"
+                onClick={() => playerRef.current?.openScore()}
+                className="text-sm font-semibold text-cyan-glow"
+              >
+                Score the match to unlock your analysis →
+              </button>
+            )}
+          </div>
+        )}
+        {spokenEditing && isOwner && (
+          <SpokenScoreEditor
+            matchId={match.id}
+            initial={spokenRows}
+            youLabel={ownSideName.trim() || "You"}
+            themLabel={opponentName.trim() || "Opponent"}
+            onClose={() => setSpokenEditing(false)}
+            onSaved={(rows) => setSpokenRows(rows)}
           />
         )}
 
@@ -2671,7 +2938,11 @@ export function MatchView({
           control-panel grid below. Mobile / portrait: stacked, Tools a list. */}
       <div>
         <div className="mt-4 flex min-w-0 flex-wrap items-start gap-3">
-          <DownloadCard matchId={match.id} isOwner={isOwner}>
+          <DownloadCard
+            matchId={match.id}
+            isOwner={isOwner}
+            hasOriginal={hasOriginal}
+          >
             <Player
               ref={playerRef}
               matchId={match.id}
@@ -2703,8 +2974,15 @@ export function MatchView({
               }
               onSetSkipped={(p, v) => void setSkipped(p, v)}
               onSetServer={(p, v) => void setServerOverride(p, v)}
+              onInsertPoint={isOwner ? insertMissingPoint : undefined}
               onSetGameOverride={(p, v) => void setGameEndOverride(p, v)}
               onSetGameWinner={(p, v) => void setGameWinnerOverride(p, v)}
+              sideChanges={sideChanges}
+              onDismissSideChange={
+                gameEndDetection && isOwner
+                  ? (p) => void dismissSideChange(p)
+                  : undefined
+              }
               onToggleStar={(p) => void toggleStar(p)}
               onSplit={(parent, patch, child) => {
                 updatePoint(parent.id, patch);
@@ -2786,7 +3064,7 @@ export function MatchView({
                     short numbers always fit, and the detail is one row up
                     in the header. */}
                 <span className="shrink-0 text-sm font-semibold">
-                  Score Keeper
+                  Score the Match
                 </span>
                 <span className="flex min-w-0 items-center gap-2">
                   {score.confirmedCount > 0 && (
@@ -3024,8 +3302,11 @@ export function MatchView({
           </section>
         )}
 
-      {/* first server: anchors the ITTF serve rotation for every point */}
-      {isOwner && firstServer === null && visiblePoints.length > 0 && (
+      {/* first server: anchors the ITTF serve rotation for every point —
+          so it is only a question where a rotation exists. `scored` is
+          tracksServe on the live type, which means changing a match to
+          Practice takes the prompt away without a reload. */}
+      {isOwner && scored && firstServer === null && visiblePoints.length > 0 && (
         <div className="mt-6 rounded-2xl border border-cyan-glow/30 bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -3416,6 +3697,7 @@ export function MatchView({
                                 : undefined
                             }
                             onPointUpdate={updatePoint}
+                            onSetServer={(v) => setServerOverride(point, v)}
                           />}
                           {scored && point.confirmed_winner && !point.is_let && (
                             <span
@@ -3640,6 +3922,32 @@ export function MatchView({
                         can nudge it a point up/down when a rally landed in
                         the wrong game (score ran past 11). Scored types
                         only — games are a score construct. */}
+                    {/* The video saw them swap ends and the score has not
+                        said so. Dashed, because the solid rule above means
+                        "a game ended here and the score proves it" and this
+                        is a different claim — dashed is already this page's
+                        vocabulary for not-yet-answered. Never both: a
+                        boundary within three rallies silences this one. */}
+                    {scored && !pfActive && nextGame === undefined &&
+                      sideChanges.has(point.id) && (
+                      <div className="mt-3 flex items-center gap-3">
+                        <span className="h-px flex-1 border-t border-dashed border-edge" />
+                        {isOwner ? (
+                          <button
+                            type="button"
+                            onClick={() => setSideChangeSheet(point)}
+                            className="rounded-full border border-dashed border-edge px-3 py-1 text-xs font-semibold uppercase tracking-wider text-zinc-500 transition-colors hover:border-cyan-glow/50 hover:text-zinc-300"
+                          >
+                            {SIDE_CHANGE_LABEL}
+                          </button>
+                        ) : (
+                          <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                            {SIDE_CHANGE_LABEL}
+                          </span>
+                        )}
+                        <span className="h-px flex-1 border-t border-dashed border-edge" />
+                      </div>
+                    )}
                     {scored && !pfActive && nextGame !== undefined && (
                       <div className="mt-3 flex items-center gap-3">
                         <span className="h-px flex-1 bg-edge" />
@@ -3882,6 +4190,7 @@ export function MatchView({
                 openHere: score.openAfter.has(panePoint.id),
               }}
               onSetGameOverride={(v) => setGameEndOverride(panePoint, v)}
+              onSetServer={(v) => setServerOverride(panePoint, v)}
               mapLabels={mapLabels}
               neutral={neutral}
               scored={scored}
@@ -3946,6 +4255,37 @@ export function MatchView({
           practice never collects any, so for it this whole section could
           only ever say "score a full game", which is an instruction to do
           the one thing practice removed. */}
+      {/* A coach sees the scored half of the match the way a share link
+          shows it (Adil, 2026-09-02): the result, the stats and the maps,
+          in the public page's own components, so the two never drift. The
+          owner keeps the interactive deck below. */}
+      {!isOwner && scored && score.games.length > 0 && (
+        <ShareResult
+          you={mapLabels.you}
+          them={mapLabels.them}
+          games={score.games}
+          gamesYou={score.gamesYou}
+          gamesThem={score.gamesThem}
+        />
+      )}
+      {!isOwner && scored && (
+        <ShareStats
+          stats={stats}
+          momentum={analysis.momentum}
+          you={mapLabels.you}
+          them={mapLabels.them}
+        />
+      )}
+      {!isOwner && coachPlacement && (
+        <SharePlacement
+          observations={coachPlacement.observations}
+          mappedPoints={coachPlacement.mapped}
+          totalPoints={visiblePoints.length}
+          labels={mapLabels}
+          servesOnly={placementServesOnly}
+        />
+      )}
+
       {isOwner && scored && (
         <div ref={matchStatsRef} className="scroll-mt-32">
           <AnalysisCards
@@ -4044,8 +4384,8 @@ export function MatchView({
               >
                 <div className="flex items-center gap-2 py-1.5 pl-1.5 pr-3">
                   <Link
-                    href="/matches"
-                    aria-label="Back to matches"
+                    href={up.href}
+                    aria-label={`Back to ${up.label}`}
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-zinc-300 transition-colors hover:text-cyan-glow"
                   >
                     <svg
@@ -4153,6 +4493,7 @@ export function MatchView({
             openHere: score.openAfter.has(selectedPoint.id),
           }}
           onSetGameOverride={(v) => setGameEndOverride(selectedPoint, v)}
+          onSetServer={(v) => setServerOverride(selectedPoint, v)}
           mapLabels={mapLabels}
           neutral={neutral}
           scored={scored}
@@ -4363,6 +4704,55 @@ export function MatchView({
           onCreate={(label) => void createTag(tagPickerPoint.id, label)}
           onClose={() => setTagPickerPoint(null)}
         />
+      )}
+
+      {/* The detected side change, tapped in the point list. Two answers
+          and a way out. "Game ended here" writes the SAME override the
+          owner could pin by hand, so a game ended from a marker is
+          indistinguishable afterwards from one ended any other way — the
+          detector never gets its own private path into the score. */}
+      {sideChangeSheet && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center">
+          <div className="w-full max-w-sm rounded-2xl border border-edge bg-surface p-6">
+            <h3 className="text-lg font-semibold text-zinc-100">
+              The players changed ends here
+            </h3>
+            <p className="mt-1 text-sm text-zinc-400">
+              This usually means the game ended.
+            </p>
+            <div className="mt-5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const point = sideChangeSheet;
+                  setSideChangeSheet(null);
+                  void setGameEndOverride(point, "end");
+                }}
+                className="rounded-full border border-cyan-glow/40 bg-cyan-glow/10 px-4 py-2.5 text-sm font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/20"
+              >
+                Game ended here
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const point = sideChangeSheet;
+                  setSideChangeSheet(null);
+                  void dismissSideChange(point);
+                }}
+                className="rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-300 transition-colors hover:text-white"
+              >
+                They just changed ends
+              </button>
+              <button
+                type="button"
+                onClick={() => setSideChangeSheet(null)}
+                className="rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Unscore confirmation. Spells out both sides of the line, because

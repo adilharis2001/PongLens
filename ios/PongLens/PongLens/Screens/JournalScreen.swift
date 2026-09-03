@@ -32,6 +32,7 @@ struct JournalScreen: View {
         let lesson: LessonRow
     }
     @State private var editRequest: EditRequest?
+    @State private var coachEntryOpen: CoachSharedEntry?
     @State private var ask = AskState()
 
     private let feedCap = 30
@@ -94,6 +95,13 @@ struct JournalScreen: View {
         .scrollDismissesKeyboard(.interactively)
         .task {
             if !store.loaded { await store.load(userId: app.userId) }
+            store.markCoachSharesSeen(userId: app.userId)
+        }
+        .onChange(of: store.coachShared) { _, _ in
+            store.markCoachSharesSeen(userId: app.userId)
+        }
+        .sheet(item: $coachEntryOpen) { entry in
+            CoachSharedEntrySheet(entry: entry)
         }
         // Search reads entries, which Recollect does not list. Rather than
         // leave typing dead there, it moves to the list it filters.
@@ -335,7 +343,12 @@ struct JournalScreen: View {
     // MARK: - Tabs + feed
 
     private var tabs: some View {
+        // "From your coach" is a filter, not a tab bar item: it appears
+        // once a coach has shared something, the same way Recollect appears
+        // when it is on. Its entries also sit under All, the way the web's
+        // journal reads (Adil, 2026-09-02) — no section of their own.
         let names = ["All", "Matches", "Lessons", "Practice"]
+            + (store.coachShared.isEmpty ? [] : ["From your coach"])
             + (store.recollectEnabled ? ["Recollect"] : [])
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
@@ -359,11 +372,13 @@ struct JournalScreen: View {
     private enum FeedItem: Identifiable {
         case note(NoteFeedRow)
         case lesson(LessonRow)
+        case coach(CoachSharedEntry)
 
         var id: UUID {
             switch self {
             case .note(let n): n.id
             case .lesson(let l): l.id
+            case .coach(let e): e.entryId
             }
         }
 
@@ -371,6 +386,7 @@ struct JournalScreen: View {
             switch self {
             case .note(let n): n.createdAt
             case .lesson(let l): l.createdAt
+            case .coach(let e): e.sharedAt
             }
         }
     }
@@ -380,7 +396,10 @@ struct JournalScreen: View {
         if tab == "All" || tab == "Matches" {
             items += store.notes.map { .note($0) }
         }
-        if tab != "Matches" {
+        if tab == "All" || tab == "From your coach" {
+            items += store.coachShared.map { .coach($0) }
+        }
+        if tab != "Matches", tab != "From your coach" {
             items += store.lessons
                 .filter { lesson in
                     switch tab {
@@ -406,6 +425,13 @@ struct JournalScreen: View {
                             theme.name.lowercased().contains(q)
                                 || theme.points.contains { $0.lowercased().contains(q) }
                         }
+                case .coach(let e):
+                    e.transcript.lowercased().contains(q)
+                        || e.coachName.lowercased().contains(q)
+                        || (e.takeaways?.themes ?? []).contains { theme in
+                            theme.name.lowercased().contains(q)
+                                || theme.points.contains { $0.lowercased().contains(q) }
+                        }
                 }
             }
         }
@@ -424,7 +450,7 @@ struct JournalScreen: View {
                     .frame(height: 96)
                     .opacity(0.6)
             }
-        } else if items.isEmpty && store.notes.isEmpty && store.lessons.isEmpty {
+        } else if items.isEmpty && store.notes.isEmpty && store.lessons.isEmpty && store.coachShared.isEmpty {
             VStack(spacing: 12) {
                 Text("📓").font(.system(size: 40))
                 Text("Your journal starts here")
@@ -453,6 +479,13 @@ struct JournalScreen: View {
                     LessonCardView(lesson: lesson, store: store, onEdit: {
                         editRequest = EditRequest(lesson: lesson)
                     })
+                case .coach(let entry):
+                    Button {
+                        coachEntryOpen = entry
+                    } label: {
+                        CoachSharedEntryCard(entry: entry)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             if items.count > feedCap, !showAll {
@@ -467,6 +500,7 @@ struct JournalScreen: View {
         switch tab {
         case "Lessons": "No lessons yet. New saves your first."
         case "Practice": "No practice entries yet. New starts one."
+        case "From your coach": "Nothing from a coach yet."
         default: "Nothing found."
         }
     }
@@ -1059,6 +1093,7 @@ struct LessonCardView: View {
     @State private var deleting = false
     @State private var deleteError: String?
     @State private var addedPoints: Set<String> = []
+    @State private var shareOpen = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -1144,6 +1179,16 @@ struct LessonCardView: View {
                     .foregroundStyle(PL.text400)
                     .buttonStyle(.plain)
                 Spacer()
+                // Share sits beside Delete: a public read-only link to
+                // this entry, minted in the sheet it opens. Hidden while
+                // queued, same as the web card — the entry is not its
+                // final self yet.
+                if lesson.status != "queued" {
+                    Button("Share") { shareOpen = true }
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(PL.text400)
+                        .buttonStyle(.plain)
+                }
                 Button("Delete") {
                     deleteError = nil
                     deleteAsk = true
@@ -1181,6 +1226,158 @@ struct LessonCardView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $shareOpen) {
+            EntryShareSheet(lesson: lesson)
+        }
+    }
+}
+
+/// The sheet behind a journal entry's Share button — the same dress as
+/// the match share sheet in MatchTools: the link line, the system share,
+/// copy, a QR, all in one Form.
+///
+/// Opening it mints the link straight away: the Share tap on the card was
+/// the decision, so there is nothing to ask first. POST /api/share is
+/// idempotent, so reopening hands back the same URL rather than minting a
+/// second one. The link is live — the page always shows the entry as it
+/// currently reads, and deleting the entry kills it. "Turn off the link"
+/// revokes on the spot; Account lists it beside every other public link.
+struct EntryShareSheet: View {
+    let lesson: LessonRow
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var link: URL?
+    @State private var linkId: String?
+    @State private var creating = false
+    @State private var revoking = false
+    @State private var copied = false
+    @State private var showQR = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let link {
+                    Section {
+                        Text(link.absoluteString)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(PL.text300)
+                            .lineLimit(2)
+                        ShareLink(item: link) {
+                            Text("Share the link")
+                        }
+                        Button(copied ? "Copied" : "Copy link") {
+                            UIPasteboard.general.string = link.absoluteString
+                            copied = true
+                            Task {
+                                try? await Task.sleep(for: .seconds(1.5))
+                                copied = false
+                            }
+                        }
+                        Toggle("Show QR", isOn: $showQR)
+                        if showQR {
+                            QRCodeView(url: link)
+                                .listRowBackground(Color.clear)
+                        }
+                    } footer: {
+                        Text("Anyone with the link can read this entry, and it always shows the latest version.")
+                    }
+                    // "Revoke" is the product's one word for killing a
+                    // link — Account and the match sheet both use it.
+                    Section {
+                        Button(revoking ? "Revoking…" : "Revoke the link", role: .destructive) {
+                            Task { await turnOff() }
+                        }
+                        .disabled(revoking)
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.plCaption)
+                                .foregroundStyle(PL.dangerText)
+                        }
+                    }
+                } else {
+                    Section {
+                        if creating {
+                            Text("Creating the link…")
+                                .foregroundStyle(PL.text400)
+                        } else {
+                            Button("Create the link") {
+                                Task { await mint() }
+                            }
+                        }
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.plCaption)
+                                .foregroundStyle(PL.dangerText)
+                        }
+                    } footer: {
+                        Text("Anyone with the link can read this entry, and it always shows the latest version. You can revoke it anytime.")
+                    }
+                }
+            }
+            .tint(PL.cyan)
+            .navigationTitle("Share this entry")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+            }
+            .task {
+                if link == nil { await mint() }
+            }
+        }
+        .preferredColorScheme(.dark)
+    }
+
+    private struct MintResponse: Decodable {
+        let url: String
+        let id: String
+    }
+
+    private func mint() async {
+        guard !creating else { return }
+        creating = true
+        errorMessage = nil
+        // The entry's current headline rides along and is stored on the
+        // link, so the Account list can tell shared entries apart.
+        // Re-sharing refreshes it (the route patches the title on reuse).
+        let kindLine = lesson.kind == "practice"
+            ? "Practice"
+            : lesson.coachName.map { "Lesson with \($0)" } ?? "Lesson"
+        let title = lesson.takeaways?.title
+            ?? "\(kindLine) · \(PGDate.shortDate(lesson.createdAt))"
+        struct Req: Encodable {
+            let lessonId: String
+            let title: String
+        }
+        let res: MintResponse? = try? await API.post(
+            "api/share",
+            Req(lessonId: lesson.id.uuidString.lowercased(), title: title)
+        )
+        if let res, let url = URL(string: res.url) {
+            link = url
+            linkId = res.id
+        } else {
+            errorMessage = "Couldn't create the link. Try again."
+        }
+        creating = false
+    }
+
+    private func turnOff() async {
+        guard let linkId, !revoking else { return }
+        revoking = true
+        errorMessage = nil
+        struct Req: Encodable { let id: String }
+        struct Res: Decodable { let ok: Bool? }
+        let res: Res? = try? await API.post("api/share/revoke", Req(id: linkId))
+        revoking = false
+        if res != nil {
+            dismiss()
+        } else {
+            errorMessage = "Couldn't turn the link off. Try again."
         }
     }
 }
