@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { entryImageEdit } from "@/lib/journal/entryImage";
+import { releaseEntryImage } from "@/lib/journal/releaseEntryImage";
 import type { LessonTakeaways } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -13,9 +15,11 @@ export const runtime = "nodejs";
  * forty-minute lesson and regenerating all sixteen points from it. Nobody
  * did that, so wrong points stood forever. This edits the notes directly.
  *
- * It writes takeaways, and coach_name when a name is sent, and nothing
- * else. The transcript is the record of what was actually said, so it is
- * never touched here; kind and status are settled when the entry is saved
+ * It writes takeaways, coach_name when a name is sent, and the attached
+ * photo when the edit mentions one — the photo belongs to the entry, not
+ * to the words, so both editors can change it and a photo that stops
+ * being attached is dropped from storage. Nothing else. The transcript is
+ * the record of what was actually said, so it is never touched here; kind and status are settled when the entry is saved
  * and are not the note's business. Nothing is re-distilled and Recollect
  * is not re-enqueued, for the same reason in both cases: those derive from
  * the transcript, and the transcript did not change.
@@ -211,7 +215,7 @@ export async function PATCH(req: Request) {
   // never a hint that it exists.
   const { data: row } = await supabase
     .from("lessons")
-    .select("id, kind, takeaways")
+    .select("id, kind, takeaways, image_path")
     .eq("id", lessonId)
     .maybeSingle();
   if (!row) {
@@ -238,9 +242,19 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
-  const update: { takeaways: LessonTakeaways; coach_name?: string | null } = {
+  const photo = entryImageEdit(body as Record<string, unknown>, user.id);
+  if (photo.kind === "invalid") {
+    return NextResponse.json({ error: "Invalid image" }, { status: 400 });
+  }
+
+  const update: {
+    takeaways: LessonTakeaways;
+    coach_name?: string | null;
+    image_path?: string | null;
+  } = {
     takeaways: result.takeaways,
   };
+  if (photo.kind === "set") update.image_path = photo.imagePath;
   // Who taught it (085). Only a lesson has one, so a practice entry
   // ignores the field rather than growing a coach. An absent field means
   // leave the name alone; an empty one means clear it.
@@ -263,6 +277,13 @@ export async function PATCH(req: Request) {
       { error: "Couldn't save it. Try again." },
       { status: 500 },
     );
+  }
+
+  // The photo the entry used to carry, now that the row has stopped
+  // pointing at it. After the write, so a failed save never strands the
+  // entry pointing at an object that is already gone.
+  if (photo.kind === "set" && photo.imagePath !== row.image_path) {
+    await releaseEntryImage(supabase, row.image_path, user.id);
   }
 
   return NextResponse.json({ id: saved.id, takeaways: saved.takeaways });

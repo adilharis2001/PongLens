@@ -162,7 +162,9 @@ final class CoachWorkspaceStore {
                 .eq("id", value: student.id.uuidString.lowercased())
                 .execute()
         } catch { return false }
-        if let i = students.firstIndex(of: student) {
+        // By id, not by value: a row whose other fields have moved on is
+        // still the same row. See setShared for what value-matching cost.
+        if let i = students.firstIndex(where: { $0.id == student.id }) {
             students[i].displayName = clean
         }
         return true
@@ -337,23 +339,36 @@ final class CoachWorkspaceStore {
 
     /// Flip sharing. Sharing is a live grant: the student reads the
     /// current words, and edits after sharing show.
+    /// Share an entry with the student, or stop.
+    ///
+    /// Two things here were wrong and made "Stop sharing" look broken.
+    ///
+    /// The row came back rebuilt by hand rather than read back, so the
+    /// copy in memory carried the OLD updated_at while the table's own
+    /// touch trigger had moved it on. And the row to replace was found
+    /// with `firstIndex(of:)`, which compares every field — so the moment
+    /// those two disagreed the lookup found nothing, the write landed in
+    /// the database, and the screen went on saying "Shared". Pressing it
+    /// again did the same thing again.
+    ///
+    /// Now the update returns the stored row and it is matched by id.
+    /// An id is what identifies a row; the rest of its fields are just
+    /// its contents, and they are allowed to change under us.
     func setShared(_ entry: CoachEntryRow, shared: Bool) async -> Bool {
         let stamp = shared ? AnyJSON.string(ISO8601DateFormatter().string(from: Date()))
                            : AnyJSON.null
+        let saved: CoachEntryRow
         do {
-            try await supa
+            saved = try await supa
                 .from("coach_entries")
                 .update(["shared_at": stamp])
                 .eq("id", value: entry.id.uuidString.lowercased())
-                .execute()
+                .select("id,coach_id,student_id,lesson_id,shared_at,created_at,updated_at")
+                .single()
+                .execute().value
         } catch { return false }
-        if let i = entries.firstIndex(of: entry) {
-            entries[i] = CoachEntryRow(
-                id: entry.id, coachId: entry.coachId, studentId: entry.studentId,
-                lessonId: entry.lessonId,
-                sharedAt: shared ? ISO8601DateFormatter().string(from: Date()) : nil,
-                createdAt: entry.createdAt, updatedAt: entry.updatedAt
-            )
+        if let i = entries.firstIndex(where: { $0.id == saved.id }) {
+            entries[i] = saved
         }
         return true
     }
@@ -376,12 +391,29 @@ final class CoachWorkspaceStore {
 
     /// Correct the words of an entry, through the same route the journal
     /// uses so trimming and caps match. Distillation is left alone.
-    func saveWords(_ entry: CoachEntryRow, transcript: String) async -> String? {
+    func saveWords(
+        _ entry: CoachEntryRow, transcript: String,
+        photo: EntryPhotoSave = .unchanged
+    ) async -> String? {
         struct Req: Encodable {
             let lessonId: String
             let transcript: String
-            let kind = "coach"
             let summarize = false
+            let photo: EntryPhotoSave
+
+            enum CodingKeys: String, CodingKey {
+                case lessonId, transcript, summarize, imagePath
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(lessonId, forKey: .lessonId)
+                try c.encode(transcript, forKey: .transcript)
+                try c.encode(summarize, forKey: .summarize)
+                if case .set(let path) = photo {
+                    try c.encode(path, forKey: .imagePath)
+                }
+            }
         }
         struct Res: Decodable { let id: String? }
         do {
@@ -389,7 +421,7 @@ final class CoachWorkspaceStore {
                 "api/lesson", method: "PATCH",
                 body: Req(
                     lessonId: entry.lessonId.uuidString.lowercased(),
-                    transcript: transcript
+                    transcript: transcript, photo: photo
                 )
             )
         } catch {
@@ -406,10 +438,26 @@ final class CoachWorkspaceStore {
     /// exists: an entry that came back as points is corrected by editing
     /// those points, never by re-reading the words and having every point
     /// rewritten. The words are left exactly as they are.
-    func saveNote(_ entry: CoachEntryRow, takeaways: LessonTakeaways) async -> String? {
+    func saveNote(
+        _ entry: CoachEntryRow, takeaways: LessonTakeaways,
+        photo: EntryPhotoSave = .unchanged
+    ) async -> String? {
         struct Req: Encodable {
             let lessonId: String
             let takeaways: LessonTakeaways
+            let photo: EntryPhotoSave
+
+            enum CodingKeys: String, CodingKey { case lessonId, takeaways, imagePath }
+
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(lessonId, forKey: .lessonId)
+                try c.encode(takeaways, forKey: .takeaways)
+                // Absent means "not what I am changing"; see JournalStore.
+                if case .set(let path) = photo {
+                    try c.encode(path, forKey: .imagePath)
+                }
+            }
         }
         struct Res: Decodable { let id: String }
         do {
@@ -417,7 +465,7 @@ final class CoachWorkspaceStore {
                 "api/lesson/note", method: "PATCH",
                 body: Req(
                     lessonId: entry.lessonId.uuidString.lowercased(),
-                    takeaways: takeaways
+                    takeaways: takeaways, photo: photo
                 )
             )
         } catch {

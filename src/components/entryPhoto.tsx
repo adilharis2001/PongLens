@@ -199,9 +199,37 @@ export function PhotoPreview({
  * simply does not draw, because the words are the entry and a broken image
  * frame beside them is worse than no image at all.
  */
-export function EntryImage({ lessonId }: { lessonId: string }) {
-  const [url, setUrl] = useState<string | null>(null);
+/**
+ * Signed URLs already fetched, keyed by entry. A list that shows a
+ * thumbnail and then a full-size photo when the card opens would
+ * otherwise sign the same object twice, and again on every scroll back.
+ * The URL lasts an hour and the map dies with the page, so there is
+ * nothing to expire; a photo that changes clears its own key on save.
+ */
+const signedUrls = new Map<string, string>();
+
+export function forgetEntryImage(lessonId: string) {
+  signedUrls.delete(lessonId);
+}
+
+export function EntryImage({
+  lessonId,
+  className = "mt-3 max-h-72 w-full rounded-xl border border-edge object-cover",
+}: {
+  lessonId: string;
+  /** The card's own framing. The default is the full-width one a feed
+   *  card uses; a thumbnail or an editor passes its own. */
+  className?: string;
+}) {
+  const [url, setUrl] = useState<string | null>(
+    () => signedUrls.get(lessonId) ?? null,
+  );
   useEffect(() => {
+    const cached = signedUrls.get(lessonId);
+    if (cached) {
+      setUrl(cached);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -211,6 +239,7 @@ export function EntryImage({ lessonId }: { lessonId: string }) {
           body: JSON.stringify({ lessonId, image: true }),
         });
         const data = res.ok ? await res.json() : null;
+        if (data?.url) signedUrls.set(lessonId, data.url);
         if (!cancelled && data?.url) setUrl(data.url);
       } catch {
         // the entry text stands on its own
@@ -228,7 +257,7 @@ export function EntryImage({ lessonId }: { lessonId: string }) {
       alt="Photo attached to this entry"
       loading="lazy"
       decoding="async"
-      className="mt-3 max-h-72 w-full rounded-xl border border-edge object-cover"
+      className={className}
     />
   );
 }

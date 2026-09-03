@@ -60,11 +60,15 @@ struct CoachEntryScreen: View {
             if let entry, let lesson {
                 JournalNoteEditor(
                     lesson: lesson,
-                    onSaveNote: { takeaways, _ in
-                        await workspace.saveNote(entry, takeaways: takeaways)
+                    onSaveNote: { takeaways, _, photo in
+                        await workspace.saveNote(
+                            entry, takeaways: takeaways, photo: photo
+                        )
                     },
-                    onSaveWords: { words, _ in
-                        await workspace.saveWords(entry, transcript: words)
+                    onSaveWords: { words, _, photo in
+                        await workspace.saveWords(
+                            entry, transcript: words, photo: photo
+                        )
                     }
                 )
             }
@@ -166,8 +170,12 @@ struct CoachEntryScreen: View {
                     Button {
                         Task {
                             sharing = true
-                            _ = await workspace.setShared(entry, shared: true)
+                            errorLine = nil
+                            let ok = await workspace.setShared(entry, shared: true)
                             sharing = false
+                            if !ok {
+                                errorLine = "Couldn't share it. Try again."
+                            }
                         }
                     } label: {
                         Text(sharing ? "Sharing…" : "Share with \(student.displayName)")
@@ -202,11 +210,19 @@ struct CoachEntryScreen: View {
                 }
                 Spacer()
                 if student.linked, entry.sharedAt != nil {
-                    Button("Stop sharing") {
+                    // Says what it is doing, and says when it failed. It
+                    // used to do neither: the label never changed, so a
+                    // press that worked and a press that did nothing
+                    // looked exactly alike.
+                    Button(sharing ? "Stopping…" : "Stop sharing") {
                         Task {
                             sharing = true
-                            _ = await workspace.setShared(entry, shared: false)
+                            errorLine = nil
+                            let ok = await workspace.setShared(entry, shared: false)
                             sharing = false
+                            if !ok {
+                                errorLine = "Couldn't stop sharing. Try again."
+                            }
                         }
                     }
                     .disabled(sharing)

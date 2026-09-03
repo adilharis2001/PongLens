@@ -29,9 +29,9 @@ import SwiftUI
 struct JournalNoteEditor: View {
     let lesson: LessonRow
     /// Save the corrected note. nil on success, or a line worth showing.
-    let onSaveNote: (LessonTakeaways, String?) async -> String?
+    let onSaveNote: (LessonTakeaways, String?, EntryPhotoSave) async -> String?
     /// Save corrected words, for an entry that never had a note.
-    let onSaveWords: (String, String?) async -> String?
+    let onSaveWords: (String, String?, EntryPhotoSave) async -> String?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -42,6 +42,7 @@ struct JournalNoteEditor: View {
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var discardAsk = false
+    @State private var photo: EntryPhotoDraft
     @FocusState private var focus: Field?
 
     // What the sheet opened with, so Cancel can tell "nothing touched"
@@ -56,19 +57,23 @@ struct JournalNoteEditor: View {
     init(lesson: LessonRow, store: JournalStore) {
         self.init(
             lesson: lesson,
-            onSaveNote: { takeaways, coach in
-                await store.saveNote(lesson: lesson, takeaways: takeaways, coachName: coach)
+            onSaveNote: { takeaways, coach, photo in
+                await store.saveNote(
+                    lesson: lesson, takeaways: takeaways, coachName: coach, photo: photo
+                )
             },
-            onSaveWords: { words, coach in
-                await store.saveWords(lesson: lesson, transcript: words, coachName: coach)
+            onSaveWords: { words, coach, photo in
+                await store.saveWords(
+                    lesson: lesson, transcript: words, coachName: coach, photo: photo
+                )
             }
         )
     }
 
     init(
         lesson: LessonRow,
-        onSaveNote: @escaping (LessonTakeaways, String?) async -> String?,
-        onSaveWords: @escaping (String, String?) async -> String?
+        onSaveNote: @escaping (LessonTakeaways, String?, EntryPhotoSave) async -> String?,
+        onSaveWords: @escaping (String, String?, EntryPhotoSave) async -> String?
     ) {
         self.lesson = lesson
         self.onSaveNote = onSaveNote
@@ -80,6 +85,9 @@ struct JournalNoteEditor: View {
         _themes = State(initialValue: draft)
         _words = State(initialValue: lesson.transcript)
         _coachName = State(initialValue: coach)
+        _photo = State(initialValue: EntryPhotoDraft(
+            existing: lesson.imagePath, on: lesson.id
+        ))
         openedTitle = title
         openedThemes = draft
         openedWords = lesson.transcript
@@ -123,9 +131,17 @@ struct JournalNoteEditor: View {
                     }
                 }
 
-                if let errorMessage {
+                // Below both shapes, because the photo belongs to the
+                // entry rather than to the note or to the words.
+                Section {
+                    EntryPhotoRow(draft: photo, disabled: saving)
+                } footer: {
+                    Text("A photo is kept with the entry. Everyone it is shared with sees it.")
+                }
+
+                if let line = errorMessage ?? photo.errorMessage {
                     Section {
-                        Text(errorMessage)
+                        Text(line)
                             .font(.plBody)
                             .foregroundStyle(PL.dangerText)
                     }
@@ -135,15 +151,21 @@ struct JournalNoteEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
-                        if dirty { discardAsk = true } else { dismiss() }
+                        if dirty { discardAsk = true } else {
+                            photo.discard()
+                            dismiss()
+                        }
                     }
-                    .disabled(saving)
+                    .disabled(saving || photo.isBusy)
                 }
             }
             .confirmationDialog(
                 "Discard your changes?", isPresented: $discardAsk, titleVisibility: .visible
             ) {
-                Button("Discard", role: .destructive) { dismiss() }
+                Button("Discard", role: .destructive) {
+                    photo.discard()
+                    dismiss()
+                }
                 Button("Keep editing", role: .cancel) {}
             }
         }
@@ -261,6 +283,7 @@ struct JournalNoteEditor: View {
     }
 
     private var canSave: Bool {
+        if photo.isBusy { return false }
         guard editsNote else {
             return !words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
@@ -279,6 +302,7 @@ struct JournalNoteEditor: View {
 
     private var dirty: Bool {
         if title != openedTitle || coachName != openedCoach { return true }
+        if photo.changed { return true }
         return editsNote ? themes != openedThemes : words != openedWords
     }
 
@@ -290,6 +314,8 @@ struct JournalNoteEditor: View {
         // for one, so nothing is sent for it either.
         let sentCoach = lesson.kind == "lesson" ? (coach.isEmpty ? nil : coach) : nil
 
+        let sentPhoto: EntryPhotoSave = photo.changed ? .set(photo.path) : .unchanged
+
         let notice: String?
         if editsNote {
             notice = await onSaveNote(
@@ -297,17 +323,21 @@ struct JournalNoteEditor: View {
                     title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                     themes: cleaned
                 ),
-                sentCoach
+                sentCoach, sentPhoto
             )
         } else {
             notice = await onSaveWords(
-                words.trimmingCharacters(in: .whitespacesAndNewlines), sentCoach
+                words.trimmingCharacters(in: .whitespacesAndNewlines),
+                sentCoach, sentPhoto
             )
         }
         saving = false
         if let notice {
             errorMessage = notice
         } else {
+            // The entry owns the photo now, and the URL held for the old
+            // one points at something that is being deleted.
+            photo.release()
             dismiss()
         }
     }
