@@ -24,7 +24,7 @@ export function AuthButton() {
   return (
     <Link
       href={signedIn ? "/dashboard" : "/login"}
-      className="rounded-full border border-cyan-glow/40 px-4 py-1.5 text-sm font-medium text-cyan-glow transition-colors hover:border-cyan-glow hover:bg-cyan-glow/10"
+      className="whitespace-nowrap rounded-full border border-cyan-glow/40 px-3 py-1.5 text-sm font-medium text-cyan-glow transition-colors hover:border-cyan-glow hover:bg-cyan-glow/10 sm:px-4"
     >
       {signedIn ? "Open PongLens" : "Sign in"}
     </Link>
