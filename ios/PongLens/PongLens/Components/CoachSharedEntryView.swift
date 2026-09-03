@@ -29,11 +29,17 @@ struct CoachSharedEntryCard: View {
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
             }
-            Text(title)
-                .font(.plRowTitle)
-                .foregroundStyle(PL.text100)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
+            HStack(alignment: .top, spacing: 12) {
+                if entry.imagePath != nil {
+                    EntryPhotoThumb(lessonId: entry.lessonId)
+                }
+                Text(title)
+                    .font(.plRowTitle)
+                    .foregroundStyle(PL.text100)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 14)

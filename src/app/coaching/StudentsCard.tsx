@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { entryTitle, studentSummary } from "@/lib/coach/entryView";
 import { createClient } from "@/lib/supabase/client";
+import { EntryImage } from "@/components/entryPhoto";
 
 /**
  * The coaching workspace's home card on /coaching (157): the roster at a
@@ -30,6 +31,7 @@ interface LessonRow {
   id: string;
   transcript: string;
   takeaways: { title?: string | null } | null;
+  image_path: string | null;
 }
 
 export function StudentsCard() {
@@ -63,7 +65,7 @@ export function StudentsCard() {
             .limit(20),
           supabase
             .from("lessons")
-            .select("id, transcript, takeaways")
+            .select("id, transcript, takeaways, image_path")
             .eq("kind", "coach")
             .order("created_at", { ascending: false })
             .limit(20),
@@ -187,8 +189,16 @@ export function StudentsCard() {
                         </span>
                       )}
                     </span>
-                    <span className="mt-1 block text-sm font-medium text-zinc-100">
-                      {entryTitle(lesson?.transcript, lesson?.takeaways)}
+                    <span className="mt-1 flex items-start gap-3">
+                      {lesson?.image_path && (
+                        <EntryImage
+                          lessonId={lesson.id}
+                          className="h-10 w-10 shrink-0 rounded-lg border border-edge object-cover"
+                        />
+                      )}
+                      <span className="min-w-0 text-sm font-medium text-zinc-100">
+                        {entryTitle(lesson?.transcript, lesson?.takeaways)}
+                      </span>
                     </span>
                   </Link>
                   {linkedOf(e.student_id) && !e.shared_at && (

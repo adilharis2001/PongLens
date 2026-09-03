@@ -58,16 +58,41 @@ struct DictationRow: View {
 @Observable
 @MainActor
 final class EntryPhotoDraft {
+    /// A photo the entry already has. The editor seeds this so Replace
+    /// and Remove know what they are acting on, and so cancelling can put
+    /// it back; the composer leaves it nil.
+    private(set) var savedPath: String?
+    /// Whose photo to draw when nothing new has been picked.
+    private(set) var savedOn: UUID?
+
+    /// Locally picked, not yet saved.
     private(set) var image: UIImage?
     private(set) var path: String?
     private(set) var checking = false
     var errorMessage: String?
 
-    var isEmpty: Bool { image == nil }
+    init(existing path: String? = nil, on lessonId: UUID? = nil) {
+        savedPath = path
+        savedOn = path == nil ? nil : lessonId
+        self.path = path
+    }
+
+    /// Nothing to show at all: no saved photo and nothing picked.
+    ///
+    /// `image` counts even before the upload finishes. The path is
+    /// deliberately cleared while a new photo is being checked, so asking
+    /// the path alone made the row fall back to "Add a photo" for the
+    /// seconds where it should have been saying "Checking the photo…".
+    var isEmpty: Bool { image == nil && path == nil }
     var isBusy: Bool { checking }
+    /// Whether the save needs to mention the photo.
+    var changed: Bool { path != savedPath }
+    /// Draw the saved one when the current photo IS the saved one.
+    var showsSaved: Bool { image == nil && path != nil && path == savedPath }
 
     func attach(_ image: UIImage) async {
         guard !checking else { return }
+        let replaced = uploadedHere
         self.image = image
         path = nil
         checking = true
@@ -75,32 +100,54 @@ final class EntryPhotoDraft {
         defer { checking = false }
         guard let jpeg = EntryPhoto.jpeg(image) else {
             self.image = nil
+            path = savedPath
             errorMessage = "Couldn't read that photo."
             return
         }
         do {
             path = try await EntryPhoto.upload(jpeg)
+            // Only an object uploaded in THIS session. The entry's own
+            // photo is the server's to delete when the save lands, and
+            // deleting it here would empty an entry nobody saved.
+            if let replaced { await EntryPhoto.discard(path: replaced) }
         } catch {
             self.image = nil
+            path = savedPath
             errorMessage = (error as? APIError)?.errorDescription
                 ?? "Couldn't add that photo."
         }
     }
 
-    /// Taken off the entry before saving, or the composer closed: the
-    /// uploaded object goes too.
-    func discard() {
-        let path = self.path
-        image = nil
-        self.path = nil
-        errorMessage = nil
-        if let path { Task { await EntryPhoto.discard(path: path) } }
-    }
-
-    /// Saved: the entry owns it now, so let go without deleting.
-    func release() {
+    /// Take the photo off the entry. The saved object stays until Save,
+    /// because Cancel has to be able to put it back.
+    func remove() {
+        let mine = uploadedHere
         image = nil
         path = nil
+        errorMessage = nil
+        if let mine { Task { await EntryPhoto.discard(path: mine) } }
+    }
+
+    /// The composer or editor closed without saving.
+    func discard() {
+        let mine = uploadedHere
+        image = nil
+        path = savedPath
+        errorMessage = nil
+        if let mine { Task { await EntryPhoto.discard(path: mine) } }
+    }
+
+    /// Saved: the entry owns whatever is attached now.
+    func release() {
+        if let on = savedOn, changed { EntryPhoto.forget(lessonId: on) }
+        image = nil
+        savedPath = path
+    }
+
+    /// The object this session uploaded and the entry does not own yet.
+    private var uploadedHere: String? {
+        guard let path, path != savedPath else { return nil }
+        return path
     }
 }
 
@@ -113,30 +160,7 @@ struct EntryPhotoRow: View {
 
     var body: some View {
         Group {
-            if let image = draft.image {
-                HStack(spacing: 12) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 44, height: 44)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .opacity(draft.checking ? 0.5 : 1)
-                    if draft.checking {
-                        ProgressView().tint(PL.cyan)
-                        Text("Checking the photo…")
-                            .foregroundStyle(PL.text400)
-                    } else {
-                        Text("Photo attached")
-                    }
-                    Spacer()
-                    if !draft.checking {
-                        Button("Remove") { draft.discard() }
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(PL.text400)
-                            .buttonStyle(.plain)
-                    }
-                }
-            } else {
+            if draft.isEmpty {
                 PhotosPicker(selection: $picked, matching: .images) {
                     HStack(spacing: 12) {
                         Image(systemName: "photo")
@@ -147,6 +171,42 @@ struct EntryPhotoRow: View {
                     .contentShape(Rectangle())
                 }
                 .disabled(disabled)
+            } else {
+                HStack(spacing: 12) {
+                    if let image = draft.image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 44, height: 44)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .opacity(draft.checking ? 0.5 : 1)
+                    } else if draft.showsSaved, let on = draft.savedOn {
+                        EntryPhotoThumb(lessonId: on)
+                    }
+                    if draft.checking {
+                        ProgressView().tint(PL.cyan)
+                        Text("Checking the photo…")
+                            .foregroundStyle(PL.text400)
+                    } else {
+                        Text("Photo attached")
+                    }
+                    Spacer()
+                    if !draft.checking {
+                        // Replace lives on the picker so it is one tap,
+                        // not "remove, then add".
+                        PhotosPicker(selection: $picked, matching: .images) {
+                            Text("Replace")
+                        }
+                        .disabled(disabled)
+                        Button("Remove") { draft.remove() }
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(PL.text400)
+                            .buttonStyle(.plain)
+                            .disabled(disabled)
+                    }
+                }
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(PL.text400)
             }
         }
         .onChange(of: picked) { _, item in
@@ -261,5 +321,39 @@ struct EntryPhotoView: View {
             RoundedRectangle(cornerRadius: 12).fill(PL.edge.opacity(0.5))
             ProgressView().tint(PL.cyan)
         }
+    }
+}
+
+/// The same photo at row size, for a list of entries. A card that stands
+/// for an entry shows what the entry holds; a photo hidden until you open
+/// it makes "see the photo" read like a broken note.
+struct EntryPhotoThumb: View {
+    let lessonId: UUID
+    var side: CGFloat = 44
+
+    @State private var url: URL?
+
+    var body: some View {
+        // A stack, not a Group, for the same reason EntryPhotoView is one:
+        // modifiers on an empty view never run, so the task never fires.
+        VStack(spacing: 0) {
+            if let url {
+                AsyncImage(url: url) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                    } else {
+                        RoundedRectangle(cornerRadius: 8).fill(PL.edge.opacity(0.5))
+                    }
+                }
+                .frame(width: side, height: side)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(PL.edge, lineWidth: 1))
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(PL.edge.opacity(0.5))
+                    .frame(width: side, height: side)
+            }
+        }
+        .task(id: lessonId) { url = await EntryPhoto.url(lessonId: lessonId) }
     }
 }

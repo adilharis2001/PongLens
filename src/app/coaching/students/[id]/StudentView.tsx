@@ -695,10 +695,18 @@ export function StudentView({
                 <button
                   type="button"
                   onClick={() => setOpen(expanded ? null : entry.id)}
-                  className="flex w-full items-baseline justify-between gap-3 text-left"
+                  className="flex w-full items-start justify-between gap-3 text-left"
                 >
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium text-zinc-100">
+                  <span className="flex min-w-0 items-start gap-3">
+                    {/* The photo is half of what an entry says, so the row
+                        that stands for the entry shows it. */}
+                    {lesson?.image_path && (
+                      <EntryImage
+                        lessonId={lesson.id}
+                        className="h-11 w-11 shrink-0 rounded-lg border border-edge object-cover"
+                      />
+                    )}
+                    <span className="min-w-0 text-sm font-medium text-zinc-100">
                       {entryTitle(lesson)}
                     </span>
                   </span>
@@ -781,7 +789,9 @@ export function StudentView({
                             disabled={sharingId === entry.id}
                             className={pill}
                           >
-                            Stop sharing
+                            {sharingId === entry.id
+                              ? "Stopping…"
+                              : "Stop sharing"}
                           </button>
                         )}
                         {lesson && (
@@ -965,6 +975,9 @@ export function StudentView({
               transcript: saved.transcript,
               takeaways: saved.takeaways as Takeaways | null,
               status: saved.status,
+              // The photo can be swapped or taken off in the editor, so
+              // the row it came from has to hear about that too.
+              image_path: saved.image_path ?? null,
             },
           }));
           setEditing(null);

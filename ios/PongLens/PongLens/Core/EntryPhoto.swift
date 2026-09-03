@@ -1,6 +1,16 @@
 import Foundation
 import UIKit
 
+/// What a save should do with the entry's photo.
+///
+/// Three states, not two: leaving the field out of the request is how a
+/// save says "the photo is not what I am changing", and it is what every
+/// save that predates photo editing does. `set(nil)` removes it.
+enum EntryPhotoSave: Equatable {
+    case unchanged
+    case set(String?)
+}
+
 /// One photo attached to a journal or coach entry.
 ///
 /// The app had no entry photos at all until now, in either direction: a
@@ -48,11 +58,21 @@ enum EntryPhoto {
         ) as Res
     }
 
+    /// Signed URLs already fetched, so a list of entries does not sign the
+    /// same photo again every time a row scrolls back into view. The URL
+    /// is good for an hour and the cache is dropped with the process, so
+    /// there is nothing to invalidate; a photo that is replaced gets a new
+    /// lesson-keyed entry only after `forget`, which the editor calls.
+    @MainActor private static var signed: [UUID: URL] = [:]
+
     /// Signed URL for the photo on an entry. The route decides who may see
     /// it (163): the author always, and a student the entry was shared
     /// with. Anything else comes back nil and the card simply has no
     /// photo, which reads better than a broken frame beside the words.
     static func url(lessonId: UUID) async -> URL? {
+        if let cached = await MainActor.run(body: { signed[lessonId] }) {
+            return cached
+        }
         struct Req: Encodable {
             let lessonId: String
             let image = true
@@ -61,6 +81,14 @@ enum EntryPhoto {
         let res: Res? = try? await API.post(
             "api/media-url", Req(lessonId: lessonId.uuidString.lowercased())
         )
-        return res?.url.flatMap(URL.init)
+        guard let url = res?.url.flatMap(URL.init) else { return nil }
+        await MainActor.run { signed[lessonId] = url }
+        return url
+    }
+
+    /// The entry's photo changed, so the URL we hold points at the old
+    /// one. Called after a save that swapped or removed it.
+    @MainActor static func forget(lessonId: UUID) {
+        signed[lessonId] = nil
     }
 }

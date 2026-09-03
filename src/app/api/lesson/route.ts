@@ -4,6 +4,8 @@ import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { processNextRecollectJob } from "@/lib/recollect/processor";
 import { enqueueRecollectSource } from "@/lib/recollect/repository";
 import { createClient } from "@/lib/supabase/server";
+import { entryImageEdit } from "@/lib/journal/entryImage";
+import { releaseEntryImage } from "@/lib/journal/releaseEntryImage";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -458,8 +460,11 @@ async function distillAndFinish(
  * From that point the transcript is the record of what was said, and it is
  * read-only.
  *
- * The attached photo is deliberately not editable here; it rides along
- * unchanged. RLS scopes both the read and the update to the author.
+ * The attached photo IS editable here, because the photo is part of the
+ * entry rather than part of the note: send imagePath to replace it, null
+ * to remove it, or leave the field out to keep it. A photo that stops
+ * being attached is dropped from storage on the way through. RLS scopes
+ * both the read and the update to the author.
  */
 export async function PATCH(req: Request) {
   const supabase = await createClient();
@@ -474,14 +479,19 @@ export async function PATCH(req: Request) {
   let transcript: string;
   let rawCoach: string;
   let summarize: boolean;
+  let photo: ReturnType<typeof entryImageEdit>;
   try {
     const body = await req.json();
     lessonId = String(body.lessonId ?? "").trim();
     transcript = String(body.transcript ?? "").trim();
     rawCoach = String(body.coachName ?? "").trim().slice(0, 80);
     summarize = body.summarize !== false;
+    photo = entryImageEdit(body, user.id);
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  if (photo.kind === "invalid") {
+    return NextResponse.json({ error: "Invalid image" }, { status: 400 });
   }
   if (!lessonId || !transcript || transcript.length > 200000) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
@@ -491,7 +501,7 @@ export async function PATCH(req: Request) {
   // never a hint that it exists.
   const { data: row } = await supabase
     .from("lessons")
-    .select("id, kind, takeaways")
+    .select("id, kind, takeaways, image_path")
     .eq("id", lessonId)
     .maybeSingle();
   if (!row) {
@@ -526,15 +536,17 @@ export async function PATCH(req: Request) {
   }
 
   const plain = !summarize;
+  const update: Record<string, unknown> = {
+    transcript,
+    kind,
+    coach_name: coachName,
+    takeaways: null,
+    status: plain ? "ready" : "queued",
+  };
+  if (photo.kind === "set") update.image_path = photo.imagePath;
   const { error: updateError } = await supabase
     .from("lessons")
-    .update({
-      transcript,
-      kind,
-      coach_name: coachName,
-      takeaways: null,
-      status: plain ? "ready" : "queued",
-    })
+    .update(update)
     .eq("id", lessonId);
   if (updateError) {
     console.error("lesson edit error:", updateError);
@@ -542,6 +554,13 @@ export async function PATCH(req: Request) {
       { error: "Couldn't save it. Try again." },
       { status: 500 },
     );
+  }
+
+  // The photo the entry used to carry, once the row no longer points at
+  // it. After the update, never before: an object deleted ahead of a
+  // failed write is a photo the entry still claims and nobody can see.
+  if (photo.kind === "set" && photo.imagePath !== row.image_path) {
+    await releaseEntryImage(supabase, row.image_path, user.id);
   }
 
   // A coach entry belongs to a student, not to the author's own journal,

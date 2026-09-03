@@ -52,24 +52,36 @@ struct CoachEntryCard: View {
                         .foregroundStyle(PL.text500)
                 }
             }
-            if let title {
-                Text(title)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(PL.text100)
-                    .multilineTextAlignment(.leading)
-                if !words.isEmpty {
-                    Text(words)
-                        .font(.plBody)
-                        .foregroundStyle(PL.text400)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+            // The photo beside the words, not only inside the entry. It
+            // is half of what a card like "camera setup, see the photo"
+            // is saying, and a row that hides it makes the words read as
+            // a mistake.
+            HStack(alignment: .top, spacing: 12) {
+                if let lesson, lesson.imagePath != nil {
+                    EntryPhotoThumb(lessonId: lesson.id)
                 }
-            } else {
-                Text(words.isEmpty ? "Empty entry" : words)
-                    .font(.plBody)
-                    .foregroundStyle(PL.text200)
-                    .lineLimit(4)
-                    .multilineTextAlignment(.leading)
+                VStack(alignment: .leading, spacing: 6) {
+                    if let title {
+                        Text(title)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(PL.text100)
+                            .multilineTextAlignment(.leading)
+                        if !words.isEmpty {
+                            Text(words)
+                                .font(.plBody)
+                                .foregroundStyle(PL.text400)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                        }
+                    } else {
+                        Text(words.isEmpty ? "Empty entry" : words)
+                            .font(.plBody)
+                            .foregroundStyle(PL.text200)
+                            .lineLimit(4)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+                Spacer(minLength: 0)
             }
             if entry.sharedAt == nil, let shareWith, let onShare {
                 HStack {

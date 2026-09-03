@@ -63,15 +63,23 @@ export function SharedEntryCard({ entry }: { entry: SharedEntry }) {
     <div className="rounded-2xl border border-edge bg-surface p-4">
       <button
         type="button"
-        className="flex w-full items-baseline justify-between gap-3 text-left"
+        className="flex w-full items-start justify-between gap-3 text-left"
         onClick={() => setExpanded((v) => !v)}
       >
-        <span className="min-w-0">
-          <span className="block text-xs font-semibold uppercase tracking-wider text-cyan-glow">
-            {entry.coach_name}
-          </span>
-          <span className="mt-1 block text-sm font-medium text-zinc-100">
-            {entryTitle(entry)}
+        <span className="flex min-w-0 items-start gap-3">
+          {entry.image_path && (
+            <EntryImage
+              lessonId={entry.lesson_id}
+              className="h-11 w-11 shrink-0 rounded-lg border border-edge object-cover"
+            />
+          )}
+          <span className="min-w-0">
+            <span className="block text-xs font-semibold uppercase tracking-wider text-cyan-glow">
+              {entry.coach_name}
+            </span>
+            <span className="mt-1 block text-sm font-medium text-zinc-100">
+              {entryTitle(entry)}
+            </span>
           </span>
         </span>
         <span className="shrink-0 text-xs text-zinc-500">

@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import type { Lesson, LessonTakeaways } from "@/lib/types";
 import { AutoTextarea } from "@/components/AutoTextarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import {
+  EntryImage,
+  forgetEntryImage,
+  shrinkImage,
+} from "@/components/entryPhoto";
 
 /**
  * Editing an entry means editing the NOTE, not the speech-to-text it came
@@ -23,6 +28,12 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
  * from their student's page. Nothing here is player-specific: the coach's
  * name field belongs to a lesson somebody was given, and a coach entry is
  * not one.
+ *
+ * The photo is editable in BOTH shapes, and sits below whichever one is
+ * on screen. It belongs to the entry rather than to the note or to the
+ * words, so "which editor am I in" is the wrong question to ask about
+ * it — and an entry whose photo could never be changed or removed was
+ * the obvious gap the moment photos shipped.
  *
  * Two things the capture sheet has are deliberately absent from both
  * shapes. The Practice/Lesson tab, because an entry's kind is decided
@@ -151,6 +162,14 @@ export function NoteEditor({
   // A line added by hand should be ready to type into. The id is claimed
   // here and spent by the field's ref the moment it mounts.
   const [focusId, setFocusId] = useState<string | null>(null);
+  // The photo as it will be saved: null means "no photo". `preview` is a
+  // local object URL for one attached in this session, which is what gets
+  // drawn until the entry owns it. Anything uploaded here and then
+  // abandoned is deleted on the way out.
+  const [photoPath, setPhotoPath] = useState<string | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const box = useVisibleBox(open);
   const originalRef = useRef<string>("");
@@ -174,6 +193,9 @@ export function NoteEditor({
     setError(null);
     setShowTranscript(false);
     setFocusId(null);
+    setPhotoPath(lesson.image_path ?? null);
+    setPhotoPreview(null);
+    setPhotoBusy(false);
     originalRef.current = snapshot(
       t?.title ?? "",
       lesson.coach_name ?? "",
@@ -182,8 +204,26 @@ export function NoteEditor({
     );
   }, [lesson]);
 
+  const photoChanged =
+    open && photoPath !== ((lesson?.image_path ?? null) as string | null);
+
   const dirty =
-    open && snapshot(title, coachName, themes, words) !== originalRef.current;
+    open &&
+    (snapshot(title, coachName, themes, words) !== originalRef.current ||
+      photoChanged);
+
+  /** A photo uploaded here and then abandoned belongs to nobody. */
+  const dropUnsavedPhoto = () => {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    if (photoPath && photoPath !== (lesson?.image_path ?? null)) {
+      void fetch("/api/entry-image", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imagePath: photoPath }),
+        keepalive: true,
+      });
+    }
+  };
 
   const attemptClose = () => {
     if (saving) return;
@@ -191,7 +231,49 @@ export function NoteEditor({
       setConfirmDiscard(true);
       return;
     }
+    dropUnsavedPhoto();
     onClose();
+  };
+
+  const replacePhoto = async (file: File) => {
+    if (photoBusy) return;
+    setPhotoBusy(true);
+    setError(null);
+    const previous = { path: photoPath, preview: photoPreview };
+    const preview = URL.createObjectURL(file);
+    try {
+      const form = new FormData();
+      form.append("image", await shrinkImage(file), "photo.jpg");
+      const res = await fetch("/api/entry-image", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.image_path) {
+        URL.revokeObjectURL(preview);
+        setError(data?.error ?? "Couldn't add that photo.");
+        return;
+      }
+      // The one it replaced, when that one was also uploaded here. The
+      // entry's own photo is left alone until Save — cancelling has to
+      // put it back.
+      if (previous.preview) URL.revokeObjectURL(previous.preview);
+      if (previous.path && previous.path !== (lesson?.image_path ?? null)) {
+        void fetch("/api/entry-image", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imagePath: previous.path }),
+          keepalive: true,
+        });
+      }
+      setPhotoPath(data.image_path);
+      setPhotoPreview(preview);
+    } catch {
+      URL.revokeObjectURL(preview);
+      setError("Couldn't add that photo.");
+    } finally {
+      setPhotoBusy(false);
+    }
   };
 
   // Escape closes, through the same guard as the X and the backdrop. No
@@ -308,6 +390,9 @@ export function NoteEditor({
             lessonId: lesson.id,
             takeaways: { title: title.trim(), themes: cleaned },
             coachName: coach,
+            // Only when it changed: the field's absence is what tells the
+            // route to leave the photo alone.
+            ...(photoChanged ? { imagePath: photoPath } : {}),
           }),
         });
         const data = await res.json().catch(() => null);
@@ -320,10 +405,13 @@ export function NoteEditor({
         // The card is repainted from the stored note, not from the draft:
         // the server trims and caps, and a card drawn from the draft
         // would disagree with the row until the next reload.
+        if (photoPreview) URL.revokeObjectURL(photoPreview);
+        if (photoChanged) forgetEntryImage(lesson.id);
         onSaved({
           ...lesson,
           takeaways: data.takeaways as LessonTakeaways,
           coach_name: coach,
+          image_path: photoPath,
         });
         onClose();
       } catch {
@@ -348,8 +436,8 @@ export function NoteEditor({
         body: JSON.stringify({
           lessonId: lesson.id,
           transcript,
-          kind: lesson.kind,
           coachName: coach,
+          ...(photoChanged ? { imagePath: photoPath } : {}),
           // This entry has no note, so its words are the note. Improving
           // is a choice made when an entry is written; offering it again
           // here would grow points out of an edit nobody asked to
@@ -364,12 +452,15 @@ export function NoteEditor({
         );
         return;
       }
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+      if (photoChanged) forgetEntryImage(lesson.id);
       onSaved({
         ...lesson,
         transcript,
         takeaways: null,
         status: "ready",
         coach_name: coach,
+        image_path: photoPath,
       });
       onClose();
     } catch {
@@ -655,6 +746,84 @@ export function NoteEditor({
                   />
                 </>
               )}
+
+              {/* The photo belongs to the entry, so it sits below both
+                  shapes rather than inside either one. */}
+              <div className="mt-5">
+                <p className={LABEL}>Photo</p>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) void replacePhoto(file);
+                  }}
+                />
+                {photoPath ? (
+                  <div className="mt-2 flex items-start gap-3">
+                    {photoPreview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={photoPreview}
+                        alt="Photo on this entry"
+                        className={`h-20 w-20 rounded-xl border border-edge object-cover ${
+                          photoBusy ? "opacity-50" : ""
+                        }`}
+                      />
+                    ) : (
+                      <EntryImage
+                        lessonId={lesson.id}
+                        className="h-20 w-20 shrink-0 rounded-xl border border-edge object-cover"
+                      />
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={photoBusy || saving}
+                        onClick={() => photoInputRef.current?.click()}
+                        className="rounded-full border border-edge px-3.5 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50"
+                      >
+                        {photoBusy ? "Checking…" : "Replace"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={photoBusy || saving}
+                        onClick={() => {
+                          if (photoPreview) URL.revokeObjectURL(photoPreview);
+                          if (
+                            photoPath &&
+                            photoPath !== (lesson.image_path ?? null)
+                          ) {
+                            void fetch("/api/entry-image", {
+                              method: "DELETE",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ imagePath: photoPath }),
+                              keepalive: true,
+                            });
+                          }
+                          setPhotoPreview(null);
+                          setPhotoPath(null);
+                        }}
+                        className="rounded-full border border-edge px-3.5 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={photoBusy || saving}
+                    onClick={() => photoInputRef.current?.click()}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-dashed border-edge px-3.5 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-zinc-200 disabled:opacity-50"
+                  >
+                    {photoBusy ? "Checking the photo…" : "Add a photo"}
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="shrink-0 border-t border-edge px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5">
@@ -692,6 +861,7 @@ export function NoteEditor({
         onCancel={() => setConfirmDiscard(false)}
         onConfirm={() => {
           setConfirmDiscard(false);
+          dropUnsavedPhoto();
           onClose();
         }}
       />

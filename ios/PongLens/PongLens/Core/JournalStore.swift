@@ -403,14 +403,18 @@ final class JournalStore {
     /// the row rather than what was typed. A refusal puts the old row
     /// back.
     func saveNote(
-        lesson: LessonRow, takeaways: LessonTakeaways, coachName: String?
+        lesson: LessonRow, takeaways: LessonTakeaways, coachName: String?,
+        photo: EntryPhotoSave = .unchanged
     ) async -> String? {
         struct Req: Encodable {
             let lessonId: String
             let takeaways: LessonTakeaways
             let coachName: String?
+            let photo: EntryPhotoSave
 
-            enum CodingKeys: String, CodingKey { case lessonId, takeaways, coachName }
+            enum CodingKeys: String, CodingKey {
+                case lessonId, takeaways, coachName, imagePath
+            }
 
             func encode(to encoder: Encoder) throws {
                 var c = encoder.container(keyedBy: CodingKeys.self)
@@ -420,6 +424,12 @@ final class JournalStore {
                 // name is cleared. The synthesised encoder would drop the
                 // key entirely and the old name would survive the save.
                 try c.encode(coachName, forKey: .coachName)
+                // The photo is the opposite: the key's ABSENCE is what
+                // says "leave it alone", so it is written only when the
+                // edit actually changed it.
+                if case .set(let path) = photo {
+                    try c.encode(path, forKey: .imagePath)
+                }
             }
         }
         struct Res: Decodable {
@@ -434,7 +444,7 @@ final class JournalStore {
                 "api/lesson/note", method: "PATCH",
                 body: Req(
                     lessonId: lesson.id.uuidString.lowercased(),
-                    takeaways: takeaways, coachName: coachName
+                    takeaways: takeaways, coachName: coachName, photo: photo
                 )
             )
             if let stored = res.takeaways {
@@ -457,13 +467,31 @@ final class JournalStore {
     /// note because a correction pushed it past the length threshold.
     /// The kind is the row's own, carried across so the route does not
     /// default a practice entry into a lesson.
-    func saveWords(lesson: LessonRow, transcript: String, coachName: String?) async -> String? {
+    func saveWords(
+        lesson: LessonRow, transcript: String, coachName: String?,
+        photo: EntryPhotoSave = .unchanged
+    ) async -> String? {
         struct Req: Encodable {
             let lessonId: String
             let transcript: String
-            let kind: String
             let coachName: String?
             let summarize = false
+            let photo: EntryPhotoSave
+
+            enum CodingKeys: String, CodingKey {
+                case lessonId, transcript, coachName, summarize, imagePath
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(lessonId, forKey: .lessonId)
+                try c.encode(transcript, forKey: .transcript)
+                try c.encode(coachName, forKey: .coachName)
+                try c.encode(summarize, forKey: .summarize)
+                if case .set(let path) = photo {
+                    try c.encode(path, forKey: .imagePath)
+                }
+            }
         }
         struct Res: Decodable { let id: String? }
 
@@ -474,7 +502,7 @@ final class JournalStore {
                 "api/lesson", method: "PATCH",
                 body: Req(
                     lessonId: lesson.id.uuidString.lowercased(),
-                    transcript: transcript, kind: lesson.kind, coachName: coachName
+                    transcript: transcript, coachName: coachName, photo: photo
                 )
             )
             return nil
