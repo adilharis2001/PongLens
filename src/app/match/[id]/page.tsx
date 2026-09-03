@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppNav } from "@/components/AppNav";
+import { rememberedWorkspace } from "@/lib/workspaceServer";
 import type {
   Match,
   Note,
@@ -41,6 +42,10 @@ export default async function MatchPage({
   if (!user) {
     redirect("/login");
   }
+  // This page is shared ground (a coach reads a student's match here), so
+  // the bar has to be told which side the account is on. Without it the
+  // nav fell back to the player bar for every coach (2026-09-03).
+  const { workspace } = await rememberedWorkspace();
 
   // RLS scopes all three queries to has_match_access(): the owner plus any
   // accepted coach (all-matches scope or this match specifically).
@@ -130,7 +135,7 @@ export default async function MatchPage({
       null;
     return (
       <>
-        <AppNav avatarUrl={rawAvatar} />
+        <AppNav avatarUrl={rawAvatar} remembered={workspace} />
         <main className="bg-arena flex-1 pb-28 md:pb-16">
           <RawMatchView
             match={rawMatch}
@@ -221,12 +226,38 @@ export default async function MatchPage({
   // coach's scoreboard used to read "Player". SECURITY DEFINER lookup gated
   // on the same match access RLS already grants them (migration 034).
   let ownerName: string | null = null;
+  // Where the pill at the top of the page climbs to. The owner's match
+  // lives in their library. A coach reached a student's match from that
+  // student's page, so up goes back there, never to /matches: that is
+  // player territory, and merely linking to it flipped the coach's
+  // remembered side (the router prefetches every link in view).
+  let up = { href: "/matches", label: "Matches" };
   if (matchRes.data.user_id !== user.id) {
-    const { data } = await supabase.rpc("match_owner_name", {
-      p_match_id: id,
-    });
-    // First name only, to match how the app names the viewer everywhere else.
-    ownerName = ((data as string | null) ?? "").trim().split(/\s+/)[0] || null;
+    // The roster row is RLS-scoped to the viewer as coach, so it answers
+    // two questions at once: where "up" goes, and what this person is
+    // called. The coach's own name for the student beats every generic
+    // word, and it is the one name a coach is certain to recognise.
+    const [rpc, roster] = await Promise.all([
+      supabase.rpc("match_owner_name", { p_match_id: id }),
+      supabase
+        .from("coach_students")
+        .select("id, display_name")
+        .eq("player_id", matchRes.data.user_id)
+        .is("archived_at", null)
+        .limit(1)
+        .maybeSingle(),
+    ]);
+    const student = roster.data as { id: string; display_name: string } | null;
+    if (student) {
+      up = { href: `/coaching/students/${student.id}`, label: student.display_name };
+    } else if (workspace === "coach") {
+      up = { href: "/coaching/students", label: "Students" };
+    }
+    // First name only, to match how the app names the viewer everywhere
+    // else. The roster name stands in when the owner's account carries no
+    // name at all, which is what used to leave a coach reading "Player".
+    const named = ((rpc.data as string | null) ?? "").trim() || (student?.display_name ?? "");
+    ownerName = named.trim().split(/\s+/)[0] || null;
   }
 
   // Same chrome as the rest of the signed-in app (bottom bar on mobile).
@@ -234,7 +265,7 @@ export default async function MatchPage({
   // instead of AppShell; bottom padding clears the fixed mobile bar.
   return (
     <>
-      <AppNav avatarUrl={avatarUrl} />
+      <AppNav avatarUrl={avatarUrl} remembered={workspace} />
       <main className="bg-arena flex-1 pb-28 md:pb-16">
         <MatchView
           match={matchRes.data as Match}
@@ -252,6 +283,7 @@ export default async function MatchPage({
           }
           accountName={accountName}
           ownerName={ownerName}
+          up={up}
           strictness={strictness}
           noteAuthors={(authorsRes.data ?? []) as NoteAuthor[]}
           initialTags={(tagsRes.data ?? []) as Tag[]}
