@@ -354,6 +354,89 @@ inside a live point reach p90 3.3 s and p99 4.6 s, against p90 1.8–2.9 s
 everywhere else. The crop starves the event stream, so on cropped matches a
 3.0 s threshold is closer to the edge than the pooled figure suggests.
 
+### Tested across the scored corpus, and REFUTED (3 September)
+
+Adil asked for the change to be proven on the standard corpus before it was
+proposed, not on the nine matches that produced it. It does not survive.
+
+**Corpus** (`scripts/corpus/`): every match with at least 15 winner taps —
+42 of them. The cap only exists in v2, so the 23 cut by v1 drop out, leaving
+19; 17 of those contain splits the cap made. **97 splits in total**, judged
+by where Adil's own winner taps fell:
+
+| what his scoring says | n |
+| --- | --- |
+| both halves scored — the split was right | 42 |
+| only the SECOND half scored — the first holds a rally with no winner | 10 |
+| only the first scored, second deleted — the second was junk | 8 |
+| only the first scored, second kept unscored | 4 |
+| neither half scored | 33 |
+
+So of the 60 with scoring evidence the cap is right about 70% of the time
+and cuts a live rally about 17% of the time — more often than the census
+sample suggested, and worth fixing. But not this way.
+
+**The break test does not separate the two.** Time with no bounce and no
+crossing at the cut:
+
+| | n | p25 | median | p75 |
+| --- | --- | --- | --- | --- |
+| the split was right | 38 | 4.3 s | 6.0 s | 7.8 s |
+| a rally was cut in half | 8 | 4.6 s | 4.7 s | 6.6 s |
+
+The distributions sit on top of each other, and the useful direction is
+backwards — correct splits are the QUIETER ones. Swept as a threshold over
+the 55 judged splits that carry evidence:
+
+| threshold | wrong splits prevented | good splits lost |
+| --- | --- | --- |
+| 3.0 s | 1 of 17 | 6 of 38 |
+| 4.0 s | 1 of 17 | 8 of 38 |
+| 5.0 s | 9 of 17 | 13 of 38 |
+
+Every setting trades away more good splits than it saves. **The reason is
+the thing the nine-match sample could not show: inside these cards the ball
+goes untracked for seconds at a time while the rally is still being played.
+"No events" means "the detector lost the ball", not "play stopped."** The
+nine-match set happened to contain two well-tracked long rallies (Kyle #8,
+Anton 26 Aug #58), which is why the idea looked good there. Note also that
+the gaps measured here span the 1.2 s of dead space the split itself
+inserted, so each is an upper bound — the true separation is even weaker.
+
+**No other axis works either** (`scripts/corpus/axes.py`), comparing correct
+splits against cut rallies: events per second inside the card 0.91 against
+0.88, card length 23.8 s against 25.9 s, camera foreshortening 0.64 against
+0.60, serves per minute 3.18 against 2.50. Nothing separates them.
+
+**The one signal that points somewhere.** The first half opens on a detected
+serve in 18 of 42 correct splits but only 2 of 10 cut rallies. That is the
+same fact as "30 of the 32 long cards carry no serve": the cap is a patch
+for failed serve anchoring, and the way to stop it cutting rallies is to
+stop cards reaching it.
+
+### What to do instead
+
+1. **Leave the cap alone** until there is a signal that beats it. Recorded
+   here so the quiet-gap idea is not re-proposed.
+2. **Work on serve anchoring for these cameras.** A card anchored on a serve
+   is bounded by the rally rule and never reaches the cap.
+3. **Two mitigations that need no new signal**, because which cards the cap
+   split is known exactly and deterministically:
+   - mark them, and offer joining the pair in the app — about 6 a match, of
+     which roughly one is a real cut rally, so it is a high-yield review
+     queue rather than a silent error;
+   - when ranking for highlights and the reel, score a split pair by their
+     combined length. `src/app/match/[id]/highlights.ts` ranks by rally
+     length, so a 30-second rally cut in half currently loses its place in
+     the reel — which is the harm Adil actually cares about, and this fixes
+     it without touching scoring.
+
+**Limits of this test.** Ten harmful cases is a small number; the
+classification rests on which side of the split the winner tap fell; 33
+splits sit in unscored stretches and cannot be judged at all; and only one
+v2 match (Rowel) carries the serve-start marks that would bound a point at
+both ends, so the stronger ruler was unavailable.
+
 ### Not built
 
 Proposed, measured, awaiting Adil's decision. The open questions are G
