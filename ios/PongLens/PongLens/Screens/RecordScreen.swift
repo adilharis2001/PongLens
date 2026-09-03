@@ -1543,47 +1543,6 @@ struct MatchDetailsSheet: View {
                     progressRow
                 }
 
-                // Above Processing on purpose: this is the moment the
-                // score gets typed into a league app, and it is the last
-                // screen before the recording disappears into the queue.
-                // The microphone can fail — a loud hall, a mumbled
-                // number — so this is also where hands take over: tap a
-                // game to type the real numbers, add one the phone never
-                // heard, remove one it invented.
-                if let spoken = draft.spokenScores {
-                    Section {
-                        if !spoken.isEmpty {
-                            ScoreBoard(scores: spoken,
-                                       youLabel: youLabel,
-                                       missed: nil,
-                                       onTap: { game in
-                                           spokenEdit = SpokenEditTarget(game: game)
-                                       })
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .listRowInsets(EdgeInsets(top: 10, leading: 12,
-                                                          bottom: 10, trailing: 12))
-                                .listRowBackground(Color.clear)
-                        }
-                        if spoken.count < SpokenScore.maxGame {
-                            Button {
-                                spokenEdit = SpokenEditTarget(game: nil)
-                            } label: {
-                                Text("Add a game")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(PL.cyan)
-                            }
-                        }
-                    } header: {
-                        Text("Spoken score")
-                    } footer: {
-                        Text(spoken.contains { !$0.known }
-                             ? "What you called out during the match. A game showing ?? was heard but not understood. Tap a game to type it in."
-                             : spoken.isEmpty
-                             ? "Nothing was caught this match. You can add the games by hand."
-                             : "What you called out during the match. Tap a game to correct it.")
-                    }
-                }
-
                 Section {
                     Toggle("Process when the upload finishes", isOn: $processOn)
                     Toggle("Placement maps", isOn: $placementOn)
@@ -1642,6 +1601,19 @@ struct MatchDetailsSheet: View {
                     }
                 }
 
+                // Last of the content, because it is the only thing here
+                // the owner does not have to answer: the phone already
+                // heard it, and every other section is a question only
+                // they can answer. Opponent, venue and the processing
+                // decision come first for that reason. It stays above
+                // Discard — a destructive row belongs at the end of a
+                // form, under everything it would throw away.
+                //
+                // The microphone can fail, so this is also where hands
+                // take over: tap a game to type the real numbers, add one
+                // the phone never heard, remove one it invented.
+                spokenScoreSection
+
                 Section {
                     // Centred, like every other standalone action row in
                     // the app. A destructive row left-aligned in a form
@@ -1699,6 +1671,61 @@ struct MatchDetailsSheet: View {
         // A recording still merging when the sheet opened enqueues late;
         // re-apply the choices the moment its rows exist.
         .onChange(of: sessionCount) { pushProcessing() }
+    }
+
+    /// What the phone heard called out, and the hands that fix it.
+    ///
+    /// Nothing at all when the setting is off: `spokenScores` is only set
+    /// when Call out the score was on for this recording, so an owner who
+    /// never turned it on never sees this section.
+    ///
+    /// Both rows sit on a clear background. ScoreBoard already draws its
+    /// own material card, sized to the games it holds, so a Form row
+    /// background underneath put a second full-width rounded rectangle
+    /// behind a card that did not fill it — and "Add a game" below, on a
+    /// normal row, read as a stray rectangle floating under the board
+    /// rather than as an action belonging to it.
+    @ViewBuilder
+    private var spokenScoreSection: some View {
+        if let spoken = draft.spokenScores {
+            Section {
+                if !spoken.isEmpty {
+                    ScoreBoard(scores: spoken,
+                               youLabel: youLabel,
+                               missed: nil,
+                               onTap: { game in
+                                   spokenEdit = SpokenEditTarget(game: game)
+                               })
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .listRowInsets(EdgeInsets(top: 10, leading: 12,
+                                                  bottom: 6, trailing: 12))
+                        .listRowBackground(Color.clear)
+                }
+                if spoken.count < SpokenScore.maxGame {
+                    Button {
+                        spokenEdit = SpokenEditTarget(game: nil)
+                    } label: {
+                        Text("Add a game")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(PL.cyan)
+                    }
+                    // Left edge lines up with the board above, so the
+                    // action reads as belonging to that card.
+                    .listRowInsets(EdgeInsets(top: spoken.isEmpty ? 10 : 2,
+                                              leading: 12,
+                                              bottom: 10, trailing: 12))
+                    .listRowBackground(Color.clear)
+                }
+            } header: {
+                Text("Spoken score")
+            } footer: {
+                Text(spoken.contains { !$0.known }
+                     ? "What you called out during the match. A game showing ?? was heard but not understood. Tap a game to type it in."
+                     : spoken.isEmpty
+                     ? "Nothing was caught this match. You can add the games by hand."
+                     : "What you called out during the match. Tap a game to correct it.")
+            }
+        }
     }
 
     private var sessionCount: Int {
