@@ -468,6 +468,9 @@ struct MatchDetailScreen: View {
     @State private var scoreReturnPoint: Double?
     @State private var pointSheetIndex = 0
     @State private var pointsExpanded = false
+    /// A game pill's target when the list had to expand first: the jump
+    /// finishes when that row appears (see `jump`).
+    @State private var pendingJump: UUID?
     @State private var showGamesDetail = false
     /// The spoken score's own disclosure, for the unscored state where it
     /// stands in the score slot.
@@ -674,7 +677,9 @@ struct MatchDetailScreen: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: "chevron.left")
                                         .font(.system(size: 12, weight: .semibold))
-                                    Text("Matches")
+                                    // A coach came from the student's
+                                    // screen, not a library of their own.
+                                    Text(isOwner ? "Matches" : "Back")
                                 }
                             }
                             .buttonStyle(PLSecondaryButtonStyle())
@@ -737,10 +742,12 @@ struct MatchDetailScreen: View {
                                 )
                             }
                             pointsSection(proxy: proxy)
-                            // The owner opens the analysis from Tools; a
-                            // coach gets the same sheet from this row.
+                            // The owner opens the analysis from Tools. A
+                            // coach reads it on the page (Adil, 2026-09-03),
+                            // like the maps below and like the web's coach
+                            // view; behind a row it went unnoticed.
                             if !isOwner && tracksServe {
-                                CoachAnalysisRow(match: current, model: model, score: score)
+                                coachAnalysisSection
                             }
                             if showPlacementAggregate {
                                 PlacementAggregateSection(
@@ -900,7 +907,7 @@ struct MatchDetailScreen: View {
             .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $filtersOpen) {
-            PointFilterSheet(winner: $winnerFilter, only: $onlyFilter)
+            PointFilterSheet(winner: $winnerFilter, only: $onlyFilter, coachView: !isOwner)
                 .presentationDetents([.medium])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
@@ -1680,7 +1687,42 @@ struct MatchDetailScreen: View {
         .id("overall-notes")
     }
 
+    // MARK: - Match analysis (coach)
+
+    private var coachAnalysisSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeading("Match analysis")
+            AnalysisCards(
+                bundle: MatchAnalysisBundle(match: current, model: model, score: score),
+                coachView: true
+            )
+        }
+    }
+
     // MARK: - Points
+
+    /// A point row's scroll anchor. A string of its own, NOT the point's
+    /// UUID: the ForEach already claims that UUID as the row's identity,
+    /// and with two views answering to one id `scrollTo` matches neither
+    /// and does nothing at all. Every scroll on this screen that has
+    /// always worked ("overall-notes", "placement-maps") aims at a
+    /// string, and this is why.
+    private func anchor(_ id: UUID) -> String { "point-\(id.uuidString)" }
+
+    /// A game pill's jump. Two things had to be true for it to move, and
+    /// neither was: the row needs an id `scrollTo` can find (above), and
+    /// it has to exist. The list shows ten points until it is expanded,
+    /// so a game starting past the tenth has no row yet — expand, then
+    /// let that row's own appearance finish the jump.
+    private func jump(to id: UUID, all: [MatchPoint], proxy: ScrollViewProxy) {
+        let shown = pointsExpanded ? all : Array(all.prefix(pointsPreview))
+        if shown.contains(where: { $0.id == id }) {
+            withAnimation { proxy.scrollTo(anchor(id), anchor: .center) }
+        } else {
+            pendingJump = id
+            pointsExpanded = true
+        }
+    }
 
     @ViewBuilder
     private func pointsSection(proxy: ScrollViewProxy) -> some View {
@@ -1709,17 +1751,22 @@ struct MatchDetailScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(gameStarts, id: \.id) { start in
-                            Button("Game \(start.game)") {
-                                pointsExpanded = true
-                                withAnimation {
-                                    proxy.scrollTo(start.id, anchor: .center)
-                                }
+                            // Padding and the capsule belong INSIDE the
+                            // label: hung on the Button from outside they
+                            // only move it, so the tap target stayed the
+                            // width of the glyphs and every miss on the
+                            // pill did nothing (Adil, 2026-09-03).
+                            Button {
+                                jump(to: start.id, all: all, proxy: proxy)
+                            } label: {
+                                Text("Game \(start.game)")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(PL.text400)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                                    .contentShape(Capsule())
                             }
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(PL.text400)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 4)
-                            .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
                             .buttonStyle(.plain)
                         }
                     }
@@ -1775,7 +1822,20 @@ struct MatchDetailScreen: View {
                             onStar: { Task { await model.toggleStar(point) } },
                             onDelete: { Task { await model.softDelete(point) } }
                         )
-                        .id(point.id)
+                        .id(anchor(point.id))
+                        .onAppear {
+                            guard pendingJump == point.id else { return }
+                            pendingJump = nil
+                            // The row exists now, but the list around it
+                            // is still laying out and a scroll in the
+                            // same pass is dropped. One turn later it
+                            // lands.
+                            DispatchQueue.main.async {
+                                withAnimation {
+                                    proxy.scrollTo(anchor(point.id), anchor: .center)
+                                }
+                            }
+                        }
                         if tracksServe, !filtersActive, let boundary = score.boundaryAfter[point.id] {
                             Text("Game \(boundary.game) ends \(boundary.you)-\(boundary.them) · game \(boundary.game + 1) begins")
                                 .font(.plCaption)
@@ -1820,26 +1880,37 @@ struct MatchDetailScreen: View {
 struct PointFilterSheet: View {
     @Binding var winner: WinnerFilter
     @Binding var only: OnlyFilter
+    /// A coach reads the player's match, so "I won" would be the coach
+    /// speaking. The point cards' own words instead.
+    var coachView = false
+
+    private func winnerLabel(_ filter: WinnerFilter) -> String {
+        switch filter {
+        case .anyone: return "Anyone"
+        case .me: return coachView ? "Player won" : "I won"
+        case .them: return coachView ? "Opponent won" : "They won"
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             SectionHeading("Winner")
-            segmentRow(WinnerFilter.allCases, selection: $winner)
+            segmentRow(WinnerFilter.allCases, selection: $winner, label: winnerLabel)
             SectionHeading("Only")
-            segmentRow(OnlyFilter.allCases, selection: $only)
+            segmentRow(OnlyFilter.allCases, selection: $only, label: \.rawValue)
             Spacer()
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func segmentRow<T: RawRepresentable & CaseIterable & Hashable>(
-        _ options: T.AllCases, selection: Binding<T>
-    ) -> some View where T.RawValue == String {
+    private func segmentRow<T: CaseIterable & Hashable>(
+        _ options: T.AllCases, selection: Binding<T>, label: @escaping (T) -> String
+    ) -> some View {
         HStack(spacing: 8) {
             ForEach(Array(options), id: \.self) { option in
                 let active = selection.wrappedValue == option
-                Button(option.rawValue) {
+                Button(label(option)) {
                     selection.wrappedValue = option
                 }
                 .font(.system(size: 12, weight: .medium))

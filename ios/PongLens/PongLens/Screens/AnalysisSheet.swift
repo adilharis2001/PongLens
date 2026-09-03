@@ -1,5 +1,24 @@
 import SwiftUI
 
+/// The numbers every analysis card reads, computed once per render.
+struct MatchAnalysisBundle {
+    let stats: MatchStatsSummary
+    let analysis: MatchAnalysisResult
+
+    init(match: MatchRow, model: MatchDetailModel, score: MatchScore, customReasons: [UUID: String] = [:]) {
+        let serving = computeServing(
+            model.visible, firstServer: match.firstServer.flatMap(Winner.init(rawValue:))
+        )
+        stats = computeMatchStats(model.visible, serving: serving, score: score)
+        analysis = computeMatchAnalysis(
+            model.visible, serving: serving, customReasons: customReasons
+        )
+    }
+
+    /// Some scored points still lack their follow-up answers.
+    var incomplete: Bool { !stats.hasData || stats.detailed < stats.scored }
+}
+
 /// Match analysis: the point differential across the match, the numbers
 /// underneath it, why the lost points were lost, and how the serves went.
 /// Same three cards as the web deck, stacked rather than swiped — a
@@ -13,14 +32,9 @@ struct AnalysisSheet: View {
     var customReasons: [UUID: String] = [:]
 
     var body: some View {
-        let serving = computeServing(
-            model.visible, firstServer: match.firstServer.flatMap(Winner.init(rawValue:))
+        let bundle = MatchAnalysisBundle(
+            match: match, model: model, score: score, customReasons: customReasons
         )
-        let stats = computeMatchStats(model.visible, serving: serving, score: score)
-        let analysis = computeMatchAnalysis(
-            model.visible, serving: serving, customReasons: customReasons
-        )
-        let incomplete = !stats.hasData || stats.detailed < stats.scored
 
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -28,27 +42,45 @@ struct AnalysisSheet: View {
                     Text("Match analysis")
                         .font(.plCardTitle)
                         .foregroundStyle(PL.text100)
-                    if incomplete {
+                    if bundle.incomplete {
                         Text("Score the points and answer the follow-ups to fill this in.")
                             .font(.plCaption)
                             .foregroundStyle(PL.text500)
                     }
                 }
 
-                overviewCard(stats, analysis.momentum)
-
-                // Three self-reported reasons is where a pattern starts;
-                // below that the card is absent rather than padded out.
-                if analysis.mistakes.reasonsGiven >= 3 {
-                    mistakesCard(analysis.mistakes)
-                }
-                if analysis.serve.described >= 3 {
-                    serveCard(analysis.serve)
-                }
+                AnalysisCards(bundle: bundle)
             }
             .padding(20)
             .padding(.bottom, 40)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// The three cards themselves. The owner opens them in the sheet above;
+/// a coach reads them on the match page itself (Adil, 2026-09-03), the
+/// way the web's coach view and the placement maps already sit on the
+/// page, so `coachView` turns "you" into "the player" throughout.
+struct AnalysisCards: View {
+    let bundle: MatchAnalysisBundle
+    var coachView = false
+
+    var body: some View {
+        let stats = bundle.stats
+        let analysis = bundle.analysis
+
+        VStack(alignment: .leading, spacing: 16) {
+            overviewCard(stats, analysis.momentum)
+
+            // Three self-reported reasons is where a pattern starts;
+            // below that the card is absent rather than padded out.
+            if analysis.mistakes.reasonsGiven >= 3 {
+                mistakesCard(analysis.mistakes)
+            }
+            if analysis.serve.described >= 3 {
+                serveCard(analysis.serve)
+            }
         }
     }
 
@@ -68,7 +100,9 @@ struct AnalysisSheet: View {
                 }
 
                 if !stats.hasData {
-                    Text("Score a full game to see your stats.")
+                    Text(coachView
+                        ? "Stats appear once a full game is scored."
+                        : "Score a full game to see your stats.")
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
                         .frame(maxWidth: .infinity)
@@ -79,7 +113,9 @@ struct AnalysisSheet: View {
                         statRow("Best run") {
                             (Text("\(run.len) in a row")
                                 .foregroundStyle(run.who == .user ? PL.cyan : PL.magentaSoft)
-                                + Text(run.who == .user ? "  you" : "  them")
+                                + Text(run.who == .user
+                                    ? (coachView ? "  player" : "  you")
+                                    : (coachView ? "  opponent" : "  them"))
                                 .foregroundStyle(PL.text500))
                                 .font(.system(size: 13, weight: .semibold))
                         }
@@ -88,7 +124,9 @@ struct AnalysisSheet: View {
                         statRow("Serve win %") { pct(stats.serve) }
                         statRow("Receive win %") { pct(stats.receive) }
                     } else {
-                        Text("Set who served first to see serve stats.")
+                        Text(coachView
+                            ? "Serve stats appear once the player sets who served first."
+                            : "Set who served first to see serve stats.")
                             .font(.plCaption)
                             .foregroundStyle(PL.text500)
                             .padding(.vertical, 8)
@@ -116,7 +154,10 @@ struct AnalysisSheet: View {
     // MARK: - Why you lost
 
     private func mistakesCard(_ mistakes: MatchAnalysisResult.Mistakes) -> some View {
-        card("Why you lost", hint: "Only points you lost") {
+        card(
+            coachView ? "Why the player lost" : "Why you lost",
+            hint: coachView ? "Only points the player lost" : "Only points you lost"
+        ) {
             let top = Array(mistakes.reasons.prefix(8))
             let max = mistakes.reasons.map(\.count).max() ?? 1
             VStack(alignment: .leading, spacing: 10) {
@@ -158,10 +199,10 @@ struct AnalysisSheet: View {
     // MARK: - Serve
 
     private func serveCard(_ serve: MatchAnalysisResult.ServeCuts) -> some View {
-        card("Serve", hint: "Share of those points you won") {
+        card("Serve", hint: coachView ? "Share of those points the player won" : "Share of those points you won") {
             VStack(alignment: .leading, spacing: 10) {
                 if !serve.mineSpins.isEmpty {
-                    eyebrow("My serves (\(serve.mineCount))")
+                    eyebrow(coachView ? "Player's serves (\(serve.mineCount))" : "My serves (\(serve.mineCount))")
                     ForEach(serve.mineSpins, id: \.label) { splitBar($0) }
                     if !serve.mineLengths.isEmpty {
                         Rectangle().fill(PL.edge.opacity(0.6))
@@ -171,7 +212,7 @@ struct AnalysisSheet: View {
                     }
                 }
                 if !serve.theirSpins.isEmpty {
-                    eyebrow("Their serves (\(serve.theirCount))")
+                    eyebrow(coachView ? "Opponent's serves (\(serve.theirCount))" : "Their serves (\(serve.theirCount))")
                         .padding(.top, serve.mineSpins.isEmpty ? 0 : 8)
                     ForEach(serve.theirSpins, id: \.label) { splitBar($0) }
                 }
