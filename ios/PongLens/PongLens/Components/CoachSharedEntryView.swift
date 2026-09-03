@@ -159,9 +159,7 @@ struct CoachSharedEntrySheet: View {
                         Button("Report this entry") {
                             if let reportURL { openURL(reportURL) }
                         }
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text400)
-                        .buttonStyle(.plain)
+                        .buttonStyle(PLSecondaryButtonStyle())
                     }
                     .padding(.top, 8)
                 }

@@ -561,9 +561,7 @@ struct NoteCardView: View {
                         deleteError = nil
                         deleteAsk = true
                     }
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(PL.text400)
-                    .buttonStyle(.plain)
+                    .buttonStyle(PLSoftDestructiveButtonStyle())
                     .disabled(deleting)
                 }
             }
@@ -1168,37 +1166,34 @@ struct LessonCardView: View {
                 EntryPhotoView(lessonId: lesson.id)
             }
 
-            HStack(spacing: 16) {
+            // Pills rather than bare text. A `Button` with a plain Text
+            // label and no padding is tappable only on the letters, about
+            // 20 points of it, with no pressed state — hit it and it
+            // works, miss and nothing happens at all. That is what made
+            // the coach's sharing buttons read as broken (2026-09-03),
+            // and this card had the identical shape.
+            FlowLayout(spacing: 8) {
                 if lesson.takeaways != nil {
                     Button(transcriptOpen ? "Hide transcript" : "Transcript") {
                         withAnimation { transcriptOpen.toggle() }
                     }
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(PL.text400)
-                    .buttonStyle(.plain)
+                    .buttonStyle(PLSecondaryButtonStyle())
                 }
                 Button("Edit") { onEdit() }
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(PL.text400)
-                    .buttonStyle(.plain)
-                Spacer()
+                    .buttonStyle(PLSecondaryButtonStyle())
                 // Share sits beside Delete: a public read-only link to
                 // this entry, minted in the sheet it opens. Hidden while
                 // queued, same as the web card — the entry is not its
                 // final self yet.
                 if lesson.status != "queued" {
                     Button("Share") { shareOpen = true }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(PL.text400)
-                        .buttonStyle(.plain)
+                        .buttonStyle(PLSecondaryButtonStyle())
                 }
                 Button("Delete") {
                     deleteError = nil
                     deleteAsk = true
                 }
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(PL.text400)
-                .buttonStyle(.plain)
+                .buttonStyle(PLSoftDestructiveButtonStyle())
                 .disabled(deleting)
             }
 
