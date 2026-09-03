@@ -1,0 +1,54 @@
+
+[cap] Adil / Anton m5 (02 Sep, 93 cards) point 74 — card ends 13:54.15
+  This card and the next are one rally, 22.5 seconds long, running from 13:49.15 to 14:11.66. No single card may pass 20 seconds, so it was cut at its quietest moment, 13:54.75, and handed over as two cards 1.2 seconds apart.
+
+[cap] Adil / Julian (23 Aug, 65 cards) point 19 — card ends 3:32.64
+  This card and the next are one rally, 23.5 seconds long, running from 3:27.33 to 3:50.82. No single card may pass 20 seconds, so it was cut at its quietest moment, 3:33.24, and handed over as two cards 1.2 seconds apart.
+
+[cap] Adil / Kyle (cropped) (31 Aug, 70 cards) point 8 — card ends 1:58.08
+  This card and the next are one rally, 21.9 seconds long, running from 1:53.18 to 2:15.13. No single card may pass 20 seconds, so it was cut at its quietest moment, 1:58.69, and handed over as two cards 1.2 seconds apart.
+
+[cap] Anton / untitled (26 Aug, 81 cards) point 58 — card ends 12:49.29
+  This card and the next are one rally, 33.3 seconds long, running from 12:32.38 to 13:05.69. No single card may pass 20 seconds, so it was cut at its quietest moment, 12:49.89, and handed over as two cards 1.2 seconds apart.
+
+[cap] Gabriel / Mircea Neagu (02 Sep, 66 cards) point 19 — card ends 3:55.27
+  This card and the next are one rally, 21.8 seconds long, running from 3:42.47 to 4:04.27. No single card may pass 20 seconds, so it was cut at its quietest moment, 3:55.87, and handed over as two cards 1.2 seconds apart.
+
+[chain] Adil / Anton m5 (02 Sep, 93 cards) point 57 — card ends 10:42.33
+  The ball's crossings of the net were caught at 10:38.23 and then not again until 10:41.56, a gap of 3.3 seconds against the 3.0 a rally is allowed to pause. Everything after that gap was dropped, so the ending was measured from a bounce at 10:39.76 and the card closed at 10:42.33 — while the ball went on bouncing on the table at 10:40.96, 10:42.00, 10:42.23.
+
+[hand] Adil / Chris (22 Aug, 50 cards) point 13 — card ends 1:50.43
+  You cut here yourself in the app. The row that follows begins at the same instant, 1:50.43, with no gap, which is the signature of a split made by hand rather than by the pipeline.
+
+[hand] Adil / Chris (22 Aug, 50 cards) point 31 — card ends 4:34.20
+  You cut here yourself in the app. The row that follows begins at the same instant, 4:34.20, with no gap, which is the signature of a split made by hand rather than by the pipeline.
+
+[hand] Adil / Louis (29 Aug, 142 cards) point 20 — card ends 3:51.35
+  You cut here yourself in the app. The row that follows begins at the same instant, 3:51.35, with no gap, which is the signature of a split made by hand rather than by the pipeline.
+
+[serve] Adil / Anton m4 (02 Sep, 69 cards) point 65 — card ends 12:16.21
+  The detector read a serve at 12:17.53. A serve's card has to open 1.6 seconds before the ball is struck, at 12:17.17, and no two cards may touch, so this card was cut 1.2 seconds earlier still, at 12:16.21. Left alone it would have run to 12:16.54. Nothing happened to the rally; only the card ended. Today's rules read the same serve, so this one would still be cut here.
+
+[serve] Anton / untitled (26 Aug, 81 cards) point 13 — card ends 3:12.82
+  The detector read a serve at 3:15.65. A serve's card has to open 1.6 seconds before the ball is struck, at 3:14.02, and no two cards may touch, so this card was cut 1.2 seconds earlier still, at 3:12.82. Left alone it would have run to 3:14.99. Nothing happened to the rally; only the card ended. The serve rule changed on 28 August, after this match was cut. Replayed with today's rules the detector finds no serve there and the two cards stay one — which is also why the admin page shows no serve on the next point: it recomputes rather than showing what was used on the day.
+
+[serve] Anton / untitled (26 Aug, 81 cards) point 18 — card ends 4:01.31
+  The detector read a serve at 4:04.14. A serve's card has to open 1.6 seconds before the ball is struck, at 4:02.51, and no two cards may touch, so this card was cut 1.2 seconds earlier still, at 4:01.31. Left alone it would have run to 4:03.41. Nothing happened to the rally; only the card ended. The serve rule changed on 28 August, after this match was cut. Replayed with today's rules the detector finds no serve there and the two cards stay one — which is also why the admin page shows no serve on the next point: it recomputes rather than showing what was used on the day.
+
+[serve] Anton / untitled (26 Aug, 81 cards) point 61 — card ends 13:40.71
+  The detector read a serve at 13:43.54. A serve's card has to open 1.6 seconds before the ball is struck, at 13:41.91, and no two cards may touch, so this card was cut 1.2 seconds earlier still, at 13:40.71. Left alone it would have run to 13:41.24. Nothing happened to the rally; only the card ended. The serve rule changed on 28 August, after this match was cut. Replayed with today's rules the detector finds no serve there and the two cards stay one — which is also why the admin page shows no serve on the next point: it recomputes rather than showing what was used on the day.
+
+[serve] Anton / untitled (27 Aug, 58 cards) point 38 — card ends 7:58.95
+  The detector read a serve at 8:01.78. A serve's card has to open 1.6 seconds before the ball is struck, at 8:00.15, and no two cards may touch, so this card was cut 1.2 seconds earlier still, at 7:58.95. Left alone it would have run to 8:01.32. Nothing happened to the rally; only the card ended.
+
+[serve] Anton / untitled (27 Aug, 58 cards) point 49 — card ends 10:18.92
+  Two serves were read only 2.3 seconds apart, at 10:17.44 and 10:19.78. A card may not be shorter than 1.5 seconds of rally, so this one was compressed to exactly that and ends at 10:18.92, while the second of those serves is really a stroke in the middle of the same point.
+
+[tail] Adil / Anton m4 (02 Sep, 69 cards) point 4 — card ends 0:45.22
+  A card ends 2.6 seconds after the last bounce on the table it counts. Here that was 0:42.65, giving 0:45.22. The ball crossed the net again at 0:44.12, after that bounce, so the card in fact ran only 1.1 seconds past the last sign of the rally rather than 2.6.
+
+[tail] Adil / Anton m6 (02 Sep, 34 cards) point 17 — card ends 3:34.83
+  A card ends 2.6 seconds after the last bounce on the table it counts. Here that was 3:32.26, giving 3:34.83. After that bounce the ball was lost for 0.9 seconds and nothing further was seen to bounce on the table or cross the net, so there was nothing to carry the ending on, and the 2.6 seconds ran out while the point was still being played.
+
+[tail] Anton / untitled (26 Aug, 71 cards) point 60 — card ends 11:22.85
+  A card ends 2.6 seconds after the last bounce on the table it counts. Here that was 11:20.28, giving 11:22.85. 3 further bounces at 11:22.32, 11:22.58, 11:22.85 were ignored, because only bounces within 2 seconds of the last net crossing (11:20.25) are counted — so the card ended on a ball that was still in play.

@@ -244,6 +244,31 @@ full-frame runs agree on that boundary. m4 #65 is the same shape. Both
 were judged from an abrupt ending, which is the case Adil flagged as hard
 to call from the clip.
 
+### The admin page recomputes the serve, and that misleads
+
+`research_serve_misses.build` recalculates each card's serve mark against
+today's constants rather than reading what the job used, deliberately and
+with a comment saying so. The consequence was not anticipated: a card cut
+BECAUSE a serve was detected can show no serve at all on
+`/admin/uploads/<id>`, so the cause of the cut is invisible exactly where
+someone goes to look for it.
+
+Anton 26 Aug/81 point 13 is the worked example. `match.json`, written the
+day the match was cut, gives point 14 a serve at 3:15.65, which forces its
+card to open at 3:14.02 and point 13 to end 1.2 s earlier at 3:12.82.
+serves.json today shows point 14 with no serve and point 13 with one at
+3:10.75 — the opposite assignment. The serve rule changed on 28 August
+(surface pad 0.45 m, cluster 2.5 s), two days after this match was cut.
+
+Replayed at today's constants, three of the six serve-family cuts do not
+happen at all: 26 Aug/81 #13, #18 and #61 each come back as a single card.
+m4 #65 was cut on 2 September, at today's constants, and still splits.
+27 Aug/58 #38 and #49 have no evidence dump and were not re-measured.
+
+So the serve family is smaller than six going forward, and the open case
+is m4 #65 rather than the older ones. Any future reading of a cut must
+come from `match.json`, never from the admin page's serve column.
+
 ### Where this leaves it
 
 Not built, pending Adil's read of these numbers. Item 2 is a wash in

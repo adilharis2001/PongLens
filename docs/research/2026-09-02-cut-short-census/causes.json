@@ -8,7 +8,11 @@
   "dur": 6.140000000000001,
   "serve": 40.71,
   "n_cross": 2,
-  "broke": []
+  "broke": [],
+  "mid": "ad634efd-751d-43cf-a5c4-02de2bb2986c",
+  "family": "tail",
+  "t0": 39.08,
+  "detail_v2": "A card ends 2.6 seconds after the last bounce on the table it counts. Here that was 0:42.65, giving 0:45.22. The ball crossed the net again at 0:44.12, after that bounce, so the card in fact ran only 1.1 seconds past the last sign of the rally rather than 2.6."
  },
  {
   "match": "Adil / Anton m4 (02 Sep, 69 cards)",
@@ -19,7 +23,11 @@
   "dur": 7.670000000000073,
   "serve": 730.16,
   "n_cross": 3,
-  "broke": []
+  "broke": [],
+  "mid": "ad634efd-751d-43cf-a5c4-02de2bb2986c",
+  "family": "serve",
+  "t0": 728.54,
+  "detail_v2": "The detector read a serve at 12:17.53. A serve's card has to open 1.6 seconds before the ball is struck, at 12:17.17, and no two cards may touch, so this card was cut 1.2 seconds earlier still, at 12:16.21. Left alone it would have run to 12:16.54. Nothing happened to the rally; only the card ended. Today's rules read the same serve, so this one would still be cut here."
  },
  {
   "match": "Adil / Anton m5 (02 Sep, 93 cards)",
@@ -32,7 +40,11 @@
   "n_cross": 2,
   "broke": [
    3.33
-  ]
+  ],
+  "mid": "3477975a-e7c5-43ba-953a-e7b07f183063",
+  "family": "chain",
+  "t0": 635.53,
+  "detail_v2": "The ball's crossings of the net were caught at 10:38.23 and then not again until 10:41.56, a gap of 3.3 seconds against the 3.0 a rally is allowed to pause. Everything after that gap was dropped, so the ending was measured from a bounce at 10:39.76 and the card closed at 10:42.33 \u2014 while the ball went on bouncing on the table at 10:40.96, 10:42.00, 10:42.23."
  },
  {
   "match": "Adil / Anton m5 (02 Sep, 93 cards)",
@@ -43,7 +55,11 @@
   "dur": 5.0,
   "serve": null,
   "n_cross": 5,
-  "broke": []
+  "broke": [],
+  "mid": "3477975a-e7c5-43ba-953a-e7b07f183063",
+  "family": "cap",
+  "t0": 829.15,
+  "detail_v2": "This card and the next are one rally, 22.5 seconds long, running from 13:49.15 to 14:11.66. No single card may pass 20 seconds, so it was cut at its quietest moment, 13:54.75, and handed over as two cards 1.2 seconds apart."
  },
  {
   "match": "Adil / Anton m6 (02 Sep, 34 cards)",
@@ -54,7 +70,11 @@
   "dur": 8.570000000000022,
   "serve": 207.89,
   "n_cross": 5,
-  "broke": []
+  "broke": [],
+  "mid": "41a18e3d-0055-4910-acfe-a3b723e3ef50",
+  "family": "tail",
+  "t0": 206.26,
+  "detail_v2": "A card ends 2.6 seconds after the last bounce on the table it counts. Here that was 3:32.26, giving 3:34.83. After that bounce the ball was lost for 0.9 seconds and nothing further was seen to bounce on the table or cross the net, so there was nothing to carry the ending on, and the 2.6 seconds ran out while the point was still being played."
  },
  {
   "match": "Adil / Chris (22 Aug, 50 cards)",
@@ -65,7 +85,11 @@
   "dur": 1.7800000000000011,
   "serve": 109.01,
   "n_cross": 1,
-  "broke": []
+  "broke": [],
+  "mid": "57237caf-0cec-40a8-b1d7-ebdfb44ceec4",
+  "family": "hand",
+  "t0": 108.65,
+  "detail_v2": "You cut here yourself in the app. The row that follows begins at the same instant, 1:50.43, with no gap, which is the signature of a split made by hand rather than by the pipeline."
  },
  {
   "match": "Adil / Chris (22 Aug, 50 cards)",
@@ -76,7 +100,11 @@
   "dur": 2.3799999999999955,
   "serve": 273.44,
   "n_cross": 0,
-  "broke": []
+  "broke": [],
+  "mid": "57237caf-0cec-40a8-b1d7-ebdfb44ceec4",
+  "family": "hand",
+  "t0": 271.82,
+  "detail_v2": "You cut here yourself in the app. The row that follows begins at the same instant, 4:34.20, with no gap, which is the signature of a split made by hand rather than by the pipeline."
  },
  {
   "match": "Adil / Julian (23 Aug, 65 cards)",
@@ -87,7 +115,11 @@
   "dur": 5.309999999999974,
   "serve": 208.96,
   "n_cross": 6,
-  "broke": []
+  "broke": [],
+  "mid": "ccea2388-b0bd-4f16-bcd2-0296c1381bc6",
+  "family": "cap",
+  "t0": 207.33,
+  "detail_v2": "This card and the next are one rally, 23.5 seconds long, running from 3:27.33 to 3:50.82. No single card may pass 20 seconds, so it was cut at its quietest moment, 3:33.24, and handed over as two cards 1.2 seconds apart."
  },
  {
   "match": "Adil / Kyle (cropped) (31 Aug, 70 cards)",
@@ -98,7 +130,11 @@
   "dur": 4.8999999999999915,
   "serve": 114.81,
   "n_cross": 6,
-  "broke": []
+  "broke": [],
+  "mid": "fa96cd0e-bfbd-403b-8c30-87714ee78030",
+  "family": "cap",
+  "t0": 113.18,
+  "detail_v2": "This card and the next are one rally, 21.9 seconds long, running from 1:53.18 to 2:15.13. No single card may pass 20 seconds, so it was cut at its quietest moment, 1:58.69, and handed over as two cards 1.2 seconds apart."
  },
  {
   "match": "Adil / Louis (29 Aug, 142 cards)",
@@ -109,7 +145,11 @@
   "dur": 10.669999999999987,
   "serve": null,
   "n_cross": 4,
-  "broke": []
+  "broke": [],
+  "mid": "d15aad4d-dfbf-4234-9b45-d68de83412cf",
+  "family": "hand",
+  "t0": 220.68,
+  "detail_v2": "You cut here yourself in the app. The row that follows begins at the same instant, 3:51.35, with no gap, which is the signature of a split made by hand rather than by the pipeline."
  },
  {
   "match": "Anton / untitled (26 Aug, 71 cards)",
@@ -120,7 +160,11 @@
   "dur": 7.540000000000077,
   "serve": 676.94,
   "n_cross": 4,
-  "broke": []
+  "broke": [],
+  "mid": "25765e26-cdf7-4025-b9c7-c4d45d3bcd07",
+  "family": "tail",
+  "t0": 675.31,
+  "detail_v2": "A card ends 2.6 seconds after the last bounce on the table it counts. Here that was 11:20.28, giving 11:22.85. 3 further bounces at 11:22.32, 11:22.58, 11:22.85 were ignored, because only bounces within 2 seconds of the last net crossing (11:20.25) are counted \u2014 so the card ended on a ball that was still in play."
  },
  {
   "match": "Anton / untitled (26 Aug, 81 cards)",
@@ -133,7 +177,11 @@
   "n_cross": 4,
   "broke": [
    3.36
-  ]
+  ],
+  "mid": "47b83b9b-ae34-4106-827d-be74d4bdf677",
+  "family": "serve",
+  "t0": 186.89,
+  "detail_v2": "The detector read a serve at 3:15.65. A serve's card has to open 1.6 seconds before the ball is struck, at 3:14.02, and no two cards may touch, so this card was cut 1.2 seconds earlier still, at 3:12.82. Left alone it would have run to 3:14.99. Nothing happened to the rally; only the card ended. The serve rule changed on 28 August, after this match was cut. Replayed with today's rules the detector finds no serve there and the two cards stay one \u2014 which is also why the admin page shows no serve on the next point: it recomputes rather than showing what was used on the day."
  },
  {
   "match": "Anton / untitled (26 Aug, 81 cards)",
@@ -144,7 +192,11 @@
   "dur": 7.840000000000003,
   "serve": null,
   "n_cross": 0,
-  "broke": []
+  "broke": [],
+  "mid": "47b83b9b-ae34-4106-827d-be74d4bdf677",
+  "family": "serve",
+  "t0": 233.47,
+  "detail_v2": "The detector read a serve at 4:04.14. A serve's card has to open 1.6 seconds before the ball is struck, at 4:02.51, and no two cards may touch, so this card was cut 1.2 seconds earlier still, at 4:01.31. Left alone it would have run to 4:03.41. Nothing happened to the rally; only the card ended. The serve rule changed on 28 August, after this match was cut. Replayed with today's rules the detector finds no serve there and the two cards stay one \u2014 which is also why the admin page shows no serve on the next point: it recomputes rather than showing what was used on the day."
  },
  {
   "match": "Anton / untitled (26 Aug, 81 cards)",
@@ -157,7 +209,11 @@
   "n_cross": 4,
   "broke": [
    11.88
-  ]
+  ],
+  "mid": "47b83b9b-ae34-4106-827d-be74d4bdf677",
+  "family": "cap",
+  "t0": 752.38,
+  "detail_v2": "This card and the next are one rally, 33.3 seconds long, running from 12:32.38 to 13:05.69. No single card may pass 20 seconds, so it was cut at its quietest moment, 12:49.89, and handed over as two cards 1.2 seconds apart."
  },
  {
   "match": "Anton / untitled (26 Aug, 81 cards)",
@@ -170,7 +226,11 @@
   "n_cross": 3,
   "broke": [
    9.9
-  ]
+  ],
+  "mid": "47b83b9b-ae34-4106-827d-be74d4bdf677",
+  "family": "serve",
+  "t0": 797.93,
+  "detail_v2": "The detector read a serve at 13:43.54. A serve's card has to open 1.6 seconds before the ball is struck, at 13:41.91, and no two cards may touch, so this card was cut 1.2 seconds earlier still, at 13:40.71. Left alone it would have run to 13:41.24. Nothing happened to the rally; only the card ended. The serve rule changed on 28 August, after this match was cut. Replayed with today's rules the detector finds no serve there and the two cards stay one \u2014 which is also why the admin page shows no serve on the next point: it recomputes rather than showing what was used on the day."
  },
  {
   "match": "Anton / untitled (27 Aug, 58 cards)",
@@ -181,7 +241,11 @@
   "dur": 7.96999999999997,
   "serve": null,
   "n_cross": 0,
-  "broke": []
+  "broke": [],
+  "mid": "74542390-31cb-481d-9b56-f160277bbb1a",
+  "family": "serve",
+  "t0": 470.98,
+  "detail_v2": "The detector read a serve at 8:01.78. A serve's card has to open 1.6 seconds before the ball is struck, at 8:00.15, and no two cards may touch, so this card was cut 1.2 seconds earlier still, at 7:58.95. Left alone it would have run to 8:01.32. Nothing happened to the rally; only the card ended."
  },
  {
   "match": "Anton / untitled (27 Aug, 58 cards)",
@@ -192,7 +256,11 @@
   "dur": 3.099999999999909,
   "serve": 617.44,
   "n_cross": 0,
-  "broke": []
+  "broke": [],
+  "mid": "74542390-31cb-481d-9b56-f160277bbb1a",
+  "family": "serve",
+  "t0": 615.82,
+  "detail_v2": "Two serves were read only 2.3 seconds apart, at 10:17.44 and 10:19.78. A card may not be shorter than 1.5 seconds of rally, so this one was compressed to exactly that and ends at 10:18.92, while the second of those serves is really a stroke in the middle of the same point."
  },
  {
   "match": "Gabriel / Mircea Neagu (02 Sep, 66 cards)",
@@ -203,6 +271,10 @@
   "dur": 12.800000000000011,
   "serve": null,
   "n_cross": 8,
-  "broke": []
+  "broke": [],
+  "mid": "c9f543ce-2626-4169-aef0-a97e17b258c0",
+  "family": "cap",
+  "t0": 222.47,
+  "detail_v2": "This card and the next are one rally, 21.8 seconds long, running from 3:42.47 to 4:04.27. No single card may pass 20 seconds, so it was cut at its quietest moment, 3:55.87, and handed over as two cards 1.2 seconds apart."
  }
 ]
