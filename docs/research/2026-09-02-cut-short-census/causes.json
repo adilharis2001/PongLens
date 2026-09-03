@@ -1,0 +1,208 @@
+[
+ {
+  "match": "Adil / Anton m4 (02 Sep, 69 cards)",
+  "pt": 4,
+  "t1": 45.22,
+  "cause": "the 2.6s tail, measured from the last bounce it counted",
+  "detail": "last counted table bounce 42.65, last crossing 44.12",
+  "dur": 6.140000000000001,
+  "serve": 40.71,
+  "n_cross": 2,
+  "broke": []
+ },
+ {
+  "match": "Adil / Anton m4 (02 Sep, 69 cards)",
+  "pt": 65,
+  "t1": 736.21,
+  "cause": "cut back for a serve that was detected next",
+  "detail": "a serve was read at 737.53; two cards that both open on a serve are squeezed together, and what gives is this card's tail, cut to 1.3s before that serve",
+  "dur": 7.670000000000073,
+  "serve": 730.16,
+  "n_cross": 3,
+  "broke": []
+ },
+ {
+  "match": "Adil / Anton m5 (02 Sep, 93 cards)",
+  "pt": 57,
+  "t1": 642.33,
+  "cause": "the rally chain broke on a gap between net crossings",
+  "detail": "crossings [638.23, 641.56] with a 3.33s hole, longer than the 3.0s a rally is allowed to pause; everything after that hole was ignored, so the tail was measured from 639.76 and the card ended 2.6s later",
+  "dur": 6.800000000000068,
+  "serve": 637.15,
+  "n_cross": 2,
+  "broke": [
+   3.33
+  ]
+ },
+ {
+  "match": "Adil / Anton m5 (02 Sep, 93 cards)",
+  "pt": 74,
+  "t1": 834.15,
+  "cause": "the 20-second cap cut the rally in half",
+  "detail": "this card plus the next spans 22.5s, over the 20s a single card may run; it was cut at the quietest moment in the middle and the two halves sit 1.2s apart",
+  "dur": 5.0,
+  "serve": null,
+  "n_cross": 5,
+  "broke": []
+ },
+ {
+  "match": "Adil / Anton m6 (02 Sep, 34 cards)",
+  "pt": 17,
+  "t1": 214.83,
+  "cause": "the 2.6s tail, measured from the last bounce it counted",
+  "detail": "last counted table bounce 212.26, last crossing 212.13",
+  "dur": 8.570000000000022,
+  "serve": 207.89,
+  "n_cross": 5,
+  "broke": []
+ },
+ {
+  "match": "Adil / Chris (22 Aug, 50 cards)",
+  "pt": 13,
+  "t1": 110.43,
+  "cause": "your own split",
+  "detail": "you cut here by hand; the row after it starts at the same instant",
+  "dur": 1.7800000000000011,
+  "serve": 109.01,
+  "n_cross": 1,
+  "broke": []
+ },
+ {
+  "match": "Adil / Chris (22 Aug, 50 cards)",
+  "pt": 31,
+  "t1": 274.2,
+  "cause": "your own split",
+  "detail": "you cut here by hand; the row after it starts at the same instant",
+  "dur": 2.3799999999999955,
+  "serve": 273.44,
+  "n_cross": 0,
+  "broke": []
+ },
+ {
+  "match": "Adil / Julian (23 Aug, 65 cards)",
+  "pt": 19,
+  "t1": 212.64,
+  "cause": "the 20-second cap cut the rally in half",
+  "detail": "this card plus the next spans 23.5s, over the 20s a single card may run; it was cut at the quietest moment in the middle and the two halves sit 1.2s apart",
+  "dur": 5.309999999999974,
+  "serve": 208.96,
+  "n_cross": 6,
+  "broke": []
+ },
+ {
+  "match": "Adil / Kyle (cropped) (31 Aug, 70 cards)",
+  "pt": 8,
+  "t1": 118.08,
+  "cause": "the 20-second cap cut the rally in half",
+  "detail": "this card plus the next spans 21.9s, over the 20s a single card may run; it was cut at the quietest moment in the middle and the two halves sit 1.2s apart",
+  "dur": 4.8999999999999915,
+  "serve": 114.81,
+  "n_cross": 6,
+  "broke": []
+ },
+ {
+  "match": "Adil / Louis (29 Aug, 142 cards)",
+  "pt": 20,
+  "t1": 231.35,
+  "cause": "your own split",
+  "detail": "you cut here by hand; the row after it starts at the same instant",
+  "dur": 10.669999999999987,
+  "serve": null,
+  "n_cross": 4,
+  "broke": []
+ },
+ {
+  "match": "Anton / untitled (26 Aug, 71 cards)",
+  "pt": 60,
+  "t1": 682.85,
+  "cause": "the 2.6s tail, measured from the last bounce it counted",
+  "detail": "last counted table bounce 680.28, last crossing 680.25; 3 further table bounce(s) at [682.32, 682.58, 682.85] fell outside the 2s window the rule looks in and were ignored",
+  "dur": 7.540000000000077,
+  "serve": 676.94,
+  "n_cross": 4,
+  "broke": []
+ },
+ {
+  "match": "Anton / untitled (26 Aug, 81 cards)",
+  "pt": 13,
+  "t1": 192.82,
+  "cause": "cut back for a serve that was detected next",
+  "detail": "a serve was read at 195.65, so its card had to open at 194.02; this card was pulled back the 1.2s of dead space that must sit between two cards",
+  "dur": 5.930000000000007,
+  "serve": null,
+  "n_cross": 4,
+  "broke": [
+   3.36
+  ]
+ },
+ {
+  "match": "Anton / untitled (26 Aug, 81 cards)",
+  "pt": 18,
+  "t1": 241.31,
+  "cause": "cut back for a serve that was detected next",
+  "detail": "a serve was read at 244.14, so its card had to open at 242.51; this card was pulled back the 1.2s of dead space that must sit between two cards",
+  "dur": 7.840000000000003,
+  "serve": null,
+  "n_cross": 0,
+  "broke": []
+ },
+ {
+  "match": "Anton / untitled (26 Aug, 81 cards)",
+  "pt": 58,
+  "t1": 769.29,
+  "cause": "the 20-second cap cut the rally in half",
+  "detail": "this card plus the next spans 33.3s, over the 20s a single card may run; it was cut at the quietest moment in the middle and the two halves sit 1.2s apart",
+  "dur": 16.909999999999968,
+  "serve": null,
+  "n_cross": 4,
+  "broke": [
+   11.88
+  ]
+ },
+ {
+  "match": "Anton / untitled (26 Aug, 81 cards)",
+  "pt": 61,
+  "t1": 820.71,
+  "cause": "cut back for a serve that was detected next",
+  "detail": "a serve was read at 823.54, so its card had to open at 821.91; this card was pulled back the 1.2s of dead space that must sit between two cards",
+  "dur": 22.780000000000086,
+  "serve": null,
+  "n_cross": 3,
+  "broke": [
+   9.9
+  ]
+ },
+ {
+  "match": "Anton / untitled (27 Aug, 58 cards)",
+  "pt": 38,
+  "t1": 478.95,
+  "cause": "cut back for a serve that was detected next",
+  "detail": "a serve was read at 481.78, so its card had to open at 480.15; this card was pulled back the 1.2s of dead space that must sit between two cards",
+  "dur": 7.96999999999997,
+  "serve": null,
+  "n_cross": 0,
+  "broke": []
+ },
+ {
+  "match": "Anton / untitled (27 Aug, 58 cards)",
+  "pt": 49,
+  "t1": 618.92,
+  "cause": "squeezed to the shortest a rally may be",
+  "detail": "two serves were read \t2.3s apart (617.44 and 619.78); the first card was compressed to 1.5s after its own serve to make room for the second",
+  "dur": 3.099999999999909,
+  "serve": 617.44,
+  "n_cross": 0,
+  "broke": []
+ },
+ {
+  "match": "Gabriel / Mircea Neagu (02 Sep, 66 cards)",
+  "pt": 19,
+  "t1": 235.27,
+  "cause": "the 20-second cap cut the rally in half",
+  "detail": "this card plus the next spans 21.8s, over the 20s a single card may run; it was cut at the quietest moment in the middle and the two halves sit 1.2s apart",
+  "dur": 12.800000000000011,
+  "serve": null,
+  "n_cross": 8,
+  "broke": []
+ }
+]

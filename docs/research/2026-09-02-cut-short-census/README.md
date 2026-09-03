@@ -167,25 +167,82 @@ ball handed to the server between points crosses the net exactly like
 a lob; a table-bounce filter improves that to 271 against 87 and still
 joins one pair for every rally it repairs.
 
-### The chain-break family, re-read
+### Every one of the eighteen, named (2 September, second pass)
 
-Of the nine "real" rows blamed on a broken crossing chain:
+The first pass grouped nine of these as crossing-chain breaks. That was
+wrong, and the correction matters because the families have different
+fixes. Each ending below is attributed from production's own record:
+`match.json` carries the assembler's card times, its serve marks and its
+rally ends, and the points table shows which boundaries a person moved
+afterwards. `scripts/verdict.py` does the attribution; `causes.json` is
+its output. Five causes cover all eighteen.
 
-- **m4 #4 and m4 #65 were misjudged.** Frame sheets from the census
-  clips (`ffmpeg fps=2, tile=6x4`, two frames a second) show the near
-  player out of frame and the far player retrieving at the flash, and
-  Anton's own winner tap sits at 45.2 s on #4. Both are two points; the
-  endings were abrupt, which is exactly the case Adil warned about.
-- **26 Aug/81 #13 and #18 are already fixed.** Production cut them on
-  26 August under the pre-28-August serve constants; the re-run with
-  the current 0.45 m surface pad and 2.5 s cluster keeps both whole.
-- **m5 #57 and m6 #17 are the crop box, not the assembler.** The re-run
-  of the uncropped original keeps both whole; the cropped 2 September
-  production run lost the high ball above the box (noted at the time
-  for m6 #17: 1.1 s above it). The lever for lob rallies is the crop
-  geometry in `points_endon.ball_crop_box`, to be measured separately.
-- **26 Aug/71 #60** is the one a crossing rule joins, at the cost above.
-- **27 Aug/58 #38 and #49** have no dump (that file is m3's).
+**A person cut it — 3.** Chris #13 and #31, Louis #20. `tight_end` set,
+the next row opens at the same instant. Not the assembler's.
+
+**The 20-second cap cut a live rally in half — 5.** Anton m5 #74, Julian
+#19, Kyle #8, Anton 26 Aug/81 #58, Gabriel #19. Combined spans 21.8 to
+33.3 s, halves exactly 1.2 s apart, second half serveless. The frame
+sheets show unbroken play through every one, and the ball's own record
+shows bounces alternating halves right across the cut.
+
+**A serve was read while the rally was still running — 6.** Anton 26
+Aug/81 #13, #18, #61, Anton 27 Aug/58 #38 and #49, Anton m4 #65. This is
+the largest family and it was missed entirely the first time. A card that
+opens on a detected serve must start 1.6 s before the contact, so
+`resolve` pulls the previous card's tail back to leave the 1.2 s of dead
+space every pair of cards needs (#13, #18, #61, #38), or squeezes two
+serve cards together at 1.3 s before the later serve (m4 #65), or
+compresses the earlier card to the 1.5 s minimum rally length (#49). The
+rally is unaffected by any of this; only the card ends.
+
+Why the false serves: a serve is two bounces on opposite halves with the
+ball rising between them, which is also what any stroke over the net
+looks like. The rule that rejects mid-rally strokes asks whether more
+than one net crossing happened in the 1.5 s before the first bounce
+(`PRIOR_CROSS_MAX`). These matches are shot nearly end-on (foreshortening
+0.45 to 0.66), the crossing detector fires rarely, and the guard has
+nothing to see. Same root cause as the serve-detector's known weakness on
+end-on cameras, reaching a different part of the pipeline.
+
+**The 2.6 s tail was measured from the wrong event — 3.** Anton m4 #4,
+m6 #17, 26 Aug/71 #60. `rally_end_ev` pads the LAST TABLE BOUNCE by 2.6 s,
+but only counts bounces up to the last crossing plus 2.0 s. On #60 that
+window closed at 682.25 and dropped three real table bounces at 682.32,
+682.58 and 682.85, so the card ended at 682.88, on the last of them. On
+m4 #4 the last crossing (44.12) came after the last counted bounce
+(42.65), leaving an effective tail of 1.1 s rather than 2.6 s.
+
+**The crossing chain broke on a gap — 1.** Anton m5 #57. Crossings at
+638.23 and 641.56, a 3.33 s hole against a `CROSS_GAP_S` of 3.0. Everything
+past the hole was ignored, the tail was measured from a bounce at 639.76,
+and the card closed at 642.36 while table bounces continued at 640.96,
+642.00 and 642.23 and the next card opens with thirty consecutive samples
+of the ball on the near half.
+
+### The detection crop, measured rather than assumed
+
+The first pass blamed the crop for m5 #57 and m6 #17 and called it a
+vertical loss. `ball_crop` is on globally and every 2 September re-upload
+used it (m6's box is 542x304 of a 1920x1080 frame). Against Anton's own
+full-frame uploads of the same three files, `scripts/cropcheck.py`:
+
+- the ball leaves the box SIDEWAYS, not upward — 0 samples above the top
+  edge on four of five endings, 4 on the fifth;
+- the cropped run ends the card earlier on m5 #57 (642.4 against 645.0)
+  and m6 #17 (214.8 against 216.6). On m6 #17 Anton's own winner tap at
+  216.12 falls inside the full-frame card and outside the cropped one,
+  which is independent proof the rally was still alive;
+- on m4 #4 and #65 the two runs land in the same place, so the crop is
+  not involved there.
+
+### Two of the eighteen still look like two points
+
+Anton m4 #4: Anton's own winner tap on his upload of the same video sits
+at 45.22, which is exactly where the card ends, and the cropped and
+full-frame runs agree on that boundary. m4 #65 is the same shape. Both
+were judged from an abrupt ending, which is the case Adil flagged as hard
+to call from the clip.
 
 ### Where this leaves it
 
