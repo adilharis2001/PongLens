@@ -17,6 +17,7 @@ struct CoachStudentScreen: View {
     @State private var renameDraft = ""
     @State private var archiveAsk = false
     @State private var mergeAsk = false
+    @State private var sharingId: UUID?
 
     private var student: CoachStudentRow? { workspace.student(studentId) }
 
@@ -90,6 +91,15 @@ struct CoachStudentScreen: View {
         }
     }
 
+    /// The card's own share: the same grant the entry screen makes.
+    private func share(_ entry: CoachEntryRow) {
+        sharingId = entry.id
+        Task {
+            _ = await workspace.setShared(entry, shared: true)
+            sharingId = nil
+        }
+    }
+
     private func content(_ student: CoachStudentRow) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -157,7 +167,13 @@ struct CoachStudentScreen: View {
                     } else {
                         ForEach(entries) { entry in
                             NavigationLink(value: entry) {
-                                CoachEntryCard(entry: entry, lesson: workspace.lesson(for: entry))
+                                CoachEntryCard(
+                                    entry: entry,
+                                    lesson: workspace.lesson(for: entry),
+                                    shareWith: student.linked ? student.displayName : nil,
+                                    sharing: sharingId == entry.id,
+                                    onShare: { share(entry) }
+                                )
                             }
                             .buttonStyle(.plain)
                         }

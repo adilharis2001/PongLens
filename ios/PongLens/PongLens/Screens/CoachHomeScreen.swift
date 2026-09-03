@@ -11,6 +11,7 @@ struct CoachHomeScreen: View {
     @Environment(LibraryStore.self) private var library
 
     @State private var inviteOpen = false
+    @State private var sharingId: UUID?
 
     /// Students' matches, newest first. The library already holds them —
     /// RLS delivers every match a coach link covers — so this keeps the
@@ -67,11 +68,21 @@ struct CoachHomeScreen: View {
                             CoachEmptyLine(text: "No entries yet. New entry writes the first.")
                         } else {
                             ForEach(recentEntries.prefix(5)) { entry in
+                                let student = workspace.student(entry.studentId)
                                 NavigationLink(value: entry) {
                                     CoachEntryCard(
                                         entry: entry,
                                         lesson: workspace.lesson(for: entry),
-                                        studentName: workspace.student(entry.studentId)?.displayName
+                                        studentName: student?.displayName,
+                                        shareWith: student?.linked == true ? student?.displayName : nil,
+                                        sharing: sharingId == entry.id,
+                                        onShare: {
+                                            sharingId = entry.id
+                                            Task {
+                                                _ = await workspace.setShared(entry, shared: true)
+                                                sharingId = nil
+                                            }
+                                        }
                                     )
                                 }
                                 .buttonStyle(.plain)

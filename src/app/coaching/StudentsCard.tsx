@@ -37,6 +37,7 @@ export function StudentsCard() {
   const [entries, setEntries] = useState<EntryRow[]>([]);
   const [lessons, setLessons] = useState<Record<string, LessonRow>>({});
   const [matchCounts, setMatchCounts] = useState<Record<string, number>>({});
+  const [sharingId, setSharingId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -95,6 +96,25 @@ export function StudentsCard() {
   const recent = entries.filter((e) => active.has(e.student_id)).slice(0, 3);
   const nameOf = (id: string) =>
     students.find((s) => s.id === id)?.display_name ?? "Student";
+  const linkedOf = (id: string) =>
+    Boolean(students.find((s) => s.id === id)?.player_id);
+
+  // The same grant the student page makes: the card's own one-tap
+  // share, so a coach never assumes an entry reached its student.
+  const share = async (entry: EntryRow) => {
+    setSharingId(entry.id);
+    const supabase = createClient();
+    const stamp = new Date().toISOString();
+    const { error } = await supabase
+      .from("coach_entries")
+      .update({ shared_at: stamp })
+      .eq("id", entry.id);
+    setSharingId(null);
+    if (error) return;
+    setEntries((prev) =>
+      prev.map((e) => (e.id === entry.id ? { ...e, shared_at: stamp } : e)),
+    );
+  };
 
   return (
     <div className="mt-6 space-y-6">
@@ -149,23 +169,43 @@ export function StudentsCard() {
             {recent.map((e) => {
               const lesson = lessons[e.lesson_id];
               return (
-                <Link
+                <div
                   key={e.id}
-                  href={`/coaching/students/${e.student_id}`}
-                  className="block rounded-2xl border border-edge bg-surface p-4 transition-colors hover:bg-surface-2"
+                  className="rounded-2xl border border-edge bg-surface p-4"
                 >
-                  <span className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-cyan-glow">
-                      {nameOf(e.student_id)}
+                  <Link
+                    href={`/coaching/students/${e.student_id}`}
+                    className="block"
+                  >
+                    <span className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold uppercase tracking-wider text-cyan-glow">
+                        {nameOf(e.student_id)}
+                      </span>
+                      {e.shared_at && (
+                        <span className="text-[11px] font-medium text-cyan-glow">
+                          Shared
+                        </span>
+                      )}
                     </span>
-                    <span className="text-[11px] text-zinc-500">
-                      {e.shared_at ? "Shared" : "Draft"}
+                    <span className="mt-1 block text-sm font-medium text-zinc-100">
+                      {entryTitle(lesson?.transcript, lesson?.takeaways)}
                     </span>
-                  </span>
-                  <span className="mt-1 block text-sm font-medium text-zinc-100">
-                    {entryTitle(lesson?.transcript, lesson?.takeaways)}
-                  </span>
-                </Link>
+                  </Link>
+                  {linkedOf(e.student_id) && !e.shared_at && (
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => void share(e)}
+                        disabled={sharingId === e.id}
+                        className="glow-cta rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink disabled:opacity-60"
+                      >
+                        {sharingId === e.id
+                          ? "Sharing…"
+                          : `Share with ${nameOf(e.student_id)}`}
+                      </button>
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>
