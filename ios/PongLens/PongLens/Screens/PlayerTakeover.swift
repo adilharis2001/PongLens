@@ -652,6 +652,7 @@ struct PlayerTakeover: View {
                             .resizable()
                             .scaledToFill()
                             .frame(width: 84, height: 48)
+                            .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                         Text("Drawing attached")
                             .font(.plCaption)

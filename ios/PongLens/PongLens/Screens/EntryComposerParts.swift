@@ -178,6 +178,10 @@ struct EntryPhotoRow: View {
                             .resizable()
                             .scaledToFill()
                             .frame(width: 44, height: 44)
+                            // See EntryPhotoView: clipShape hides the
+                            // overflow, clipped() is what stops it
+                            // swallowing taps meant for something else.
+                            .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                             .opacity(draft.checking ? 0.5 : 1)
                     } else if draft.showsSaved, let on = draft.savedOn {
@@ -299,7 +303,25 @@ struct EntryPhotoView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 180)
+                // `clipped()`, not just `clipShape`, and this is the
+                // difference between a photo and a bug.
+                //
+                // scaledToFill makes the image OVERFLOW its frame — a
+                // portrait photo in a 370x180 box renders 370 wide and
+                // about 660 tall. clipShape masks the drawing to 180, so
+                // it looks perfect. But it does not clip HIT TESTING, so
+                // 240 points of invisible photo sat above the card and
+                // ate every tap meant for the buttons up there. That is
+                // why "Stop sharing" and "Get a link" did nothing on
+                // exactly the entries that had a picture, and worked
+                // everywhere else (Adil, 2026-09-03).
+                .clipped()
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+                // And the hit region said out loud. `clipped()` masks the
+                // drawing; `contentShape` is what actually tells SwiftUI
+                // where this view may be touched. Without it the
+                // overflowing image stays live outside its own box.
+                .contentShape(Rectangle())
                 .overlay(
                     RoundedRectangle(cornerRadius: 12).stroke(PL.edge, lineWidth: 1)
                 )
@@ -346,7 +368,11 @@ struct EntryPhotoThumb: View {
                     }
                 }
                 .frame(width: side, height: side)
+                // A row thumbnail overflows over its neighbours without
+                // this, and swallows their taps. Same rule as above.
+                .clipped()
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(PL.edge, lineWidth: 1))
             } else {
                 RoundedRectangle(cornerRadius: 8)

@@ -175,6 +175,7 @@ struct PageCameraView: View {
                             .resizable()
                             .scaledToFill()
                             .frame(width: 54, height: 72)
+                            .clipped()
                             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 6, style: .continuous)
