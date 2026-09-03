@@ -19,6 +19,11 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
  *   takeaways == null  there is no note, so the words ARE the note and a
  *                      single field holds them
  *
+ * A coach correcting an entry about a student opens this same overlay,
+ * from their student's page. Nothing here is player-specific: the coach's
+ * name field belongs to a lesson somebody was given, and a coach entry is
+ * not one.
+ *
  * Two things the capture sheet has are deliberately absent from both
  * shapes. The Practice/Lesson tab, because an entry's kind is decided
  * when it is written and flipping it here would quietly rewrite what the
@@ -642,7 +647,9 @@ export function NoteEditor({
                     placeholder={
                       lesson.kind === "lesson"
                         ? "What your coach gave you"
-                        : "What you worked on"
+                        : lesson.kind === "coach"
+                          ? "What you worked on, what to fix, what comes next"
+                          : "What you worked on"
                     }
                     className={`mt-2 ${FIELD} leading-relaxed`}
                   />

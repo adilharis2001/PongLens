@@ -13,6 +13,8 @@ import {
   useEntryPhoto,
 } from "@/components/entryPhoto";
 import { LinkedText } from "@/components/LinkedText";
+import { NoteEditor } from "@/app/journal/NoteEditor";
+import type { Lesson } from "@/lib/types";
 import type { CoachStudentRow } from "../StudentsView";
 
 /**
@@ -89,6 +91,8 @@ export function StudentView({
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
+  /** The entry being corrected, in the shape the journal's editor takes. */
+  const [editing, setEditing] = useState<Lesson | null>(null);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -238,6 +242,24 @@ export function StudentView({
     }
     setSaving(false);
   };
+
+  /** The journal's editor takes a full Lesson. A coach entry is one: the
+   *  coach is its author, its kind is 'coach', and it never has a coach
+   *  name of its own. */
+  const asLesson = (lesson: LessonRow): Lesson => ({
+    id: lesson.id,
+    user_id: userId,
+    match_id: lesson.match_id,
+    transcript: lesson.transcript,
+    takeaways: lesson.takeaways as Lesson["takeaways"],
+    status: (lesson.status === "ready" || lesson.status === "failed"
+      ? lesson.status
+      : "queued") as Lesson["status"],
+    kind: "coach",
+    coach_name: null,
+    image_path: lesson.image_path,
+    created_at: lesson.created_at,
+  });
 
   const setShared = async (entry: EntryRow, shared: boolean) => {
     setSharingId(entry.id);
@@ -762,6 +784,15 @@ export function StudentView({
                             Stop sharing
                           </button>
                         )}
+                        {lesson && (
+                          <button
+                            type="button"
+                            onClick={() => setEditing(asLesson(lesson))}
+                            className={pill}
+                          >
+                            Edit
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => void copyEntryLink(entry)}
@@ -919,6 +950,26 @@ export function StudentView({
           </div>
         </div>
       )}
+
+      {/* Correcting an entry: the journal's own editor, which already
+          knows that an entry with points is corrected point by point and
+          one without has its words edited instead. */}
+      <NoteEditor
+        lesson={editing}
+        onClose={() => setEditing(null)}
+        onSaved={(saved) => {
+          setLessons((all) => ({
+            ...all,
+            [saved.id]: {
+              ...all[saved.id],
+              transcript: saved.transcript,
+              takeaways: saved.takeaways as Takeaways | null,
+              status: saved.status,
+            },
+          }));
+          setEditing(null);
+        }}
+      />
     </div>
   );
 }

@@ -17,12 +17,21 @@ import SwiftUI
 /// `takeaways != nil` edits the note, `takeaways == nil` edits the words.
 ///
 /// Two things the create sheet carries are deliberately absent. Practice
-/// or lesson was settled when the entry was made, and condensing is a
+/// or lesson was settled when the entry was made, and improving is a
 /// choice about writing a note rather than about correcting one. Neither
 /// question belongs on a screen for fixing a typo.
+///
+/// A coach correcting an entry about a student opens this same sheet.
+/// The two sides differ only in where the save lands — the coach's
+/// entries live in `CoachWorkspaceStore`, a player's in `JournalStore` —
+/// so the saving is two closures rather than a store, and everything a
+/// person sees is written down once.
 struct JournalNoteEditor: View {
     let lesson: LessonRow
-    let store: JournalStore
+    /// Save the corrected note. nil on success, or a line worth showing.
+    let onSaveNote: (LessonTakeaways, String?) async -> String?
+    /// Save corrected words, for an entry that never had a note.
+    let onSaveWords: (String, String?) async -> String?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -43,9 +52,27 @@ struct JournalNoteEditor: View {
     private let openedWords: String
     private let openedCoach: String
 
+    /// A player's own entry.
     init(lesson: LessonRow, store: JournalStore) {
+        self.init(
+            lesson: lesson,
+            onSaveNote: { takeaways, coach in
+                await store.saveNote(lesson: lesson, takeaways: takeaways, coachName: coach)
+            },
+            onSaveWords: { words, coach in
+                await store.saveWords(lesson: lesson, transcript: words, coachName: coach)
+            }
+        )
+    }
+
+    init(
+        lesson: LessonRow,
+        onSaveNote: @escaping (LessonTakeaways, String?) async -> String?,
+        onSaveWords: @escaping (String, String?) async -> String?
+    ) {
         self.lesson = lesson
-        self.store = store
+        self.onSaveNote = onSaveNote
+        self.onSaveWords = onSaveWords
         let draft = Self.draft(from: lesson.takeaways)
         let title = lesson.takeaways?.title ?? ""
         let coach = lesson.coachName ?? ""
@@ -64,7 +91,11 @@ struct JournalNoteEditor: View {
 
     var body: some View {
         PLSheetScaffold(
-            title: "Edit note",
+            // What is on screen decides the word, the same way the web
+            // does it: an entry with no written-up note has only its
+            // words, and calling that "the note" reads as a different
+            // screen from the one you are looking at.
+            title: editsNote ? "Edit note" : "Edit entry",
             doneLabel: saving ? "Saving…" : "Save",
             doneDisabled: saving || !canSave,
             onDone: { Task { await save() } }
@@ -261,19 +292,16 @@ struct JournalNoteEditor: View {
 
         let notice: String?
         if editsNote {
-            notice = await store.saveNote(
-                lesson: lesson,
-                takeaways: LessonTakeaways(
+            notice = await onSaveNote(
+                LessonTakeaways(
                     title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                     themes: cleaned
                 ),
-                coachName: sentCoach
+                sentCoach
             )
         } else {
-            notice = await store.saveWords(
-                lesson: lesson,
-                transcript: words.trimmingCharacters(in: .whitespacesAndNewlines),
-                coachName: sentCoach
+            notice = await onSaveWords(
+                words.trimmingCharacters(in: .whitespacesAndNewlines), sentCoach
             )
         }
         saving = false

@@ -439,14 +439,14 @@ async function distillAndFinish(
 /**
  * PATCH /api/lesson — edit the words of an entry that has no notes.
  *
- *   { lessonId, transcript, kind, coachName?, summarize } ->
+ *   { lessonId, transcript, coachName?, summarize } ->
  *   { id, status, takeaways? }
  *
  * This is the editor for entries whose words ARE the note: the short ones,
- * and the ones saved with condensing turned off. The words are the entry,
+ * and the ones saved with improving turned off. The words are the entry,
  * so changing them re-runs everything derived from them: takeaways are
- * distilled (or left off, when the writer opts out of condensing), and
- * Recollect is re-enqueued — its content-hash uniqueness makes an edited
+ * distilled (or left off, when the writer opts out of improving), and
+ * Recollect is re-enqueued for the author's own entries — its content-hash uniqueness makes an edited
  * transcript a new extraction job and an unchanged one a free no-op. Ask
  * needs nothing: it reads these rows live.
  *
@@ -472,18 +472,13 @@ export async function PATCH(req: Request) {
 
   let lessonId: string;
   let transcript: string;
-  let kind: "lesson" | "practice";
-  let coachName: string | null;
+  let rawCoach: string;
   let summarize: boolean;
   try {
     const body = await req.json();
     lessonId = String(body.lessonId ?? "").trim();
     transcript = String(body.transcript ?? "").trim();
-    kind = body.kind === "practice" ? "practice" : "lesson";
-    const rawCoach = String(body.coachName ?? "").trim().slice(0, 80);
-    // Same rule as POST: only a lesson has a coach, so flipping an entry
-    // to practice drops the name rather than stranding it.
-    coachName = kind === "lesson" && rawCoach ? rawCoach : null;
+    rawCoach = String(body.coachName ?? "").trim().slice(0, 80);
     summarize = body.summarize !== false;
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
@@ -496,12 +491,26 @@ export async function PATCH(req: Request) {
   // never a hint that it exists.
   const { data: row } = await supabase
     .from("lessons")
-    .select("id, takeaways")
+    .select("id, kind, takeaways")
     .eq("id", lessonId)
     .maybeSingle();
   if (!row) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+  // The kind comes from the row, never from the request.
+  //
+  // It used to be read from the body and coerced — anything that was not
+  // "practice" became "lesson" — which is fine while the only callers are
+  // a player's own two kinds and wrong the moment a third exists. A coach
+  // correcting a typo in their own entry would have had it rewritten as a
+  // personal lesson: gone from the student's page, gone from the sharing
+  // they had already done, and sitting in the coach's own journal instead.
+  // An entry's kind is settled when it is written, which both editors
+  // already say in their own words; this makes the route say it too.
+  const kind: "lesson" | "practice" | "coach" =
+    row.kind === "practice" ? "practice" : row.kind === "coach" ? "coach" : "lesson";
+  // Only a lesson has a coach, so nothing else carries the name.
+  const coachName = kind === "lesson" && rawCoach ? rawCoach : null;
   // The narrowing above, in code rather than only in the comment. An entry
   // with notes is edited through PATCH /api/lesson/note; arriving here
   // instead would clear those notes and distil the transcript again, and a
@@ -535,9 +544,13 @@ export async function PATCH(req: Request) {
     );
   }
 
+  // A coach entry belongs to a student, not to the author's own journal,
+  // so it stays out of the author's Recollect loop — the same rule POST
+  // has always applied, and the same reason.
+  const recollect = kind !== "coach";
   if (plain) {
-    await beginRecollect(user.id, lessonId);
+    if (recollect) await beginRecollect(user.id, lessonId);
     return NextResponse.json({ id: lessonId, status: "ready" });
   }
-  return distillAndFinish(supabase, user.id, lessonId, transcript);
+  return distillAndFinish(supabase, user.id, lessonId, transcript, { recollect });
 }
