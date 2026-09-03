@@ -264,6 +264,7 @@ func stockThumb(_ image: String?) -> some View {
             }
         }
         .frame(width: 64, height: 42)
+        .clipped()
         .clipShape(RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous))
     } else {
         RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
@@ -845,6 +846,7 @@ private struct OfferingImagePicker: View {
                         .resizable()
                         .scaledToFill()
                         .frame(width: 84, height: 56)
+                        .clipped()
                         .clipShape(RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous))
                 } else if image?.hasPrefix("r2://") == true, let offeringId {
                     SignedOfferingImage(offeringId: offeringId)
@@ -949,6 +951,7 @@ private struct SignedOfferingImage: View {
             }
         }
         .frame(width: 84, height: 56)
+        .clipped()
         .clipShape(RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous))
         .task {
             struct Res: Decodable { let url: String? }

@@ -313,6 +313,7 @@ private struct PhotoBlock: View {
                 }
             }
             .frame(width: 64, height: 64)
+            .clipped()
             .clipShape(Circle())
 
             PhotosPicker(selection: $photoItem, matching: .images) {

@@ -31,6 +31,7 @@ struct MatchListRow: View {
         HStack(spacing: 14) {
             MatchThumb(matchId: match.id)
                 .frame(width: 104, height: 64)
+                .clipped()
                 .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
