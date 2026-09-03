@@ -269,6 +269,100 @@ So the serve family is smaller than six going forward, and the open case
 is m4 #65 rather than the older ones. Any future reading of a cut must
 come from `match.json`, never from the admin page's serve column.
 
+## The 20-second cap: why it exists and what should replace it
+
+Asked on 3 September to fix this permanently, because a rally over twenty
+seconds is exactly the footage the product is for.
+
+### Why it exists
+
+The lab's own comment beside `MAX_CARD_S = 20.0` in `s21_pipeline.py`:
+"A real point is 3.8s with a p90 of 5.7s, so a card past this is holding
+more than one of them. Cutting at the quietest ball moment inside halves
+the fused count for two points of 'held whole' — worth it, because a card
+with two points in it cannot be scored at all."
+
+Both halves of that are true and neither is the whole story. The premise is
+a statement about the population, and it is wrong for the sub-population
+that matters: lobbers, choppers and anyone good. And the mechanism it
+guards against is not length, it is FUSION. Across the nine matches, 30 of
+the 32 cards over twenty seconds carry no detected serve — they are
+fallback cards, built from bursts of ball motion because serve detection
+failed. `fallback_points` merges bursts up to `FALLBACK_MERGE_S` 3.5 s
+apart, which is LOOSER than the 3.0 s `CROSS_GAP_S` the rally-extent rule
+uses to decide a rally has ended. The assembler holds three different
+definitions of "play stopped" — 3.5 s of no motion for merging, 3.0 s of no
+crossing for extent, and 20 s of length for splitting — and the third
+exists to undo the damage of the first.
+
+### What the cap actually scores
+
+Of the hundred endings Adil judged, **25 were made by this rule**: he called
+19 right, 5 wrong, 1 unsure. So it is right about four times in five, and it
+is also the single largest producer of wrong cuts in the census.
+
+### The replacement: cut on evidence, never on length
+
+A rally in progress keeps producing events — a bounce on the table or a
+crossing of the net roughly every 0.6 to 1.0 seconds (measured: 1.0 to 1.9
+events per second in play, on every camera in the corpus including the
+0.48-foreshortening end-on ones). Between two points it stops. So:
+
+1. Never split on length. Split only where the evidence shows play stopped.
+2. Define a break once — no table bounce and no net crossing for G seconds —
+   and use that same definition for merging, for extent and for splitting.
+3. Put the cut where a normal card would end: 2.6 s after the last event,
+   the next opening 2.0 s before the next one.
+4. Split at EVERY break in the card, not once, so a card holding three
+   points becomes three cards.
+5. Keep a length ceiling only as a runaway guard, far higher (60 s), and log
+   when it fires rather than trusting it.
+
+### Measured (scripts/capfix.py, capfix2.py)
+
+Against the 11 cap-made boundaries Adil judged that sit on a replayable
+match:
+
+| variant | agrees with Adil | cards | 2-tap cards | 1-point splits |
+| --- | --- | --- | --- | --- |
+| today | 7 of 11 | 725 | 1 | 76 |
+| guard only, today's cut position | 8 of 11 | 722 | 1 | 76 |
+| guard, cut once at the break | 9 of 11 | 715 | **3** | 77 |
+| guard, cut at every break (2.5 s) | **10 of 11** | 746 | 1 | 82 |
+| guard, cut at every break (3.0 s) | 9 of 11 | 743 | 1 | 81 |
+
+Both cut-short cases on replayable matches — Kyle #8 and Anton 26 Aug #58 —
+are kept whole by every variant with the guard. Cutting once at the largest
+break is the one shape to avoid: it triples the fused cards, because a card
+holding three points needs two cuts.
+
+### Choosing G
+
+Measured on 294 within-point and 285 between-point intervals bounded by
+Adil's own taps:
+
+| G | real points wrongly split | true boundaries missed |
+| --- | --- | --- |
+| 2.5 s | 6.5% | 23.5% |
+| 3.0 s | 2.0% | 34.4% |
+| 4.0 s | 2.0% | 48.1% |
+| 5.0 s | 0.7% | 60.7% |
+
+3.0 s is the knee, and it is the number the rally-extent rule already uses.
+One caveat: on Kyle, whose detection ran inside a table crop, event gaps
+inside a live point reach p90 3.3 s and p99 4.6 s, against p90 1.8–2.9 s
+everywhere else. The crop starves the event stream, so on cropped matches a
+3.0 s threshold is closer to the edge than the pooled figure suggests.
+
+### Not built
+
+Proposed, measured, awaiting Adil's decision. The open questions are G
+(3.0 pooled, but the crop argues higher), whether to align
+`FALLBACK_MERGE_S` with it at the same time, and whether the 21 extra cards
+the every-break variant creates are real points or over-splitting — the tap
+corpus has only three long cards with a winner tap in them, so that number
+is not settled by measurement.
+
 ### Where this leaves it
 
 Not built, pending Adil's read of these numbers. Item 2 is a wash in

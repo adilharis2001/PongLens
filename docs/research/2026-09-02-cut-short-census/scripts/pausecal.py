@@ -41,5 +41,5 @@ for k in ("dense", "events", "both"):
     print(f"\nquiet = no {k}:  within a point n={len(w)}  between points n={len(bw)}")
     print(f"   within  : p50 {np.percentile(w,50):.1f}s p90 {np.percentile(w,90):.1f}s p95 {np.percentile(w,95):.1f}s p99 {np.percentile(w,99):.1f}s max {w.max():.1f}s")
     print(f"   between : p1 {np.percentile(bw,1):.1f}s p5 {np.percentile(bw,5):.1f}s p10 {np.percentile(bw,10):.1f}s p50 {np.percentile(bw,50):.1f}s min {bw.min():.1f}s")
-    for thr in (0.6, 1.0, 1.5, 2.0, 2.5, 3.0):
+    for thr in (2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0):
         print(f"     threshold {thr:.1f}s: points that would be SPLIT {int((w >= thr).sum()):3d}/{len(w)} ({(w >= thr).mean()*100:4.1f}%)   gaps that would be MISSED {int((bw < thr).sum()):3d}/{len(bw)} ({(bw < thr).mean()*100:4.1f}%)")
