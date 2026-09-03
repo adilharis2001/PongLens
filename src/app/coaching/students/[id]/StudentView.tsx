@@ -86,6 +86,12 @@ export function StudentView({
   const [notice, setNotice] = useState<string | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mergeBusy, setMergeBusy] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteFailed, setInviteFailed] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -274,24 +280,8 @@ export function StudentView({
     router.refresh();
   };
 
-  /** Turn off every live invite link for this student; the next copy
-   *  mints a fresh one. For a link that got forwarded too far. */
-  const resetInvite = async () => {
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("coach_student_invites")
-      .update({ revoked_at: new Date().toISOString() })
-      .eq("coach_id", userId)
-      .eq("student_id", student.id)
-      .is("revoked_at", null);
-    if (error) {
-      flash("Couldn't reset the link. Try again.");
-      return;
-    }
-    flash("Old invite links are off. Copy a new one when you're ready.");
-  };
-
-  const copyInvite = async () => {
+  /** The standing invite link for this student, minted on first ask. */
+  const inviteLink = useCallback(async (): Promise<string | null> => {
     const supabase = createClient();
     const { data: existing } = await supabase
       .from("coach_student_invites")
@@ -309,14 +299,84 @@ export function StudentView({
         .single();
       token = (inserted?.token as string | undefined) ?? undefined;
     }
-    if (!token) {
+    return token ? `${window.location.origin}/join/${token}` : null;
+  }, [student.id, userId]);
+
+  useEffect(() => {
+    if (!inviteOpen || inviteUrl) return;
+    let cancelled = false;
+    void inviteLink().then((url) => {
+      if (cancelled) return;
+      setInviteUrl(url);
+      setInviteFailed(!url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [inviteOpen, inviteUrl, inviteLink]);
+
+  const copyInvite = async () => {
+    const url = inviteUrl ?? (await inviteLink());
+    if (!url) {
       flash("Couldn't get the invite link. Try again.");
       return;
     }
-    await navigator.clipboard.writeText(
-      `${window.location.origin}/join/${token}`,
-    );
-    flash("Invite link copied. Send it to them.");
+    await navigator.clipboard.writeText(url);
+    flash("Link copied. Send it to them.");
+  };
+
+  const sendInvite = async () => {
+    const url = inviteUrl ?? (await inviteLink());
+    if (!url) {
+      flash("Couldn't get the invite link. Try again.");
+      return;
+    }
+    try {
+      await navigator.share({ url });
+    } catch {
+      // Closed the share sheet.
+    }
+  };
+
+  /** Turn off every copy of this link that is out there and mint a new
+   *  one straight away. For a link that got forwarded too far. */
+  const resetInvite = async () => {
+    if (!window.confirm("Reset this invite link? The old link stops working. You get a new one straight away."))
+      return;
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("coach_student_invites")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("coach_id", userId)
+      .eq("student_id", student.id)
+      .is("revoked_at", null);
+    if (error) {
+      flash("Couldn't reset the link. Try again.");
+      return;
+    }
+    setInviteUrl(null);
+    const fresh = await inviteLink();
+    setInviteUrl(fresh);
+    setInviteFailed(!fresh);
+    flash("The old link is off. This is the new one.");
+  };
+
+  const rename = async () => {
+    const clean = renameDraft.replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!clean) return;
+    setRenameBusy(true);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("coach_students")
+      .update({ display_name: clean })
+      .eq("id", student.id);
+    setRenameBusy(false);
+    if (error) {
+      flash("Couldn't rename them. Try again.");
+      return;
+    }
+    setStudent((s) => ({ ...s, display_name: clean }));
+    setRenameOpen(false);
   };
 
   return (
@@ -328,83 +388,38 @@ export function StudentView({
         ← Students
       </Link>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-            {student.display_name}
-          </h1>
-          {!student.player_id && (
-            <p className="mt-1 text-sm text-zinc-500">Not on PongLens yet</p>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => setComposerOpen((v) => !v)}
-            className={pill}
-          >
-            New entry
-          </button>
-          {!student.player_id && (
-            <>
-              <button type="button" onClick={() => void copyInvite()} className={pill}>
-                Copy invite link
-              </button>
-              <button type="button" onClick={() => void resetInvite()} className={pill}>
-                Reset invite link
-              </button>
-            </>
-          )}
-          {student.player_id && offlineStudents.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setMergeOpen((v) => !v)}
-              className={pill}
-            >
-              Same as an existing student
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => void removeStudent()}
-            className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200"
-          >
-            Remove
-          </button>
-        </div>
+      <div className="mt-4">
+        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+          {student.display_name}
+        </h1>
+        <p className="mt-1 text-sm text-zinc-500">
+          {student.player_id ? "On PongLens" : "Not on PongLens yet"}
+        </p>
       </div>
 
       {notice && <p className="mt-3 text-sm text-cyan-glow">{notice}</p>}
 
-      {mergeOpen && student.player_id && offlineStudents.length > 0 && (
-        <div className="mt-4 rounded-2xl border border-cyan-glow/30 bg-surface p-5">
-          <p className="text-sm text-zinc-200">
-            Pick the student they are. Your entries about them come along
-            and their account connects to that name.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {offlineStudents.map((row) => (
-              <button
-                key={row.id}
-                type="button"
-                disabled={mergeBusy}
-                onClick={() => void mergeInto(row)}
-                className="glow-cta rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink disabled:opacity-60"
-              >
-                {row.display_name}
-              </button>
-            ))}
-            <button
-              type="button"
-              disabled={mergeBusy}
-              onClick={() => setMergeOpen(false)}
-              className={pill}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
+      <button
+        type="button"
+        onClick={() => setComposerOpen((v) => !v)}
+        className="glow-cta mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink sm:w-auto sm:py-2"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          className="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden="true"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"
+          />
+        </svg>
+        New entry
+      </button>
 
       {composerOpen && (
         <div className="mt-4 rounded-2xl border border-edge bg-surface p-4">
@@ -431,6 +446,105 @@ export function StudentView({
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {!student.player_id && (
+        <div className="mt-5 rounded-2xl border border-edge bg-surface p-4 sm:p-5">
+          <p className="text-base font-semibold text-zinc-100">
+            Connect {student.display_name}
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+            An invite links them to their PongLens account. You&apos;ll see
+            the matches they upload, and the entries you share reach their
+            journal.
+          </p>
+          <div className="mt-4 overflow-hidden rounded-xl border border-edge bg-ink/40">
+            <button
+              type="button"
+              onClick={() => setInviteOpen((v) => !v)}
+              aria-expanded={inviteOpen}
+              className="flex w-full items-center gap-3 px-4 py-3.5 text-left text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4 shrink-0 text-zinc-400"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"
+                />
+              </svg>
+              <span className="flex-1">Invite {student.display_name}</span>
+              <svg
+                viewBox="0 0 24 24"
+                className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${inviteOpen ? "rotate-90" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="m9 6 6 6-6 6"
+                />
+              </svg>
+            </button>
+            {inviteOpen && (
+              <div className="border-t border-edge/60 px-4 py-4">
+                <p className="text-sm leading-relaxed text-zinc-400">
+                  Opening this link and signing in connects{" "}
+                  {student.display_name} to this row. They choose whether you
+                  see all their matches or only the ones they share.
+                </p>
+                {inviteUrl ? (
+                  <p className="mt-3 break-all rounded-lg bg-ink/60 px-3 py-2 font-mono text-xs text-zinc-300">
+                    {inviteUrl}
+                  </p>
+                ) : inviteFailed ? (
+                  <p className="mt-3 text-sm text-amber-200">
+                    Couldn&apos;t get the link. Close this and try again.
+                  </p>
+                ) : (
+                  <p className="mt-3 text-sm text-zinc-500">Getting the link…</p>
+                )}
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => void copyInvite()}
+                    disabled={!inviteUrl}
+                    className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-60 sm:w-auto sm:py-2"
+                  >
+                    Copy link
+                  </button>
+                  {typeof navigator !== "undefined" && "share" in navigator && (
+                    <button
+                      type="button"
+                      onClick={() => void sendInvite()}
+                      disabled={!inviteUrl}
+                      className={`${pill} w-full py-2.5 text-center disabled:opacity-60 sm:w-auto sm:py-1.5`}
+                    >
+                      Send the link
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => void resetInvite()}
+                    disabled={!inviteUrl}
+                    className="w-full rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-60 sm:w-auto sm:py-1.5"
+                  >
+                    Reset link
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -597,6 +711,132 @@ export function StudentView({
           )}
         </>
       )}
+
+      <h3 className="mt-8 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        Manage
+      </h3>
+      <div className="mt-3 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+        <ManageRow
+          label="Rename"
+          onClick={() => {
+            setRenameDraft(student.display_name);
+            setMergeOpen(false);
+            setRenameOpen((v) => !v);
+          }}
+        />
+        {student.player_id && offlineStudents.length > 0 && (
+          <ManageRow
+            label="Same as an existing student"
+            onClick={() => {
+              setRenameOpen(false);
+              setMergeOpen((v) => !v);
+            }}
+          />
+        )}
+        <ManageRow
+          label="Remove from students"
+          danger
+          onClick={() => void removeStudent()}
+        />
+      </div>
+
+      {renameOpen && (
+        <div className="mt-4 rounded-2xl border border-edge bg-surface p-4">
+          <input
+            value={renameDraft}
+            onChange={(e) => setRenameDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void rename();
+            }}
+            placeholder="Their name"
+            aria-label="Their name"
+            className="w-full rounded-xl border border-edge bg-ink/40 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
+          />
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => void rename()}
+              disabled={renameBusy || !renameDraft.trim()}
+              className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-60 sm:w-auto sm:py-2"
+            >
+              {renameBusy ? "Saving…" : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setRenameOpen(false)}
+              className={pill}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mergeOpen && student.player_id && offlineStudents.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-cyan-glow/30 bg-surface p-4 sm:p-5">
+          <p className="text-sm font-medium text-zinc-100">
+            Which student are they?
+          </p>
+          <p className="mt-1 text-sm text-zinc-400">
+            Your entries about them come along, and their account connects
+            to that name.
+          </p>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {offlineStudents.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                disabled={mergeBusy}
+                onClick={() => void mergeInto(row)}
+                className="glow-cta w-full rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink disabled:opacity-60 sm:w-auto sm:py-1.5"
+              >
+                {row.display_name}
+              </button>
+            ))}
+            <button
+              type="button"
+              disabled={mergeBusy}
+              onClick={() => setMergeOpen(false)}
+              className={`${pill} w-full py-2.5 text-center sm:w-auto sm:py-1.5`}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+/** One row of the Manage group: label, chevron, the Account page's grammar. */
+function ManageRow({
+  label,
+  danger = false,
+  onClick,
+}: {
+  label: string;
+  danger?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex w-full items-center justify-between px-5 py-4 text-left text-sm font-medium transition-colors hover:bg-surface-2 ${
+        danger ? "text-red-300" : "text-zinc-200"
+      }`}
+    >
+      {label}
+      <svg
+        viewBox="0 0 24 24"
+        className="h-4 w-4 text-zinc-500"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        aria-hidden="true"
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+      </svg>
+    </button>
   );
 }
