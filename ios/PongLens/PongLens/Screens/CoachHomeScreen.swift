@@ -43,6 +43,10 @@ struct CoachHomeScreen: View {
                     .tracking(-0.6)
                     .foregroundStyle(PL.textBody)
 
+                // Directly under the title, where the web puts it and
+                // where the player's own first steps sit on Home.
+                CoachFirstSteps()
+
                 if workspace.loadFailed && !workspace.loaded {
                     loadFailedState
                 } else if workspace.loaded && workspace.activeStudents.isEmpty {

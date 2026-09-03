@@ -73,6 +73,12 @@ final class CoachWorkspaceStore {
     var entries: [CoachEntryRow] = []
     /// Lesson content keyed by lesson id, for the entries above only.
     var lessons: [UUID: LessonRow] = [:]
+    /// Whether this coach has ever minted an invite link. Only ever asked
+    /// by the first-steps checklist, which counts "sent a student their
+    /// invite link" as done if a link exists OR a student is already
+    /// linked to an account — the same two halves the web checks, because
+    /// a coach who was joined through the general link never minted one.
+    var anyInvite = false
     var loaded = false
     /// The roster query itself failed (offline, expired session). Screens
     /// say so rather than showing "No students yet." over a network error.
@@ -117,7 +123,13 @@ final class CoachWorkspaceStore {
             .order("created_at", ascending: false)
             .execute().value
 
-        let (s, e, l) = await (studentsQ, entriesQ, lessonsQ)
+        async let invitesQ: [StudentInviteRow]? = try? await supa
+            .from("coach_student_invites")
+            .select("id,coach_id,student_id,token,created_at,revoked_at")
+            .limit(1)
+            .execute().value
+
+        let (s, e, l, i) = await (studentsQ, entriesQ, lessonsQ, invitesQ)
         guard let s else {
             loadFailed = true
             return
@@ -126,6 +138,7 @@ final class CoachWorkspaceStore {
         students = s
         entries = e ?? []
         lessons = Dictionary(uniqueKeysWithValues: (l ?? []).map { ($0.id, $0) })
+        anyInvite = !(i ?? []).isEmpty
         loaded = true
     }
 
