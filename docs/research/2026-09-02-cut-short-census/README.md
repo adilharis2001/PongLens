@@ -431,10 +431,24 @@ stop cards reaching it.
      the reel — which is the harm Adil actually cares about, and this fixes
      it without touching scoring.
 
-All 97 are on a review page for Adil to check by eye — clip across each
-cut, my reading of it, and buttons to disagree:
+All 97 are on a review page for Adil to check by eye:
 https://claude.ai/code/artifact/bea37f6e-46d7-43b6-8563-53d228657e78
-(`scripts/corpus/clips.py` cuts the clips, `page.py` builds it).
+
+The second version of that page shows each fused card WHOLE, cut from the
+original upload rather than the processed video — the processed video drops
+the dead space between two cards, so the join is invisible in it and the
+first rally's real ending cannot be seen. 59 of the 97 can be rebuilt that
+way (the rest are on matches whose original or calibration is no longer
+held). Drawn over each: the table quad and net as the pipeline measured
+them, the ball's tracked position with a 0.7 s trail, and every bounce as a
+ring, green on the table and orange off it. Under it, a ruler showing both
+cards, every bounce and crossing and Adil's own winner taps (click to seek),
+and a top-down table plotting each bounce in metres.
+
+`scripts/corpus/full.py` cuts the full spans, `overlay.py` builds the
+per-split payload, `overlay.js` draws it, `page2.py` assembles the page and
+`sim2.mjs` drives the overlay through its own event handlers against the
+real payload (354 draws, no errors).
 
 **Limits of this test.** Ten harmful cases is a small number; the
 classification rests on which side of the split the winner tap fell; 33
