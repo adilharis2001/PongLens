@@ -132,12 +132,7 @@ struct CoachTabView: View {
             .navigationDestination(for: MatchRow.self) { match in
                 MatchDetailScreen(match: match)
             }
-            .navigationDestination(for: String.self) { route in
-                switch route {
-                case "account": AccountScreen()
-                default: EmptyView()
-                }
-            }
+            .appStringRoutes()
         }
         .environment(router)
         .sheet(isPresented: $router.newEntryOpen) {
