@@ -354,6 +354,60 @@ inside a live point reach p90 3.3 s and p99 4.6 s, against p90 1.8–2.9 s
 everywhere else. The crop starves the event stream, so on cropped matches a
 3.0 s threshold is closer to the edge than the pooled figure suggests.
 
+### Correction: the tap tolerance was too tight (3 September, later)
+
+Adil reviewed Yu Yu Lin points 97/98 on the page and the check found a
+classifier bug, not a pipeline one. A winner tap was attributed to a card
+only if it fell inside `[t0, t1 + 0.5]`. But a split inserts 1.2 s of dead
+space, and a tap for the FIRST point routinely lands in that gap — 0.51 to
+0.91 s after the cut on five of the ten cards flagged as cut rallies. Those
+are two points, tapped a beat late, not one rally halved.
+
+Counting a tap in the dead gap toward the card that just ended, and widening
+the tolerance to 1.0 s (the classification is flat from 1.0 s to 3.0 s, so
+the number is not delicately poised):
+
+| reading | before | after |
+| --- | --- | --- |
+| both halves scored — the split was right | 42 | 51 |
+| only the second half scored — a rally cut in half | 10 | **5** |
+| only the first scored, second kept unscored | 4 | 1 |
+| only the first scored, second deleted — junk | 8 | 10 |
+| neither half scored | 33 | 30 |
+
+**The cap cuts a live rally 5 of 67 times, 7%, not 17%.** It is right far more
+often than first reported, which strengthens the recommendation to leave it
+alone rather than weakening it. The break test is no better on the corrected
+classes: at 3.0 s it prevents 1 of 4 bad splits and loses 6 of 46 good ones.
+
+The five that remain genuine: Yu Yu Lin 63/64, Kyle 13/14, Terry 2 14/15 and
+59/60, Koko 2 62/63 — all with the next tap 4.5 to 19.3 s past the cut, so
+none of them is a tolerance artefact.
+
+### What the Yu Yu Lin card showed about the evidence
+
+Yu Yu Lin was processed on 29 August. Detection cropping first ran on
+1 September (`worker.log`), so this match was detected on the FULL frame —
+the crop is not implicated, and would probably have helped.
+
+On card 97/98 the ball is still tracked through the second half at 5 to 10
+samples a second, much as in the first. What collapses is everything derived
+from it: bounces go from 6 in 7.8 s to 3 in 16 s, crossings from 5 to 2. The
+cause is scale. The table is **77 px tall in a 1080-line frame**, the smallest
+of the sixteen matches (Lester is 241 px, three times the size, and about four
+times the area). A bounce is found as a reversal of at least 1 px in the
+ball's vertical motion, which at this size is at the very edge of detectable,
+and the homography that turns pixels into table metres is correspondingly
+brittle: the card's bounces project to ±4 m across and 10 to 16 m along, which
+is why the table map reads as noise. For four seconds of the card the tracker
+is also following something well to the left of the table, which is a
+different object in the room.
+
+BlurBall resizes its input to 512x288, so a crop around the table does
+magnify the ball for the detector as well as removing distractors — cropping
+is a plausible remedy for exactly this match, and it was not available when
+this one was processed.
+
 ### Tested across the scored corpus, and REFUTED (3 September)
 
 Adil asked for the change to be proven on the standard corpus before it was
