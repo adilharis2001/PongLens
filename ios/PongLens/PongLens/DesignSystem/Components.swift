@@ -67,7 +67,11 @@ struct PLChooserSheet<Content: View>: View {
                 .padding(.bottom, 4)
             rows()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Pinned to the top. A detent shorter than the rows used to
+        // centre the overflow, which ate the top padding and put the
+        // title back on the grabber; now the overflow clips at the
+        // bottom, where it is seen and the height gets fixed.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         // The sheet's grabber sits in the top 20pt; the title used to
         // start right under it and read as touching (Adil, 2026-09-02).
         .padding(.horizontal, 20)
