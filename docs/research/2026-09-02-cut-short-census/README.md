@@ -576,3 +576,66 @@ expect the nine evidence dumps in
 `/private/tmp/ponglens-inferred-bounce-eval/<match-id>/evidence.json`
 and were run from `/tmp/serve-diag/`. The frame sheets are not committed:
 they are frames of another player's footage in a public repository.
+
+---
+
+## The count, re-derived from scratch (2026-09-03)
+
+Rebuilt independently of the running notes, because the number had moved
+twice and both moves came from Adil questioning one card rather than from
+re-reading the code. `scripts/corpus/holistic.py` starts again from
+`candidates.json` and each match's own `match.json`, applies both
+corrections at source, and prints the table below. It agrees with
+`splits.json` on 58 of 68 rows; every disagreement is explained.
+
+**Corpus.** 42 matches carry at least 15 winner taps. 19 of those were cut
+by v2 and still have an assembler record in R2: **17 serve-anchored, 2
+end-on**. 1,559 cards on the serve-anchored ones, 148 on the end-on.
+
+**Firings.** 97 pairs match the cap's signature. 29 are on the two end-on
+matches, where `points_endon.build_cards` replaces the v2 cards wholesale
+and `split_long` never ran — they are a different assembler's cuts and say
+nothing about this rule. **68 are real firings.**
+
+**Two rulers, and where they differ.** The winner tap says one point ended
+here; `confirmed_winner` and `deleted` on the point row say what Adil did
+with the card. They agree on 58 of 68. The 10 rows carrying a single tap
+are not one thing:
+
+| what the pair really is | n |
+| --- | ---: |
+| tap in the first half, second half **deleted** — the point ended in A, B was debris | 6 |
+| tap in the first half, second half kept but never scored — ambiguous | 1 |
+| both halves carry a confirmed winner, one just has no timing mark — the split was right | 1 |
+| **tap in the SECOND half, first half unscored — A is the cut-off front of a live rally** | **2** |
+
+Counting taps alone reports 10 harmful and is wrong: it cannot tell "B is
+junk" from "A is a fragment", and those point in opposite directions.
+
+**The answer.** Of 68 real firings: 35 right, 6 separated a point from
+debris, 1 ambiguous, **2 cut a live rally**, 24 in unscored footage.
+**2 of 44 judged, 4.5%.** The two are Yu Yu Lin 63/64 and Kyle 13/14.
+
+**A serve in the second half is a vote FOR the cut, not against it.**
+Today's detector, re-run over the B halves, finds a serve on 5 of the 68 —
+and all five are pairs the taps confirm were two separate points. It finds
+none on either harmful pair. Four of the five are on matches processed
+before the 28 August widening (`surface pad 0.45` absent from the note),
+so production could not have seen them. None was swallowed by
+`merge_continuous`: every one sits 4.0–9.5 s clear of the first half's last
+crossing, and `CROSS_GAP_S` is 3.0, so had the serve been found at the time
+`serve_points` would have opened its own card and the fusion would never
+have happened.
+
+Note that `split_long` writes `serve_s: None` onto the second half
+unconditionally (points_v2.py:859), so production's record can never answer
+this question directly — the field is blanked by the split itself, and only
+a re-run can say what was there.
+
+**Serve coverage still predicts the firings, a little less strongly than
+first reported: −0.80, not −0.91** (the earlier figure included the end-on
+matches). Above 70% coverage the cap fires 2.3 times per 100 cards; below
+it, 8.0. Both harmful pairs are on cards production had no serve for.
+
+Eleven cards longer than 20 s survive uncut in this corpus, because the cap
+only fires where the assembler had already fused two spans.
