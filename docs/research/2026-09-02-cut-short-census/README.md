@@ -431,6 +431,11 @@ stop cards reaching it.
      the reel — which is the harm Adil actually cares about, and this fixes
      it without touching scoring.
 
+All 97 are on a review page for Adil to check by eye — clip across each
+cut, my reading of it, and buttons to disagree:
+https://claude.ai/code/artifact/bea37f6e-46d7-43b6-8563-53d228657e78
+(`scripts/corpus/clips.py` cuts the clips, `page.py` builds it).
+
 **Limits of this test.** Ten harmful cases is a small number; the
 classification rests on which side of the split the winner tap fell; 33
 splits sit in unscored stretches and cannot be judged at all; and only one
