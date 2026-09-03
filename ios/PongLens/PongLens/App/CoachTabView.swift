@@ -152,7 +152,10 @@ struct CoachTabView: View {
                     if mode == .write { router.composeWrite = request } else { router.composeRecord = request }
                 }
             }
-            .presentationDetents([.height(300)])
+            // The same three rows as the journal's New entry chooser, so
+            // the same height. At 300 the rows overflowed, the sheet
+            // centred them, and the title rode up into the grabber.
+            .presentationDetents([.height(348)])
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
@@ -276,19 +279,21 @@ struct CoachNewEntrySheet: View {
 
     var body: some View {
         PLChooserSheet(title: student.map { "New entry for \($0.displayName)" } ?? "New entry") {
+            // The same three shapes the player's journal chooser names,
+            // in its words, so the two sides of one lesson read alike.
             PLChooserRow(
-                icon: "square.and.pencil",
-                title: "Write it down",
-                detail: "Type up notes from a lesson or a match."
+                icon: "text.bubble",
+                title: "Lesson",
+                detail: "What you worked on. Type it or paste it."
             ) { onChoose(.write) }
             PLChooserRow(
                 icon: "waveform",
-                title: "Record audio",
-                detail: "Talk through the lesson. It is written up for you."
+                title: "Audio record a lesson",
+                detail: "Put your phone near the net. Your notes are prepared automatically."
             ) { onChoose(.record) }
             PLChooserRow(
                 icon: "video",
-                title: "Record video",
+                title: "Video record a lesson",
                 detail: "Coming soon.",
                 pending: true
             )
