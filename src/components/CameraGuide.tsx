@@ -270,15 +270,15 @@ export function CameraGuide({
 const SETUPS = [
   {
     src: "/camera/camera-ref-1.jpg",
-    caption: "2.7 m to the side, level with the near end, 0.9 m above the table.",
+    caption: "9 ft to the side, level with the near end, 3 ft above the table.",
   },
   {
     src: "/camera/camera-ref-2.jpg",
-    caption: "2.8 m to the side, just past the near end, 1.0 m up.",
+    caption: "9 ft to the side, just past the near end, 3 ft up.",
   },
   {
     src: "/camera/camera-ref-3.jpg",
-    caption: "2.1 m to the side and a little further back. A busy hall, and the table is still clear.",
+    caption: "7 ft to the side and a little further back. A busy hall, and the table is still clear.",
   },
 ];
 
