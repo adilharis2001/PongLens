@@ -15,7 +15,7 @@
     "test:scorecard": "node --test --experimental-strip-types 'src/app/match/[[]id[]]/scorecard.test.ts'",
     "test:matches": "node --test --experimental-strip-types src/app/matches/*.test.ts",
     "test:research": "node --test --experimental-strip-types src/lib/research/*.test.ts src/app/research/researchDashboard.test.ts src/app/research/audio-impacts/*.test.ts src/app/research/crossing-review/crossingReviewView.test.ts src/app/research/serve-detector/serveDetectorView.test.ts src/app/research/recall/recallView.test.ts src/app/research/spin/serveSpinView.test.ts src/app/research/themes/themeView.test.ts src/app/research/serve-accuracy/segments.test.ts src/app/research/serve-accuracy/buckets.test.ts src/app/research/serve-accuracy/touches.test.ts src/app/research/serve-accuracy/netDeath.test.ts src/app/research/serve-accuracy/trackSubstitution.test.ts",
-    "test:journal": "node --test --experimental-strip-types src/lib/journal/*.test.ts src/lib/recollect/*.test.ts",
+    "test:journal": "node --test --experimental-strip-types src/lib/journal/*.test.ts src/lib/recollect/*.test.ts src/lib/linkify.test.ts",
     "test:marketing": "node --test --experimental-strip-types src/app/marketing/marketingDashboard.test.ts src/app/marketing/coach-outreach/outreach.test.ts scripts/marketing/language.test.ts scripts/marketing/notify.test.ts src/lib/marketing/voice.test.ts",
     "test:upload": "node --test --experimental-strip-types src/components/youtubeVideoId.test.ts src/app/dashboard/pendingUploads.test.ts src/lib/cameraGuideGate.test.ts",
     "test:reviews": "node --test --experimental-strip-types src/lib/reviews/*.test.ts src/lib/payments/*.test.ts",

@@ -278,16 +278,21 @@ final class CoachWorkspaceStore {
         studentId: UUID,
         transcript: String,
         summarize: Bool,
+        imagePath: String? = nil,
         matchId: UUID? = nil
     ) async -> CoachEntryRow? {
         struct Req: Encodable {
             let transcript: String
             let kind = "coach"
             let summarize: Bool
+            // Already uploaded and checked by /api/entry-image; the route
+            // re-checks it sits under this caller's own entry folder.
+            let imagePath: String?
         }
         struct Res: Decodable { let id: String? }
         let res: Res? = try? await API.post(
-            "api/lesson", Req(transcript: transcript, summarize: summarize)
+            "api/lesson",
+            Req(transcript: transcript, summarize: summarize, imagePath: imagePath)
         )
         guard let idString = res?.id, let lessonId = UUID(uuidString: idString) else {
             return nil

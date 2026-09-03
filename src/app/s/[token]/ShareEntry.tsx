@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ResolvedShareEntry } from "./shareData";
+import { LinkedText } from "@/components/LinkedText";
 
 /**
  * The body of a shared journal entry (154) — the same shape the owner's
@@ -75,7 +76,9 @@ export function ShareEntry({
                     className="flex gap-2 text-sm leading-relaxed text-zinc-200"
                   >
                     <span className="mt-[0.55rem] h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
-                    <span className="min-w-0 flex-1">{p}</span>
+                    <span className="min-w-0 flex-1">
+                      <LinkedText text={p} />
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -84,7 +87,7 @@ export function ShareEntry({
         </div>
       ) : (
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
-          {entry.transcript}
+          <LinkedText text={entry.transcript} />
         </p>
       )}
 
@@ -121,7 +124,7 @@ export function ShareEntry({
           </div>
           {showTranscript && (
             <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-400">
-              {entry.transcript}
+              <LinkedText text={entry.transcript} />
             </p>
           )}
         </div>

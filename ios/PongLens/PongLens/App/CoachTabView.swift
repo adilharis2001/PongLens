@@ -279,12 +279,15 @@ struct CoachNewEntrySheet: View {
 
     var body: some View {
         PLChooserSheet(title: student.map { "New entry for \($0.displayName)" } ?? "New entry") {
-            // The same three shapes the player's journal chooser names,
-            // in its words, so the two sides of one lesson read alike.
+            // The written row is the counterpart to the recorded one, and
+            // says so: "Lesson" named the subject rather than the action,
+            // and the thing it makes is no longer only a write-up anyway.
+            // The player's journal keeps its own "Lesson" row, which means
+            // a lesson somebody gave THEM.
             PLChooserRow(
                 icon: "text.bubble",
-                title: "Lesson",
-                detail: "What you worked on. Type it or paste it."
+                title: "Write a lesson note",
+                detail: "Type or paste it. Add a photo or a link."
             ) { onChoose(.write) }
             PLChooserRow(
                 icon: "waveform",

@@ -15,6 +15,7 @@ runServingParityChecks()
 runInsertGeometryParityChecks()
 runSpokenScoreChecks()
 runScoreCaptureChecks()
+runLinkifyTests()
 runStandardGameChecks()
 
 print("\n\(checks - failures)/\(checks) checks passed")

@@ -92,11 +92,16 @@ struct LessonRow: Codable, Identifiable, Hashable {
 /// the coach owns the row.
 struct CoachSharedEntry: Codable, Identifiable, Hashable {
     let entryId: UUID
+    /// The coach's own lessons row. It is what signs the photo (163), and
+    /// it is the only handle the student ever gets on it.
+    let lessonId: UUID
     let coachId: UUID
     let coachName: String
     let transcript: String
     let takeaways: LessonTakeaways?
     let entryKind: String
+    /// Pinned to the coach's own folder by the RPC; nil when there is none.
+    let imagePath: String?
     let matchId: UUID?
     let sharedAt: String
     let updatedAt: String
@@ -106,9 +111,11 @@ struct CoachSharedEntry: Codable, Identifiable, Hashable {
     enum CodingKeys: String, CodingKey {
         case transcript, takeaways
         case entryId = "entry_id"
+        case lessonId = "lesson_id"
         case coachId = "coach_id"
         case coachName = "coach_name"
         case entryKind = "entry_kind"
+        case imagePath = "image_path"
         case matchId = "match_id"
         case sharedAt = "shared_at"
         case updatedAt = "updated_at"
@@ -358,20 +365,25 @@ final class JournalStore {
     /// running it over an entry somebody has hand-edited would quietly
     /// throw their edit away.
     func saveEntry(
-        transcript: String, kind: String, coachName: String?, summarize: Bool
+        transcript: String, kind: String, coachName: String?, summarize: Bool,
+        imagePath: String? = nil
     ) async -> Bool {
         struct Req: Encodable {
             let transcript: String
             let kind: String
             let coachName: String?
             let summarize: Bool
+            // Already uploaded and checked by /api/entry-image; the route
+            // re-checks it sits under this caller's own entry folder.
+            let imagePath: String?
         }
         struct Res: Decodable {
             let id: String?
             let status: String?
         }
         let req = Req(
-            transcript: transcript, kind: kind, coachName: coachName, summarize: summarize
+            transcript: transcript, kind: kind, coachName: coachName,
+            summarize: summarize, imagePath: imagePath
         )
         let res: Res? = try? await API.post("api/lesson", req)
         return res?.id != nil

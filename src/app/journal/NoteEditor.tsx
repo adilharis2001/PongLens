@@ -22,7 +22,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
  * Two things the capture sheet has are deliberately absent from both
  * shapes. The Practice/Lesson tab, because an entry's kind is decided
  * when it is written and flipping it here would quietly rewrite what the
- * entry is. And "Condense and summarize", because condensing reads the
+ * entry is. And "Improve with AI", because improving reads the
  * transcript, and editing a note never changes the transcript.
  */
 
@@ -345,10 +345,10 @@ export function NoteEditor({
           transcript,
           kind: lesson.kind,
           coachName: coach,
-          // This entry has no note, so its words are the note. Condensing
+          // This entry has no note, so its words are the note. Improving
           // is a choice made when an entry is written; offering it again
-          // here would grow a summary out of an edit nobody asked to
-          // summarize.
+          // here would grow points out of an edit nobody asked to
+          // improve.
           summarize: false,
         }),
       });

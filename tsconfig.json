@@ -41,6 +41,7 @@
     "node_modules",
     "scripts/demos/tutorial/remotion",
     "ios",
-    "docs"
+    "docs",
+    "build"
   ]
 }

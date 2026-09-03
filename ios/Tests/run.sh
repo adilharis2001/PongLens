@@ -23,8 +23,8 @@ swiftc -O -o "$OUT" \
   "$CORE/SideChanges.swift" \
   "$CORE/SpokenScore.swift" \
   "$CORE/ScoreCapture.swift" \
+  "$CORE/Linkify.swift" \
   ScoreLogicTests.swift ServePlacementTests.swift StarredTests.swift \
   HighlightsTests.swift CameraGuideGateTests.swift \
-  RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift \
-  SpokenScoreTests.swift ScoreCaptureTests.swift main.swift
+  RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift SpokenScoreTests.swift ScoreCaptureTests.swift LinkifyTests.swift main.swift
 "$OUT"

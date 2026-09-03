@@ -114,22 +114,32 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // { lessonId, image: true } — a journal entry's attached photo. The
-  // lessons row is owner-scoped under RLS, and image_path (client-written
-  // via /api/lesson, which enforces the same prefix) must live under the
-  // OWNER's entry folder before it gets signed.
+  // { lessonId, image: true } — a journal entry's attached photo.
+  //
+  // Who may see it is one question with two answers, so it is asked in one
+  // place: entry_image_for_viewer (163) returns a path for the author, and
+  // for a student the entry has actually been shared with. Before that a
+  // student could not see a coach's photo at all, because the lessons row
+  // is author-only under RLS.
+  //
+  // The function pins the path to its author's folder; the same check is
+  // repeated here on purpose, against the author id the function hands
+  // back, so neither layer is trusting the other. image_path is written by
+  // the client via /api/lesson, and a value on a row you own is not a
+  // value you may point anywhere.
   if (lessonId) {
-    const { data: lesson } = await supabase
-      .from("lessons")
-      .select("id, user_id, image_path")
-      .eq("id", lessonId)
-      .maybeSingle();
-    const loc = parseR2(lesson?.image_path);
+    const { data: rows } = await supabase.rpc("entry_image_for_viewer", {
+      p_lesson_id: lessonId,
+    });
+    const entry = (
+      rows as { author_id: string; image_path: string | null }[] | null
+    )?.[0];
+    const loc = parseR2(entry?.image_path);
     if (
-      !lesson ||
+      !entry ||
       !loc ||
       loc.bucket !== "ponglens-media" ||
-      !loc.key.startsWith(`entry/${lesson.user_id}/`) ||
+      !loc.key.startsWith(`entry/${entry.author_id}/`) ||
       // A '..' segment would walk the signed key back out of the owner's
       // folder after the prefix check passes.
       loc.key.includes("..")

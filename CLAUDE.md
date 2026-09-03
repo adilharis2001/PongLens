@@ -122,7 +122,13 @@ not need entertaining; they need to understand the product immediately.
 - **Vary the rhythm.** Every line landing as two balanced clauses is its own
   tell. If three sentences in a row have the same shape, rewrite one.
 - **No em dashes in product copy.** No the word "AI" anywhere in the
-  product. "Workspace" is too corporate.
+  product, with ONE approved exception: the control that rewrites a rough
+  entry is labelled **"Improve with AI"** (Adil, 2026-09-03, chosen after
+  being shown this rule and the alternatives). It reads that way on the
+  journal composer and the coach's entry composer, on both platforms.
+  This is a named exception, not a softening — a new surface does not get
+  to reach for the word because this one has it. "Workspace" is too
+  corporate.
 - **Positioning line:** "a performance hub for competitive table tennis." Not "video studio", not "training platform", not "toolkit".
   This replaced "the table tennis toolkit for competitive players" on
   2026-08-09, so the site and the landing video's opening line agree. The

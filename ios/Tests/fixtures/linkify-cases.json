@@ -1,0 +1,121 @@
+{
+  "note": "The one list of link cases both platforms are checked against. src/lib/linkify.ts and ios/PongLens/PongLens/Core/Linkify.swift must each turn `text` into exactly `links`, in order. Rule: GitHub's extended autolink specification, https://github.github.com/gfm/#autolinks-extension-",
+  "cases": [
+    {
+      "why": "ordinary prose carries no links",
+      "text": "Keep the elbow in and finish the stroke in front of you.",
+      "links": []
+    },
+    {
+      "why": "a full address",
+      "text": "Watch this: https://www.youtube.com/watch?v=abc123",
+      "links": [{ "text": "https://www.youtube.com/watch?v=abc123", "href": "https://www.youtube.com/watch?v=abc123" }]
+    },
+    {
+      "why": "http stays http",
+      "text": "Old link http://example.com/a here",
+      "links": [{ "text": "http://example.com/a", "href": "http://example.com/a" }]
+    },
+    {
+      "why": "a www address gets https, not http",
+      "text": "See www.ittf.com/rules for the wording.",
+      "links": [{ "text": "www.ittf.com/rules", "href": "https://www.ittf.com/rules" }]
+    },
+    {
+      "why": "a bare domain is deliberately NOT a link",
+      "text": "Have a look at youtube.com/watch?v=abc later.",
+      "links": []
+    },
+    {
+      "why": "the full stop ends the sentence, not the address",
+      "text": "It is at https://ponglens.com/learn.",
+      "links": [{ "text": "https://ponglens.com/learn", "href": "https://ponglens.com/learn" }]
+    },
+    {
+      "why": "so do a comma and a question mark",
+      "text": "Try www.ponglens.com, or https://ponglens.com/journal?",
+      "links": [
+        { "text": "www.ponglens.com", "href": "https://www.ponglens.com" },
+        { "text": "https://ponglens.com/journal", "href": "https://ponglens.com/journal" }
+      ]
+    },
+    {
+      "why": "several trailing marks all come off",
+      "text": "Go here https://ponglens.com/learn!!!",
+      "links": [{ "text": "https://ponglens.com/learn", "href": "https://ponglens.com/learn" }]
+    },
+    {
+      "why": "a link written inside brackets keeps the sentence's bracket out",
+      "text": "The drill (see https://ponglens.com/learn/serve) is the one.",
+      "links": [{ "text": "https://ponglens.com/learn/serve", "href": "https://ponglens.com/learn/serve" }]
+    },
+    {
+      "why": "brackets that belong to the address are kept",
+      "text": "Read https://en.wikipedia.org/wiki/Topspin_(tennis) tonight.",
+      "links": [{ "text": "https://en.wikipedia.org/wiki/Topspin_(tennis)", "href": "https://en.wikipedia.org/wiki/Topspin_(tennis)" }]
+    },
+    {
+      "why": "an entity-shaped tail is prose, not address",
+      "text": "https://ponglens.com/x?a=1&amp; and then some",
+      "links": [{ "text": "https://ponglens.com/x?a=1", "href": "https://ponglens.com/x?a=1" }]
+    },
+    {
+      "why": "an email address",
+      "text": "Mail support@ponglens.com if it breaks.",
+      "links": [{ "text": "support@ponglens.com", "href": "mailto:support@ponglens.com" }]
+    },
+    {
+      "why": "an at sign that is not an address",
+      "text": "Session @ 3pm on Tuesday.",
+      "links": []
+    },
+    {
+      "why": "an address glued to a word is not an address",
+      "text": "seehttps://example.com now",
+      "links": []
+    },
+    {
+      "why": "underscores in the last two segments are not a host",
+      "text": "www.foo_bar.baz/x is nothing",
+      "links": []
+    },
+    {
+      "why": "the address can open the text",
+      "text": "https://ponglens.com/learn is the guide",
+      "links": [{ "text": "https://ponglens.com/learn", "href": "https://ponglens.com/learn" }]
+    },
+    {
+      "why": "one per line, across lines",
+      "text": "Serve drill: www.ponglens.com/a\nBlock drill: www.ponglens.com/b",
+      "links": [
+        { "text": "www.ponglens.com/a", "href": "https://www.ponglens.com/a" },
+        { "text": "www.ponglens.com/b", "href": "https://www.ponglens.com/b" }
+      ]
+    },
+    {
+      "why": "a port survives",
+      "text": "Local build at http://localhost.dev:3000/journal ok",
+      "links": [{ "text": "http://localhost.dev:3000/journal", "href": "http://localhost.dev:3000/journal" }]
+    },
+    {
+      "why": "a scheme with nothing after it is not an address",
+      "text": "The prefix https:// on its own",
+      "links": []
+    },
+    {
+      "why": "markdown link syntax still resolves to the real address",
+      "text": "[watch this](https://youtu.be/abc)",
+      "links": [{ "text": "https://youtu.be/abc", "href": "https://youtu.be/abc" }]
+    },
+    {
+      "why": "an email at the end of a sentence",
+      "text": "Reach me at coach@club.co.uk.",
+      "links": [{ "text": "coach@club.co.uk", "href": "mailto:coach@club.co.uk" }]
+    },
+    {
+      "why": "a scheme we do not open is left alone",
+      "text": "Do not tap javascript:alert(1) or ftp://files.example.com/x",
+      "links": []
+    }
+  ]
+}
