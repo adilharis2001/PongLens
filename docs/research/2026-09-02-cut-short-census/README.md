@@ -637,5 +637,10 @@ first reported: −0.80, not −0.91** (the earlier figure included the end-on
 matches). Above 70% coverage the cap fires 2.3 times per 100 cards; below
 it, 8.0. Both harmful pairs are on cards production had no serve for.
 
-Eleven cards longer than 20 s survive uncut in this corpus, because the cap
-only fires where the assembler had already fused two spans.
+Eleven cards longer than 20 s survive in the shipped record, and they are
+not escapes. `split_long` runs **once, not recursively**, so a card over
+40 s leaves two halves that are each still over 20 s; the rest are first
+halves of pairs already counted. Three (Anton 23 and 73, Chris 36) sit in
+`match.json` records whose entries overlap by 7 to 15 s, which `resolve`
+forbids and which is a separate oddity worth its own look — it does not
+touch this rule's count.
