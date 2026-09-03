@@ -79,6 +79,7 @@ export function StudentView({
   const [lessons, setLessons] = useState<Record<string, LessonRow>>({});
   const [matches, setMatches] = useState<MatchRow[]>([]);
   const [open, setOpen] = useState<string | null>(null);
+  const [sharingId, setSharingId] = useState<string | null>(null);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -192,13 +193,15 @@ export function StudentView({
   };
 
   const setShared = async (entry: EntryRow, shared: boolean) => {
+    setSharingId(entry.id);
     const supabase = createClient();
     const { error } = await supabase
       .from("coach_entries")
       .update({ shared_at: shared ? new Date().toISOString() : null })
       .eq("id", entry.id);
     if (error) flash("Couldn't change sharing. Try again.");
-    void load();
+    await load();
+    setSharingId(null);
   };
 
   const deleteEntry = async (entry: EntryRow) => {
@@ -560,6 +563,9 @@ export function StudentView({
             const lesson = lessons[entry.lesson_id];
             const expanded = open === entry.id;
             const themes = lesson?.takeaways?.themes ?? [];
+            // The share sits on the card, not inside it: a coach writing
+            // in a student's folder assumes the student can read it.
+            const canShare = Boolean(student.player_id) && !entry.shared_at;
             return (
               <div
                 key={entry.id}
@@ -576,13 +582,9 @@ export function StudentView({
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
-                    {entry.shared_at ? (
+                    {entry.shared_at && (
                       <span className="rounded-full bg-cyan-glow/10 px-2 py-0.5 text-[11px] font-medium text-cyan-glow">
                         Shared
-                      </span>
-                    ) : (
-                      <span className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-zinc-500">
-                        Draft
                       </span>
                     )}
                     <span className="text-xs text-zinc-500">
@@ -628,48 +630,61 @@ export function StudentView({
                         {lesson?.transcript}
                       </p>
                     )}
-                    <div className="flex flex-wrap items-center gap-2 border-t border-edge/60 pt-3">
-                      {student.player_id ? (
-                        entry.shared_at ? (
+                  </div>
+                )}
+                {(canShare || expanded) && (
+                  <div
+                    className={`mt-3 flex flex-wrap items-center gap-2 ${
+                      expanded ? "border-t border-edge/60 pt-3" : ""
+                    }`}
+                  >
+                    {canShare && (
+                      <button
+                        type="button"
+                        onClick={() => void setShared(entry, true)}
+                        disabled={sharingId === entry.id}
+                        className="glow-cta rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink disabled:opacity-60"
+                      >
+                        {sharingId === entry.id
+                          ? "Sharing…"
+                          : `Share with ${student.display_name}`}
+                      </button>
+                    )}
+                    {expanded && (
+                      <>
+                        {student.player_id && entry.shared_at && (
                           <button
                             type="button"
                             onClick={() => void setShared(entry, false)}
+                            disabled={sharingId === entry.id}
                             className={pill}
                           >
                             Stop sharing
                           </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => void setShared(entry, true)}
-                            className="glow-cta rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink"
-                          >
-                            Share with {student.display_name}
-                          </button>
-                        )
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => void copyEntryLink(entry)}
-                        className={pill}
-                      >
-                        Copy link
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void deleteEntry(entry)}
-                        className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                    {entry.shared_at && (
-                      <p className="text-xs text-zinc-500">
-                        Shared with {student.display_name}. Edits show on
-                        their side.
-                      </p>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void copyEntryLink(entry)}
+                          className={pill}
+                        >
+                          Copy link
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteEntry(entry)}
+                          className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200"
+                        >
+                          Delete
+                        </button>
+                      </>
                     )}
                   </div>
+                )}
+                {expanded && entry.shared_at && (
+                  <p className="mt-3 text-xs text-zinc-500">
+                    Shared with {student.display_name}. Edits show on their
+                    side.
+                  </p>
                 )}
               </div>
             );

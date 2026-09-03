@@ -10,6 +10,13 @@ struct CoachEntryCard: View {
     /// Named on Home, where the list crosses students; a student's own
     /// page passes nil and the line reads "Entry · Sep 2".
     var studentName: String?
+    /// The one-tap share at the card's foot. A coach writing in a
+    /// student's folder assumes the student reads it, and nothing said
+    /// otherwise until the entry was opened. Passed for a student who is
+    /// on PongLens; the card drops it once the entry is shared.
+    var shareWith: String? = nil
+    var sharing = false
+    var onShare: (() -> Void)? = nil
 
     private var title: String? {
         if let t = lesson?.takeaways?.title, !t.isEmpty { return t }
@@ -63,6 +70,17 @@ struct CoachEntryCard: View {
                     .foregroundStyle(PL.text200)
                     .lineLimit(4)
                     .multilineTextAlignment(.leading)
+            }
+            if entry.sharedAt == nil, let shareWith, let onShare {
+                HStack {
+                    Button(action: onShare) {
+                        Text(sharing ? "Sharing…" : "Share with \(shareWith)")
+                    }
+                    .buttonStyle(PLCyanGhostButtonStyle())
+                    .disabled(sharing)
+                    Spacer()
+                }
+                .padding(.top, 2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
