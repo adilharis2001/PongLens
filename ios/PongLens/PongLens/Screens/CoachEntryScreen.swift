@@ -192,23 +192,35 @@ struct CoachEntryScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 16) {
+            // Pills, not bare text.
+            //
+            // These were `Button("Stop sharing")` with `.buttonStyle(.plain)`
+            // and no padding, which makes the tap target the LETTERS —
+            // about 20 points tall, with no pressed state. Hit it and it
+            // works; miss it by a few points and absolutely nothing
+            // happens, which is indistinguishable from a broken button.
+            // Reported as "I keep pressing it and it doesn't work"
+            // (2026-09-03), and it is the rule this project already has:
+            // a real action gets a real button.
+            FlowLayout(spacing: 8) {
                 if let linkURL {
                     ShareLink(item: linkURL) {
                         Text("Send link")
                     }
+                    .buttonStyle(PLSecondaryButtonStyle())
                     Button(linkCopied ? "Copied" : "Copy link") {
                         UIPasteboard.general.string = linkURL.absoluteString
                         linkCopied = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { linkCopied = false }
                     }
+                    .buttonStyle(PLSecondaryButtonStyle())
                 } else {
                     Button(mintingLink ? "Getting the link…" : "Get a link") {
                         Task { await mintLink(entry) }
                     }
+                    .buttonStyle(PLSecondaryButtonStyle())
                     .disabled(mintingLink)
                 }
-                Spacer()
                 if student.linked, entry.sharedAt != nil {
                     // Says what it is doing, and says when it failed. It
                     // used to do neither: the label never changed, so a
@@ -225,12 +237,10 @@ struct CoachEntryScreen: View {
                             }
                         }
                     }
+                    .buttonStyle(PLSoftDestructiveButtonStyle())
                     .disabled(sharing)
                 }
             }
-            .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(PL.text400)
-            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
@@ -284,23 +294,23 @@ struct CoachEntryScreen: View {
                 EntryPhotoView(lessonId: lesson.id)
             }
 
-            HStack(spacing: 16) {
+            // Pills here too, for the same reason as the card above.
+            FlowLayout(spacing: 8) {
                 if lesson?.takeaways != nil {
                     Button(transcriptOpen ? "Hide transcript" : "Transcript") {
                         withAnimation { transcriptOpen.toggle() }
                     }
+                    .buttonStyle(PLSecondaryButtonStyle())
                 }
                 // Always, not only when there is nothing written up. An
                 // improved entry was the one you could NOT correct, which
                 // is the entry most likely to need it.
                 Button("Edit") { editOpen = true }
+                    .buttonStyle(PLSecondaryButtonStyle())
                     .disabled(lesson == nil)
-                Spacer()
                 Button("Delete") { deleteAsk = true }
+                    .buttonStyle(PLSoftDestructiveButtonStyle())
             }
-            .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(PL.text400)
-            .buttonStyle(.plain)
 
             if transcriptOpen {
                 EntryText(
