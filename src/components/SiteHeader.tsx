@@ -11,18 +11,17 @@ export function SiteHeader({
    * coaches page points back home — a link to the page you are on is not
    * navigation. Unlike "Features", the audience link stays visible on
    * phones: a coach opening the site from a link on their phone is exactly
-   * who it exists for.
+   * who it exists for. The phone row stays calm because the signed-in
+   * button shortens itself below sm (see AuthButton), not because anything
+   * here squeezes.
    */
   audience?: "players" | "coaches";
 }) {
   return (
     <header className="sticky top-0 z-50 border-b border-edge/70 bg-ink/80 backdrop-blur-md">
-      {/* px-4 below sm: with the audience link now always visible, the
-          signed-in state (logo + "For coaches" + "Open PongLens") needs
-          every one of these pixels on a 393px phone. */}
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
+      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
         <Logo />
-        <nav className="flex items-center gap-2 sm:gap-6">
+        <nav className="flex items-center gap-4 sm:gap-6">
           {audience === "coaches" ? (
             <Link
               href="/"
