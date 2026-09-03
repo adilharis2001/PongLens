@@ -150,7 +150,12 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
 
     // MARK: - Setup
 
-    func configure(fps: Int) async {
+    /// Returns the rate the camera actually took, which is not always the
+    /// one asked for. The caller stores it, so a phone that cannot carry
+    /// the requested rate ends up with settings and picture agreeing
+    /// rather than a setting that claims something the file does not have.
+    @discardableResult
+    func configure(fps: Int) async -> Int {
         // Idempotent. This used to be called again for every frame-rate
         // change, and the second call always failed: a session already
         // holding a video input refuses another, so the guard below fell
@@ -159,14 +164,17 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         // a property of the device, not the shape of the session, so it
         // is set directly and nothing is rebuilt.
         if device != nil, !session.inputs.isEmpty {
-            setFrameRate(fps)
-            return
+            return setFrameRate(fps, announce: false)
         }
         let camera = await AVCaptureDevice.requestAccess(for: .video)
         let mic = await AVCaptureDevice.requestAccess(for: .audio)
         guard camera else {
             state = .denied
-            return
+            // Nothing was configured, so nothing is known: hand back what
+            // was asked for. Returning activeFPS here reports a 30 that
+            // was never measured, and the caller stores it — one refused
+            // camera prompt and the owner's frame rate is 30 forever.
+            return fps
         }
         session.beginConfiguration()
         session.sessionPreset = .hd1920x1080
@@ -194,7 +202,8 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
             #else
             state = .failed("The camera isn't available on this device.")
             #endif
-            return
+            // Same as the denied path: no device, nothing measured.
+            return fps
         }
         device = picked
         session.addInput(videoInput)
@@ -225,7 +234,7 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
         output.movieFragmentInterval = CMTime(seconds: 5, preferredTimescale: 600)
         session.commitConfiguration()
 
-        setFrameRate(fps)
+        let achieved = setFrameRate(fps, announce: false)
         if let connection = output.connection(with: .video) {
             if output.availableVideoCodecTypes.contains(.hevc) {
                 output.setOutputSettings([AVVideoCodecKey: AVVideoCodecType.hevc], for: connection)
@@ -239,10 +248,21 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
             session.startRunning()
         }
         state = .ready
+        return achieved
     }
 
     /// Set the capture rate, switching to a format that can carry it when
     /// the active one cannot. Returns the rate actually in force.
+    ///
+    /// `announce` is false when the rate came from a DEFAULT rather than
+    /// from the owner choosing it. 60 is the default now, and a phone that
+    /// cannot carry 1080p60 should simply record 30 — telling someone
+    /// their phone cannot do a thing they never asked for is an apology
+    /// for nothing, on the screen they are trying to film from. The
+    /// honesty guarantee below is kept a different way: the caller stores
+    /// the returned rate, so the setting always names the rate on the
+    /// file. Silence is only ever about the banner, never about the
+    /// number.
     ///
     /// The old version only ever looked at the format the session preset
     /// had already chosen, and only at the FIRST of its rate ranges. When
@@ -252,7 +272,7 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
     /// Anything that reports a rate it did not deliver is worse than a
     /// rate it cannot deliver.
     @discardableResult
-    func setFrameRate(_ fps: Int) -> Int {
+    func setFrameRate(_ fps: Int, announce: Bool = true) -> Int {
         guard let device else { activeFPS = fps; return fps }
         let target = Double(fps)
 
@@ -267,10 +287,13 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
             carries(device.activeFormat) ? device.activeFormat
                                          : bestFormat(carrying: target)
         guard let chosen else {
-            // Leave the camera exactly as it is and say so. Falling back
-            // silently is how the old bug hid.
-            frameRateNote =
-                "This phone can't record 1080p at \(fps) fps. Still recording at \(activeFPS)."
+            // Leave the camera exactly as it is. Say so only when the rate
+            // was asked for; the old bug was a setting that LIED, and the
+            // caller storing this return value is what prevents that.
+            if announce {
+                frameRateNote =
+                    "This phone can't record 1080p at \(fps) fps. Still recording at \(activeFPS)."
+            }
             return activeFPS
         }
 
@@ -288,7 +311,9 @@ final class Recorder: NSObject, AVCaptureFileOutputRecordingDelegate {
             activeFPS = fps
             frameRateNote = nil
         } catch {
-            frameRateNote = "Couldn't change the frame rate. Still recording at \(activeFPS)."
+            if announce {
+                frameRateNote = "Couldn't change the frame rate. Still recording at \(activeFPS)."
+            }
         }
         session.commitConfiguration()
         // A format change can clamp the zoom, so restate it rather than

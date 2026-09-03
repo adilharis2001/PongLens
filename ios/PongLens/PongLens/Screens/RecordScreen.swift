@@ -637,7 +637,16 @@ struct RecordScreen: View {
             }
             overlay = settings.overlay
             level.start()
-            await recorder.configure(fps: settings.fps)
+            // 60 is the default, and a phone that cannot carry 1080p60
+            // records 30 without being told — nobody asked for 60. What
+            // must NOT happen is the setting going on claiming 60 while
+            // the file is 30, so whatever the camera actually took is
+            // stored here before anything reads it back.
+            let achievedFPS = await recorder.configure(fps: settings.fps)
+            if achievedFPS != settings.fps {
+                settings.fps = achievedFPS
+                settings.save()
+            }
             await loadHandedness()
             // Before the shutter, never at it: the language pack is a
             // download and a club is the worst place to discover that.
@@ -1392,7 +1401,7 @@ private struct RecordSettingsSheet: View {
                     }
                     .pickerStyle(.segmented)
                 } footer: {
-                    Text("30 fps is what the pipeline is tuned for. 60 makes smoother slow motion at twice the file size.")
+                    Text("60 fps gives smoother slow motion, at twice the file size. Phones that cannot record 1080p at 60 use 30.")
                 }
 
                 Section {
@@ -1421,7 +1430,7 @@ private struct RecordSettingsSheet: View {
                         set: { settings.placementMaps = $0; settings.save() }
                     ))
                 } footer: {
-                    Text("Video records at 1080p HEVC. A 45-minute match is about 2 GB at 30 fps.")
+                    Text("Video records at 1080p HEVC. A 45-minute match is about 4 GB at 60 fps, or 2 GB at 30.")
                 }
 
                 if offerScoreSetting {

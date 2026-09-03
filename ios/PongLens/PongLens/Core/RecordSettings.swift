@@ -19,7 +19,12 @@ enum RecordOverlay: String, Codable {
 /// the pipeline gains nothing from more pixels and the phone pays for them
 /// in heat and upload time. Frame rate is the one quality knob.
 struct RecordSettings: Codable, Equatable {
-    var fps: Int = 30 // 30 or 60
+    /// 60 where the phone can carry 1080p at it, 30 where it cannot.
+    /// The camera decides: `setFrameRate` returns what it actually got and
+    /// the caller stores THAT, so this never claims a rate the recording
+    /// does not have. A phone that cannot do 60 is moved to 30 without a
+    /// word, because nobody asked for 60 — it was the default.
+    var fps: Int = 60 // 30 or 60
     var wifiOnlyUploads = false
     var overlay: RecordOverlay = .ghost
     var processAfterUpload = true
@@ -40,7 +45,7 @@ struct RecordSettings: Codable, Equatable {
     /// user had chosen for the others.
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        fps = try values.decodeIfPresent(Int.self, forKey: .fps) ?? 30
+        fps = try values.decodeIfPresent(Int.self, forKey: .fps) ?? 60
         wifiOnlyUploads = try values.decodeIfPresent(
             Bool.self, forKey: .wifiOnlyUploads) ?? false
         processAfterUpload = try values.decodeIfPresent(

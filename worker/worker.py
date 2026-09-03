@@ -3508,6 +3508,27 @@ def probe_duration_s(path: str) -> float | None:
         return None
 
 
+def probe_source_fps(path: str) -> float | None:
+    """The video's real frame rate, or None if it cannot be read.
+
+    `avg_frame_rate` rather than `r_frame_rate`: the latter is the timebase
+    tick rate and reads 600 or 90000 on plenty of phone footage, which
+    would land a nonsense number in the column the 60fps comparison is
+    built on. Anything outside a sane camera range is refused rather than
+    rounded, because a wrong number here is worse than a missing one — a
+    missing one shows up as null and gets excluded, a wrong one quietly
+    joins the other side of the comparison.
+    """
+    try:
+        streams = _ffprobe_streams(path)["streams"]
+        video = next(s for s in streams if s.get("codec_type") == "video")
+        num, den = (video.get("avg_frame_rate") or "0/0").split("/")
+        fps = float(num) / float(den)
+    except Exception:
+        return None
+    return fps if 10.0 <= fps <= 240.0 else None
+
+
 def apply_trim(local_input: str, workdir: str,
                start_s: float, end_s: float) -> str:
     """Cut the working copy down to the claimed window before the pipeline
@@ -7139,6 +7160,20 @@ def process_job(conn, msg) -> None:
             played_at = capture_date_from_file(local_input)
             if played_at:
                 log.info("  capture date from creation_time: %s", played_at)
+
+        # What frame rate the owner actually filmed at (165). Read from
+        # the source BEFORE the trim, and stored whatever happens next —
+        # a job that later fails a gate still answers "was this 60fps?".
+        if options.get("match_id") is not None:
+            src_fps = probe_source_fps(local_input)
+            if src_fps is not None:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update public.matches set source_fps = %s "
+                        "where id = %s and source_fps is null",
+                        (src_fps, options["match_id"]))
+                conn.commit()
+                log.info("  source frame rate %.3f fps", src_fps)
 
         # Library job (096): cut the working copy down to the claimed
         # window before anything expensive sees it. Skipped when the
