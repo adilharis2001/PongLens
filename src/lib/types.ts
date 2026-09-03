@@ -548,8 +548,12 @@ export interface Lesson {
   transcript: string;
   takeaways: LessonTakeaways | null;
   status: "queued" | "ready" | "failed";
-  // 'lesson' = coaching content; 'practice' = the player's own journal.
-  kind: "lesson" | "practice";
+  // 'lesson' = coaching content; 'practice' = the player's own journal;
+  // 'coach' = an entry a coach wrote about a student (156), which lives
+  // under coach_entries and is filtered out of the author's own feeds.
+  // The column has allowed all three since 156; leaving the type at two
+  // meant the coach's own editors had to lie about what they were holding.
+  kind: "lesson" | "practice" | "coach";
   // Who taught it, as the player typed it (085). Free text: a coach here
   // is often not a PongLens user. Null on practice entries and on lessons
   // saved before the field existed. This is what lets Ask answer "my last

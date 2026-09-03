@@ -400,6 +400,34 @@ final class CoachWorkspaceStore {
         return nil
     }
 
+    /// Correct the written-up note on an entry, one line at a time.
+    ///
+    /// The same route the player's journal uses, and the same reason it
+    /// exists: an entry that came back as points is corrected by editing
+    /// those points, never by re-reading the words and having every point
+    /// rewritten. The words are left exactly as they are.
+    func saveNote(_ entry: CoachEntryRow, takeaways: LessonTakeaways) async -> String? {
+        struct Req: Encodable {
+            let lessonId: String
+            let takeaways: LessonTakeaways
+        }
+        struct Res: Decodable { let id: String }
+        do {
+            let _: Res = try await API.request(
+                "api/lesson/note", method: "PATCH",
+                body: Req(
+                    lessonId: entry.lessonId.uuidString.lowercased(),
+                    takeaways: takeaways
+                )
+            )
+        } catch {
+            return (error as? APIError)?.errorDescription
+                ?? "Couldn't save it. Your changes are still here, so try again."
+        }
+        await reloadLesson(entry.lessonId)
+        return nil
+    }
+
     /// Link (or unlink) one of the student's matches to an entry.
     func setMatch(_ entry: CoachEntryRow, matchId: UUID?) async -> Bool {
         let value = matchId.map { AnyJSON.string($0.uuidString.lowercased()) } ?? AnyJSON.null

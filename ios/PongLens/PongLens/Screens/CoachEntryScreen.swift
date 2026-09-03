@@ -52,7 +52,22 @@ struct CoachEntryScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $editOpen) {
-            if let entry { CoachEntryEditSheet(entry: entry, initial: lesson?.transcript ?? "") }
+            // The player's own editor, pointed at the coach's store. An
+            // entry that came back as points is corrected point by point;
+            // one that never had any has its words edited instead. That
+            // rule lives in the editor, so it cannot disagree between the
+            // two sides of one lesson.
+            if let entry, let lesson {
+                JournalNoteEditor(
+                    lesson: lesson,
+                    onSaveNote: { takeaways, _ in
+                        await workspace.saveNote(entry, takeaways: takeaways)
+                    },
+                    onSaveWords: { words, _ in
+                        await workspace.saveWords(entry, transcript: words)
+                    }
+                )
+            }
         }
         .sheet(isPresented: $matchPickerOpen) {
             if let entry { matchPicker(entry) }
@@ -259,9 +274,11 @@ struct CoachEntryScreen: View {
                         withAnimation { transcriptOpen.toggle() }
                     }
                 }
-                if lesson?.takeaways == nil {
-                    Button("Edit") { editOpen = true }
-                }
+                // Always, not only when there is nothing written up. An
+                // improved entry was the one you could NOT correct, which
+                // is the entry most likely to need it.
+                Button("Edit") { editOpen = true }
+                    .disabled(lesson == nil)
                 Spacer()
                 Button("Delete") { deleteAsk = true }
             }
@@ -297,58 +314,5 @@ struct CoachEntryScreen: View {
             }
         }
         .presentationDetents([.medium, .large])
-    }
-}
-
-/// Correcting the words of an entry that has no distilled note: the same
-/// sheet chrome as the journal's editors, Save top right.
-struct CoachEntryEditSheet: View {
-    let entry: CoachEntryRow
-    let initial: String
-
-    @Environment(\.dismiss) private var dismiss
-    @Environment(CoachWorkspaceStore.self) private var workspace
-
-    @State private var draft: String
-    @State private var saving = false
-    @State private var errorMessage: String?
-
-    init(entry: CoachEntryRow, initial: String) {
-        self.entry = entry
-        self.initial = initial
-        _draft = State(initialValue: initial)
-    }
-
-    var body: some View {
-        PLSheetScaffold(
-            title: "Edit entry",
-            doneLabel: saving ? "Saving…" : "Save",
-            doneDisabled: saving || draft.trimmingCharacters(in: .whitespaces).isEmpty || draft == initial,
-            onDone: {
-                Task {
-                    saving = true
-                    errorMessage = await workspace.saveWords(
-                        entry, transcript: draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    )
-                    saving = false
-                    if errorMessage == nil { dismiss() }
-                }
-            }
-        ) {
-            Form {
-                Section {
-                    TextField("The entry", text: $draft, axis: .vertical)
-                        .lineLimit(8...24)
-                }
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .font(.plBody)
-                            .foregroundStyle(PL.dangerText)
-                    }
-                }
-            }
-            .plKeyboardDismiss()
-        }
     }
 }
