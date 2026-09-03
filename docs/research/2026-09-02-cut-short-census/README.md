@@ -354,6 +354,42 @@ inside a live point reach p90 3.3 s and p99 4.6 s, against p90 1.8–2.9 s
 everywhere else. The crop starves the event stream, so on cropped matches a
 3.0 s threshold is closer to the edge than the pooled figure suggests.
 
+### Second correction: 29 of the 97 were never this rule's work
+
+Adil asked why, if a serve is detectable in the second half of a split, the
+assembler did not split there itself. Chasing that found the error. On
+Terry 2 and Koko 2, production stored ZERO serves across the whole match
+while the per-card file found 8 and 10. The reason is the route: both are
+Westchester, both were assembled end-on, and `points_endon.build_cards`
+replaces the v2 cards entirely. End-on cards carry no serve mark, and
+crucially **`points_v2.split_long` never ran on them.** Their boundaries came
+from a different assembler that has no twenty-second rule.
+
+Filtering to matches whose notes say `route serve-anchored`:
+
+| | 97 as first counted | 68 that are really the cap |
+| --- | --- | --- |
+| the split was right | 51 | 35 |
+| cut a live rally | 5 | **2** |
+| a point plus a leftover | 10 | 6 |
+| first scored, second left alone | 1 | 1 |
+| neither scored | 30 | 24 |
+
+**The twenty-second cap cuts a live rally 2 times in 44 judged firings — 5%.**
+The two survivors are Yu Yu Lin 63/64 and Kyle 13/14.
+
+The running total of the day's corrections, all in the same direction:
+17% harmful (first pass) → 7% (tap attribution fixed) → **5% (route fixed)**.
+Each correction came from Adil questioning a specific card rather than from
+re-reading the code, which is the argument for putting the evidence in front
+of him rather than summarising it.
+
+Also worth recording for its own sake: the per-card diagnosis file recomputes
+the serve mark independently of the route, so on an end-on match it shows
+serves the shipped cards do not have. That is a second way the admin page can
+disagree with what production did — the first being the constants drift noted
+above.
+
 ### Correction: the tap tolerance was too tight (3 September, later)
 
 Adil reviewed Yu Yu Lin points 97/98 on the page and the check found a

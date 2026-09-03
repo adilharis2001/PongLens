@@ -29,7 +29,8 @@
   "clip": "clips/77fc4dee_59_60.mp4",
   "full": "full/77fc4dee_59_60.mp4",
   "clip_start": 625.87,
-  "clip_len": 27.82
+  "clip_len": 27.82,
+  "route": "serve-anchored"
  },
  {
   "mid": "77fc4dee-3de6-47d6-a2df-df85e239535c",
@@ -61,7 +62,8 @@
   "clip": "clips/77fc4dee_125_126.mp4",
   "full": "full/77fc4dee_125_126.mp4",
   "clip_start": 1340.52,
-  "clip_len": 23.58
+  "clip_len": 23.58,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -93,7 +95,8 @@
   "clip": "clips/89b35ee0_10_11.mp4",
   "full": "full/89b35ee0_10_11.mp4",
   "clip_start": 77.07,
-  "clip_len": 30.37
+  "clip_len": 30.37,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -125,7 +128,8 @@
   "clip": "clips/89b35ee0_20_21.mp4",
   "full": "full/89b35ee0_20_21.mp4",
   "clip_start": 171.34,
-  "clip_len": 26.73
+  "clip_len": 26.73,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -152,7 +156,8 @@
   "clip": "clips/89b35ee0_29_30.mp4",
   "full": "full/89b35ee0_29_30.mp4",
   "clip_start": 311.04,
-  "clip_len": 26.8
+  "clip_len": 26.8,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -184,7 +189,8 @@
   "clip": "clips/89b35ee0_57_58.mp4",
   "full": "full/89b35ee0_57_58.mp4",
   "clip_start": 612.28,
-  "clip_len": 25.7
+  "clip_len": 25.7,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -211,7 +217,8 @@
   "clip": "clips/89b35ee0_63_64.mp4",
   "full": "full/89b35ee0_63_64.mp4",
   "clip_start": 681.02,
-  "clip_len": 33.17
+  "clip_len": 33.17,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -243,7 +250,8 @@
   "clip": "clips/89b35ee0_66_67.mp4",
   "full": "full/89b35ee0_66_67.mp4",
   "clip_start": 723.82,
-  "clip_len": 29.03
+  "clip_len": 29.03,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -275,7 +283,8 @@
   "clip": "clips/89b35ee0_71_72.mp4",
   "full": "full/89b35ee0_71_72.mp4",
   "clip_start": 818.59,
-  "clip_len": 26.57
+  "clip_len": 26.57,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -307,7 +316,8 @@
   "clip": "clips/89b35ee0_77_78.mp4",
   "full": "full/89b35ee0_77_78.mp4",
   "clip_start": 885.22,
-  "clip_len": 26.77
+  "clip_len": 26.77,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -339,7 +349,8 @@
   "clip": "clips/89b35ee0_83_84.mp4",
   "full": "full/89b35ee0_83_84.mp4",
   "clip_start": 935.62,
-  "clip_len": 28.17
+  "clip_len": 28.17,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -371,7 +382,8 @@
   "clip": "clips/89b35ee0_97_98.mp4",
   "full": "full/89b35ee0_97_98.mp4",
   "clip_start": 1165.3,
-  "clip_len": 28.1
+  "clip_len": 28.1,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -403,7 +415,8 @@
   "clip": "clips/89b35ee0_100_101.mp4",
   "full": "full/89b35ee0_100_101.mp4",
   "clip_start": 1202.63,
-  "clip_len": 28.64
+  "clip_len": 28.64,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -430,7 +443,8 @@
   "clip": "clips/89b35ee0_105_106.mp4",
   "full": "full/89b35ee0_105_106.mp4",
   "clip_start": 1248.0,
-  "clip_len": 24.03
+  "clip_len": 24.03,
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -454,7 +468,8 @@
   "a_scored": true,
   "b_scored": false,
   "klass": "only the first half scored, second deleted: the second was junk",
-  "clip": "clips/89b35ee0_112_113.mp4"
+  "clip": "clips/89b35ee0_112_113.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -478,7 +493,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/89b35ee0_126_127.mp4"
+  "clip": "clips/89b35ee0_126_127.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
@@ -502,7 +518,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/89b35ee0_127_128.mp4"
+  "clip": "clips/89b35ee0_127_128.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "d15aad4d-dfbf-4234-9b45-d68de83412cf",
@@ -526,7 +543,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/d15aad4d_12_13.mp4"
+  "clip": "clips/d15aad4d_12_13.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "d15aad4d-dfbf-4234-9b45-d68de83412cf",
@@ -550,7 +568,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/d15aad4d_13_14.mp4"
+  "clip": "clips/d15aad4d_13_14.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "d15aad4d-dfbf-4234-9b45-d68de83412cf",
@@ -574,7 +593,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/d15aad4d_14_15.mp4"
+  "clip": "clips/d15aad4d_14_15.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "d15aad4d-dfbf-4234-9b45-d68de83412cf",
@@ -598,7 +618,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/d15aad4d_15_16.mp4"
+  "clip": "clips/d15aad4d_15_16.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "d15aad4d-dfbf-4234-9b45-d68de83412cf",
@@ -630,7 +651,8 @@
   "clip": "clips/d15aad4d_31_32.mp4",
   "full": "full/d15aad4d_31_32.mp4",
   "clip_start": 344.51,
-  "clip_len": 26.62
+  "clip_len": 26.62,
+  "route": "serve-anchored"
  },
  {
   "mid": "d15aad4d-dfbf-4234-9b45-d68de83412cf",
@@ -662,7 +684,8 @@
   "clip": "clips/d15aad4d_69_70.mp4",
   "full": "full/d15aad4d_69_70.mp4",
   "clip_start": 789.77,
-  "clip_len": 23.79
+  "clip_len": 23.79,
+  "route": "serve-anchored"
  },
  {
   "mid": "d15aad4d-dfbf-4234-9b45-d68de83412cf",
@@ -694,7 +717,8 @@
   "clip": "clips/d15aad4d_132_133.mp4",
   "full": "full/d15aad4d_132_133.mp4",
   "clip_start": 1464.25,
-  "clip_len": 24.02
+  "clip_len": 24.02,
+  "route": "serve-anchored"
  },
  {
   "mid": "86f880b9-c87e-41f0-a707-3387ece70650",
@@ -718,7 +742,8 @@
   "a_scored": true,
   "b_scored": true,
   "klass": "both halves scored: the split was right",
-  "clip": "clips/86f880b9_11_12.mp4"
+  "clip": "clips/86f880b9_11_12.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "86f880b9-c87e-41f0-a707-3387ece70650",
@@ -742,7 +767,8 @@
   "a_scored": true,
   "b_scored": true,
   "klass": "both halves scored: the split was right",
-  "clip": "clips/86f880b9_27_28.mp4"
+  "clip": "clips/86f880b9_27_28.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "ec6490f4-b835-4d82-882a-8fb2f1abc2e5",
@@ -774,7 +800,8 @@
   "clip": "clips/ec6490f4_11_12.mp4",
   "full": "full/ec6490f4_11_12.mp4",
   "clip_start": 163.4,
-  "clip_len": 28.89
+  "clip_len": 28.89,
+  "route": "serve-anchored"
  },
  {
   "mid": "ec6490f4-b835-4d82-882a-8fb2f1abc2e5",
@@ -806,7 +833,8 @@
   "clip": "clips/ec6490f4_27_28.mp4",
   "full": "full/ec6490f4_27_28.mp4",
   "clip_start": 365.23,
-  "clip_len": 27.12
+  "clip_len": 27.12,
+  "route": "serve-anchored"
  },
  {
   "mid": "81b609e6-e287-4472-bcd9-2ac9bf83bc89",
@@ -830,7 +858,8 @@
   "a_scored": true,
   "b_scored": true,
   "klass": "both halves scored: the split was right",
-  "clip": "clips/81b609e6_38_39.mp4"
+  "clip": "clips/81b609e6_38_39.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "81b609e6-e287-4472-bcd9-2ac9bf83bc89",
@@ -854,7 +883,8 @@
   "a_scored": true,
   "b_scored": true,
   "klass": "both halves scored: the split was right",
-  "clip": "clips/81b609e6_57_58.mp4"
+  "clip": "clips/81b609e6_57_58.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "81b609e6-e287-4472-bcd9-2ac9bf83bc89",
@@ -878,7 +908,8 @@
   "a_scored": true,
   "b_scored": true,
   "klass": "both halves scored: the split was right",
-  "clip": "clips/81b609e6_71_72.mp4"
+  "clip": "clips/81b609e6_71_72.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "7e02fbb9-a3af-4686-84bc-d4b961ab9fed",
@@ -910,7 +941,8 @@
   "clip": "clips/7e02fbb9_38_39.mp4",
   "full": "full/7e02fbb9_38_39.mp4",
   "clip_start": 432.28,
-  "clip_len": 25.99
+  "clip_len": 25.99,
+  "route": "serve-anchored"
  },
  {
   "mid": "7e02fbb9-a3af-4686-84bc-d4b961ab9fed",
@@ -942,7 +974,8 @@
   "clip": "clips/7e02fbb9_57_58.mp4",
   "full": "full/7e02fbb9_57_58.mp4",
   "clip_start": 677.81,
-  "clip_len": 24.89
+  "clip_len": 24.89,
+  "route": "serve-anchored"
  },
  {
   "mid": "7e02fbb9-a3af-4686-84bc-d4b961ab9fed",
@@ -974,7 +1007,8 @@
   "clip": "clips/7e02fbb9_71_72.mp4",
   "full": "full/7e02fbb9_71_72.mp4",
   "clip_start": 828.74,
-  "clip_len": 25.45
+  "clip_len": 25.45,
+  "route": "serve-anchored"
  },
  {
   "mid": "b7a01f05-503e-4d37-a57b-e27fec7f0e52",
@@ -1006,7 +1040,8 @@
   "clip": "clips/b7a01f05_59_60.mp4",
   "full": "full/b7a01f05_59_60.mp4",
   "clip_start": 625.87,
-  "clip_len": 27.82
+  "clip_len": 27.82,
+  "route": "serve-anchored"
  },
  {
   "mid": "b7a01f05-503e-4d37-a57b-e27fec7f0e52",
@@ -1035,7 +1070,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/b7a01f05_125_126.mp4"
+  "clip": "clips/b7a01f05_125_126.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "98a9c15c-cd45-4ee4-acb3-fe2e090c075b",
@@ -1062,7 +1098,8 @@
   "clip": "clips/98a9c15c_72_73.mp4",
   "full": "full/98a9c15c_72_73.mp4",
   "clip_start": 1051.12,
-  "clip_len": 23.27
+  "clip_len": 23.27,
+  "route": "serve-anchored"
  },
  {
   "mid": "98a9c15c-cd45-4ee4-acb3-fe2e090c075b",
@@ -1094,7 +1131,8 @@
   "clip": "clips/98a9c15c_76_77.mp4",
   "full": "full/98a9c15c_76_77.mp4",
   "clip_start": 1092.24,
-  "clip_len": 24.44
+  "clip_len": 24.44,
+  "route": "serve-anchored"
  },
  {
   "mid": "bfc9b31b-5220-40f7-ac28-ea32a8166bb8",
@@ -1126,7 +1164,8 @@
   "clip": "clips/bfc9b31b_20_21.mp4",
   "full": "full/bfc9b31b_20_21.mp4",
   "clip_start": 192.99,
-  "clip_len": 25.18
+  "clip_len": 25.18,
+  "route": "serve-anchored"
  },
  {
   "mid": "fa96cd0e-bfbd-403b-8c30-87714ee78030",
@@ -1155,7 +1194,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/fa96cd0e_4_5.mp4"
+  "clip": "clips/fa96cd0e_4_5.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "fa96cd0e-bfbd-403b-8c30-87714ee78030",
@@ -1184,7 +1224,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/fa96cd0e_8_9.mp4"
+  "clip": "clips/fa96cd0e_8_9.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "fa96cd0e-bfbd-403b-8c30-87714ee78030",
@@ -1216,7 +1257,8 @@
   "clip": "clips/fa96cd0e_13_14.mp4",
   "full": "full/fa96cd0e_13_14.mp4",
   "clip_start": 215.85,
-  "clip_len": 25.82
+  "clip_len": 25.82,
+  "route": "serve-anchored"
  },
  {
   "mid": "fa96cd0e-bfbd-403b-8c30-87714ee78030",
@@ -1245,7 +1287,8 @@
   "a_scored": true,
   "b_scored": false,
   "klass": "only the first half scored, second deleted: the second was junk",
-  "clip": "clips/fa96cd0e_52_53.mp4"
+  "clip": "clips/fa96cd0e_52_53.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "fa96cd0e-bfbd-403b-8c30-87714ee78030",
@@ -1277,7 +1320,8 @@
   "clip": "clips/fa96cd0e_58_59.mp4",
   "full": "full/fa96cd0e_58_59.mp4",
   "clip_start": 811.78,
-  "clip_len": 36.2
+  "clip_len": 36.2,
+  "route": "serve-anchored"
  },
  {
   "mid": "fa96cd0e-bfbd-403b-8c30-87714ee78030",
@@ -1309,7 +1353,8 @@
   "clip": "clips/fa96cd0e_59_60.mp4",
   "full": "full/fa96cd0e_59_60.mp4",
   "clip_start": 820.69,
-  "clip_len": 44.31
+  "clip_len": 44.31,
+  "route": "serve-anchored"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1337,8 +1382,10 @@
   "b_deleted": true,
   "a_scored": false,
   "b_scored": false,
-  "klass": "neither half scored",
-  "clip": "clips/2eab3e3d_6_7.mp4"
+  "klass": "cut by the end-on assembler, not by this rule",
+  "clip": "clips/2eab3e3d_6_7.mp4",
+  "route": "end-on",
+  "klass_real": "neither half scored"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1366,8 +1413,10 @@
   "b_deleted": true,
   "a_scored": false,
   "b_scored": false,
-  "klass": "neither half scored",
-  "clip": "clips/2eab3e3d_7_8.mp4"
+  "klass": "cut by the end-on assembler, not by this rule",
+  "clip": "clips/2eab3e3d_7_8.mp4",
+  "route": "end-on",
+  "klass_real": "neither half scored"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1395,11 +1444,13 @@
   "b_deleted": false,
   "a_scored": false,
   "b_scored": true,
-  "klass": "only the SECOND half scored: the first holds a rally with no winner",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/2eab3e3d_14_15.mp4",
   "full": "full/2eab3e3d_14_15.mp4",
   "clip_start": 203.09,
-  "clip_len": 28.31
+  "clip_len": 28.31,
+  "route": "end-on",
+  "klass_real": "only the SECOND half scored: the first holds a rally with no winner"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1427,11 +1478,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/2eab3e3d_15_16.mp4",
   "full": "full/2eab3e3d_15_16.mp4",
   "clip_start": 208.79,
-  "clip_len": 30.31
+  "clip_len": 30.31,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1459,11 +1512,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/2eab3e3d_18_19.mp4",
   "full": "full/2eab3e3d_18_19.mp4",
   "clip_start": 245.17,
-  "clip_len": 29.31
+  "clip_len": 29.31,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1491,11 +1546,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/2eab3e3d_21_22.mp4",
   "full": "full/2eab3e3d_21_22.mp4",
   "clip_start": 289.79,
-  "clip_len": 36.68
+  "clip_len": 36.68,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1523,11 +1580,13 @@
   "b_deleted": true,
   "a_scored": true,
   "b_scored": false,
-  "klass": "only the first half scored, second deleted: the second was junk",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/2eab3e3d_27_28.mp4",
   "full": "full/2eab3e3d_27_28.mp4",
   "clip_start": 353.18,
-  "clip_len": 28.31
+  "clip_len": 28.31,
+  "route": "end-on",
+  "klass_real": "only the first half scored, second deleted: the second was junk"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1555,11 +1614,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/2eab3e3d_31_32.mp4",
   "full": "full/2eab3e3d_31_32.mp4",
   "clip_start": 413.27,
-  "clip_len": 33.22
+  "clip_len": 33.22,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1587,11 +1648,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/2eab3e3d_32_33.mp4",
   "full": "full/2eab3e3d_32_33.mp4",
   "clip_start": 430.08,
-  "clip_len": 25.41
+  "clip_len": 25.41,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1619,11 +1682,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/2eab3e3d_40_41.mp4",
   "full": "full/2eab3e3d_40_41.mp4",
   "clip_start": 518.48,
-  "clip_len": 25.81
+  "clip_len": 25.81,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1651,8 +1716,10 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
-  "clip": "clips/2eab3e3d_41_42.mp4"
+  "klass": "cut by the end-on assembler, not by this rule",
+  "clip": "clips/2eab3e3d_41_42.mp4",
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1680,11 +1747,13 @@
   "b_deleted": true,
   "a_scored": true,
   "b_scored": false,
-  "klass": "only the first half scored, second deleted: the second was junk",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/2eab3e3d_46_47.mp4",
   "full": "full/2eab3e3d_46_47.mp4",
   "clip_start": 593.48,
-  "clip_len": 25.91
+  "clip_len": 25.91,
+  "route": "end-on",
+  "klass_real": "only the first half scored, second deleted: the second was junk"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1712,11 +1781,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/2eab3e3d_54_55.mp4",
   "full": "full/2eab3e3d_54_55.mp4",
   "clip_start": 714.6,
-  "clip_len": 28.98
+  "clip_len": 28.98,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1744,11 +1815,13 @@
   "b_deleted": true,
   "a_scored": true,
   "b_scored": false,
-  "klass": "only the first half scored, second deleted: the second was junk",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/2eab3e3d_55_56.mp4",
   "full": "full/2eab3e3d_55_56.mp4",
   "clip_start": 726.97,
-  "clip_len": 23.81
+  "clip_len": 23.81,
+  "route": "end-on",
+  "klass_real": "only the first half scored, second deleted: the second was junk"
  },
  {
   "mid": "2eab3e3d-c4df-46ff-b0e2-2c6698fb2c69",
@@ -1776,11 +1849,13 @@
   "b_deleted": false,
   "a_scored": false,
   "b_scored": true,
-  "klass": "only the SECOND half scored: the first holds a rally with no winner",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/2eab3e3d_59_60.mp4",
   "full": "full/2eab3e3d_59_60.mp4",
   "clip_start": 776.59,
-  "clip_len": 26.88
+  "clip_len": 26.88,
+  "route": "end-on",
+  "klass_real": "only the SECOND half scored: the first holds a rally with no winner"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -1808,8 +1883,10 @@
   "b_deleted": true,
   "a_scored": false,
   "b_scored": false,
-  "klass": "neither half scored",
-  "clip": "clips/f3237587_4_5.mp4"
+  "klass": "cut by the end-on assembler, not by this rule",
+  "clip": "clips/f3237587_4_5.mp4",
+  "route": "end-on",
+  "klass_real": "neither half scored"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -1837,8 +1914,10 @@
   "b_deleted": true,
   "a_scored": false,
   "b_scored": false,
-  "klass": "neither half scored",
-  "clip": "clips/f3237587_5_6.mp4"
+  "klass": "cut by the end-on assembler, not by this rule",
+  "clip": "clips/f3237587_5_6.mp4",
+  "route": "end-on",
+  "klass_real": "neither half scored"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -1866,8 +1945,10 @@
   "b_deleted": true,
   "a_scored": false,
   "b_scored": false,
-  "klass": "neither half scored",
-  "clip": "clips/f3237587_6_7.mp4"
+  "klass": "cut by the end-on assembler, not by this rule",
+  "clip": "clips/f3237587_6_7.mp4",
+  "route": "end-on",
+  "klass_real": "neither half scored"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -1895,8 +1976,10 @@
   "b_deleted": true,
   "a_scored": false,
   "b_scored": false,
-  "klass": "neither half scored",
-  "clip": "clips/f3237587_7_8.mp4"
+  "klass": "cut by the end-on assembler, not by this rule",
+  "clip": "clips/f3237587_7_8.mp4",
+  "route": "end-on",
+  "klass_real": "neither half scored"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -1924,11 +2007,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/f3237587_25_26.mp4",
   "full": "full/f3237587_25_26.mp4",
   "clip_start": 238.97,
-  "clip_len": 28.41
+  "clip_len": 28.41,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -1956,11 +2041,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/f3237587_26_27.mp4",
   "full": "full/f3237587_26_27.mp4",
   "clip_start": 249.37,
-  "clip_len": 36.32
+  "clip_len": 36.32,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -1988,11 +2075,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/f3237587_27_28.mp4",
   "full": "full/f3237587_27_28.mp4",
   "clip_start": 265.58,
-  "clip_len": 24.51
+  "clip_len": 24.51,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -2020,11 +2109,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/f3237587_29_30.mp4",
   "full": "full/f3237587_29_30.mp4",
   "clip_start": 288.29,
-  "clip_len": 33.18
+  "clip_len": 33.18,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -2052,11 +2143,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/f3237587_30_31.mp4",
   "full": "full/f3237587_30_31.mp4",
   "clip_start": 304.59,
-  "clip_len": 26.18
+  "clip_len": 26.18,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -2084,11 +2177,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/f3237587_35_36.mp4",
   "full": "full/f3237587_35_36.mp4",
   "clip_start": 354.78,
-  "clip_len": 26.11
+  "clip_len": 26.11,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -2116,11 +2211,13 @@
   "b_deleted": false,
   "a_scored": false,
   "b_scored": true,
-  "klass": "only the SECOND half scored: the first holds a rally with no winner",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/f3237587_62_63.mp4",
   "full": "full/f3237587_62_63.mp4",
   "clip_start": 582.58,
-  "clip_len": 25.01
+  "clip_len": 25.01,
+  "route": "end-on",
+  "klass_real": "only the SECOND half scored: the first holds a rally with no winner"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -2148,11 +2245,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/f3237587_65_66.mp4",
   "full": "full/f3237587_65_66.mp4",
   "clip_start": 609.09,
-  "clip_len": 23.91
+  "clip_len": 23.91,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -2180,11 +2279,13 @@
   "b_deleted": false,
   "a_scored": true,
   "b_scored": true,
-  "klass": "both halves scored: the split was right",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/f3237587_70_71.mp4",
   "full": "full/f3237587_70_71.mp4",
   "clip_start": 653.57,
-  "clip_len": 23.11
+  "clip_len": 23.11,
+  "route": "end-on",
+  "klass_real": "both halves scored: the split was right"
  },
  {
   "mid": "f3237587-2aec-4267-99c8-b20c4e37386d",
@@ -2212,11 +2313,13 @@
   "b_deleted": true,
   "a_scored": true,
   "b_scored": false,
-  "klass": "only the first half scored, second deleted: the second was junk",
+  "klass": "cut by the end-on assembler, not by this rule",
   "clip": "clips/f3237587_75_76.mp4",
   "full": "full/f3237587_75_76.mp4",
   "clip_start": 705.59,
-  "clip_len": 27.68
+  "clip_len": 27.68,
+  "route": "end-on",
+  "klass_real": "only the first half scored, second deleted: the second was junk"
  },
  {
   "mid": "840b4635-7791-4538-b722-9cd17ae6ed34",
@@ -2248,7 +2351,8 @@
   "clip": "clips/840b4635_5_6.mp4",
   "full": "full/840b4635_5_6.mp4",
   "clip_start": 50.56,
-  "clip_len": 26.11
+  "clip_len": 26.11,
+  "route": "serve-anchored"
  },
  {
   "mid": "5a6d1a61-c250-48cf-9a18-64548fc61e04",
@@ -2280,7 +2384,8 @@
   "clip": "clips/5a6d1a61_3_4.mp4",
   "full": "full/5a6d1a61_3_4.mp4",
   "clip_start": 56.37,
-  "clip_len": 28.8
+  "clip_len": 28.8,
+  "route": "serve-anchored"
  },
  {
   "mid": "5a6d1a61-c250-48cf-9a18-64548fc61e04",
@@ -2312,7 +2417,8 @@
   "clip": "clips/5a6d1a61_4_5.mp4",
   "full": "full/5a6d1a61_4_5.mp4",
   "clip_start": 64.47,
-  "clip_len": 40.7
+  "clip_len": 40.7,
+  "route": "serve-anchored"
  },
  {
   "mid": "5a6d1a61-c250-48cf-9a18-64548fc61e04",
@@ -2344,7 +2450,8 @@
   "clip": "clips/5a6d1a61_8_9.mp4",
   "full": "full/5a6d1a61_8_9.mp4",
   "clip_start": 121.37,
-  "clip_len": 25.3
+  "clip_len": 25.3,
+  "route": "serve-anchored"
  },
  {
   "mid": "5a6d1a61-c250-48cf-9a18-64548fc61e04",
@@ -2376,7 +2483,8 @@
   "clip": "clips/5a6d1a61_10_11.mp4",
   "full": "full/5a6d1a61_10_11.mp4",
   "clip_start": 149.04,
-  "clip_len": 41.63
+  "clip_len": 41.63,
+  "route": "serve-anchored"
  },
  {
   "mid": "5a6d1a61-c250-48cf-9a18-64548fc61e04",
@@ -2408,7 +2516,8 @@
   "clip": "clips/5a6d1a61_11_12.mp4",
   "full": "full/5a6d1a61_11_12.mp4",
   "clip_start": 159.34,
-  "clip_len": 35.03
+  "clip_len": 35.03,
+  "route": "serve-anchored"
  },
  {
   "mid": "5a6d1a61-c250-48cf-9a18-64548fc61e04",
@@ -2440,7 +2549,8 @@
   "clip": "clips/5a6d1a61_21_22.mp4",
   "full": "full/5a6d1a61_21_22.mp4",
   "clip_start": 305.47,
-  "clip_len": 30.64
+  "clip_len": 30.64,
+  "route": "serve-anchored"
  },
  {
   "mid": "5a6d1a61-c250-48cf-9a18-64548fc61e04",
@@ -2472,7 +2582,8 @@
   "clip": "clips/5a6d1a61_22_23.mp4",
   "full": "full/5a6d1a61_22_23.mp4",
   "clip_start": 319.11,
-  "clip_len": 34.07
+  "clip_len": 34.07,
+  "route": "serve-anchored"
  },
  {
   "mid": "5a6d1a61-c250-48cf-9a18-64548fc61e04",
@@ -2501,7 +2612,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/5a6d1a61_46_47.mp4"
+  "clip": "clips/5a6d1a61_46_47.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "5a6d1a61-c250-48cf-9a18-64548fc61e04",
@@ -2530,7 +2642,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/5a6d1a61_49_50.mp4"
+  "clip": "clips/5a6d1a61_49_50.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "5a6d1a61-c250-48cf-9a18-64548fc61e04",
@@ -2559,7 +2672,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/5a6d1a61_56_57.mp4"
+  "clip": "clips/5a6d1a61_56_57.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "5a6d1a61-c250-48cf-9a18-64548fc61e04",
@@ -2588,7 +2702,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/5a6d1a61_62_63.mp4"
+  "clip": "clips/5a6d1a61_62_63.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "dd66043d-9b99-48e0-bf81-bd20fb9c9926",
@@ -2617,7 +2732,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/dd66043d_61_62.mp4"
+  "clip": "clips/dd66043d_61_62.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "dd66043d-9b99-48e0-bf81-bd20fb9c9926",
@@ -2646,7 +2762,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/dd66043d_73_74.mp4"
+  "clip": "clips/dd66043d_73_74.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "dd66043d-9b99-48e0-bf81-bd20fb9c9926",
@@ -2675,7 +2792,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/dd66043d_74_75.mp4"
+  "clip": "clips/dd66043d_74_75.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "dd66043d-9b99-48e0-bf81-bd20fb9c9926",
@@ -2704,7 +2822,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/dd66043d_91_92.mp4"
+  "clip": "clips/dd66043d_91_92.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "dd66043d-9b99-48e0-bf81-bd20fb9c9926",
@@ -2733,7 +2852,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/dd66043d_99_100.mp4"
+  "clip": "clips/dd66043d_99_100.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "9ef09000-c9ef-4ba5-9ecb-92f40ceb584b",
@@ -2762,7 +2882,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/9ef09000_22_23.mp4"
+  "clip": "clips/9ef09000_22_23.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "9ef09000-c9ef-4ba5-9ecb-92f40ceb584b",
@@ -2791,7 +2912,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/9ef09000_33_34.mp4"
+  "clip": "clips/9ef09000_33_34.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "9ef09000-c9ef-4ba5-9ecb-92f40ceb584b",
@@ -2820,7 +2942,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/9ef09000_49_50.mp4"
+  "clip": "clips/9ef09000_49_50.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "9ef09000-c9ef-4ba5-9ecb-92f40ceb584b",
@@ -2849,7 +2972,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/9ef09000_53_54.mp4"
+  "clip": "clips/9ef09000_53_54.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "9ef09000-c9ef-4ba5-9ecb-92f40ceb584b",
@@ -2878,7 +3002,8 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/9ef09000_58_59.mp4"
+  "clip": "clips/9ef09000_58_59.mp4",
+  "route": "serve-anchored"
  },
  {
   "mid": "9ef09000-c9ef-4ba5-9ecb-92f40ceb584b",
@@ -2907,6 +3032,7 @@
   "a_scored": false,
   "b_scored": false,
   "klass": "neither half scored",
-  "clip": "clips/9ef09000_66_67.mp4"
+  "clip": "clips/9ef09000_66_67.mp4",
+  "route": "serve-anchored"
  }
 ]

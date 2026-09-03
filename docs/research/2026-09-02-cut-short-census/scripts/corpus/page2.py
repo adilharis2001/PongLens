@@ -12,12 +12,14 @@ BAD = "only the SECOND half scored: the first holds a rally with no winner"
 JUNK = "only the first half scored, second deleted: the second was junk"
 AMB = "only the FIRST half scored, second kept but unscored"
 NONE = "neither half scored"
+ENDON = "cut by the end-on assembler, not by this rule"
 KEY = {BAD: ("cut", "A rally cut in half", "var(--gone)"),
        GOOD: ("right", "Two points, correctly separated", "var(--found)"),
        AMB: ("amb", "First half scored, second left alone", "var(--warm)"),
        JUNK: ("junk", "A point and a leftover", "var(--toss)"),
-       NONE: ("none", "Neither half scored", "var(--muted)")}
-ORDER = [BAD, GOOD, AMB, JUNK, NONE]
+       NONE: ("none", "Neither half scored", "var(--muted)"),
+       ENDON: ("endon", "A different assembler made this cut", "var(--ring)")}
+ORDER = [BAD, GOOD, AMB, JUNK, NONE, ENDON]
 shown = [s for s in splits if s.get("full") and f"{s['mid'][:8]}-{s['a_idx']}" in OV]
 counts = Counter(s["klass"] for s in shown)
 
@@ -117,11 +119,13 @@ for s in sorted(shown, key=lambda s: (ORDER.index(s["klass"]), s["owner"], s["cr
     </div>
     {table_svg(d)}
   </div>
+  <p class="ask">Watching the whole span above: was that <b>one rally</b> or <b>two</b>?</p>
   <div class="verdict">
-    <button data-v="cut" aria-pressed="false">One rally, cut</button>
-    <button data-v="two" aria-pressed="false">Two points</button>
+    <button data-v="two" aria-pressed="false">Two rallies &mdash; the cut was right</button>
+    <button data-v="cut" aria-pressed="false">One rally &mdash; it should not have been cut</button>
     <button data-v="unsure" aria-pressed="false">Can't tell</button>
   </div>
+  <button class="btn flag" aria-pressed="false">Warm-up, not a point</button>
 </article>''')
 
 chips = "".join(
@@ -151,7 +155,17 @@ doc = f'''<title>The twenty-second cap</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>{css}
 .note a {{ color: var(--ring); }}
-.verdict {{ grid-template-columns: 1fr 1fr 1fr; }}
+.verdict {{ grid-template-columns: 1.15fr 1.35fr .7fr; }}
+.verdict button[aria-pressed="true"] {{ font-weight: 650; color: var(--ground); }}
+.verdict button[aria-pressed="true"]::before {{ content: "✓ "; }}
+.verdict button[data-v="two"][aria-pressed="true"] {{ background: var(--found); border-color: var(--found); }}
+.verdict button[data-v="cut"][aria-pressed="true"] {{ background: var(--gone); border-color: var(--gone); }}
+.verdict button[data-v="unsure"][aria-pressed="true"] {{ background: var(--muted); border-color: var(--muted); }}
+.card[data-verdict="two"] {{ border-left: 4px solid var(--found); }}
+.card[data-verdict="cut"] {{ border-left: 4px solid var(--gone); }}
+.card[data-verdict="unsure"] {{ border-left: 4px solid var(--muted); }}
+.ask {{ margin: 2px 0 8px; font-size: 13.5px; color: var(--ink); }}
+.ask b {{ font-weight: 650; }}
 .tag {{ background: color-mix(in srgb, var(--c) 16%, transparent); color: var(--c); }}
 .facts {{ margin: 0 0 12px; font-size: 13.5px; color: var(--muted); line-height: 1.55; }}
 .facts b {{ color: var(--ink); font-variant-numeric: tabular-nums; }}
@@ -174,6 +188,9 @@ svg.tbl {{ width: 88px; flex: none; }}
 .k.red {{ background: #f05050; }} .k.grn {{ background: var(--found); }} .k.org {{ background: var(--gone); }}
 .k.line {{ background: var(--ring); }} .k.tri {{ background: var(--ink); }}
 .toggle {{ font-size: 12px; padding: 4px 11px; }}
+.flag {{ font-size: 12px; padding: 4px 11px; margin-top: 8px; }}
+.flag[aria-pressed="true"] {{ background: var(--warm); color: var(--ground);
+                              border-color: var(--warm); }}
 .bar {{ position: sticky; top: 0; z-index: 5; background: var(--ground); padding: 12px 0; margin: 0 0 22px;
         border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }}
 .chip {{ font: inherit; font-size: 13px; color: var(--ink); background: var(--surface);
@@ -213,9 +230,34 @@ and your own winner taps; click it to jump. The small table beside it plots
 where each bounce landed in metres.
 </p>
 <p class="lede">
-I sorted these by where your winner taps fell, which is an inference about your
-intent, not a fact. Disagree freely; the buttons are yours and
-<strong>Copy my marks</strong> hands them back to me.
+<strong>A correction, 3 September.</strong> 29 of these boundaries turned out not to
+be this rule's work at all. On a match filmed nearly end-on the pipeline throws the
+twenty-second rule's output away and rebuilds the cards from player motion with a
+different assembler that has no such rule. Those 29 are filed under
+<em>a different assembler made this cut</em> and are worth watching, but they say
+nothing about the twenty-second cap. On the 68 that really are its work, and with
+your taps counted properly, it separates two points correctly 35 times and cuts a
+live rally twice.
+</p>
+<p class="lede">
+<strong>What I am asking of each one.</strong> The pipeline believed this
+twenty-plus-second span held two points and cut it in two. Watch the whole
+thing and tell me whether it did: if the players really did finish a point and
+start another, the cut was right; if it was a single long rally the whole way
+through, it should never have been cut. That is the only question, and the two
+buttons under each clip say exactly that.
+</p>
+<p class="lede">
+Some of these are knock-ups rather than points. A warm-up is still one
+continuous rally and should not be cut either, so answer the same question for
+it, and press <strong>Warm-up, not a point</strong> as well &mdash; that tag is
+separate and does not replace your answer.
+</p>
+<p class="lede">
+The label at the top of each card is my own reading, worked out from which side
+of the cut your winner taps fell on. It is an inference about your intent, not
+a fact, so where you disagree just press the other button and
+<strong>Copy my marks</strong> hands your answers back to me.
 </p>
 
 <div class="two">
@@ -244,7 +286,7 @@ intent, not a fact. Disagree freely; the buttons are yours and
 
 <div class="bar">
   {chips}
-  <span class="barspace"><span id="n-shown"></span><span id="pos">&ndash;</span>
+  <span class="barspace"><span id="n-shown"></span><span id="n-done"></span><span id="pos">&ndash;</span>
     <button class="btn" id="copy">Copy my marks</button><span id="copied"></span></span>
 </div>
 <textarea id="fallback" hidden rows="8" aria-label="Results to copy"></textarea>
