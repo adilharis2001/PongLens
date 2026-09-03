@@ -45,9 +45,10 @@ test("the research catalog contains every current research page", () => {
         title: "Table calibration holdout",
         href: "/research/table-calibration/holdout",
       },
+      { title: "Theme analysis", href: "/research/themes" },
     ],
   );
-  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 19);
+  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 20);
   for (const page of RESEARCH_PAGES) {
     assert.ok(page.category.length > 0);
     assert.ok(page.description.length > 0);

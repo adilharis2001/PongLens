@@ -160,6 +160,14 @@ export const RESEARCH_PAGES = [
     href: "/research/table-calibration/holdout",
     accent: "cyan",
   },
+  {
+    title: "Theme analysis",
+    category: "Model evaluation",
+    description:
+      "Every card noted under a theme while reviewing uploads, gathered across matches with the footage, so a remark made eleven separate times can be watched as one thing.",
+    href: "/research/themes",
+    accent: "magenta",
+  },
 ] as const satisfies readonly ResearchPage[];
 
 export function hasResearchDashboardAccess(
