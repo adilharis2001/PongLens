@@ -234,10 +234,7 @@ struct CoachEntryScreen: View {
                             HStack(alignment: .top, spacing: 8) {
                                 Circle().fill(PL.text600).frame(width: 4, height: 4)
                                     .padding(.top, 7)
-                                Text(point)
-                                    .font(.plBody)
-                                    .foregroundStyle(PL.text200)
-                                    .lineSpacing(3)
+                                EntryText(text: point)
                                 Spacer(minLength: 0)
                             }
                         }
@@ -249,10 +246,11 @@ struct CoachEntryScreen: View {
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
             } else {
-                Text(lesson?.transcript ?? "")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text200)
-                    .lineSpacing(3)
+                EntryText(text: lesson?.transcript ?? "")
+            }
+
+            if let lesson, lesson.imagePath != nil {
+                EntryPhotoView(lessonId: lesson.id)
             }
 
             HStack(spacing: 16) {
@@ -272,10 +270,9 @@ struct CoachEntryScreen: View {
             .buttonStyle(.plain)
 
             if transcriptOpen {
-                Text(lesson?.transcript ?? "")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text400)
-                    .lineSpacing(3)
+                EntryText(
+                    text: lesson?.transcript ?? "", font: .plCaption, color: PL.text400
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

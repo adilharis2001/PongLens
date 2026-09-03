@@ -5,6 +5,12 @@ import SwiftUI
 /// form when the chooser did not already say who; recording opens the
 /// same full-screen recorder a player's lesson uses, pointed at the
 /// coach's journal instead of their own.
+///
+/// The written half is no longer only a lesson somebody typed out. A coach
+/// can dictate it, attach a photo, and paste a link the student can tap,
+/// so an entry can be a drill list or a video to watch as easily as a
+/// write-up. All three pieces are the player composer's own, shared rather
+/// than copied (`EntryComposerParts.swift`).
 struct CoachEntryComposer: View {
     let request: CoachComposerRequest
 
@@ -17,6 +23,8 @@ struct CoachEntryComposer: View {
     @State private var summarize = true
     @State private var saving = false
     @State private var errorMessage: String?
+    @State private var dictation = Dictation()
+    @State private var photo = EntryPhotoDraft()
 
     private var student: CoachStudentRow? {
         studentId.flatMap { workspace.student($0) }
@@ -42,12 +50,16 @@ struct CoachEntryComposer: View {
         PLSheetScaffold(
             title: "New entry",
             doneLabel: saving ? "Saving…" : "Save",
+            // Saving while the words are still coming back, or while the
+            // photo is still being checked, would quietly drop one of them.
             doneDisabled: saving || student == nil
+                || dictation.isBusy || photo.isBusy
                 || draft.trimmingCharacters(in: .whitespaces).isEmpty,
             onDone: {
                 Task {
                     guard let student else { return }
                     if await save(student: student, transcript: draft, summarize: summarize) {
+                        photo.release()
                         dismiss()
                     }
                 }
@@ -71,14 +83,23 @@ struct CoachEntryComposer: View {
                 }
 
                 Section {
-                    Toggle("Condense and summarize", isOn: $summarize)
+                    DictationRow(dictation: dictation, disabled: saving) { words in
+                        append(words)
+                    }
+                    EntryPhotoRow(draft: photo, disabled: saving || dictation.isBusy)
                 } footer: {
-                    Text("Summarizing reads the whole entry through and writes it up as short points, so saving takes a few seconds longer.")
+                    Text("Speak it instead of typing, or add a photo. Any web address you write becomes a link.")
                 }
 
-                if let errorMessage {
+                Section {
+                    Toggle("Improve with AI", isOn: $summarize)
+                } footer: {
+                    Text("Your rough notes become clear, simple points. You can edit them afterwards.")
+                }
+
+                if let line = errorMessage ?? dictation.errorMessage ?? photo.errorMessage {
                     Section {
-                        Text(errorMessage)
+                        Text(line)
                             .font(.plBody)
                             .foregroundStyle(PL.dangerText)
                     }
@@ -86,6 +107,18 @@ struct CoachEntryComposer: View {
             }
             .plKeyboardDismiss()
         }
+        .onDisappear {
+            // Swiped away mid-recording, or with a photo attached to an
+            // entry that will never exist.
+            dictation.cancel()
+            photo.discard()
+        }
+    }
+
+    /// Add words to the draft without stepping on what is already there.
+    private func append(_ words: String) {
+        let existing = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        draft = existing.isEmpty ? words : existing + "\n\n" + words
     }
 
     // MARK: - Recording
@@ -131,7 +164,8 @@ struct CoachEntryComposer: View {
         saving = true
         errorMessage = nil
         let entry = await workspace.createEntry(
-            coachId: uid, studentId: student.id, transcript: words, summarize: summarize
+            coachId: uid, studentId: student.id, transcript: words,
+            summarize: summarize, imagePath: photo.path
         )
         saving = false
         if entry == nil {

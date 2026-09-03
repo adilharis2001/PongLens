@@ -5,6 +5,14 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { entryTitle as entryTitleOf, matchLabel } from "@/lib/coach/entryView";
+import { DictateMic, useDictation } from "@/components/dictation";
+import {
+  AddPhotoButton,
+  EntryImage,
+  PhotoPreview,
+  useEntryPhoto,
+} from "@/components/entryPhoto";
+import { LinkedText } from "@/components/LinkedText";
 import type { CoachStudentRow } from "../StudentsView";
 
 /**
@@ -33,6 +41,7 @@ interface LessonRow {
   takeaways: Takeaways | null;
   status: string;
   match_id: string | null;
+  image_path: string | null;
   created_at: string;
 }
 
@@ -83,7 +92,9 @@ export function StudentView({
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const [improve, setImprove] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [composerError, setComposerError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mergeBusy, setMergeBusy] = useState(false);
@@ -104,7 +115,9 @@ export function StudentView({
         .order("created_at", { ascending: false }),
       supabase
         .from("lessons")
-        .select("id, transcript, takeaways, status, match_id, created_at")
+        .select(
+          "id, transcript, takeaways, status, match_id, image_path, created_at",
+        )
         .eq("kind", "coach"),
       supabase
         .from("coach_students")
@@ -137,6 +150,31 @@ export function StudentView({
     setTimeout(() => setNotice(null), 2500);
   };
 
+  // The same three pieces the player's journal composer uses, shared
+  // rather than copied: dictation, one moderated photo, and the improve
+  // switch this composer did not have at all until now. It always
+  // improved, silently, while the app asked.
+  const appendToDraft = useCallback((words: string) => {
+    setDraft((d) => (d.trim() ? `${d.trim()}\n\n${words}` : words));
+  }, []);
+  const dictation = useDictation({
+    onText: appendToDraft,
+    onError: setComposerError,
+  });
+  const {
+    photo,
+    attach: attachPhoto,
+    discard: discardPhoto,
+    release: releasePhoto,
+  } = useEntryPhoto(setComposerError);
+
+  const closeComposer = () => {
+    dictation.cancel();
+    discardPhoto();
+    setComposerError(null);
+    setComposerOpen(false);
+  };
+
   /** A student who joined from the general invite link, folded into the
    *  row the coach had already typed: entries move, the typed name stays,
    *  the account binds to it (161). */
@@ -160,11 +198,17 @@ export function StudentView({
     const words = draft.trim();
     if (!words) return;
     setSaving(true);
+    setComposerError(null);
     try {
       const res = await fetch("/api/lesson", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript: words, kind: "coach" }),
+        body: JSON.stringify({
+          transcript: words,
+          kind: "coach",
+          summarize: improve,
+          imagePath: photo?.path ?? null,
+        }),
       });
       const data = res.ok ? await res.json() : null;
       if (!data?.id) throw new Error("no id");
@@ -184,6 +228,9 @@ export function StudentView({
         throw error;
       }
       setDraft("");
+      setImprove(true);
+      // The entry owns the photo now, so let go of it without deleting.
+      releasePhoto();
       setComposerOpen(false);
       void load();
     } catch {
@@ -404,7 +451,9 @@ export function StudentView({
 
       <button
         type="button"
-        onClick={() => setComposerOpen((v) => !v)}
+        onClick={() =>
+          composerOpen ? closeComposer() : setComposerOpen(true)
+        }
         className="glow-cta mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink sm:w-auto sm:py-2"
       >
         <svg
@@ -426,27 +475,77 @@ export function StudentView({
 
       {composerOpen && (
         <div className="mt-4 rounded-2xl border border-edge bg-surface p-4">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            rows={6}
-            placeholder="What you worked on, what to fix, what comes next."
-            className="w-full resize-y rounded-xl border border-edge bg-ink/40 px-3 py-2 text-sm leading-relaxed text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
-          />
+          <div className="relative">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={6}
+              placeholder="What you worked on, what to fix, what comes next."
+              aria-label="Entry text"
+              className="w-full resize-y rounded-xl border border-edge bg-ink/40 px-3 py-2 pb-11 text-sm leading-relaxed text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60"
+            />
+            {/* the mic lives where the words land */}
+            <DictateMic
+              state={dictation.state}
+              onStart={() => void dictation.start()}
+              onStop={dictation.stop}
+            />
+          </div>
+          {dictation.state === "writing" && (
+            <p className="mt-2 animate-pulse text-xs text-zinc-400">
+              Writing that down…
+            </p>
+          )}
+
+          <div className="mt-2.5">
+            <AddPhotoButton
+              disabled={!!photo}
+              onPick={(file) => void attachPhoto(file)}
+            />
+          </div>
+          {photo && <PhotoPreview photo={photo} onRemove={discardPhoto} />}
+
+          <div className="mt-3">
+            <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-300">
+              <input
+                type="checkbox"
+                checked={improve}
+                onChange={(e) => setImprove(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-cyan-glow,#22d3ee)]"
+              />
+              <span>
+                Improve with AI
+                <span className="mt-0.5 block text-xs text-zinc-500">
+                  Your rough notes become clear, simple points. You can edit
+                  them afterwards.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {composerError && (
+            <p className="mt-2 text-xs text-red-400">{composerError}</p>
+          )}
+
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <button
               type="button"
               onClick={() => void saveEntry()}
-              disabled={saving || !draft.trim()}
+              disabled={
+                saving ||
+                !draft.trim() ||
+                photo?.checking === true ||
+                dictation.state !== "idle"
+              }
               className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-60 sm:w-auto sm:py-2"
             >
-              {saving ? "Saving…" : "Save entry"}
+              {saving
+                ? improve
+                  ? "Reading it through…"
+                  : "Saving…"
+                : "Save entry"}
             </button>
-            <button
-              type="button"
-              onClick={() => setComposerOpen(false)}
-              className={pill}
-            >
+            <button type="button" onClick={closeComposer} className={pill}>
               Cancel
             </button>
           </div>
@@ -609,7 +708,7 @@ export function StudentView({
                                 >
                                   <span className="mt-[0.55rem] h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
                                   <span className="leading-relaxed">
-                                    {point}
+                                    <LinkedText text={point} />
                                   </span>
                                 </li>
                               ))}
@@ -621,15 +720,16 @@ export function StudentView({
                             Transcript
                           </summary>
                           <p className="mt-2 whitespace-pre-wrap leading-relaxed text-zinc-300">
-                            {lesson?.transcript}
+                            <LinkedText text={lesson?.transcript ?? ""} />
                           </p>
                         </details>
                       </>
                     ) : (
                       <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
-                        {lesson?.transcript}
+                        <LinkedText text={lesson?.transcript ?? ""} />
                       </p>
                     )}
+                    {lesson?.image_path && <EntryImage lessonId={lesson.id} />}
                   </div>
                 )}
                 {(canShare || expanded) && (

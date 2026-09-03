@@ -112,22 +112,18 @@ struct CoachSharedEntrySheet: View {
                                         Circle().fill(PL.text600)
                                             .frame(width: 4, height: 4)
                                             .padding(.top, 7)
-                                        Text(point)
-                                            .font(.plBody)
-                                            .foregroundStyle(PL.text200)
-                                            .lineSpacing(3)
+                                        EntryText(text: point)
                                         Spacer(minLength: 0)
                                     }
                                 }
                             }
                         }
                         DisclosureGroup {
-                            Text(entry.transcript)
-                                .font(.plBody)
-                                .foregroundStyle(PL.text300)
-                                .lineSpacing(4)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.top, 8)
+                            EntryText(
+                                text: entry.transcript, color: PL.text300, lineSpacing: 4
+                            )
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 8)
                         } label: {
                             Text("Transcript")
                                 .font(.plRowTitle)
@@ -135,11 +131,12 @@ struct CoachSharedEntrySheet: View {
                         }
                         .tint(PL.text400)
                     } else {
-                        Text(entry.transcript)
-                            .font(.plBody)
-                            .foregroundStyle(PL.text200)
-                            .lineSpacing(4)
+                        EntryText(text: entry.transcript, lineSpacing: 4)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    if entry.imagePath != nil {
+                        EntryPhotoView(lessonId: entry.lessonId)
                     }
 
                     if linkedMatch != nil {

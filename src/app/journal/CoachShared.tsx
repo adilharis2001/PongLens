@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { EntryImage } from "@/components/entryPhoto";
+import { LinkedText } from "@/components/LinkedText";
 
 /**
  * Entries a coach shared with this player. Live documents: the RPC reads
@@ -16,11 +18,15 @@ interface Takeaways {
 
 export interface SharedEntry {
   entry_id: string;
+  /** The coach's lesson row, which is what signs the photo (163). */
+  lesson_id: string;
   coach_id: string;
   coach_name: string;
   transcript: string;
   takeaways: Takeaways | null;
   entry_kind: string;
+  /** Pinned to the coach's own folder by the RPC; null when there is none. */
+  image_path: string | null;
   match_id: string | null;
   shared_at: string;
   updated_at: string;
@@ -85,7 +91,9 @@ export function SharedEntryCard({ entry }: { entry: SharedEntry }) {
                     {theme.points.map((point) => (
                       <li key={point} className="flex gap-2 text-sm text-zinc-200">
                         <span className="mt-[0.55rem] h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
-                        <span className="leading-relaxed">{point}</span>
+                        <span className="leading-relaxed">
+                          <LinkedText text={point} />
+                        </span>
                       </li>
                     ))}
                   </ul>
@@ -96,15 +104,16 @@ export function SharedEntryCard({ entry }: { entry: SharedEntry }) {
                   Transcript
                 </summary>
                 <p className="mt-2 whitespace-pre-wrap leading-relaxed text-zinc-300">
-                  {entry.transcript}
+                  <LinkedText text={entry.transcript} />
                 </p>
               </details>
             </>
           ) : (
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
-              {entry.transcript}
+              <LinkedText text={entry.transcript} />
             </p>
           )}
+          {entry.image_path && <EntryImage lessonId={entry.lesson_id} />}
           <p className="text-xs text-zinc-500">
             Something wrong with this?{" "}
             <a

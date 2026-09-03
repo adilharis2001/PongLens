@@ -1132,10 +1132,7 @@ struct LessonCardView: View {
                             HStack(alignment: .top, spacing: 8) {
                                 Circle().fill(PL.text600).frame(width: 4, height: 4)
                                     .padding(.top, 7)
-                                Text(point)
-                                    .font(.plBody)
-                                    .foregroundStyle(PL.text200)
-                                    .lineSpacing(3)
+                                EntryText(text: point)
                                 Spacer(minLength: 0)
                                 Button {
                                     Task {
@@ -1159,10 +1156,16 @@ struct LessonCardView: View {
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
             } else {
-                Text(lesson.transcript)
-                    .font(.plBody)
-                    .foregroundStyle(PL.text200)
+                EntryText(text: lesson.transcript)
                     .lineLimit(6)
+            }
+
+            // The photo the entry was saved with. It has been on the web
+            // since the journal grew photos and invisible here the whole
+            // time, which is the kind of gap only somebody using both ever
+            // finds.
+            if lesson.imagePath != nil {
+                EntryPhotoView(lessonId: lesson.id)
             }
 
             HStack(spacing: 16) {
@@ -1206,10 +1209,7 @@ struct LessonCardView: View {
             }
 
             if transcriptOpen {
-                Text(lesson.transcript)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text400)
-                    .lineSpacing(3)
+                EntryText(text: lesson.transcript, font: .plCaption, color: PL.text400)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1436,15 +1436,11 @@ struct JournalComposer: View {
     @State private var saving = false
     @State private var errorMessage: String?
 
-    // Dictation, the point-note composer's mic flow: record, transcribe
-    // via /api/transcribe, drop the words into the draft. Entries keep
-    // only the text, so the audio itself is thrown away.
-    @State private var recState: RecState = .idle
-    @State private var elapsed = 0
-    @State private var recorder: AVAudioRecorder?
-    @State private var timer: Timer?
-
-    enum RecState { case idle, recording, transcribing }
+    // Dictation and one attached photo, both shared with the coach's
+    // entry composer (`EntryComposerParts.swift`). Entries keep only the
+    // text of a dictation, so the audio itself is thrown away.
+    @State private var dictation = Dictation()
+    @State private var photo = EntryPhotoDraft()
 
     // Scan pages: photographs of a paper notebook, read into the same
     // draft field the dictation writes to. The photos are never stored —
@@ -1483,7 +1479,7 @@ struct JournalComposer: View {
         PLSheetScaffold(
             title: title,
             doneLabel: saving ? "Saving…" : "Save",
-            doneDisabled: saving || recState != .idle || scanning
+            doneDisabled: saving || dictation.isBusy || photo.isBusy || scanning
                 || body_.trimmingCharacters(in: .whitespaces).isEmpty,
             onDone: { Task { await save() } }
         ) {
@@ -1505,22 +1501,25 @@ struct JournalComposer: View {
                 }
 
                 Section {
-                    dictationRow
+                    DictationRow(dictation: dictation, disabled: saving || scanning) { words in
+                        append(words)
+                    }
                     scanRow
+                    EntryPhotoRow(draft: photo, disabled: saving || scanning || dictation.isBusy)
                 } footer: {
-                    Text(scanNote ?? "Speak it, or photograph pages from a paper notebook. Both come back as text you can edit.")
+                    Text(scanNote ?? "Speak it, or photograph pages from a paper notebook; both come back as text you can edit. A photo you add is kept with the entry.")
                         .foregroundStyle(scanNote == nil ? PL.text500 : PL.warningText)
                 }
 
                 Section {
-                    Toggle("Condense and summarize", isOn: $summarize)
+                    Toggle("Improve with AI", isOn: $summarize)
                 } footer: {
-                    Text("Summarizing reads the whole entry through, so saving takes a few seconds longer.")
+                    Text("Your rough notes become clear, simple points. You can edit them afterwards.")
                 }
 
-                if let errorMessage {
+                if let line = errorMessage ?? dictation.errorMessage ?? photo.errorMessage {
                     Section {
-                        Text(errorMessage)
+                        Text(line)
                             .font(.plBody)
                             .foregroundStyle(PL.dangerText)
                     }
@@ -1560,14 +1559,10 @@ struct JournalComposer: View {
             }
         }
         .onDisappear {
-            // Swiping the sheet away mid-recording: stop the hardware,
-            // skip the transcription nobody is waiting for.
-            timer?.invalidate()
-            if let recorder {
-                recorder.stop()
-                try? FileManager.default.removeItem(at: recorder.url)
-                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            }
+            // Swiped away mid-recording, or with a photo attached to an
+            // entry that will never exist.
+            dictation.cancel()
+            photo.discard()
         }
     }
 
@@ -1604,11 +1599,11 @@ struct JournalComposer: View {
             } label: {
                 scanLabel
             }
-            .disabled(saving || recState != .idle)
+            .disabled(saving || dictation.isBusy)
         } else {
             // No camera to offer, so nothing to ask about.
             Button { libraryOpen = true } label: { scanLabel }
-                .disabled(saving || recState != .idle)
+                .disabled(saving || dictation.isBusy)
         }
     }
 
@@ -1673,109 +1668,6 @@ struct JournalComposer: View {
         body_ = existing.isEmpty ? text : existing + "\n\n" + text
     }
 
-    /// Dictation as a row rather than a floating circle. Inside a form the
-    /// thing people press is a row, and the circle had to invent its own
-    /// recording banner beside it; a row can just say what it is doing.
-    private var dictationRow: some View {
-        Button {
-            if recState == .recording {
-                stopRecording()
-            } else if recState == .idle {
-                Task { await startRecording() }
-            }
-        } label: {
-            HStack(spacing: 12) {
-                if recState == .transcribing {
-                    ProgressView().tint(PL.cyan)
-                    Text("Writing it down…")
-                } else {
-                    Image(systemName: recState == .recording ? "stop.fill" : "mic")
-                        .foregroundStyle(recState == .recording ? PL.dangerText : PL.cyan)
-                    Text(recState == .recording ? "Stop and write it down" : "Dictate it")
-                }
-                Spacer()
-                if recState == .recording {
-                    Text(String(format: "%d:%02d", elapsed / 60, elapsed % 60))
-                        .monospacedDigit()
-                        .foregroundStyle(PL.text400)
-                }
-            }
-        }
-        .disabled(recState == .transcribing || saving)
-    }
-
-    // MARK: - Dictation
-
-    private func startRecording() async {
-        errorMessage = nil
-        let granted = await AVAudioApplication.requestRecordPermission()
-        guard granted else {
-            errorMessage = "Microphone access was blocked. Check Settings."
-            return
-        }
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
-            try session.setActive(true)
-        } catch {
-            errorMessage = "Couldn't start recording. Try again."
-            return
-        }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("journal-\(UUID().uuidString).m4a")
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 44_100,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-        ]
-        do {
-            let rec = try AVAudioRecorder(url: url, settings: settings)
-            rec.record()
-            recorder = rec
-            elapsed = 0
-            recState = .recording
-            timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-                Task { @MainActor in elapsed += 1 }
-            }
-        } catch {
-            errorMessage = "Couldn't start recording. Try again."
-        }
-    }
-
-    private func stopRecording() {
-        timer?.invalidate()
-        timer = nil
-        guard let recorder else {
-            recState = .idle
-            return
-        }
-        let url = recorder.url
-        recorder.stop()
-        self.recorder = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        recState = .transcribing
-        Task {
-            defer { recState = .idle }
-            guard let data = try? Data(contentsOf: url), !data.isEmpty else {
-                errorMessage = "Nothing was recorded. Try again."
-                return
-            }
-            guard data.count <= 10 * 1024 * 1024 else {
-                errorMessage = "That recording is too long. Break it into shorter takes."
-                return
-            }
-            do {
-                let result = try await NoteMedia.transcribe(audio: data)
-                let transcript = (result.transcript ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                if !transcript.isEmpty { append(transcript) }
-            } catch {
-                errorMessage = "Couldn't transcribe that. Try again."
-            }
-            try? FileManager.default.removeItem(at: url)
-        }
-    }
-
     private func save() async {
         saving = true
         errorMessage = nil
@@ -1784,10 +1676,14 @@ struct JournalComposer: View {
             kind: kind,
             coachName: kind == "lesson" && !coachName.trimmingCharacters(in: .whitespaces).isEmpty
                 ? coachName.trimmingCharacters(in: .whitespaces) : nil,
-            summarize: summarize
+            summarize: summarize,
+            imagePath: photo.path
         )
         saving = false
         if ok {
+            // The entry owns the photo now: let go of it rather than
+            // deleting it on the way out.
+            photo.release()
             onSaved()
             dismiss()
         } else {

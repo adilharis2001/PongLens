@@ -1,46 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { Lesson, Tag } from "@/lib/types";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PointTags } from "@/app/match/[id]/Tags";
 import { ShareEntrySheet } from "./ShareEntrySheet";
+import { EntryImage } from "@/components/entryPhoto";
+import { LinkedText } from "@/components/LinkedText";
 
-/** The entry's attached photo, signed on mount (same pattern as note
- *  images: a photo should just be there, not wait for a tap). */
-function EntryImage({ lessonId }: { lessonId: string }) {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/media-url", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lessonId, image: true }),
-        });
-        const data = res.ok ? await res.json() : null;
-        if (!cancelled && data?.url) setUrl(data.url);
-      } catch {
-        // the entry text stands on its own
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [lessonId]);
-  if (!url) return null;
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={url}
-      alt="Photo attached to this entry"
-      loading="lazy"
-      decoding="async"
-      className="mt-3 max-h-72 w-full rounded-xl border border-edge object-cover"
-    />
-  );
-}
 import type { AddCueResult } from "./WorkingOn";
 
 function shortDateTime(iso: string) {
@@ -209,7 +176,9 @@ export function LessonCard({
                       className="flex gap-2 text-sm leading-relaxed text-zinc-200"
                     >
                       <span className="mt-[0.55rem] h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
-                      <span className="min-w-0 flex-1">{p}</span>
+                      <span className="min-w-0 flex-1">
+                        <LinkedText text={p} />
+                      </span>
                       <button
                         type="button"
                         onClick={() => void fileCue(p)}
@@ -285,7 +254,7 @@ export function LessonCard({
       ) : (
         // Short lesson: no takeaways needed, the text carries itself.
         <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
-          {lesson.transcript}
+          <LinkedText text={lesson.transcript} />
         </p>
       )}
 
@@ -368,7 +337,7 @@ export function LessonCard({
           </div>
           {showTranscript && (
             <p className="mt-2 max-h-72 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-zinc-400">
-              {lesson.transcript}
+              <LinkedText text={lesson.transcript} />
             </p>
           )}
         </div>

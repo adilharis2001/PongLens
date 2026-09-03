@@ -568,7 +568,7 @@ export const guides: Guide[] = [
           "Open Journal and choose New.",
           "Choose Practice for your own work or Lesson for something a coach gave you.",
           "Write, paste, or dictate the entry.",
-          "Add tags and decide whether to keep Condense and summarize selected.",
+          "Add tags and decide whether to keep Improve with AI selected.",
           "Choose Save entry.",
         ],
         images: [
@@ -594,10 +594,10 @@ export const guides: Guide[] = [
         ],
       },
       {
-        heading: "Condense a long entry",
+        heading: "Improve a rough entry",
         paragraphs: [
-          "Condense and summarize is selected by default. For a long entry, PongLens turns the text into grouped takeaways while keeping the original transcript available.",
-          "Clear the checkbox when you want the entry saved exactly as written without a summary.",
+          "Improve with AI is selected by default. Your rough notes come back as clear, simple points grouped under a few headings, and the original text stays available.",
+          "Clear the checkbox when you want the entry saved exactly as written.",
         ],
         images: [
           {
@@ -612,7 +612,7 @@ export const guides: Guide[] = [
         paragraphs: [
           "Working on is the short list at the top of the Journal. Add up to five cues you want to remember during practice or matches. You can type a cue or dictate it.",
           "Select the circle beside a cue when it becomes a habit. The cue moves to History instead of being deleted. Choose Restore if you need it again.",
-          "A summarized lesson has a plus button beside each takeaway. Use it to add that takeaway directly to Working on.",
+          "An entry that came back as points has a plus button beside each one. Use it to add that point directly to Working on.",
         ],
       },
       {
@@ -853,7 +853,7 @@ export const guides: Guide[] = [
         steps: [
           "Switch to coach mode under Profile type in Account, or from the switch at the top if you also play.",
           "Open Students and add a student by name. They do not need PongLens for you to keep notes.",
-          "Write or record an entry after a lesson. PongLens condenses it into a few points.",
+          "Write or record an entry after a lesson. PongLens turns it into a few clear points.",
           "Share the entry when it is ready. It appears in the student’s Journal, and later edits show there too.",
           "Send the student their invite link from their page. Joining from it connects their account. They choose whether you see all their matches or only the ones they share, and you can ask them to change it any time.",
         ],
