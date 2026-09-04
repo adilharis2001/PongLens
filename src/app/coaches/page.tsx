@@ -5,33 +5,34 @@ import Link from "next/link";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { NeonBallHero } from "@/components/anim/NeonBallHero";
-import { AttachFile } from "@/components/anim/coach/AttachFile";
-import { DictateWave } from "@/components/anim/coach/DictateWave";
 import { FindingPoints } from "@/components/anim/coach/FindingPoints";
-import { PayoutRail } from "@/components/anim/coach/PayoutRail";
-import { TemplateStack } from "@/components/anim/coach/TemplateStack";
+import { JournalShare } from "@/components/anim/coach/JournalShare";
+import { LessonRecording } from "@/components/anim/coach/LessonRecording";
+import { StudentJournal } from "@/components/anim/coach/StudentJournal";
+import { StudentRoster } from "@/components/anim/coach/StudentRoster";
 import { TermsDial } from "@/components/anim/coach/TermsDial";
 import { LandingVideo } from "@/components/marketing/LandingVideo";
 import { PhoneFrame } from "@/components/marketing/PhoneFrame";
-import { COACH_CUTS } from "@/lib/videoCuts";
-import { COACH_LENGTH } from "@/lib/videos";
 import {
   WalkthroughBand,
   type Chapter,
 } from "@/components/marketing/WalkthroughBand";
+import { COACH_CUTS } from "@/lib/videoCuts";
+import { COACH_LENGTH } from "@/lib/videos";
+
+const description =
+  "Manage your table tennis students, keep and share lesson notes, record lessons, review their matches, and offer paid match reviews from one coaching workspace.";
 
 export const metadata: Metadata = {
   title: "PongLens for coaches",
-  description:
-    "Offer paid match reviews on footage that is already cut into points. You set the price, the scope and the turnaround.",
+  description,
   alternates: { canonical: "/coaches" },
   openGraph: {
     type: "website",
     url: "https://www.ponglens.com/coaches",
     siteName: "PongLens",
     title: "PongLens for coaches",
-    description:
-      "Offer paid match reviews on footage that is already cut into points. You set the price, the scope and the turnaround.",
+    description,
     images: [
       {
         url: "/img/og.jpg",
@@ -44,18 +45,10 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "PongLens for coaches",
-    description:
-      "Offer paid match reviews on footage that is already cut into points. You set the price, the scope and the turnaround.",
+    description,
     images: ["/img/og.jpg"],
   },
 };
-
-/**
- * The coach-facing landing page. Built to the home page's measurements on
- * purpose: same max-w-6xl column, same section rhythm, same type scale,
- * same accordion and closing band. The screenshots are real captures of
- * the coach side of the product (scripts/demos/shots.mjs, `coach-*`).
- */
 
 const glow = (text: string) => (
   <span className="text-cyan-glow" key={text}>
@@ -63,108 +56,75 @@ const glow = (text: string) => (
   </span>
 );
 
-// The walkthrough band, in the order a coach actually meets the product:
-// set it up, get an order, do the work, get paid.
-//
-// Plain words on purpose. A lot of table tennis coaches read English as a
-// second language, and the first draft of these captions was built out of
-// idiom: "starts the clock", "whose move it is", "watch the words land".
-// Every one of those is a sentence you have to already know English to
-// parse. Short sentences, ordinary verbs, and say the thing itself.
-// Titles are what the coach DOES at that step, in the plainest words the
-// step allows. "The points" and "What they get" were shorter and told a
-// coach who has never seen the product nothing at all.
 const chapters: Chapter[] = [
   {
+    shots: ["coach-add-student"],
+    title: "Add a student",
+    caption: (
+      <>
+        Add their name before they have an account. You can start keeping
+        lesson entries straight away and {glow("connect them later")}.
+      </>
+    ),
+  },
+  {
+    shots: ["coach-invite"],
+    title: "Send their invite",
+    caption: (
+      <>
+        The invite connects the student to the name already on your list. They
+        choose whether you see {glow("every match or only the ones they share")}.
+      </>
+    ),
+  },
+  {
+    shots: ["coach-entry-compose"],
+    title: "Write a lesson entry",
+    caption: (
+      <>
+        Type, paste or dictate what you worked on. Add a photo or a link, and
+        {" "}{glow("improve rough notes before you save them")}.
+      </>
+    ),
+  },
+  {
+    shots: ["coach-record"],
+    title: "Record the lesson",
+    caption: (
+      <>
+        Put your iPhone near the table and record the session. Review the
+        transcript and {glow("prepared notes before they are filed")} under the
+        student.
+      </>
+    ),
+  },
+  {
+    shots: ["coach-entry-shared"],
+    title: "Share it with them",
+    caption: (
+      <>
+        An entry stays private until you share it. It then appears in the
+        student&apos;s journal, and {glow("any later edits appear there too")}.
+      </>
+    ),
+  },
+  {
+    shots: ["coach-shared-match"],
+    title: "Open their matches",
+    caption: (
+      <>
+        The matches they share sit beside their lesson entries. Watch them
+        point by point and {glow("leave feedback on the rallies that matter")}.
+      </>
+    ),
+  },
+  {
     shots: ["coach-offering"],
-    title: "Decide what you offer",
+    title: "Offer a paid review",
     caption: (
       <>
-        You decide what a review includes,{" "}
-        {glow("what it costs, and how many days you need")}. Start from a
-        serve review, a receive review or a full match review, and change any
-        part of it.
-      </>
-    ),
-  },
-  {
-    shots: ["coach-page"],
-    title: "Build your page",
-    caption: (
-      <>
-        Your reviews sit on one page at {glow("ponglens.com/coach/yourname")},
-        along with your background and what past students said about you.
-        Send that link to your students, or put it on your club page and your
-        social media.
-      </>
-    ),
-  },
-  {
-    shots: ["coach-setup"],
-    title: "Set up your payouts",
-    caption: (
-      <>
-        PongLens pays coaches through Stripe, so{" "}
-        {glow("you connect a Stripe account once")}. Stripe confirms who you
-        are and takes your bank details. You do not have to touch it again
-        after that.
-      </>
-    ),
-  },
-  {
-    shots: ["coach-order"],
-    title: "Receive a new order",
-    caption: (
-      <>
-        A student buys one of your reviews, picks one of their matches, and
-        answers your questions. You read their answers before you decide,
-        then {glow("accept or decline")}. Nothing starts until you accept.
-      </>
-    ),
-  },
-  {
-    shots: ["coach-points"],
-    title: "Review the match",
-    caption: (
-      <>
-        The match reaches you {glow("already split into single points")}, so
-        you never scroll a video looking for a rally. Watch the points you
-        care about, and attach the ones your student should watch too.
-      </>
-    ),
-  },
-  {
-    shots: ["coach-writeup"],
-    title: "Prepare the write-up",
-    caption: (
-      <>
-        Type your review, or {glow("speak it and your words become text")}.
-        The sections come from the template you picked, and your draft saves
-        while you work.
-      </>
-    ),
-  },
-  {
-    shots: ["coach-review"],
-    title: "Send the finished review",
-    caption: (
-      <>
-        Your student gets what you wrote,{" "}
-        {glow("a clip for every point you picked")}, and any files you
-        attached. It stays in their account, and they can ask you a follow-up
-        question after watching it.
-      </>
-    ),
-  },
-  {
-    shots: ["coach-hub", "coach-queue"],
-    title: "Get paid",
-    caption: (
-      <>
-        When your student marks the review done, or a week passes,{" "}
-        {glow("Stripe sends your share to your bank")}. Your orders list
-        always shows which ones are waiting on you and which are waiting on
-        them.
+        Paid reviews are optional. Set {glow("what the review includes")}, what
+        it costs, and how many days you need.
       </>
     ),
   },
@@ -172,78 +132,111 @@ const chapters: Chapter[] = [
 
 const features = [
   {
-    title: "You set the terms",
-    copy: "You choose the price, what the review covers, and how many days you need. When you are busy, pause new orders or limit how many you take at once.",
-    anim: <TermsDial />,
+    title: "Your students",
+    copy: (
+      <>
+        Add every student you coach, whether or not they use PongLens yet.
+        Their {glow("lesson entries and matches stay together")} under their
+        name.
+      </>
+    ),
+    anim: <StudentRoster />,
   },
   {
-    title: "Linked to the real points",
-    copy: "Anything you write can point at the rallies that show it. Your student taps a point and watches what you mean.",
+    title: "A journal for each student",
+    copy: (
+      <>
+        Keep lesson notes, drills, photos and links under the student they
+        belong to. Entries {glow("stay private until you decide")} to share
+        them.
+      </>
+    ),
+    anim: <StudentJournal />,
+  },
+  {
+    title: "Record the lesson",
+    copy: (
+      <>
+        Record a lesson on your iPhone and PongLens prepares the transcript and
+        notes while you coach. Audio recording is available now, with
+        {" "}{glow("video recording coming soon")}.
+      </>
+    ),
+    anim: <LessonRecording />,
+  },
+  {
+    title: "Share when it is ready",
+    copy: (
+      <>
+        Send an entry directly to your student&apos;s journal. If you change it
+        later, {glow("they see the updated version")}, and you can stop sharing
+        at any time.
+      </>
+    ),
+    anim: <JournalShare />,
+  },
+  {
+    title: "Their matches beside your notes",
+    copy: (
+      <>
+        The matches a student shares appear on their page. Watch them point by
+        point, then {glow("write, draw or leave a voice note")} on the exact
+        rally you mean.
+      </>
+    ),
     anim: <FindingPoints />,
   },
   {
-    title: "Speak or draw it",
-    copy: "Speak instead of typing and your words become text, with the recording kept next to them. You can also draw on any frame of the video.",
-    anim: <DictateWave />,
-  },
-  {
-    title: "Templates to start from",
-    copy: "A serve review, a receive review, a full match review. Pick one, change every word, or start from a blank page.",
-    anim: <TemplateStack />,
-  },
-  {
-    title: "Bring your materials",
-    copy: "Attach a practice plan, a drill sheet, or anything else you prepare, up to 50 MB per file.",
-    anim: <AttachFile />,
-  },
-  {
-    title: "Stripe handles the money",
-    copy: "Checkout, cards, Apple Pay, and payouts to your bank. Students pay you, and PongLens keeps a small platform fee.",
-    anim: <PayoutRail />,
+    title: "Paid reviews when you want them",
+    copy: (
+      <>
+        Offer structured match reviews with your own price, scope and
+        turnaround. PongLens {glow("handles the order, payment and delivery")}.
+      </>
+    ),
+    anim: <TermsDial />,
   },
 ];
 
 const faqs = [
   {
+    q: "What can I use PongLens for as a coach?",
+    a: "PongLens gives you a place for every student you coach. Keep lesson entries, share notes and materials, open the matches they send you, and offer paid match reviews if you want to.",
+  },
+  {
+    q: "Do my students need a PongLens account?",
+    a: "Not for you to add them or keep private entries about their lessons. You can send an individual entry as a link, or invite them to connect their account. Once connected, shared entries appear in their journal and the matches they share appear on their student page.",
+  },
+  {
+    q: "What can I see from a student’s account?",
+    a: "Only the matches they give you access to. When they join, they choose whether to share every match or share them one at a time. You cannot see the rest of their account or their private journal.",
+  },
+  {
+    q: "How does lesson recording work?",
+    a: "On iPhone, put your phone near the table and record the lesson. PongLens turns the recording into an editable transcript and prepares the main points for you to review. Video lesson recording is coming soon.",
+  },
+  {
+    q: "Can I edit an entry after sharing it?",
+    a: "Yes. Shared entries are live. Your student sees the updated version in their journal, and you can stop sharing whenever you need to.",
+  },
+  {
+    q: "Does the coach workspace work on both iPhone and the web?",
+    a: "Student management, lesson entries and shared matches are available on iPhone and the web. Long lesson recording is currently on iPhone. Paid review orders are managed on the web.",
+  },
+  {
     q: "What does it cost?",
-    a: "Nothing up front. A small platform fee comes off each order, shown before you publish. Card processing is included in it.",
+    a: "Managing students, sharing lesson entries and reviewing shared matches is free. If you sell a paid match review, a small platform fee comes off the order. Card processing is included.",
   },
   {
-    q: "What do I need before I can take my first order?",
-    a: "Three things, and the app lists them for you: one review to sell, a Stripe account so the money can reach you, and your page published. Stripe asks for your ID and your bank account, the same way it does for anyone taking payments online.",
-  },
-  {
-    q: "Do my students need PongLens already?",
-    a: "No. Buying a review brings them in. They upload their match and PongLens cuts it into points for you.",
-  },
-  {
-    q: "When do I get paid?",
-    a: "When the order completes: your student marks it done, or it closes on its own a week after delivery. Stripe then pays out to your bank.",
-  },
-  {
-    q: "How long does a review actually take?",
-    a: "Around an hour for a full match. You do not have to search the video for anything: the dead time is already cut out, every point is a separate clip, and the score is shown on screen.",
-  },
-  {
-    q: "What if I do not want an order?",
-    a: "Decline it with a short note and your student gets a full refund. Nothing starts until you accept, so you are never committed by someone else buying.",
-  },
-  {
-    q: "Do I have to use a template?",
-    a: "No. The templates are starting points and every word in them is yours to change. You can also start from a blank page and write your own sections.",
+    q: "Can I still offer paid match reviews?",
+    a: "Yes. You choose the price, what the review covers and how many days you need. The student sends a match and their questions, and nothing starts until you accept.",
   },
   {
     q: "Can my students see each other?",
-    a: "No. An order is between the two of you. Their match, their brief and your review stay private to that order unless they agree to let you show it as a sample on your page.",
-  },
-  {
-    q: "What about the free sharing my students use now?",
-    a: "It stays free. Watching shared matches and leaving notes never costs anything. Paid reviews are for the structured work with a defined scope and a finish line.",
+    a: "No. Each student sees only the entries you share with them. Their matches, lesson entries and account details are not visible to your other students.",
   },
 ];
 
-// Machine-readable facts about the coach side, the way the home page does
-// it for the product as a whole.
 const jsonLd = {
   "@context": "https://schema.org",
   "@graph": [
@@ -252,41 +245,32 @@ const jsonLd = {
       "@id": "https://www.ponglens.com/coaches#page",
       url: "https://www.ponglens.com/coaches",
       name: "PongLens for coaches",
-      description:
-        "Table tennis coaches offer paid match reviews on PongLens. The footage arrives cut into points, findings link to the rallies that show them, and Stripe handles checkout and payouts.",
+      description,
       isPartOf: { "@id": "https://www.ponglens.com/#website" },
       about: { "@id": "https://www.ponglens.com/coaches#service" },
     },
     {
       "@type": "Service",
       "@id": "https://www.ponglens.com/coaches#service",
-      name: "Paid match reviews for table tennis coaches",
-      serviceType: "Online coaching marketplace",
+      name: "Coaching workspace for table tennis coaches",
+      serviceType: "Table tennis coaching workspace",
       provider: { "@id": "https://www.ponglens.com/#organization" },
-      audience: {
-        "@type": "Audience",
-        audienceType: "Table tennis coaches",
-      },
+      audience: { "@type": "Audience", audienceType: "Table tennis coaches" },
       areaServed: "Worldwide",
       description:
-        "Coaches publish a page of review offerings with their own price, scope and turnaround. Students buy a review and send a match, which reaches the coach already cut into individual points.",
+        "Coaches manage students, keep and share lesson entries, record lessons, review shared matches point by point, and optionally offer paid match reviews.",
     },
     {
-      // Declared so the walkthrough can be indexed as a video rather than
-      // as an opaque <video> tag: Google will not read duration, thumbnail
-      // or subject off the element, and an answer engine has nothing to
-      // quote without them. contentUrl is the file itself, which is what
-      // makes it eligible for a video result at all.
       "@type": "VideoObject",
       "@id": "https://www.ponglens.com/coaches#video",
       name: "How coaching works on PongLens",
       description:
-        "A walkthrough of the coach side of PongLens: setting what you offer, your page, connecting Stripe, accepting an order, reviewing a match point by point, building patterns from the points they happened on, the write-up tools, and getting paid.",
+        "A walkthrough of the PongLens coaching workspace, from adding a student and keeping lesson entries to sharing notes, reviewing matches and offering paid reviews.",
       thumbnailUrl: ["https://www.ponglens.com/demo/coach-desktop.jpg"],
       contentUrl: "https://www.ponglens.com/demo/coach-desktop.mp4",
       embedUrl: "https://www.ponglens.com/coaches#video",
       duration: "PT2M11S",
-      uploadDate: "2026-08-08",
+      uploadDate: "2026-09-04",
       isFamilyFriendly: true,
       publisher: { "@id": "https://www.ponglens.com/#organization" },
       inLanguage: "en",
@@ -294,10 +278,10 @@ const jsonLd = {
     {
       "@type": "FAQPage",
       "@id": "https://www.ponglens.com/coaches#faq",
-      mainEntity: faqs.map((f) => ({
+      mainEntity: faqs.map((faq) => ({
         "@type": "Question",
-        name: f.q,
-        acceptedAnswer: { "@type": "Answer", text: f.a },
+        name: faq.q,
+        acceptedAnswer: { "@type": "Answer", text: faq.a },
       })),
     },
   ],
@@ -312,9 +296,6 @@ export default function CoachesPage() {
       />
       <SiteHeader audience="coaches" />
       <main className="flex-1">
-        {/* HERO — the home page's treatment: full-bleed animation, scrims
-            that keep the copy legible, and the storefront itself standing
-            beside it once there is room for it. */}
         <section className="relative flex min-h-[calc(100vh-4rem)] items-center overflow-hidden">
           <div className="absolute inset-0 opacity-50 lg:opacity-100">
             <NeonBallHero background />
@@ -344,34 +325,23 @@ export default function CoachesPage() {
             }}
           />
           <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-16 text-center sm:pt-24 lg:text-left">
-            {/* The phone joins at xl, not lg: below that the copy needs the
-                whole 768px the home page gives it, or a 7xl heading breaks
-                into four lines. */}
             <div className="xl:flex xl:items-center xl:gap-16">
               <div className="mx-auto max-w-3xl lg:mx-0 xl:flex-1">
-                {/* What the STUDENT gets, not what the coach is paid.
-                    The money is still on the page: the line under this one
-                    says PongLens handles the order and the payment, and
-                    there is a whole section on payouts. But a coach who is
-                    quietly unsure about charging their own players should
-                    not have to read "get paid" before anything else. */}
                 <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-                  Show your students{" "}
-                  <span className="text-cyan-glow text-glow">
-                    exactly what to work on.
-                  </span>
+                  Keep every student, lesson and match{" "}
+                  <span className="text-cyan-glow text-glow">in one place.</span>
                 </h1>
-                <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
-                  Your students already send you match videos. PongLens cuts
-                  them into points, gives you the tools to review them
-                  properly, and handles the order and the payment.
+                <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
+                  Add the students you coach and keep a journal for each one.
+                  Record or write what you worked on, share it when it is ready,
+                  and open the matches they send you from the same place.
                 </p>
                 <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
                   <Link
                     href="/coaching/start"
                     className="glow-cta rounded-full bg-cyan-glow px-8 py-3.5 text-base font-semibold text-ink sm:text-lg"
                   >
-                    Set up your page
+                    Set up coach mode
                   </Link>
                   <Link
                     href="#how"
@@ -381,50 +351,29 @@ export default function CoachesPage() {
                   </Link>
                 </div>
               </div>
-              {/* What a coach actually does, and what they sell, in one
-                  object. The old hero was the offerings page mid-scroll:
-                  its top card cut in half, which made the picture a price
-                  list rather than a thing being sold.
-
-                  Width is the constraint here, not height. A landscape
-                  tablet is 1.44:1, so at 430px it is only 300 tall, where
-                  the old phone was 571 — that spare height is what lets
-                  the phone hang off the corner. But the copy needs 768px
-                  for a 7xl heading to stay on three lines, and the column
-                  is 1104 wide, so the phone has to live INSIDE the
-                  tablet's width rather than beside it. */}
               <div
                 className="relative hidden shrink-0 xl:block"
                 style={{ width: 430, height: 615 }}
               >
-                {/* The phone is in FRONT. Behind the tablet it was the
-                    bigger object with its best half covered: the order
-                    amounts and the earnings row sat under the tablet, and
-                    what showed was the navigation list. In front, the
-                    money is all visible and what it covers is the brief
-                    and the write-up, which are text. */}
                 <div
                   className="absolute z-10"
                   style={{ width: 236, right: -76, top: 104 }}
                 >
                   <PhoneFrame glow={false}>
                     <Image
-                      src="/showcase/coach-payout-m.jpg"
-                      alt="A coach's earnings in PongLens, with payouts ready to their bank"
+                      src="/showcase/coach-students-m.jpg"
+                      alt="A coach's student list in PongLens"
                       width={390}
                       height={844}
                       className="block w-full"
                     />
                   </PhoneFrame>
                 </div>
-                {/* The tablet behind, still the subject: it is wider, it
-                    holds the rally, and the phone only reaches its right
-                    hand column. */}
                 <div className="relative z-0">
                   <PhoneFrame device="tablet">
                     <Image
-                      src="/showcase/coach-work-t.jpg"
-                      alt="A coach reviewing a student's match: the rally on one side, their brief and the write-up on the other"
+                      src="/showcase/coach-student-t.jpg"
+                      alt="A student's lesson journal and shared matches in the coach workspace"
                       width={1180}
                       height={820}
                       priority
@@ -437,27 +386,24 @@ export default function CoachesPage() {
           </div>
         </section>
 
-        {/* WHAT YOU WORK WITH — the same card grid as the home page */}
-        <section className="py-20 sm:py-28">
+        <section id="features" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              What you work with
+              Built around your students
             </h2>
-            {/* mobile: swipeable snap carousel with next-card peek;
-                md+: 3-column grid */}
             <div className="-mx-6 mt-14 flex snap-x snap-mandatory gap-4 overflow-x-auto px-6 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:mx-0 md:grid md:grid-cols-3 md:gap-8 md:overflow-visible md:p-0">
-              {features.map((f) => (
+              {features.map((feature) => (
                 <article
-                  key={f.title}
+                  key={feature.title}
                   className="group w-[80%] shrink-0 snap-center overflow-hidden rounded-2xl border border-edge bg-surface transition-colors hover:border-cyan-glow/40 md:w-auto md:shrink"
                 >
                   <div className="relative aspect-[3/2] overflow-hidden">
-                    {f.anim}
+                    {feature.anim}
                   </div>
                   <div className="p-6">
-                    <h3 className="text-lg font-semibold">{f.title}</h3>
+                    <h3 className="text-lg font-semibold">{feature.title}</h3>
                     <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-                      {f.copy}
+                      {feature.copy}
                     </p>
                   </div>
                 </article>
@@ -466,28 +412,13 @@ export default function CoachesPage() {
           </div>
         </section>
 
-        {/* THE VIDEO — straight after the cards, because the cards say
-            what the tools are and this shows them being used, which is
-            the same order the home page puts them in. The hero's "See how
-            it works" link lands here, on the section with those words on
-            it.
-
-            The treatment is the home page's, deliberately.
-            Section wrapper, widths, gutters and the component are all the
-            home page's: the play control above the picture, the poster as
-            the title card, no border on the box, flat ink on both sides so
-            the video has no seam. Those took several passes there and none
-            of them is re-derived here. */}
         <section
           id="how"
           className="relative scroll-mt-20 overflow-hidden py-14 sm:py-28"
         >
-          {/* Wider than the rest of the page, and narrower gutters on a
-              phone. Everything else here is a column of text at max-w-6xl;
-              this is a picture. */}
           <div className="relative mx-auto max-w-[1500px] px-4 sm:px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              See how it works
+              See coaching on PongLens
             </h2>
             <div className="mt-8 sm:mt-12">
               <LandingVideo cuts={COACH_CUTS} length={COACH_LENGTH} />
@@ -495,37 +426,27 @@ export default function CoachesPage() {
           </div>
         </section>
 
-        {/* GETTING STARTED — the same eight chapters, now read as the
-            order you do them in rather than as a tour. It follows the
-            video on purpose: the video shows the whole thing once, and
-            this is the part someone comes back to when they are actually
-            setting up. */}
         <section id="steps" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              How to get started
+              Start with one student
             </h2>
             <div className="mt-14">
-              {/* Three times the default 3200ms. These captions average
-                  twenty-six words, which is about eight seconds of
-                  reading on its own, and the screenshot beside them has
-                  its own text to take in before the chapter turns. */}
-              <WalkthroughBand chapters={chapters} subMs={9500} />
+              <WalkthroughBand chapters={chapters} subMs={9000} />
             </div>
           </div>
         </section>
 
-        {/* FAQ */}
         <section id="faq" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-3xl px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
               Questions
             </h2>
             <div className="mt-12 divide-y divide-edge border-y border-edge">
-              {faqs.map((f) => (
-                <details key={f.q} className="group py-5">
+              {faqs.map((faq) => (
+                <details key={faq.q} className="group py-5">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left text-lg font-medium text-zinc-100 transition-colors hover:text-white">
-                    {f.q}
+                    {faq.q}
                     <span
                       aria-hidden
                       className="shrink-0 text-cyan-glow transition-transform duration-200 group-open:rotate-45"
@@ -534,7 +455,7 @@ export default function CoachesPage() {
                     </span>
                   </summary>
                   <p className="mt-3 max-w-2xl leading-relaxed text-zinc-400">
-                    {f.a}
+                    {faq.a}
                   </p>
                 </details>
               ))}
@@ -542,26 +463,25 @@ export default function CoachesPage() {
           </div>
         </section>
 
-        {/* CTA BAND */}
         <section className="bg-band border-y border-edge">
           <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-16 text-center">
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              Your first offering takes{" "}
-              <span className="text-magenta-soft">ten minutes</span>.
+              Start with <span className="text-magenta-soft">one student</span>.
             </h2>
             <p className="max-w-xl text-zinc-400">
-              Set a price, publish the page, and send it to one student.
+              Add their name, write the first entry, and invite them when you
+              are ready.
             </p>
             <Link
               href="/coaching/start"
               className="glow-cta rounded-full bg-cyan-glow px-8 py-3 text-base font-semibold text-ink"
             >
-              Set up your page
+              Set up coach mode
             </Link>
           </div>
         </section>
       </main>
-      <SiteFooter />
+      <SiteFooter audience="coaches" />
     </>
   );
 }
