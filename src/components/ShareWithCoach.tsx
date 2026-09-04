@@ -4,6 +4,18 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ShareQR } from "@/components/ShareQR";
 
+/** One waiting invite, from pending_invite_matches() (166): who it is
+ *  for, what it already covers, and whether THIS match is lined up to go
+ *  over the moment they accept. */
+interface PendingInvite {
+  invite_id: string;
+  invite_token: string;
+  display_name: string | null;
+  all_matches: boolean;
+  scope_match_id: string | null;
+  queued: boolean;
+}
+
 interface ConnectedCoach {
   id: string;
   name: string;
@@ -52,6 +64,7 @@ export function ShareWithCoachSheet({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [coaches, setCoaches] = useState<ConnectedCoach[] | null>(null);
+  const [invites, setInvites] = useState<PendingInvite[]>([]);
   const [busyCoach, setBusyCoach] = useState<string | null>(null);
   // Who the invite is for (164). Optional, and it does two things: the
   // waiting invite says a name instead of "Invite link", and the journal
@@ -62,9 +75,13 @@ export function ShareWithCoachSheet({
   const loadCoaches = useCallback(async () => {
     if (!matchId) {
       setCoaches([]);
+      setInvites([]);
       return;
     }
     const supabase = createClient();
+    void supabase
+      .rpc("pending_invite_matches", { p_match_id: matchId })
+      .then(({ data }) => setInvites((data as PendingInvite[]) ?? []));
     const [linksRes, namesRes] = await Promise.all([
       supabase
         .from("coach_links")
@@ -142,6 +159,35 @@ export function ShareWithCoachSheet({
     setBusyCoach(null);
     onLinkCreated?.();
   };
+
+  /** Line this match up for a coach who has not accepted yet (166).
+   *
+   *  Nothing is shared here: the row says what the ACCEPT should hand
+   *  over, and access is still only ever an accepted coach_links row. It
+   *  is the difference between "share it now" and "they get this one when
+   *  they arrive", and the copy has to keep saying which. */
+  const queueForInvite = useCallback(
+    async (invite: PendingInvite, on: boolean) => {
+      if (!matchId) return;
+      setBusyCoach(invite.invite_id);
+      setError(null);
+      const supabase = createClient();
+      const { error: dbError } = on
+        ? await supabase
+            .from("coach_invite_matches")
+            .insert({ invite_id: invite.invite_id, match_id: matchId })
+        : await supabase
+            .from("coach_invite_matches")
+            .delete()
+            .eq("invite_id", invite.invite_id)
+            .eq("match_id", matchId);
+      if (dbError) setError("Couldn't change it. Try again.");
+      await loadCoaches();
+      setBusyCoach(null);
+      onLinkCreated?.();
+    },
+    [matchId, loadCoaches, onLinkCreated],
+  );
 
   const coachState = (c: ConnectedCoach) =>
     c.allMatches
@@ -308,10 +354,72 @@ export function ShareWithCoachSheet({
             <p className="mt-2 text-xs text-zinc-500">
               Sharing hands them this match. Take it back any time from Coaching.
             </p>
-            <p className="mt-5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Invite another coach
-            </p>
           </div>
+        )}
+
+        {/* Coaches you have invited but who have not opened the link yet
+            (166). You could not reach them at all before: sharing writes
+            an accepted link, and there is no account to write one for. So
+            this lines the match up instead, and the accept hands it over.
+            Adil asked for it by name on 2026-09-04. */}
+        {matchId && invites.length > 0 && (
+          <div className="mt-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Waiting to accept
+            </p>
+            <div className="mt-2 divide-y divide-edge/60 overflow-hidden rounded-xl border border-edge bg-surface-2/60">
+              {invites.map((inv) => {
+                const covered =
+                  inv.all_matches || inv.scope_match_id === matchId;
+                return (
+                  <div
+                    key={inv.invite_id}
+                    className="flex items-center justify-between gap-3 px-4 py-3"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-zinc-100">
+                        {inv.display_name ?? "Invite link"}
+                      </span>
+                      <span className="block text-xs text-zinc-500">
+                        {covered
+                          ? inv.all_matches
+                            ? "Gets all your matches when they accept"
+                            : "Their invite is for this match"
+                          : inv.queued
+                            ? "Gets this match when they accept"
+                            : "Hasn't opened the link yet"}
+                      </span>
+                    </span>
+                    {covered ? null : busyCoach === inv.invite_id ? (
+                      <span className="text-sm text-zinc-500">…</span>
+                    ) : inv.queued ? (
+                      <button
+                        type="button"
+                        onClick={() => void queueForInvite(inv, false)}
+                        className="shrink-0 rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                      >
+                        Remove
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void queueForInvite(inv, true)}
+                        className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink"
+                      >
+                        Share
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {matchId && ((coaches?.length ?? 0) > 0 || invites.length > 0) && (
+          <p className="mt-5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Invite another coach
+          </p>
         )}
 
         {!link ? (
