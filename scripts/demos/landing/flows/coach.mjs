@@ -99,62 +99,44 @@ export function makeFlow(layout) {
   return async function flow(page, clock, { beat }) {
     const base = process.env.BASE ?? "https://www.ponglens.com";
 
-    // Opening: the live roster is already loaded by the capture driver.
+    // Opening and first feature: the live roster is already loaded by the
+    // capture driver. No add-student or invite flow appears in this cut.
     await clock.until(beat("intro").end);
-
-    // Your students: roster, then one student's whole page.
     await clock.until(beat("students").end);
-    await showShot(page, clock, base, {
-      at: beat("student").start - 0.8,
-      file: layout.studentShot,
-    });
-    await clock.until(beat("student").end);
 
-    // Connect an offline student with a private invite.
+    // Coaching journals: show the lasting record, not how to fill in a form.
     await showShot(page, clock, base, {
-      at: beat("connect").start - 2.6,
-      file: "coach-invite-m",
-    });
-    await clock.until(beat("connect").end);
-
-    // Keep the lesson: a blank entry followed by the prepared journal.
-    await showShot(page, clock, base, {
-      at: beat("entry").start - 2.6,
-      file: "coach-entry-compose-m",
-    });
-    await clock.until(beat("entry").end);
-    await showShot(page, clock, base, {
-      at: beat("journal").start - 0.6,
-      file: "coach-entry-shared-m",
+      at: beat("journal").start - 2.6,
+      file: layout.journalShot,
     });
     await clock.until(beat("journal").end);
 
-    // The real iPhone audio recorder. The narration accurately marks video
-    // lesson recording as coming soon.
+    // The real iPhone audio recorder. Video recording is described as coming
+    // soon until that capture is available.
     await showShot(page, clock, base, {
       at: beat("record").start - 2.6,
       file: "coach-record-m",
     });
     await clock.until(beat("record").end);
 
-    // Share only when ready, then show the student-facing result.
+    // The result in the student's journal, not the sharing controls.
     await showShot(page, clock, base, {
-      at: beat("private").start - 2.6,
-      file: "coach-entry-compose-m",
-    });
-    await clock.until(beat("private").end);
-    await showShot(page, clock, base, {
-      at: beat("share").start - 0.5,
-      file: "coach-entry-shared-m",
+      at: beat("share").start - 2.6,
+      file: "journal-m",
     });
     await clock.until(beat("share").end);
 
-    // A match shared by the same staged student.
+    // The student's history establishes the context before the match itself.
     await showShot(page, clock, base, {
-      at: beat("matches").start - 2.6,
-      file: "coach-shared-match-m",
+      at: beat("context").start - 2.6,
+      file: layout.contextShot,
     });
-    await clock.until(beat("matches").end);
+    await clock.until(beat("context").end);
+    await showShot(page, clock, base, {
+      at: beat("feedback").start - 0.5,
+      file: "coach-points-m",
+    });
+    await clock.until(beat("feedback").end);
 
     // Paid reviews remain available, but they close the story rather than
     // defining the whole coach product.

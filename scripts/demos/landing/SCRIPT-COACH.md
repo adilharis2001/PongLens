@@ -1,46 +1,43 @@
 # Coach video — coaching workspace
 
-For a table tennis coach who has never heard of PongLens. This is a short
-product story, not a tutorial. It uses the same voice, music, section cards,
-captions and two-layout capture pipeline as the player landing video.
+For a table tennis coach who has never heard of PongLens. This is a short,
+feature-led product story, not a setup guide. It uses the same voice, music,
+section cards, captions and two-layout capture pipeline as the player landing
+video.
 
-The through-line is simple: one roster leads to one journal for every student.
-Lessons, shared notes and the matches a student sends back all stay together.
-Paid match reviews are one optional part of that workspace, not the premise.
+The through-line is the coaching relationship. Each student has one continuous
+record across lessons, practice and competition. The video shows what that
+workspace makes possible without explaining how to create a student, fill in a
+form or send an invitation.
 
 ## Sections
 
 | Section | Screen |
 | --- | --- |
 | *(opening)* | the coach roster |
-| Your students | roster and one student |
-| Connect them | an unconnected student's invite |
-| Keep the lesson | a student's lesson journal |
-| Record the lesson | the real iOS lesson recorder |
-| Share it | a shared lesson entry |
-| Their matches | a match shared by the same student |
+| Your students | the roster as a complete coaching workspace |
+| Coaching journals | a student journal |
+| Lesson recording | the real iOS lesson recorder |
+| Shared with students | the student's journal with coaching entries inside it |
+| Match feedback | the student's coaching history, then point-by-point review |
 | Paid reviews | the coach's optional review offerings |
 | *(close)* | logo card |
 
 Every labelled section begins after at least 2.6 seconds of silence. The title
-card covers navigation and loading. The browser flow is read-only: it opens
-staged rows and existing entries but does not create a student, share an entry,
-or change an order.
+card covers the visual change. The browser flow is read-only and only opens
+staged screens.
 
 ## Narration
 
-1. “PongLens gives a table tennis coach one place to keep students, lessons and matches together.”
-2. “Add every student to one roster. They do not need a PongLens account to start.”
-3. “Open a student to see their lesson entries and the matches they have shared.”
-4. “When they are ready, send a private invite. It connects their account to the student you already know.”
-5. “After a session, write what you worked on, what to fix and what comes next.”
-6. “PongLens can turn rough notes into clear points, and keeps the original transcript with them.”
-7. “Lesson recording is on iPhone. Leave the phone near the table and PongLens prepares the entry afterwards. Video recording is coming soon.”
-8. “An entry stays private until you share it.”
-9. “Once shared, it appears in your student's PongLens journal. You can also send it as a link.”
-10. “The matches a student shares sit beside their lesson entries, ready to watch point by point.”
-11. “If you also sell remote match reviews, choose what each review covers, what it costs and how long you need.”
-12. “PongLens. Keep every student, lesson and match in one place.”
+1. “PongLens is a coaching workspace built around every student you work with.”
+2. “Each student has one place for their lesson history, shared notes, recordings and matches, so the full picture stays together.”
+3. “Keep a coaching journal that shows what you worked on, what changed and what comes next.”
+4. “Record the lesson as audio, with video recording coming soon. PongLens prepares the transcript and a structured entry for you to review.”
+5. “Share the parts your student needs, so your coaching stays with them when the session ends.”
+6. “When they share a match, it sits beside the lessons and notes that led to it.”
+7. “Watch it point by point, and tie your feedback to the exact rallies that show what you mean.”
+8. “If you coach remotely, you can also offer paid match reviews with your own scope, price and turnaround.”
+9. “PongLens. Coaching that carries from one session to the next.”
 
 ## Production notes
 
@@ -48,6 +45,6 @@ or change an order.
   or student data appears.
 - Student and journal screens come from the live web app. The recording beat
   uses `public/showcase/coach-record-m.jpg`, captured from the real iOS screen.
-- The recording line calls the currently available audio flow “lesson
-  recording” and describes video recording as coming soon.
+- The recording line describes audio as available and video recording as coming
+  soon.
 - Desktop is 1440 × 810. Mobile is 390 × 844.

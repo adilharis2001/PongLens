@@ -13,5 +13,6 @@ export { stage, cleanup };
 export const prepare = sharedPrepare;
 
 export const flow = makeFlow({
-  studentShot: "coach-student-t",
+  journalShot: "coach-entry-shared-m",
+  contextShot: "coach-student-t",
 });

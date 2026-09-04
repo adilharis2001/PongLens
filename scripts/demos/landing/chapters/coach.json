@@ -2,7 +2,7 @@
   "chapter": "coach",
   "title": "PongLens",
   "subtitle": "",
-  "tagline": "Keep every student, lesson and match in one place.",
+  "tagline": "A coaching hub built around every student.",
   "voice": "sage",
   "speed": 1.45,
   "instructions": "Warm and plain spoken, like a coach explaining something useful to another coach. Unhurried and even. Nothing is sold and nothing is hurried. No rising lift at the end of sentences.",
@@ -11,84 +11,63 @@
   "lines": [
     {
       "id": "l1",
-      "text": "PongLens gives a table tennis coach one place to keep students, lessons and matches together.",
+      "text": "PongLens is a coaching workspace built around every student you work with.",
       "beat": "intro",
       "pause": 2.8,
       "label": ""
     },
     {
       "id": "l2",
-      "text": "Add every student to one roster. They do not need a PongLens account to start.",
+      "text": "Each student has one place for their lesson history, shared notes, recordings and matches, so the full picture stays together.",
       "beat": "students",
-      "pause": 1.2,
+      "pause": 2.8,
       "label": "Your students"
     },
     {
       "id": "l3",
-      "text": "Open a student to see their lesson entries and the matches they have shared.",
-      "beat": "student",
+      "text": "Keep a coaching journal that shows what you worked on, what changed and what comes next.",
+      "beat": "journal",
       "pause": 2.8,
-      "label": "Your students"
+      "label": "Coaching journals"
     },
     {
       "id": "l4",
-      "text": "When they are ready, send a private invite. It connects their account to the student you already know.",
-      "beat": "connect",
+      "text": "Record the lesson as audio, with video recording coming soon. PongLens prepares the transcript and a structured entry for you to review.",
+      "beat": "record",
       "pause": 2.8,
-      "label": "Connect them"
+      "label": "Lesson recording"
     },
     {
       "id": "l5",
-      "text": "After a session, write what you worked on, what to fix and what comes next.",
-      "beat": "entry",
-      "pause": 1.1,
-      "label": "Keep the lesson"
+      "text": "Share the parts your student needs, so your coaching stays with them when the session ends.",
+      "beat": "share",
+      "pause": 2.8,
+      "label": "Shared with students"
     },
     {
       "id": "l6",
-      "text": "PongLens can turn rough notes into clear points, and keeps the original transcript with them.",
-      "beat": "journal",
-      "pause": 2.8,
-      "label": "Keep the lesson"
+      "text": "When they share a match, it sits beside the lessons and notes that led to it.",
+      "beat": "context",
+      "pause": 1.0,
+      "label": "Match feedback"
     },
     {
       "id": "l7",
-      "text": "Lesson recording is on iPhone. Leave the phone near the table and PongLens prepares the entry afterwards. Video recording is coming soon.",
-      "beat": "record",
+      "text": "Watch it point by point, and tie your feedback to the exact rallies that show what you mean.",
+      "beat": "feedback",
       "pause": 2.8,
-      "label": "Record the lesson"
+      "label": "Match feedback"
     },
     {
       "id": "l8",
-      "text": "An entry stays private until you share it.",
-      "beat": "private",
-      "pause": 0.9,
-      "label": "Share it"
-    },
-    {
-      "id": "l9",
-      "text": "Once shared, it appears in your student's PongLens journal. You can also send it as a link.",
-      "beat": "share",
-      "pause": 2.8,
-      "label": "Share it"
-    },
-    {
-      "id": "l10",
-      "text": "The matches a student shares sit beside their lesson entries, ready to watch point by point.",
-      "beat": "matches",
-      "pause": 2.8,
-      "label": "Their matches"
-    },
-    {
-      "id": "l11",
-      "text": "If you also sell remote match reviews, choose what each review covers, what it costs and how long you need.",
+      "text": "If you coach remotely, you can also offer paid match reviews with your own scope, price and turnaround.",
       "beat": "reviews",
       "pause": 0.8,
       "label": "Paid reviews"
     },
     {
-      "id": "l12",
-      "text": "PongLens. Keep every student, lesson and match in one place.",
+      "id": "l9",
+      "text": "PongLens. Coaching that carries from one session to the next.",
       "beat": "outro",
       "pause": 0.6,
       "label": ""

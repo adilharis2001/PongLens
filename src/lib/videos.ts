@@ -33,7 +33,7 @@ import { WALKTHROUGH } from "./walkthrough";
  *   ffprobe -v error -show_entries format=duration \
  *     -of default=nw=1:nk=1 public/demo/coach-desktop.mp4
  */
-export const COACH_LENGTH = "1:30";
+export const COACH_LENGTH = "1:11";
 
 /**
  * The introduction's runtime. Same reasoning as COACH_LENGTH above: typed
