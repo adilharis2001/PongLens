@@ -487,27 +487,6 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* FOR COACHES — after the player pitch has finished, so it never
-            interrupts it, and before the footer, where a coach who scrolled
-            the whole page leaves. Quieter than the CTA band on purpose:
-            secondary audience, secondary weight. */}
-        <section className="py-16 sm:py-20">
-          <div className="mx-auto flex max-w-2xl flex-col items-center gap-5 px-6 text-center">
-            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
-              For coaches
-            </h2>
-            <p className="text-zinc-400">
-              Offer paid match reviews on footage that arrives already cut
-              into points. You set the price, the scope and the turnaround.
-            </p>
-            <Link
-              href="/coaches"
-              className="rounded-full border border-edge px-6 py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:border-cyan-glow/40 hover:text-white"
-            >
-              PongLens for coaches
-            </Link>
-          </div>
-        </section>
       </main>
       <SiteFooter />
     </>
