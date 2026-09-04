@@ -71,6 +71,57 @@ function chapter(overrides: Partial<TutorialChapter> = {}): TutorialChapter {
   };
 }
 
+async function tutorialRouteResponse(
+  body: string | undefined,
+  signedIn = true,
+) {
+  let routeModule: {
+    handleTutorialURLRequest?: (
+      request: Request,
+      dependencies: {
+        getUser: () => Promise<{ id: string } | null>;
+        sign: (items: Array<{ key: string }>) => Promise<string[]>;
+      },
+    ) => Promise<Response>;
+  };
+  try {
+    routeModule = await import("./tutorialRoute.ts");
+  } catch {
+    assert.fail("tutorial route contract handler is missing");
+  }
+  assert.equal(
+    typeof routeModule!.handleTutorialURLRequest,
+    "function",
+    "tutorial route must expose its production contract handler",
+  );
+  const request = new Request("http://localhost/api/tutorial-url", {
+    method: "POST",
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body,
+  });
+  return routeModule!.handleTutorialURLRequest!(request, {
+    getUser: async () => signedIn ? { id: "test-user" } : null,
+    sign: async (items) => items.map(({ key }) => `signed:${key}`),
+  });
+}
+
+async function loadTutorialURLStateModule() {
+  let stateModule: Record<string, unknown>;
+  try {
+    stateModule = await import("./tutorialLoadState.ts");
+  } catch {
+    assert.fail("tutorial URL load-state helper is missing");
+  }
+  return stateModule! as {
+    tutorialURLLoadStarted: () => { status: string; urls: Record<string, string> };
+    tutorialURLLoadSucceeded: (
+      urls: Record<string, string>,
+    ) => { status: string; urls: Record<string, string> };
+    tutorialURLLoadFailed: () => { status: string; urls: Record<string, string> };
+    tutorialLoadFailureMessage: (chapterTitle: string) => string;
+  };
+}
+
 test("Learn audience uses only eligible player and coach URL overrides", () => {
   assert.equal(
     resolveLearnAudience({ active: "coach", requested: undefined, canSwitch: false }),
@@ -190,6 +241,10 @@ test("generated iOS catalog stays fresh and excludes web-only coach commerce", a
   ]) {
     assert.doesNotMatch(coachRecords, new RegExp(forbidden, "i"));
   }
+
+  const iosRecords = JSON.stringify(catalog);
+  assert.doesNotMatch(iosRecords, /youtube/i);
+  assert.doesNotMatch(iosRecords, /upload-from-youtube/i);
 });
 
 test("catalog selectors filter guides, sections, groups, and related links", () => {
@@ -206,6 +261,12 @@ test("catalog selectors filter guides, sections, groups, and related links", () 
   assert.deepEqual(
     visibleRelatedGuides(playerGuide, "player", "web").map((item) => item.slug),
     ["upload-from-youtube", "match-viewer"],
+  );
+  const iosUploadGuide = guideBySlug("upload-a-video", "player", "ios");
+  assert.ok(iosUploadGuide);
+  assert.deepEqual(
+    visibleRelatedGuides(iosUploadGuide, "player", "ios").map((item) => item.slug),
+    ["record-a-match", "match-viewer"],
   );
   assert.equal(
     playerGuide.sections.some((section) => section.heading === "On iPhone"),
@@ -434,6 +495,149 @@ test("tutorial requests reject invalid catalogs and never turn request strings i
   );
 });
 
+test("tutorial URL route preserves legacy single-chapter requests", async () => {
+  const response = await tutorialRouteResponse(JSON.stringify({ slug: "viewer" }));
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    urls: { viewer: "signed:tutorial/viewer.mp4" },
+  });
+});
+
+test("tutorial URL route preserves legacy empty-body and empty-object batches", async () => {
+  const expected = {
+    urls: Object.fromEntries(
+      ["home", "upload", "viewer", "point", "keepscore", "analysis", "export", "coach", "journal"]
+        .map((slug) => [slug, `signed:tutorial/${slug}.mp4`]),
+    ),
+  };
+
+  for (const body of [undefined, "{}"] as const) {
+    const response = await tutorialRouteResponse(body);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), expected);
+  }
+});
+
+test("tutorial URL route rejects unknown legacy chapters and arbitrary paths", async () => {
+  for (const slug of ["not-a-chapter", "../../private/customer-video"]) {
+    const response = await tutorialRouteResponse(JSON.stringify({ slug }));
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: "Unknown chapter" });
+  }
+});
+
+test("tutorial URL route rejects malformed and partial new requests without legacy fallback", async () => {
+  for (const body of [
+    "{",
+    JSON.stringify({ course: "player" }),
+    JSON.stringify({ platform: "web" }),
+    JSON.stringify({ course: "player", slug: "viewer" }),
+    JSON.stringify({ slug: 42 }),
+    JSON.stringify({ course: "player", platform: "web", slug: 42 }),
+    JSON.stringify({ unrelated: true }),
+  ]) {
+    const response = await tutorialRouteResponse(body);
+    assert.equal(response.status, 400, body);
+    assert.deepEqual(await response.json(), { error: "Invalid course or platform" });
+  }
+});
+
+test("tutorial URL route signs only catalog media for the new course-platform contract", async () => {
+  const player = await tutorialRouteResponse(JSON.stringify({
+    course: "player",
+    platform: "web",
+  }));
+  assert.equal(player.status, 200);
+  assert.deepEqual(await player.json(), {
+    urls: Object.fromEntries(
+      ["home", "upload", "viewer", "point", "keepscore", "analysis", "export", "coach", "journal"]
+        .map((slug) => [slug, `signed:tutorial/player/${slug}.mp4`]),
+    ),
+  });
+
+  const coach = await tutorialRouteResponse(JSON.stringify({
+    course: "coach",
+    platform: "ios",
+    slug: "coach-feedback",
+  }));
+  assert.equal(coach.status, 200);
+  assert.deepEqual(await coach.json(), {
+    urls: { "coach-feedback": "signed:tutorial/coach/coach-feedback.mp4" },
+  });
+
+  const hidden = await tutorialRouteResponse(JSON.stringify({
+    course: "coach",
+    platform: "ios",
+    slug: "coach-paid-review",
+  }));
+  assert.equal(hidden.status, 404);
+  assert.deepEqual(await hidden.json(), { error: "Unknown chapter" });
+
+  const arbitrary = await tutorialRouteResponse(JSON.stringify({
+    course: "player",
+    platform: "web",
+    slug: "../../private/customer-video",
+  }));
+  assert.equal(arbitrary.status, 404);
+  assert.deepEqual(await arbitrary.json(), { error: "Unknown chapter" });
+});
+
+test("tutorial URL route requires authentication before signing either contract", async () => {
+  const response = await tutorialRouteResponse("{}", false);
+
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { error: "Not signed in" });
+});
+
+test("tutorial URL failure state clears stale URLs and retry returns to loading", async () => {
+  const state = await loadTutorialURLStateModule();
+
+  assert.deepEqual(state.tutorialURLLoadSucceeded({ viewer: "signed:old" }), {
+    status: "ready",
+    urls: { viewer: "signed:old" },
+  });
+  assert.deepEqual(state.tutorialURLLoadFailed(), {
+    status: "failed",
+    urls: {},
+  });
+  assert.deepEqual(state.tutorialURLLoadStarted(), {
+    status: "loading",
+    urls: {},
+  });
+});
+
+test("tutorial URL failure names the selected chapter", async () => {
+  const state = await loadTutorialURLStateModule();
+
+  assert.equal(
+    state.tutorialLoadFailureMessage("Watch it back"),
+    "We couldn’t load “Watch it back”.",
+  );
+});
+
+test("web tutorial uses one named retry treatment in both responsive players", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./videos/VideoCourse.tsx", import.meta.url)),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /function ChapterVideo[\s\S]*?<TutorialLoadFailure[\s\S]*?chapterTitle=\{chapter\.title\}[\s\S]*?onRetry=\{onRetry\}/,
+  );
+  assert.equal(
+    source.match(/<ChapterVideo/g)?.length,
+    2,
+    "mobile and desktop must both render the shared ChapterVideo",
+  );
+  assert.equal(
+    source.match(/<TutorialLoadFailure/g)?.length,
+    1,
+    "the failure UI must stay centralized rather than fork by breakpoint",
+  );
+});
+
 test("coach guide curriculum is complete and paid reviews stay web-only", () => {
   const webSlugs = visibleGuides("coach", "web").map((item) => item.slug);
   const iosSlugs = visibleGuides("coach", "ios").map((item) => item.slug);
@@ -484,7 +688,6 @@ test("every visible guide opens with at least three quick steps", () => {
 test("player curriculum retains established guides and gates recording to iOS", () => {
   const establishedSlugs = [
     "upload-a-video",
-    "upload-from-youtube",
     "match-viewer",
     "score-points",
     "score-keeper",
@@ -505,6 +708,14 @@ test("player curriculum retains established guides and gates recording to iOS", 
   }
   assert.ok(webSlugs.includes("create-share-highlights"));
   assert.ok(iosSlugs.includes("create-share-highlights"));
+  assert.ok(webSlugs.includes("upload-from-youtube"));
+  assert.equal(iosSlugs.includes("upload-from-youtube"), false);
+  assert.deepEqual(
+    visibleGuides("player", "web")
+      .filter((item) => guideSearchText(item).includes("youtube"))
+      .map((item) => item.slug),
+    ["upload-from-youtube"],
+  );
   assert.equal(webSlugs.includes("record-a-match"), false);
   assert.ok(iosSlugs.includes("record-a-match"));
   assert.deepEqual(visibleGroups("player", "web"), [

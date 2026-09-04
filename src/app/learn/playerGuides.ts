@@ -67,7 +67,7 @@ export const playerGuides: Guide[] = [
     title: "Import a video from YouTube",
     summary: "Bring in a public or unlisted video without downloading it first.",
     group: "Get started",
-    visibility: { audiences: ["player"], platforms: ["web", "ios"] },
+    visibility: { audiences: ["player"], platforms: ["web"] },
     related: ["upload-a-video", "match-viewer"],
     sections: [
       {

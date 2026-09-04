@@ -329,6 +329,12 @@ struct GuideDetailScreen: View {
 
 // MARK: - Tutorial videos
 
+@MainActor
+func resetTutorialPlayerForChapterLoad(_ player: AVPlayer) {
+    player.pause()
+    player.replaceCurrentItem(with: nil)
+}
+
 /// Tutorial videos, watched like videos: a chapter picker to start, then a
 /// big player with real transport — scrubbing, times, previous and next
 /// chapter — sound on regardless of the silent switch, and full screen the
@@ -339,14 +345,13 @@ struct TutorialVideosScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
     @State private var urls: [String: URL] = [:]
-    @State private var currentIndex: Int?
+    @State private var chapterLoad = TutorialChapterLoadState()
     @State private var player = AVPlayer()
     @State private var isPlaying = false
     @State private var currentT: Double = 0
     @State private var duration: Double = 0
     @State private var scrubbing = false
     @State private var scrubT: Double = 0
-    @State private var loading = false
     @State private var observer: Any?
     @State private var chaptersOpen = false
     @State private var progressGate = TutorialProgressGate()
@@ -355,6 +360,10 @@ struct TutorialVideosScreen: View {
 
     private var chapters: [NumberedLearnChapter] {
         catalog.numberedChapters(for: audience)
+    }
+
+    private var currentIndex: Int? {
+        chapterLoad.selectedIndex
     }
 
     var body: some View {
@@ -369,7 +378,7 @@ struct TutorialVideosScreen: View {
                     // transport.
                     ZStack {
                         Color.black.ignoresSafeArea()
-                        PlayerLayerView(player: player)
+                        playbackSurface
                             .ignoresSafeArea()
                         VStack {
                             HStack {
@@ -377,7 +386,9 @@ struct TutorialVideosScreen: View {
                                 closeChip
                             }
                             Spacer()
-                            transport
+                            if chapterLoad.isReady {
+                                transport
+                            }
                         }
                         .padding(14)
                     }
@@ -386,7 +397,7 @@ struct TutorialVideosScreen: View {
                         HStack {
                             Button {
                                 stopPlayback()
-                                currentIndex = nil
+                                chapterLoad.showPicker()
                             } label: {
                                 HStack(spacing: 6) {
                                     Image(systemName: "chevron.left")
@@ -409,22 +420,14 @@ struct TutorialVideosScreen: View {
                         // The chapters are portrait, mobile-first footage —
                         // the video owns the screen and the layer letterboxes
                         // whatever aspect arrives.
-                        ZStack {
-                            Color.black
-                            if loading {
-                                ProgressView().tint(PL.cyan)
-                            } else {
-                                PlayerLayerView(player: player)
-                            }
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture { togglePlay() }
-                        }
+                        playbackSurface
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                        transport
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
+                        if chapterLoad.isReady {
+                            transport
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                        }
                     }
                     .sheet(isPresented: $chaptersOpen) {
                         chaptersSheet
@@ -511,6 +514,43 @@ struct TutorialVideosScreen: View {
     }
 
     // MARK: - Playback chrome
+
+    @ViewBuilder
+    private var playbackSurface: some View {
+        ZStack {
+            Color.black
+            if chapterLoad.isLoading {
+                ProgressView().tint(PL.cyan)
+            } else if let failedIndex = chapterLoad.failedIndex,
+                      chapters.indices.contains(failedIndex) {
+                VStack(spacing: 14) {
+                    Text("We couldn’t load “\(chapters[failedIndex].chapter.title)”.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.text200)
+                        .multilineTextAlignment(.center)
+                    Button("Try again") {
+                        Task { await play(index: failedIndex) }
+                    }
+                    .buttonStyle(PLSecondaryButtonStyle())
+                }
+                .padding(20)
+                .frame(maxWidth: 280)
+                .background(
+                    PL.ink.opacity(0.82),
+                    in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                        .strokeBorder(PL.edge, lineWidth: 1)
+                )
+            } else if chapterLoad.isReady {
+                PlayerLayerView(player: player)
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { togglePlay() }
+            }
+        }
+    }
 
     private var closeChip: some View {
         Button {
@@ -652,9 +692,10 @@ struct TutorialVideosScreen: View {
 
     private func play(index: Int) async {
         guard chapters.indices.contains(index) else { return }
+        let request = chapterLoad.begin(index: index)
+        resetTutorialPlayerForChapterLoad(player)
+        resetPlaybackMeasurements()
         let slug = chapters[index].chapter.slug
-        currentIndex = index
-        loading = urls[slug] == nil
         if urls[slug] == nil {
             struct Res: Decodable { let urls: [String: String] }
             let res: Res? = try? await API.post(
@@ -665,10 +706,11 @@ struct TutorialVideosScreen: View {
                 urls[slug] = url
             }
         }
-        loading = false
-        guard let url = urls[slug] else { return }
-        duration = 0
-        currentT = 0
+        guard let url = urls[slug] else {
+            chapterLoad.fail(request)
+            return
+        }
+        guard chapterLoad.succeed(request) else { return }
         player.replaceCurrentItem(with: AVPlayerItem(url: url))
         if observer == nil {
             observer = player.addPeriodicTimeObserver(
@@ -703,6 +745,7 @@ struct TutorialVideosScreen: View {
     }
 
     private func togglePlay() {
+        guard chapterLoad.isReady, player.currentItem != nil else { return }
         if player.rate > 0 {
             player.pause()
             isPlaying = false
@@ -713,9 +756,13 @@ struct TutorialVideosScreen: View {
     }
 
     private func stopPlayback() {
-        player.pause()
+        resetTutorialPlayerForChapterLoad(player)
         if let observer { player.removeTimeObserver(observer) }
         observer = nil
+        resetPlaybackMeasurements()
+    }
+
+    private func resetPlaybackMeasurements() {
         isPlaying = false
         currentT = 0
         duration = 0

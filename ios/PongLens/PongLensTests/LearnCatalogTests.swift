@@ -1,3 +1,4 @@
+import AVFoundation
 import XCTest
 @testable import PongLens
 
@@ -21,6 +22,22 @@ final class LearnCatalogTests: XCTestCase {
         let store = try loadStore()
 
         XCTAssertTrue(store.search("paid review", audience: .coach).isEmpty)
+    }
+
+    func testPlayerIOSCatalogExcludesWebOnlyYouTubeImport() throws {
+        let store = try loadStore()
+        let playerGuides = store.guides(for: .player)
+        let uploadGuide = try XCTUnwrap(
+            playerGuides.first { $0.slug == "upload-a-video" }
+        )
+
+        XCTAssertFalse(playerGuides.contains { $0.slug == "upload-from-youtube" })
+        XCTAssertTrue(store.search("youtube", audience: .player).isEmpty)
+        XCTAssertFalse(
+            store.related(for: uploadGuide, audience: .player)
+                .contains { $0.slug == "upload-from-youtube" }
+        )
+        XCTAssertFalse(store.groups(for: .player).contains { $0.lowercased().contains("youtube") })
     }
 
     func testChapterNumbersAreDerivedFromVisibleSourceOrder() throws {
@@ -191,5 +208,46 @@ final class LearnCatalogTests: XCTestCase {
             "platform": "ios",
             "slug": "coach-feedback",
         ])
+    }
+
+    func testTutorialChapterLoadFailureStaysAttachedToTheRequestedChapter() {
+        var state = TutorialChapterLoadState()
+        let first = state.begin(index: 0)
+        XCTAssertTrue(state.succeed(first))
+        XCTAssertEqual(state.selectedIndex, 0)
+        XCTAssertTrue(state.isReady)
+
+        let second = state.begin(index: 3)
+        XCTAssertEqual(state.selectedIndex, 3)
+        XCTAssertTrue(state.isLoading)
+        XCTAssertFalse(state.fail(first), "a stale request cannot replace the selected chapter")
+        XCTAssertTrue(state.fail(second))
+        XCTAssertEqual(state.failedIndex, 3)
+        XCTAssertFalse(state.isReady)
+    }
+
+    func testRetryStartsAUniqueLoadForTheFailedChapter() {
+        var state = TutorialChapterLoadState()
+        let failedRequest = state.begin(index: 2)
+        XCTAssertTrue(state.fail(failedRequest))
+
+        let retry = state.begin(index: 2)
+        XCTAssertNotEqual(retry, failedRequest)
+        XCTAssertEqual(state.selectedIndex, 2)
+        XCTAssertTrue(state.isLoading)
+        XCTAssertNil(state.failedIndex)
+    }
+
+    @MainActor
+    func testStartingAChapterLoadPausesAndClearsThePreviousPlayerItem() {
+        let player = AVPlayer()
+        player.replaceCurrentItem(with: AVPlayerItem(
+            url: URL(fileURLWithPath: "/tmp/previous-tutorial.mp4")
+        ))
+
+        resetTutorialPlayerForChapterLoad(player)
+
+        XCTAssertEqual(player.rate, 0)
+        XCTAssertNil(player.currentItem)
     }
 }

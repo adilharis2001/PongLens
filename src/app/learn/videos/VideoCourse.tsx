@@ -5,6 +5,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { LearnAudienceSwitch } from "../LearnAudienceSwitch";
 import type { LearnAudience } from "../catalogTypes";
+import {
+  tutorialLoadFailureMessage,
+  tutorialURLLoadFailed,
+  tutorialURLLoadStarted,
+  tutorialURLLoadSucceeded,
+} from "../tutorialLoadState";
 import { tutorialProgressKey } from "../tutorialProgress";
 import {
   tutorialTotalSeconds,
@@ -45,6 +51,32 @@ const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, 
 const DESK_H = "calc(100dvh - 11rem)";
 const DESK_W = "calc((100dvh - 11rem) * 9 / 16)";
 
+function TutorialLoadFailure({
+  chapterTitle,
+  onRetry,
+}: {
+  chapterTitle: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="pointer-events-auto absolute left-1/2 top-1/2 w-[min(17rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-white/15 bg-black/80 p-4 text-center backdrop-blur"
+    >
+      <p className="text-sm leading-relaxed text-zinc-200">
+        {tutorialLoadFailureMessage(chapterTitle)}
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-3 rounded-full border border-white/25 px-4 py-2 text-sm font-semibold text-white transition-colors hover:border-cyan-glow/60 hover:text-cyan-glow"
+      >
+        Try again
+      </button>
+    </div>
+  );
+}
+
 function ChapterVideo({
   chapter,
   chapterCount,
@@ -55,6 +87,8 @@ function ChapterVideo({
   boxHeight,
   onPlayingChange,
   onFirstPlay,
+  loadFailed,
+  onRetry,
 }: {
   chapter: Chapter;
   chapterCount: number;
@@ -68,6 +102,8 @@ function ChapterVideo({
   boxHeight?: string;
   onPlayingChange?: (playing: boolean) => void;
   onFirstPlay?: () => void;
+  loadFailed: boolean;
+  onRetry: () => void;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -166,7 +202,12 @@ function ChapterVideo({
           </p>
         </div>
 
-        {!started && (
+        {loadFailed ? (
+          <TutorialLoadFailure
+            chapterTitle={chapter.title}
+            onRetry={onRetry}
+          />
+        ) : !started && (
           <button
             type="button"
             onClick={start}
@@ -298,33 +339,43 @@ function AudienceVideoCourse({
   );
   const learnHref =
     audience === activeWorkspace ? "/learn" : `/learn?audience=${audience}`;
-  const [urls, setUrls] = useState<Record<string, string>>({});
+  const [urlLoad, setURLLoad] = useState(tutorialURLLoadStarted);
   const [current, setCurrent] = useState(0);
-  const [failed, setFailed] = useState(false);
   const [playing, setPlaying] = useState(false);
   const deckRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef<HTMLDivElement[]>([]);
+  const loadAttempt = useRef(0);
+  const urls = urlLoad.urls;
+
+  const loadURLs = useCallback(async () => {
+    const attempt = ++loadAttempt.current;
+    setURLLoad(tutorialURLLoadStarted());
+    try {
+      const res = await fetch("/api/tutorial-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ course: audience, platform: "web" }),
+      });
+      const data = res.ok ? await res.json() : null;
+      if (attempt !== loadAttempt.current) return;
+      if (data?.urls && typeof data.urls === "object") {
+        setURLLoad(tutorialURLLoadSucceeded(data.urls));
+      } else {
+        setURLLoad(tutorialURLLoadFailed());
+      }
+    } catch {
+      if (attempt === loadAttempt.current) {
+        setURLLoad(tutorialURLLoadFailed());
+      }
+    }
+  }, [audience]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/tutorial-url", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ course: audience, platform: "web" }),
-        });
-        const data = res.ok ? await res.json() : null;
-        if (!cancelled && data?.urls) setUrls(data.urls);
-        else if (!cancelled) setFailed(true);
-      } catch {
-        if (!cancelled) setFailed(true);
-      }
-    })();
+    void loadURLs();
     return () => {
-      cancelled = true;
+      loadAttempt.current += 1;
     };
-  }, [audience]);
+  }, [loadURLs]);
 
   /**
    * Which card the deck has settled on. Watched rather than computed from
@@ -435,6 +486,8 @@ function AudienceVideoCourse({
                 fullBleed
                 onPlayingChange={i === current ? setPlaying : undefined}
                 onFirstPlay={markStarted}
+                loadFailed={urlLoad.status === "failed"}
+                onRetry={loadURLs}
               />
             </div>
           ))}
@@ -475,12 +528,6 @@ function AudienceVideoCourse({
             />
           </div>
 
-          {failed && (
-            <p className="absolute inset-x-6 top-20 rounded-xl bg-black/70 p-3 text-center text-sm text-zinc-300 backdrop-blur">
-              The videos could not be loaded just now. Refreshing usually sorts it.
-            </p>
-          )}
-
           {/* env() rather than a utility: the home indicator's height is only
               known to the device, and a directory under it is unreachable. */}
           <div
@@ -511,6 +558,8 @@ function AudienceVideoCourse({
             active
             boxHeight={DESK_H}
             onFirstPlay={markStarted}
+            loadFailed={urlLoad.status === "failed"}
+            onRetry={loadURLs}
           />
         </div>
 

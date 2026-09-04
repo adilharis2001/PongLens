@@ -19,11 +19,16 @@ function serializeSection(section: GuideSection): Omit<GuideSection, "images" | 
   return serialized;
 }
 
-function serializeGuide(guide: Guide, audience: LearnAudience) {
+function serializeGuide(
+  guide: Guide,
+  audience: LearnAudience,
+  visibleSlugs: ReadonlySet<string>,
+) {
   const { visibility: _visibility, sections, ...serialized } = guide;
   return {
     audience,
     ...serialized,
+    related: serialized.related?.filter((slug) => visibleSlugs.has(slug)),
     sections: sections.map(serializeSection),
   };
 }
@@ -45,9 +50,10 @@ export function serializeIOSLearnCatalog(): string {
       audience,
       groups: [...new Set(guides.map((guide) => guide.group))],
     })),
-    guides: guidesByAudience.flatMap(({ audience, guides }) =>
-      guides.map((guide) => serializeGuide(guide, audience)),
-    ),
+    guides: guidesByAudience.flatMap(({ audience, guides }) => {
+      const visibleSlugs = new Set(guides.map((guide) => guide.slug));
+      return guides.map((guide) => serializeGuide(guide, audience, visibleSlugs));
+    }),
     chapters: audiences.flatMap((audience) =>
       visibleChapters(audience, "ios").map((chapter) => serializeChapter(chapter, audience)),
     ),

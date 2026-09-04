@@ -67,6 +67,72 @@ struct TutorialProgressGate {
     }
 }
 
+struct TutorialChapterLoadRequest: Equatable {
+    let generation: Int
+    let index: Int
+}
+
+struct TutorialChapterLoadState {
+    private enum Phase: Equatable {
+        case picker
+        case loading(TutorialChapterLoadRequest)
+        case ready(TutorialChapterLoadRequest)
+        case failed(TutorialChapterLoadRequest)
+    }
+
+    private var generation = 0
+    private var phase: Phase = .picker
+
+    var selectedIndex: Int? {
+        switch phase {
+        case .picker: nil
+        case .loading(let request), .ready(let request), .failed(let request):
+            request.index
+        }
+    }
+
+    var failedIndex: Int? {
+        guard case .failed(let request) = phase else { return nil }
+        return request.index
+    }
+
+    var isLoading: Bool {
+        if case .loading = phase { return true }
+        return false
+    }
+
+    var isReady: Bool {
+        if case .ready = phase { return true }
+        return false
+    }
+
+    mutating func begin(index: Int) -> TutorialChapterLoadRequest {
+        generation += 1
+        let request = TutorialChapterLoadRequest(generation: generation, index: index)
+        phase = .loading(request)
+        return request
+    }
+
+    @discardableResult
+    mutating func succeed(_ request: TutorialChapterLoadRequest) -> Bool {
+        guard phase == .loading(request) else { return false }
+        phase = .ready(request)
+        return true
+    }
+
+    @discardableResult
+    mutating func fail(_ request: TutorialChapterLoadRequest) -> Bool {
+        guard phase == .loading(request) else { return false }
+        phase = .failed(request)
+        return true
+    }
+
+    mutating func showPicker() {
+        generation += 1
+        phase = .picker
+    }
+}
+
 struct LearnGuideSection: Codable, Hashable {
     let heading: String?
     let steps: [String]?
