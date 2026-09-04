@@ -11,10 +11,19 @@
  * the note sheet is opened and closed without sending.
  */
 
+import {
+  MATCH_ID as MATCH,
+  playerGuard,
+  stageOriginal,
+} from "../../fixtures/player-match.mjs";
+
 export { account } from "../account.mjs";
 export const entry = "/matches";
-const MATCH = "a0fb8f44-89b1-464e-a2a5-388b502dbda5";
-export const guard = "a0fb8f44-89b1-464e-a2a5-388b502dbda5";
+export const guard = [MATCH, playerGuard];
+
+export async function stage(key) {
+  await stageOriginal(key);
+}
 
 export async function prepare(page) {
   // Starts on the library, not inside a match: the chapter now explains
@@ -71,19 +80,7 @@ const half = (pic, side) => ({
 });
 
 export async function flow(page, clock, { beat, voice, union, dismiss }) {
-  // ------------------------------------------------ 1. where matches land
-  const b0 = beat("matches");
-  await clock.until(b0.start + 0.2);
-  const card = await clock.rect({ sel: `a[href^="/match/"]`, min: { w: 120, h: 90 } });
-  const c0 = clock.mark({
-    kind: "box",
-    label: "Your matches",
-    rect: { x: 14, y: Math.max(card.y - 10, 66), w: 362, h: card.h + 20 },
-  });
-  await clock.until(b0.end);
-  clock.close(c0);
-
-  // -------------------------------------------- 2. open it, dead time gone
+  // Open the approved player fixture before the first narrated beat.
   await page.goto(`${new URL(page.url()).origin}/match/${MATCH}`);
   await openPlayer(page);
   const pic = await pictureRect(page);
@@ -131,21 +128,6 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
   });
   clock.close(fast);
 
-  // ------------------------------------------------------- 4. 0.25x hold
-  const b4 = beat("slow");
-  await clock.until(b4.start + 0.15);
-  const slow = clock.mark({ kind: "box", label: "Hold for 0.25x", rect: half(pic, "left") });
-  await page.evaluate(() => {
-    const v = document.querySelector("video");
-    if (v) v.playbackRate = 0.25;
-  });
-  await clock.until(b4.end - 0.4);
-  await page.evaluate(() => {
-    const v = document.querySelector("video");
-    if (v) v.playbackRate = 1;
-  });
-  clock.close(slow);
-
   // ------------------------------------------------------------ 5. zoom
   const b5 = beat("zoom");
   await clock.until(b5.start + 0.15);
@@ -183,33 +165,6 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
   await clock.until(bj.end);
   clock.close(cj);
 
-  // ------------------------------------------------- 7. the running score
-  const b6 = beat("score");
-  await clock.until(b6.start + 0.15);
-  // The score bug has no aria label; find it by what it IS — the small
-  // absolutely-positioned block in the bottom-left of the picture that
-  // carries both player names.
-  // In portrait the bug is only ~26px tall and is anchored to the PICTURE
-  // (which letterboxes into a band), not to the bottom of the screen — so
-  // a size-and-position guess misses it. Its class signature is exact.
-  const bug = await page.evaluate((them) => {
-    const hit = [...document.querySelectorAll("div")].find((d) => {
-      const c = typeof d.className === "string" ? d.className : "";
-      return (
-        c.includes("pointer-events-none") &&
-        c.includes("backdrop-blur-sm") &&
-        d.textContent.includes(them)
-      );
-    });
-    if (!hit) return null;
-    const r = hit.getBoundingClientRect();
-    return { x: r.x, y: r.y, w: r.width, h: r.height };
-  }, "Gui");
-  if (!bug) throw new Error("score bug not found in the picture");
-  const c6 = clock.mark({ kind: "box", label: "Running score", rect: bug });
-  await clock.until(b6.end);
-  clock.close(c6);
-
   // -------------------------------------------------- 7. star and note
   const b7 = beat("star");
   await clock.until(b7.start + 0.15);
@@ -232,5 +187,20 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
   );
   await clock.until(b7.end);
   clock.close(c7);
+
+  // ---------------------------------------- 8. the untouched upload
+  const original = beat("original");
+  await page.evaluate(() => document.querySelector('[aria-label="Close player"]')?.click());
+  await page.waitForSelector("text=Original", { timeout: 20000 });
+  await clock.sleep(600);
+  await clock.until(original.start + 0.1);
+  const originalButton = await clock.rect({ text: "Original", tag: "button" });
+  const originalMark = clock.mark({
+    kind: "box",
+    label: "Watch the original upload",
+    rect: { x: originalButton.x - 10, y: originalButton.y - 10, w: originalButton.w + 20, h: originalButton.h + 20 },
+  });
+  await clock.until(original.end);
+  clock.close(originalMark);
   await clock.until(voice.total + 0.4);
 }

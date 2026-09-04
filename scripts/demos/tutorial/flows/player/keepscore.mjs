@@ -13,8 +13,8 @@
  */
 
 export { account } from "../account.mjs";
-export const entry = "/match/a0fb8f44-89b1-464e-a2a5-388b502dbda5";
-export const guard = "a0fb8f44-89b1-464e-a2a5-388b502dbda5";
+export const entry = "/match/efff9208-abf2-4a20-a498-18cc5a5130b3";
+export const guard = "efff9208-abf2-4a20-a498-18cc5a5130b3";
 
 export async function prepare(page) {
   await page.waitForSelector("text=Score Keeper", { timeout: 90000 });
@@ -39,15 +39,14 @@ export async function prepare(page) {
  *  timeline further down the page repeats several of these labels, so the
  *  text-matched ones demand the score pad's real size. */
 const AT = {
-  serveMine: { aria: "tap to switch server" },
-  serveTheirs: { aria: "Give the serve to" },
+  serveMine: { aria: "I served this point" },
+  serveTheirs: { aria: "Give the serve to Alex" },
   strip: { aria: "Go to point 1," },
-  why: { aria: "say why you lost" },
   analysis: { aria: "Add analysis for this point" },
-  skip: { text: "Skip", tag: "button", min: { w: 80, h: 40 } },
+  skip: { text: "Skip let", tag: "button", min: { w: 80, h: 40 } },
   modify: { text: "Modify", tag: "button", min: { w: 80, h: 40 } },
   padMine: { text: "Me", tag: "button", min: { w: 120, h: 200 } },
-  padTheirs: { text: "Gui", tag: "button", min: { w: 120, h: 200 } },
+  padTheirs: { text: "Alex", tag: "button", min: { w: 120, h: 200 } },
 };
 
 export async function flow(page, clock, { beat, voice, union, dismiss }) {
@@ -107,30 +106,28 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
   clock.close(c4);
 
   // ------------------------------------------------- 5. why you lost it
-  const b5 = beat("why");
+  const b5 = beat("analysis");
   await clock.until(b5.start + 0.1);
-  const why = await clock.rect(AT.why);
-  const c5 = clock.mark({ kind: "box", label: "Note what went wrong", rect: why });
+  const analysisButton = await clock.rect(AT.analysis);
+  const c5 = clock.mark({ kind: "box", label: "Record what happened", rect: analysisButton });
   await clock.until(b5.start + b5.dur * 0.45);
   clock.mark({
     kind: "tap",
-    x: why.x + why.w / 2,
-    y: why.y + why.h / 2,
+    x: analysisButton.x + analysisButton.w / 2,
+    y: analysisButton.y + analysisButton.h / 2,
     end: Number((clock.now() + 0.7).toFixed(3)),
   });
   clock.close(c5);
-  await page.evaluate((s) => window.__pick(s)?.click(), AT.why);
-  await page.waitForSelector("text=Why did you lose it?", { timeout: 15000 });
+  await page.evaluate((s) => window.__pick(s)?.click(), AT.analysis);
+  await page.waitForSelector("text=Analysis", { timeout: 15000 });
   await clock.until(b5.end);
   // Its own Skip control, and prove the sheet is gone before moving on.
-  await dismiss(page, {
-    click: { text: "Skip", tag: "button", max: { w: 70, h: 40 } },
-    gone: { text: "Why did you lose it?" },
-  });
+  await page.evaluate(() => [...document.querySelectorAll("button")].find((button) => button.textContent.trim() === "Done")?.click());
+  await page.waitForFunction(() => !document.querySelector(".ks-slide-left"), null, { timeout: 10000 }).catch(() => {});
   await clock.sleep(400);
 
   // ------------------------------- 6. swipe for notes and tags
-  const b6 = beat("swipe");
+  const b6 = beat("note-tag");
   await clock.until(b6.start + 0.1);
   const pad = await clock.rect(AT.padMine);
   const c6 = clock.mark({ kind: "box", label: "Swipe here", rect: pad });

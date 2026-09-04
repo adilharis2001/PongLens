@@ -52,8 +52,8 @@ export async function flow(page, clock, { beat, voice, sectionRect }) {
   // ------------------------------------------------ 3. pick up where you left off
   const b3 = beat("continue");
   await clock.until(b3.start + 0.15);
-  // "Keep scoring" in the DOM, uppercased by CSS on screen.
-  const cont = await clock.rect({ text: "Keep scoring", tag: "a" });
+  // The current dashboard labels the resumed match "Continue".
+  const cont = await clock.rect({ text: "Continue", tag: "p" });
   const c3 = clock.mark({
     kind: "box",
     label: "Continue scoring",

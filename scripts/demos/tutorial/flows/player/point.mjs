@@ -12,8 +12,8 @@
  */
 
 export { account } from "../account.mjs";
-export const entry = "/match/a0fb8f44-89b1-464e-a2a5-388b502dbda5?p=1";
-const GUI = "a0fb8f44-89b1-464e-a2a5-388b502dbda5";
+export const entry = "/match/efff9208-abf2-4a20-a498-18cc5a5130b3?p=3";
+const GUI = "efff9208-abf2-4a20-a498-18cc5a5130b3";
 /**
  * The Gui match has the filled-in answers but NO drawable placement: every
  * point of it renders "a placement map couldn't be generated". So the map
@@ -22,10 +22,10 @@ const GUI = "a0fb8f44-89b1-464e-a2a5-388b502dbda5";
  * survives the trust gate, and its rally is a readable two-shot exchange
  * rather than the 30-plus stroke tangle most of the others draw.
  */
-const MAPPED = "5bd279f4-aae2-46b1-9d87-0fdd0a6b348a";
-const MAPPED_POINT = 30;
+const MAPPED = GUI;
+const MAPPED_POINT = 3;
 
-export const guard = [GUI, MAPPED];
+export const guard = GUI;
 
 const SUPA = "https://pdycinmyfnritemrsfjf.supabase.co/rest/v1/";
 const api = async (key, path, init = {}) => {
@@ -166,28 +166,28 @@ export async function flow(page, clock, { beat, voice, union, dismiss, sectionRe
   // it — see the `pause` on this beat in the chapter script.
   await clock.until(b3.end);
   clock.close(c3b);
-  const crossing = page.goto(
-    `${new URL(page.url()).origin}/match/${MAPPED}?p=${MAPPED_POINT}`
-  );
-
-  // ---------------------------------- 4. where the ball actually went
-  const b4 = beat("map");
-  await crossing;
-  await page.waitForSelector("text=carried to the end", { timeout: 60000 });
-  await clock.sleep(700);
-  await bringTop(page, clock, "Where the ball landed");
-  await clock.until(b4.start + 0.1);
-  // The table is not an SVG (it is laid out in DOM), so measure the whole
-  // section from its heading to the next one rather than hunting a shape.
-  const c4 = clock.mark({
-    kind: "box",
-    label: "The rally, traced",
-    rect: fit(
-      await clock.rect({ sectionOf: "Where the ball landed", within: SHEET })
-    ),
+  // ------------------------------------ 4. and where those answers go
+  const b4 = beat("feeds");
+  await dismiss(page, {
+    click: { aria: "Close point view" },
+    gone: { text: "Who won this point?", tag: "h3" },
   });
+  await clock.sleep(700);
+  await page.evaluate(() => {
+    [...document.querySelectorAll("button")]
+      .find((button) => button.textContent.trim().startsWith("Match analysis"))
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+  await clock.sleep(800);
+  await clock.until(b4.start + 0.1);
+  const analysisRow = await clock.rect({ text: "Match analysis", tag: "button", min: { w: 200 } });
+  const c4 = clock.mark({ kind: "box", label: "Feeds your analysis", rect: analysisRow });
   await clock.until(b4.end);
   clock.close(c4);
+
+  await page.goto(`${new URL(page.url()).origin}/match/${MAPPED}?p=${MAPPED_POINT}`);
+  await page.waitForSelector("text=Who won this point?", { timeout: 60000 });
+  await clock.sleep(700);
 
   // ------------------------------------------- 5. the notes on the point
   const b5 = beat("notes");
@@ -204,31 +204,22 @@ export async function flow(page, clock, { beat, voice, union, dismiss, sectionRe
   await clock.until(b5.end);
   clock.close(c5);
 
-  // ------------------------------------ 6. and where those answers go
-  const b6 = beat("feeds");
-  await dismiss(page, {
-    click: { aria: "Close point view" },
-    gone: { text: "Who won this point?", tag: "h3" },
-  });
-  await clock.sleep(700);
-  await page.evaluate(() => {
-    [...document.querySelectorAll("button")]
-      .find((b) => b.textContent.trim().startsWith("Match analysis"))
-      ?.scrollIntoView({ behavior: "smooth", block: "center" });
-  });
-  await clock.sleep(900);
+  // --------------------------------------------- 6. repair the clip
+  const b6 = beat("clip-tools");
   await clock.until(b6.start + 0.1);
-  const analysisRow = await clock.rect({
-    text: "Match analysis",
-    tag: "button",
-    min: { w: 200 },
-  });
-  const c6 = clock.mark({
-    kind: "box",
-    label: "It fills this in",
-    rect: analysisRow,
-  });
-  await clock.until(b6.end);
+  const modify = await clock.rect({ text: "Modify", tag: "button" });
+  const remove = await clock.rect({ text: "Remove", tag: "button" });
+  const c6 = clock.mark({ kind: "box", label: "Repair a bad cut", rect: union(modify, remove) });
+  await clock.until(b6.start + Math.min(1.5, b6.dur * 0.45));
+  await page.evaluate(() => window.__pick({ text: "Modify", tag: "button" })?.click());
+  await page.waitForSelector("text=Split", { timeout: 20000 });
+  await clock.sleep(500);
+  const split = await clock.rect({ text: "Split", tag: "button" });
+  const join = await clock.rect({ text: "Join", tag: "button" });
+  const adjust = await clock.rect({ text: "Adjust", tag: "button" });
   clock.close(c6);
+  const tools = clock.mark({ kind: "box", label: "Split, join, or adjust", rect: union(split, join, adjust) });
+  await clock.until(b6.end);
+  clock.close(tools);
   await clock.until(voice.total + 0.4);
 }

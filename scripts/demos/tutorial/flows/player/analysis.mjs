@@ -8,8 +8,15 @@
  * after the swipe has settled.
  */
 
+import {
+  MATCH_ID,
+  playerGuard,
+  stagePlayerMatch,
+  tutorialApi,
+} from "../../fixtures/player-match.mjs";
+
 export { account } from "../account.mjs";
-export const entry = "/match/a0fb8f44-89b1-464e-a2a5-388b502dbda5";
+export const entry = "/match/efff9208-abf2-4a20-a498-18cc5a5130b3";
 
 /**
  * The chapter covers everything the app tells you about a scored match:
@@ -19,12 +26,14 @@ export const entry = "/match/a0fb8f44-89b1-464e-a2a5-388b502dbda5";
  * the account. So the analysis half is shot on one and the maps half on
  * the other, with the crossing hidden in the hold after line five.
  */
-const MAPPED = "5bd279f4-aae2-46b1-9d87-0fdd0a6b348a";
+const MAPPED = MATCH_ID;
 
-export const guard = MAPPED;
+export const guard = playerGuard;
+
+export const stage = stagePlayerMatch;
 
 const MAP = {
-  heading: { text: "Placement maps", tag: "h2" },
+  heading: { text: "Serve placement", tag: "h2" },
   games: { aria: "Which games" },
   whose: { aria: "Whose shots" },
   which: { aria: "Which shots" },
@@ -37,7 +46,7 @@ const MAP = {
 const swipeDeck = (page, to) =>
   page.evaluate((target) => {
     const h = [...document.querySelectorAll("h2")].find((x) =>
-      x.textContent.trim().startsWith("Placement maps")
+      x.textContent.trim().startsWith("Serve placement")
     );
     const sec = h?.closest("section") ?? h?.parentElement;
     const s = [...(sec?.querySelectorAll("*") ?? [])].find(
@@ -66,7 +75,7 @@ export async function prepare(page) {
   await page.waitForTimeout(900);
 }
 
-export async function flow(page, clock, { beat, voice, union }) {
+export async function flow(page, clock, { beat, voice, union, serviceKey }) {
   // ------------------------------------------------- 1. the deck itself
   const b1 = beat("open");
   await clock.until(b1.start + 0.2);
@@ -84,8 +93,8 @@ export async function flow(page, clock, { beat, voice, union }) {
   await clock.until(b1.end);
   clock.close(c1);
 
-  // ----------------------------------------------- 2. the momentum chart
-  const b2 = beat("momentum");
+  // The overview chart and headline numbers share the same narration beat.
+  const b2 = beat("stats");
   await clock.until(b2.start + 0.1);
   // Target the chart itself. Matching on the "Point differential" text
   // walks up to whichever ancestor happens to satisfy the size floor, and
@@ -98,12 +107,10 @@ export async function flow(page, clock, { beat, voice, union }) {
     label: "How it swung",
     rect: union(chartLabel, chartSvg),
   });
-  await clock.until(b2.end);
+  await clock.until(b2.start + b2.dur * 0.45);
   clock.close(c2);
 
-  // ------------------------------------- 3. every number, in one sweep
-  const b3 = beat("stats");
-  await clock.until(b3.start + 0.1);
+  // ------------------------------------- every number, in one sweep
   const first = await clock.rect({ text: "Best run", tag: "span" });
   const last = await clock.rect({ text: "Games won", tag: "span" });
   const c3 = clock.mark({
@@ -121,7 +128,7 @@ export async function flow(page, clock, { beat, voice, union }) {
       h: last.y + last.h + 8 - (first.y - 8),
     },
   });
-  await clock.until(b3.end);
+  await clock.until(b2.end);
   clock.close(c3);
 
   // ------------------------------------------------ 4. why you lost them
@@ -156,11 +163,11 @@ export async function flow(page, clock, { beat, voice, union }) {
     `${new URL(page.url()).origin}/match/${MAPPED}`
   );
   await crossing;
-  await page.waitForSelector("text=Placement maps", { timeout: 60000 });
+  await page.waitForSelector("text=Serve placement", { timeout: 60000 });
   await page.waitForTimeout(2200);
   await page.evaluate(() => {
     [...document.querySelectorAll("h2")]
-      .find((h) => h.textContent.trim().startsWith("Placement maps"))
+      .find((h) => h.textContent.trim().startsWith("Serve placement"))
       ?.scrollIntoView({ block: "start" });
     window.scrollBy(0, -70);
   });
@@ -203,8 +210,55 @@ export async function flow(page, clock, { beat, voice, union }) {
   await clock.until(b6.end);
   clock.close(c6c);
 
-  // ------------------------------------------------------ 7. still beta
+  // ------------------------- 7. request maps when they were not generated
+  const request = beat("request-placement");
+  await tutorialApi(serviceKey, `matches?id=eq.${MAPPED}&user_id=eq.${playerGuard.ownerId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      placement_status: "retry_available",
+      placement_failure_code: "no_usable_points",
+      placement_retry_count: 0,
+      placement_retry_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      placement_retry_job_id: null,
+    }),
+  });
+  await page.goto(`${new URL(page.url()).origin}/match/${MAPPED}`);
+  await page.waitForSelector("text=Try again", { timeout: 30000 });
+  await page.evaluate(() => {
+    [...document.querySelectorAll("button")]
+      .find((button) => button.textContent.trim().startsWith("Placement maps"))
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+  await clock.sleep(700);
+  await clock.until(request.start + 0.1);
+  const placementTool = await clock.rect({ text: "Placement maps", tag: "button" });
+  const requestMark = clock.mark({
+    kind: "box",
+    label: "Request from Tools",
+    rect: { x: placementTool.x - 10, y: placementTool.y - 10, w: placementTool.w + 20, h: placementTool.h + 20 },
+  });
+  await clock.until(request.end);
+  clock.close(requestMark);
+
+  // ------------------------------------------------------ 8. still beta
   const b7 = beat("beta");
+  await tutorialApi(serviceKey, `matches?id=eq.${MAPPED}&user_id=eq.${playerGuard.ownerId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      placement_status: "ready",
+      placement_failure_code: null,
+      placement_retry_expires_at: null,
+    }),
+  });
+  await page.goto(`${new URL(page.url()).origin}/match/${MAPPED}`);
+  await page.waitForSelector("text=Serve placement", { timeout: 30000 });
+  await page.evaluate(() => {
+    [...document.querySelectorAll("h2")]
+      .find((heading) => heading.textContent.trim().startsWith("Serve placement"))
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.scrollBy(0, -70);
+  });
+  await clock.sleep(700);
   await clock.until(b7.start + 0.1);
   const wrong = await clock.rect(MAP.wrong);
   const c7 = clock.mark({
