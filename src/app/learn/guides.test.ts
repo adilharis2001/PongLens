@@ -13,6 +13,7 @@ import {
   visibleRelatedGuides,
 } from "./catalog.ts";
 import type { Guide, TutorialChapter } from "./catalogTypes.ts";
+import { guideBySlug as legacyGuideBySlug } from "./guides.ts";
 
 function guide(overrides: Partial<Guide> = {}): Guide {
   return {
@@ -76,6 +77,10 @@ test("catalog selectors find only visible slugs and derive tutorial totals", () 
     tutorialTotalSeconds("player", "web"),
     visibleChapters("player", "web").reduce((total, item) => total + item.seconds, 0),
   );
+});
+
+test("legacy guideBySlug defaults to the web catalog", () => {
+  assert.equal(legacyGuideBySlug("upload-a-video")?.slug, "upload-a-video");
 });
 
 test("guide search helpers retain their legacy behavior", () => {

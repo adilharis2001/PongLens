@@ -19,7 +19,11 @@ export type {
   TutorialChapter,
 } from "./catalogTypes.ts";
 
-import { guideBySlug as catalogGuideBySlug, visibleGuides } from "./catalog.ts";
+import {
+  guideBySlug as catalogGuideBySlug,
+  guideBySlugForPlatform,
+  visibleGuides,
+} from "./catalog.ts";
 
 export const GROUPS = ["Get started", "Review and score", "Your game", "Share and export"] as const;
 export const guides = visibleGuides("player", "web");
