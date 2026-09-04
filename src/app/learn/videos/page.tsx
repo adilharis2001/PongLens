@@ -35,7 +35,10 @@ export default async function TutorialVideosPage({
 
   return (
     <>
-      <AppNav avatarUrl={context.avatarUrl} />
+      <AppNav
+        avatarUrl={context.avatarUrl}
+        remembered={context.activeWorkspace}
+      />
       <main className="bg-arena flex-1">
         {/* Desktop only: the mobile layer carries its own floating back
             control, since there is no page around it to put one in. */}

@@ -90,6 +90,24 @@ test("Learn audience uses only eligible player and coach URL overrides", () => {
   );
 });
 
+test("tutorial video global nav follows the active workspace, not a Learn override", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./videos/page.tsx", import.meta.url)),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /<AppNav\s+avatarUrl=\{context\.avatarUrl\}\s+remembered=\{context\.activeWorkspace\}\s*\/>/,
+    "AppNav must receive the authenticated active workspace",
+  );
+  assert.match(
+    source,
+    /<LearnAudienceSwitch[\s\S]*?audience=\{context\.audience\}[\s\S]*?activeWorkspace=\{context\.activeWorkspace\}/,
+    "the local Learn switch must retain the separately resolved audience",
+  );
+});
+
 test("tutorial progress stays separate between player and coach workspaces", () => {
   assert.equal(tutorialProgressKey("player"), "player_tutorial_started");
   assert.equal(tutorialProgressKey("coach"), "coach_tutorial_started");
