@@ -338,6 +338,9 @@ returns table (
   coach_id      uuid,
   display_name  text,
   coach_email   text,
+  -- The invite this row is waiting on, so the Coaches section can put the
+  -- player's own name on a waiting invite instead of "Invite link".
+  invite_id     uuid,
   status        text,
   entry_count   bigint,
   shared_count  bigint
@@ -352,6 +355,7 @@ as $$
     pc.coach_id,
     pc.display_name,
     u.email::text,
+    pc.invite_id,
     case
       when exists (
         select 1 from public.coach_links cl

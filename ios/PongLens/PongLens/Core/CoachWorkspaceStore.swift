@@ -63,6 +63,37 @@ struct StudentInviteRow: Codable, Identifiable, Hashable {
     }
 }
 
+/// A journal entry a STUDENT attributed to this coach and chose to share
+/// (164), as student_shared_lessons() returns it. Read-only: it is their
+/// journal, and it stays theirs. The web twin is `SharedFromStudent` in
+/// StudentView.tsx.
+struct StudentSharedLesson: Codable, Identifiable, Hashable {
+    let lessonId: UUID
+    /// The student's auth id, which is what a roster row's playerId holds.
+    let studentId: UUID
+    let studentName: String
+    let transcript: String
+    let takeaways: LessonTakeaways?
+    /// Pinned to the student's own folder by the RPC; nil when there is none.
+    let imagePath: String?
+    let matchId: UUID?
+    let sharedAt: String
+    let createdAt: String
+
+    var id: UUID { lessonId }
+
+    enum CodingKeys: String, CodingKey {
+        case transcript, takeaways
+        case lessonId = "lesson_id"
+        case studentId = "student_id"
+        case studentName = "student_name"
+        case imagePath = "image_path"
+        case matchId = "match_id"
+        case sharedAt = "shared_at"
+        case createdAt = "created_at"
+    }
+}
+
 /// The coaching workspace's data: roster, entries, and the lesson rows
 /// behind them. Loaded when the workspace opens, refreshed after writes.
 /// Matches shared by students stay in LibraryStore — RLS already delivers
@@ -73,6 +104,11 @@ final class CoachWorkspaceStore {
     var entries: [CoachEntryRow] = []
     /// Lesson content keyed by lesson id, for the entries above only.
     var lessons: [UUID: LessonRow] = [:]
+    /// What students shared FROM their own journals (164). The other
+    /// direction from `entries`, and kept apart from them on purpose:
+    /// what you wrote about someone and what they showed you must never
+    /// look like one pile.
+    var fromStudents: [StudentSharedLesson] = []
     var loaded = false
     /// The roster query itself failed (offline, expired session). Screens
     /// say so rather than showing "No students yet." over a network error.
@@ -88,6 +124,14 @@ final class CoachWorkspaceStore {
 
     func entries(for studentId: UUID) -> [CoachEntryRow] {
         entries.filter { $0.studentId == studentId }
+    }
+
+    /// Their shared entries, for a roster row that has an account behind
+    /// it. Keyed on the player id, because the RPC answers in terms of
+    /// accounts and the roster in terms of rows.
+    func shared(from student: CoachStudentRow) -> [StudentSharedLesson] {
+        guard let playerId = student.playerId else { return [] }
+        return fromStudents.filter { $0.studentId == playerId }
     }
 
     func lesson(for entry: CoachEntryRow) -> LessonRow? {
@@ -116,8 +160,12 @@ final class CoachWorkspaceStore {
             .eq("kind", value: "coach")
             .order("created_at", ascending: false)
             .execute().value
+        async let sharedQ: [StudentSharedLesson]? = try? await supa
+            .rpc("student_shared_lessons")
+            .execute().value
 
         let (s, e, l) = await (studentsQ, entriesQ, lessonsQ)
+        fromStudents = (await sharedQ) ?? []
         guard let s else {
             loadFailed = true
             return

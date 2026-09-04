@@ -48,6 +48,10 @@ struct LessonRecordScreen: View {
     /// lesson is the only one who can fix them.
     @State private var draft = ""
     @State private var coachName = ""
+    /// Which of the player's own coaches taught it, and whether they may
+    /// read it (164).
+    @State private var coachRefId: UUID?
+    @State private var shareWithCoach = false
     @State private var saving = false
     @State private var saveFailed = false
 
@@ -399,9 +403,13 @@ struct LessonRecordScreen: View {
             header
 
             if !hideAuthorField {
-                TextField("Who taught it?", text: $coachName)
-                    .plField()
-                    .padding(.top, 16)
+                CoachPickerRow(
+                    coaches: store.playerCoaches,
+                    coachRefId: $coachRefId,
+                    shareWithCoach: $shareWithCoach,
+                    onCreate: { await store.createCoach(named: $0) }
+                )
+                .padding(.top, 16)
             }
 
             Picker("", selection: $reviewTab) {
@@ -672,12 +680,17 @@ struct LessonRecordScreen: View {
         if let saveAs {
             ok = await saveAs(words)
         } else {
+            let named = coachRefId.flatMap { id in
+                store.playerCoaches.first(where: { $0.id == id })?.displayName
+            }
+            let typed = coachName.trimmingCharacters(in: .whitespaces)
             ok = await store.saveEntry(
                 transcript: words,
                 kind: "lesson",
-                coachName: coachName.trimmingCharacters(in: .whitespaces).isEmpty
-                    ? nil : coachName.trimmingCharacters(in: .whitespaces),
-                summarize: true
+                coachName: named ?? (typed.isEmpty ? nil : typed),
+                summarize: true,
+                coachRefId: coachRefId,
+                shareWithCoach: shareWithCoach && coachRefId != nil
             )
         }
         saving = false

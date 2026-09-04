@@ -560,6 +560,16 @@ export interface Lesson {
   // lesson with Jonathan" from structure instead of hoping the name
   // survived speech-to-text inside the transcript.
   coach_name?: string | null;
+  // The player_coaches row this entry is attributed to (164). The real
+  // relationship, where coach_name is only the words. Null on practice
+  // entries, on coach entries, and on anything attributed by name alone.
+  // coach_name is kept in step with it by a trigger, so every reader that
+  // predates this keeps working.
+  coach_ref_id?: string | null;
+  // When the author let that coach read it (164). Null means attributed
+  // but private, which is the default. The coach reads through
+  // student_shared_lessons(), never from this table.
+  shared_with_coach_at?: string | null;
   // Attached photo (047): r2://…/entry/<user_id>/… — moderated on upload.
   image_path?: string | null;
   created_at: string;

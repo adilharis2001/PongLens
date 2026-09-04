@@ -4,6 +4,7 @@ import { openAIUsageEvents, recordUsage } from "@/lib/costs/meter";
 import { processNextRecollectJob } from "@/lib/recollect/processor";
 import { enqueueRecollectSource } from "@/lib/recollect/repository";
 import { createClient } from "@/lib/supabase/server";
+import { coachRefUpdate } from "@/lib/journal/coachRef";
 import { entryImageEdit } from "@/lib/journal/entryImage";
 import { releaseEntryImage } from "@/lib/journal/releaseEntryImage";
 
@@ -282,6 +283,7 @@ export async function POST(req: Request) {
   let summarize: boolean;
   let imagePath: string | null;
   let coachName: string | null;
+  let coachRef: ReturnType<typeof coachRefUpdate>;
   try {
     const body = await req.json();
     transcript = String(body.transcript ?? "").trim();
@@ -300,6 +302,16 @@ export async function POST(req: Request) {
     // over-long name is a shorter name rather than a failed save.
     const rawCoach = String(body.coachName ?? "").trim().slice(0, 80);
     coachName = kind === "lesson" && rawCoach ? rawCoach : null;
+    // Which coach, as a real row this time (164), and whether they may
+    // read it. coach_name is still written: the trigger overwrites it from
+    // the row, and it is what every existing reader still displays.
+    coachRef =
+      kind === "lesson"
+        ? coachRefUpdate({
+            coachRefId: body.coachRefId,
+            shareWithCoach: body.shareWithCoach,
+          })
+        : { coach_ref_id: null, shared_with_coach_at: null };
     // Attached photo from /api/entry-image. The path is client-writable
     // text, so it must live under the CALLER's own entry folder — without
     // this check a user could point their entry at any object in the
@@ -377,6 +389,7 @@ export async function POST(req: Request) {
         transcript,
         kind,
         coach_name: coachName,
+        ...coachRef,
         image_path: imagePath,
         status: plain ? "ready" : "queued",
       })
@@ -480,8 +493,10 @@ export async function PATCH(req: Request) {
   let rawCoach: string;
   let summarize: boolean;
   let photo: ReturnType<typeof entryImageEdit>;
+  let rawBody: { coachRefId?: unknown; shareWithCoach?: unknown };
   try {
     const body = await req.json();
+    rawBody = body;
     lessonId = String(body.lessonId ?? "").trim();
     transcript = String(body.transcript ?? "").trim();
     rawCoach = String(body.coachName ?? "").trim().slice(0, 80);
@@ -501,7 +516,7 @@ export async function PATCH(req: Request) {
   // never a hint that it exists.
   const { data: row } = await supabase
     .from("lessons")
-    .select("id, kind, takeaways, image_path")
+    .select("id, kind, takeaways, image_path, coach_ref_id, shared_with_coach_at")
     .eq("id", lessonId)
     .maybeSingle();
   if (!row) {
@@ -540,6 +555,18 @@ export async function PATCH(req: Request) {
     transcript,
     kind,
     coach_name: coachName,
+    // Absent means leave it alone, exactly as the note route treats it.
+    // Writing it unconditionally would have the iOS app — which does not
+    // send the field yet — silently clear an attribution and its sharing
+    // every time somebody fixed a typo on their phone.
+    ...(kind === "lesson" && "coachRefId" in rawBody
+      ? coachRefUpdate({
+          coachRefId: rawBody.coachRefId,
+          shareWithCoach: rawBody.shareWithCoach,
+          currentRefId: row.coach_ref_id as string | null,
+          currentSharedAt: row.shared_with_coach_at as string | null,
+        })
+      : {}),
     takeaways: null,
     status: plain ? "ready" : "queued",
   };

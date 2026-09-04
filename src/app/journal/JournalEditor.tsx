@@ -11,6 +11,8 @@ import {
   shrinkImage,
   useEntryPhoto,
 } from "@/components/entryPhoto";
+import { CoachPicker } from "./CoachPicker";
+import type { PlayerCoach } from "@/lib/coaches/playerCoaches";
 
 /**
  * The Journal's capture sheet. Two kinds of entry — a lesson (what a
@@ -40,7 +42,8 @@ export function JournalEditor({
   onClose,
   userId,
   vocab,
-  coachNames = [],
+  coaches = [],
+  createCoach,
   createTag,
   onSaved,
 }: {
@@ -49,17 +52,19 @@ export function JournalEditor({
   userId: string;
   /** Owner's tag vocabulary, recent-first (shared with points). */
   vocab: Tag[];
-  /** Coach names already used on this journal, for the suggestion list.
-   *  One tap keeps the spelling identical across lessons, which is what
-   *  makes "everything Jonathan told me" a reliable question. */
-  coachNames?: string[];
+  /** The player's own coaches (164). A pick, not a typed name: two
+   *  spellings of one person is the defect this replaced. */
+  coaches?: PlayerCoach[];
+  /** Find-or-create a coach by name. */
+  createCoach: (name: string) => Promise<PlayerCoach | null>;
   /** Find-or-create in the shared vocabulary. */
   createTag: (label: string) => Promise<Tag | null>;
   onSaved: (lesson: Lesson, tags: Tag[]) => void;
 }) {
   const [kind, setKind] = useState<"practice" | "lesson">("practice");
   const [text, setText] = useState("");
-  const [coachName, setCoachName] = useState("");
+  const [coachRefId, setCoachRefId] = useState<string | null>(null);
+  const [shareWithCoach, setShareWithCoach] = useState(false);
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [summarize, setSummarize] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -94,7 +99,8 @@ export function JournalEditor({
     seeded.current = true;
     setKind("practice");
     setText("");
-    setCoachName("");
+    setCoachRefId(null);
+    setShareWithCoach(false);
     setSummarize(true);
   }, [open]);
 
@@ -147,6 +153,8 @@ export function JournalEditor({
     onClose();
   };
 
+  const chosenCoach = coaches.find((c) => c.id === coachRefId) ?? null;
+
   const save = async () => {
     const transcript = text.trim();
     if (!transcript || saving) return;
@@ -162,8 +170,9 @@ export function JournalEditor({
           summarize,
           imagePath: photo?.path ?? null,
           // Only a lesson has a coach. Switching back to Practice after
-          // typing a name must not smuggle it through.
-          coachName: kind === "lesson" ? coachName.trim() || null : null,
+          // picking one must not smuggle it through.
+          coachRefId: kind === "lesson" ? coachRefId : null,
+          shareWithCoach: kind === "lesson" && shareWithCoach,
         }),
       });
       const data = res.ok ? await res.json() : null;
@@ -189,14 +198,20 @@ export function JournalEditor({
           takeaways: data.takeaways ?? null,
           status: data.status === "ready" ? "ready" : "failed",
           kind,
-          coach_name: kind === "lesson" ? coachName.trim() || null : null,
+          coach_name: kind === "lesson" ? (chosenCoach?.display_name ?? null) : null,
+          coach_ref_id: kind === "lesson" ? coachRefId : null,
+          shared_with_coach_at:
+            kind === "lesson" && shareWithCoach && chosenCoach
+              ? new Date().toISOString()
+              : null,
           image_path: photo?.path ?? null,
           created_at: new Date().toISOString(),
         } as Lesson,
         selectedTags
       );
       setText("");
-      setCoachName("");
+      setCoachRefId(null);
+      setShareWithCoach(false);
       setSelectedTags([]);
       releasePhoto();
       setScanNote(null);
@@ -264,31 +279,23 @@ export function JournalEditor({
         </p>
 
         {/* Who taught it. Optional, and only on a lesson — practice is
-            your own. The suggestion list is every coach already in this
-            journal, so the second lesson with someone is one tap and the
-            spelling stays identical, which is what makes asking about
-            them later work at all. */}
+            your own. A pick rather than a typed name (164), so the second
+            lesson with someone is the same coach rather than a second
+            spelling of them, and so the entry can reach their account.
+            The share answer sits in here with it: one moment, one
+            decision. */}
         {kind === "lesson" && (
-          <div className="mt-3">
-            <input
-              type="text"
-              value={coachName}
-              onChange={(e) => setCoachName(e.target.value.slice(0, 80))}
-              list="journal-coach-names"
-              maxLength={80}
-              placeholder="Who taught it?"
-              aria-label="Coach name"
-              autoComplete="off"
-              className="w-full rounded-xl border border-edge bg-surface-2/40 px-3.5 py-2.5 text-[15px] text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
-            />
-            {coachNames.length > 0 && (
-              <datalist id="journal-coach-names">
-                {coachNames.map((n) => (
-                  <option key={n} value={n} />
-                ))}
-              </datalist>
-            )}
-          </div>
+          <CoachPicker
+            coaches={coaches}
+            value={coachRefId}
+            share={shareWithCoach}
+            disabled={saving}
+            onChange={(id, share) => {
+              setCoachRefId(id);
+              setShareWithCoach(share);
+            }}
+            onCreate={createCoach}
+          />
         )}
 
         <div className="relative mt-3">
