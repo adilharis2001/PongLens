@@ -269,7 +269,7 @@ const jsonLd = {
       thumbnailUrl: ["https://www.ponglens.com/demo/coach-desktop.jpg"],
       contentUrl: "https://www.ponglens.com/demo/coach-desktop.mp4",
       embedUrl: "https://www.ponglens.com/coaches#video",
-      duration: "PT2M11S",
+      duration: "PT1M30S",
       uploadDate: "2026-09-04",
       isFamilyFriendly: true,
       publisher: { "@id": "https://www.ponglens.com/#organization" },

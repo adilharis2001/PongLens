@@ -2,198 +2,126 @@
   "chapter": "coach",
   "title": "PongLens",
   "subtitle": "",
-  "tagline": "Help your students play better matches.",
+  "tagline": "Keep every student, lesson and match in one place.",
   "model": "gpt-4o-mini-tts",
   "delivery": {
     "provider": "openai",
     "voice": "sage",
     "speed": 1.45,
-    "instructions": "Warm and plain spoken, like a coach explaining something useful to another coach. Unhurried and even, with the confidence to leave a word alone rather than push it. Nothing is sold and nothing is hurried. No rising lift at the end of sentences."
+    "instructions": "Warm and plain spoken, like a coach explaining something useful to another coach. Unhurried and even. Nothing is sold and nothing is hurried. No rising lift at the end of sentences."
   },
   "lead": 0.3,
   "gap": 0.25,
-  "total": 144.844,
-  "wpm": 197,
+  "total": 88.604,
+  "wpm": 182,
   "lines": [
     {
       "id": "l1",
       "beat": "intro",
       "label": "",
-      "text": "PongLens is where table tennis coaches review their students' matches, and show them what to work on.",
+      "text": "PongLens gives a table tennis coach one place to keep students, lessons and matches together.",
       "file": "audio/coach/l1.mp3",
       "start": 0.3,
-      "dur": 6
+      "dur": 5.064
     },
     {
       "id": "l2",
-      "beat": "offer",
-      "label": "What you sell",
-      "text": "You decide what a review includes, what it costs, and how many days you need.",
+      "beat": "students",
+      "label": "Your students",
+      "text": "Add every student to one roster. They do not need a PongLens account to start.",
       "file": "audio/coach/l2.mp3",
-      "start": 9.15,
-      "dur": 4.968
+      "start": 8.414,
+      "dur": 4.92
     },
     {
       "id": "l3",
-      "beat": "offer2",
-      "label": "What you sell",
-      "text": "Start from one of the templates and change what you like, or build your own.",
+      "beat": "student",
+      "label": "Your students",
+      "text": "Open a student to see their lesson entries and the matches they have shared.",
       "file": "audio/coach/l3.mp3",
-      "start": 15.568,
-      "dur": 4.56
+      "start": 14.784,
+      "dur": 4.392
     },
     {
       "id": "l4",
-      "beat": "page",
-      "label": "Your page",
-      "text": "Everything you sell sits on your profile page, along with your background, your offerings, and the testimonials your students have left you.",
+      "beat": "connect",
+      "label": "Connect them",
+      "text": "When they are ready, send a private invite. It connects their account to the student you already know.",
       "file": "audio/coach/l4.mp3",
-      "start": 22.978,
-      "dur": 6.408
+      "start": 22.226,
+      "dur": 5.76
     },
     {
       "id": "l5",
-      "beat": "link",
-      "label": "Getting set up",
-      "text": "Send your students a link to your page, or put the code up at the club.",
+      "beat": "entry",
+      "label": "Keep the lesson",
+      "text": "After a session, write what you worked on, what to fix and what comes next.",
       "file": "audio/coach/l5.mp3",
-      "start": 32.236,
-      "dur": 4.512
+      "start": 31.036,
+      "dur": 4.656
     },
     {
       "id": "l6",
-      "beat": "payouts",
-      "label": "Getting set up",
-      "text": "Payments run through Stripe. You connect it once, and it pays your bank.",
+      "beat": "journal",
+      "label": "Keep the lesson",
+      "text": "PongLens can turn rough notes into clear points, and keeps the original transcript with them.",
       "file": "audio/coach/l6.mp3",
-      "start": 38.398,
-      "dur": 3.936
+      "start": 37.042,
+      "dur": 4.584
     },
     {
       "id": "l7",
-      "beat": "order",
-      "label": "A new order",
-      "text": "When a student buys a review, they send you one of their matches and answer your questions.",
+      "beat": "record",
+      "label": "Record the lesson",
+      "text": "Lesson recording is on iPhone. Leave the phone near the table and PongLens prepares the entry afterwards. Video recording is coming soon.",
       "file": "audio/coach/l7.mp3",
-      "start": 45.184,
-      "dur": 4.128
+      "start": 44.676,
+      "dur": 8.208
     },
     {
       "id": "l8",
-      "beat": "accept",
-      "label": "A new order",
-      "text": "You read their answers before you decide, then accept or decline. Nothing starts until you accept.",
+      "beat": "private",
+      "label": "Share it",
+      "text": "An entry stays private until you share it.",
       "file": "audio/coach/l8.mp3",
-      "start": 51.162,
-      "dur": 7.272
+      "start": 55.934,
+      "dur": 3.36
     },
     {
       "id": "l9",
-      "beat": "cut",
-      "label": "Their match",
-      "text": "The match arrives with the dead time between points already cut out. Every point is its own clip, with the score on the picture.",
+      "beat": "share",
+      "label": "Share it",
+      "text": "Once shared, it appears in your student's PongLens journal. You can also send it as a link.",
       "file": "audio/coach/l9.mp3",
-      "start": 61.684,
-      "dur": 6.24
+      "start": 60.444,
+      "dur": 5.04
     },
     {
       "id": "l10",
-      "beat": "pattern1",
-      "label": "Finding the patterns",
-      "text": "You watch your student's match, one point at a time.",
+      "beat": "matches",
+      "label": "Their matches",
+      "text": "The matches a student shares sit beside their lesson entries, ready to watch point by point.",
       "file": "audio/coach/l10.mp3",
-      "start": 70.174,
-      "dur": 3.624
+      "start": 68.534,
+      "dur": 4.968
     },
     {
       "id": "l11",
-      "beat": "pattern2",
-      "label": "Finding the patterns",
-      "text": "When you notice something worth telling them, you write it down as a pattern, and link that point to it.",
+      "beat": "reviews",
+      "label": "Paid reviews",
+      "text": "If you also sell remote match reviews, choose what each review covers, what it costs and how long you need.",
       "file": "audio/coach/l11.mp3",
-      "start": 75.048,
-      "dur": 4.824
+      "start": 76.552,
+      "dur": 5.808
     },
     {
       "id": "l12",
-      "beat": "pattern3",
-      "label": "Finding the patterns",
-      "text": "You can draw on the frame, or leave a voice note on it.",
-      "file": "audio/coach/l12.mp3",
-      "start": 81.522,
-      "dur": 3.408
-    },
-    {
-      "id": "l13",
-      "beat": "pattern4",
-      "label": "Finding the patterns",
-      "text": "When the same thing happens later in the match, you add that point to the same pattern. By the end, each pattern has every point where it happened.",
-      "file": "audio/coach/l13.mp3",
-      "start": 86.98,
-      "dur": 7.536
-    },
-    {
-      "id": "l14",
-      "beat": "dictate",
-      "label": "The write-up",
-      "text": "You can speak your write-up instead of typing it, and it comes back as text.",
-      "file": "audio/coach/l14.mp3",
-      "start": 96.766,
-      "dur": 4.104
-    },
-    {
-      "id": "l15",
-      "beat": "tidy",
-      "label": "The write-up",
-      "text": "Tidy up rewrites your rough notes as clean sentences, in your own words.",
-      "file": "audio/coach/l15.mp3",
-      "start": 102.62,
-      "dur": 5.352
-    },
-    {
-      "id": "l16",
-      "beat": "check",
-      "label": "The write-up",
-      "text": "The Review tool checks your write-up before you submit it. It runs a list: every section written, a point on each pattern, and their questions answered.",
-      "file": "audio/coach/l16.mp3",
-      "start": 109.222,
-      "dur": 8.52
-    },
-    {
-      "id": "l17",
-      "beat": "attach",
-      "label": "The write-up",
-      "text": "If you already have a drill sheet or a practice plan, attach the file and it goes with the review.",
-      "file": "audio/coach/l17.mp3",
-      "start": 119.492,
-      "dur": 5.448
-    },
-    {
-      "id": "l18",
-      "beat": "deliver",
-      "label": "What your student gets",
-      "text": "Your student gets your write-up, and a clip for every point you linked. It stays in their account.",
-      "file": "audio/coach/l18.mp3",
-      "start": 128.19,
-      "dur": 5.352
-    },
-    {
-      "id": "l19",
-      "beat": "paid",
-      "label": "Getting paid",
-      "text": "When the review is finished, Stripe sends your share to your bank.",
-      "file": "audio/coach/l19.mp3",
-      "start": 136.592,
-      "dur": 3.528
-    },
-    {
-      "id": "l20",
       "beat": "outro",
       "label": "",
-      "text": "PongLens. Help your students play better matches.",
-      "file": "audio/coach/l20.mp3",
-      "start": 140.97,
-      "dur": 3.024
+      "text": "PongLens. Keep every student, lesson and match in one place.",
+      "file": "audio/coach/l12.mp3",
+      "start": 83.41,
+      "dur": 4.344
     }
   ]
 }
