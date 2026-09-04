@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { LearnAudienceSwitch } from "../LearnAudienceSwitch";
 import type { LearnAudience } from "../catalogTypes";
+import { tutorialProgressKey } from "../tutorialProgress";
 import {
   tutorialTotalSeconds,
   visibleChapters,
@@ -380,13 +381,17 @@ function AudienceVideoCourse({
    * is worse than an unchecked one.
    */
   const played = useRef(false);
+  useEffect(() => {
+    played.current = false;
+  }, [audience]);
+
   const markStarted = useCallback(() => {
     if (played.current) return;
     played.current = true;
     void createClient()
-      .auth.updateUser({ data: { tutorial_started: true } })
+      .auth.updateUser({ data: { [tutorialProgressKey(audience)]: true } })
       .catch(() => {});
-  }, []);
+  }, [audience]);
 
   const goTo = useCallback((i: number) => {
     setCurrent(i);

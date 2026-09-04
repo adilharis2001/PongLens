@@ -19,6 +19,7 @@ import type { Guide, TutorialChapter } from "./catalogTypes.ts";
 import { guideBySlug as legacyGuideBySlug } from "./guides.ts";
 import { resolveLearnAudience } from "./audience.ts";
 import { resolveTutorialRequest } from "./tutorialRequest.ts";
+import { tutorialProgressKey, tutorialWasStarted } from "./tutorialProgress.ts";
 import { dualRoleEligible } from "../../lib/dualRoleEligibility.ts";
 
 const iosCatalogPath = fileURLToPath(
@@ -82,6 +83,17 @@ test("Learn audience uses only eligible player and coach URL overrides", () => {
   assert.equal(
     resolveLearnAudience({ active: "coach", requested: "invalid", canSwitch: true }),
     "coach",
+  );
+});
+
+test("tutorial progress stays separate between player and coach workspaces", () => {
+  assert.equal(tutorialProgressKey("player"), "player_tutorial_started");
+  assert.equal(tutorialProgressKey("coach"), "coach_tutorial_started");
+  assert.equal(tutorialWasStarted({ tutorial_started: true }, "player"), true);
+  assert.equal(tutorialWasStarted({ tutorial_started: true }, "coach"), false);
+  assert.equal(
+    tutorialWasStarted({ coach_tutorial_started: true }, "coach"),
+    true,
   );
 });
 

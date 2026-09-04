@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { tutorialWasStarted } from "../learn/tutorialProgress";
 
 /**
  * The first-steps checklist: the four actions that make PongLens click,
@@ -28,8 +29,8 @@ interface Steps {
   /**
    * The one step the product state cannot answer: watching a video leaves no
    * trace in the data. So this one is a recorded flag after all
-   * (user_metadata.tutorial_started, set by the videos page the first time a
-   * chapter actually plays — opening the page is not watching it).
+   * (user_metadata.player_tutorial_started, set by the videos page the first
+   * time a chapter actually plays — opening the page is not watching it).
    */
   watched: boolean;
 }
@@ -101,9 +102,7 @@ export function FirstSteps({
         focus: (focusRes.data?.length ?? 0) > 0,
         shared: (shareRes.data?.length ?? 0) > 0,
         coached: (coachRes.data?.length ?? 0) > 0,
-        watched: Boolean(
-          userRes.data.user?.user_metadata?.tutorial_started
-        ),
+        watched: tutorialWasStarted(userRes.data.user?.user_metadata, "player"),
       });
     })();
     return () => {
@@ -159,7 +158,7 @@ export function FirstSteps({
     {
       label: "Watch the tutorial videos",
       done: steps.watched,
-      href: "/learn/videos",
+      href: "/learn/videos?audience=player",
     },
   ];
 
