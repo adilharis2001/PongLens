@@ -108,6 +108,24 @@ export async function finalizeCreatedEntryMatch(
   }
 }
 
+/** A confirmed lesson rollback also deleted its owned R2 image. Clear that
+ * local path before retry while leaving the coach's draft words untouched. */
+export function recoverConfirmedEntryMatchRollback(
+  input: { hasUploadedPhoto: boolean },
+  effects: { clearPhoto(): void; setError(message: string): void },
+): void {
+  if (input.hasUploadedPhoto) {
+    effects.clearPhoto();
+    effects.setError(
+      "The match couldn't be linked. Your words are still here — reattach the photo before trying again.",
+    );
+    return;
+  }
+  effects.setError(
+    "The match couldn't be linked. Your words are still here — try again.",
+  );
+}
+
 /** Turn an uncertain rollback into one explicit reconciliation path. The
  * caller's callback reloads the real journal and retires the composer, so a
  * surviving entry cannot be duplicated by retrying the same draft. */

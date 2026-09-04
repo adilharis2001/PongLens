@@ -112,6 +112,14 @@ so retry cannot create a duplicate. For an existing entry, link, change, and
 unlink rejections all show the failure treatment and clear the disabled/busy
 state in `finally`.
 
+The final review follow-up caught one remaining confirmed-rollback edge: the
+journal DELETE also removes the lesson's R2 photo, but the composer retained
+that deleted `imagePath`. The new state/effect test failed because no
+confirmed-rollback recovery existed, then passed after that branch began
+releasing the local photo. The coach's words remain in the open composer and
+the inline error explicitly says to reattach the photo before retrying. The
+uncertain rollback and existing-entry paths are unchanged.
+
 ## Staging and cleanup evidence
 
 Before the first live write, Supabase admin checks proved the fixed UUIDs map
@@ -203,6 +211,9 @@ active and the demo lesson's `match_id` was restored to null.
   Learn PASS 36/36, coach landing PASS 1/1, and full production build PASS.
   It was created from the exact staged Task 4 files on top of Task 5 and
   excludes the concurrent unstaged player-flow review test.
+- Final stale-photo review on Task 5 guard HEAD `eb689a8c`: coach entry/view
+  PASS 17/17, coach flows PASS 15/15, tutorial PASS 43/43, Learn PASS 36/36,
+  coach landing PASS 1/1, full production build PASS, and diff check PASS.
 
 Node printed the repository's existing `MODULE_TYPELESS_PACKAGE_JSON`
 warning during tutorial tests; there were no test failures.

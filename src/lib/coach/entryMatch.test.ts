@@ -183,6 +183,38 @@ test("a rejected create link request rolls back the just-created lesson", async 
   ]);
 });
 
+test("confirmed rollback clears a deleted upload but preserves words for reattachment", () => {
+  assert.equal(
+    typeof entryMatchClient.recoverConfirmedEntryMatchRollback,
+    "function",
+  );
+  const state: {
+    draft: string;
+    photoPath: string | null;
+    error: string | null;
+  } = {
+    draft: "Keep the elbow in front on the next forehand.",
+    photoPath: "r2://ponglens-media/coach/photo.jpg",
+    error: null,
+  };
+
+  entryMatchClient.recoverConfirmedEntryMatchRollback(
+    { hasUploadedPhoto: true },
+    {
+      clearPhoto() {
+        state.photoPath = null;
+      },
+      setError(message) {
+        state.error = message;
+      },
+    },
+  );
+
+  assert.equal(state.draft, "Keep the elbow in front on the next forehand.");
+  assert.equal(state.photoPath, null);
+  assert.match(state.error ?? "", /reattach the photo before trying again/i);
+});
+
 test("a failed create rollback reports the surviving entry for reconciliation", async () => {
   assert.equal(typeof entryMatchClient.finalizeCreatedEntryMatch, "function");
   for (const cleanup of [

@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { entryTitle as entryTitleOf, matchLabel } from "@/lib/coach/entryView";
 import {
   completeCreatedEntryMatch,
+  recoverConfirmedEntryMatchRollback,
   updateExistingEntryMatch,
 } from "@/lib/coach/entryMatch";
 import { DictateMic, useDictation } from "@/components/dictation";
@@ -330,7 +331,12 @@ export function StudentView({
           },
         );
         if (matchResult === "rolled_back") {
-          throw new Error("match link failed");
+          recoverConfirmedEntryMatchRollback(
+            { hasUploadedPhoto: Boolean(photo?.path) },
+            { clearPhoto: releasePhoto, setError: setComposerError },
+          );
+          setSaving(false);
+          return;
         }
         if (matchResult === "reconciled") {
           setSaving(false);
