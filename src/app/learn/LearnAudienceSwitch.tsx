@@ -5,18 +5,25 @@ export function LearnAudienceSwitch({
   audience,
   activeWorkspace,
   canSwitch,
+  basePath = "/learn",
+  className = "mt-4",
 }: {
   audience: LearnAudience;
   activeWorkspace: LearnAudience;
   canSwitch: boolean;
+  basePath?: string;
+  className?: string;
 }) {
   if (!canSwitch) return null;
 
   const href = (value: LearnAudience) =>
-    value === activeWorkspace ? "/learn" : `/learn?audience=${value}`;
+    value === activeWorkspace ? basePath : `${basePath}?audience=${value}`;
 
   return (
-    <nav aria-label="Learn audience" className="mt-4 flex w-fit rounded-full border border-edge p-1">
+    <nav
+      aria-label="Learn audience"
+      className={`${className} flex w-fit rounded-full border border-edge p-1`}
+    >
       {(["player", "coach"] as const).map((value) => {
         const selected = value === audience;
         return (

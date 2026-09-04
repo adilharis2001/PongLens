@@ -18,6 +18,7 @@ import {
 import type { Guide, TutorialChapter } from "./catalogTypes.ts";
 import { guideBySlug as legacyGuideBySlug } from "./guides.ts";
 import { resolveLearnAudience } from "./audience.ts";
+import { resolveTutorialRequest } from "./tutorialRequest.ts";
 import { dualRoleEligible } from "../../lib/dualRoleEligibility.ts";
 
 const iosCatalogPath = fileURLToPath(
@@ -247,6 +248,74 @@ test("chapter visibility preserves the player course and filters iOS coach paid 
   );
   assert.equal(visibleChapters("player", "web").length, 9);
   assert.equal(visibleChapters("coach", "web").length, 9);
+});
+
+test("tutorial requests return only the course catalog visible on the requested platform", () => {
+  assert.deepEqual(
+    resolveTutorialRequest({ course: "coach", platform: "web" })?.map(
+      (item) => item.mediaKey,
+    ),
+    [
+      "tutorial/coach/coach-start.mp4",
+      "tutorial/coach/coach-add-student.mp4",
+      "tutorial/coach/coach-connect-account.mp4",
+      "tutorial/coach/coach-lesson-entry.mp4",
+      "tutorial/coach/coach-audio-lesson.mp4",
+      "tutorial/coach/coach-share-entry.mp4",
+      "tutorial/coach/coach-review-match.mp4",
+      "tutorial/coach/coach-feedback.mp4",
+      "tutorial/coach/coach-paid-review.mp4",
+    ],
+  );
+  assert.deepEqual(
+    resolveTutorialRequest({ course: "coach", platform: "ios" })?.map(
+      (item) => item.mediaKey,
+    ),
+    [
+      "tutorial/coach/coach-start.mp4",
+      "tutorial/coach/coach-add-student.mp4",
+      "tutorial/coach/coach-connect-account.mp4",
+      "tutorial/coach/coach-lesson-entry.mp4",
+      "tutorial/coach/coach-audio-lesson.mp4",
+      "tutorial/coach/coach-share-entry.mp4",
+      "tutorial/coach/coach-review-match.mp4",
+      "tutorial/coach/coach-feedback.mp4",
+    ],
+  );
+});
+
+test("tutorial requests match slugs only inside the selected catalog", () => {
+  assert.deepEqual(
+    resolveTutorialRequest({
+      course: "coach",
+      platform: "ios",
+      slug: "coach-paid-review",
+    }),
+    [],
+  );
+  assert.deepEqual(
+    resolveTutorialRequest({ course: "player", platform: "web", slug: "coach-start" }),
+    [],
+  );
+});
+
+test("tutorial requests reject invalid catalogs and never turn request strings into media keys", () => {
+  assert.equal(
+    resolveTutorialRequest({ course: "administrator", platform: "web" }),
+    null,
+  );
+  assert.equal(
+    resolveTutorialRequest({ course: "player", platform: "android" }),
+    null,
+  );
+  assert.deepEqual(
+    resolveTutorialRequest({
+      course: "player",
+      platform: "web",
+      slug: "../../private/customer-video",
+    }),
+    [],
+  );
 });
 
 test("coach guide curriculum is complete and paid reviews stay web-only", () => {
