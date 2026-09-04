@@ -99,8 +99,37 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
     label: "Who, where, and what kind",
     rect: union(opponent, venue, session),
   });
-  await clock.until(details.end);
+  await clock.until(details.start + details.dur * 0.48);
   clock.close(detailsMark);
+  await dismiss(page, {
+    click: { aria: "Close" },
+    gone: { aria: "Opponent name" },
+  });
+  await page.evaluate(() => {
+    [...document.querySelectorAll("button")]
+      .find((button) => button.textContent.trim().startsWith("Your side"))
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+  await clock.sleep(500);
+  const yourSide = await clock.rect({ text: "Your side", tag: "button" });
+  const sideRowMark = clock.mark({ kind: "box", label: "Which side is yours", rect: padded(yourSide) });
+  await page.click('button:has-text("Your side")');
+  await page.waitForSelector("text=Which player are you?", { timeout: 20000 });
+  await clock.sleep(450);
+  clock.close(sideRowMark);
+  const sideQuestion = await clock.rect({ text: "Which player are you?", tag: "h2" });
+  const bottomChoice = await clock.rect({ text: "I'm at the bottom", tag: "button" });
+  const sideSheetMark = clock.mark({
+    kind: "box",
+    label: "Top or bottom of the video",
+    rect: union(sideQuestion, bottomChoice),
+  });
+  await clock.until(details.end);
+  clock.close(sideSheetMark);
+  await dismiss(page, {
+    click: { aria: "Close" },
+    gone: { text: "Which player are you?", tag: "h2" },
+  });
 
   const processing = beat("processing-options");
   await page.goto(`${new URL(page.url()).origin}/upload`);

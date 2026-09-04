@@ -75,6 +75,16 @@ const MATCH_FIELDS = [
 
 const PLAYER_POINT_FIELDS = ["id", "match_id", "placement", "deleted"];
 const PLAYER_POINT_RESTORE_FIELDS = ["placement", "deleted"];
+const PLAYER_NOTE_FIELDS = [
+  "id",
+  "match_id",
+  "point_id",
+  "author_id",
+  "body",
+  "audio_path",
+  "image_path",
+  "created_at",
+];
 
 const headers = (key) => ({
   apikey: key,
@@ -201,6 +211,7 @@ export async function snapshotPlayer(adapter, spec) {
     throw new Error("player guard requires ownerId, ownerEmail, matchId, and pointIds");
   }
   const cleanupRawObjects = spec.cleanupRawObjects ?? [];
+  const cleanupNotes = spec.cleanupNotes ?? [];
   for (const object of cleanupRawObjects) {
     if (
       object?.bucket !== "ponglens-raw" ||
@@ -208,6 +219,17 @@ export async function snapshotPlayer(adapter, spec) {
       !object.key.startsWith(`${spec.ownerId}/`)
     ) {
       throw new Error("player guard only cleans owned ponglens-raw objects");
+    }
+  }
+  for (const marker of cleanupNotes) {
+    if (
+      marker?.matchId !== spec.matchId ||
+      marker?.authorId !== spec.ownerId ||
+      !spec.pointIds.includes(marker?.pointId) ||
+      typeof marker?.body !== "string" ||
+      marker.body.length === 0
+    ) {
+      throw new Error("player guard only accepts an owned tutorial note marker");
     }
   }
 
@@ -229,11 +251,25 @@ export async function snapshotPlayer(adapter, spec) {
       throw new Error("refusing to overwrite a pre-existing tutorial raw object");
     }
   }
+  const notes = [];
+  for (const marker of cleanupNotes) {
+    const rows = await adapter.getNotes(marker);
+    if (rows.some((row) =>
+      row.match_id !== marker.matchId ||
+      row.point_id !== marker.pointId ||
+      row.author_id !== marker.authorId ||
+      row.body !== marker.body
+    )) {
+      throw new Error("player guard note query escaped its owned tutorial marker");
+    }
+    notes.push({ marker: structuredClone(marker), rows: structuredClone(rows) });
+  }
   return {
     kind: "player",
     spec: structuredClone(spec),
     match: structuredClone(match),
     points: structuredClone(points),
+    notes,
   };
 }
 
@@ -269,6 +305,27 @@ export async function restorePlayer(adapter, snap) {
       if (Object.keys(pointPatch).length === 0) continue;
       await adapter.updatePoint(original.id, pointPatch);
       restored += 1;
+    }
+
+    for (const saved of snap.notes ?? []) {
+      const current = await adapter.getNotes(saved.marker);
+      const originals = new Map(saved.rows.map((row) => [row.id, row]));
+      const currentById = new Map(current.map((row) => [row.id, row]));
+      for (const row of current) {
+        if (originals.has(row.id)) continue;
+        await adapter.deleteNote(row.id, saved.marker);
+        restored += 1;
+      }
+      for (const original of saved.rows) {
+        const row = currentById.get(original.id);
+        if (!row) {
+          await adapter.insertNote(structuredClone(original), saved.marker);
+          restored += 1;
+        } else if (!same(row, original)) {
+          await adapter.updateNote(original.id, structuredClone(original), saved.marker);
+          restored += 1;
+        }
+      }
     }
   } finally {
     for (const object of snap.spec.cleanupRawObjects ?? []) {
@@ -463,6 +520,64 @@ export function makePlayerGuardAdapter(key) {
         body: JSON.stringify(patch),
       });
     },
+    async getNotes(marker) {
+      const filters = new URLSearchParams({
+        match_id: `eq.${marker.matchId}`,
+        point_id: `eq.${marker.pointId}`,
+        author_id: `eq.${marker.authorId}`,
+        body: `eq.${marker.body}`,
+        select: PLAYER_NOTE_FIELDS.join(","),
+      });
+      return rest(key, `notes?${filters}`);
+    },
+    async deleteNote(noteId, marker) {
+      const filters = new URLSearchParams({
+        id: `eq.${noteId}`,
+        match_id: `eq.${marker.matchId}`,
+        point_id: `eq.${marker.pointId}`,
+        author_id: `eq.${marker.authorId}`,
+        body: `eq.${marker.body}`,
+      });
+      await rest(key, `notes?${filters}`, { method: "DELETE" });
+    },
+    async insertNote(row, marker) {
+      if (
+        row.match_id !== marker.matchId ||
+        row.point_id !== marker.pointId ||
+        row.author_id !== marker.authorId ||
+        row.body !== marker.body
+      ) {
+        throw new Error("refusing to restore a note outside its owned tutorial marker");
+      }
+      await rest(key, "notes", {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify(row),
+      });
+    },
+    async updateNote(noteId, row, marker) {
+      if (
+        row.id !== noteId ||
+        row.match_id !== marker.matchId ||
+        row.point_id !== marker.pointId ||
+        row.author_id !== marker.authorId ||
+        row.body !== marker.body
+      ) {
+        throw new Error("refusing to restore a note outside its owned tutorial marker");
+      }
+      const patch = { ...row };
+      delete patch.id;
+      const filters = new URLSearchParams({
+        id: `eq.${noteId}`,
+        match_id: `eq.${marker.matchId}`,
+        point_id: `eq.${marker.pointId}`,
+        author_id: `eq.${marker.authorId}`,
+      });
+      await rest(key, `notes?${filters}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+    },
     async objectExists(object) {
       const { account, client } = await r2();
       const response = await client.fetch(rawObjectUrl(account, object), { method: "HEAD" });
@@ -613,14 +728,14 @@ export async function restore(key, snap, adapter) {
 }
 
 // Recovery path for a capture that was killed before its `finally` ran.
-export async function runGuard(args) {
+export async function runGuard(args, options = {}) {
   const { course, slug } = parseGuardArgs(args);
   const paths = chapterPaths(DIR, course, slug);
   const { readFileSync } = await import("node:fs");
-  const key = process.env.SERVICE_KEY;
+  const key = options.key ?? process.env.SERVICE_KEY;
   if (!key) throw new Error("SERVICE_KEY env var required");
-  const saved = JSON.parse(readFileSync(paths.guard, "utf8"));
-  for (const one of [].concat(saved)) await restore(key, one);
+  const saved = JSON.parse(readFileSync(options.snapshotPath ?? paths.guard, "utf8"));
+  for (const one of [].concat(saved)) await restore(key, one, options.adapter);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

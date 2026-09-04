@@ -9,6 +9,12 @@ export const STAGED_POINTS = [
   { id: "6fe132c2-55be-40ae-b328-fba2efbdadc5", idx: 2 },
   { id: "06128a30-88a3-4330-8ab5-a5c002d1b4e8", idx: 3 },
 ];
+export const TUTORIAL_POINT_NOTE = {
+  matchId: MATCH_ID,
+  pointId: STAGED_POINTS[2].id,
+  authorId: OWNER_ID,
+  body: "Caught flat on the wide backhand again. Split step earlier here.",
+};
 
 const RAW_BUCKET = "ponglens-raw";
 const RAW_KEY = `${OWNER_ID}/tutorial-${MATCH_ID}-original.mp4`;
@@ -22,6 +28,7 @@ export const playerGuard = {
   matchId: MATCH_ID,
   pointIds: STAGED_POINTS.map((point) => point.id),
   cleanupRawObjects: [{ bucket: RAW_BUCKET, key: RAW_KEY }],
+  cleanupNotes: [TUTORIAL_POINT_NOTE],
 };
 
 export async function tutorialApi(key, resource, init = {}) {

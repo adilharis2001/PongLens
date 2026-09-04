@@ -14,7 +14,7 @@
 import { makePlayerGuardAdapter } from "../../guard.mjs";
 import {
   MATCH_ID,
-  STAGED_POINTS,
+  TUTORIAL_POINT_NOTE,
   playerGuard,
   stageOriginal,
   tutorialApi,
@@ -37,8 +37,8 @@ const MAPPED_POINT = 3;
 export const guard = playerGuard;
 
 export const POINT_NOTE = {
-  pointId: STAGED_POINTS[2].id,
-  body: "Caught flat on the wide backhand again. Split step earlier here.",
+  pointId: TUTORIAL_POINT_NOTE.pointId,
+  body: TUTORIAL_POINT_NOTE.body,
 };
 
 /**

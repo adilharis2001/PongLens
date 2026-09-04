@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { catalogChapters, chapterPaths } from "./course-paths.mjs";
+import { runGuard, snapshot } from "./guard.mjs";
+import { playerGuard } from "./fixtures/player-match.mjs";
+
+const EXPECTED_TUTORIAL_POINT_NOTE = {
+  matchId: "efff9208-abf2-4a20-a498-18cc5a5130b3",
+  pointId: "06128a30-88a3-4330-8ab5-a5c002d1b4e8",
+  authorId: "6eb09df4-7d44-4ef9-b1cc-8cdfc4119fc4",
+  body: "Caught flat on the wide backhand again. Split step earlier here.",
+};
 
 const tutorialRoot = fileURLToPath(new URL(".", import.meta.url));
 const expectedPlayerSlugs = [
@@ -191,6 +201,24 @@ test("upload opens the real player-side file chooser without selecting a file", 
   ));
 });
 
+test("upload visibly opens the shipping Your side picker without changing it", async () => {
+  const trace = [];
+  const upload = await import("./flows/player/upload.mjs");
+  await scheduledBeats(upload, trace);
+  assert.ok(trace.some(({ type, selector }) =>
+    type === "page.click" && selector === 'button:has-text("Your side")'
+  ));
+  assert.ok(trace.some(({ type, selector }) =>
+    type === "waitForSelector" && selector === "text=Which player are you?"
+  ));
+  assert.ok(trace.some(({ type, spec }) =>
+    type === "rect" && spec?.text === "Which player are you?" && spec?.tag === "h2"
+  ));
+  assert.ok(trace.some(({ type, spec }) =>
+    type === "rect" && spec?.text === "I'm at the bottom" && spec?.tag === "button"
+  ));
+});
+
 test("point opens the genuine missing-rally affordance and sheet", async () => {
   const trace = [];
   const point = await import("./flows/player/point.mjs");
@@ -262,4 +290,103 @@ test("point notes require the verified demo owner and clean up their exact marke
   }]);
   await point.cleanup("service-key", request);
   assert.deepEqual(notes, []);
+});
+
+function recoveryAdapter(spec) {
+  const state = {
+    match: { id: spec.matchId, user_id: spec.ownerId },
+    points: spec.pointIds.map((id) => ({ id, match_id: spec.matchId, placement: null, deleted: false })),
+    notes: [],
+  };
+  const sameMarker = (row, marker) =>
+    row.match_id === marker.matchId &&
+    row.point_id === marker.pointId &&
+    row.author_id === marker.authorId &&
+    row.body === marker.body;
+  return {
+    state,
+    async verifyOwner(ownerId, ownerEmail) {
+      assert.equal(ownerId, spec.ownerId);
+      assert.equal(ownerEmail, spec.ownerEmail);
+    },
+    async getMatch(matchId) {
+      assert.equal(matchId, spec.matchId);
+      return structuredClone(state.match);
+    },
+    async getPoints(matchId, pointIds) {
+      assert.equal(matchId, spec.matchId);
+      assert.deepEqual(new Set(pointIds), new Set(spec.pointIds));
+      return structuredClone(state.points);
+    },
+    async updateMatch(matchId, patch) {
+      assert.equal(matchId, spec.matchId);
+      Object.assign(state.match, structuredClone(patch));
+    },
+    async updatePoint(pointId, patch) {
+      Object.assign(state.points.find(({ id }) => id === pointId), structuredClone(patch));
+    },
+    async getNotes(marker) {
+      assert.deepEqual(marker, EXPECTED_TUTORIAL_POINT_NOTE);
+      return structuredClone(state.notes.filter((row) => sameMarker(row, marker)));
+    },
+    async deleteNote(noteId, marker) {
+      const index = state.notes.findIndex(({ id }) => id === noteId);
+      assert.ok(index >= 0);
+      assert.ok(sameMarker(state.notes[index], marker));
+      state.notes.splice(index, 1);
+    },
+    async insertNote(row, marker) {
+      assert.ok(sameMarker(row, marker));
+      state.notes.push(structuredClone(row));
+    },
+    async updateNote(noteId, row, marker) {
+      const index = state.notes.findIndex(({ id }) => id === noteId);
+      assert.ok(index >= 0);
+      assert.ok(sameMarker(row, marker));
+      state.notes[index] = structuredClone(row);
+    },
+    async objectExists() {
+      return false;
+    },
+    async deleteObject() {},
+  };
+}
+
+test("player recovery rejects a note marker outside the vetted owner match and point", async () => {
+  const adapter = recoveryAdapter(playerGuard);
+  await assert.rejects(
+    snapshot("unused", {
+      ...playerGuard,
+      cleanupNotes: [{ ...EXPECTED_TUTORIAL_POINT_NOTE, authorId: "not-the-owner" }],
+    }, adapter),
+    /owned tutorial note marker/,
+  );
+});
+
+test("disk-backed point recovery removes the exact note left by an interrupted capture", async () => {
+  assert.deepEqual(playerGuard.cleanupNotes, [EXPECTED_TUTORIAL_POINT_NOTE]);
+
+  const adapter = recoveryAdapter(playerGuard);
+  const saved = await snapshot("unused", playerGuard, adapter);
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ponglens-player-guard-"));
+  const snapshotPath = path.join(dir, "point-guard.json");
+  try {
+    await writeFile(snapshotPath, JSON.stringify([saved]));
+    adapter.state.notes.push({
+      id: "interrupted-note",
+      match_id: EXPECTED_TUTORIAL_POINT_NOTE.matchId,
+      point_id: EXPECTED_TUTORIAL_POINT_NOTE.pointId,
+      author_id: EXPECTED_TUTORIAL_POINT_NOTE.authorId,
+      body: EXPECTED_TUTORIAL_POINT_NOTE.body,
+    });
+
+    await runGuard(["restore", "player", "point"], {
+      key: "unused",
+      snapshotPath,
+      adapter,
+    });
+    assert.deepEqual(adapter.state.notes, []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
