@@ -1,4 +1,10 @@
-import { account, coachGuard, REVIEW_ORDER_ID, makeRun } from "./shared.mjs";
+import {
+  account,
+  blockReviewSweep,
+  coachGuard,
+  REVIEW_ORDER_ID,
+  makeRun,
+} from "./shared.mjs";
 
 export { account };
 // Enter through a read-only coach route so capture can install the request
@@ -15,24 +21,7 @@ export const guard = coachGuard([
 ]);
 
 export async function prepare(page) {
-  await page.route("**/api/reviews/transition", async (route) => {
-    const request = route.request();
-    let action = null;
-    if (request.method() === "POST") {
-      try {
-        action = request.postDataJSON()?.action ?? null;
-      } catch {
-        // A malformed/non-JSON transition is not the automatic sweep. Let
-        // the shipping endpoint handle it normally instead of broadening
-        // this narrowly scoped capture guard.
-      }
-    }
-    if (action === "sweep") {
-      await route.abort("blockedbyclient");
-      return;
-    }
-    await route.continue();
-  });
+  await blockReviewSweep(page);
 }
 
 export const scenes = [

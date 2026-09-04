@@ -130,11 +130,13 @@ export function StudentView({
   const [open, setOpen] = useState<string | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [linkingId, setLinkingId] = useState<string | null>(null);
   /** The entry being corrected, in the shape the journal's editor takes. */
   const [editing, setEditing] = useState<Lesson | null>(null);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const [draftMatchId, setDraftMatchId] = useState<string | null>(null);
   const [improve, setImprove] = useState(true);
   const [saving, setSaving] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -242,7 +244,20 @@ export function StudentView({
     dictation.cancel();
     discardPhoto();
     setComposerError(null);
+    setDraftMatchId(null);
     setComposerOpen(false);
+  };
+
+  const persistEntryMatch = async (
+    entryId: string,
+    matchId: string | null,
+  ): Promise<boolean> => {
+    const res = await fetch("/api/coaching/entry-match", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entryId, matchId }),
+    });
+    return res.ok;
   };
 
   /** A student who joined from the general invite link, folded into the
@@ -283,12 +298,16 @@ export function StudentView({
       const data = res.ok ? await res.json() : null;
       if (!data?.id) throw new Error("no id");
       const supabase = createClient();
-      const { error } = await supabase.from("coach_entries").insert({
-        coach_id: userId,
-        student_id: student.id,
-        lesson_id: data.id,
-      });
-      if (error) {
+      const { data: coachEntry, error } = await supabase
+        .from("coach_entries")
+        .insert({
+          coach_id: userId,
+          student_id: student.id,
+          lesson_id: data.id,
+        })
+        .select("id")
+        .single();
+      if (error || !coachEntry) {
         // Never leak a lesson into nobody's journal.
         await fetch("/api/journal-entry", {
           method: "DELETE",
@@ -297,7 +316,22 @@ export function StudentView({
         });
         throw error;
       }
+      if (
+        draftMatchId &&
+        !(await persistEntryMatch(coachEntry.id, draftMatchId))
+      ) {
+        // The wrapper and lesson are one entry. If its requested match is
+        // not valid for this student, remove the whole unsaved entry rather
+        // than silently saving something different from what the coach saw.
+        await fetch("/api/journal-entry", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ entryId: data.id }),
+        });
+        throw new Error("match link failed");
+      }
       setDraft("");
+      setDraftMatchId(null);
       setImprove(true);
       // The entry owns the photo now, so let go of it without deleting.
       releasePhoto();
@@ -361,6 +395,19 @@ export function StudentView({
     if (error) flash("Couldn't change sharing. Try again.");
     await load();
     setSharingId(null);
+  };
+
+  const setEntryMatch = async (entry: EntryRow, matchId: string | null) => {
+    setLinkingId(entry.id);
+    if (await persistEntryMatch(entry.id, matchId)) {
+      setLessons((all) => ({
+        ...all,
+        [entry.lesson_id]: { ...all[entry.lesson_id], match_id: matchId },
+      }));
+    } else {
+      flash("Couldn't link the match. Try again.");
+    }
+    setLinkingId(null);
   };
 
   const deleteEntry = async (entry: EntryRow) => {
@@ -618,6 +665,29 @@ export function StudentView({
             />
           </div>
           {photo && <PhotoPreview photo={photo} onRemove={discardPhoto} />}
+
+          {student.player_id && matches.length > 0 && (
+            <label className="mt-3 block">
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Match
+              </span>
+              <select
+                aria-label="Link a match"
+                value={draftMatchId ?? ""}
+                onChange={(event) =>
+                  setDraftMatchId(event.target.value || null)
+                }
+                className="mt-2 w-full rounded-xl border border-edge bg-ink/40 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-cyan-glow/60"
+              >
+                <option value="">No match linked</option>
+                {matches.map((match) => (
+                  <option key={match.id} value={match.id}>
+                    {matchLabel(match)} · {day(match.played_at)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <div className="mt-3">
             <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-300">
@@ -928,6 +998,32 @@ export function StudentView({
                       </p>
                     )}
                     {lesson?.image_path && <EntryImage lessonId={lesson.id} />}
+                    {lesson && student.player_id && matches.length > 0 && (
+                      <label className="block border-t border-edge/60 pt-3">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                          Match
+                        </span>
+                        <select
+                          aria-label={`Linked match for ${entryTitle(lesson)}`}
+                          value={lesson.match_id ?? ""}
+                          disabled={linkingId === entry.id}
+                          onChange={(event) =>
+                            void setEntryMatch(
+                              entry,
+                              event.target.value || null,
+                            )
+                          }
+                          className="mt-2 w-full rounded-xl border border-edge bg-ink/40 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-cyan-glow/60 disabled:opacity-60"
+                        >
+                          <option value="">No match linked</option>
+                          {matches.map((match) => (
+                            <option key={match.id} value={match.id}>
+                              {matchLabel(match)} · {day(match.played_at)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                   </div>
                 )}
                 {expanded && (

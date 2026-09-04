@@ -1,4 +1,10 @@
-import { account, coachGuard, CONNECTED_STUDENT_ID, makeRun } from "./shared.mjs";
+import {
+  account,
+  coachGuard,
+  CONNECTED_STUDENT_ID,
+  makeRun,
+  SHARED_MATCH_ID,
+} from "./shared.mjs";
 
 export { account };
 export const entry = `/coaching/students/${CONNECTED_STUDENT_ID}`;
@@ -11,7 +17,7 @@ export const scenes = [
   { beat: "attachments", target: { text: "Add photo", tag: "button" }, label: "Add a photo or link" },
   { beat: "improve", target: composer, label: "Improve with AI" },
   { beat: "edit", target: { text: "Your rough notes become", tag: "span" }, label: "Review and edit the result" },
-  { beat: "link-match", target: { text: "Matches", tag: "h3" }, label: "Keep the match beside the entry" },
+  { beat: "link-match", action: { type: "select", target: { aria: "Link a match" }, value: SHARED_MATCH_ID }, target: { aria: "Link a match" }, label: "Keep the match beside the entry" },
   { beat: "private", target: { text: "Save entry", tag: "button" }, label: "Private until you share" },
 ];
 

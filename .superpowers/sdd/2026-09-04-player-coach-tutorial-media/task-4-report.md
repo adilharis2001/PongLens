@@ -34,7 +34,18 @@ does not create charges, payouts, exports, jobs, or notifications.
 
 The pre-existing `flows/account.mjs` change is required by the Task 4
 interface: it adds lazy `coachAccount()` and `student()` accessors while
-preserving the existing player `account` and `coach()` exports.
+preserving the existing player `account` and `coach()` exports. Coach-only
+flow imports no longer eagerly require `TUTORIAL_ACCOUNT`; the capture driver
+still applies its established player-account fallback when that export is
+absent.
+
+The review follow-up also added web parity for lesson-entry match links. The
+composer offers only the active roster student's RLS-visible shared matches,
+and a saved entry persists the selected match on `lessons.match_id`. Existing
+entries can change or remove that link. A user-scoped API verifies the caller
+owns the coach entry, roster row, and coach lesson, and that any selected
+match belongs to that roster student's player account before changing only
+the lesson's match reference.
 
 ## TDD evidence
 
@@ -72,6 +83,23 @@ guard blocks only POSTed sweep actions and continues every other request. Its
 focused test failed on the old direct Orders entry, then passed after this
 change.
 
+Review follow-up REDs were recorded before implementation:
+
+- `coach-start` entered `/coaching` before a request guard could exist;
+- importing a coach flow with only `TUTORIAL_COACH` and `TUTORIAL_STUDENT`
+  failed because `TUTORIAL_ACCOUNT` was required eagerly;
+- the approved `link-match` beat targeted the unrelated Matches heading;
+- the scene runner rejected the new select action; and
+- the web app had no entry-match persistence module or route.
+
+The focused suite became GREEN after coach start adopted the same read-only
+entry/prepare ordering as paid reviews, account loading became lazy for
+coach-only imports, the runner learned the real accessible select action,
+and the user-scoped entry-match implementation was added. Its behavior tests
+cover create/change/unlink semantics, malformed requests, RLS-hidden rows,
+cross-coach entry/roster/lesson attempts, non-coach lessons, wrong-player
+matches, and failed writes.
+
 ## Staging and cleanup evidence
 
 Before the first live write, Supabase admin checks proved the fixed UUIDs map
@@ -107,6 +135,15 @@ DB snapshot and a fresh guard snapshot proved the raw object absent. No Task
   `ERR_BLOCKED_BY_CLIENT`; no transition request reached the server.
 - Coach match fixture: Original, Match analysis, and Serve placement all
   resolved live under the exact player guard, followed by exact cleanup.
+- Coach lesson entry follow-up: 7/7 beats resolved live. The `link-match`
+  beat selected the exact shared-match UUID through the rendered
+  `Link a match` control. A guarded API audit then linked that match (200),
+  read back the exact `lessons.match_id`, unlinked it (200), and received 404
+  for both a foreign entry and an RLS-hidden match. The final match reference
+  matched the original null snapshot.
+- Coach start follow-up: 5/5 beats resolved live. Its single automatic sweep
+  was intercepted before the first navigation to `/coaching` and failed
+  client-side as `ERR_BLOCKED_BY_CLIENT`.
 
 No deliver, accept, payout, export, share, note-send, or student-create
 control was clicked during the live audit.
@@ -122,17 +159,33 @@ after the guarded 8/8 run returned the same zero counts. The two recent
 review-text notifications belonged to a different user and predated this
 audit; neither was created by a review transition.
 
+The follow-up read-only audit was also clean: zero review-order updates,
+payout references, Stripe events, Stripe/Resend/email/payout usage events,
+pending submit-email flags, old delivered sweep candidates, or review
+notifications appeared in the preceding two hours. The demo order remained
+`in_review` with null payment-intent, charge, and payout IDs. No staging was
+active and the demo lesson's `match_id` was restored to null.
+
 ## Verification
 
 - `node --test --experimental-strip-types scripts/demos/tutorial/coach-flows.test.mjs`:
-  PASS, 12/12.
-- `npm run test:tutorial`: PASS, 32/32.
+  PASS, 15/15.
+- `node --test --experimental-strip-types src/lib/coach/entryView.test.ts src/lib/coach/entryMatch.test.ts`:
+  PASS, 11/11.
+- `npm run test:learn`: PASS, 36/36.
+- Shared working tree `npm run test:tutorial`: PASS, 40/40, including the
+  concurrent player-flow additions.
 - `node --test scripts/demos/landing/flows/coach.test.mjs`: PASS, 1/1.
 - `npm run build`: PASS. It printed existing lint warnings only.
 - `git diff --check`: PASS.
-- Isolated Task 4 tree `72cbd6627a315ebe825452122fb8c5563d308df0`:
-  tutorial PASS 28/28, coach landing PASS 1/1, and full production build
-  PASS. It excludes every concurrent Task 5 and iOS working-tree file.
+- Original isolated Task 4 tree
+  `72cbd6627a315ebe825452122fb8c5563d308df0`: tutorial PASS 29/29 (correcting
+  the earlier report's mistaken 28/28 count), coach landing PASS 1/1, and
+  full production build PASS.
+- Review-fix isolated tree `b8d77bc09756bce77b85f09fa3f3e62299c56238`:
+  tutorial PASS 35/35, coach entry/view PASS 11/11, Learn PASS 36/36, coach
+  landing PASS 1/1, and full production build PASS. It was created from the
+  exact Task 4 index and excludes the concurrent player-flow working files.
 
 Node printed the repository's existing `MODULE_TYPELESS_PACKAGE_JSON`
 warning during tutorial tests; there were no test failures.

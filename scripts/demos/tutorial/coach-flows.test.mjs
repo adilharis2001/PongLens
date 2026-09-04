@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
@@ -166,52 +167,115 @@ test("coach match review stages a real Original and three trusted serve maps", a
   assert.equal(observations.length, 3);
 });
 
-test("paid review installs its sweep block before navigating to Orders", async () => {
-  const flow = await loadFlow("coach-paid-review");
-  assert.equal(flow.entry, "/coaching/students");
-  assert.equal(flow.scenes[0]?.route, "/coaching/orders");
-  assert.equal(typeof flow.prepare, "function");
-
-  let pattern;
-  let handler;
-  await flow.prepare({
-    async route(nextPattern, nextHandler) {
-      pattern = nextPattern;
-      handler = nextHandler;
-    },
+test("coach lesson entry selects the student's real shared match", async () => {
+  const flow = await loadFlow("coach-lesson-entry");
+  const scene = flow.scenes.find((candidate) => candidate.beat === "link-match");
+  assert.deepEqual(scene?.target, { aria: "Link a match" });
+  assert.deepEqual(scene?.action, {
+    type: "select",
+    target: { aria: "Link a match" },
+    value: "efff9208-abf2-4a20-a498-18cc5a5130b3",
   });
-  assert.equal(pattern, "**/api/reviews/transition");
+});
 
-  let aborted = null;
-  let continued = false;
-  await handler({
-    request: () => ({
-      method: () => "POST",
-      postDataJSON: () => ({ action: "sweep" }),
-    }),
-    async abort(reason) {
-      aborted = reason;
+test("the coach scene runner can select an accessible match option", async () => {
+  const { showScene } = await import("./flows/coach/shared.mjs");
+  const page = {
+    async waitForFunction() {},
+    async evaluate(_fn, argument) {
+      return Array.isArray(argument) ? true : undefined;
     },
-    async continue() {
-      continued = true;
+    viewportSize() {
+      return { width: 390, height: 844 };
     },
-  });
-  assert.equal(aborted, "blockedbyclient");
-  assert.equal(continued, false);
+  };
+  const clock = {
+    async sleep() {},
+    async until() {},
+    async rect() {
+      return { x: 10, y: 100, w: 200, h: 40 };
+    },
+    mark() {
+      return "cue";
+    },
+    close() {},
+  };
+  await showScene(
+    page,
+    clock,
+    {
+      beat: "link-match",
+      action: {
+        type: "select",
+        target: { aria: "Link a match" },
+        value: "efff9208-abf2-4a20-a498-18cc5a5130b3",
+      },
+      target: { aria: "Link a match" },
+      label: "Keep the match beside the entry",
+    },
+    { start: 0, end: 1, dur: 1 },
+  );
+});
 
-  aborted = null;
-  continued = false;
-  await handler({
-    request: () => ({ method: () => "GET", postDataJSON: () => null }),
-    async abort(reason) {
-      aborted = reason;
-    },
-    async continue() {
-      continued = true;
-    },
-  });
-  assert.equal(aborted, null);
-  assert.equal(continued, true);
+test("coach Home and paid review block only automatic review sweeps", async () => {
+  for (const [slug, firstRoute] of [
+    ["coach-start", "/coaching"],
+    ["coach-paid-review", "/coaching/orders"],
+  ]) {
+    const flow = await loadFlow(slug);
+    assert.equal(flow.entry, "/coaching/students");
+    assert.equal(flow.scenes[0]?.route, firstRoute);
+    assert.equal(typeof flow.prepare, "function");
+
+    let pattern;
+    let handler;
+    await flow.prepare({
+      async route(nextPattern, nextHandler) {
+        pattern = nextPattern;
+        handler = nextHandler;
+      },
+    });
+    assert.equal(pattern, "**/api/reviews/transition");
+
+    for (const request of [
+      { method: "POST", body: { action: "sweep" }, aborts: true },
+      { method: "GET", body: null, aborts: false },
+      { method: "POST", body: { action: "accept" }, aborts: false },
+    ]) {
+      let aborted = null;
+      let continued = false;
+      await handler({
+        request: () => ({
+          method: () => request.method,
+          postDataJSON: () => request.body,
+        }),
+        async abort(reason) {
+          aborted = reason;
+        },
+        async continue() {
+          continued = true;
+        },
+      });
+      assert.equal(aborted, request.aborts ? "blockedbyclient" : null, slug);
+      assert.equal(continued, !request.aborts, slug);
+    }
+  }
+});
+
+test("coach flow imports need only the coach and connected student accounts", () => {
+  const env = { ...process.env };
+  delete env.TUTORIAL_ACCOUNT;
+  env.TUTORIAL_COACH = "coach@example.invalid";
+  env.TUTORIAL_STUDENT = "student@example.invalid";
+  const module = pathToFileURL(
+    path.join(DIR, "flows", "coach", "coach-start.mjs"),
+  ).href;
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "--eval", `await import(${JSON.stringify(module)})`],
+    { env, encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test("the coach guard exposes an adapter boundary for cleanup testing", async () => {

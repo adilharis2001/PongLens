@@ -17,6 +17,30 @@ export const coachGuard = (tables) => ({
   tables,
 });
 
+/** Prevent read-only tutorial captures from running Orders housekeeping.
+ * The route is deliberately narrow: every request except POST sweep keeps
+ * the shipping behavior, including ordinary reads and explicit actions.
+ */
+export async function blockReviewSweep(page) {
+  await page.route("**/api/reviews/transition", async (route) => {
+    const request = route.request();
+    let action = null;
+    if (request.method() === "POST") {
+      try {
+        action = request.postDataJSON()?.action ?? null;
+      } catch {
+        // Non-JSON requests are not the automatic sweep. The endpoint gets
+        // to validate them normally.
+      }
+    }
+    if (action === "sweep") {
+      await route.abort("blockedbyclient");
+      return;
+    }
+    await route.continue();
+  });
+}
+
 const origin = (page) => new URL(page.url()).origin;
 
 async function hit(page, selector) {
@@ -47,6 +71,24 @@ async function fill(page, selector, value) {
   if (!changed) throw new Error(`could not fill ${JSON.stringify(selector)}`);
 }
 
+async function select(page, selector, value) {
+  const changed = await page.evaluate(
+    ([spec, next]) => {
+      const element = window.__pick(spec);
+      if (!(element instanceof HTMLSelectElement)) return false;
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(element, next);
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+      return element.value === next;
+    },
+    [selector, value],
+  );
+  if (!changed) throw new Error(`could not select ${JSON.stringify(selector)}`);
+}
+
 async function act(page, action) {
   if (!action) return;
   if (action.type === "click") {
@@ -57,6 +99,10 @@ async function act(page, action) {
   }
   if (action.type === "fill") {
     await fill(page, action.target, action.value);
+    return;
+  }
+  if (action.type === "select") {
+    await select(page, action.target, action.value);
     return;
   }
   throw new Error(`unknown coach tutorial action: ${action.type}`);
