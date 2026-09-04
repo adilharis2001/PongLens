@@ -335,6 +335,23 @@ func resetTutorialPlayerForChapterLoad(_ player: AVPlayer) {
     player.replaceCurrentItem(with: nil)
 }
 
+@MainActor
+@discardableResult
+func finishTutorialPlayerLoadIfCurrent(
+    request: TutorialChapterLoadRequest,
+    state: inout TutorialChapterLoadState,
+    player: AVPlayer,
+    url: URL,
+    installObserver: () -> Void,
+    startPlayback: () -> Void
+) -> Bool {
+    guard state.succeed(request) else { return false }
+    player.replaceCurrentItem(with: AVPlayerItem(url: url))
+    installObserver()
+    startPlayback()
+    return true
+}
+
 /// Tutorial videos, watched like videos: a chapter picker to start, then a
 /// big player with real transport — scrubbing, times, previous and next
 /// chapter — sound on regardless of the silent switch, and full screen the
@@ -353,6 +370,7 @@ struct TutorialVideosScreen: View {
     @State private var scrubbing = false
     @State private var scrubT: Double = 0
     @State private var observer: Any?
+    @State private var loadTask: Task<Void, Never>?
     @State private var chaptersOpen = false
     @State private var progressGate = TutorialProgressGate()
 
@@ -397,7 +415,6 @@ struct TutorialVideosScreen: View {
                         HStack {
                             Button {
                                 stopPlayback()
-                                chapterLoad.showPicker()
                             } label: {
                                 HStack(spacing: 6) {
                                     Image(systemName: "chevron.left")
@@ -454,6 +471,7 @@ struct TutorialVideosScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Button {
+                    stopPlayback()
                     dismiss()
                 } label: {
                     HStack(spacing: 6) {
@@ -472,7 +490,7 @@ struct TutorialVideosScreen: View {
                 VStack(spacing: 10) {
                     ForEach(Array(chapters.enumerated()), id: \.element.id) { i, numbered in
                         Button {
-                            Task { await play(index: i) }
+                            startPlayback(index: i)
                         } label: {
                             HStack(spacing: 14) {
                                 Text("\(numbered.number)")
@@ -529,7 +547,7 @@ struct TutorialVideosScreen: View {
                         .foregroundStyle(PL.text200)
                         .multilineTextAlignment(.center)
                     Button("Try again") {
-                        Task { await play(index: failedIndex) }
+                        startPlayback(index: failedIndex)
                     }
                     .buttonStyle(PLSecondaryButtonStyle())
                 }
@@ -598,7 +616,7 @@ struct TutorialVideosScreen: View {
                 Spacer()
                 Button {
                     if let i = currentIndex, i > 0 {
-                        Task { await play(index: i - 1) }
+                        startPlayback(index: i - 1)
                     }
                 } label: {
                     Image(systemName: "backward.end.fill")
@@ -618,7 +636,7 @@ struct TutorialVideosScreen: View {
                 .buttonStyle(.plain)
                 Button {
                     if let i = currentIndex, i < chapters.count - 1 {
-                        Task { await play(index: i + 1) }
+                        startPlayback(index: i + 1)
                     }
                 } label: {
                     Image(systemName: "forward.end.fill")
@@ -653,7 +671,7 @@ struct TutorialVideosScreen: View {
                 ForEach(Array(chapters.enumerated()), id: \.element.id) { i, numbered in
                     Button {
                         chaptersOpen = false
-                        Task { await play(index: i) }
+                        startPlayback(index: i)
                     } label: {
                         HStack(spacing: 12) {
                             Text("\(numbered.number)")
@@ -690,58 +708,76 @@ struct TutorialVideosScreen: View {
 
     // MARK: - Playback
 
-    private func play(index: Int) async {
+    private func startPlayback(index: Int) {
         guard chapters.indices.contains(index) else { return }
+        loadTask?.cancel()
+        loadTask = nil
         let request = chapterLoad.begin(index: index)
         resetTutorialPlayerForChapterLoad(player)
         resetPlaybackMeasurements()
         let slug = chapters[index].chapter.slug
-        if urls[slug] == nil {
+
+        if let url = urls[slug] {
+            finishPlaybackLoad(request: request, url: url)
+            return
+        }
+
+        loadTask = Task {
             struct Res: Decodable { let urls: [String: String] }
-            let res: Res? = try? await API.post(
+            let response: Res? = try? await API.post(
                 "api/tutorial-url",
                 TutorialURLRequest(course: audience, slug: slug)
             )
-            if let raw = res?.urls[slug], let url = URL(string: raw) {
-                urls[slug] = url
+            guard !Task.isCancelled else { return }
+            guard let raw = response?.urls[slug], let url = URL(string: raw) else {
+                chapterLoad.fail(request)
+                return
             }
+            urls[slug] = url
+            finishPlaybackLoad(request: request, url: url)
         }
-        guard let url = urls[slug] else {
-            chapterLoad.fail(request)
-            return
-        }
-        guard chapterLoad.succeed(request) else { return }
-        player.replaceCurrentItem(with: AVPlayerItem(url: url))
-        if observer == nil {
-            observer = player.addPeriodicTimeObserver(
-                forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
-            ) { time in
-                Task { @MainActor in
-                    currentT = time.seconds
-                    isPlaying = player.rate > 0
-                    if progressGate.shouldWrite(
-                        currentSeconds: time.seconds,
-                        isPlaying: isPlaying,
-                        alreadyRecorded: !audience.needsProgressWrite(in: [
-                            audience.progressKey: app.metadataFlag(audience.progressKey),
-                        ])
-                    ) {
-                        Task { await app.setMetadataFlag(audience.progressKey, true) }
-                    }
-                    if duration == 0, let d = player.currentItem?.duration.seconds,
-                       d.isFinite, d > 0 {
-                        duration = d
-                    }
-                    // Chapter finished: roll into the next one.
-                    if duration > 0, time.seconds >= duration - 0.1, player.rate > 0,
-                       let i = currentIndex, i < chapters.count - 1 {
-                        Task { await play(index: i + 1) }
+    }
+
+    private func finishPlaybackLoad(request: TutorialChapterLoadRequest, url: URL) {
+        finishTutorialPlayerLoadIfCurrent(
+            request: request,
+            state: &chapterLoad,
+            player: player,
+            url: url,
+            installObserver: {
+                guard observer == nil else { return }
+                observer = player.addPeriodicTimeObserver(
+                    forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
+                ) { time in
+                    Task { @MainActor in
+                        currentT = time.seconds
+                        isPlaying = player.rate > 0
+                        if progressGate.shouldWrite(
+                            currentSeconds: time.seconds,
+                            isPlaying: isPlaying,
+                            alreadyRecorded: !audience.needsProgressWrite(in: [
+                                audience.progressKey: app.metadataFlag(audience.progressKey),
+                            ])
+                        ) {
+                            Task { await app.setMetadataFlag(audience.progressKey, true) }
+                        }
+                        if duration == 0, let d = player.currentItem?.duration.seconds,
+                           d.isFinite, d > 0 {
+                            duration = d
+                        }
+                        // Chapter finished: roll into the next one.
+                        if duration > 0, time.seconds >= duration - 0.1, player.rate > 0,
+                           let i = currentIndex, i < chapters.count - 1 {
+                            startPlayback(index: i + 1)
+                        }
                     }
                 }
+            },
+            startPlayback: {
+                player.play()
+                isPlaying = true
             }
-        }
-        player.play()
-        isPlaying = true
+        )
     }
 
     private func togglePlay() {
@@ -756,6 +792,9 @@ struct TutorialVideosScreen: View {
     }
 
     private func stopPlayback() {
+        loadTask?.cancel()
+        loadTask = nil
+        chapterLoad.cancel()
         resetTutorialPlayerForChapterLoad(player)
         if let observer { player.removeTimeObserver(observer) }
         observer = nil

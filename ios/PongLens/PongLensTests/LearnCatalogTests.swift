@@ -239,6 +239,37 @@ final class LearnCatalogTests: XCTestCase {
     }
 
     @MainActor
+    func testDismissDuringDelayedTutorialLoadCannotInstallPlayback() async {
+        var state = TutorialChapterLoadState()
+        let request = state.begin(index: 1)
+        let player = AVPlayer()
+        var installedObserver = false
+        var startedPlayback = false
+        let delayedResponse = Task {
+            await Task.yield()
+            return URL(fileURLWithPath: "/tmp/late-tutorial.mp4")
+        }
+
+        state.cancel()
+        let url = await delayedResponse.value
+        let accepted = finishTutorialPlayerLoadIfCurrent(
+            request: request,
+            state: &state,
+            player: player,
+            url: url,
+            installObserver: { installedObserver = true },
+            startPlayback: { startedPlayback = true }
+        )
+
+        XCTAssertFalse(accepted)
+        XCTAssertNil(state.selectedIndex)
+        XCTAssertFalse(state.isLoading)
+        XCTAssertNil(player.currentItem)
+        XCTAssertFalse(installedObserver)
+        XCTAssertFalse(startedPlayback)
+    }
+
+    @MainActor
     func testStartingAChapterLoadPausesAndClearsThePreviousPlayerItem() {
         let player = AVPlayer()
         player.replaceCurrentItem(with: AVPlayerItem(

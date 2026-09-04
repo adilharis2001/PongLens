@@ -127,7 +127,7 @@ struct TutorialChapterLoadState {
         return true
     }
 
-    mutating func showPicker() {
+    mutating func cancel() {
         generation += 1
         phase = .picker
     }
