@@ -55,6 +55,9 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
     label: "File or YouTube link",
     rect: { x: 18, y: choose.y - 14, w: 354, h: youtube.y + youtube.h + 14 - (choose.y - 14) },
   });
+  const chooser = page.waitForEvent("filechooser", { timeout: 10000 });
+  await page.click('button:has-text("Choose a video")');
+  await chooser;
   await clock.until(options.end);
   clock.close(optionsMark);
 

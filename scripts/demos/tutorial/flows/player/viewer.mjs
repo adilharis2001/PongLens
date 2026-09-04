@@ -108,25 +108,45 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
   await clock.until(b2.end - 0.7);
   clock.mark({ kind: "tap", x: pic.x + pic.w * 0.25, y: pic.y + pic.h / 2, end: Number((clock.now() + 0.6).toFixed(3)) });
   await page.evaluate(() => document.querySelector('[aria-label="Previous point"]')?.click());
-  await clock.until(b2.end);
+  await clock.until(b2.end - 0.65);
   clock.close(left);
+  const middle = clock.mark({ kind: "box", label: "Replay this point", rect: {
+    x: pic.x + pic.w / 3 + 4,
+    y: pic.y + 6,
+    w: pic.w / 3 - 8,
+    h: pic.h - 12,
+  } });
+  await page.mouse.dblclick(pic.x + pic.w / 2, pic.y + pic.h / 2);
+  await clock.until(b2.end);
+  clock.close(middle);
 
-  // ---------------------------------------------------------- 3. 2x hold
+  // ----------------------------------------- 3. hold right 2x, left 0.25x
   const b3 = beat("fast");
   await clock.until(b3.start + 0.15);
   const fast = clock.mark({ kind: "box", label: "Hold for 2x", rect: half(pic, "right") });
-  // Hold the right side for real, so the picture actually speeds up.
-  await page.touchscreen.tap(pic.x + pic.w * 0.75, pic.y + pic.h / 2).catch(() => {});
-  await page.evaluate(() => {
-    const v = document.querySelector("video");
-    if (v) v.playbackRate = 2;
-  });
-  await clock.until(b3.end - 0.4);
-  await page.evaluate(() => {
-    const v = document.querySelector("video");
-    if (v) v.playbackRate = 1;
-  });
+  await page.mouse.move(pic.x + pic.w * 0.75, pic.y + pic.h / 2);
+  await page.mouse.down();
+  await page.waitForFunction(
+    (rate) => document.querySelector("video")?.playbackRate === rate,
+    2,
+    { timeout: 5000 },
+  );
+  await clock.until(b3.start + b3.dur * 0.47);
+  await page.mouse.up();
   clock.close(fast);
+
+  const slow = clock.mark({ kind: "box", label: "Hold for 0.25x", rect: half(pic, "left") });
+  await page.mouse.move(pic.x + pic.w * 0.25, pic.y + pic.h / 2);
+  await page.mouse.down();
+  await page.waitForFunction(
+    (rate) => document.querySelector("video")?.playbackRate === rate,
+    0.25,
+    { timeout: 5000 },
+  );
+  await clock.until(b3.end - 0.25);
+  await page.mouse.up();
+  await clock.until(b3.end);
+  clock.close(slow);
 
   // ------------------------------------------------------------ 5. zoom
   const b5 = beat("zoom");

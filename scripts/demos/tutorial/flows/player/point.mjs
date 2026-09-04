@@ -11,9 +11,18 @@
  * the analysis row underneath.
  */
 
+import { makePlayerGuardAdapter } from "../../guard.mjs";
+import {
+  MATCH_ID,
+  STAGED_POINTS,
+  playerGuard,
+  stageOriginal,
+  tutorialApi,
+} from "../../fixtures/player-match.mjs";
+
 export { account } from "../account.mjs";
 export const entry = "/match/efff9208-abf2-4a20-a498-18cc5a5130b3?p=3";
-const GUI = "efff9208-abf2-4a20-a498-18cc5a5130b3";
+const GUI = MATCH_ID;
 /**
  * The Gui match has the filled-in answers but NO drawable placement: every
  * point of it renders "a placement map couldn't be generated". So the map
@@ -25,44 +34,65 @@ const GUI = "efff9208-abf2-4a20-a498-18cc5a5130b3";
 const MAPPED = GUI;
 const MAPPED_POINT = 3;
 
-export const guard = GUI;
+export const guard = playerGuard;
 
-const SUPA = "https://pdycinmyfnritemrsfjf.supabase.co/rest/v1/";
-const api = async (key, path, init = {}) => {
-  const res = await fetch(SUPA + path, {
-    ...init,
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
-  });
-  if (!res.ok) throw new Error(`supabase ${res.status}: ${await res.text()}`);
-  const t = await res.text();
-  return t ? JSON.parse(t) : null;
+export const POINT_NOTE = {
+  pointId: STAGED_POINTS[2].id,
+  body: "Caught flat on the wide backhand again. Split step earlier here.",
 };
 
 /**
  * No point on this match carries a note, so the notes beat would otherwise
  * point at an empty state. Stage one on the point we show. It is created
- * after the guard snapshot, so the delete pass removes it afterwards.
+ * after the verified player snapshot. `cleanup` removes only this exact
+ * author/match/point/body marker afterwards.
  */
-export async function stage(key) {
-  const pts = (
-    await api(key, `points?match_id=eq.${MAPPED}&select=id,t0,idx,deleted&order=t0`)
-  ).filter((p) => !p.deleted);
-  const point = pts[MAPPED_POINT - 1];
-  const [match] = await api(key, `matches?id=eq.${MAPPED}&select=user_id`);
-  await api(key, "notes", {
+export async function stagePointNote(
+  key,
+  {
+    adapter = makePlayerGuardAdapter(key),
+    request = tutorialApi,
+  } = {},
+) {
+  await adapter.verifyOwner(playerGuard.ownerId, playerGuard.ownerEmail);
+  const [match] = await request(
+    key,
+    `matches?id=eq.${MAPPED}&user_id=eq.${playerGuard.ownerId}&select=id,user_id`,
+  );
+  if (match?.id !== MAPPED || match.user_id !== playerGuard.ownerId) {
+    throw new Error("approved player tutorial match is missing or changed owner");
+  }
+  const [point] = await request(
+    key,
+    `points?id=eq.${POINT_NOTE.pointId}&match_id=eq.${MAPPED}&select=id,match_id`,
+  );
+  if (point?.id !== POINT_NOTE.pointId || point.match_id !== MAPPED) {
+    throw new Error("approved player tutorial point is missing or changed match");
+  }
+  await request(key, "notes", {
     method: "POST",
     body: JSON.stringify({
       match_id: MAPPED,
-      point_id: point.id,
-      author_id: match.user_id,
-      body: "Caught flat on the wide backhand again. Split step earlier here.",
+      point_id: POINT_NOTE.pointId,
+      author_id: playerGuard.ownerId,
+      body: POINT_NOTE.body,
     }),
   });
+}
+
+export async function stage(key) {
+  await stageOriginal(key);
+  await stagePointNote(key);
+}
+
+export async function cleanup(key, request = tutorialApi) {
+  const filters = new URLSearchParams({
+    match_id: `eq.${MAPPED}`,
+    point_id: `eq.${POINT_NOTE.pointId}`,
+    author_id: `eq.${playerGuard.ownerId}`,
+    body: `eq.${POINT_NOTE.body}`,
+  });
+  await request(key, `notes?${filters}`, { method: "DELETE" });
 }
 
 export async function prepare(page) {
@@ -219,7 +249,43 @@ export async function flow(page, clock, { beat, voice, union, dismiss, sectionRe
   const adjust = await clock.rect({ text: "Adjust", tag: "button" });
   clock.close(c6);
   const tools = clock.mark({ kind: "box", label: "Split, join, or adjust", rect: union(split, join, adjust) });
-  await clock.until(b6.end);
+  await clock.until(b6.start + b6.dur * 0.55);
   clock.close(tools);
+
+  // The missing-rally tool belongs to the full Score Keeper strip rather
+  // than the point sheet. Open the real offer on a measured source gap, but
+  // never press the sheet's Add rally mutation.
+  await page.goto(`${new URL(page.url()).origin}/match/${MAPPED}`);
+  await page.waitForSelector('[aria-label="Play the full video"]', { timeout: 60000 });
+  await page.evaluate(() =>
+    document.querySelector('[aria-label="Play the full video"]')?.click()
+  );
+  await page.waitForSelector("text=Score the Match", { timeout: 30000 });
+  await page.click('button:has-text("Score the Match")');
+  await page.waitForSelector('button[aria-label*="Add a missing rally"]', { timeout: 30000 });
+  await page.evaluate(() =>
+    document.querySelector('button[aria-label*="Add a missing rally"]')?.scrollIntoView({ block: "center" })
+  );
+  await clock.sleep(500);
+  const missing = await clock.rect({ sel: 'button[aria-label*="Add a missing rally"]' });
+  const missingMark = clock.mark({ kind: "box", label: "Put back a missed rally", rect: fit({
+    x: missing.x - 8,
+    y: missing.y - 8,
+    w: missing.w + 16,
+    h: missing.h + 16,
+  }) });
+  await page.click('button[aria-label*="Add a missing rally"]');
+  await page.waitForSelector("text=Add a missing rally", { timeout: 20000 });
+  await clock.sleep(450);
+  clock.close(missingMark);
+  const missingTitle = await clock.rect({ text: "Add a missing rally", tag: "h2" });
+  const startHandle = await clock.rect({ aria: "Drag where the rally starts" });
+  const missingSheet = clock.mark({
+    kind: "box",
+    label: "Choose the missing rally",
+    rect: fit(union(missingTitle, startHandle)),
+  });
+  await clock.until(b6.end);
+  clock.close(missingSheet);
   await clock.until(voice.total + 0.4);
 }
