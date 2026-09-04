@@ -14,6 +14,7 @@ import {
 } from "remotion";
 import { Bookend } from "./Bookend";
 import cues from "./cues.json";
+import insertData from "./inserts.json";
 import voice from "./voice.json";
 import {
   CANVAS,
@@ -51,6 +52,46 @@ type Cue =
   | { kind: "tap"; t: number; end: number; x: number; y: number };
 
 const CUES = cues.cues as Cue[];
+
+type NativeInsert = {
+  src: string;
+  start: number;
+  end: number;
+  at: number;
+};
+
+const NATIVE_INSERTS = (
+  insertData as { nativeInserts?: NativeInsert[] }
+).nativeInserts ?? [];
+
+const NativeInsertClips: React.FC = () => {
+  const { fps } = useVideoConfig();
+  return (
+    <>
+      {NATIVE_INSERTS.map((clip, index) => (
+        <Sequence
+          key={`${clip.src}-${index}`}
+          from={Math.round(clip.at * fps)}
+          durationInFrames={Math.max(1, Math.round((clip.end - clip.start) * fps))}
+        >
+          <OffthreadVideo
+            src={staticFile(clip.src)}
+            startFrom={Math.round(clip.start * fps)}
+            muted
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              display: "block",
+            }}
+          />
+        </Sequence>
+      ))}
+    </>
+  );
+};
 
 /**
  * The camera does not move.
@@ -412,6 +453,7 @@ const ChapterBody: React.FC = () => {
             )
           )}
         </div>
+        <NativeInsertClips />
       </div>
 
       <Caption />
@@ -434,6 +476,7 @@ const ChapterBody: React.FC = () => {
  */
 export const INTRO_FRAMES = 36;
 export const OUTRO_FRAMES = 54;
+export const BODY_FRAMES = Math.ceil(Number(voice.total ?? cues.duration) * 30);
 
 export const Chapter: React.FC = () => (
   <AbsoluteFill style={{ background: INK }}>
@@ -443,7 +486,7 @@ export const Chapter: React.FC = () => (
     <RemotionSequence durationInFrames={INTRO_FRAMES}>
       <Bookend mode="intro" title={voice.title} />
     </RemotionSequence>
-    <RemotionSequence from={INTRO_FRAMES + Math.ceil(cues.duration * 30)}>
+    <RemotionSequence from={INTRO_FRAMES + BODY_FRAMES}>
       <Bookend mode="outro" />
     </RemotionSequence>
   </AbsoluteFill>
