@@ -192,6 +192,7 @@ export function NotesFeed({
   userId,
   accountName,
   initialMatch = null,
+  initialSection = null,
   initialRecollectEnabled = true,
 }: {
   userId: string;
@@ -199,11 +200,15 @@ export function NotesFeed({
   accountName: string | null;
   /** ?match= deep link: open pre-filtered to this match's notes. */
   initialMatch?: string | null;
+  /** ?from=coach: open on what a coach has shared. Used by the join
+   *  flow, so a student who has just connected lands on their coach's
+   *  material rather than on a feed it is mixed into. */
+  initialSection?: Section | null;
   initialRecollectEnabled?: boolean;
 }) {
   const [rows, setRows] = useState<NoteFeedRow[] | null>(null);
   const [section, setSection] = useState<Section>(
-    initialMatch ? "matches" : "all"
+    initialMatch ? "matches" : (initialSection ?? "all")
   );
   const [matchFilter, setMatchFilter] = useState<string | null>(initialMatch);
   const [query, setQuery] = useState("");

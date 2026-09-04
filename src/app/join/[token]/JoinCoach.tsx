@@ -57,7 +57,11 @@ export function JoinCoach({
       setError("Couldn't join. The link may have been revoked — ask for a new one.");
       return;
     }
-    router.replace("/journal");
+    // The journal, opened on what the coach has already written rather
+    // than on everything (Adil, 2026-09-04). A student joining a coach
+    // they have worked with for months should land on their material,
+    // not on a feed where it is mixed in among their own notes.
+    router.replace("/journal?from=coach");
     router.refresh();
   };
 

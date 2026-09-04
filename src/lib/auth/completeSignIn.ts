@@ -42,10 +42,21 @@ export async function completeSignIn(
       findAcceptedLink: async (linkId) => {
         const { data, error } = await supabase
           .from("coach_links")
-          .select("scope_match_id")
+          .select("scope_match_id, player_id")
           .eq("id", linkId)
           .maybeSingle();
         return error ? null : data;
+      },
+      findRosterRow: async (playerId) => {
+        // RLS scopes coach_students to the caller's own roster, so this
+        // can only ever find the row this coach just gained.
+        const { data } = await supabase
+          .from("coach_students")
+          .select("id")
+          .eq("player_id", playerId)
+          .is("archived_at", null)
+          .maybeSingle();
+        return (data as { id: string } | null)?.id ?? null;
       },
     },
   );
