@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ShareQR } from "@/components/ShareQR";
 import { UNNAMED_INVITE, nameCoachInvite } from "@/lib/coaches/nameInvite";
+import { InviteStarterPack, useStarterPack } from "@/components/InviteStarterPack";
 
 /** One waiting invite, from pending_invite_matches() (166): who it is
  *  for, what it already covers, and whether THIS match is lined up to go
@@ -75,6 +76,11 @@ export function ShareWithCoachSheet({
   /** The waiting invite whose name is being typed, if any. */
   const [namingId, setNamingId] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState("");
+  /** What the new coach finds waiting when they accept (166/169). */
+  const [pickedMatches, setPickedMatches] = useState<Set<string>>(new Set());
+  const [pickedEntries, setPickedEntries] = useState<Set<string>>(new Set());
+
+  const starter = useStarterPack(userId, open && !link);
 
   const loadCoaches = useCallback(async () => {
     if (!matchId) {
@@ -135,6 +141,8 @@ export function ShareWithCoachSheet({
     setError(null);
     setCopied(false);
     setInviteName("");
+    setPickedMatches(new Set());
+    setPickedEntries(new Set());
     void loadCoaches();
   }, [open, matchId, loadCoaches]);
 
@@ -245,10 +253,49 @@ export function ShareWithCoachSheet({
     // the invite: the link is the thing being asked for, and it can be
     // named afterwards from the waiting-invite row.
     await nameCoachInvite(supabase, userId, data.id, inviteName);
+
+    // The head start. Matches are QUEUED against the invite and only
+    // become access when somebody accepts it (166). Entries need the
+    // coach's row, which naming just made — without a name there is
+    // nothing to attribute them to, so they are skipped rather than
+    // written somewhere they cannot be read.
+    const matchIds = [...pickedMatches];
+    if (scope !== "all" && matchIds.length > 0) {
+      await supabase.from("coach_invite_matches").insert(
+        matchIds.map((id) => ({ invite_id: data.id, match_id: id })),
+      );
+    }
+    const entryIds = [...pickedEntries];
+    if (entryIds.length > 0) {
+      const { data: mine } = await supabase
+        .from("player_coaches")
+        .select("id")
+        .eq("player_id", userId)
+        .eq("invite_id", data.id)
+        .maybeSingle();
+      const coachRefId = (mine as { id: string } | null)?.id;
+      if (coachRefId) {
+        await supabase
+          .from("lessons")
+          .update({
+            coach_ref_id: coachRefId,
+            shared_with_coach_at: new Date().toISOString(),
+          })
+          .in("id", entryIds);
+      }
+    }
     setCreating(false);
     setLink(`${window.location.origin}/coach-invite/${data.invite_token}`);
     onLinkCreated?.();
-  }, [userId, matchId, scope, inviteName, onLinkCreated]);
+  }, [
+    userId,
+    matchId,
+    scope,
+    inviteName,
+    pickedMatches,
+    pickedEntries,
+    onLinkCreated,
+  ]);
 
   const copy = useCallback(async () => {
     if (!link) return;
@@ -543,6 +590,43 @@ export function ShareWithCoachSheet({
                 </button>
               )}
             </div>
+            {/* Only when a name has been typed for the entries half:
+                an entry has to be attributed to somebody, and an unnamed
+                invite has no row to attribute it to. Matches need no
+                name, so they stand on their own. */}
+            <InviteStarterPack
+              matches={scope === "all" ? [] : starter.matches}
+              entries={inviteName.trim() ? starter.entries : []}
+              points={starter.points}
+              pickedMatches={pickedMatches}
+              pickedEntries={pickedEntries}
+              disabled={creating}
+              onToggleMatch={(id) =>
+                setPickedMatches((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                })
+              }
+              onToggleEntry={(id) =>
+                setPickedEntries((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                })
+              }
+            />
+            {/* Not gated on the scope: "all my matches" is about matches
+                and says nothing about the journal, so the offer to share
+                entries stands either way. Gating it here hid the whole
+                head start behind the default choice. */}
+            {!inviteName.trim() && starter.entries.length > 0 && (
+              <p className="mt-3 text-sm text-zinc-400">
+                Name them above to send some of your journal too.
+              </p>
+            )}
             <button
               type="button"
               disabled={creating}

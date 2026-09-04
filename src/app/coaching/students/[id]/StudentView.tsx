@@ -14,7 +14,12 @@ import {
 } from "@/components/entryPhoto";
 import { LinkedText } from "@/components/LinkedText";
 import { NoteEditor } from "@/app/journal/NoteEditor";
-import type { Lesson } from "@/lib/types";
+import type { Lesson, Point } from "@/lib/types";
+import {
+  fetchPointsPaged,
+  useScoreChips,
+  type PointLite,
+} from "@/app/dashboard/shared";
 import type { CoachStudentRow } from "../StudentsView";
 
 /**
@@ -62,11 +67,24 @@ interface SharedFromStudent {
   created_at: string;
 }
 
+/** The first line of an entry's substance, for a card that is closed.
+ *  A title and a date alone tell a coach nothing about whether it is
+ *  worth opening; the first thing the student actually wrote does. */
+function entryPreview(
+  transcript: string,
+  takeaways: Takeaways | null,
+): string {
+  const first = takeaways?.themes?.[0]?.points?.[0];
+  const words = (first ?? transcript ?? "").replace(/\s+/g, " ").trim();
+  return words.length > 120 ? `${words.slice(0, 120)}…` : words;
+}
+
 interface MatchRow {
   id: string;
   opponent_name: string | null;
   original_name: string | null;
   match_type: string | null;
+  venue: string | null;
   played_at: string;
   status: string;
 }
@@ -107,6 +125,10 @@ export function StudentView({
   /** Their journal entries, shared with you (164). */
   const [fromStudent, setFromStudent] = useState<SharedFromStudent[]>([]);
   const [openShared, setOpenShared] = useState<string | null>(null);
+  /** Just enough of each point to read the score off a student's matches.
+   *  The same walk the player's own library runs, so a coach and a player
+   *  can never be looking at two different scores for one match. */
+  const [matchPoints, setMatchPoints] = useState<PointLite[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
   /** The entry being corrected, in the shape the journal's editor takes. */
@@ -126,6 +148,8 @@ export function StudentView({
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
+
+  const scoreChips = useScoreChips(matchPoints);
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -158,7 +182,9 @@ export function StudentView({
       const [{ data: matchRows }, { data: sharedRows }] = await Promise.all([
         supabase
           .from("matches")
-          .select("id, opponent_name, original_name, match_type, played_at, status")
+          .select(
+            "id, opponent_name, original_name, match_type, venue, played_at, status",
+          )
           .eq("user_id", playerId)
           .order("created_at", { ascending: false }),
         // Every student's shared entries come back; this page wants one
@@ -167,7 +193,17 @@ export function StudentView({
         // which is one fewer thing a caller can get wrong.
         supabase.rpc("student_shared_lessons"),
       ]);
-      setMatches((matchRows as MatchRow[]) ?? []);
+      const rows = (matchRows as MatchRow[]) ?? [];
+      setMatches(rows);
+      // Scores for the matches actually on screen. Ready matches only:
+      // one that is still processing has no points to walk.
+      const ready = rows.filter((m) => m.status === "ready").map((m) => m.id);
+      if (ready.length > 0) {
+        void fetchPointsPaged<PointLite>(
+          "id, match_id, idx, t0, is_let, confirmed_winner, game_end_override, game_winner_override",
+          ready,
+        ).then((pts) => setMatchPoints(pts));
+      }
       setFromStudent(
         ((sharedRows as SharedFromStudent[]) ?? []).filter(
           (r) => r.student_id === playerId,
@@ -889,13 +925,34 @@ export function StudentView({
                     className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2"
                   >
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-zinc-100">
+                      <span className="block truncate text-sm font-semibold text-zinc-100">
                         {entryTitleOf(entry.transcript, entry.takeaways)}
                       </span>
                       <span className="mt-0.5 block text-xs text-zinc-500">
                         {day(entry.created_at)}
                       </span>
+                      {!isOpen && (
+                        <span className="mt-1.5 block line-clamp-2 text-sm leading-relaxed text-zinc-400">
+                          {entryPreview(entry.transcript, entry.takeaways)}
+                        </span>
+                      )}
                     </span>
+                    <svg
+                      viewBox="0 0 24 24"
+                      className={`mt-0.5 h-4 w-4 shrink-0 text-zinc-500 transition-transform ${
+                        isOpen ? "rotate-180" : ""
+                      }`}
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden="true"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="m6 9 6 6 6-6"
+                      />
+                    </svg>
                   </button>
                   {isOpen && (
                     <div className="border-t border-edge/60 px-4 py-3">
@@ -947,28 +1004,72 @@ export function StudentView({
           {matches.length === 0 ? (
             <p className="mt-3 text-sm text-zinc-400">Nothing shared yet.</p>
           ) : (
-            <div className="mt-3 divide-y divide-edge overflow-hidden rounded-2xl border border-edge bg-surface">
-              {matches.map((match) => (
-                <Link
-                  key={match.id}
-                  href={`/match/${match.id}`}
-                  className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-surface-2"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-zinc-100">
-                      {matchLabel(match)}
+            /* Cards, not a list of names (Adil, 2026-09-04). A coach
+               opening a new student should be able to SEE what they have
+               been doing — the picture, who it was against, and how it
+               went — rather than read a stack of dates and click each one
+               to find out. The thumb comes from /api/thumb/<id>, whose URL
+               never changes and whose access is has_match_access, so it
+               works for a coach without signing anything. */
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {matches.map((match) => {
+                const score = scoreChips.get(match.id);
+                return (
+                  <Link
+                    key={match.id}
+                    href={`/match/${match.id}`}
+                    className="group flex gap-3 overflow-hidden rounded-2xl border border-edge bg-surface p-2.5 transition-colors hover:border-cyan-glow/40"
+                  >
+                    <span className="relative aspect-video w-28 shrink-0 overflow-hidden rounded-xl bg-surface-2/60 sm:w-32">
+                      {match.status === "ready" ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={`/api/thumb/${match.id}`}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center text-xs text-zinc-600">
+                          {match.status === "failed" ? "Failed" : "Working"}
+                        </span>
+                      )}
                     </span>
-                    <span className="block text-xs text-zinc-500">
-                      {day(match.played_at)}
+                    <span className="flex min-w-0 flex-1 flex-col justify-center gap-1 py-0.5 pr-1">
+                      <span className="truncate text-sm font-semibold text-zinc-100">
+                        {matchLabel(match)}
+                      </span>
+                      <span className="truncate text-xs text-zinc-500">
+                        {/* The date and where, not the date twice: the
+                            title already carries the opponent, and
+                            deriveMatchTitleParts' secondary IS the date. */}
+                        {[day(match.played_at), match.venue]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                      {score && (
+                        /* The games, read by the same walk the player's
+                           own library runs, so the two can never disagree.
+                           A match still being scored says so rather than
+                           showing a number that will move. */
+                        <span className="mt-0.5 flex items-center gap-1.5">
+                          <span className="rounded-full border border-edge bg-ink/50 px-2 py-0.5 text-xs font-semibold tabular-nums text-zinc-200">
+                            {score.you}
+                            <span className="text-zinc-600">–</span>
+                            {score.them}
+                          </span>
+                          {!score.complete && (
+                            <span className="text-xs text-zinc-600">
+                              in progress
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </span>
-                  </span>
-                  {match.status !== "ready" && (
-                    <span className="shrink-0 text-xs text-zinc-500">
-                      {match.status === "failed" ? "Failed" : "Processing"}
-                    </span>
-                  )}
-                </Link>
-              ))}
+                  </Link>
+                );
+              })}
             </div>
           )}
         </>
