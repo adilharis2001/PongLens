@@ -238,6 +238,54 @@ test("legacy guideBySlug defaults to the web catalog", () => {
   assert.equal(legacyGuideBySlug("upload-a-video")?.slug, "upload-a-video");
 });
 
+test("web guide screenshots cover the refreshed player and coach workflows", () => {
+  const imagePaths = new Set(
+    (["player", "coach"] as const).flatMap((audience) =>
+      visibleGuides(audience, "web").flatMap((item) =>
+        item.sections.flatMap((section) =>
+          (section.images ?? []).map((image) => image.src),
+        ),
+      ),
+    ),
+  );
+
+  for (const requiredPath of [
+    "/learn/audience-switch-d.jpg",
+    "/learn/highlights-m.jpg",
+    "/learn/journal-ask-m.jpg",
+    "/learn/journal-recollect-m.jpg",
+    "/showcase/coach-entry-shared-m.jpg",
+    "/learn/coach-overall-feedback-m.jpg",
+  ]) {
+    assert.ok(imagePaths.has(requiredPath), `${requiredPath} is not referenced by a web guide`);
+  }
+
+  for (const imagePath of imagePaths) {
+    const filePath = fileURLToPath(
+      new URL(`../../../public${imagePath}`, import.meta.url),
+    );
+    assert.equal(existsSync(filePath), true, `${imagePath} does not exist under public/`);
+  }
+
+  const screenshotHarness = readFileSync(
+    fileURLToPath(
+      new URL("../../../scripts/demos/learn_shots.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  for (const stagedShot of [
+    "original-m",
+    "restore-rally-m",
+    "placement-retry-m",
+  ]) {
+    assert.match(
+      screenshotHarness,
+      new RegExp(`"${stagedShot}"\\s*:`),
+      `${stagedShot} must remain available for an explicitly staged account`,
+    );
+  }
+});
+
 test("guide search helpers retain their legacy behavior", () => {
   const searchable = guide({
     title: "Search test",

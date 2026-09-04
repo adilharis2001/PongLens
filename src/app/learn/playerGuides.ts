@@ -25,6 +25,10 @@ export const playerGuides: Guide[] = [
           "Keep the page open until the upload finishes. You can leave once processing starts.",
           "Return when PongLens tells you the match is ready.",
         ],
+        images: [
+          { src: "/showcase/upload-d.jpg", alt: "The Upload page with the video chooser and match details", kind: "d" },
+          { src: "/showcase/upload-m.jpg", alt: "The Upload page on a phone", kind: "m", phoneTwin: true },
+        ],
       },
       {
         heading: "Record a clear video",
@@ -74,6 +78,10 @@ export const playerGuides: Guide[] = [
           "Choose Import.",
           "Add match details and choose the processing options while PongLens fetches the video.",
           "When the page says “We’re fetching it,” you can leave. PongLens emails you when the match is ready.",
+        ],
+        images: [
+          { src: "/learn/youtube-d.jpg", alt: "The Import from YouTube form", kind: "d" },
+          { src: "/learn/youtube-m.jpg", alt: "The YouTube link field and Import button on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {
@@ -150,6 +158,10 @@ export const playerGuides: Guide[] = [
           "Use the left and right controls to move one point at a time.",
           "Open Original when you want to watch the upload exactly as you sent it.",
         ],
+        images: [
+          { src: "/learn/player-d.jpg", alt: "The full match player with review controls visible", kind: "d" },
+          { src: "/learn/player-m.jpg", alt: "The full match player on a phone", kind: "m", phoneTwin: true },
+        ],
       },
       {
         heading: "Faster ways to review",
@@ -186,6 +198,11 @@ export const playerGuides: Guide[] = [
           "Open Analysis when you want to record how the point ended, the serve, placement, or why you lost.",
           "Add a note, tag, star, or drawing when the rally is worth revisiting.",
         ],
+        images: [
+          { src: "/showcase/viewer-d.jpg", alt: "A point open beside the point list on desktop", kind: "d" },
+          { src: "/showcase/viewer-m.jpg", alt: "An individual point open on a phone", kind: "m", phoneTwin: true },
+          { src: "/showcase/notes-m.jpg", alt: "A point note with a marked-up video frame", kind: "m" },
+        ],
       },
       {
         heading: "Scoring can be one tap",
@@ -221,6 +238,10 @@ export const playerGuides: Guide[] = [
           "Confirm the player names and first server when asked.",
           "Watch each rally, then choose the player who won it.",
           "Review unresolved points at the end and choose Done.",
+        ],
+        images: [
+          { src: "/showcase/score-d.jpg", alt: "Score Keeper with the video and scoring controls", kind: "d" },
+          { src: "/showcase/score-m.jpg", alt: "Score Keeper controls on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {
@@ -259,6 +280,9 @@ export const playerGuides: Guide[] = [
           "Select an active tag again to remove it from the point.",
           "Choose Done when the point has the tags you want.",
         ],
+        images: [
+          { src: "/learn/tagpicker-m.jpg", alt: "The tag picker with recent and suggested labels", kind: "m" },
+        ],
       },
       {
         heading: "Use labels that help you make a decision",
@@ -295,6 +319,10 @@ export const playerGuides: Guide[] = [
           "Answer the optional Analysis questions to fill Serve, Mistakes, and Placement.",
           "Open Where the ball landed for the placement maps made from the footage.",
         ],
+        images: [
+          { src: "/showcase/stats-d.jpg", alt: "Match analysis cards built from scored points", kind: "d" },
+          { src: "/showcase/stats-m.jpg", alt: "Match analysis cards on a phone", kind: "m", phoneTwin: true },
+        ],
       },
       {
         heading: "Know where each result comes from",
@@ -310,6 +338,10 @@ export const playerGuides: Guide[] = [
         paragraphs: [
           "Placement is prepared after the initial match processing when it was selected during upload. If it was not selected, request it from Tools while the original video is still available.",
           "A processing state means PongLens is still preparing the maps. Retry starts another attempt after a failed result. Unavailable means the original or a usable camera view is not available for a new attempt.",
+        ],
+        images: [
+          { src: "/showcase/placement-d.jpg", alt: "The camera-mapped ball placement view", kind: "d" },
+          { src: "/showcase/placement-m.jpg", alt: "Serve placement on a phone", kind: "m", phoneTwin: true },
         ],
         tip: "Placement is still in beta. Mark a result that looks wrong so it stops counting in the map.",
       },
@@ -331,6 +363,10 @@ export const playerGuides: Guide[] = [
           "Choose Tactics for serve, mistake, and placement patterns.",
           "Open any result to return to that match.",
           "Keep scoring matches and adding Analysis answers to make each view more complete.",
+        ],
+        images: [
+          { src: "/learn/mystats-d.jpg", alt: "The My stats view across scored matches", kind: "d" },
+          { src: "/learn/mystats-m.jpg", alt: "My stats and Tactics tabs on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {
@@ -371,6 +407,11 @@ export const playerGuides: Guide[] = [
           "Add tags and choose whether Improve with AI should prepare the notes.",
           "Review the original words and edit the prepared notes before saving.",
         ],
+        images: [
+          { src: "/showcase/journal-d.jpg", alt: "The Journal with recent notes and training entries", kind: "d" },
+          { src: "/showcase/journal-m.jpg", alt: "The Journal on a phone", kind: "m", phoneTwin: true },
+          { src: "/showcase/journal-feed-m.jpg", alt: "Match and lesson notes together in the Journal", kind: "m" },
+        ],
       },
       {
         heading: "Bring every kind of note together",
@@ -386,6 +427,10 @@ export const playerGuides: Guide[] = [
         paragraphs: [
           "Improve with AI prepares rough notes as clear points while keeping the original text. You can correct the prepared notes directly afterwards.",
           "Ask your journal answers from your own entries and match record. Search finds saved words, and Recollect brings older advice back when it becomes useful again.",
+        ],
+        images: [
+          { src: "/learn/journal-ask-m.jpg", alt: "A journal question ready for Ask your journal", kind: "m" },
+          { src: "/learn/journal-recollect-m.jpg", alt: "Recollect topics grouped from lesson and practice entries", kind: "m" },
         ],
       },
       {
@@ -411,6 +456,10 @@ export const playerGuides: Guide[] = [
           "Watch the automatic short or long highlight before sharing it.",
           "Choose Download or Share for the version you want.",
           "Star individual rallies to build your all-starred collection across matches.",
+        ],
+        images: [
+          { src: "/learn/highlights-d.jpg", alt: "The short and long automatic highlight choices", kind: "d" },
+          { src: "/learn/highlights-m.jpg", alt: "The Highlights chooser on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {
@@ -444,6 +493,10 @@ export const playerGuides: Guide[] = [
           "Choose the full cut match, starred points, a tag collection, or the original video.",
           "Turn on Include score when you want a running scoreboard in the rendered video.",
           "Create the export when rendering is needed, then download or share it when it is ready.",
+        ],
+        images: [
+          { src: "/learn/export-d.jpg", alt: "The match Export sheet with video choices", kind: "d" },
+          { src: "/learn/export-m.jpg", alt: "Export choices on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {
@@ -480,6 +533,10 @@ export const playerGuides: Guide[] = [
           "Enter a clear title for the link, or keep the suggested title.",
           "Choose Share, then copy the link, use your device’s share menu, or show the QR code.",
           "To share one point, open that point and choose Share.",
+        ],
+        images: [
+          { src: "/showcase/share-d.jpg", alt: "The public-link share sheet on desktop", kind: "d" },
+          { src: "/showcase/share-m.jpg", alt: "Public-link sharing options on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {
@@ -522,6 +579,9 @@ export const playerGuides: Guide[] = [
           "Choose whether this coach can see all matches or only matches you share.",
           "Send the link. The connection is added when the coach signs in and accepts it.",
           "Open the coach later to change that coach's match access or remove the connection.",
+        ],
+        images: [
+          { src: "/learn/coachinvite-m.jpg", alt: "The coach connection and match-access sheet", kind: "m" },
         ],
       },
       {

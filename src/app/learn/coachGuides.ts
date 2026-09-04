@@ -24,11 +24,19 @@ export const coachGuides: Guide[] = [
           "Choose a student to see their lesson entries and the matches they have shared.",
           "Use the switch at the top to move between Playing and Coaching when you use both workspaces.",
         ],
+        images: [
+          { src: "/showcase/coach-students-m.jpg", alt: "The complete Students roster in the coaching workspace", kind: "m" },
+          { src: "/showcase/coach-student-t.jpg", alt: "A student page with lesson entries, shared matches, and roster controls", kind: "d" },
+        ],
       },
       {
         heading: "Start in Coaching",
         paragraphs: [
           "Choose Coaching when PongLens asks how you use the product. If you already use PongLens as a player, switch into Coaching from the control at the top; your Playing workspace remains separate.",
+        ],
+        images: [
+          { src: "/learn/audience-switch-d.jpg", alt: "Coach Learn with the Playing and Coaching library control", kind: "d" },
+          { src: "/learn/audience-switch-m.jpg", alt: "The Coaching Learn library selected on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {
@@ -56,6 +64,10 @@ export const coachGuides: Guide[] = [
           "Keep lesson entries on the new student even if they do not have a PongLens account.",
           "When they are ready, send the invite link from their student page.",
           "After they connect, confirm whether you can see all their matches or only matches they share.",
+        ],
+        images: [
+          { src: "/showcase/coach-add-student-m.jpg", alt: "The Add a student sheet", kind: "m" },
+          { src: "/showcase/coach-invite-m.jpg", alt: "A student invite with match-access choices", kind: "m" },
         ],
       },
       {
@@ -91,6 +103,9 @@ export const coachGuides: Guide[] = [
           "Add a photo or include a useful web link, then link the entry to a match when it refers to one.",
           "Choose Improve with AI, review the prepared notes, and save the entry.",
         ],
+        images: [
+          { src: "/showcase/coach-entry-compose-m.jpg", alt: "A new coach lesson entry with dictation, photo, and Improve with AI controls", kind: "m" },
+        ],
       },
       {
         heading: "Prepare the lesson notes",
@@ -123,6 +138,9 @@ export const coachGuides: Guide[] = [
           "Pause when the lesson stops and resume when it starts again.",
           "Choose Finish, then review the transcript and prepared notes.",
           "Correct the entry and save it under the student.",
+        ],
+        images: [
+          { src: "/showcase/coach-record-m.jpg", alt: "The iPhone audio lesson recorder ready to start", kind: "m" },
         ],
       },
       {
@@ -161,6 +179,9 @@ export const coachGuides: Guide[] = [
           "For a student who is offline, create a public link to this individual entry.",
           "Return to the entry when you need to update it, stop sharing, reset the link, or revoke access.",
         ],
+        images: [
+          { src: "/showcase/coach-entry-shared-m.jpg", alt: "A shared lesson entry with Stop sharing, Edit, and Copy link controls", kind: "m" },
+        ],
       },
       {
         heading: "Share with a connected student",
@@ -192,6 +213,11 @@ export const coachGuides: Guide[] = [
           "Watch the cut match or open Original for the upload exactly as the player sent it.",
           "Move point by point and follow the score the player recorded.",
           "Open Match analysis and placement maps when you need the player's wider read of the match.",
+        ],
+        images: [
+          { src: "/showcase/coach-shared-match-m.jpg", alt: "A connected student's shared match in the coaching roster", kind: "m" },
+          { src: "/showcase/coach-d.jpg", alt: "A coach reviewing a student's score, placement, and point notes", kind: "d" },
+          { src: "/showcase/coach-m.jpg", alt: "A student's point with coach feedback on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {
@@ -225,6 +251,9 @@ export const coachGuides: Guide[] = [
           "Pause on a useful frame and draw on it when the picture helps.",
           "Use Overall notes for feedback that applies across the match.",
         ],
+        images: [
+          { src: "/showcase/coach-m.jpg", alt: "Written coach feedback tied to one point", kind: "m" },
+        ],
       },
       {
         heading: "Keep feedback on the moment",
@@ -236,6 +265,10 @@ export const coachGuides: Guide[] = [
         heading: "Use Overall notes for larger themes",
         paragraphs: [
           "Overall notes are for ideas that span several points, such as serve selection or recovery position. The student receives your feedback with the match, and point notes and overall notes also reach their Journal.",
+        ],
+        images: [
+          { src: "/learn/coach-overall-feedback-d.jpg", alt: "Overall notes below a student's match analysis", kind: "d" },
+          { src: "/learn/coach-overall-feedback-m.jpg", alt: "The coach's Overall notes composer on a phone", kind: "m", phoneTwin: true },
         ],
       },
     ],
@@ -255,6 +288,10 @@ export const coachGuides: Guide[] = [
           "Describe the review scope, set the price and turnaround, and list what the player receives.",
           "Set your availability and connect payments before publishing.",
           "Preview the offering, then make it available when the terms are accurate.",
+        ],
+        images: [
+          { src: "/showcase/coach-offering-d.jpg", alt: "The coach offering editor with scope, price, and turnaround", kind: "d" },
+          { src: "/showcase/coach-offering-m.jpg", alt: "Paid-review offering details on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {
@@ -288,6 +325,9 @@ export const coachGuides: Guide[] = [
           "Write the included sections and add the attachments promised in the offering.",
           "Deliver the review, answer the included follow-up, and check the payout status on the order.",
         ],
+        images: [
+          { src: "/showcase/coach-order-m.jpg", alt: "A submitted paid-review order with the player's brief", kind: "m" },
+        ],
       },
       {
         heading: "Accept with the brief in view",
@@ -300,6 +340,10 @@ export const coachGuides: Guide[] = [
         paragraphs: [
           "Move point by point and attach findings to the rallies that demonstrate them. Complete every written section and attachment included in your offering before delivery.",
           "After delivery, answer the follow-up included with the order. Payment and payout status remain visible on that order.",
+        ],
+        images: [
+          { src: "/showcase/coach-points-d.jpg", alt: "A paid-review workspace with the student's rallies and findings", kind: "d" },
+          { src: "/showcase/coach-writeup-m.jpg", alt: "The paid-review write-up sections on a phone", kind: "m", phoneTwin: true },
         ],
       },
     ],
