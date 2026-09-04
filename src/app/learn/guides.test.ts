@@ -53,7 +53,7 @@ test("catalog selectors filter guides, sections, groups, and related links", () 
   assert.ok(playerGuide);
   assert.deepEqual(
     visibleRelatedGuides(playerGuide, "player", "web").map((item) => item.slug),
-    [],
+    ["upload-from-youtube", "match-viewer"],
   );
   assert.equal(
     playerGuide.sections.some((section) => section.heading === "On iPhone"),
@@ -109,6 +109,161 @@ test("chapter visibility preserves the player course and filters iOS coach paid 
   );
   assert.equal(visibleChapters("player", "web").length, 9);
   assert.equal(visibleChapters("coach", "web").length, 9);
+});
+
+test("coach guide curriculum is complete and paid reviews stay web-only", () => {
+  const webSlugs = visibleGuides("coach", "web").map((item) => item.slug);
+  const iosSlugs = visibleGuides("coach", "ios").map((item) => item.slug);
+
+  assert.deepEqual(webSlugs, [
+    "coaching-workspace",
+    "add-connect-student",
+    "keep-lesson-entries",
+    "audio-record-lesson",
+    "share-coach-entry",
+    "review-student-match",
+    "leave-match-feedback",
+    "setup-paid-reviews",
+    "complete-paid-review",
+  ]);
+  assert.deepEqual(iosSlugs, webSlugs.slice(0, -2));
+  assert.equal(
+    visibleGuides("coach", "ios").some((item) =>
+      guideSearchText(item).includes("paid review"),
+    ),
+    false,
+  );
+});
+
+test("coach lesson recording guide is audio-only and covers the live action", () => {
+  const audioGuide = guideBySlug("audio-record-lesson", "coach", "ios");
+  assert.ok(audioGuide);
+
+  const copy = guideSearchText(audioGuide);
+  assert.match(copy, /audio record a lesson/);
+  assert.doesNotMatch(copy, /video recording|coming soon/);
+});
+
+test("every visible guide opens with at least three quick steps", () => {
+  for (const audience of ["player", "coach"] as const) {
+    for (const platform of ["web", "ios"] as const) {
+      for (const item of visibleGuides(audience, platform)) {
+        assert.equal(item.sections[0]?.heading, "Quick steps", `${item.slug} starts with Quick steps`);
+        assert.ok(
+          (item.sections[0]?.steps?.length ?? 0) >= 3,
+          `${item.slug} has at least three quick steps`,
+        );
+      }
+    }
+  }
+});
+
+test("player curriculum retains established guides and gates recording to iOS", () => {
+  const establishedSlugs = [
+    "upload-a-video",
+    "upload-from-youtube",
+    "match-viewer",
+    "score-points",
+    "score-keeper",
+    "match-analysis",
+    "journal",
+    "export",
+    "invite-a-coach",
+    "tags",
+    "stats",
+    "share-a-link",
+  ];
+  const webSlugs = visibleGuides("player", "web").map((item) => item.slug);
+  const iosSlugs = visibleGuides("player", "ios").map((item) => item.slug);
+
+  for (const slug of establishedSlugs) {
+    assert.ok(webSlugs.includes(slug), `${slug} remains available on web`);
+    assert.ok(iosSlugs.includes(slug), `${slug} remains available on iOS`);
+  }
+  assert.ok(webSlugs.includes("create-share-highlights"));
+  assert.ok(iosSlugs.includes("create-share-highlights"));
+  assert.equal(webSlugs.includes("record-a-match"), false);
+  assert.ok(iosSlugs.includes("record-a-match"));
+  assert.deepEqual(visibleGroups("player", "web"), [
+    "Get started",
+    "Review and score",
+    "Your game",
+    "Share and export",
+  ]);
+});
+
+test("Instagram highlight instructions render only for iOS players", () => {
+  const webGuide = guideBySlug("create-share-highlights", "player", "web");
+  const iosGuide = guideBySlug("create-share-highlights", "player", "ios");
+  assert.ok(webGuide);
+  assert.ok(iosGuide);
+
+  assert.equal(guideSearchText(webGuide).includes("instagram story and reel"), false);
+  assert.match(guideSearchText(iosGuide), /instagram story and reel/);
+});
+
+test("tutorial metadata matches the approved player and coach courses", () => {
+  assert.deepEqual(
+    visibleChapters("player", "web").map(({ slug, title, guide }) => ({ slug, title, guide })),
+    [
+      { slug: "home", title: "Start here", guide: undefined },
+      { slug: "upload", title: "Upload a match", guide: "upload-a-video" },
+      { slug: "viewer", title: "Watch it back", guide: "match-viewer" },
+      { slug: "point", title: "Score a point", guide: "score-points" },
+      { slug: "keepscore", title: "Score Keeper", guide: "score-keeper" },
+      { slug: "analysis", title: "Read your match", guide: "match-analysis" },
+      {
+        slug: "export",
+        title: "Highlights, export and share",
+        guide: "create-share-highlights",
+      },
+      { slug: "coach", title: "You and your coach", guide: "invite-a-coach" },
+      { slug: "journal", title: "The Journal", guide: "journal" },
+    ],
+  );
+
+  assert.deepEqual(
+    visibleChapters("coach", "web").map(({ slug, title, guide }) => ({ slug, title, guide })),
+    [
+      { slug: "coach-start", title: "Start here", guide: "coaching-workspace" },
+      { slug: "coach-add-student", title: "Add a student", guide: "add-connect-student" },
+      {
+        slug: "coach-connect-account",
+        title: "Connect their account",
+        guide: "add-connect-student",
+      },
+      {
+        slug: "coach-lesson-entry",
+        title: "Write a lesson entry",
+        guide: "keep-lesson-entries",
+      },
+      {
+        slug: "coach-audio-lesson",
+        title: "Audio record a lesson",
+        guide: "audio-record-lesson",
+      },
+      {
+        slug: "coach-share-entry",
+        title: "Share it with the student",
+        guide: "share-coach-entry",
+      },
+      {
+        slug: "coach-review-match",
+        title: "Review their matches",
+        guide: "review-student-match",
+      },
+      {
+        slug: "coach-feedback",
+        title: "Leave feedback",
+        guide: "leave-match-feedback",
+      },
+      {
+        slug: "coach-paid-review",
+        title: "Paid match reviews",
+        guide: "setup-paid-reviews",
+      },
+    ],
+  );
 });
 
 test("catalog validation accepts the seeded catalog", () => {
