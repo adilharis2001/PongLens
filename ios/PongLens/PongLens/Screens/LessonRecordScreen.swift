@@ -47,7 +47,6 @@ struct LessonRecordScreen: View {
     /// names and table tennis words wrong, and the person who was at the
     /// lesson is the only one who can fix them.
     @State private var draft = ""
-    @State private var coachName = ""
     /// Which of the player's own coaches taught it, and whether they may
     /// read it (164).
     @State private var coachRefId: UUID?
@@ -683,11 +682,10 @@ struct LessonRecordScreen: View {
             let named = coachRefId.flatMap { id in
                 store.playerCoaches.first(where: { $0.id == id })?.displayName
             }
-            let typed = coachName.trimmingCharacters(in: .whitespaces)
             ok = await store.saveEntry(
                 transcript: words,
                 kind: "lesson",
-                coachName: named ?? (typed.isEmpty ? nil : typed),
+                coachName: named,
                 summarize: true,
                 coachRefId: coachRefId,
                 shareWithCoach: shareWithCoach && coachRefId != nil

@@ -1436,7 +1436,6 @@ struct JournalComposer: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var kind: String
-    @State private var coachName: String
     /// Which of the player's own coaches taught it, and whether they may
     /// read it (164). A pick, not a typed name: two spellings of one
     /// person is the defect that replaced.
@@ -1475,7 +1474,6 @@ struct JournalComposer: View {
         self.store = store
         self.onSaved = onSaved
         _kind = State(initialValue: initialKind)
-        _coachName = State(initialValue: "")
         _body_ = State(initialValue: initialText)
     }
 
@@ -1693,11 +1691,10 @@ struct JournalComposer: View {
         let named = refId.flatMap { id in
             store.playerCoaches.first(where: { $0.id == id })?.displayName
         }
-        let typed = coachName.trimmingCharacters(in: .whitespaces)
         let ok = await store.saveEntry(
             transcript: body_.trimmingCharacters(in: .whitespacesAndNewlines),
             kind: kind,
-            coachName: kind == "lesson" ? (named ?? (typed.isEmpty ? nil : typed)) : nil,
+            coachName: named,
             summarize: summarize,
             imagePath: photo.path,
             coachRefId: refId,
