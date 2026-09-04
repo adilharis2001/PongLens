@@ -15,6 +15,7 @@ import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { learnShotManifest } from "./learn_shot_manifest.mjs";
 
 const BASE = process.env.BASE ?? "http://localhost:3000";
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
@@ -23,10 +24,16 @@ const COACH_EMAIL = "miguel-demo@example.com";
 const ACCOUNTS = { player: DEMO_EMAIL, coach: COACH_EMAIL };
 const PLACEMENT_RETRY_MATCH = process.env.PLACEMENT_RETRY_MATCH;
 const PLACEMENT_RETRY_ACCOUNT = process.env.PLACEMENT_RETRY_ACCOUNT;
+const CURRENT_PLACEMENT_MATCH = process.env.CURRENT_PLACEMENT_MATCH;
+const CURRENT_PLACEMENT_ACCOUNT = process.env.CURRENT_PLACEMENT_ACCOUNT;
 const ORIGINAL_MATCH = process.env.ORIGINAL_MATCH;
 const ORIGINAL_ACCOUNT = process.env.ORIGINAL_ACCOUNT;
 const RESTORE_RALLY_MATCH = process.env.RESTORE_RALLY_MATCH;
 const RESTORE_RALLY_ACCOUNT = process.env.RESTORE_RALLY_ACCOUNT;
+const COACH_DIRECT_SHARE_ACCOUNT = process.env.COACH_DIRECT_SHARE_ACCOUNT;
+const COACH_DIRECT_SHARE_STUDENT = process.env.COACH_DIRECT_SHARE_STUDENT;
+const COACH_DIRECT_SHARE_ENTRY = process.env.COACH_DIRECT_SHARE_ENTRY;
+const COACH_PUBLIC_LINK_ACCOUNT = process.env.COACH_PUBLIC_LINK_ACCOUNT;
 const READ_ONLY_RPCS = new Set([
   "coach_players",
   "coach_shared_entries",
@@ -34,8 +41,6 @@ const READ_ONLY_RPCS = new Set([
   "is_admin",
   "match_note_authors",
   "match_owner_name",
-  "my_processing_state",
-  "my_storage_state",
   "note_feed",
   "player_coach_links",
   "tag_stats",
@@ -118,6 +123,18 @@ const scrollToText = (page, needle, block = "start") =>
       element?.scrollIntoView({ block: position });
     },
     [needle, block]
+  );
+
+const scrollSheetTo = (page, heading, block = "start") =>
+  page.evaluate(
+    ([text, position]) => {
+      const root = document.querySelector('[role="dialog"]') ?? document;
+      const element = [...root.querySelectorAll("h3")].find(
+        (candidate) => candidate.textContent.trim() === text
+      );
+      element?.scrollIntoView({ block: position });
+    },
+    [heading, block]
   );
 
 async function openCoachStudent(page, name) {
@@ -321,6 +338,21 @@ const shots = {
       await pauseVideos(page);
     },
   },
+  "restore-rally-d": {
+    viewport: "d",
+    manualOnly: true,
+    email: RESTORE_RALLY_ACCOUNT,
+    run: async (page) => {
+      if (!RESTORE_RALLY_MATCH || !RESTORE_RALLY_ACCOUNT) throw new Error("RESTORE_RALLY_MATCH and RESTORE_RALLY_ACCOUNT must name a staged match with a real gap");
+      await openPlayer(page, RESTORE_RALLY_MATCH);
+      const offer = page.locator('[aria-label*="Add a missing rally"]').first();
+      await offer.waitFor({ timeout: 15000 });
+      await offer.click();
+      await page.waitForSelector("text=Add a missing rally", { timeout: 15000 });
+      await waitVideoReady(page);
+      await pauseVideos(page);
+    },
+  },
 
   // Requires an explicitly designated staged owner. The live database has
   // retryable rows, but this harness never guesses that unknown footage is
@@ -340,6 +372,42 @@ const shots = {
       await page.getByRole("button", { name: /^Placement maps/ }).click();
       await page.waitForSelector("text=Try placement again?", { timeout: 15000 });
       await sleep(900);
+    },
+  },
+  "placement-retry-d": {
+    viewport: "d",
+    manualOnly: true,
+    email: PLACEMENT_RETRY_ACCOUNT,
+    run: async (page) => {
+      if (!PLACEMENT_RETRY_MATCH || !PLACEMENT_RETRY_ACCOUNT) throw new Error("PLACEMENT_RETRY_MATCH and PLACEMENT_RETRY_ACCOUNT must name a staged retryable match");
+      await page.goto(`${BASE}/match/${PLACEMENT_RETRY_MATCH}`);
+      await page.getByRole("button", { name: /^Placement maps/ }).click();
+      await page.waitForSelector("text=Try placement again?", { timeout: 15000 });
+      await sleep(900);
+    },
+  },
+  "placement-current-d": {
+    viewport: "d",
+    manualOnly: true,
+    email: CURRENT_PLACEMENT_ACCOUNT,
+    run: async (page) => {
+      if (!CURRENT_PLACEMENT_MATCH || !CURRENT_PLACEMENT_ACCOUNT) throw new Error("CURRENT_PLACEMENT_MATCH and CURRENT_PLACEMENT_ACCOUNT must name an approved match with populated current maps");
+      await page.goto(`${BASE}/match/${CURRENT_PLACEMENT_MATCH}`);
+      await page.getByRole("button", { name: /^Placement maps/ }).click();
+      await page.getByRole("heading", { name: /^(Serve placement|Placement maps)$/ }).waitFor({ timeout: 20000 });
+      await sleep(1200);
+    },
+  },
+  "placement-current-m": {
+    viewport: "m",
+    manualOnly: true,
+    email: CURRENT_PLACEMENT_ACCOUNT,
+    run: async (page) => {
+      if (!CURRENT_PLACEMENT_MATCH || !CURRENT_PLACEMENT_ACCOUNT) throw new Error("CURRENT_PLACEMENT_MATCH and CURRENT_PLACEMENT_ACCOUNT must name an approved match with populated current maps");
+      await page.goto(`${BASE}/match/${CURRENT_PLACEMENT_MATCH}`);
+      await page.getByRole("button", { name: /^Placement maps/ }).click();
+      await page.getByRole("heading", { name: /^(Serve placement|Placement maps)$/ }).waitFor({ timeout: 20000 });
+      await sleep(1200);
     },
   },
 
@@ -412,6 +480,32 @@ const shots = {
 
   // Journal discovery tools. Ask is captured closed; Recollect is opened
   // only far enough to show its staged topics and never reveals/adds a cue.
+  "journal-current-d": {
+    viewport: "d",
+    run: async (page) => {
+      await page.goto(`${BASE}/journal`);
+      await page.getByRole("searchbox", { name: "Search or ask your journal" }).waitFor({ timeout: 20000 });
+      await sleep(900);
+    },
+  },
+  "journal-current-m": {
+    viewport: "m",
+    run: async (page) => {
+      await page.goto(`${BASE}/journal`);
+      await page.getByRole("searchbox", { name: "Search or ask your journal" }).waitFor({ timeout: 20000 });
+      await sleep(900);
+    },
+  },
+  "journal-ask-d": {
+    viewport: "d",
+    run: async (page) => {
+      await page.goto(`${BASE}/journal`);
+      await page.getByRole("searchbox", { name: "Search or ask your journal" }).fill("What should I work on next?");
+      await page.waitForSelector("text=Ask your journal", { timeout: 20000 });
+      await scrollToText(page, "Ask your journal", "center");
+      await sleep(900);
+    },
+  },
   "journal-ask-m": {
     viewport: "m",
     run: async (page) => {
@@ -422,6 +516,15 @@ const shots = {
       await page.waitForSelector("text=Ask your journal", { timeout: 20000 });
       await scrollToText(page, "Ask your journal", "center");
       await sleep(900);
+    },
+  },
+  "journal-recollect-d": {
+    viewport: "d",
+    run: async (page) => {
+      await page.goto(`${BASE}/journal`);
+      await page.getByRole("button", { name: "Recollect", exact: true }).click();
+      await page.getByText("Serve", { exact: true }).last().waitFor({ timeout: 20000 });
+      await sleep(700);
     },
   },
   "journal-recollect-m": {
@@ -465,7 +568,77 @@ const shots = {
       await sleep(1000);
     },
   },
+  "coach-point-feedback-d": {
+    viewport: "d",
+    as: "coach",
+    run: async (page) => {
+      await openCoachStudent(page, "John Miller");
+      const href = await page.locator('a[href^="/match/"]').first().getAttribute("href");
+      if (!href) throw new Error("shared student match missing");
+      await page.goto(`${BASE}${href}?p=48`);
+      await waitVideoReady(page);
+      await pauseVideos(page);
+      await scrollSheetTo(page, "Notes", "center");
+      await sleep(900);
+    },
+  },
+  "coach-point-feedback-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await openCoachStudent(page, "John Miller");
+      const href = await page.locator('a[href^="/match/"]').first().getAttribute("href");
+      if (!href) throw new Error("shared student match missing");
+      await page.goto(`${BASE}${href}?p=48`);
+      await waitVideoReady(page);
+      await pauseVideos(page);
+      await scrollSheetTo(page, "Notes", "center");
+      await sleep(900);
+    },
+  },
+  "coach-direct-share-d": {
+    viewport: "d", manualOnly: true, email: COACH_DIRECT_SHARE_ACCOUNT,
+    run: async (page) => {
+      if (!COACH_DIRECT_SHARE_ACCOUNT || !COACH_DIRECT_SHARE_STUDENT || !COACH_DIRECT_SHARE_ENTRY) throw new Error("COACH_DIRECT_SHARE_ACCOUNT, COACH_DIRECT_SHARE_STUDENT, and COACH_DIRECT_SHARE_ENTRY must name a connected student with an unshared entry");
+      await openCoachStudent(page, COACH_DIRECT_SHARE_STUDENT);
+      await page.getByRole("button", { name: new RegExp(COACH_DIRECT_SHARE_ENTRY) }).click();
+      await page.getByRole("button", { name: new RegExp(`Share with ${COACH_DIRECT_SHARE_STUDENT}`) }).waitFor({ timeout: 20000 });
+    },
+  },
+  "coach-direct-share-m": {
+    viewport: "m", manualOnly: true, email: COACH_DIRECT_SHARE_ACCOUNT,
+    run: async (page) => {
+      if (!COACH_DIRECT_SHARE_ACCOUNT || !COACH_DIRECT_SHARE_STUDENT || !COACH_DIRECT_SHARE_ENTRY) throw new Error("COACH_DIRECT_SHARE_ACCOUNT, COACH_DIRECT_SHARE_STUDENT, and COACH_DIRECT_SHARE_ENTRY must name a connected student with an unshared entry");
+      await openCoachStudent(page, COACH_DIRECT_SHARE_STUDENT);
+      await page.getByRole("button", { name: new RegExp(COACH_DIRECT_SHARE_ENTRY) }).click();
+      await page.getByRole("button", { name: new RegExp(`Share with ${COACH_DIRECT_SHARE_STUDENT}`) }).waitFor({ timeout: 20000 });
+    },
+  },
+  "coach-public-entry-link-d": {
+    viewport: "d", manualOnly: true, email: COACH_PUBLIC_LINK_ACCOUNT,
+    run: async (page) => {
+      if (!COACH_PUBLIC_LINK_ACCOUNT) throw new Error("COACH_PUBLIC_LINK_ACCOUNT must name an approved account with an active entry link");
+      await page.goto(`${BASE}/account`);
+      await page.getByRole("button", { name: "Manage" }).click();
+      await page.getByText("Public links", { exact: true }).last().waitFor({ timeout: 20000 });
+    },
+  },
+  "coach-public-entry-link-m": {
+    viewport: "m", manualOnly: true, email: COACH_PUBLIC_LINK_ACCOUNT,
+    run: async (page) => {
+      if (!COACH_PUBLIC_LINK_ACCOUNT) throw new Error("COACH_PUBLIC_LINK_ACCOUNT must name an approved account with an active entry link");
+      await page.goto(`${BASE}/account`);
+      await page.getByRole("button", { name: "Manage" }).click();
+      await page.getByText("Public links", { exact: true }).last().waitFor({ timeout: 20000 });
+    },
+  },
 };
+
+for (const item of learnShotManifest) {
+  for (const variant of Object.values(item.variants)) {
+    if (!shots[variant.shot]) throw new Error(`manifest shot missing from harness: ${variant.shot}`);
+  }
+}
 
 const VIEWPORTS = {
   m: { width: 390, height: 844 },

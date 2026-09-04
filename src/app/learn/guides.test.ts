@@ -21,6 +21,10 @@ import { resolveLearnAudience } from "./audience.ts";
 import { resolveTutorialRequest } from "./tutorialRequest.ts";
 import { tutorialProgressKey, tutorialWasStarted } from "./tutorialProgress.ts";
 import { dualRoleEligible } from "../../lib/dualRoleEligibility.ts";
+import {
+  REQUIRED_LEARN_SHOT_STATES,
+  learnShotManifest,
+} from "../../../scripts/demos/learn_shot_manifest.mjs";
 
 const iosCatalogPath = fileURLToPath(
   new URL("../../../ios/PongLens/PongLens/Resources/learn-catalog.json", import.meta.url),
@@ -249,17 +253,6 @@ test("web guide screenshots cover the refreshed player and coach workflows", () 
     ),
   );
 
-  for (const requiredPath of [
-    "/learn/audience-switch-d.jpg",
-    "/learn/highlights-m.jpg",
-    "/learn/journal-ask-m.jpg",
-    "/learn/journal-recollect-m.jpg",
-    "/showcase/coach-entry-shared-m.jpg",
-    "/learn/coach-overall-feedback-m.jpg",
-  ]) {
-    assert.ok(imagePaths.has(requiredPath), `${requiredPath} is not referenced by a web guide`);
-  }
-
   for (const imagePath of imagePaths) {
     const filePath = fileURLToPath(
       new URL(`../../../public${imagePath}`, import.meta.url),
@@ -273,16 +266,35 @@ test("web guide screenshots cover the refreshed player and coach workflows", () 
     ),
     "utf8",
   );
-  for (const stagedShot of [
-    "original-m",
-    "restore-rally-m",
-    "placement-retry-m",
-  ]) {
-    assert.match(
-      screenshotHarness,
-      new RegExp(`"${stagedShot}"\\s*:`),
-      `${stagedShot} must remain available for an explicitly staged account`,
-    );
+  assert.deepEqual(
+    learnShotManifest.map((item) => item.state),
+    REQUIRED_LEARN_SHOT_STATES,
+    "the manifest must enumerate every required and corrective Learn state",
+  );
+  for (const item of learnShotManifest) {
+    assert.ok(item.reason, `${item.state} must explain why and how it is captured`);
+    for (const [platform, variant] of Object.entries(item.variants)) {
+      assert.match(screenshotHarness, new RegExp(`"${variant.shot}"\\s*:`));
+      const expectedPath = `/learn/${variant.shot}.jpg`;
+      const filePath = fileURLToPath(
+        new URL(`../../../public${expectedPath}`, import.meta.url),
+      );
+      if (item.status === "captured") {
+        assert.equal(variant.guideImage, expectedPath);
+        assert.ok(imagePaths.has(expectedPath), `${expectedPath} is not referenced`);
+        assert.equal(existsSync(filePath), true, `${expectedPath} is missing`);
+        const expectedKind = platform === "desktop" ? "d" : "m";
+        const image = (["player", "coach"] as const)
+          .flatMap((audience) => visibleGuides(audience, "web"))
+          .flatMap((guide) => guide.sections)
+          .flatMap((section) => section.images ?? [])
+          .find((candidate) => candidate.src === expectedPath);
+        assert.equal(image?.kind, expectedKind, `${expectedPath} has the wrong kind`);
+      } else {
+        assert.equal(variant.guideImage, undefined);
+        assert.equal(existsSync(filePath), false, `${expectedPath} must not be fabricated`);
+      }
+    }
   }
 });
 

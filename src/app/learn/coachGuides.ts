@@ -216,8 +216,8 @@ export const coachGuides: Guide[] = [
         ],
         images: [
           { src: "/showcase/coach-shared-match-m.jpg", alt: "A connected student's shared match in the coaching roster", kind: "m" },
-          { src: "/showcase/coach-d.jpg", alt: "A coach reviewing a student's score, placement, and point notes", kind: "d" },
-          { src: "/showcase/coach-m.jpg", alt: "A student's point with coach feedback on a phone", kind: "m", phoneTwin: true },
+          { src: "/learn/coach-point-feedback-d.jpg", alt: "A coach reviewing a student's point and its feedback controls", kind: "d" },
+          { src: "/learn/coach-point-feedback-m.jpg", alt: "A student's point with coach feedback controls on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {
@@ -252,7 +252,8 @@ export const coachGuides: Guide[] = [
           "Use Overall notes for feedback that applies across the match.",
         ],
         images: [
-          { src: "/showcase/coach-m.jpg", alt: "Written coach feedback tied to one point", kind: "m" },
+          { src: "/learn/coach-point-feedback-d.jpg", alt: "Coach feedback controls tied to one point", kind: "d" },
+          { src: "/learn/coach-point-feedback-m.jpg", alt: "Point feedback controls on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {

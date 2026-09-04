@@ -339,10 +339,6 @@ export const playerGuides: Guide[] = [
           "Placement is prepared after the initial match processing when it was selected during upload. If it was not selected, request it from Tools while the original video is still available.",
           "A processing state means PongLens is still preparing the maps. Retry starts another attempt after a failed result. Unavailable means the original or a usable camera view is not available for a new attempt.",
         ],
-        images: [
-          { src: "/showcase/placement-d.jpg", alt: "The camera-mapped ball placement view", kind: "d" },
-          { src: "/showcase/placement-m.jpg", alt: "Serve placement on a phone", kind: "m", phoneTwin: true },
-        ],
         tip: "Placement is still in beta. Mark a result that looks wrong so it stops counting in the map.",
       },
     ],
@@ -408,8 +404,8 @@ export const playerGuides: Guide[] = [
           "Review the original words and edit the prepared notes before saving.",
         ],
         images: [
-          { src: "/showcase/journal-d.jpg", alt: "The Journal with recent notes and training entries", kind: "d" },
-          { src: "/showcase/journal-m.jpg", alt: "The Journal on a phone", kind: "m", phoneTwin: true },
+          { src: "/learn/journal-current-d.jpg", alt: "The current Journal with search and discovery tools", kind: "d" },
+          { src: "/learn/journal-current-m.jpg", alt: "The current Journal on a phone", kind: "m", phoneTwin: true },
           { src: "/showcase/journal-feed-m.jpg", alt: "Match and lesson notes together in the Journal", kind: "m" },
         ],
       },
@@ -429,8 +425,10 @@ export const playerGuides: Guide[] = [
           "Ask your journal answers from your own entries and match record. Search finds saved words, and Recollect brings older advice back when it becomes useful again.",
         ],
         images: [
-          { src: "/learn/journal-ask-m.jpg", alt: "A journal question ready for Ask your journal", kind: "m" },
-          { src: "/learn/journal-recollect-m.jpg", alt: "Recollect topics grouped from lesson and practice entries", kind: "m" },
+          { src: "/learn/journal-ask-d.jpg", alt: "A journal question ready for Ask your journal", kind: "d" },
+          { src: "/learn/journal-ask-m.jpg", alt: "A journal question ready for Ask your journal on a phone", kind: "m", phoneTwin: true },
+          { src: "/learn/journal-recollect-d.jpg", alt: "Recollect topics grouped from lesson and practice entries", kind: "d" },
+          { src: "/learn/journal-recollect-m.jpg", alt: "Recollect topics on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {
