@@ -20,6 +20,32 @@
 
 begin;
 
+-- Refuse before the first write if these fixed UUIDs no longer belong to the
+-- documented demo identities. A copied staging script must never turn into a
+-- way to overwrite a real coach or player.
+do $$
+begin
+  if not exists (
+    select 1 from auth.users
+     where id = '07601580-0ce3-4a4f-82b0-10ea04cac180'
+       and lower(email) = 'miguel-demo@example.com'
+  ) then
+    raise exception 'tutorial coach identity does not match miguel-demo@example.com';
+  end if;
+  if not exists (
+    select 1 from auth.users
+     where id = '6eb09df4-7d44-4ef9-b1cc-8cdfc4119fc4'
+       and lower(email) = 'uploader-test@example.com'
+  ) then
+    raise exception 'tutorial student identity does not match uploader-test@example.com';
+  end if;
+end $$;
+
+-- Fixture upserts must not send coach-entry, match-share, or note
+-- notifications to even a demo inbox. LOCAL resets automatically at commit;
+-- fixed IDs plus the integrity check below replace trigger-derived safety.
+set local session_replication_role = replica;
+
 -- The coach ------------------------------------------------------------
 
 insert into player_profiles (user_id)
@@ -451,6 +477,65 @@ on conflict (id) do update set
   shared_at = excluded.shared_at,
   created_at = excluded.created_at;
 
+-- The player's standing grant is enough for the shared match to appear and,
+-- unlike a new match-scoped grant, cannot fire student_match_ready.
+insert into coach_links (
+  id, player_id, coach_id, invite_token, scope_match_id, status, all_matches,
+  created_at
+) values (
+  '0a5e0009-0000-4000-8000-000000000001',
+  '6eb09df4-7d44-4ef9-b1cc-8cdfc4119fc4',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  '0a5e0009-0000-4000-8000-000000000099',
+  null, 'accepted', true, '2026-09-01 13:30:00+00'
+)
+on conflict (id) do update set
+  coach_id = excluded.coach_id,
+  scope_match_id = null,
+  status = 'accepted',
+  all_matches = true;
+
+-- One already-live public link lets capture show Copy link without minting a
+-- row. The title is also the stable cleanup marker for tutorial-owned links.
+insert into share_links (
+  id, owner, kind, lesson_id, token, title, created_at
+) values (
+  '0a5e000a-0000-4000-8000-000000000001',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  'entry', '0a5e0006-0000-4000-8000-000000000003',
+  'tutorialfixtureentry0000000000000001',
+  'Tutorial fixture: Serve variation lesson',
+  '2026-08-29 17:55:00+00'
+)
+on conflict (id) do update set
+  revoked_at = null,
+  title = excluded.title;
+
+-- Existing point and overall feedback. Capture only opens these surfaces; it
+-- never records audio, saves a drawing, or submits a new note.
+insert into notes (
+  id, match_id, point_id, author_id, body, created_at
+) values
+(
+  '0a5e000b-0000-4000-8000-000000000001',
+  'efff9208-abf2-4a20-a498-18cc5a5130b3',
+  'f0d9c35f-5194-4632-a29b-5183af848238',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  'Tutorial fixture: Stay over the table after the short return.',
+  '2026-09-02 20:00:00+00'
+),
+(
+  '0a5e000b-0000-4000-8000-000000000002',
+  'efff9208-abf2-4a20-a498-18cc5a5130b3',
+  null,
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  'Tutorial fixture: Recover through the middle before changing direction.',
+  '2026-09-02 20:05:00+00'
+)
+on conflict (id) do update set
+  point_id = excluded.point_id,
+  body = excluded.body;
+
 insert into coach_student_invites (
   id, coach_id, student_id, token, created_at
 ) values (
@@ -462,6 +547,37 @@ insert into coach_student_invites (
 )
 on conflict (id) do update set revoked_at = null;
 
+-- The tutorial must fail loudly rather than record an empty or misleading
+-- state if its vetted match or commerce fixture was removed.
+do $$
+begin
+  if not exists (
+    select 1 from matches
+     where id = 'efff9208-abf2-4a20-a498-18cc5a5130b3'
+       and user_id = '6eb09df4-7d44-4ef9-b1cc-8cdfc4119fc4'
+       and status = 'ready'
+  ) then
+    raise exception 'tutorial shared match is missing or owned by another account';
+  end if;
+  if not exists (
+    select 1 from points
+     where match_id = 'efff9208-abf2-4a20-a498-18cc5a5130b3'
+       and confirmed_winner is not null
+       and placement is not null
+  ) then
+    raise exception 'tutorial shared match needs scored points and placement data';
+  end if;
+  if not exists (
+    select 1 from review_orders
+     where id = '0a5e0002-0000-4000-8000-000000000001'
+       and coach_id = '07601580-0ce3-4a4f-82b0-10ea04cac180'
+       and status = 'in_review'
+       and accepted_at is not null
+  ) then
+    raise exception 'tutorial accepted review order is missing';
+  end if;
+end $$;
+
 commit;
 
 -- A second coach, part way through setup -------------------------------
@@ -469,6 +585,21 @@ commit;
 -- coach actually meets it, and Miguel is finished. Elena Duarte
 -- (setup-demo@example.com) has one offering and nothing else, which is
 -- what puts the coach hub into setup mode.
+
+begin;
+
+do $$
+begin
+  if exists (
+    select 1 from auth.users
+     where id = 'c02832b6-cdb1-4417-bc85-228ee46a1083'
+       and lower(email) <> 'setup-demo@example.com'
+  ) then
+    raise exception 'setup coach identity does not match setup-demo@example.com';
+  end if;
+end $$;
+
+set local session_replication_role = replica;
 
 insert into player_profiles (user_id)
 select 'c02832b6-cdb1-4417-bc85-228ee46a1083'
@@ -516,3 +647,5 @@ where exists (
   where user_id = 'c02832b6-cdb1-4417-bc85-228ee46a1083'
 )
 on conflict (id) do update set active = true;
+
+commit;

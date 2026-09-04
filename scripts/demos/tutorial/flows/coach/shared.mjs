@@ -1,0 +1,152 @@
+import { coachAccount, student } from "../account.mjs";
+
+export const account = coachAccount();
+export const studentAccount = student();
+
+export const COACH_ID = "07601580-0ce3-4a4f-82b0-10ea04cac180";
+export const CONNECTED_STUDENT_ID = "0a5e0004-0000-4000-8000-000000000001";
+export const OFFLINE_STUDENT_ID = "0a5e0004-0000-4000-8000-000000000002";
+export const SHARED_MATCH_ID = "efff9208-abf2-4a20-a498-18cc5a5130b3";
+export const REVIEW_ORDER_ID = "0a5e0002-0000-4000-8000-000000000001";
+
+export const coachGuard = (tables) => ({
+  kind: "coach",
+  ownerId: COACH_ID,
+  ownerEmail: account,
+  marker: "Tutorial fixture",
+  tables,
+});
+
+const origin = (page) => new URL(page.url()).origin;
+
+async function hit(page, selector) {
+  return page.evaluate((spec) => {
+    const element = window.__pick(spec);
+    element?.click();
+    return Boolean(element);
+  }, selector);
+}
+
+async function fill(page, selector, value) {
+  const changed = await page.evaluate(
+    ([spec, next]) => {
+      const element = window.__pick(spec);
+      if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)) {
+        return false;
+      }
+      const setter = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(element),
+        "value",
+      )?.set;
+      setter?.call(element, next);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    },
+    [selector, value],
+  );
+  if (!changed) throw new Error(`could not fill ${JSON.stringify(selector)}`);
+}
+
+async function act(page, action) {
+  if (!action) return;
+  if (action.type === "click") {
+    if (!(await hit(page, action.target))) {
+      throw new Error(`could not click ${JSON.stringify(action.target)}`);
+    }
+    return;
+  }
+  if (action.type === "fill") {
+    await fill(page, action.target, action.value);
+    return;
+  }
+  throw new Error(`unknown coach tutorial action: ${action.type}`);
+}
+
+/**
+ * One declarative coach-course scene. Selectors stay data so tests can prove
+ * every annotation names a real accessible control or an explicitly scoped
+ * element, while capture still drives the shipping page.
+ */
+export async function showScene(page, clock, scene, timing) {
+  if (scene.route) {
+    await page.goto(`${origin(page)}${scene.route}`);
+  }
+  if (scene.action) {
+    await page.waitForFunction(
+      (spec) => Boolean(window.__pick(spec)),
+      scene.action.target,
+      { timeout: 30000 },
+    );
+  }
+  await act(page, scene.action);
+  if (scene.waitFor) {
+    await page.waitForFunction((spec) => Boolean(window.__pick(spec)), scene.waitFor, {
+      timeout: 30000,
+    });
+  }
+  if (scene.settle) await clock.sleep(scene.settle);
+
+  // Several coach surfaces load their roster, recent entries, or a sheet
+  // after the route itself is ready. Waiting for the thing we actually put
+  // on camera prevents a fast capture from racing that product state.
+  await page.waitForFunction((spec) => Boolean(window.__pick(spec)), scene.target, {
+    timeout: 30000,
+  });
+  if (scene.secondaryTarget) {
+    await page.waitForFunction(
+      (spec) => Boolean(window.__pick(spec)),
+      scene.secondaryTarget,
+      { timeout: 30000 },
+    );
+  }
+
+  const viewport = page.viewportSize() ?? { width: 390, height: 844 };
+  const openCue = async (target, label) => {
+    await page.evaluate((spec) => {
+      window.__pick(spec)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, target);
+    await clock.sleep(450);
+    const rect = await clock.rect(target);
+    const width = Math.min(viewport.width - 16, rect.w + 16);
+    const height = Math.min(viewport.height - 72, rect.h + 16);
+    return clock.mark({
+      kind: "box",
+      label,
+      rect: {
+        x: Math.max(8, Math.min(rect.x - 8, viewport.width - width - 8)),
+        y: Math.max(64, Math.min(rect.y - 8, viewport.height - height - 8)),
+        w: width,
+        h: height,
+      },
+    });
+  };
+
+  await clock.until(timing.start + 0.12);
+  const primary = await openCue(scene.target, scene.primaryLabel ?? scene.label);
+  if (!scene.secondaryTarget) {
+    await clock.until(timing.end);
+    clock.close(primary);
+    return;
+  }
+
+  const midpoint = timing.start + timing.dur * 0.5;
+  await clock.until(midpoint);
+  clock.close(primary);
+  const secondary = await openCue(
+    scene.secondaryTarget,
+    scene.secondaryLabel ?? scene.label,
+  );
+  await clock.until(timing.end);
+  clock.close(secondary);
+}
+
+export function makeRun(scenes) {
+  return async function run(page, clock, helpers) {
+    const renderScene = helpers.showScene ?? showScene;
+    for (const scene of scenes) {
+      const timing = helpers.beat(scene.beat);
+      await renderScene(page, clock, scene, timing);
+    }
+    if (clock) await clock.until(helpers.voice.total + 0.4);
+  };
+}
