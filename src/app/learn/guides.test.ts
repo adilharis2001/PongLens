@@ -16,25 +16,27 @@ import {
 } from "./catalog.ts";
 import type { Guide, TutorialChapter } from "./catalogTypes.ts";
 import { guideBySlug as legacyGuideBySlug } from "./guides.ts";
+import { resolveLearnAudience } from "./audience.ts";
+import { dualRoleEligible } from "../../lib/dualRoleEligibility.ts";
 
 const iosCatalogPath = fileURLToPath(
   new URL("../../../ios/PongLens/PongLens/Resources/learn-catalog.json", import.meta.url),
 );
 
 async function loadIOSLearnSerializer(): Promise<() => string> {
-  let module: { serializeIOSLearnCatalog?: unknown };
+  let serializerModule: { serializeIOSLearnCatalog?: unknown };
   try {
-    module = await import("../../../scripts/generate-ios-learn.ts");
+    serializerModule = await import("../../../scripts/generate-ios-learn.ts");
   } catch {
     assert.fail("iOS Learn serializer module is missing");
   }
 
   assert.equal(
-    typeof module!.serializeIOSLearnCatalog,
+    typeof serializerModule!.serializeIOSLearnCatalog,
     "function",
     "iOS Learn serializer must export serializeIOSLearnCatalog",
   );
-  return module!.serializeIOSLearnCatalog as () => string;
+  return serializerModule!.serializeIOSLearnCatalog as () => string;
 }
 
 function guide(overrides: Partial<Guide> = {}): Guide {
@@ -61,6 +63,58 @@ function chapter(overrides: Partial<TutorialChapter> = {}): TutorialChapter {
     ...overrides,
   };
 }
+
+test("Learn audience uses only eligible player and coach URL overrides", () => {
+  assert.equal(
+    resolveLearnAudience({ active: "coach", requested: undefined, canSwitch: false }),
+    "coach",
+  );
+  assert.equal(
+    resolveLearnAudience({ active: "player", requested: "coach", canSwitch: true }),
+    "coach",
+  );
+  assert.equal(
+    resolveLearnAudience({ active: "player", requested: "coach", canSwitch: false }),
+    "player",
+  );
+  assert.equal(
+    resolveLearnAudience({ active: "coach", requested: "invalid", canSwitch: true }),
+    "coach",
+  );
+});
+
+test("dual-role eligibility requires completed player setup and coach evidence", () => {
+  const player = {
+    coachFlag: false,
+    coachProfile: false,
+    acceptedCoachLink: false,
+    coachRoster: false,
+    playerSetupDoneAt: "2026-09-04T10:00:00Z",
+  };
+
+  assert.equal(dualRoleEligible(player), false, "player evidence alone is not dual-role");
+  for (const coachEvidence of [
+    "coachFlag",
+    "coachProfile",
+    "acceptedCoachLink",
+    "coachRoster",
+  ] as const) {
+    assert.equal(
+      dualRoleEligible({ ...player, [coachEvidence]: true }),
+      true,
+      `${coachEvidence} plus completed player setup is dual-role`,
+    );
+    assert.equal(
+      dualRoleEligible({
+        ...player,
+        playerSetupDoneAt: null,
+        [coachEvidence]: true,
+      }),
+      false,
+      `${coachEvidence} alone is not dual-role`,
+    );
+  }
+});
 
 test("generated iOS catalog stays fresh and excludes web-only coach commerce", async () => {
   const serializeIOSLearnCatalog = await loadIOSLearnSerializer();

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { dualRoleEligible } from "@/lib/dualRoleEligibility";
 
 /**
  * Is this account on BOTH sides of the table (158, tightened 2026-09-02)?
@@ -52,9 +53,13 @@ export function useCoachEligible(): { eligible: boolean; userId: string | null }
           .eq("user_id", user.id)
           .maybeSingle(),
       ]);
-      const coachSide = flagged || Boolean(profile.data || asCoach.data || roster.data);
-      const playerSide = Boolean(player.data?.setup_done_at);
-      const eligible = coachSide && playerSide;
+      const eligible = dualRoleEligible({
+        coachFlag: flagged,
+        coachProfile: Boolean(profile.data),
+        acceptedCoachLink: Boolean(asCoach.data),
+        coachRoster: Boolean(roster.data),
+        playerSetupDoneAt: player.data?.setup_done_at,
+      });
       sessionStorage.setItem(`pl-both-sides:${user.id}`, eligible ? "1" : "0");
       if (alive) setState({ eligible, userId: user.id });
     })();
