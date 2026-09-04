@@ -173,7 +173,7 @@ struct MainTabView: View {
                 case "coach-sponsored": if AppConfig.coachMarketplace { CoachSponsoredScreen() }
                 default:
                     // "guide:<slug>" opens one Learn guide directly. It is
-                    // resolved HERE rather than pushing a GuideData, because
+                    // resolved HERE rather than pushing a LearnGuide, because
                     // the destination for that type is declared inside
                     // LearnScreen — reachable only once Learn is already on
                     // the stack, which is exactly not the case when the
@@ -185,7 +185,7 @@ struct MainTabView: View {
                        let id = UUID(uuidString: String(route.dropFirst(9))) {
                         FeedbackScreen(matchId: id)
                     } else if route.hasPrefix("guide:"),
-                       let guide = GuideLibrary.shared.guides.first(
+                       let guide = LearnCatalogStore.bundled.guides(for: .player).first(
                            where: { $0.slug == String(route.dropFirst(6)) }
                        ) {
                         GuideDetailScreen(guide: guide)

@@ -1,60 +1,14 @@
 import AVFoundation
 import SwiftUI
 
-// The Learn hub renders the same guide data the web ships (bundled as
-// guides.json, extracted from src/app/learn/guides.ts — regenerate after
-// content edits there).
-
-struct GuideSectionData: Codable, Hashable {
-    let heading: String?
-    let steps: [String]?
-    let paragraphs: [String]?
-    let bullets: [String]?
-    let tip: String?
-}
-
-struct GuideData: Codable, Hashable, Identifiable {
-    let slug: String
-    let title: String
-    let summary: String
-    let group: String
-    let sections: [GuideSectionData]
-    let related: [String]?
-
-    var id: String { slug }
-}
-
-struct GuidesFile: Codable {
-    let groups: [String]
-    let guides: [GuideData]
-}
-
-enum GuideLibrary {
-    static let shared: GuidesFile = {
-        guard let url = Bundle.main.url(forResource: "guides", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let file = try? JSONDecoder().decode(GuidesFile.self, from: data) else {
-            return GuidesFile(groups: [], guides: [])
-        }
-        return file
-    }()
-}
-
 struct LearnScreen: View {
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
 
-    private var results: [GuideData] {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return GuideLibrary.shared.guides }
-        return GuideLibrary.shared.guides.filter { guide in
-            guide.title.lowercased().contains(q)
-                || guide.summary.lowercased().contains(q)
-                || guide.sections.contains { section in
-                    (section.paragraphs ?? []).contains { $0.lowercased().contains(q) }
-                        || (section.steps ?? []).contains { $0.lowercased().contains(q) }
-                }
-        }
+    private let catalog = LearnCatalogStore.bundled
+
+    private var results: [LearnGuide] {
+        catalog.search(query, audience: .player)
     }
 
     var body: some View {
@@ -136,7 +90,7 @@ struct LearnScreen: View {
                         }
                         .plCard(padding: 18)
                     } else {
-                        ForEach(GuideLibrary.shared.groups, id: \.self) { group in
+                        ForEach(catalog.groups(for: .player), id: \.self) { group in
                             let inGroup = results.filter { $0.group == group }
                             if !inGroup.isEmpty {
                                 VStack(alignment: .leading, spacing: 10) {
@@ -184,15 +138,17 @@ struct LearnScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .plKeyboardDismiss()
-        .navigationDestination(for: GuideData.self) { guide in
+        .navigationDestination(for: LearnGuide.self) { guide in
             GuideDetailScreen(guide: guide)
         }
     }
 }
 
 struct GuideDetailScreen: View {
-    let guide: GuideData
+    let guide: LearnGuide
     @Environment(\.dismiss) private var dismiss
+
+    private let catalog = LearnCatalogStore.bundled
 
     var body: some View {
         ZStack {
@@ -286,24 +242,23 @@ struct GuideDetailScreen: View {
                         }
                     }
 
-                    if let related = guide.related, !related.isEmpty {
+                    let related = catalog.related(for: guide, audience: guide.audience)
+                    if !related.isEmpty {
                         SectionHeading("Keep going")
-                        ForEach(related, id: \.self) { slug in
-                            if let next = GuideLibrary.shared.guides.first(where: { $0.slug == slug }) {
-                                NavigationLink(value: next) {
-                                    HStack {
-                                        Text(next.title)
-                                            .font(.plRowTitle)
-                                            .foregroundStyle(PL.text100)
-                                        Spacer()
-                                        Image(systemName: "chevron.right")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundStyle(PL.text600)
-                                    }
-                                    .plInnerRow()
+                        ForEach(related) { next in
+                            NavigationLink(value: next) {
+                                HStack {
+                                    Text(next.title)
+                                        .font(.plRowTitle)
+                                        .foregroundStyle(PL.text100)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(PL.text600)
                                 }
-                                .buttonStyle(.plain)
+                                .plInnerRow()
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                 }

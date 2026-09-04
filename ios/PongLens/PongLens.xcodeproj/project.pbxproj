@@ -10,8 +10,19 @@
 		AA10000000000000000A0001 /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = AA10000000000000000A0002 /* Supabase */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		BB10000000000000000B0002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = C5997C553033D55E0005B25F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C5997C5C3033D55E0005B25F;
+			remoteInfo = PongLens;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		C5997C5D3033D55E0005B25F /* PongLens.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PongLens.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB10000000000000000B0001 /* PongLensTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PongLensTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -33,6 +44,11 @@
 			path = PongLens;
 			sourceTree = "<group>";
 		};
+		BB10000000000000000B0003 /* PongLensTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = PongLensTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,6 +60,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BB10000000000000000B0004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -51,6 +74,7 @@
 			isa = PBXGroup;
 			children = (
 				C5997C5F3033D55E0005B25F /* PongLens */,
+				BB10000000000000000B0003 /* PongLensTests */,
 				C5997C5E3033D55E0005B25F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -59,6 +83,7 @@
 			isa = PBXGroup;
 			children = (
 				C5997C5D3033D55E0005B25F /* PongLens.app */,
+				BB10000000000000000B0001 /* PongLensTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -89,6 +114,29 @@
 			productReference = C5997C5D3033D55E0005B25F /* PongLens.app */;
 			productType = "com.apple.product-type.application";
 		};
+		BB10000000000000000B0005 /* PongLensTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BB10000000000000000B0006 /* Build configuration list for PBXNativeTarget "PongLensTests" */;
+			buildPhases = (
+				BB10000000000000000B0007 /* Sources */,
+				BB10000000000000000B0004 /* Frameworks */,
+				BB10000000000000000B0008 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BB10000000000000000B0009 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				BB10000000000000000B0003 /* PongLensTests */,
+			);
+			name = PongLensTests;
+			packageProductDependencies = (
+			);
+			productName = PongLensTests;
+			productReference = BB10000000000000000B0001 /* PongLensTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -101,6 +149,10 @@
 				TargetAttributes = {
 					C5997C5C3033D55E0005B25F = {
 						CreatedOnToolsVersion = 26.6;
+					};
+					BB10000000000000000B0005 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = C5997C5C3033D55E0005B25F;
 					};
 				};
 			};
@@ -122,12 +174,20 @@
 			projectRoot = "";
 			targets = (
 				C5997C5C3033D55E0005B25F /* PongLens */,
+				BB10000000000000000B0005 /* PongLensTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		C5997C5B3033D55E0005B25F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BB10000000000000000B0008 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -144,7 +204,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		BB10000000000000000B0007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BB10000000000000000B0009 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C5997C5C3033D55E0005B25F /* PongLens */;
+			targetProxy = BB10000000000000000B0002 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		C5997C663033D55F0005B25F /* Debug */ = {
@@ -342,6 +417,42 @@
 			};
 			name = Release;
 		};
+		BB10000000000000000B000A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ACUSR8S5R9;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ponglens.PongLensTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PongLens.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PongLens";
+			};
+			name = Debug;
+		};
+		BB10000000000000000B000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ACUSR8S5R9;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ponglens.PongLensTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PongLens.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PongLens";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -359,6 +470,15 @@
 			buildConfigurations = (
 				C5997C693033D55F0005B25F /* Debug */,
 				C5997C6A3033D55F0005B25F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		BB10000000000000000B0006 /* Build configuration list for PBXNativeTarget "PongLensTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BB10000000000000000B000A /* Debug */,
+				BB10000000000000000B000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
