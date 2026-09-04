@@ -6,11 +6,10 @@ import { AppShell } from "@/components/AppShell";
 import {
   guideBySlugForPlatform,
   legacyGuideRedirect,
-  type GuideImage,
-  type GuideSection,
   visibleGuides,
   visibleRelatedGuides,
 } from "../catalog";
+import type { GuideImage, GuideSection } from "../catalogTypes";
 
 /**
  * One guide, rendered from its data in guides.ts. Screenshots follow the
