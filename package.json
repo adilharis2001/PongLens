@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "learn:ios": "node --experimental-strip-types scripts/generate-ios-learn.ts",
+    "learn:ios:check": "node --experimental-strip-types scripts/generate-ios-learn.ts --check",
     "dev": "SUPABASE_SERVICE_ROLE_KEY=$(security find-generic-password -a openclaw -s ponglens-service-role -w 2>/dev/null) next dev",
     "build": "next build",
     "start": "next start",

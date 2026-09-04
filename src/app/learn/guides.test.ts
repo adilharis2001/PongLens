@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
   guideBySlug,
@@ -14,6 +16,26 @@ import {
 } from "./catalog.ts";
 import type { Guide, TutorialChapter } from "./catalogTypes.ts";
 import { guideBySlug as legacyGuideBySlug } from "./guides.ts";
+
+const iosCatalogPath = fileURLToPath(
+  new URL("../../../ios/PongLens/PongLens/Resources/learn-catalog.json", import.meta.url),
+);
+
+async function loadIOSLearnSerializer(): Promise<() => string> {
+  let module: { serializeIOSLearnCatalog?: unknown };
+  try {
+    module = await import("../../../scripts/generate-ios-learn.ts");
+  } catch {
+    assert.fail("iOS Learn serializer module is missing");
+  }
+
+  assert.equal(
+    typeof module!.serializeIOSLearnCatalog,
+    "function",
+    "iOS Learn serializer must export serializeIOSLearnCatalog",
+  );
+  return module!.serializeIOSLearnCatalog as () => string;
+}
 
 function guide(overrides: Partial<Guide> = {}): Guide {
   return {
@@ -39,6 +61,42 @@ function chapter(overrides: Partial<TutorialChapter> = {}): TutorialChapter {
     ...overrides,
   };
 }
+
+test("generated iOS catalog stays fresh and excludes web-only coach commerce", async () => {
+  const serializeIOSLearnCatalog = await loadIOSLearnSerializer();
+  assert.equal(existsSync(iosCatalogPath), true, "generated iOS Learn catalog is missing");
+
+  const output = serializeIOSLearnCatalog();
+  assert.equal(readFileSync(iosCatalogPath, "utf8"), output);
+
+  const catalog = JSON.parse(output) as {
+    groups: Array<{ audience: string; groups: string[] }>;
+    guides: Array<{ audience: string }>;
+    chapters: Array<{ audience: string }>;
+  };
+  assert.deepEqual(
+    catalog.groups.map((group) => group.audience),
+    ["player", "coach"],
+  );
+  assert.ok(catalog.groups.every((group) => group.groups.length > 0));
+
+  const coachRecords = JSON.stringify({
+    groups: catalog.groups.filter((group) => group.audience === "coach"),
+    guides: catalog.guides.filter((guide) => guide.audience === "coach"),
+    chapters: catalog.chapters.filter((chapter) => chapter.audience === "coach"),
+  });
+  for (const forbidden of [
+    "setup-paid-reviews",
+    "complete-paid-review",
+    "coach-paid-reviews",
+    "coach-paid-review",
+    "paid review",
+    "payout",
+    "offering",
+  ]) {
+    assert.doesNotMatch(coachRecords, new RegExp(forbidden, "i"));
+  }
+});
 
 test("catalog selectors filter guides, sections, groups, and related links", () => {
   const coachIosGuides = visibleGuides("coach", "ios");
