@@ -334,7 +334,14 @@ export function ShareWithCoachSheet({
         onClick={onClose}
         className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
       />
-      <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-edge bg-surface p-5 pb-8 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:w-full sm:max-w-sm sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
+      {/* A bottom sheet on a phone, a centred card from sm up — and in
+          BOTH cases it has to be shorter than the window. It had no
+          height cap at all, so once the head start went in it ran off
+          the bottom of a desktop screen as a tall thin column (Adil,
+          2026-09-04). max-w-lg rather than sm because the rows carry a
+          title, a subtitle and a trailing score: at 384px the venue was
+          being truncated. */}
+      <div className="absolute inset-x-0 bottom-0 max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain rounded-t-2xl border border-edge bg-surface p-5 pb-[max(2rem,env(safe-area-inset-bottom))] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-3rem)] sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Share with coach</h2>
           <button

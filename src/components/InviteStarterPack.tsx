@@ -141,6 +141,13 @@ export function InviteStarterPack({
   disabled?: boolean;
 }) {
   const scores = useScoreChips(points);
+  // A few, with the rest a tap away. Ten of each in one column makes a
+  // sheet taller than the window, and capping the lists with their own
+  // scrollbars just moves the problem into a nested scroller that eats
+  // the page's wheel events.
+  const [allMatches, setAllMatches] = useState(false);
+  const [allEntries, setAllEntries] = useState(false);
+  const PREVIEW = 4;
   if (matches.length === 0 && entries.length === 0) return null;
 
   const row = (
@@ -203,8 +210,8 @@ export function InviteStarterPack({
       {matches.length > 0 && (
         <div className="mt-3">
           <p className="mb-1.5 text-xs text-zinc-500">Recent matches</p>
-          <div className="max-h-56 divide-y divide-edge/60 overflow-y-auto rounded-xl border border-edge bg-surface-2/40">
-            {matches.map((m) => {
+          <div className="divide-y divide-edge/60 overflow-hidden rounded-xl border border-edge bg-surface-2/40">
+            {(allMatches ? matches : matches.slice(0, PREVIEW)).map((m) => {
               const score = scores.get(m.id);
               return row(
                 m.id,
@@ -226,14 +233,25 @@ export function InviteStarterPack({
               );
             })}
           </div>
+          {matches.length > PREVIEW && (
+            <button
+              type="button"
+              onClick={() => setAllMatches((v) => !v)}
+              className="mt-1.5 text-sm font-medium text-cyan-glow"
+            >
+              {allMatches
+                ? "Show fewer"
+                : `Show all ${matches.length} matches`}
+            </button>
+          )}
         </div>
       )}
 
       {entries.length > 0 && (
         <div className="mt-3">
           <p className="mb-1.5 text-xs text-zinc-500">Recent journal entries</p>
-          <div className="max-h-56 divide-y divide-edge/60 overflow-y-auto rounded-xl border border-edge bg-surface-2/40">
-            {entries.map((e) =>
+          <div className="divide-y divide-edge/60 overflow-hidden rounded-xl border border-edge bg-surface-2/40">
+            {(allEntries ? entries : entries.slice(0, PREVIEW)).map((e) =>
               row(
                 e.id,
                 pickedEntries.has(e.id),
@@ -248,6 +266,15 @@ export function InviteStarterPack({
               ),
             )}
           </div>
+          {entries.length > PREVIEW && (
+            <button
+              type="button"
+              onClick={() => setAllEntries((v) => !v)}
+              className="mt-1.5 text-sm font-medium text-cyan-glow"
+            >
+              {allEntries ? "Show fewer" : `Show all ${entries.length} entries`}
+            </button>
+          )}
         </div>
       )}
     </div>

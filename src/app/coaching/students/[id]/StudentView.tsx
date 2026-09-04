@@ -15,6 +15,7 @@ import {
 import { LinkedText } from "@/components/LinkedText";
 import { NoteEditor } from "@/app/journal/NoteEditor";
 import type { Lesson, Point } from "@/lib/types";
+import { possessive } from "@/lib/coaches/playerCoaches";
 import {
   fetchPointsPaged,
   useScoreChips,
@@ -906,7 +907,11 @@ export function StudentView({
       {student.player_id && fromStudent.length > 0 && (
         <>
           <h3 className="mt-8 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            From {student.display_name}
+            {/* Their journal, named as such. "From <name>" read like a
+                message addressed to the coach, something to act on,
+                rather than a window onto what the student keeps for
+                themselves (Adil, 2026-09-04). */}
+            {possessive(student.display_name)} journal
           </h3>
           <div className="mt-3 space-y-2">
             {fromStudent.map((entry) => {
