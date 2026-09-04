@@ -23,6 +23,9 @@ marker through an unbuffered simulator console, records H.264, and cleans up
 the recorder and app on success, failure, timeout, signal, and cleanup error.
 Neither the key nor token hash is logged. Xcode DerivedData is stored under
 the system temporary directory so it cannot enter Next.js's source scan.
+Every capture child receives a positive allowlist of simulator/build
+environment variables; service credentials, tutorial account variables, and
+token/hash-like secrets are stripped even if passed as child-only additions.
 
 ## TDD and debugging checkpoints
 
@@ -56,6 +59,26 @@ because the external-path helper was absent, then passed 11 of 11 after the
 driver moved DerivedData outside the repository. The disposable earlier cache
 was moved recoverably to `/tmp/ponglens-task7.Zo7HCS/DerivedData`.
 
+Review follow-up added three independently failing contracts before their
+implementations:
+
+1. A real child-process environment inspection failed while credential,
+   tutorial-account, and token/hash variables could cross the process
+   boundary. It now passes with only the explicit safe allowlist, including
+   the one unbuffered-simulator-console flag.
+2. The coach scenario lacked a Transcript phase. Focused XCTest failed until
+   the DEBUG-only timeline selected the real Transcript tab with deterministic
+   content before selecting the real prepared Notes tab.
+3. A failed `simctl terminate` status was not surfaced. Cleanup tests now prove
+   recorder stop, app termination, and console draining are all attempted, a
+   termination failure is reported on an otherwise successful run, and it
+   does not mask an earlier capture failure.
+
+The coach driver now defaults to one fixed, previously verified demo coach
+identity. Before minting, it requires exactly one exact-email auth user marked
+as a coach and exactly one coach profile for that same user; it never searches
+for or chooses an arbitrary test-like account.
+
 ## Real simulator capture and cleanup
 
 Both scenarios were built and captured from the real Debug app on the
@@ -70,7 +93,7 @@ validated iOS 26.5 simulator
 | `raw/native/coach-audio-lesson.mp4` | H.264 | 1206×2622 | 50.000000 s |
 
 The promoted coach source has SHA-256
-`10fff654e3f53adc8593d2ffacc2b2e4eeaa27185af0a2a627f377849a2348c7`,
+`896cc64a0923e9bbaca0bec62e60a2dd2570af698e9242f0ce4eebc72a622352`,
 identical to the normalized native source. Its cue sidecar records a 390×844
 viewport, duration 50, and no cues.
 
@@ -89,17 +112,24 @@ are generic fixtures (`John`, `Opponent`, `Training partner`, and
 `Club session`). There are no full black, sign-in, loading, error, or private
 data frames.
 
-The normalized coach clip was inspected at 0.2, 7, 14, 21, 28, 35, 42, and
-49 seconds, including exact early and late frame exports. It begins on the
-real `Record a lesson` paused state with no launch splash and proceeds to the
-real `Your lesson` review with fixed ordinary table-tennis notes through the
-last second. There are no full black, sign-in, loading, error, or private data
+The freshly normalized coach clip was inspected at 0.2, 5, 12, 20, 27, 34,
+40, 46, and 49 seconds, including full-resolution Transcript and Notes frame
+exports. It begins on the real `Record a lesson` ready state with no launch
+splash, then shows active recording, paused recording, writing-up, the real
+Transcript tab with readable ordinary table-tennis content, and the real
+prepared Notes tab with title and Receive/Recovery bullets through the last
+second. There are no full black, sign-in, loading, error, or private data
 frames.
 
 ## Final verification
 
-- Focused native insert suite: PASS, 11/11.
-- `npm run test:tutorial`: PASS, 56/56.
+- Focused native insert suite: PASS, 16/16.
+- Focused iOS `LearnCatalogTests`: PASS, 28/28.
+- Debug iOS build: PASS; the capture scenario and marker strings are present.
+- Release iOS build: PASS; 9,803 symbols and 285,611 extracted strings were
+  scanned with zero capture-hook, scenario, marker, or Transcript-phase
+  matches.
+- `npm run test:tutorial`: PASS, 61/61.
 - `npm run test:learn`: PASS, 36/36.
 - `npm run learn:ios:check`: PASS.
 - Remotion `npx tsc --noEmit`: PASS.

@@ -1350,7 +1350,7 @@ struct RecordScreen: View {
             revealed = false
             await RecordOrientation.pinPortrait()
             metadataOpen = true
-        case .writingUp, .review:
+        case .writingUp, .transcriptReview, .review:
             break
         }
     }

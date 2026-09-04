@@ -42,10 +42,23 @@ final class LearnCatalogTests: XCTestCase {
         XCTAssertEqual(TutorialCaptureScenario.playerRecord.phase(at: 10.5), .handoff)
 
         XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 0), .ready)
-        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 2.5), .recording)
-        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 5.5), .paused)
-        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 8.5), .writingUp)
-        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 11.5), .review)
+        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 10), .recording)
+        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 19), .paused)
+        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 27), .writingUp)
+        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 34), .transcriptReview)
+        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 41), .review)
+    }
+
+    func testCoachTutorialReviewPhasesSelectBothRealReviewTabs() {
+        XCTAssertEqual(
+            LessonRecordScreen.tutorialReviewTab(for: .transcriptReview)?.rawValue,
+            "Transcript"
+        )
+        XCTAssertEqual(
+            LessonRecordScreen.tutorialReviewTab(for: .review)?.rawValue,
+            "Notes"
+        )
+        XCTAssertNil(LessonRecordScreen.tutorialReviewTab(for: .writingUp))
     }
 
     func testPlayerTutorialCaptureCannotPrepareScoreListenerFromSettingsObserver() throws {

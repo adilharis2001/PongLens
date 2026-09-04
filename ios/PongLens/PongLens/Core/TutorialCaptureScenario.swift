@@ -14,6 +14,7 @@ enum TutorialCaptureScenario: String, Equatable {
         case recording
         case paused
         case writingUp
+        case transcriptReview
         case review
         case handoff
     }
@@ -43,10 +44,11 @@ enum TutorialCaptureScenario: String, Equatable {
         case .coachAudioLesson:
             [
                 (0, .ready),
-                (2.5, .recording),
-                (5.5, .paused),
-                (8.5, .writingUp),
-                (11.5, .review),
+                (10, .recording),
+                (19, .paused),
+                (27, .writingUp),
+                (34, .transcriptReview),
+                (41, .review),
             ]
         }
     }

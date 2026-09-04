@@ -20,8 +20,23 @@ const REPO = path.resolve(DIR, "../../..");
 const DEFAULT_UDID = "E62D60DD-6664-4C19-ADBE-ECF1A67E0047";
 const BUNDLE_ID = "com.ponglens.PongLens";
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
+const DEFAULT_COACH_ACCOUNT = "miguel-demo@example.com";
 const USAGE =
   "usage: SERVICE_KEY=... capture-ios.mjs <player-record|coach-audio-lesson> [--udid <iOS-26.5-simulator>]";
+const SAFE_CHILD_ENV_KEYS = [
+  "PATH",
+  "HOME",
+  "TMPDIR",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "DEVELOPER_DIR",
+  "SDKROOT",
+  "SIMCTL_CHILD_NSUnbufferedIO",
+];
 
 const SCENARIOS = {
   "player-record": {
@@ -53,6 +68,29 @@ export function parseIOSCaptureArgs(args, env = process.env) {
   };
 }
 
+export function resolveTutorialAccount(scenarioName, env = process.env) {
+  const scenario = SCENARIOS[scenarioName];
+  if (!scenario) throw new Error(`Unknown tutorial capture scenario: ${scenarioName}`);
+  const configured = scenario.accountEnv
+    .map((name) => env[name])
+    .find((value) => typeof value === "string" && value.trim());
+  if (configured) return configured;
+  if (scenarioName === "coach-audio-lesson") return DEFAULT_COACH_ACCOUNT;
+  throw new Error(`${scenario.accountEnv.join(" or ")} env var required`);
+}
+
+export function assertCoachCaptureIdentity(users, profiles, expectedEmail) {
+  const matches = users.filter((user) => user.email === expectedEmail);
+  if (matches.length !== 1 || matches[0].user_metadata?.is_coach !== true) {
+    throw new Error("Coach capture requires one exact auth user marked as a coach");
+  }
+  const user = matches[0];
+  if (profiles.length !== 1 || profiles[0].user_id !== user.id) {
+    throw new Error("Coach capture auth user must match one coach profile");
+  }
+  return user.id;
+}
+
 export function selectIOS26Simulator(list, udid) {
   for (const [runtimeID, devices] of Object.entries(list?.devices ?? {})) {
     const device = devices.find((candidate) => candidate.udid === udid);
@@ -78,6 +116,15 @@ export function selectIOS26Simulator(list, udid) {
 
 export function tutorialDerivedDataPath(repo = REPO, tempRoot = os.tmpdir()) {
   return path.join(tempRoot, "ponglens-tutorial-derived-data", path.basename(repo));
+}
+
+export function sanitizedChildEnv(sourceEnv = process.env, additions = {}) {
+  const safe = {};
+  const candidates = { ...sourceEnv, ...additions };
+  for (const key of SAFE_CHILD_ENV_KEYS) {
+    if (typeof candidates[key] === "string") safe[key] = candidates[key];
+  }
+  return safe;
 }
 
 export async function withCaptureCleanup(run, { stopRecorder, terminateApp }) {
@@ -107,16 +154,15 @@ export async function withCaptureCleanup(run, { stopRecorder, terminateApp }) {
 }
 
 const videoDuration = (file) => {
-  const result = spawnSync(
+  const output = runSanitizedSync(
     "ffprobe",
     [
       "-v", "error", "-show_entries", "format=duration",
       "-of", "default=nw=1:nk=1", file,
     ],
-    { encoding: "utf8" },
   );
-  const duration = Number(result.stdout);
-  if (result.status !== 0 || !(duration > 0)) {
+  const duration = Number(output);
+  if (!(duration > 0)) {
     throw new Error("Captured native video could not be measured");
   }
   return duration;
@@ -140,18 +186,17 @@ export function ensureCaptureDuration(file, targetSeconds, { trimStart = 0 } = {
       "fps=30",
       `tpad=stop_mode=clone:stop_duration=${pad}`,
     ];
-    const result = spawnSync(
-      "ffmpeg",
-      [
+    try {
+      runSanitizedSync("ffmpeg", [
         "-loglevel", "error", "-y", "-i", file,
         "-vf", filters.join(","),
         "-t", String(targetSeconds),
         "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-movflags", "+faststart", padded,
-      ],
-      { stdio: ["ignore", "inherit", "inherit"] },
-    );
-    if (result.status !== 0) throw new Error("Could not finalize native capture duration");
+      ], { stdio: ["ignore", "inherit", "inherit"] });
+    } catch {
+      throw new Error("Could not finalize native capture duration");
+    }
     renameSync(padded, file);
   } finally {
     rmSync(padded, { force: true });
@@ -163,18 +208,17 @@ export function ensureCaptureDuration(file, targetSeconds, { trimStart = 0 } = {
     // Measure the normalized file itself, then extend that known timeline.
     const extended = `${file}.extended-${process.pid}.mp4`;
     try {
-      const result = spawnSync(
-        "ffmpeg",
-        [
+      try {
+        runSanitizedSync("ffmpeg", [
           "-loglevel", "error", "-y", "-i", file,
           "-vf", `fps=30,tpad=stop_mode=clone:stop_duration=${targetSeconds - finalized + 0.1}`,
           "-t", String(targetSeconds),
           "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p",
           "-movflags", "+faststart", extended,
-        ],
-        { stdio: ["ignore", "inherit", "inherit"] },
-      );
-      if (result.status !== 0) throw new Error("Could not extend native capture duration");
+        ], { stdio: ["ignore", "inherit", "inherit"] });
+      } catch {
+        throw new Error("Could not extend native capture duration");
+      }
       renameSync(extended, file);
     } finally {
       rmSync(extended, { force: true });
@@ -187,11 +231,17 @@ export function ensureCaptureDuration(file, targetSeconds, { trimStart = 0 } = {
   return finalized;
 }
 
-const runSync = (command, args, options = {}) => {
+export function runSanitizedSync(command, args, options = {}) {
+  const {
+    sourceEnv = process.env,
+    envAdditions = {},
+    ...spawnOptions
+  } = options;
   const result = spawnSync(command, args, {
     cwd: REPO,
     encoding: "utf8",
-    ...options,
+    ...spawnOptions,
+    env: sanitizedChildEnv(sourceEnv, envAdditions),
   });
   if (result.status !== 0) {
     throw new Error(
@@ -199,6 +249,18 @@ const runSync = (command, args, options = {}) => {
     );
   }
   return result.stdout ?? "";
+}
+
+const spawnSanitized = (command, args, options = {}) => {
+  const {
+    sourceEnv = process.env,
+    envAdditions = {},
+    ...spawnOptions
+  } = options;
+  return spawn(command, args, {
+    ...spawnOptions,
+    env: sanitizedChildEnv(sourceEnv, envAdditions),
+  });
 };
 
 const waitForText = (child, expected, timeoutMs, abortSignal) =>
@@ -248,6 +310,30 @@ const waitForExit = (child, timeoutMs) =>
       resolve();
     });
   });
+
+export async function terminateCapturedApp({
+  appLaunched,
+  appConsole,
+  terminateApp,
+  waitForConsole,
+}) {
+  let terminationError;
+  try {
+    if (appLaunched) await terminateApp();
+  } catch (error) {
+    terminationError = error;
+  }
+
+  let consoleError;
+  try {
+    if (appConsole) await waitForConsole(appConsole);
+  } catch (error) {
+    consoleError = error;
+  }
+
+  if (terminationError) throw terminationError;
+  if (consoleError) throw consoleError;
+}
 
 export function stopRecorderProcess(child, timeoutMs = 15000) {
   if (!child || child.exitCode !== null || child.signalCode !== null) {
@@ -305,10 +391,36 @@ async function mintTokenHash(serviceKey, email) {
   return data.hashed_token;
 }
 
+async function validateCoachCaptureIdentity(serviceKey, expectedEmail) {
+  const headers = {
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
+  };
+  const usersResponse = await fetch(
+    `${SUPABASE}/auth/v1/admin/users?page=1&per_page=1000`,
+    { headers },
+  );
+  const usersBody = await usersResponse.json();
+  if (!usersResponse.ok || !Array.isArray(usersBody.users)) {
+    throw new Error(`Could not verify the tutorial coach auth user (${usersResponse.status})`);
+  }
+  const exactUsers = usersBody.users.filter((user) => user.email === expectedEmail);
+  const userID = exactUsers[0]?.id;
+  const profilesResponse = await fetch(
+    `${SUPABASE}/rest/v1/coach_profiles?select=user_id&user_id=eq.${encodeURIComponent(userID ?? "")}`,
+    { headers },
+  );
+  const profiles = await profilesResponse.json();
+  if (!profilesResponse.ok || !Array.isArray(profiles)) {
+    throw new Error(`Could not verify the tutorial coach profile (${profilesResponse.status})`);
+  }
+  assertCoachCaptureIdentity(exactUsers, profiles, expectedEmail);
+}
+
 export async function runIOSCapture(args, env = process.env) {
   const request = parseIOSCaptureArgs(args, env);
   const deviceList = JSON.parse(
-    runSync("xcrun", ["simctl", "list", "devices", "available", "--json"]),
+    runSanitizedSync("xcrun", ["simctl", "list", "devices", "available", "--json"]),
   );
   const simulator = selectIOS26Simulator(deviceList, request.udid);
   const scenario = SCENARIOS[request.scenario];
@@ -329,7 +441,7 @@ export async function runIOSCapture(args, env = process.env) {
   console.log(
     `Building DEBUG capture for ${simulator.name} (${simulator.runtime})…`,
   );
-  runSync(
+  runSanitizedSync(
     "xcodebuild",
     [
       "build",
@@ -345,22 +457,20 @@ export async function runIOSCapture(args, env = process.env) {
   );
 
   if (simulator.state !== "Booted") {
-    runSync("xcrun", ["simctl", "boot", simulator.udid]);
+    runSanitizedSync("xcrun", ["simctl", "boot", simulator.udid]);
   }
-  runSync("xcrun", ["simctl", "bootstatus", simulator.udid, "-b"], {
+  runSanitizedSync("xcrun", ["simctl", "bootstatus", simulator.udid, "-b"], {
     stdio: ["ignore", "inherit", "inherit"],
   });
-  runSync("xcrun", ["simctl", "install", simulator.udid, app]);
+  runSanitizedSync("xcrun", ["simctl", "install", simulator.udid, app]);
 
   // Invalid scenario, device, runtime, and failed build/install all stop
   // before either credential is read.
   const serviceKey = env.SERVICE_KEY;
   if (!serviceKey) throw new Error("SERVICE_KEY env var required");
-  const account = scenario.accountEnv
-    .map((name) => env[name])
-    .find((value) => typeof value === "string" && value.trim());
-  if (!account) {
-    throw new Error(`${scenario.accountEnv.join(" or ")} env var required`);
+  const account = resolveTutorialAccount(request.scenario, env);
+  if (request.scenario === "coach-audio-lesson") {
+    await validateCoachCaptureIdentity(serviceKey, account);
   }
   const tokenHash = await mintTokenHash(serviceKey, account);
 
@@ -382,23 +492,29 @@ export async function runIOSCapture(args, env = process.env) {
       recorder = null;
     },
     terminateApp: async () => {
-      const consoleClosed = appConsole ? waitForExit(appConsole, 5000) : null;
-      if (appLaunched) {
-        spawnSync("xcrun", ["simctl", "terminate", simulator.udid, BUNDLE_ID], {
-          stdio: "ignore",
+      try {
+        await terminateCapturedApp({
+          appLaunched,
+          appConsole,
+          terminateApp: async () => {
+            runSanitizedSync(
+              "xcrun",
+              ["simctl", "terminate", simulator.udid, BUNDLE_ID],
+              { stdio: "ignore" },
+            );
+          },
+          waitForConsole: (child) => waitForExit(child, 5000),
         });
+      } finally {
+        appConsole = null;
+        appLaunched = false;
       }
-      if (consoleClosed) {
-        await consoleClosed;
-      }
-      appConsole = null;
-      appLaunched = false;
     },
   };
 
   try {
     await withCaptureCleanup(async () => {
-      appConsole = spawn(
+      appConsole = spawnSanitized(
         "xcrun",
         [
           "simctl", "launch", "--terminate-running-process", "--console-pty",
@@ -411,7 +527,7 @@ export async function runIOSCapture(args, env = process.env) {
           // Swift stdout is block-buffered when simctl is not attached to a
           // terminal. The readiness line must arrive while the app is alive,
           // not only after capture cleanup terminates it.
-          env: { ...process.env, SIMCTL_CHILD_NSUnbufferedIO: "YES" },
+          envAdditions: { SIMCTL_CHILD_NSUnbufferedIO: "YES" },
         },
       );
       appLaunched = true;
@@ -425,7 +541,7 @@ export async function runIOSCapture(args, env = process.env) {
         // finish before the first source frame is committed.
         waitForPresentation: () => wait(400, abort.signal),
         startRecorder: async () => {
-          recorder = spawn(
+          recorder = spawnSanitized(
             "xcrun",
             [
               "simctl", "io", simulator.udid, "recordVideo",

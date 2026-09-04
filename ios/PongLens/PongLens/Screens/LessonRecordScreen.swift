@@ -73,10 +73,22 @@ struct LessonRecordScreen: View {
     }
     #endif
 
-    private enum ReviewTab: String, CaseIterable {
+    enum ReviewTab: String, CaseIterable {
         case notes = "Notes"
         case transcript = "Transcript"
     }
+
+    #if DEBUG
+    static func tutorialReviewTab(
+        for phase: TutorialCaptureScenario.Phase
+    ) -> ReviewTab? {
+        switch phase {
+        case .transcriptReview: .transcript
+        case .review: .notes
+        default: nil
+        }
+    }
+    #endif
 
     private enum Stage { case ready, recording, writingUp, noWords, review }
 
@@ -792,7 +804,7 @@ struct LessonRecordScreen: View {
             stage = .recording
         case .writingUp:
             stage = .writingUp
-        case .review:
+        case .transcriptReview, .review:
             draft = "Today we worked on keeping the receive short, then stepping in for the first attack. On longer serves, make the first move with the legs and keep the racket in front. Finish each drill by recovering to a balanced ready position."
             takeaways = LessonTakeaways(
                 title: "Receive and first attack",
@@ -813,7 +825,7 @@ struct LessonRecordScreen: View {
                 ]
             )
             notesStale = false
-            reviewTab = .notes
+            reviewTab = Self.tutorialReviewTab(for: phase) ?? .notes
             stage = .review
         case .settings, .handoff:
             break

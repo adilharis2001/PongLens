@@ -53,6 +53,44 @@ test("capture arguments reject bad input before credentials are needed", async (
   assert.throws(() => parseIOSCaptureArgs(["player-record", "--udid"], env), /usage/i);
 });
 
+test("coach capture resolves only the fixed verified demo identity by default", async () => {
+  if (!existsSync(DRIVER)) return;
+  const { resolveTutorialAccount } = await import(DRIVER);
+  assert.equal(typeof resolveTutorialAccount, "function");
+  assert.equal(
+    resolveTutorialAccount("coach-audio-lesson", {}),
+    "miguel-demo@example.com",
+  );
+  assert.equal(
+    resolveTutorialAccount("coach-audio-lesson", { TUTORIAL_COACH: "fixed@example.com" }),
+    "fixed@example.com",
+  );
+  assert.throws(() => resolveTutorialAccount("player-record", {}), /TUTORIAL_PLAYER/);
+});
+
+test("coach capture requires one exact auth user and matching coach profile", async () => {
+  if (!existsSync(DRIVER)) return;
+  const { assertCoachCaptureIdentity } = await import(DRIVER);
+  assert.equal(typeof assertCoachCaptureIdentity, "function");
+  const user = {
+    id: "coach-user-id",
+    email: "miguel-demo@example.com",
+    user_metadata: { is_coach: true },
+  };
+  assert.equal(
+    assertCoachCaptureIdentity([user], [{ user_id: "coach-user-id" }], user.email),
+    "coach-user-id",
+  );
+  assert.throws(
+    () => assertCoachCaptureIdentity([{ ...user, email: "other@example.com" }], [], user.email),
+    /exact auth user/,
+  );
+  assert.throws(
+    () => assertCoachCaptureIdentity([user], [{ user_id: "other-id" }], user.email),
+    /coach profile/,
+  );
+});
+
 test("simulator selection requires an available iPhone on iOS 26.5", async () => {
   if (!existsSync(DRIVER)) return;
   const { selectIOS26Simulator } = await import(DRIVER);
@@ -102,6 +140,52 @@ test("iOS build products stay outside the web source tree", async () => {
   );
 });
 
+test("capture subprocesses receive only the explicit safe environment", async () => {
+  if (!existsSync(DRIVER)) return;
+  const { runSanitizedSync } = await import(DRIVER);
+  assert.equal(typeof runSanitizedSync, "function");
+  const observed = JSON.parse(
+    runSanitizedSync(
+      process.execPath,
+      ["-e", "process.stdout.write(JSON.stringify(process.env))"],
+      {
+        sourceEnv: {
+          PATH: process.env.PATH,
+          HOME: "/safe/home",
+          TMPDIR: "/safe/tmp",
+          DEVELOPER_DIR: "/safe/Xcode.app/Contents/Developer",
+          LANG: "en_US.UTF-8",
+          SERVICE_KEY: "must-not-leak",
+          TUTORIAL_COACH: "coach@example.com",
+          TUTORIAL_PLAYER: "player@example.com",
+          TUTORIAL_ACCOUNT: "fallback@example.com",
+          DEV_TOKEN_HASH: "must-not-leak",
+          HASHED_TOKEN: "must-not-leak",
+          UNRELATED_SECRET: "must-not-leak",
+        },
+        envAdditions: {
+          SIMCTL_CHILD_NSUnbufferedIO: "YES",
+          SERVICE_KEY: "must-not-leak-through-additions",
+          TUTORIAL_COACH: "must-not-leak-through-additions",
+          DEV_TOKEN_HASH: "must-not-leak-through-additions",
+        },
+      },
+    ),
+  );
+
+  // macOS injects this locale marker into every new process independently of
+  // the supplied env. Remove that OS-owned value before checking our boundary.
+  delete observed.__CF_USER_TEXT_ENCODING;
+  assert.deepEqual(observed, {
+    PATH: process.env.PATH,
+    HOME: "/safe/home",
+    TMPDIR: "/safe/tmp",
+    DEVELOPER_DIR: "/safe/Xcode.app/Contents/Developer",
+    LANG: "en_US.UTF-8",
+    SIMCTL_CHILD_NSUnbufferedIO: "YES",
+  });
+});
+
 test("capture cleanup stops the recorder and app on success and failure", async () => {
   if (!existsSync(DRIVER)) return;
   const { withCaptureCleanup } = await import(DRIVER);
@@ -135,6 +219,51 @@ test("capture cleanup stops the recorder and app on success and failure", async 
     /recorder cleanup failed/,
   );
   assert.deepEqual(cleanupEvents, ["stop-recorder", "terminate-app"]);
+
+  const terminationFailure = new Error("simctl terminate failed");
+  await assert.rejects(
+    withCaptureCleanup(async () => "ok", {
+      stopRecorder: async () => {},
+      terminateApp: async () => { throw terminationFailure; },
+    }),
+    /simctl terminate failed/,
+  );
+  await assert.rejects(
+    withCaptureCleanup(async () => { throw new Error("capture failed first"); }, {
+      stopRecorder: async () => {},
+      terminateApp: async () => { throw terminationFailure; },
+    }),
+    /capture failed first/,
+  );
+});
+
+test("a failed child command is reported instead of silently ignored", async () => {
+  if (!existsSync(DRIVER)) return;
+  const { runSanitizedSync } = await import(DRIVER);
+  await assert.rejects(
+    async () => runSanitizedSync(process.execPath, ["-e", "process.exit(23)"]),
+    /node failed \(23\)/,
+  );
+});
+
+test("app cleanup still waits for its console when simulator termination fails", async () => {
+  if (!existsSync(DRIVER)) return;
+  const { terminateCapturedApp } = await import(DRIVER);
+  assert.equal(typeof terminateCapturedApp, "function");
+  const events = [];
+  await assert.rejects(
+    terminateCapturedApp({
+      appLaunched: true,
+      appConsole: {},
+      terminateApp: async () => {
+        events.push("terminate");
+        throw new Error("simctl terminate failed");
+      },
+      waitForConsole: async () => events.push("wait-console"),
+    }),
+    /simctl terminate failed/,
+  );
+  assert.deepEqual(events, ["terminate", "wait-console"]);
 });
 
 test("recorder shutdown waits for simctl to finalize the movie", async () => {
