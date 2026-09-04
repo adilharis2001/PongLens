@@ -111,24 +111,32 @@ Three properties matter, and each answers something Adil asked for:
 - **One row per coach, not per link.** `coach_links` multiplies — a coach with
   four shared matches has four rows. Journals must not.
 
-### The decision this needs from Adil
+### The sharing decision (Adil, 2026-09-04)
 
-**Does moving an entry to a coach let that coach read it?**
+**Does moving an entry to a coach let that coach read it? Yes, but the app
+asks every time.** Adil's call, made against a recommendation of "attribution
+only" and against a "share everything automatically" alternative. Neither
+extreme was right for him: silence is how a private reflection reaches a coach
+without anyone deciding it should, and a separate later step is how a coach
+ends up with none of the entries that were meant for them.
 
-My recommendation: **no, not by default.** Build the link as attribution
-first. The journal has been author-only since 037 and that is a promise worth
-keeping by default; a control that silently turns private reflection into
-something a coach reads is the kind of change nobody wants to discover after
-the fact.
+So attaching and sharing are one moment, with the answer stated rather than
+assumed. Three rules keep that from becoming a treadmill:
 
-Then, *because* the link exists, add per-entry sharing as an explicit act —
-the mirror of `coach_entries.shared_at`, which is how a coach already shares
-an entry with a student. A "Share with Jonathan" control on an entry that is
-already attributed to Jonathan is one small step, and it is honest about what
-it does.
+1. **The ask is inline, in the same control, never a second modal.** Picking
+   the coach and answering "share it with them?" happen in one step. A
+   blocking dialog after every save would make the journal tiring to write in,
+   which is the fastest way to stop a player journalling at all.
+2. **It defaults to not shared.** The default has to be the safe one, because
+   a default is what gets accepted when someone is not reading.
+3. **A bulk move asks ONCE for the batch.** Moving forty entries onto Jonathan
+   is one decision about forty entries, not forty decisions. This is also the
+   path Adil will use first, on his own back catalogue.
 
-If Adil wants the coach to read the journal by default, it is the same tables
-and one extra RPC, so this is a decision about the product, not the schema.
+The grant itself mirrors `coach_entries.shared_at`, which is how a coach
+already shares an entry with a student: a timestamp on the link row, read
+through a SECURITY DEFINER RPC. `lessons` RLS stays author-only in both
+directions, and unsharing is one write.
 
 ### What gets built
 
@@ -139,8 +147,15 @@ and one extra RPC, so this is a decision about the product, not the schema.
 3. `player_coaches_sync()` on `coach_links`: an accepted link binds the
    matching row's `coach_id`, the same way `coach_links_roster_sync` maintains
    the coach's roster today. One trigger, both directions.
-4. `set_lesson_coach(p_lesson_id, p_coach_ref_id)` — sets the link and copies
-   the display name into `coach_name` so every existing reader stays right.
+4. `lessons.shared_with_coach_at` — the sharing answer sits on the ENTRY, not
+   on the coach row, because it is a decision about one entry. Null means
+   attributed but private. Plus
+   `set_lesson_coach(p_lesson_id, p_coach_ref_id, p_share boolean)` — sets the
+   link, records the sharing answer, and copies the display name into
+   `coach_name` so every existing reader stays right.
+5. `coach_shared_lessons()` — the coach's read, the mirror of
+   `coach_shared_entries()`. `lessons` RLS stays author-only; the coach never
+   selects from the table.
 
 **Backfill for Adil's account** (his explicit ask). All current data is
 non-production, so this is safe to do by hand:
@@ -168,7 +183,10 @@ this and needs no change.
   entries. This is the "move my journals to that coach" half of the ask, and
   it is what repairs a journal that already has three spellings in it.
 - `SharingSection`: a connected coach shows how many entries are attributed to
-  them, so the two halves are visibly one relationship.
+  them and how many they can read, so the two halves are visibly one
+  relationship and "what does Jonathan have" is answerable without hunting.
+- The coach's student page gains the entries their student shared, beside the
+  entries the coach wrote. One place, both directions.
 
 **iOS**
 
@@ -233,4 +251,5 @@ Where it lives today:
 4. The web picker, attribution and bulk move.
 5. iOS parity.
 6. Ask grouping.
-7. Per-entry sharing with a coach, if that is the answer to the decision above.
+7. The sharing grant and the coach's read of it. Built with step 4 rather
+   than after it, because the ask lives inside the move.
