@@ -89,6 +89,31 @@ for and leaves a neighbouring screen worse, say that before building it.
 
 ---
 
+## One processing pipeline, two execution locations
+
+**The Mac Studio and the Modal backup worker must always run the same released
+pipeline. They are two places to execute one product, never two forks.** This
+includes worker source, BlurBall and table-detection source and weights,
+RTMPose when enabled, dependencies, stage order, thresholds, feature flags,
+refusal rules and the output contract.
+
+The worker changes frequently. A processing or model change is therefore not
+finished when it works on the machine being edited. Build one immutable
+pipeline release, deploy that release to both Mac and Modal, run the parity
+fixtures, and only then promote it. Both workers report the same release ID
+and model checksums; cloud dispatch must remain disabled while they differ.
+There is no acceptable “Mac now, cloud later” state.
+
+TTVid can remain a research workspace, but mutable files, local virtual
+environments and absolute paths from it are not production truth. Production
+artifacts must be pinned in the release manifest. Exact parity means the same
+decisions and materially equivalent point/cut/placement results; it does not
+mean byte-identical video encodes across Apple MPS and NVIDIA CUDA. The full
+contract is in
+`docs/superpowers/specs/2026-09-04-modal-backup-worker-design.md`.
+
+---
+
 ## Copy
 
 **Plain, natural English. Never try to sound clever.** Not witty, punchy,

@@ -5,6 +5,25 @@ Supabase over a direct Postgres connection, downloads the uploaded video,
 runs the TTVid dead-space pipeline, and uploads the trimmed result. Nothing
 connects *into* the Mac — it only pulls.
 
+## Production parity: Mac and Modal
+
+The Mac Studio is the primary worker and Modal is the overflow worker, but
+they must always run one identical production pipeline release. Any change to
+worker behavior, model source or weights, dependencies, thresholds, feature
+flags, stage order, refusal rules, or output schemas is incomplete until the
+same release has been built, parity-tested, and installed in both places.
+
+Do not patch the live Mac worker and plan to catch Modal up later. Do not use a
+mutable TTVid checkout or an absolute local model path as the production source
+of truth. Both workers must report the active release ID and model checksums,
+and cloud dispatch must stop when they differ. Hardware-specific MPS/CUDA
+packaging may differ; pipeline decisions and outputs must remain semantically
+equivalent.
+
+The architecture, release contract, job leasing, cost limits, and rollout are
+specified in
+[`docs/superpowers/specs/2026-09-04-modal-backup-worker-design.md`](../docs/superpowers/specs/2026-09-04-modal-backup-worker-design.md).
+
 ## 1. Install dependencies
 
 ```bash
