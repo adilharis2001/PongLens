@@ -44,8 +44,9 @@ export const POINT_NOTE = {
 /**
  * No point on this match carries a note, so the notes beat would otherwise
  * point at an empty state. Stage one on the point we show. It is created
- * after the verified player snapshot. `cleanup` removes only this exact
- * author/match/point/body marker afterwards.
+ * after the verified player snapshot. The player guard is the sole cleanup
+ * authority: it removes this run's row while preserving an identical note
+ * that may already have existed when the capture began.
  */
 export async function stagePointNote(
   key,
@@ -83,16 +84,6 @@ export async function stagePointNote(
 export async function stage(key) {
   await stageOriginal(key);
   await stagePointNote(key);
-}
-
-export async function cleanup(key, request = tutorialApi) {
-  const filters = new URLSearchParams({
-    match_id: `eq.${MAPPED}`,
-    point_id: `eq.${POINT_NOTE.pointId}`,
-    author_id: `eq.${playerGuard.ownerId}`,
-    body: `eq.${POINT_NOTE.body}`,
-  });
-  await request(key, `notes?${filters}`, { method: "DELETE" });
 }
 
 export async function prepare(page) {

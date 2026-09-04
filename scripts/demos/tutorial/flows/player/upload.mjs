@@ -102,7 +102,7 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
   await clock.until(details.start + details.dur * 0.48);
   clock.close(detailsMark);
   await dismiss(page, {
-    click: { aria: "Close" },
+    click: { text: "Done", tag: "button" },
     gone: { aria: "Opponent name" },
   });
   await page.evaluate(() => {

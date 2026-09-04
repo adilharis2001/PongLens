@@ -5,8 +5,9 @@ import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { dismiss as realDismiss } from "./capture.mjs";
 import { catalogChapters, chapterPaths } from "./course-paths.mjs";
-import { runGuard, snapshot } from "./guard.mjs";
+import { restore, runGuard, snapshot } from "./guard.mjs";
 import { playerGuard } from "./fixtures/player-match.mjs";
 
 const EXPECTED_TUTORIAL_POINT_NOTE = {
@@ -110,6 +111,88 @@ async function scheduledBeats(flowModule, trace = []) {
   }
 
   return calls;
+}
+
+async function runUploadWithRealDismiss() {
+  const trace = [];
+  const state = { guideOpen: false, detailsOpen: false, sideOpen: false };
+  const page = fakePage(trace);
+  const fallbackEvaluate = page.evaluate;
+  const visible = (spec) => {
+    if (spec?.text === "Where to put the camera") return state.guideOpen;
+    if (spec?.aria === "Opponent name") return state.detailsOpen;
+    if (spec?.text === "Which player are you?") return state.sideOpen;
+    return false;
+  };
+
+  page.evaluate = async (fn, ...args) => {
+    const source = String(fn);
+    if (source.includes("Boolean(window.__pick(s))")) return visible(args[0]);
+    if (source.includes("const el = window.__pick(s)")) {
+      const spec = args[0];
+      let hit = false;
+      if (spec?.text === "Got it" && state.guideOpen) {
+        state.guideOpen = false;
+        hit = true;
+      } else if (spec?.text === "Done" && state.detailsOpen) {
+        state.detailsOpen = false;
+        hit = true;
+      } else if (spec?.aria === "Close" && state.sideOpen) {
+        state.sideOpen = false;
+        hit = true;
+      }
+      trace.push({ type: "dismiss.click", spec, hit });
+      return hit;
+    }
+    if (source.includes('"How to record"') && source.includes("?.click()")) {
+      state.guideOpen = true;
+    }
+    if (source.includes('"Match details"') && source.includes("?.click()")) {
+      state.detailsOpen = true;
+    }
+    return fallbackEvaluate(fn, ...args);
+  };
+  page.waitForFunction = async (fn, arg, options) => {
+    const source = String(fn);
+    trace.push({ type: "waitForFunction", source, options, args: [arg] });
+    if (source.includes("!window.__pick(s)")) {
+      if (!visible(arg)) return true;
+      throw new Error(`still visible: ${JSON.stringify(arg)}`);
+    }
+    return {};
+  };
+  page.keyboard.press = async (key) => trace.push({ type: "keyboard.press", key });
+  page.click = async (selector) => {
+    trace.push({
+      type: "page.click",
+      selector,
+      opponentVisible: state.detailsOpen,
+    });
+    if (selector === 'button:has-text("Your side")') {
+      assert.equal(state.detailsOpen, false, "Opponent field must be gone before Your side opens");
+      state.sideOpen = true;
+    }
+  };
+
+  const rect = { x: 20, y: 100, w: 200, h: 80 };
+  const clock = {
+    until: async () => {},
+    sleep: async () => {},
+    rect: async (spec) => {
+      trace.push({ type: "rect", spec });
+      return rect;
+    },
+    mark: () => ({}),
+    close: () => {},
+  };
+  const upload = await import("./flows/player/upload.mjs");
+  await upload.flow(page, clock, {
+    beat: () => ({ start: 0, end: 1, dur: 1 }),
+    voice: { total: 1 },
+    union: () => rect,
+    dismiss: realDismiss,
+  });
+  return { state, trace };
 }
 
 test("the player flow set follows the Learn catalog in course order", () => {
@@ -219,6 +302,19 @@ test("upload visibly opens the shipping Your side picker without changing it", a
   ));
 });
 
+test("upload closes Match details with Done before opening Your side", async () => {
+  const { state, trace } = await runUploadWithRealDismiss();
+  assert.equal(state.detailsOpen, false);
+  assert.ok(trace.some(({ type, spec, hit }) =>
+    type === "dismiss.click" && spec?.text === "Done" && spec?.tag === "button" && hit
+  ));
+  assert.ok(trace.some(({ type, selector, opponentVisible }) =>
+    type === "page.click" &&
+    selector === 'button:has-text("Your side")' &&
+    opponentVisible === false
+  ));
+});
+
 test("point opens the genuine missing-rally affordance and sheet", async () => {
   const trace = [];
   const point = await import("./flows/player/point.mjs");
@@ -240,13 +336,13 @@ test("point opens the genuine missing-rally affordance and sheet", async () => {
   ));
 });
 
-test("point notes require the verified demo owner and clean up their exact marker", async () => {
+test("point notes require the verified demo owner and leave cleanup to the player guard", async () => {
   const point = await import("./flows/player/point.mjs");
   assert.equal(point.guard?.kind, "player");
   assert.equal(point.guard.ownerId, "6eb09df4-7d44-4ef9-b1cc-8cdfc4119fc4");
   assert.equal(point.guard.ownerEmail, "uploader-test@example.com");
   assert.equal(typeof point.stagePointNote, "function");
-  assert.equal(typeof point.cleanup, "function");
+  assert.equal(point.cleanup, undefined);
 
   const notes = [];
   const verified = [];
@@ -268,15 +364,6 @@ test("point notes require the verified demo owner and clean up their exact marke
       notes.push(JSON.parse(init.body));
       return null;
     }
-    if (resource.startsWith("notes?") && init.method === "DELETE") {
-      const filters = new URL(`https://staging.invalid/${resource}`).searchParams;
-      assert.equal(filters.get("match_id"), `eq.${point.guard.matchId}`);
-      assert.equal(filters.get("point_id"), `eq.${point.POINT_NOTE.pointId}`);
-      assert.equal(filters.get("author_id"), `eq.${point.guard.ownerId}`);
-      assert.equal(filters.get("body"), `eq.${point.POINT_NOTE.body}`);
-      notes.splice(0);
-      return null;
-    }
     throw new Error(`unexpected tutorial request: ${resource}`);
   };
 
@@ -288,8 +375,6 @@ test("point notes require the verified demo owner and clean up their exact marke
     author_id: point.guard.ownerId,
     body: point.POINT_NOTE.body,
   }]);
-  await point.cleanup("service-key", request);
-  assert.deepEqual(notes, []);
 });
 
 function recoveryAdapter(spec) {
@@ -389,4 +474,41 @@ test("disk-backed point recovery removes the exact note left by an interrupted c
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("full capture cleanup preserves a pre-existing marker and removes only the staged copy", async () => {
+  const point = await import("./flows/player/point.mjs");
+  const adapter = recoveryAdapter(playerGuard);
+  const existing = {
+    id: "pre-existing-note",
+    match_id: EXPECTED_TUTORIAL_POINT_NOTE.matchId,
+    point_id: EXPECTED_TUTORIAL_POINT_NOTE.pointId,
+    author_id: EXPECTED_TUTORIAL_POINT_NOTE.authorId,
+    body: EXPECTED_TUTORIAL_POINT_NOTE.body,
+    audio_path: null,
+    image_path: null,
+    created_at: "2026-09-04T12:00:00.000Z",
+  };
+  adapter.state.notes.push(structuredClone(existing));
+  const saved = await snapshot("unused", playerGuard, adapter);
+  adapter.state.notes.push({
+    ...structuredClone(existing),
+    id: "newly-staged-note",
+    created_at: "2026-09-04T12:01:00.000Z",
+  });
+
+  // This is capture.mjs's real finally order: restore the guard first, then
+  // invoke an optional chapter cleanup hook. The guard is the sole note
+  // snapshot authority, so the latter must not exist for this chapter.
+  await restore("unused", saved, adapter);
+  if (typeof point.cleanup === "function") {
+    await point.cleanup("unused", async (_key, resource, init = {}) => {
+      if (!resource.startsWith("notes?") || init.method !== "DELETE") {
+        throw new Error(`unexpected cleanup request: ${resource}`);
+      }
+      adapter.state.notes = [];
+    });
+  }
+
+  assert.deepEqual(adapter.state.notes, [existing]);
 });
