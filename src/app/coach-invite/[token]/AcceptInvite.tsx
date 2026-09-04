@@ -45,16 +45,30 @@ export function AcceptInvite({ token }: { token: string }) {
         data: { user },
       } = await supabase.auth.getUser();
       if (user) setWorkspace(user.id, "coach");
-      // Land on the match itself when the invite is scoped to one; a
-      // connection that covers more than one match has no single target,
-      // so go to the coaching home, where their new student is waiting.
+      // Land on the match itself when the invite is scoped to one;
+      // otherwise on the student, not the coaching home (Adil,
+      // 2026-09-04). Their page already holds the matches, anything they
+      // have shared from their journal, and room to write.
       let dest = "/coaching";
       const { data: link } = await supabase
         .from("coach_links")
-        .select("scope_match_id")
+        .select("scope_match_id, player_id")
         .eq("id", linkId)
         .maybeSingle();
-      if (link?.scope_match_id) dest = `/match/${link.scope_match_id}`;
+      if (link?.scope_match_id) {
+        dest = `/match/${link.scope_match_id}`;
+      } else if (link?.player_id) {
+        // Written by coach_links_roster_sync inside the accept, so it is
+        // already there. A miss just leaves the coaching home.
+        const { data: roster } = await supabase
+          .from("coach_students")
+          .select("id")
+          .eq("player_id", link.player_id)
+          .is("archived_at", null)
+          .maybeSingle();
+        const rosterId = (roster as { id: string } | null)?.id;
+        if (rosterId) dest = `/coaching/students/${rosterId}`;
+      }
       router.replace(dest);
       router.refresh();
     })();

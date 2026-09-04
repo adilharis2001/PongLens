@@ -3,11 +3,18 @@ const UUID_RE =
 
 export type CoachInviteScope = {
   scope_match_id: string | null;
+  /** Whose matches these are. The roster row is looked up from it. */
+  player_id?: string | null;
 };
 
 export type CoachInviteCompletionDependencies = {
   acceptInvite(token: string): Promise<string | null>;
   findAcceptedLink(linkId: string): Promise<CoachInviteScope | null>;
+  /** The accepting coach's roster row for that player, when there is
+   *  one. Written by coach_links_roster_sync inside the accept, so it
+   *  exists by the time this runs — but it is optional, and a miss
+   *  simply falls back to the coaching home. */
+  findRosterRow?(playerId: string): Promise<string | null>;
 };
 
 export async function resolvePendingCoachInviteDestination(
@@ -36,7 +43,16 @@ export async function resolvePendingCoachInviteDestination(
   // match-scoped invite still opens its match, because that is the thing
   // the player sent; the workspace cookie is stamped by the caller so the
   // bar around it is the coach's.
-  return link.scope_match_id
-    ? `/match/${link.scope_match_id}`
-    : "/coaching";
+  if (link.scope_match_id) return `/match/${link.scope_match_id}`;
+
+  // The student themselves, not the coaching home (Adil, 2026-09-04).
+  // That page already holds their matches, anything they have shared from
+  // their journal, and room to write — the home is a list you then have to
+  // click through. It is also unambiguous coach territory, so standing on
+  // it settles the workspace by route rather than by cookie.
+  if (link.player_id && dependencies.findRosterRow) {
+    const rosterId = await dependencies.findRosterRow(link.player_id);
+    if (rosterId) return `/coaching/students/${rosterId}`;
+  }
+  return "/coaching";
 }
