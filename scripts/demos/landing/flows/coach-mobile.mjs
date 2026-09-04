@@ -8,7 +8,4 @@ export { stage, cleanup };
 
 export const prepare = sharedPrepare;
 
-export const flow = makeFlow({
-  journalShot: "coach-entry-shared-m",
-  contextShot: "coach-entry-shared-m",
-});
+export const flow = makeFlow();

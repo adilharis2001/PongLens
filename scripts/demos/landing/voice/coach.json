@@ -2,7 +2,7 @@
   "chapter": "coach",
   "title": "PongLens",
   "subtitle": "",
-  "tagline": "A coaching hub built around every student.",
+  "tagline": "A complete coaching workspace.",
   "model": "gpt-4o-mini-tts",
   "delivery": {
     "provider": "openai",
@@ -12,89 +12,98 @@
   },
   "lead": 0.3,
   "gap": 0.25,
-  "total": 69.462,
-  "wpm": 186,
+  "total": 76.384,
+  "wpm": 159,
   "lines": [
     {
       "id": "l1",
       "beat": "intro",
       "label": "",
-      "text": "PongLens is a coaching workspace built around every student you work with.",
+      "text": "PongLens is a complete coaching workspace for lessons, students and remote reviews.",
       "file": "audio/coach/l1.mp3",
       "start": 0.3,
-      "dur": 4.392
+      "dur": 5.04
     },
     {
       "id": "l2",
-      "beat": "students",
-      "label": "Your students",
-      "text": "Each student has one place for their lesson history, shared notes, recordings and matches, so the full picture stays together.",
+      "beat": "profile",
+      "label": "Coach profile",
+      "text": "Build a coach profile that presents your experience, your approach and the reviews you offer.",
       "file": "audio/coach/l2.mp3",
-      "start": 7.742,
-      "dur": 6.408
+      "start": 8.39,
+      "dur": 5.208
     },
     {
       "id": "l3",
-      "beat": "journal",
-      "label": "Coaching journals",
-      "text": "Keep a coaching journal that shows what you worked on, what changed and what comes next.",
+      "beat": "students",
+      "label": "Your students",
+      "text": "Keep every student's lessons, journal entries, shared materials and matches together, so the whole coaching relationship stays visible.",
       "file": "audio/coach/l3.mp3",
-      "start": 17.2,
-      "dur": 4.704
+      "start": 16.648,
+      "dur": 7.752
     },
     {
       "id": "l4",
       "beat": "record",
       "label": "Lesson recording",
-      "text": "Record the lesson as audio, with video recording coming soon. PongLens prepares the transcript and a structured entry for you to review.",
+      "text": "Record lessons as audio or video, and turn each session into a clear journal entry.",
       "file": "audio/coach/l4.mp3",
-      "start": 24.954,
-      "dur": 7.992
+      "start": 27.45,
+      "dur": 5.352
     },
     {
       "id": "l5",
       "beat": "share",
-      "label": "Shared with students",
-      "text": "Share the parts your student needs, so your coaching stays with them when the session ends.",
+      "label": "Shared journals",
+      "text": "Share the entries each student needs, so your feedback stays with them between sessions.",
       "file": "audio/coach/l5.mp3",
-      "start": 35.996,
-      "dur": 4.92
+      "start": 35.852,
+      "dur": 5.208
     },
     {
       "id": "l6",
-      "beat": "context",
-      "label": "Match feedback",
-      "text": "When they share a match, it sits beside the lessons and notes that led to it.",
+      "beat": "request",
+      "label": "Review orders",
+      "text": "When players send review requests, their matches and questions arrive together.",
       "file": "audio/coach/l6.mp3",
-      "start": 43.966,
-      "dur": 4.248
+      "start": 44.11,
+      "dur": 4.464
     },
     {
       "id": "l7",
-      "beat": "feedback",
-      "label": "Match feedback",
-      "text": "Watch it point by point, and tie your feedback to the exact rallies that show what you mean.",
+      "beat": "orders",
+      "label": "Review orders",
+      "text": "Choose which orders to accept and keep every active review visible in one place.",
       "file": "audio/coach/l7.mp3",
-      "start": 49.464,
-      "dur": 4.824
+      "start": 49.824,
+      "dur": 4.32
     },
     {
       "id": "l8",
-      "beat": "reviews",
-      "label": "Paid reviews",
-      "text": "If you coach remotely, you can also offer paid match reviews with your own scope, price and turnaround.",
+      "beat": "delivery",
+      "label": "Delivery and payouts",
+      "text": "Review the match point by point, and connect written, drawn or spoken feedback to the rallies that show it.",
       "file": "audio/coach/l8.mp3",
-      "start": 57.338,
-      "dur": 5.904
+      "start": 57.194,
+      "dur": 5.424
     },
     {
       "id": "l9",
+      "beat": "payout",
+      "label": "Delivery and payouts",
+      "text": "Deliver the finished review through PongLens, with payment and payouts handled for you.",
+      "file": "audio/coach/l9.mp3",
+      "start": 63.868,
+      "dur": 5.448
+    },
+    {
+      "id": "l10",
       "beat": "outro",
       "label": "",
-      "text": "PongLens. Coaching that carries from one session to the next.",
-      "file": "audio/coach/l9.mp3",
-      "start": 64.292,
-      "dur": 4.32
+      "text": "PongLens. A complete coaching workspace.",
+      "file": "audio/coach/l10.mp3",
+      "start": 72.366,
+      "dur": 3.168
     }
   ]
 }

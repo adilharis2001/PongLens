@@ -5,22 +5,21 @@ feature-led product story, not a setup guide. It uses the same voice, music,
 section cards, captions and two-layout capture pipeline as the player landing
 video.
 
-The through-line is the coaching relationship. Each student has one continuous
-record across lessons, practice and competition. The video shows what that
-workspace makes possible without explaining how to create a student, fill in a
-form or send an invitation.
+The through-line is the complete coaching practice. The video moves from the
+coach's public presence through ongoing student work, then into paid remote
+reviews. It shows product areas rather than setup instructions.
 
 ## Sections
 
 | Section | Screen |
 | --- | --- |
 | *(opening)* | the coach roster |
-| Your students | the roster as a complete coaching workspace |
-| Coaching journals | a student journal |
+| Coach profile | the public coach page |
+| Your students | the student roster and connected history |
 | Lesson recording | the real iOS lesson recorder |
-| Shared with students | the student's journal with coaching entries inside it |
-| Match feedback | the student's coaching history, then point-by-point review |
-| Paid reviews | the coach's optional review offerings |
+| Shared journals | the student's shared coaching entry |
+| Review orders | an incoming request and the coach's order queue |
+| Delivery and payouts | a detailed review and payout history |
 | *(close)* | logo card |
 
 Every labelled section begins after at least 2.6 seconds of silence. The title
@@ -29,22 +28,22 @@ staged screens.
 
 ## Narration
 
-1. “PongLens is a coaching workspace built around every student you work with.”
-2. “Each student has one place for their lesson history, shared notes, recordings and matches, so the full picture stays together.”
-3. “Keep a coaching journal that shows what you worked on, what changed and what comes next.”
-4. “Record the lesson as audio, with video recording coming soon. PongLens prepares the transcript and a structured entry for you to review.”
-5. “Share the parts your student needs, so your coaching stays with them when the session ends.”
-6. “When they share a match, it sits beside the lessons and notes that led to it.”
-7. “Watch it point by point, and tie your feedback to the exact rallies that show what you mean.”
-8. “If you coach remotely, you can also offer paid match reviews with your own scope, price and turnaround.”
-9. “PongLens. Coaching that carries from one session to the next.”
+1. “PongLens is a complete coaching workspace for lessons, students and remote reviews.”
+2. “Build a coach profile that presents your experience, your approach and the reviews you offer.”
+3. “Keep every student's lessons, journal entries, shared materials and matches together, so the whole coaching relationship stays visible.”
+4. “Record lessons as audio or video, and turn each session into a clear journal entry.”
+5. “Share the entries each student needs, so your feedback stays with them between sessions.”
+6. “When players send review requests, their matches and questions arrive together.”
+7. “Choose which orders to accept and keep every active review visible in one place.”
+8. “Review the match point by point, and connect written, drawn or spoken feedback to the rallies that show it.”
+9. “Deliver the finished review through PongLens, with payment and payouts handled for you.”
+10. “PongLens. A complete coaching workspace.”
 
 ## Production notes
 
 - The staged coach is Miguel Santos (`miguel-demo@example.com`). No real coach
   or student data appears.
-- Student and journal screens come from the live web app. The recording beat
+- Profile, student, order and journal screens come from the live web app. The recording beat
   uses `public/showcase/coach-record-m.jpg`, captured from the real iOS screen.
-- The recording line describes audio as available and video recording as coming
-  soon.
+- The recording line includes video recording, which is shipping with this page.
 - Desktop is 1440 × 810. Mobile is 390 × 844.

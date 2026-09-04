@@ -34,11 +34,19 @@ export async function cleanup() {
 }
 
 const attempt = async (label, fn) => {
-  try {
-    return await fn();
-  } catch (error) {
-    console.log(`  ! ${label}: ${String(error).split("\n")[0]}`);
-    return null;
+  for (let tryNumber = 1; tryNumber <= 3; tryNumber += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      const message = String(error);
+      const navigating = message.includes("Execution context was destroyed");
+      if (navigating && tryNumber < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        continue;
+      }
+      console.log(`  ! ${label}: ${message.split("\n")[0]}`);
+      return null;
+    }
   }
 };
 
@@ -95,24 +103,27 @@ export const prepare = async (page) => {
   });
 };
 
-export function makeFlow(layout) {
+export function makeFlow() {
   return async function flow(page, clock, { beat }) {
     const base = process.env.BASE ?? "https://www.ponglens.com";
 
-    // Opening and first feature: the live roster is already loaded by the
-    // capture driver. No add-student or invite flow appears in this cut.
+    // Opening: the live roster is already loaded by the capture driver.
     await clock.until(beat("intro").end);
+
+    // The public presence comes first, before the private student workspace.
+    await showShot(page, clock, base, {
+      at: beat("profile").start - 2.6,
+      file: "coach-page-m",
+    });
+    await clock.until(beat("profile").end);
+
+    await showShot(page, clock, base, {
+      at: beat("students").start - 2.6,
+      file: "coach-students-m",
+    });
     await clock.until(beat("students").end);
 
-    // Coaching journals: show the lasting record, not how to fill in a form.
-    await showShot(page, clock, base, {
-      at: beat("journal").start - 2.6,
-      file: layout.journalShot,
-    });
-    await clock.until(beat("journal").end);
-
-    // The real iPhone audio recorder. Video recording is described as coming
-    // soon until that capture is available.
+    // The real iPhone lesson recorder.
     await showShot(page, clock, base, {
       at: beat("record").start - 2.6,
       file: "coach-record-m",
@@ -122,28 +133,32 @@ export function makeFlow(layout) {
     // The result in the student's journal, not the sharing controls.
     await showShot(page, clock, base, {
       at: beat("share").start - 2.6,
-      file: "journal-m",
+      file: "coach-entry-shared-m",
     });
     await clock.until(beat("share").end);
 
-    // The student's history establishes the context before the match itself.
+    // Incoming review requests and the queue are separate views of one area.
     await showShot(page, clock, base, {
-      at: beat("context").start - 2.6,
-      file: layout.contextShot,
+      at: beat("request").start - 2.6,
+      file: "coach-order-m",
     });
-    await clock.until(beat("context").end);
+    await clock.until(beat("request").end);
     await showShot(page, clock, base, {
-      at: beat("feedback").start - 0.5,
-      file: "coach-points-m",
+      at: beat("orders").start - 0.5,
+      file: "coach-queue-m",
     });
-    await clock.until(beat("feedback").end);
+    await clock.until(beat("orders").end);
 
-    // Paid reviews remain available, but they close the story rather than
-    // defining the whole coach product.
+    // Close the commercial workflow with the delivered review and payout.
     await showShot(page, clock, base, {
-      at: beat("reviews").start - 2.6,
-      file: "coach-offering-m",
+      at: beat("delivery").start - 2.6,
+      file: "coach-review-m",
     });
-    await clock.until(beat("reviews").end);
+    await clock.until(beat("delivery").end);
+    await showShot(page, clock, base, {
+      at: beat("payout").start - 0.5,
+      file: "coach-payout-m",
+    });
+    await clock.until(beat("payout").end);
   };
 }

@@ -2,7 +2,7 @@
   "chapter": "coach",
   "title": "PongLens",
   "subtitle": "",
-  "tagline": "A coaching hub built around every student.",
+  "tagline": "A complete coaching workspace.",
   "voice": "sage",
   "speed": 1.45,
   "instructions": "Warm and plain spoken, like a coach explaining something useful to another coach. Unhurried and even. Nothing is sold and nothing is hurried. No rising lift at the end of sentences.",
@@ -11,63 +11,70 @@
   "lines": [
     {
       "id": "l1",
-      "text": "PongLens is a coaching workspace built around every student you work with.",
+      "text": "PongLens is a complete coaching workspace for lessons, students and remote reviews.",
       "beat": "intro",
       "pause": 2.8,
       "label": ""
     },
     {
       "id": "l2",
-      "text": "Each student has one place for their lesson history, shared notes, recordings and matches, so the full picture stays together.",
+      "text": "Build a coach profile that presents your experience, your approach and the reviews you offer.",
+      "beat": "profile",
+      "pause": 2.8,
+      "label": "Coach profile"
+    },
+    {
+      "id": "l3",
+      "text": "Keep every student's lessons, journal entries, shared materials and matches together, so the whole coaching relationship stays visible.",
       "beat": "students",
       "pause": 2.8,
       "label": "Your students"
     },
     {
-      "id": "l3",
-      "text": "Keep a coaching journal that shows what you worked on, what changed and what comes next.",
-      "beat": "journal",
-      "pause": 2.8,
-      "label": "Coaching journals"
-    },
-    {
       "id": "l4",
-      "text": "Record the lesson as audio, with video recording coming soon. PongLens prepares the transcript and a structured entry for you to review.",
+      "text": "Record lessons as audio or video, and turn each session into a clear journal entry.",
       "beat": "record",
       "pause": 2.8,
       "label": "Lesson recording"
     },
     {
       "id": "l5",
-      "text": "Share the parts your student needs, so your coaching stays with them when the session ends.",
+      "text": "Share the entries each student needs, so your feedback stays with them between sessions.",
       "beat": "share",
       "pause": 2.8,
-      "label": "Shared with students"
+      "label": "Shared journals"
     },
     {
       "id": "l6",
-      "text": "When they share a match, it sits beside the lessons and notes that led to it.",
-      "beat": "context",
+      "text": "When players send review requests, their matches and questions arrive together.",
+      "beat": "request",
       "pause": 1.0,
-      "label": "Match feedback"
+      "label": "Review orders"
     },
     {
       "id": "l7",
-      "text": "Watch it point by point, and tie your feedback to the exact rallies that show what you mean.",
-      "beat": "feedback",
+      "text": "Choose which orders to accept and keep every active review visible in one place.",
+      "beat": "orders",
       "pause": 2.8,
-      "label": "Match feedback"
+      "label": "Review orders"
     },
     {
       "id": "l8",
-      "text": "If you coach remotely, you can also offer paid match reviews with your own scope, price and turnaround.",
-      "beat": "reviews",
-      "pause": 0.8,
-      "label": "Paid reviews"
+      "text": "Review the match point by point, and connect written, drawn or spoken feedback to the rallies that show it.",
+      "beat": "delivery",
+      "pause": 1.0,
+      "label": "Delivery and payouts"
     },
     {
       "id": "l9",
-      "text": "PongLens. Coaching that carries from one session to the next.",
+      "text": "Deliver the finished review through PongLens, with payment and payouts handled for you.",
+      "beat": "payout",
+      "pause": 2.8,
+      "label": "Delivery and payouts"
+    },
+    {
+      "id": "l10",
+      "text": "PongLens. A complete coaching workspace.",
       "beat": "outro",
       "pause": 0.6,
       "label": ""

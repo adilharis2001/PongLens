@@ -21,7 +21,7 @@ import { COACH_CUTS } from "@/lib/videoCuts";
 import { COACH_LENGTH } from "@/lib/videos";
 
 const description =
-  "A coaching workspace built around every student. Keep lesson journals, recordings, shared notes and match feedback together in PongLens.";
+  "A complete coaching workspace for table tennis coaches. Build your profile, manage students, share lessons, review matches and run paid reviews.";
 
 export const metadata: Metadata = {
   title: "PongLens for coaches",
@@ -58,35 +58,63 @@ const glow = (text: string) => (
 
 const chapters: Chapter[] = [
   {
-    shots: ["coach-record", "coach-entry-compose"],
-    title: "Capture the lesson",
+    shots: ["coach-page"],
+    title: "Build your coaching presence",
     caption: (
       <>
-        Keep the conversation, cues and decisions from the session, not just
-        a few notes written afterwards. Record the lesson or write it down
-        while it is {glow("still fresh")}.
+        Present your experience, coaching approach and review offerings on
+        {" "}{glow("one coach profile")} you can share with players.
+      </>
+    ),
+  },
+  {
+    shots: ["coach-students", "coach-shared-match"],
+    title: "Keep every student in context",
+    caption: (
+      <>
+        Keep each student&apos;s lessons, journal entries, shared materials and
+        matches together, so the {glow("full coaching relationship")} stays
+        visible.
+      </>
+    ),
+  },
+  {
+    shots: ["coach-record", "coach-entry-compose"],
+    title: "Capture every lesson",
+    caption: (
+      <>
+        Record the session as audio or video, write lesson notes and preserve
+        the details students need {glow("after training")}.
       </>
     ),
   },
   {
     shots: ["coach-entry-shared"],
-    title: "Share what matters",
+    title: "Share progress between sessions",
     caption: (
       <>
-        Give each student a clear record they can return to when they practise
-        on their own. You choose which entries become part of their
-        {" "}{glow("shared coaching journal")}.
+        Give students access to their coaching journal, so feedback, goals and
+        lesson history remain {glow("useful over time")}.
       </>
     ),
   },
   {
-    shots: ["coach-shared-match", "coach-points"],
-    title: "See what carries into competition",
+    shots: ["coach-order", "coach-queue"],
+    title: "Receive and manage review orders",
     caption: (
       <>
-        Review their matches alongside the work you have already done
-        together. See what is changing, leave feedback on the rallies that
-        matter, and take that context into {glow("the next lesson")}.
+        Receive a player&apos;s match and questions together, choose which reviews
+        to accept and keep {glow("every active order")} visible.
+      </>
+    ),
+  },
+  {
+    shots: ["coach-review", "coach-payout"],
+    title: "Deliver detailed reviews and get paid",
+    caption: (
+      <>
+        Connect feedback to the relevant points, share the completed review
+        with the player and receive {glow("payouts through PongLens")}.
       </>
     ),
   },
@@ -161,7 +189,7 @@ const features = [
 const faqs = [
   {
     q: "What can I use PongLens for as a coach?",
-    a: "PongLens brings your coaching work together around each student. Keep a lesson journal, record sessions, share entries, review matches, and offer paid remote reviews from the same workspace.",
+    a: "PongLens brings your whole coaching practice together. Build a coach profile, manage students, keep and share lesson journals, record sessions, review matches, and receive paid review orders from the same workspace.",
   },
   {
     q: "Do my students need a PongLens account?",
@@ -218,18 +246,18 @@ const jsonLd = {
       audience: { "@type": "Audience", audienceType: "Table tennis coaches" },
       areaServed: "Worldwide",
       description:
-        "A coaching workspace built around every student, bringing lesson journals, recordings, shared notes, match feedback and paid remote reviews together.",
+        "A complete coaching workspace bringing coach profiles, students, lesson journals, recordings, shared notes, review orders, match feedback and payouts together.",
     },
     {
       "@type": "VideoObject",
       "@id": "https://www.ponglens.com/coaches#video",
       name: "How coaching works on PongLens",
       description:
-        "A feature-led look at the PongLens coaching workspace, including coaching journals, lesson recording, student sharing, match feedback and paid remote reviews.",
+        "A feature-led look at the PongLens coaching workspace, including a coach profile, student management, lesson recording, shared journals, review orders, delivery and payouts.",
       thumbnailUrl: ["https://www.ponglens.com/demo/coach-desktop.jpg"],
       contentUrl: "https://www.ponglens.com/demo/coach-desktop.mp4",
       embedUrl: "https://www.ponglens.com/coaches#video",
-      duration: "PT1M11S",
+      duration: "PT1M16S",
       uploadDate: "2026-09-04",
       isFamilyFriendly: true,
       publisher: { "@id": "https://www.ponglens.com/#organization" },
@@ -390,10 +418,10 @@ export default function CoachesPage() {
         <section id="steps" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              Coaching that carries into the next session
+              A complete coaching workspace
             </h2>
             <div className="mt-14">
-              <WalkthroughBand chapters={chapters} subMs={9000} />
+              <WalkthroughBand chapters={chapters} subMs={7000} />
             </div>
           </div>
         </section>

@@ -43,15 +43,22 @@ copyFileSync(cues, path.join(PROJ, "src", "cues.json"));
 copyFileSync(voicePath, path.join(PROJ, "src", "voice.json"));
 
 const voice = JSON.parse(readFileSync(voicePath, "utf8"));
+const cueData = JSON.parse(readFileSync(cues, "utf8"));
 const FPS = 30;
 const INTRO = 40;
+const BODY = Math.ceil(cueData.duration * FPS);
+const OUTRO_LEAD = 12;
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
 
 voice.lines.forEach((l, i) => {
   // Six tenths in: past the caption's fade-in, before its fade-out.
-  const frame = INTRO + Math.round((l.start + l.dur * 0.6) * FPS);
+  // The closing line is moved out of the captured body and onto the outro
+  // card by Landing.tsx, so its preview frame must follow it there too.
+  const frame = l.beat === "outro"
+    ? INTRO + BODY + OUTRO_LEAD + Math.round(l.dur * 0.6 * FPS)
+    : INTRO + Math.round((l.start + l.dur * 0.6) * FPS);
   const file = path.join(OUT, `${String(i).padStart(2, "0")}-${l.id}.png`);
   const res = spawnSync(
     "npx",
