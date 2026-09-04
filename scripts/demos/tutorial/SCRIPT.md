@@ -252,9 +252,15 @@ empty.
 command -v psql >/dev/null || brew install libpq
 export PATH="$(brew --prefix libpq)/bin:$PATH"
 export DATABASE_URL="$(security find-generic-password -a openclaw -s ponglens-db-url -w)"
-test -n "$DATABASE_URL"
-test -n "$SERVICE_KEY"
-psql "$DATABASE_URL" -f scripts/demos/stage_coach.sql
+
+# tutorial-staging-gate:start
+if [[ -z "${DATABASE_URL:-}" || -z "${SERVICE_KEY:-}" ]]; then
+  echo "DATABASE_URL and SERVICE_KEY are both required; staging was not run." >&2
+  false
+else
+  psql "$DATABASE_URL" -f scripts/demos/stage_coach.sql
+fi
+# tutorial-staging-gate:end
 ```
 
 The `DATABASE_URL` and service-role key are secrets; never paste either value
