@@ -6,37 +6,12 @@
   "speed": 1.3,
   "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
   "lines": [
-    {
-      "id": "l1",
-      "text": "Inviting your coach takes one link, and you choose whether they see a single match or everything you play.",
-      "beat": "invite",
-      "pause": 4.5
-    },
-    {
-      "id": "l2",
-      "text": "They open the same points you do, in the same order, with the same score.",
-      "beat": "sees"
-    },
-    {
-      "id": "l3",
-      "text": "They can pause on any frame, draw straight onto it, and leave the note on that exact point instead of in a message thread you will lose.",
-      "beat": "draw"
-    },
-    {
-      "id": "l4",
-      "text": "They can also just hold the microphone and leave a spoken note on a point, which is quicker when they are courtside between games.",
-      "beat": "audio"
-    },
-    {
-      "id": "l5",
-      "text": "At the bottom of the match they can write up how the whole thing went and what you should work on next.",
-      "beat": "overall",
-      "pause": 4.5
-    },
-    {
-      "id": "l6",
-      "text": "Everything they leave shows up in your journal alongside your own notes.",
-      "beat": "lands"
-    }
+    { "id": "l1", "text": "Invite a coach with one link and choose whether they see every match or only the matches you share.", "beat": "invite" },
+    { "id": "l2", "text": "They open the same points, score and analysis that you do.", "beat": "sees" },
+    { "id": "l3", "text": "They can leave written or spoken feedback on a point and draw directly on a frame.", "beat": "feedback" },
+    { "id": "l4", "text": "A coach can also keep lesson entries for you and share them when they are ready.", "beat": "lesson-entries" },
+    { "id": "l5", "text": "Their point notes and shared lesson entries arrive in your Journal.", "beat": "journal" },
+    { "id": "l6", "text": "Your coach cannot change your score, clips or match details.", "beat": "boundaries" },
+    { "id": "l7", "text": "You remain in control of which matches they can open.", "beat": "access" }
   ]
 }

@@ -1,0 +1,16 @@
+{
+  "chapter": "coach-audio-lesson",
+  "title": "Audio record a lesson",
+  "subtitle": "Chapter 5 of 9",
+  "voice": "sage",
+  "speed": 1.3,
+  "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
+  "lines": [
+    { "id": "l1", "text": "On iPhone, choose Audio record a lesson and select the student.", "beat": "select-student" },
+    { "id": "l2", "text": "Put the phone near the table where it can hear both sides of the session.", "beat": "placement" },
+    { "id": "l3", "text": "Start recording and leave it running while you coach.", "beat": "recording" },
+    { "id": "l4", "text": "You can pause when the lesson stops and continue when it starts again.", "beat": "pause-resume" },
+    { "id": "l5", "text": "When you finish, PongLens prepares the transcript and the main lesson points.", "beat": "prepared" },
+    { "id": "l6", "text": "Review and edit them before the entry is saved under the student.", "beat": "review" }
+  ]
+}

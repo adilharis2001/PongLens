@@ -6,36 +6,11 @@
   "speed": 1.3,
   "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
   "lines": [
-    {
-      "id": "l1",
-      "text": "Open any point and you get that rally on its own.",
-      "beat": "open"
-    },
-    {
-      "id": "l2",
-      "text": "You can say who won it.",
-      "beat": "winner"
-    },
-    {
-      "id": "l3",
-      "text": "You can also add how the point ended, and what went wrong.",
-      "beat": "detail",
-      "pause": 1.8
-    },
-    {
-      "id": "l4",
-      "text": "Every point also maps where the ball landed, and traces the line the rally took.",
-      "beat": "map"
-    },
-    {
-      "id": "l5",
-      "text": "And your notes sit on the point itself, right beside the rally they are about.",
-      "beat": "notes"
-    },
-    {
-      "id": "l6",
-      "text": "Those answers are what fill in the match analysis and your stats.",
-      "beat": "feeds"
-    }
+    { "id": "l1", "text": "Open any point and you get that rally on its own.", "beat": "open" },
+    { "id": "l2", "text": "Choose who won it. That is enough to build the score.", "beat": "winner" },
+    { "id": "l3", "text": "You can also record how the point ended, what happened on the serve, and what went wrong.", "beat": "detail" },
+    { "id": "l4", "text": "Those answers fill the match analysis and your statistics.", "beat": "feeds" },
+    { "id": "l5", "text": "Notes, tags, stars and drawings stay attached to the exact rally.", "beat": "notes" },
+    { "id": "l6", "text": "If the cut is wrong, you can adjust it, split joined rallies, remove dead space, or put back a rally PongLens missed.", "beat": "clip-tools" }
   ]
 }

@@ -6,36 +6,12 @@
   "speed": 1.3,
   "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
   "lines": [
-    {
-      "id": "l1",
-      "text": "Everything in PongLens starts with a match video. This is the Upload tab.",
-      "beat": "header"
-    },
-    {
-      "id": "l2",
-      "text": "Not sure how to film it? How to record shows you the camera angle that works best.",
-      "beat": "guide"
-    },
-    {
-      "id": "l3",
-      "text": "Pick a video from your phone. MP4 or M O V, up to two gigabytes. The upload starts as soon as you choose it.",
-      "beat": "dropzone"
-    },
-    {
-      "id": "l4",
-      "text": "No file to hand? Paste a YouTube link and PongLens imports the match from there.",
-      "beat": "youtube",
-      "pause": 2.5
-    },
-    {
-      "id": "l5",
-      "text": "While it processes, fill in who you played, where, and what kind of match it was.",
-      "beat": "details"
-    },
-    {
-      "id": "l6",
-      "text": "You get an email when the match is ready.",
-      "beat": "outro"
-    }
+    { "id": "l1", "text": "Everything in PongLens starts with a match video.", "beat": "header" },
+    { "id": "l2", "text": "On iPhone, you can record in PongLens or choose a video you already have. On the web, choose a file or paste a YouTube link.", "beat": "upload-options" },
+    { "id": "l3", "text": "How to record shows the camera position that gives PongLens the clearest view of the table.", "beat": "guide" },
+    { "id": "l4", "text": "Videos can be up to 45 minutes long.", "beat": "duration-limit" },
+    { "id": "l5", "text": "Add who you played, where, what kind of session it was, and which side of the video is yours.", "beat": "details" },
+    { "id": "l6", "text": "Choose whether to break the video into points and generate placement maps.", "beat": "processing-options" },
+    { "id": "l7", "text": "You can leave when the upload finishes. PongLens lets you know when the match is ready.", "beat": "outro" }
   ]
 }

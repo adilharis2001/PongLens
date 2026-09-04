@@ -1,0 +1,16 @@
+{
+  "chapter": "coach-share-entry",
+  "title": "Share it with the student",
+  "subtitle": "Chapter 6 of 9",
+  "voice": "sage",
+  "speed": 1.3,
+  "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
+  "lines": [
+    { "id": "l1", "text": "A lesson entry stays in your private coaching record until you share it.", "beat": "private-entry" },
+    { "id": "l2", "text": "For a connected student, Share with sends it directly to their Journal.", "beat": "share-with" },
+    { "id": "l3", "text": "If you edit the entry later, the version in their Journal updates too.", "beat": "updates" },
+    { "id": "l4", "text": "You can stop sharing at any time.", "beat": "stop-sharing" },
+    { "id": "l5", "text": "For someone without an account, copy a public link to that individual entry.", "beat": "public-link" },
+    { "id": "l6", "text": "The link does not expose the rest of the student's record.", "beat": "link-privacy" }
+  ]
+}
