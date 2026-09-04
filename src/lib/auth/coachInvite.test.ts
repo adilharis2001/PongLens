@@ -4,6 +4,7 @@ import {
   resolvePendingCoachInviteDestination,
   type CoachInviteCompletionDependencies,
 } from "./coachInvite.ts";
+import { routeTerritory } from "../workspaceModel.ts";
 
 const INVITE_TOKEN = "11111111-1111-4111-8111-111111111111";
 const LINK_ID = "22222222-2222-4222-8222-222222222222";
@@ -36,7 +37,10 @@ test("resolves a match invite through the accepted link id", async () => {
   assert.equal(destination, `/match/${MATCH_ID}`);
 });
 
-test("sends an all-matches invite to the dashboard", async () => {
+// A coach invite never lands on the player's Home: /dashboard is player
+// territory, so the nav remembered "player" and a coach with no playing
+// side of their own was left in one.
+test("sends a wider invite to the coaching side, not the player's home", async () => {
   const destination = await resolvePendingCoachInviteDestination(
     INVITE_TOKEN,
     `/coach-invite/${INVITE_TOKEN}`,
@@ -45,7 +49,23 @@ test("sends an all-matches invite to the dashboard", async () => {
     }),
   );
 
-  assert.equal(destination, "/dashboard");
+  assert.equal(destination, "/coaching");
+  assert.equal(routeTerritory(destination), null);
+});
+
+test("a match invite still opens its match", async () => {
+  const destination = await resolvePendingCoachInviteDestination(
+    INVITE_TOKEN,
+    `/coach-invite/${INVITE_TOKEN}`,
+    dependencies({
+      findAcceptedLink: async () => ({ scope_match_id: MATCH_ID }),
+    }),
+  );
+
+  // Shared ground, so nothing flips the workspace back to the player
+  // side behind the coach's back; the caller stamps it to "coach".
+  assert.equal(destination, `/match/${MATCH_ID}`);
+  assert.equal(routeTerritory(destination), null);
 });
 
 test("preserves the requested destination when acceptance fails", async () => {

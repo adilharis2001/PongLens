@@ -105,14 +105,18 @@ export default async function CoachInvitePage({
       <Shell>
         <h1 className="text-xl font-semibold">Already accepted</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          {info.player_name}&apos;s matches are in your dashboard under
-          &quot;Shared with me&quot;.
+          {info.player_name} is on your students list. Open them to watch
+          their matches and leave notes.
         </p>
+        {/* /coaching/students, not /dashboard: the roster is where a
+            coach's students live, and it is unambiguous coach territory,
+            so standing on it also puts the account back on the coaching
+            side for anyone the old destination had flipped. */}
         <Link
-          href="/dashboard"
+          href="/coaching/students"
           className="glow-cta mt-6 inline-block w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink"
         >
-          Go to dashboard
+          Go to your students
         </Link>
       </Shell>
     );
