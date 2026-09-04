@@ -50,6 +50,23 @@ struct TutorialURLRequest: Encodable {
     let slug: String
 }
 
+struct TutorialProgressGate {
+    private(set) var handledActualPlayback = false
+
+    mutating func shouldWrite(
+        currentSeconds: Double,
+        isPlaying: Bool,
+        alreadyRecorded: Bool
+    ) -> Bool {
+        guard !handledActualPlayback,
+              isPlaying,
+              currentSeconds.isFinite,
+              currentSeconds > 0 else { return false }
+        handledActualPlayback = true
+        return !alreadyRecorded
+    }
+}
+
 struct LearnGuideSection: Codable, Hashable {
     let heading: String?
     let steps: [String]?

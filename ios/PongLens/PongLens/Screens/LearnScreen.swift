@@ -349,7 +349,7 @@ struct TutorialVideosScreen: View {
     @State private var loading = false
     @State private var observer: Any?
     @State private var chaptersOpen = false
-    @State private var markedStarted = false
+    @State private var progressGate = TutorialProgressGate()
 
     private let catalog = LearnCatalogStore.bundled
 
@@ -677,6 +677,15 @@ struct TutorialVideosScreen: View {
                 Task { @MainActor in
                     currentT = time.seconds
                     isPlaying = player.rate > 0
+                    if progressGate.shouldWrite(
+                        currentSeconds: time.seconds,
+                        isPlaying: isPlaying,
+                        alreadyRecorded: !audience.needsProgressWrite(in: [
+                            audience.progressKey: app.metadataFlag(audience.progressKey),
+                        ])
+                    ) {
+                        Task { await app.setMetadataFlag(audience.progressKey, true) }
+                    }
                     if duration == 0, let d = player.currentItem?.duration.seconds,
                        d.isFinite, d > 0 {
                         duration = d
@@ -691,16 +700,6 @@ struct TutorialVideosScreen: View {
         }
         player.play()
         isPlaying = true
-        if !markedStarted {
-            markedStarted = true
-            let flags = [
-                audience.progressKey: app.metadataFlag(audience.progressKey),
-                "tutorial_started": app.metadataFlag("tutorial_started"),
-            ]
-            if audience.needsProgressWrite(in: flags) {
-                await app.setMetadataFlag(audience.progressKey, true)
-            }
-        }
     }
 
     private func togglePlay() {
@@ -718,6 +717,10 @@ struct TutorialVideosScreen: View {
         if let observer { player.removeTimeObserver(observer) }
         observer = nil
         isPlaying = false
+        currentT = 0
+        duration = 0
+        scrubbing = false
+        scrubT = 0
     }
 
     private func timeString(_ seconds: Double) -> String {

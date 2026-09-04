@@ -94,6 +94,58 @@ final class LearnCatalogTests: XCTestCase {
         ]))
     }
 
+    func testTutorialProgressWaitsForObservedPlaybackTime() {
+        var gate = TutorialProgressGate()
+
+        XCTAssertFalse(gate.shouldWrite(
+            currentSeconds: 0, isPlaying: true, alreadyRecorded: false
+        ))
+        XCTAssertFalse(gate.shouldWrite(
+            currentSeconds: 0.5, isPlaying: false, alreadyRecorded: false
+        ))
+        XCTAssertFalse(gate.shouldWrite(
+            currentSeconds: .infinity, isPlaying: true, alreadyRecorded: false
+        ))
+        XCTAssertTrue(gate.shouldWrite(
+            currentSeconds: 0.25, isPlaying: true, alreadyRecorded: false
+        ))
+    }
+
+    func testTutorialProgressWritesOnlyOncePerCourseScreen() {
+        var gate = TutorialProgressGate()
+
+        XCTAssertTrue(gate.shouldWrite(
+            currentSeconds: 0.25, isPlaying: true, alreadyRecorded: false
+        ))
+        XCTAssertFalse(gate.shouldWrite(
+            currentSeconds: 1.0, isPlaying: true, alreadyRecorded: false
+        ))
+    }
+
+    func testRecordedTutorialProgressConsumesTheFirstPlaybackWithoutWriting() {
+        var gate = TutorialProgressGate()
+
+        XCTAssertFalse(gate.shouldWrite(
+            currentSeconds: 0.25, isPlaying: true, alreadyRecorded: true
+        ))
+        XCTAssertFalse(gate.shouldWrite(
+            currentSeconds: 1.0, isPlaying: true, alreadyRecorded: false
+        ))
+    }
+
+    @MainActor
+    func testCoachEntryChooserOffersWritingAndAudioOnly() {
+        let choices = CoachNewEntryChoice.available
+        let visibleCopy = choices
+            .flatMap { [$0.title, $0.detail] }
+            .joined(separator: " ")
+            .lowercased()
+
+        XCTAssertEqual(choices.map(\.kind), [.write, .audio])
+        XCTAssertFalse(visibleCopy.contains("video"))
+        XCTAssertFalse(visibleCopy.contains("coming soon"))
+    }
+
     func testTutorialRouteCarriesItsAudience() {
         XCTAssertEqual(LearnVideosRoute(.player).audience, .player)
         XCTAssertEqual(LearnVideosRoute(.coach).audience, .coach)
