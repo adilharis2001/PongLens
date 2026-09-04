@@ -268,6 +268,16 @@ export function NotesFeed({
     void loadCoaches();
   }, [loadCoaches]);
 
+  /* Re-read whenever a coach is about to be picked. The list changes on
+     OTHER pages — an invite created in Coaching, one revoked there — and
+     without this the composer kept whatever it loaded when the journal
+     first rendered. Adil hit exactly that: he revoked an invite, made a
+     new one, and the picker still showed the old coach (2026-09-04).
+     Cheap: one RPC, and only when a sheet opens. */
+  useEffect(() => {
+    if (composeOpen || noteEditing || movingOpen) void loadCoaches();
+  }, [composeOpen, noteEditing, movingOpen, loadCoaches]);
+
   useEffect(() => {
     const supabase = createClient();
     void supabase

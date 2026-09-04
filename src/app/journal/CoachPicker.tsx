@@ -116,6 +116,21 @@ export function CoachPicker({
             }`}
           >
             {c.display_name}
+            {/* Which list they are on. Only the invited are marked: a
+                connected coach is the ordinary case, and a coach you
+                typed who is not on PongLens is also ordinary — the share
+                control below is what says who can actually read an
+                entry. Marking all three would be three words of noise on
+                every chip. */}
+            {c.status === "invited" && (
+              <span
+                className={`ml-1.5 font-normal ${
+                  c.id === value ? "text-cyan-glow/70" : "text-zinc-600"
+                }`}
+              >
+                invited
+              </span>
+            )}
           </button>
         ))}
         {!adding && (

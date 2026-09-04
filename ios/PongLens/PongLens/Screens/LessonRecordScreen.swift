@@ -406,7 +406,8 @@ struct LessonRecordScreen: View {
                     coaches: store.playerCoaches,
                     coachRefId: $coachRefId,
                     shareWithCoach: $shareWithCoach,
-                    onCreate: { await store.createCoach(named: $0) }
+                    onCreate: { await store.createCoach(named: $0) },
+                    onAppearReload: { await store.loadCoaches() }
                 )
                 .padding(.top, 16)
             }
