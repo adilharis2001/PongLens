@@ -11,6 +11,7 @@ import {
   type PlayerCoach,
 } from "@/lib/coaches/playerCoaches";
 import { UNNAMED_INVITE, nameCoachInvite } from "@/lib/coaches/nameInvite";
+import { CoachSharedWith } from "@/components/CoachSharedWith";
 
 /**
  * Player-side sharing, modelled as PEOPLE, not links. Each accepted coach is
@@ -534,30 +535,26 @@ export function SharingSection({ userId }: { userId: string }) {
                         ? "Watches all your matches, including future uploads."
                         : "Sees only the matches you share with them from a match page."}
                     </p>
-                    {!g.watchesAll && g.matchIds.length > 0 && (
-                      <ul className="mt-3 space-y-2">
-                        {g.links
-                          .filter((l) => l.scope_match_id)
-                          .map((l) => (
-                            <li
-                              key={l.id}
-                              className="flex items-center justify-between gap-3"
-                            >
-                              <span className="min-w-0 truncate text-sm text-zinc-300">
-                                {matchNames.get(l.scope_match_id!) ?? "Match"}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => void revokeLinks([l.id])}
-                                disabled={busyIds.has(l.id)}
-                                className="shrink-0 text-sm font-medium text-zinc-400 transition-colors hover:text-amber-200 disabled:opacity-60"
-                              >
-                                {busyIds.has(l.id) ? "Removing…" : "Remove"}
-                              </button>
-                            </li>
-                          ))}
-                      </ul>
-                    )}
+                    {/* Matches AND journal entries, each removable. The
+                        matches were listed here already; the journal was
+                        a count, and a count is not something you can take
+                        back one line of. */}
+                    <CoachSharedWith
+                      coachRefId={
+                        journalCoaches.find(
+                          (x) => x.coach_id && x.coach_id === g.coachId,
+                        )?.id ?? null
+                      }
+                      inviteId={null}
+                      allMatches={g.watchesAll}
+                      matchLinks={g.links
+                        .filter((l) => l.scope_match_id)
+                        .map((l) => ({
+                          linkId: l.id,
+                          matchId: l.scope_match_id as string,
+                        }))}
+                      onChanged={fetchLinks}
+                    />
                     <button
                       type="button"
                       onClick={() => void revokeLinks(allIds)}
@@ -703,6 +700,23 @@ export function SharingSection({ userId }: { userId: string }) {
                         Add a name
                       </button>
                     ))}
+
+                  {/* What is already lined up for them (166/169). It was
+                      invisible from the moment the invite was sent. */}
+                  <CoachSharedWith
+                    coachRefId={
+                      journalCoaches.find((j) => j.invite_id === l.id)?.id ??
+                      null
+                    }
+                    inviteId={l.id}
+                    allMatches={l.scope_match_id === null && l.all_matches}
+                    matchLinks={
+                      l.scope_match_id
+                        ? [{ linkId: null, matchId: l.scope_match_id }]
+                        : []
+                    }
+                    onChanged={fetchLinks}
+                  />
 
                   {l.scope_match_id === null && (
                     <div className="mt-2.5 flex flex-wrap gap-2">
