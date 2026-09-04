@@ -1,4 +1,4 @@
-import { getCommerceEnabled } from "@/lib/config";
+import { getCommerceEnabled, getSponsoredEnabled } from "@/lib/config";
 import type { createClient } from "@/lib/supabase/server";
 
 type ServerClient = Awaited<ReturnType<typeof createClient>>;
@@ -6,13 +6,15 @@ type ServerClient = Awaited<ReturnType<typeof createClient>>;
 /**
  * Sponsored reviews a coach can still cover (096). The free allowance
  * lands lazily on first use, so an untouched ledger means the allowance
- * is still waiting, not spent. null when commerce is off, and the row
- * that shows it hides.
+ * is still waiting, not spent. null when commerce is off OR when the
+ * feature is switched off (170), and the row that shows it hides — on
+ * both platforms, since both draw the row from this being non-null.
  */
 export async function sponsoredLeftFor(
   supabase: ServerClient,
 ): Promise<number | null> {
   if (!(await getCommerceEnabled())) return null;
+  if (!(await getSponsoredEnabled())) return null;
   const [{ data: creditRows }, { data: freeRow }] = await Promise.all([
     supabase.from("sponsored_credit_ledger").select("credits, kind"),
     supabase

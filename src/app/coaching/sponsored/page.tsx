@@ -2,7 +2,11 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
-import { getCommerceEnabled, getSponsoredPacks } from "@/lib/config";
+import {
+  getCommerceEnabled,
+  getSponsoredEnabled,
+  getSponsoredPacks,
+} from "@/lib/config";
 import type { OfferingRow } from "@/lib/reviews/types";
 import { createClient } from "@/lib/supabase/server";
 import { SponsoredManager } from "./SponsoredManager";
@@ -24,6 +28,9 @@ export default async function SponsoredPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login?next=/coaching/sponsored");
   if (!(await getCommerceEnabled())) redirect("/coaching");
+  // The row is gone, so the page must be too: a hidden entrance and a
+  // live page is the state where a bookmark still works (170).
+  if (!(await getSponsoredEnabled())) redirect("/coaching");
 
   const { data: profile } = await supabase
     .from("coach_profiles")

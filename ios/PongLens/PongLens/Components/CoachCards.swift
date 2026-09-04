@@ -10,10 +10,12 @@ struct CoachEntryCard: View {
     /// Named on Home, where the list crosses students; a student's own
     /// page passes nil and the line reads "Entry · Sep 2".
     var studentName: String?
-    /// The one-tap share at the card's foot. A coach writing in a
-    /// student's folder assumes the student reads it, and nothing said
-    /// otherwise until the entry was opened. Passed for a student who is
-    /// on PongLens; the card drops it once the entry is shared.
+    /// The one-tap share, in the corner where the Shared badge lands. A
+    /// coach writing in a student's folder assumes the student reads it,
+    /// and nothing said otherwise until the entry was opened. Non-nil for
+    /// a student who is on PongLens — the name itself is no longer drawn,
+    /// so this reads as "there is somebody to share with"; the card drops
+    /// the control once the entry is shared.
     var shareWith: String? = nil
     var sharing = false
     var onShare: (() -> Void)? = nil
@@ -46,6 +48,29 @@ struct CoachEntryCard: View {
                     Text("Shared")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(PL.cyan)
+                } else if shareWith != nil, let onShare {
+                    // In the corner the Shared badge would occupy, sized
+                    // against it, but ringed and filled so it reads as a
+                    // control rather than another status word. It was a
+                    // full-width cyan bar under the entry, which shouted
+                    // beside a badge that whispers (Adil, 2026-09-04).
+                    // The name lives in the page title above; "Share"
+                    // alone is what fits a badge-sized control.
+                    Button(action: onShare) {
+                        Text(sharing ? "Sharing…" : "Share")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PL.cyan)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(PL.cyan.opacity(0.12), in: Capsule())
+                            .overlay(Capsule().strokeBorder(PL.cyan.opacity(0.6), lineWidth: 1))
+                            // The whole pill takes the tap, not only the
+                            // letters: a bare Text button has bitten this
+                            // app twice.
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(sharing)
                 } else if lesson?.status == "queued" {
                     Text("Writing up…")
                         .font(.system(size: 12))
@@ -82,17 +107,6 @@ struct CoachEntryCard: View {
                     }
                 }
                 Spacer(minLength: 0)
-            }
-            if entry.sharedAt == nil, let shareWith, let onShare {
-                HStack {
-                    Button(action: onShare) {
-                        Text(sharing ? "Sharing…" : "Share with \(shareWith)")
-                    }
-                    .buttonStyle(PLCyanGhostButtonStyle())
-                    .disabled(sharing)
-                    Spacer()
-                }
-                .padding(.top, 2)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

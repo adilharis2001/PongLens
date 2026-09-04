@@ -78,6 +78,16 @@ export const getCommerceEnabled = cache(async (): Promise<boolean> => {
   return (await getConfigValue("commerce_enabled")) === "true";
 });
 
+/**
+ * Sponsored reviews, where a coach covers a review for their own student
+ * (096), turned off by Adil on 2026-09-04 for being hard to understand.
+ * Off unless the key says exactly 'true', so a missing row or a failed
+ * read hides the feature rather than exposing it (170).
+ */
+export const getSponsoredEnabled = cache(async (): Promise<boolean> => {
+  return (await getConfigValue("sponsored_reviews_enabled")) === "true";
+});
+
 /** Source-video minutes a paid or sponsored review covers (096). */
 export const getReviewIncludedMinutes = cache(async (): Promise<number> => {
   const raw = Number(await getConfigValue("review_included_minutes"));

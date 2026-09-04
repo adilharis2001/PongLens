@@ -79,8 +79,15 @@ final class CoachStore {
         async let freeQ: ConfigRow? = try? await supa
             .from("app_config").select("value")
             .eq("key", value: "sponsored_free_credits").single().execute().value
-        let (commerce, ledger, freeRow) = await (commerceQ, ledgerQ, freeQ)
-        guard commerce?.value == "true" else {
+        // Sponsored reviews switched off 2026-09-04 (170). Compared
+        // against the literal 'true' so a missing row or a failed read
+        // hides the row rather than showing it; the web reads the same
+        // key in sponsoredLeftFor.
+        async let onQ: ConfigRow? = try? await supa
+            .from("app_config").select("value")
+            .eq("key", value: "sponsored_reviews_enabled").single().execute().value
+        let (commerce, ledger, freeRow, on) = await (commerceQ, ledgerQ, freeQ, onQ)
+        guard commerce?.value == "true", on?.value == "true" else {
             sponsoredLeft = nil
             return
         }
