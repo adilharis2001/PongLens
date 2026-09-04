@@ -3,6 +3,51 @@ import Foundation
 enum LearnAudience: String, Codable, CaseIterable, Hashable {
     case player
     case coach
+
+    init(workspace: AppState.Workspace) {
+        self = workspace == .coach ? .coach : .player
+    }
+
+    var progressKey: String {
+        switch self {
+        case .player: "player_tutorial_started"
+        case .coach: "coach_tutorial_started"
+        }
+    }
+
+    func started(in flags: [String: Bool]) -> Bool {
+        if flags[progressKey] == true { return true }
+        return self == .player && flags["tutorial_started"] == true
+    }
+
+    func needsProgressWrite(in flags: [String: Bool]) -> Bool {
+        flags[progressKey] != true
+    }
+}
+
+struct LearnVideosRoute: Hashable {
+    let audience: LearnAudience
+
+    init(_ audience: LearnAudience) {
+        self.audience = audience
+    }
+}
+
+enum LearnAudienceAccess {
+    static func canSwitch(
+        isCoach: Bool,
+        coachesAnyone: Bool,
+        metadataCoach: Bool,
+        playerSetupPending: Bool
+    ) -> Bool {
+        (isCoach || coachesAnyone || metadataCoach) && !playerSetupPending
+    }
+}
+
+struct TutorialURLRequest: Encodable {
+    let course: LearnAudience
+    let platform = "ios"
+    let slug: String
 }
 
 struct LearnGuideSection: Codable, Hashable {

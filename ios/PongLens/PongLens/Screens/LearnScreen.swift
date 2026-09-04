@@ -3,12 +3,33 @@ import SwiftUI
 
 struct LearnScreen: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var app
+    @Environment(CoachingStore.self) private var coaching
     @State private var query = ""
+    @State private var selectedAudience: LearnAudience?
 
     private let catalog = LearnCatalogStore.bundled
 
+    private var activeAudience: LearnAudience {
+        LearnAudience(workspace: app.workspace)
+    }
+
+    private var canSwitchAudience: Bool {
+        LearnAudienceAccess.canSwitch(
+            isCoach: coaching.isCoach,
+            coachesAnyone: coaching.coachesAnyone,
+            metadataCoach: app.metadataFlag("is_coach"),
+            playerSetupPending: app.playerSetupPending
+        )
+    }
+
+    private var audience: LearnAudience {
+        guard canSwitchAudience else { return activeAudience }
+        return selectedAudience ?? activeAudience
+    }
+
     private var results: [LearnGuide] {
-        catalog.search(query, audience: .player)
+        catalog.search(query, audience: audience)
     }
 
     var body: some View {
@@ -32,6 +53,13 @@ struct LearnScreen: View {
                         .tracking(-0.6)
                         .foregroundStyle(PL.textBody)
 
+                    if canSwitchAudience {
+                        LearnAudienceControl(
+                            audience: audience,
+                            onSelect: { selectedAudience = $0 }
+                        )
+                    }
+
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 14))
@@ -50,7 +78,7 @@ struct LearnScreen: View {
                     )
 
                     if query.isEmpty {
-                        NavigationLink(value: "learn-videos") {
+                        NavigationLink(value: LearnVideosRoute(audience)) {
                             HStack(spacing: 12) {
                                 Circle()
                                     .fill(PL.cyan.opacity(0.1))
@@ -90,7 +118,7 @@ struct LearnScreen: View {
                         }
                         .plCard(padding: 18)
                     } else {
-                        ForEach(catalog.groups(for: .player), id: \.self) { group in
+                        ForEach(catalog.groups(for: audience), id: \.self) { group in
                             let inGroup = results.filter { $0.group == group }
                             if !inGroup.isEmpty {
                                 VStack(alignment: .leading, spacing: 10) {
@@ -141,6 +169,35 @@ struct LearnScreen: View {
         .navigationDestination(for: LearnGuide.self) { guide in
             GuideDetailScreen(guide: guide)
         }
+    }
+}
+
+private struct LearnAudienceControl: View {
+    let audience: LearnAudience
+    let onSelect: (LearnAudience) -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            audienceButton(.player, label: "Playing")
+            audienceButton(.coach, label: "Coaching")
+        }
+        .padding(4)
+        .background(PL.ink.opacity(0.35), in: Capsule())
+        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Learn audience")
+    }
+
+    private func audienceButton(_ value: LearnAudience, label: String) -> some View {
+        let selected = value == audience
+        return Button(label) { onSelect(value) }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(selected ? PL.text100 : PL.text500)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 7)
+            .background(selected ? PL.surface2 : .clear, in: Capsule())
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
@@ -277,6 +334,8 @@ struct GuideDetailScreen: View {
 /// chapter — sound on regardless of the silent switch, and full screen the
 /// moment the phone turns sideways.
 struct TutorialVideosScreen: View {
+    let audience: LearnAudience
+
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
     @State private var urls: [String: URL] = [:]
@@ -290,18 +349,13 @@ struct TutorialVideosScreen: View {
     @State private var loading = false
     @State private var observer: Any?
     @State private var chaptersOpen = false
+    @State private var markedStarted = false
 
-    private let chapters: [(slug: String, title: String)] = [
-        ("home", "Start here"),
-        ("upload", "Upload a match"),
-        ("viewer", "Watch it back"),
-        ("point", "Score a point"),
-        ("keepscore", "Score the Match"),
-        ("analysis", "Read your match"),
-        ("export", "Export and share"),
-        ("coach", "You and your coach"),
-        ("journal", "The journal"),
-    ]
+    private let catalog = LearnCatalogStore.bundled
+
+    private var chapters: [NumberedLearnChapter] {
+        catalog.numberedChapters(for: audience)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -343,7 +397,7 @@ struct TutorialVideosScreen: View {
                             .buttonStyle(PLSecondaryButtonStyle())
                             Spacer()
                             if let currentIndex {
-                                Text(chapters[currentIndex].title)
+                                Text(chapters[currentIndex].chapter.title)
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundStyle(PL.text100)
                             }
@@ -413,21 +467,27 @@ struct TutorialVideosScreen: View {
                     .foregroundStyle(PL.textBody)
 
                 VStack(spacing: 10) {
-                    ForEach(Array(chapters.enumerated()), id: \.element.slug) { i, chapter in
+                    ForEach(Array(chapters.enumerated()), id: \.element.id) { i, numbered in
                         Button {
                             Task { await play(index: i) }
                         } label: {
                             HStack(spacing: 14) {
-                                Text("\(i + 1)")
+                                Text("\(numbered.number)")
                                     .font(.system(size: 14, weight: .bold))
                                     .monospacedDigit()
                                     .foregroundStyle(PL.cyan)
                                     .frame(width: 32, height: 32)
                                     .background(PL.cyan.opacity(0.1), in: Circle())
                                     .overlay(Circle().strokeBorder(PL.cyan.opacity(0.35), lineWidth: 1))
-                                Text(chapter.title)
-                                    .font(.plRowTitle)
-                                    .foregroundStyle(PL.text100)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(numbered.chapter.title)
+                                        .font(.plRowTitle)
+                                        .foregroundStyle(PL.text100)
+                                    Text(numbered.chapter.blurb)
+                                        .font(.plCaption)
+                                        .foregroundStyle(PL.text500)
+                                        .lineLimit(2)
+                                }
                                 Spacer()
                                 Image(systemName: "play.fill")
                                     .font(.system(size: 13))
@@ -550,18 +610,18 @@ struct TutorialVideosScreen: View {
     private var chaptersSheet: some View {
         ScrollView {
             VStack(spacing: 6) {
-                ForEach(Array(chapters.enumerated()), id: \.element.slug) { i, chapter in
+                ForEach(Array(chapters.enumerated()), id: \.element.id) { i, numbered in
                     Button {
                         chaptersOpen = false
                         Task { await play(index: i) }
                     } label: {
                         HStack(spacing: 12) {
-                            Text("\(i + 1)")
+                            Text("\(numbered.number)")
                                 .font(.plMicro)
                                 .monospacedDigit()
                                 .foregroundStyle(currentIndex == i ? PL.cyan : PL.text500)
                                 .frame(width: 24)
-                            Text(chapter.title)
+                            Text(numbered.chapter.title)
                                 .font(.plBody)
                                 .foregroundStyle(currentIndex == i ? PL.cyan : PL.text300)
                             Spacer()
@@ -591,13 +651,16 @@ struct TutorialVideosScreen: View {
     // MARK: - Playback
 
     private func play(index: Int) async {
-        let slug = chapters[index].slug
+        guard chapters.indices.contains(index) else { return }
+        let slug = chapters[index].chapter.slug
         currentIndex = index
         loading = urls[slug] == nil
         if urls[slug] == nil {
-            struct Req: Encodable { let slug: String }
             struct Res: Decodable { let urls: [String: String] }
-            let res: Res? = try? await API.post("api/tutorial-url", Req(slug: slug))
+            let res: Res? = try? await API.post(
+                "api/tutorial-url",
+                TutorialURLRequest(course: audience, slug: slug)
+            )
             if let raw = res?.urls[slug], let url = URL(string: raw) {
                 urls[slug] = url
             }
@@ -628,7 +691,16 @@ struct TutorialVideosScreen: View {
         }
         player.play()
         isPlaying = true
-        await app.setMetadataFlag("tutorial_started", true)
+        if !markedStarted {
+            markedStarted = true
+            let flags = [
+                audience.progressKey: app.metadataFlag(audience.progressKey),
+                "tutorial_started": app.metadataFlag("tutorial_started"),
+            ]
+            if audience.needsProgressWrite(in: flags) {
+                await app.setMetadataFlag(audience.progressKey, true)
+            }
+        }
     }
 
     private func togglePlay() {

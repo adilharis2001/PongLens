@@ -304,8 +304,9 @@ struct HomeScreen: View {
         /// The "+ New match" chooser — iOS's door to /upload.
         case newMatch
         case tab(MainTab)
-        /// A pushed String route ("learn-videos", "guide:score-keeper", …).
+        /// A pushed String route ("guide:score-keeper", …).
         case route(String)
+        case tutorial(LearnAudience)
         case match(MatchRow)
     }
 
@@ -342,8 +343,15 @@ struct HomeScreen: View {
                  go: onMatch("share-a-link")),
             Step(label: "Share a match with your coach", done: homeStore.coachLinksCount > 0,
                  go: onMatch("invite-a-coach")),
-            Step(label: "Watch the tutorial videos", done: app.metadataFlag("tutorial_started"),
-                 go: .route("learn-videos")),
+            Step(
+                label: "Watch the tutorial videos",
+                done: LearnAudience.player.started(in: [
+                    LearnAudience.player.progressKey:
+                        app.metadataFlag(LearnAudience.player.progressKey),
+                    "tutorial_started": app.metadataFlag("tutorial_started"),
+                ]),
+                go: .tutorial(.player)
+            ),
         ]
     }
 
@@ -376,6 +384,8 @@ struct HomeScreen: View {
             switch step.go {
             case .route(let route):
                 NavigationLink(value: route) { content }.buttonStyle(.plain)
+            case .tutorial(let audience):
+                NavigationLink(value: LearnVideosRoute(audience)) { content }.buttonStyle(.plain)
             case .match(let match):
                 NavigationLink(value: match) { content }.buttonStyle(.plain)
             case .newMatch:

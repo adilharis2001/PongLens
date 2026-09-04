@@ -115,7 +115,10 @@ struct AccountScreen: View {
                     group("Support") {
                         linkRow("How-to guides", value: "learn")
                         rowDivider
-                        linkRow("Tutorial videos", value: "learn-videos")
+                        linkRow(
+                            "Tutorial videos",
+                            value: LearnVideosRoute(LearnAudience(workspace: app.workspace))
+                        )
                         rowDivider
                         linkRow("Feedback", value: "feedback")
                         rowDivider
@@ -483,7 +486,7 @@ struct AccountScreen: View {
         Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1).padding(.leading, 16)
     }
 
-    private func linkRow(_ label: String, value: String) -> some View {
+    private func linkRow<Value: Hashable>(_ label: String, value: Value) -> some View {
         NavigationLink(value: value) {
             HStack {
                 Text(label)

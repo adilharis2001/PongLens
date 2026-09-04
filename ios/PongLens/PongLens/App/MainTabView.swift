@@ -57,8 +57,13 @@ struct MainTabView: View {
 
     /// A coaching side exists: the flag, a marketplace page, or someone's
     /// accepted coach. The top-bar switch shows only then.
-    private var coachEligible: Bool {
-        coaching.isCoach || coaching.coachesAnyone || app.metadataFlag("is_coach")
+    private var canSwitchWorkspace: Bool {
+        LearnAudienceAccess.canSwitch(
+            isCoach: coaching.isCoach,
+            coachesAnyone: coaching.coachesAnyone,
+            metadataCoach: app.metadataFlag("is_coach"),
+            playerSetupPending: app.playerSetupPending
+        )
     }
 
     /// Everything the chooser used to do inline, now also reachable from
@@ -112,7 +117,7 @@ struct MainTabView: View {
                     // player who set up coaching from Account. A coach who
                     // merely switched here still has the playing questions
                     // pending, and their way back stays in Account.
-                    switchTo: coachEligible && !app.playerSetupPending ? "Coaching" : nil,
+                    switchTo: canSwitchWorkspace ? "Coaching" : nil,
                     onSwitch: { app.setWorkspace(.coach) },
                     onBell: { bellOpen = true },
                     onAvatar: { path.append("account") }
@@ -162,7 +167,7 @@ struct MainTabView: View {
                 case "stats-tactics": StatsScreen(initialTab: "Tactics")
                 case "starred": StarredScreen()
                 case "learn": LearnScreen()
-                case "learn-videos": TutorialVideosScreen()
+                case "learn-videos": TutorialVideosScreen(audience: .player)
                 case "feedback": FeedbackScreen()
                 // Marketplace screens: only the Coaching tab pushes these,
                 // and the tab is gated on the same flag — this is a second
@@ -193,6 +198,9 @@ struct MainTabView: View {
                         EmptyView()
                     }
                 }
+            }
+            .navigationDestination(for: LearnVideosRoute.self) { route in
+                TutorialVideosScreen(audience: route.audience)
             }
             .navigationDestination(for: CoachOrderRoute.self) { route in
                 if AppConfig.coachMarketplace {

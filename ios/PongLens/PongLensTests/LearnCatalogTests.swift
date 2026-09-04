@@ -56,4 +56,88 @@ final class LearnCatalogTests: XCTestCase {
             ["add-connect-student"]
         )
     }
+
+    func testAudienceFollowsTheActiveWorkspace() {
+        XCTAssertEqual(LearnAudience(workspace: .player), .player)
+        XCTAssertEqual(LearnAudience(workspace: .coach), .coach)
+    }
+
+    func testEachAudienceUsesItsOwnTutorialProgressKey() {
+        XCTAssertEqual(LearnAudience.player.progressKey, "player_tutorial_started")
+        XCTAssertEqual(LearnAudience.coach.progressKey, "coach_tutorial_started")
+    }
+
+    func testLegacyTutorialProgressCountsForPlayersOnly() {
+        let legacyProgress = ["tutorial_started": true]
+
+        XCTAssertTrue(LearnAudience.player.started(in: legacyProgress))
+        XCTAssertFalse(LearnAudience.coach.started(in: legacyProgress))
+    }
+
+    func testAudienceProgressDoesNotLeakBetweenCourses() {
+        let playerProgress = ["player_tutorial_started": true]
+        let coachProgress = ["coach_tutorial_started": true]
+
+        XCTAssertTrue(LearnAudience.player.started(in: playerProgress))
+        XCTAssertFalse(LearnAudience.coach.started(in: playerProgress))
+        XCTAssertTrue(LearnAudience.coach.started(in: coachProgress))
+        XCTAssertFalse(LearnAudience.player.started(in: coachProgress))
+    }
+
+    func testLegacyPlayerCompletionStillWritesTheNewKeyOnFirstPlayback() {
+        XCTAssertTrue(LearnAudience.player.needsProgressWrite(in: [
+            "tutorial_started": true,
+        ]))
+        XCTAssertFalse(LearnAudience.player.needsProgressWrite(in: [
+            "player_tutorial_started": true,
+            "tutorial_started": true,
+        ]))
+    }
+
+    func testTutorialRouteCarriesItsAudience() {
+        XCTAssertEqual(LearnVideosRoute(.player).audience, .player)
+        XCTAssertEqual(LearnVideosRoute(.coach).audience, .coach)
+    }
+
+    func testLearnAudienceSwitchUsesTheWorkspaceSwitcherEligibility() {
+        XCTAssertTrue(LearnAudienceAccess.canSwitch(
+            isCoach: true, coachesAnyone: false, metadataCoach: false,
+            playerSetupPending: false
+        ))
+        XCTAssertTrue(LearnAudienceAccess.canSwitch(
+            isCoach: false, coachesAnyone: true, metadataCoach: false,
+            playerSetupPending: false
+        ))
+        XCTAssertTrue(LearnAudienceAccess.canSwitch(
+            isCoach: false, coachesAnyone: false, metadataCoach: true,
+            playerSetupPending: false
+        ))
+        XCTAssertFalse(LearnAudienceAccess.canSwitch(
+            isCoach: false, coachesAnyone: false, metadataCoach: false,
+            playerSetupPending: false
+        ))
+    }
+
+    func testPendingPlayerSetupSuppressesTheLearnAudienceSwitch() {
+        XCTAssertFalse(LearnAudienceAccess.canSwitch(
+            isCoach: true, coachesAnyone: true, metadataCoach: true,
+            playerSetupPending: true
+        ))
+    }
+
+    @MainActor
+    func testTutorialRequestIdentifiesCoursePlatformAndChapter() throws {
+        let data = try JSONEncoder().encode(
+            TutorialURLRequest(course: .coach, slug: "coach-feedback")
+        )
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: String]
+        )
+
+        XCTAssertEqual(object, [
+            "course": "coach",
+            "platform": "ios",
+            "slug": "coach-feedback",
+        ])
+    }
 }

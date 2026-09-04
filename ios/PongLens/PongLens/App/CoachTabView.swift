@@ -137,8 +137,13 @@ struct CoachTabView: View {
             .navigationDestination(for: String.self) { route in
                 switch route {
                 case "account": AccountScreen()
+                case "learn": LearnScreen()
+                case "learn-videos": TutorialVideosScreen(audience: .coach)
                 default: EmptyView()
                 }
+            }
+            .navigationDestination(for: LearnVideosRoute.self) { route in
+                TutorialVideosScreen(audience: route.audience)
             }
         }
         .environment(router)
