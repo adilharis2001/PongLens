@@ -7,6 +7,7 @@ import {
   mergeCandidates,
   moveSummary,
   normalizeCoachName,
+  possessive,
   shareHint,
   sortCoaches,
   statusLabel,
@@ -134,4 +135,11 @@ test("a bulk move says what it is about to do", () => {
     moveSummary(12, "Jonathan", true),
     "Move 12 entries to Jonathan and share them.",
   );
+});
+
+test("a name ending in s takes the bare apostrophe", () => {
+  assert.equal(possessive("Adil Haris"), "Adil Haris'");
+  assert.equal(possessive("Colby"), "Colby's");
+  assert.equal(possessive("  Chris  "), "Chris'");
+  assert.equal(possessive(""), "");
 });

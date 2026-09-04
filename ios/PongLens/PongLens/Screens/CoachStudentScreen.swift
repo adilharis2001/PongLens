@@ -191,7 +191,11 @@ struct CoachStudentScreen: View {
                 let fromThem = workspace.shared(from: student)
                 if !fromThem.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
-                        SectionHeading("From \(student.displayName)")
+                        // Their journal, named as such. "From <name>" read like a
+                        // message addressed to the coach, something to act
+                        // on, rather than a window onto what the student
+                        // keeps for themselves (Adil, 2026-09-04).
+                        SectionHeading("\(possessive(student.displayName)) journal")
                         ForEach(fromThem) { shared in
                             StudentSharedCard(entry: shared)
                         }

@@ -161,6 +161,16 @@ struct PlayerCoach: Codable, Identifiable, Hashable {
     }
 }
 
+/// "Adil Haris' journal", not "Adil Haris's journal". A singular name
+/// already ending in s takes the bare apostrophe, which is the form that
+/// reads naturally out loud. The web twin is possessive() in
+/// src/lib/coaches/playerCoaches.ts.
+func possessive(_ name: String) -> String {
+    let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !clean.isEmpty else { return clean }
+    return clean.lowercased().hasSuffix("s") ? "\(clean)'" : "\(clean)'s"
+}
+
 /// A coach's shared entry, as coach_shared_entries() returns it: the
 /// coach's live words, refreshed on every journal load. Read-only here —
 /// the coach owns the row.

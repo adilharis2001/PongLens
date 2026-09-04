@@ -148,3 +148,16 @@ export function moveSummary(
     ? `Move ${entries} to ${coachName} and share them.`
     : `Move ${entries} to ${coachName}.`;
 }
+
+/**
+ * "Adil Haris' journal", not "Adil Haris's journal".
+ *
+ * A singular name already ending in s takes the bare apostrophe, which is
+ * the form that reads naturally out loud — and the coach reading this
+ * heading is looking at a real person's name, so it should look like one.
+ */
+export function possessive(name: string): string {
+  const clean = name.trim();
+  if (!clean) return clean;
+  return /s$/i.test(clean) ? `${clean}'` : `${clean}'s`;
+}
