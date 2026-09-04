@@ -27,6 +27,10 @@ struct CoachStudentScreen: View {
         workspace.activeStudents.filter { !$0.linked && $0.id != studentId }
     }
 
+    /// Game scores for the matches on screen (169). The same walk the
+    /// player's own app runs, so the two can never disagree.
+    @State private var scores: [UUID: MatchScoreChip] = [:]
+
     private var matches: [MatchRow] {
         guard let playerId = student?.playerId else { return [] }
         return library.matches
@@ -200,16 +204,28 @@ struct CoachStudentScreen: View {
                         if matches.isEmpty {
                             CoachEmptyLine(text: "Nothing shared yet.")
                         } else {
-                            CoachGroup {
-                                ForEach(Array(matches.enumerated()), id: \.element.id) { i, match in
+                            // Cards, not a list of names (Adil,
+                            // 2026-09-04). A coach opening a new student
+                            // should SEE what they have been doing rather
+                            // than read dates and tap each one to find
+                            // out.
+                            VStack(spacing: 8) {
+                                ForEach(matches) { match in
                                     NavigationLink(value: match) {
-                                        CoachMatchLine(match: match)
+                                        CoachMatchCard(
+                                            match: match,
+                                            score: scores[match.id]
+                                        )
                                     }
                                     .buttonStyle(.plain)
-                                    if i < matches.count - 1 { CoachRowDivider() }
                                 }
                             }
                         }
+                    }
+                    .task(id: matches.map(\.id)) {
+                        let ready = matches.filter { $0.status == .ready }.map(\.id)
+                        guard !ready.isEmpty else { return }
+                        scores = await CoachMatchScores.load(matchIds: ready)
                     }
                 }
 
@@ -243,6 +259,16 @@ private struct StudentSharedCard: View {
     let entry: StudentSharedLesson
     @State private var open = false
 
+    /// The first line of substance, for a card that is closed.
+    private var preview: String? {
+        let first = entry.takeaways?.themes?.first?.points.first
+        let words = (first ?? entry.transcript)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        if words.isEmpty { return nil }
+        return words.count > 140 ? String(words.prefix(140)) + "…" : words
+    }
+
     /// One line to name it: the distilled title, else the opening words.
     /// Same rule as CoachEntryCard and the web's entryTitle().
     private var title: String {
@@ -260,7 +286,7 @@ private struct StudentSharedCard: View {
                 open.toggle()
             } label: {
                 HStack(alignment: .top, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(title)
                             .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(PL.text100)
@@ -268,6 +294,17 @@ private struct StudentSharedCard: View {
                         Text(PGDate.shortDate(entry.createdAt))
                             .font(.plCaption)
                             .foregroundStyle(PL.text500)
+                        // A title and a date alone say nothing about
+                        // whether an entry is worth opening; the first
+                        // thing the student actually wrote does.
+                        if !open, let peek = preview, !peek.isEmpty {
+                            Text(peek)
+                                .font(.plBody)
+                                .foregroundStyle(PL.text400)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                                .padding(.top, 2)
+                        }
                     }
                     Spacer(minLength: 8)
                     Image(systemName: open ? "chevron.up" : "chevron.down")
@@ -303,5 +340,78 @@ private struct StudentSharedCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
+    }
+}
+
+/// One of a student's matches, as a coach sees it (169): the picture,
+/// who it was against, when and where, and how it went.
+private struct CoachMatchCard: View {
+    let match: MatchRow
+    let score: MatchScoreChip?
+
+    private var title: String {
+        if let opponent = match.opponentName, !opponent.isEmpty {
+            return "vs \(opponent)"
+        }
+        if let name = match.originalName, !name.isEmpty { return name }
+        return match.matchType == "practice" ? "Practice" : "Match"
+    }
+
+    private var subtitle: String {
+        [PGDate.shortDate(match.playedAt), match.venue]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Group {
+                if match.status == .ready {
+                    MatchThumb(matchId: match.id)
+                } else {
+                    ThumbPlaceholder()
+                }
+            }
+            .frame(width: 104, height: 58)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(PL.textBody)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.text500)
+                    .lineLimit(1)
+                if let score {
+                    HStack(spacing: 6) {
+                        Text("\(score.you)–\(score.them)")
+                            .font(.system(size: 13, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(PL.text200)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .overlay(
+                                Capsule().strokeBorder(PL.edge, lineWidth: 1)
+                            )
+                        if !score.complete {
+                            Text("in progress")
+                                .font(.plCaption)
+                                .foregroundStyle(PL.text600)
+                        }
+                    }
+                    .padding(.top, 1)
+                } else if match.status != .ready {
+                    Text(match.status == .failed ? "Failed" : "Working on it")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text600)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 10)
     }
 }

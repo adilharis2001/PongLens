@@ -315,6 +315,9 @@ struct AllMatchesCoachInvite: View {
     /// waiting invite says a name instead of "Invite sent", and the
     /// journal can attribute entries to them before they accept.
     @State private var inviteName = ""
+    /// What the coach finds waiting when they accept (169).
+    @Environment(LibraryStore.self) private var library
+    @State private var starter = StarterPackStore()
     @State private var link: URL?
     @State private var creating = false
     @State private var errorMessage: String?
@@ -379,6 +382,13 @@ struct AllMatchesCoachInvite: View {
                              ? "Every match, including future uploads. You can change this later under Your coaches."
                              : "You share each match from its page. You can change this later under Your coaches.")
                     }
+
+                    InviteStarterPackSections(
+                        store: starter,
+                        // "All my matches" already covers every match.
+                        offerMatches: !allMatches,
+                        named: !inviteName.trimmingCharacters(in: .whitespaces).isEmpty
+                    )
                 }
             }
             .tint(PL.cyan)
@@ -392,6 +402,10 @@ struct AllMatchesCoachInvite: View {
             }
         }
         .preferredColorScheme(.dark)
+        .task {
+            guard let uid = app.userId, !starter.loaded else { return }
+            await starter.load(userId: uid, library: library.matches)
+        }
     }
 
     private func create() async {
@@ -413,6 +427,9 @@ struct AllMatchesCoachInvite: View {
                 .value
             await coaching.nameInvite(
                 playerId: uid, inviteId: row.id, name: inviteName
+            )
+            await starter.apply(
+                userId: uid, inviteId: row.id, includeMatches: !allMatches
             )
             link = URL(string: "https://www.ponglens.com/coach-invite/\(row.invite_token)")
             await coaching.load(userId: uid)
