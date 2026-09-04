@@ -24,6 +24,12 @@ struct CoachPickerRow: View {
     /// Find-or-create by name; nil if it failed.
     let onCreate: (String) async -> PlayerCoach?
 
+    /// Re-read the list every time the control appears. It changes on
+    /// other screens — an invite made or revoked in Coaching — and
+    /// without this the composer keeps whatever it loaded when the
+    /// journal first rendered.
+    let onAppearReload: () async -> Void
+
     @State private var addingName = ""
     @State private var addOpen = false
     @State private var busy = false
@@ -43,10 +49,17 @@ struct CoachPickerRow: View {
                         // cannot leave a share switched on behind it.
                         if !coach.canReceiveEntries { shareWithCoach = false }
                     } label: {
+                        // Which list they are on. Only the invited are
+                        // marked: a connected coach is the ordinary case,
+                        // and so is one you typed who is not on PongLens.
+                        // The share toggle below says who can read it.
+                        let label = coach.status == "invited"
+                            ? "\(coach.displayName) · invited"
+                            : coach.displayName
                         if coach.id == coachRefId {
-                            Label(coach.displayName, systemImage: "checkmark")
+                            Label(label, systemImage: "checkmark")
                         } else {
-                            Text(coach.displayName)
+                            Text(label)
                         }
                     }
                 }
@@ -99,6 +112,7 @@ struct CoachPickerRow: View {
                     .foregroundStyle(PL.dangerText)
             }
         }
+        .task { await onAppearReload() }
         .alert("Add a coach", isPresented: $addOpen) {
             TextField("Their name", text: $addingName)
                 .textInputAutocapitalization(.words)

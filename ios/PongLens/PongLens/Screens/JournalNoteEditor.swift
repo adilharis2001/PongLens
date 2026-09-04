@@ -77,6 +77,7 @@ struct JournalNoteEditor: View {
             lesson: lesson,
             coaches: store.playerCoaches,
             onCreateCoach: { await store.createCoach(named: $0) },
+            onReloadCoaches: { await store.loadCoaches() },
             onSaveNote: { takeaways, coach, photo in
                 await store.saveNote(
                     lesson: lesson, takeaways: takeaways, coachName: coach.name,
@@ -98,12 +99,14 @@ struct JournalNoteEditor: View {
         lesson: LessonRow,
         coaches: [PlayerCoach] = [],
         onCreateCoach: @escaping (String) async -> PlayerCoach? = { _ in nil },
+        onReloadCoaches: @escaping () async -> Void = {},
         onSaveNote: @escaping (LessonTakeaways, CoachAttribution, EntryPhotoSave) async -> String?,
         onSaveWords: @escaping (String, CoachAttribution, EntryPhotoSave) async -> String?
     ) {
         self.lesson = lesson
         self.coaches = coaches
         self.onCreateCoach = onCreateCoach
+        self.onReloadCoaches = onReloadCoaches
         self.onSaveNote = onSaveNote
         self.onSaveWords = onSaveWords
         let draft = Self.draft(from: lesson.takeaways)
@@ -128,6 +131,7 @@ struct JournalNoteEditor: View {
 
     let coaches: [PlayerCoach]
     let onCreateCoach: (String) async -> PlayerCoach?
+    let onReloadCoaches: () async -> Void
 
     /// A note exists, so the note is what gets edited.
     private var editsNote: Bool { lesson.takeaways != nil }
@@ -154,7 +158,8 @@ struct JournalNoteEditor: View {
                             coaches: coaches,
                             coachRefId: $coachRefId,
                             shareWithCoach: $shareWithCoach,
-                            onCreate: onCreateCoach
+                            onCreate: onCreateCoach,
+                            onAppearReload: onReloadCoaches
                         )
                     }
                 }
