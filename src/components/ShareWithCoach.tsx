@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ShareQR } from "@/components/ShareQR";
+import { UNNAMED_INVITE, nameCoachInvite } from "@/lib/coaches/nameInvite";
 
 /** One waiting invite, from pending_invite_matches() (166): who it is
  *  for, what it already covers, and whether THIS match is lined up to go
@@ -71,6 +72,9 @@ export function ShareWithCoachSheet({
   // can attribute entries to them straight away, before they accept.
   // That second one is the whole reason an invited coach needed a row.
   const [inviteName, setInviteName] = useState("");
+  /** The waiting invite whose name is being typed, if any. */
+  const [namingId, setNamingId] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState("");
 
   const loadCoaches = useCallback(async () => {
     if (!matchId) {
@@ -189,6 +193,27 @@ export function ShareWithCoachSheet({
     [matchId, loadCoaches, onLinkCreated],
   );
 
+  /** Name a waiting invite that was created without one (164).
+   *
+   *  The field is optional at creation and easy to skip — Adil skipped it
+   *  and then asked why the row said "Invite link" (2026-09-04). It is
+   *  not decoration: the name is what puts that coach in the journal's
+   *  picker, so it has to be addable afterwards rather than needing the
+   *  invite revoked and sent again. */
+  const nameInvite = useCallback(
+    async (inviteId: string, name: string) => {
+      setBusyCoach(inviteId);
+      setError(null);
+      const ok = await nameCoachInvite(createClient(), userId, inviteId, name);
+      if (!ok) setError("Couldn't save that name. Try again.");
+      await loadCoaches();
+      setBusyCoach(null);
+      setNamingId(null);
+      onLinkCreated?.();
+    },
+    [userId, loadCoaches, onLinkCreated],
+  );
+
   const coachState = (c: ConnectedCoach) =>
     c.allMatches
       ? "Sees all your matches"
@@ -216,42 +241,10 @@ export function ShareWithCoachSheet({
       setError("Couldn't create the link. Try again.");
       return;
     }
-    // The name, if one was given. Find-or-create, never a blind insert:
-    // a player who already has "Jonathan" in their journal and then
-    // invites Jonathan must end up with ONE of him, or this feature has
-    // created the duplicate it exists to remove.
-    //
-    // A failure here loses the name and not the invite: the link is the
-    // thing being asked for, and the row can be made again from the
-    // journal or by the accept itself.
-    const name = inviteName.trim().replace(/\s+/gu, " ").slice(0, 80);
-    if (name) {
-      const { data: mine } = await supabase
-        .from("player_coaches")
-        .select("id, display_name, coach_id")
-        .eq("player_id", userId)
-        .is("archived_at", null);
-      const existing = (
-        (mine as { id: string; display_name: string; coach_id: string | null }[]) ??
-        []
-      ).find(
-        (c) =>
-          c.coach_id === null &&
-          c.display_name.trim().toLowerCase() === name.toLowerCase(),
-      );
-      if (existing) {
-        await supabase
-          .from("player_coaches")
-          .update({ invite_id: data.id })
-          .eq("id", existing.id);
-      } else {
-        await supabase.from("player_coaches").insert({
-          player_id: userId,
-          display_name: name,
-          invite_id: data.id,
-        });
-      }
-    }
+    // The name, if one was given. A failure here loses the name and not
+    // the invite: the link is the thing being asked for, and it can be
+    // named afterwards from the waiting-invite row.
+    await nameCoachInvite(supabase, userId, data.id, inviteName);
     setCreating(false);
     setLink(`${window.location.origin}/coach-invite/${data.invite_token}`);
     onLinkCreated?.();
@@ -377,8 +370,12 @@ export function ShareWithCoachSheet({
                     className="flex items-center justify-between gap-3 px-4 py-3"
                   >
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-zinc-100">
-                        {inv.display_name ?? "Invite link"}
+                      <span
+                        className={`block truncate text-sm font-medium ${
+                          inv.display_name ? "text-zinc-100" : "text-zinc-500"
+                        }`}
+                      >
+                        {inv.display_name ?? UNNAMED_INVITE}
                       </span>
                       <span className="block text-xs text-zinc-500">
                         {covered
@@ -389,6 +386,52 @@ export function ShareWithCoachSheet({
                             ? "Gets this match when they accept"
                             : "Hasn't opened the link yet"}
                       </span>
+                      {!inv.display_name && (
+                        namingId === inv.invite_id ? (
+                          <span className="mt-2 flex gap-2">
+                            <input
+                              type="text"
+                              value={nameDraft}
+                              onChange={(e) =>
+                                setNameDraft(e.target.value.slice(0, 80))
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void nameInvite(inv.invite_id, nameDraft);
+                                }
+                                if (e.key === "Escape") setNamingId(null);
+                              }}
+                              maxLength={80}
+                              autoFocus
+                              placeholder="Their name"
+                              aria-label="Coach name"
+                              className="min-w-0 flex-1 rounded-lg border border-edge bg-ink/40 px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void nameInvite(inv.invite_id, nameDraft)
+                              }
+                              disabled={nameDraft.trim() === ""}
+                              className="shrink-0 rounded-full border border-edge bg-surface-2 px-3 py-1 text-sm font-semibold text-zinc-200 disabled:opacity-60"
+                            >
+                              Save
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNameDraft("");
+                              setNamingId(inv.invite_id);
+                            }}
+                            className="mt-1 text-sm font-medium text-cyan-glow"
+                          >
+                            Add a name
+                          </button>
+                        )
+                      )}
                     </span>
                     {covered ? null : busyCoach === inv.invite_id ? (
                       <span className="text-sm text-zinc-500">…</span>
@@ -416,9 +459,13 @@ export function ShareWithCoachSheet({
           </div>
         )}
 
-        {matchId && ((coaches?.length ?? 0) > 0 || invites.length > 0) && (
+        {/* The header has to describe what is under it. It said "Invite
+            another coach" over a link that had just been made, which
+            reads as a second invitation nobody asked for (Adil,
+            2026-09-04). */}
+        {(link || (matchId && ((coaches?.length ?? 0) > 0 || invites.length > 0))) && (
           <p className="mt-5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Invite another coach
+            {link ? "Send this invite" : "Invite another coach"}
           </p>
         )}
 
@@ -508,8 +555,8 @@ export function ShareWithCoachSheet({
         ) : (
           <>
             <p className="mt-1 text-sm text-zinc-400">
-              Send this link to your coach. You can revoke it anytime from
-              your dashboard.
+              It is waiting until they open it. You can revoke it any time
+              from Coaching.
             </p>
             <p className="mt-3 break-all rounded-lg border border-edge bg-ink/60 px-3 py-2.5 text-xs text-zinc-300">
               {link}
@@ -533,6 +580,18 @@ export function ShareWithCoachSheet({
               )}
             </div>
             <ShareQR url={link} />
+            <button
+              type="button"
+              onClick={() => {
+                setLink(null);
+                setInviteName("");
+                setCopied(false);
+                void loadCoaches();
+              }}
+              className="mt-3 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
+            >
+              Invite someone else
+            </button>
           </>
         )}
         {error && <p className="mt-3 text-xs text-red-400">{error}</p>}

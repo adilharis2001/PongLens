@@ -146,9 +146,11 @@ struct CoachAccessList: View {
                 // The name, when the invite was created with one (164).
                 // "Invite pending" over three waiting invites tells you
                 // nothing about which is which.
-                Text(coaching.invitedNames[link.id] ?? "Invite pending")
+                Text(coaching.invitedNames[link.id] ?? CoachingStore.unnamedInvite)
                     .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
+                    .foregroundStyle(
+                        coaching.invitedNames[link.id] == nil ? PL.text500 : PL.text100
+                    )
                 Text(link.scopeMatchId != nil
                      ? "One match"
                      : link.allMatches ? "All matches" : "Only matches you share")

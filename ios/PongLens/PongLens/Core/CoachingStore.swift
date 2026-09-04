@@ -59,6 +59,13 @@ final class CoachingStore {
     /// name since 164 shipped; the phone said nothing, which is also why
     /// an invited coach never reached the journal's picker there.
     var invitedNames: [UUID: String] = [:]
+
+    /// What a waiting invite is called when nobody named it. Never a
+    /// person's name and never something that reads like one: it sits
+    /// exactly where a coach's name goes, and "Invite sent" there looks
+    /// like a coach called Invite Sent (Adil, 2026-09-04). Saying it is
+    /// unnamed is also the prompt to name it.
+    static let unnamedInvite = "Unnamed invite"
     var orders: [StudentOrderRow] = []
     var loaded = false
 

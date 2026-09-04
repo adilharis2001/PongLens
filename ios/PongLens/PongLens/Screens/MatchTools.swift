@@ -609,6 +609,9 @@ struct CoachInviteSheet: View {
     /// waiting invite says a name instead of "Invite sent", and the
     /// journal can attribute entries to them before they accept.
     @State private var inviteName = ""
+    /// The waiting invite being named after the fact, and its draft.
+    @State private var namingInvite: UUID?
+    @State private var nameDraft = ""
     @State private var link: URL?
     @State private var creating = false
     @State private var errorMessage: String?
@@ -638,8 +641,10 @@ struct CoachInviteSheet: View {
                         ForEach(pending) { invite in
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(invite.name ?? "Invite sent")
-                                        .foregroundStyle(PL.text100)
+                                    Text(invite.name ?? CoachingStore.unnamedInvite)
+                                        .foregroundStyle(
+                                            invite.name == nil ? PL.text500 : PL.text100
+                                        )
                                     Text(invite.covers
                                          ? "Gets \(invite.access) when they accept"
                                          : invite.queued
@@ -659,6 +664,18 @@ struct CoachInviteSheet: View {
                                     .fontWeight(invite.queued ? .regular : .semibold)
                                     .foregroundStyle(invite.queued ? PL.text400 : PL.cyan)
                                 }
+                                if invite.name == nil {
+                                    // Naming it afterwards. The field is
+                                    // optional at creation and easy to
+                                    // skip, and the name is what puts
+                                    // this coach in the journal picker.
+                                    Button("Name") {
+                                        namingInvite = invite.id
+                                        nameDraft = ""
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .foregroundStyle(PL.cyan)
+                                }
                                 ShareLink(item: URL(string: "https://www.ponglens.com/coach-invite/\(invite.token)")!) {
                                     Image(systemName: "square.and.arrow.up")
                                 }
@@ -676,26 +693,34 @@ struct CoachInviteSheet: View {
                             .textInputAutocapitalization(.words)
                             .autocorrectionDisabled()
                     }
-                    Picker("Share", selection: $scope) {
-                        Text("This match").tag("match")
-                        Text("All my matches").tag("all")
+                    if link == nil {
+                        Picker("Share", selection: $scope) {
+                            Text("This match").tag("match")
+                            Text("All my matches").tag("all")
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.segmented)
-                    .disabled(link != nil)
 
                     if let link {
-                        Text(link.absoluteString)
-                            .font(.system(size: 13, design: .monospaced))
-                            .foregroundStyle(PL.text300)
-                            .lineLimit(2)
+                        // The raw URL is gone on purpose. It is two lines
+                        // of unreadable hex that nobody retypes, and the
+                        // invite is now in Waiting to accept above with
+                        // its own share control — so this is only here to
+                        // finish the job you just started.
                         ShareLink(item: link) {
-                            Text("Share the link")
+                            Text("Send the link")
                         }
                         Toggle("Show QR", isOn: $showQR)
                         if showQR {
                             QRCodeView(url: link)
                                 .listRowBackground(Color.clear)
                         }
+                        Button("Invite someone else") {
+                            self.link = nil
+                            inviteName = ""
+                            showQR = false
+                        }
+                        .foregroundStyle(PL.text400)
                     } else {
                         Button(creating ? "Creating…" : "Create invite link") {
                             Task { await create() }
@@ -708,9 +733,19 @@ struct CoachInviteSheet: View {
                         }
                     }
                 } header: {
-                    Text(coaches.isEmpty && pending.isEmpty ? "Invite a coach" : "Invite another coach")
+                    // The header has to describe what is in the section.
+                    // It said "Invite another coach" over a link that had
+                    // just been made, which reads as a second invitation
+                    // you did not ask for (Adil, 2026-09-04).
+                    Text(link != nil
+                         ? "Send this invite"
+                         : coaches.isEmpty && pending.isEmpty
+                            ? "Invite a coach"
+                            : "Invite another coach")
                 } footer: {
-                    Text("For a coach you haven't connected yet. They open the link, sign in, and can watch your matches point by point and leave notes.")
+                    Text(link != nil
+                         ? "It is waiting above until they open it."
+                         : "For a coach you haven't connected yet. They open the link, sign in, and can watch your matches point by point and leave notes.")
                 }
             }
             .tint(PL.cyan)
@@ -725,6 +760,31 @@ struct CoachInviteSheet: View {
         }
         .preferredColorScheme(.dark)
         .task { await load() }
+        .alert(
+            "Name this invite",
+            isPresented: Binding(
+                get: { namingInvite != nil },
+                set: { if !$0 { namingInvite = nil } }
+            )
+        ) {
+            TextField("Their name", text: $nameDraft)
+                .textInputAutocapitalization(.words)
+            Button("Cancel", role: .cancel) { namingInvite = nil }
+            Button("Save") {
+                if let id = namingInvite, let uid = app.userId {
+                    let name = nameDraft
+                    Task {
+                        busyCoach = id
+                        await coaching.nameInvite(
+                            playerId: uid, inviteId: id, name: name
+                        )
+                        await load()
+                        busyCoach = nil
+                    }
+                }
+                namingInvite = nil
+            }
+        }
     }
 
     @ViewBuilder
