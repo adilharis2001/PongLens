@@ -53,9 +53,9 @@ struct CoachPickerRow: View {
                         // marked: a connected coach is the ordinary case,
                         // and so is one you typed who is not on PongLens.
                         // The share toggle below says who can read it.
-                        let label = coach.status == "invited"
-                            ? "\(coach.displayName) · invited"
-                            : coach.displayName
+                        let label = coach.stateMark.map {
+                            "\(coach.displayName) · \($0)"
+                        } ?? coach.displayName
                         if coach.id == coachRefId {
                             Label(label, systemImage: "checkmark")
                         } else {
