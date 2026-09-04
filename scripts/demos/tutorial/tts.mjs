@@ -1,7 +1,7 @@
 /**
  * Narration for a tutorial chapter — OpenAI text to speech, one file per line.
  *
- *   node scripts/demos/tutorial/tts.mjs <chapter>
+ *   node scripts/demos/tutorial/tts.mjs <course> <chapter> [--reuse]
  *
  * Narration is generated FIRST and its measured durations drive everything
  * downstream: the capture waits for exactly as long as each line takes to
@@ -17,9 +17,25 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { catalogChapter, chapterPaths } from "./course-paths.mjs";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
-const ARGV = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+const TTS_USAGE = "usage: tts.mjs <player|coach> <chapter> [--reuse]";
+
+export function parseTTSArgs(args) {
+  const reuse = args.at(-1) === "--reuse";
+  const positional = reuse ? args.slice(0, -1) : args;
+  if (positional.length !== 2 || positional.some((arg) => arg.startsWith("--"))) {
+    throw new Error(TTS_USAGE);
+  }
+  const [course, slug] = positional;
+  try {
+    catalogChapter(course, slug);
+  } catch (error) {
+    throw new Error(`${TTS_USAGE}\n${error.message}`);
+  }
+  return { course, slug, reuse };
+}
 /**
  * Keep the recording of any line whose words have not changed.
  *
@@ -38,18 +54,6 @@ const ARGV = process.argv.slice(2).filter((a) => !a.startsWith("--"));
  * or speed cannot quietly keep half its old reading. Older files predate
  * the fingerprint and say so rather than silently passing.
  */
-const REUSE = process.argv.includes("--reuse");
-const CHAPTER = ARGV[0] ?? "upload";
-/**
- * Where chapters/, audio/ and voice/ live. Defaults to this pipeline's own
- * folder. The landing video passes its own directory so the two productions
- * keep separate scripts and audio while sharing the timing machinery, which
- * is the part that has to behave identically for both.
- *
- *   node tts.mjs landing ../landing
- */
-const BASE = ARGV[1] ? path.resolve(DIR, ARGV[1]) : DIR;
-
 /**
  * Silence held after each line, and before the first word.
  *
@@ -143,9 +147,10 @@ async function speak(key, model, script, line, file, { withSpeed }) {
   writeFileSync(file, Buffer.from(await res.arrayBuffer()));
 }
 
-const script = JSON.parse(
-  readFileSync(path.join(BASE, "chapters", `${CHAPTER}.json`), "utf8")
-);
+export async function runTTS(args) {
+const { course, slug, reuse } = parseTTSArgs(args);
+const paths = chapterPaths(DIR, course, slug);
+const script = JSON.parse(readFileSync(paths.chapter, "utf8"));
 
 /** How the last run was read, so `--reuse` can tell it is the same read. */
 const delivery = {
@@ -164,8 +169,8 @@ const delivery = {
  */
 const previous = new Map();
 let previousModel = null;
-if (REUSE) {
-  const voicePath = path.join(BASE, "voice", `${CHAPTER}.json`);
+if (reuse) {
+  const voicePath = paths.voice;
   if (!existsSync(voicePath)) {
     console.log("reuse: no previous voice file, speaking every line");
   } else {
@@ -185,9 +190,9 @@ if (REUSE) {
   }
 }
 
-const audioDir = path.join(BASE, "audio", CHAPTER);
+const audioDir = paths.audio;
 mkdirSync(audioDir, { recursive: true });
-mkdirSync(path.join(BASE, "voice"), { recursive: true });
+mkdirSync(path.dirname(paths.voice), { recursive: true });
 const eleven = script.provider === "elevenlabs";
 /** Fetched on the first line that actually needs speaking, so a run that
  *  reuses everything does not demand a key it is never going to spend. */
@@ -269,14 +274,14 @@ for (const line of script.lines) {
     // else without the move being on screen.
     ...(line.separator ? { separator: line.separator } : {}),
     text: line.text,
-    file: path.relative(BASE, file),
+    file: path.relative(DIR, file),
     start: Number(at.toFixed(3)),
     dur: Number(dur.toFixed(3)),
   });
   console.log(
     `  ${line.id}  ${dur.toFixed(2)}s  @${at.toFixed(2)}s` +
       (line.pause ? `  (+${line.pause}s hold)` : "") +
-      (reusable ? "  kept" : REUSE ? "  spoken" : "")
+      (reusable ? "  kept" : reuse ? "  spoken" : "")
   );
   // `pause` buys a beat more screen time than its sentence needs. Beats are
   // pinned to narration, so without it the only way to hold a shot for
@@ -308,10 +313,18 @@ const voice = {
   lines,
 };
 writeFileSync(
-  path.join(BASE, "voice", `${CHAPTER}.json`),
+  paths.voice,
   `${JSON.stringify(voice, null, 2)}\n`
 );
 console.log(
-  `total ${voice.total.toFixed(1)}s at ${voice.wpm} wpm -> voice/${CHAPTER}.json` +
-    (REUSE ? `  (${kept} of ${lines.length} lines kept)` : "")
+  `total ${voice.total.toFixed(1)}s at ${voice.wpm} wpm -> voice/${course}/${slug}.json` +
+    (reuse ? `  (${kept} of ${lines.length} lines kept)` : "")
 );
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  runTTS(process.argv.slice(2)).catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}

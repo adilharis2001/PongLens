@@ -27,6 +27,7 @@ export function chapterPaths(root, course, slug) {
     audio: path.join(root, "audio", chapter.course, chapter.slug),
     rawVideo: path.join(root, "raw", chapter.course, `tut-${chapter.slug}.mp4`),
     rawCues: path.join(root, "raw", chapter.course, `tut-${chapter.slug}.cues.json`),
+    guard: path.join(root, "raw", chapter.course, `${chapter.slug}-guard.json`),
     output: path.join(root, "out", chapter.course, `${chapter.slug}.mp4`),
   };
 }
@@ -55,4 +56,15 @@ export function catalogChapters(course, platform = "web") {
     }
     return chapter;
   });
+}
+
+export function catalogChapter(course, slug, platform = "web") {
+  const ref = parseChapterRef(course, slug);
+  const chapter = catalogChapters(course, platform).find(
+    (candidate) => candidate.slug === ref.slug,
+  );
+  if (!chapter) {
+    throw new Error(`Unknown tutorial catalog chapter: ${ref.id}`);
+  }
+  return chapter;
 }

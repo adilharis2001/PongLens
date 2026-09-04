@@ -11,7 +11,7 @@
  * the note sheet is opened and closed without sending.
  */
 
-export { account } from "./account.mjs";
+export { account } from "../account.mjs";
 export const entry = "/matches";
 const MATCH = "a0fb8f44-89b1-464e-a2a5-388b502dbda5";
 export const guard = "a0fb8f44-89b1-464e-a2a5-388b502dbda5";

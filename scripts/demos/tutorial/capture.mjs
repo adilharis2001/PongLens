@@ -2,7 +2,7 @@
  * Tutorial chapter capture driver.
  *
  *   SERVICE_KEY=... BASE=http://localhost:3000 \
- *     node scripts/demos/tutorial/capture.mjs <chapter>
+ *     node scripts/demos/tutorial/capture.mjs <course> <chapter>
  *
  * Signs the demo account in, hands the page to flows/<chapter>.mjs, and
  * records both the picture and an annotation cue track (record-cues.mjs).
@@ -23,79 +23,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { makeCueRecorder } from "./record-cues.mjs";
 import { snapshot, restore } from "./guard.mjs";
+import { catalogChapter, chapterPaths } from "./course-paths.mjs";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
-/**
- * Where voice/, flows/ and raw/ live. Defaults to this pipeline's own
- * folder; the landing video passes its own so the two productions keep
- * separate scripts and footage while sharing the clock, which is the part
- * that has to behave identically for both.
- *
- *   node capture.mjs mobile ../landing
- */
-const WORK = process.argv[3] ? path.resolve(DIR, process.argv[3]) : DIR;
-const RAW = path.join(WORK, "raw");
-/**
- * Viewport. The tutorial chapters are all phone-sized; the landing video is
- * shot twice, once at each size, so it comes from the environment rather
- * than being baked in.
- */
-const VIEWPORT = {
-  width: Number(process.env.SHOT_W ?? 390),
-  height: Number(process.env.SHOT_H ?? 844),
-  dsf: Number(process.env.SHOT_DSF ?? 2),
-};
-const BASE = process.env.BASE ?? "http://localhost:3000";
-const SERVICE_KEY = process.env.SERVICE_KEY;
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
 const DEMO_EMAIL = "uploader-test@example.com";
-const CHAPTER = process.argv[2] ?? "upload";
-/** Which account a chapter is shot from. Flows override with `account`
- *  (chapters using real match data run from the owner's own account). */
-let ACCOUNT = DEMO_EMAIL;
+const CAPTURE_USAGE = "usage: SERVICE_KEY=... capture.mjs <player|coach> <chapter>";
 
-if (!SERVICE_KEY) {
-  console.error("SERVICE_KEY env var required (supabase service role key)");
-  process.exit(1);
-}
-
-/**
- * Which narration to time against. Normally the chapter's own, but the
- * landing video is shot twice from one script — flows/mobile.mjs and
- * flows/desktop.mjs both run against voice/landing.json — so the two can
- * be named apart.
- */
-const VOICE = process.env.SHOT_VOICE ?? CHAPTER;
-const voice = JSON.parse(
-  readFileSync(path.join(WORK, "voice", `${VOICE}.json`), "utf8")
-);
-const chapter = await import(path.join(WORK, "flows", `${CHAPTER}.mjs`));
-if (chapter.account) ACCOUNT = chapter.account;
-
-/** Beat window: when its narration line starts and ends. */
-const beat = (id) => {
-  const l = voice.lines.find((x) => x.beat === id);
-  if (!l) throw new Error(`no narration line for beat ${id}`);
-  return { start: l.start, end: l.start + l.dur, dur: l.dur };
-};
-
-async function magicLink(next) {
-  const res = await fetch(`${SUPABASE}/auth/v1/admin/generate_link`, {
-    method: "POST",
-    headers: {
-      apikey: SERVICE_KEY,
-      Authorization: `Bearer ${SERVICE_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ type: "magiclink", email: ACCOUNT }),
-  });
-  const data = await res.json();
-  if (!data.hashed_token) {
-    throw new Error(`magic link failed: ${JSON.stringify(data)}`);
+export function parseCaptureArgs(args) {
+  if (args.length !== 2) throw new Error(CAPTURE_USAGE);
+  const [course, slug] = args;
+  try {
+    catalogChapter(course, slug);
+  } catch (error) {
+    throw new Error(`${CAPTURE_USAGE}\n${error.message}`);
   }
-  return `${BASE}/auth/confirm?token_hash=${data.hashed_token}&type=email&next=${encodeURIComponent(
-    next
-  )}`;
+  return { course, slug };
 }
 
 /** Element lookup shared by every flow and by the recorder's rect helper. */
@@ -273,6 +216,46 @@ export const union = (...rects) => {
   };
 };
 
+export async function runCapture(args) {
+  const { course, slug } = parseCaptureArgs(args);
+  const paths = chapterPaths(DIR, course, slug);
+  const rawDir = path.dirname(paths.rawVideo);
+  const viewport = {
+    width: Number(process.env.SHOT_W ?? 390),
+    height: Number(process.env.SHOT_H ?? 844),
+    dsf: Number(process.env.SHOT_DSF ?? 2),
+  };
+  const base = process.env.BASE ?? "http://localhost:3000";
+  const serviceKey = process.env.SERVICE_KEY;
+  if (!serviceKey) {
+    throw new Error("SERVICE_KEY env var required (supabase service role key)");
+  }
+
+  const voice = JSON.parse(readFileSync(paths.voice, "utf8"));
+  const chapter = await import(paths.flow);
+  const account = chapter.account ?? DEMO_EMAIL;
+  const beat = (id) => {
+    const line = voice.lines.find((candidate) => candidate.beat === id);
+    if (!line) throw new Error(`no narration line for beat ${id}`);
+    return { start: line.start, end: line.start + line.dur, dur: line.dur };
+  };
+  const magicLink = async (next) => {
+    const res = await fetch(`${SUPABASE}/auth/v1/admin/generate_link`, {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ type: "magiclink", email: account }),
+    });
+    const data = await res.json();
+    if (!data.hashed_token) {
+      throw new Error(`magic link failed: ${JSON.stringify(data)}`);
+    }
+    return `${base}/auth/confirm?token_hash=${data.hashed_token}&type=email&next=${encodeURIComponent(next)}`;
+  };
+
 /**
  * Phone or desktop, and it is not just the viewport size.
  *
@@ -286,10 +269,10 @@ export const union = (...rects) => {
  *
  * Default follows the viewport; SHOT_TOUCH forces it either way.
  */
-const TOUCH =
+const touch =
   process.env.SHOT_TOUCH !== undefined
     ? process.env.SHOT_TOUCH === "1"
-    : VIEWPORT.width < 1024;
+    : viewport.width < 1024;
 
 // --force-device-scale-factor, or everything below is decoration. Headless
 // Chrome rasterises at 1x no matter what deviceScaleFactor the context
@@ -299,21 +282,21 @@ const TOUCH =
 // canvas at render. Nothing about that is visible until you watch the file.
 const browser = await chromium.launch({
   channel: "chrome",
-  args: [`--force-device-scale-factor=${VIEWPORT.dsf}`],
+  args: [`--force-device-scale-factor=${viewport.dsf}`],
 });
 const context = await browser.newContext({
-  viewport: { width: VIEWPORT.width, height: VIEWPORT.height },
-  deviceScaleFactor: VIEWPORT.dsf,
-  isMobile: TOUCH,
-  hasTouch: TOUCH,
-  ...(TOUCH
+  viewport: { width: viewport.width, height: viewport.height },
+  deviceScaleFactor: viewport.dsf,
+  isMobile: touch,
+  hasTouch: touch,
+  ...(touch
     ? {
         userAgent:
           "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
       }
     : {}),
 });
-console.log(`device: ${TOUCH ? "touch (phone)" : "mouse (desktop)"} at ${VIEWPORT.width}x${VIEWPORT.height}`);
+console.log(`device: ${touch ? "touch (phone)" : "mouse (desktop)"} at ${viewport.width}x${viewport.height}`);
 await context.addInitScript(PICKER);
 const page = await context.newPage();
 
@@ -321,7 +304,7 @@ const page = await context.newPage();
 // covers a thrown error; the file covers the case the `finally` cannot —
 // the process being killed outright — so the demo account is always
 // recoverable with `node guard.mjs restore <file>`.
-const snapPath = path.join(RAW, `.guard-${CHAPTER}.json`);
+const snapPath = paths.guard;
 let snap = null;
 try {
   if (chapter.guard) {
@@ -329,8 +312,8 @@ try {
     // one and a real traced rally on another), so the guard takes a list.
     const ids = [].concat(chapter.guard);
     console.log("snapshotting demo data…");
-    snap = await Promise.all(ids.map((id) => snapshot(SERVICE_KEY, id)));
-    mkdirSync(RAW, { recursive: true });
+    snap = await Promise.all(ids.map((id) => snapshot(serviceKey, id)));
+    mkdirSync(rawDir, { recursive: true });
     writeFileSync(snapPath, JSON.stringify(snap));
   }
 
@@ -339,7 +322,7 @@ try {
   // content it needs to show without leaving it behind.
   if (chapter.stage) {
     console.log("staging…");
-    await chapter.stage(SERVICE_KEY);
+    await chapter.stage(serviceKey);
   }
 
   console.log("signing in…");
@@ -350,23 +333,24 @@ try {
   await page.addStyleTag({ content: HIDE_DEV_CHROME });
   if (chapter.prepare) await chapter.prepare(page);
 
-  mkdirSync(RAW, { recursive: true });
-  const record = makeCueRecorder(RAW);
-  console.log(`recording tut-${CHAPTER}…`);
-  const { out, cues, duration } = await record(page, `tut-${CHAPTER}`, (p, clock) =>
+  mkdirSync(rawDir, { recursive: true });
+  const record = makeCueRecorder(rawDir);
+  console.log(`recording ${course}/${slug}…`);
+  const { out, cues, duration } = await record(page, `tut-${slug}`, (p, clock) =>
     chapter.flow(p, clock, {
       beat, voice, union, dismiss, sectionRect,
-      serviceKey: SERVICE_KEY, base: BASE,
+      serviceKey, base,
     })
   );
 
   writeFileSync(
-    path.join(RAW, `tut-${CHAPTER}.cues.json`),
+    paths.rawCues,
     `${JSON.stringify(
       {
-        chapter: CHAPTER,
+        course,
+        chapter: slug,
         video: path.basename(out),
-        viewport: { w: VIEWPORT.width, h: VIEWPORT.height, dsf: VIEWPORT.dsf },
+        viewport: { w: viewport.width, h: viewport.height, dsf: viewport.dsf },
         duration: Number(duration.toFixed(3)),
         cues,
       },
@@ -379,13 +363,21 @@ try {
   await browser.close();
   if (snap) {
     console.log("restoring demo data…");
-    for (const one of snap) await restore(SERVICE_KEY, one);
+    for (const one of snap) await restore(serviceKey, one);
     rmSync(snapPath, { force: true });
   }
   // Chapters that create rows the guard cannot model (a queued job, a match
   // that does not exist yet) tear their own work down here.
   if (chapter.cleanup) {
     console.log("cleaning up…");
-    await chapter.cleanup(SERVICE_KEY).catch((e) => console.error("  " + e.message));
+    await chapter.cleanup(serviceKey).catch((e) => console.error("  " + e.message));
   }
+}
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  runCapture(process.argv.slice(2)).catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
 }

@@ -16,7 +16,7 @@
  * saving, and revealing a Recollect card is a read.
  */
 
-export { account } from "./account.mjs";
+export { account } from "../account.mjs";
 export const entry = "/journal";
 
 export async function prepare(page) {

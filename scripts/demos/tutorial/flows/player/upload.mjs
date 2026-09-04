@@ -13,7 +13,7 @@
  * pipeline run on a throwaway. It races the poll; see the notes there.
  */
 
-export { account } from "./account.mjs";
+export { account } from "../account.mjs";
 export const entry = "/upload";
 
 /** The match Adil supplied for this: the same footage as the Gui match. */

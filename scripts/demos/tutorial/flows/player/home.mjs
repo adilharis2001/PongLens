@@ -8,7 +8,7 @@
  * lands on nothing.
  */
 
-export { account } from "./account.mjs";
+export { account } from "../account.mjs";
 export const entry = "/dashboard";
 
 export async function prepare(page) {

@@ -20,7 +20,7 @@
  * retention sweep — the same trade the app makes for any deleted note.
  */
 
-import { account, coach } from "./account.mjs";
+import { account, coach } from "../account.mjs";
 export { account };
 export const entry = "/match/a0fb8f44-89b1-464e-a2a5-388b502dbda5";
 export const guard = "a0fb8f44-89b1-464e-a2a5-388b502dbda5";

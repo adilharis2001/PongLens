@@ -2,7 +2,7 @@
  * Dump the on-screen elements of a route, so a flow targets things that
  * actually exist at the size they actually are.
  *
- *   SERVICE_KEY=... node scripts/demos/tutorial/probe.mjs <account> <path> [step ...]
+ *   SERVICE_KEY=... node scripts/demos/tutorial/probe.mjs <course> <account> <path> [step ...]
  *
  * Steps run before the dump, and are either `click:<text>` (first button
  * whose text starts with it), `aria:<label>` (first matching aria-label),
@@ -14,22 +14,43 @@
  */
 
 import { chromium } from "playwright";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { catalogChapters } from "./course-paths.mjs";
 
-const [account, routePath, ...steps] = process.argv.slice(2);
-const BASE = process.env.BASE ?? "https://www.ponglens.com";
-const SERVICE_KEY = process.env.SERVICE_KEY;
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
+const PROBE_USAGE = "usage: SERVICE_KEY=... probe.mjs <player|coach> <email> <path> [click:X|aria:X|scroll:X|wait:500 ...]";
 
-if (!SERVICE_KEY || !account || !routePath) {
-  console.error("usage: SERVICE_KEY=... probe.mjs <email> <path> [click:X|aria:X|wait:500 ...]");
-  process.exit(1);
+export function parseProbeArgs(args) {
+  const [course, account, routePath, ...steps] = args;
+  try {
+    catalogChapters(course);
+  } catch (error) {
+    throw new Error(`${PROBE_USAGE}\n${error.message}`);
+  }
+  const validAccount = typeof account === "string" && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(account);
+  const validPath = typeof routePath === "string" && routePath.startsWith("/") && !routePath.startsWith("//");
+  const validSteps = steps.every((step) => {
+    const [kind, ...rest] = step.split(":");
+    const value = rest.join(":");
+    if (!["click", "aria", "scroll", "wait"].includes(kind) || !value) return false;
+    return kind !== "wait" || /^\d+$/.test(value);
+  });
+  if (!validAccount || !validPath || !validSteps) throw new Error(PROBE_USAGE);
+  return { course, account, routePath, steps };
 }
+
+export async function runProbe(args) {
+const { account, routePath, steps } = parseProbeArgs(args);
+const base = process.env.BASE ?? "https://www.ponglens.com";
+const serviceKey = process.env.SERVICE_KEY;
+if (!serviceKey) throw new Error("SERVICE_KEY env var required (supabase service role key)");
 
 const res = await fetch(`${SUPABASE}/auth/v1/admin/generate_link`, {
   method: "POST",
   headers: {
-    apikey: SERVICE_KEY,
-    Authorization: `Bearer ${SERVICE_KEY}`,
+    apikey: serviceKey,
+    Authorization: `Bearer ${serviceKey}`,
     "Content-Type": "application/json",
   },
   body: JSON.stringify({ type: "magiclink", email: account }),
@@ -45,7 +66,7 @@ const ctx = await browser.newContext({
 });
 const page = await ctx.newPage();
 await page.goto(
-  `${BASE}/auth/confirm?token_hash=${hashed_token}&type=email&next=${encodeURIComponent(routePath)}`
+  `${base}/auth/confirm?token_hash=${hashed_token}&type=email&next=${encodeURIComponent(routePath)}`
 );
 await page.waitForTimeout(6000);
 
@@ -101,3 +122,11 @@ const dump = await page.evaluate(() => {
 
 console.log(JSON.stringify(dump, null, 1));
 await browser.close();
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  runProbe(process.argv.slice(2)).catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}

@@ -15,7 +15,24 @@
  * here — nothing is deleted, and no media is involved.
  */
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { catalogChapter, chapterPaths } from "./course-paths.mjs";
+
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
+const DIR = path.dirname(fileURLToPath(import.meta.url));
+const GUARD_USAGE = "usage: SERVICE_KEY=... guard.mjs restore <player|coach> <chapter>";
+
+export function parseGuardArgs(args) {
+  if (args.length !== 3 || args[0] !== "restore") throw new Error(GUARD_USAGE);
+  const [, course, slug] = args;
+  try {
+    catalogChapter(course, slug);
+  } catch (error) {
+    throw new Error(`${GUARD_USAGE}\n${error.message}`);
+  }
+  return { command: "restore", course, slug };
+}
 
 /** Everything Keep score (and its follow-ups) can write on a point. */
 const POINT_FIELDS = [
@@ -181,12 +198,20 @@ export async function restore(key, snap) {
   return restored;
 }
 
-// Recovery path for a capture that was killed before its `finally` ran:
-//   SERVICE_KEY=... node guard.mjs restore raw/.guard-keepscore.json
-if (process.argv[1]?.endsWith("guard.mjs") && process.argv[2] === "restore") {
+// Recovery path for a capture that was killed before its `finally` ran.
+export async function runGuard(args) {
+  const { course, slug } = parseGuardArgs(args);
+  const paths = chapterPaths(DIR, course, slug);
   const { readFileSync } = await import("node:fs");
   const key = process.env.SERVICE_KEY;
   if (!key) throw new Error("SERVICE_KEY env var required");
-  const saved = JSON.parse(readFileSync(process.argv[3], "utf8"));
+  const saved = JSON.parse(readFileSync(paths.guard, "utf8"));
   for (const one of [].concat(saved)) await restore(key, one);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  runGuard(process.argv.slice(2)).catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
 }
