@@ -1,13 +1,38 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { coachInviteCopy } from "@/lib/coaches/invitePreviewData";
 import { Logo } from "@/components/Logo";
 import { AcceptInvite } from "./AcceptInvite";
 
-export const metadata: Metadata = {
-  title: "Coach invite",
-  robots: { index: false, follow: false },
-};
+/**
+ * The link preview (169). An invite is pasted into a message and read as
+ * a picture before anybody taps it, so it says who is asking and what
+ * for, rather than the generic "a performance hub for competitive table
+ * tennis" that told a coach nothing.
+ *
+ * Still noindex: a preview is for the person holding the link, not for
+ * search. The image lives in opengraph-image.tsx beside this file and
+ * reads the same copy, so the two cannot disagree.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const copy = await coachInviteCopy((await params).token);
+  return {
+    title: copy.title,
+    description: copy.detail,
+    robots: { index: false, follow: false },
+    openGraph: { title: copy.title, description: copy.detail },
+    twitter: {
+      card: "summary_large_image",
+      title: copy.title,
+      description: copy.detail,
+    },
+  };
+}
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
