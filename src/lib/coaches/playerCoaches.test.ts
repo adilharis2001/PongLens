@@ -35,6 +35,25 @@ test("an invited coach can still be shared with", () => {
   assert.equal(canReceiveEntries("offline"), false);
 });
 
+test("a coach who removed you is never offered a share", () => {
+  // They keep the lessons they taught, and nothing else.
+  assert.equal(canReceiveEntries("past"), false);
+  assert.equal(shareHint("past"), null);
+  assert.equal(
+    statusLabel(coach({ status: "past", entry_count: 2 })),
+    "No longer connected",
+  );
+});
+
+test("a former coach sorts below everyone still in play", () => {
+  const rows = [
+    coach({ id: "p", display_name: "Aa", status: "past" }),
+    coach({ id: "o", display_name: "Zz", status: "offline" }),
+    coach({ id: "c", display_name: "Zz", status: "connected" }),
+  ];
+  assert.deepEqual(sortCoaches(rows).map((c) => c.id), ["c", "o", "p"]);
+});
+
 test("the share hint never guesses a pronoun", () => {
   for (const status of ["connected", "invited"] as PlayerCoachStatus[]) {
     const hint = shareHint(status);

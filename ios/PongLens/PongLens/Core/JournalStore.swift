@@ -119,7 +119,10 @@ struct PlayerCoach: Codable, Identifiable, Hashable {
     let displayName: String
     let coachEmail: String?
     let inviteId: UUID?
-    /// "connected" | "invited" | "offline", derived from coach_links.
+    /// "connected" | "invited" | "past" | "offline", from coach_links.
+    /// past and offline are separate on purpose: offline may be invited
+    /// later, past is a relationship that ended on either side and the
+    /// row survives only because the lessons did.
     let status: String
     let entryCount: Int
     let sharedCount: Int
@@ -138,6 +141,15 @@ struct PlayerCoach: Codable, Identifiable, Hashable {
     /// counts: student_shared_lessons() needs an accepted link too, so a
     /// share set while an invite is out simply waits for it.
     var canReceiveEntries: Bool { status == "connected" || status == "invited" }
+
+    /// The marker beside the name in a picker, when there is one to make.
+    var stateMark: String? {
+        switch status {
+        case "invited": return "invited"
+        case "past": return "past"
+        default: return nil
+        }
+    }
 
     /// The line under the share control. Never guesses a pronoun.
     var shareHint: String? {
@@ -278,7 +290,7 @@ final class JournalStore {
     /// each. The coach you are working with today is the one you are
     /// about to pick. Mirrors sortCoaches() on the web.
     private func applyCoaches(_ rows: [PlayerCoach]) {
-        let rank = ["connected": 0, "invited": 1, "offline": 2]
+        let rank = ["connected": 0, "invited": 1, "offline": 2, "past": 3]
         playerCoaches = rows.sorted {
             let a = rank[$0.status] ?? 3
             let b = rank[$1.status] ?? 3

@@ -16,8 +16,13 @@
 /** How far along a coach is, derived server-side from coach_links.
  *  - connected: an accepted link, so they can read what is shared now
  *  - invited:   an invite sent, waiting to be accepted
- *  - offline:   named by the player, not on PongLens (or no longer linked) */
-export type PlayerCoachStatus = "connected" | "invited" | "offline";
+ *  - past:      you were connected and are not any more, on either side
+ *  - offline:   named by the player, never on PongLens
+ *
+ *  past and offline are deliberately separate. Offline may be invited
+ *  later; past is a relationship that ended, and the row only survives
+ *  because the lessons did. */
+export type PlayerCoachStatus = "connected" | "invited" | "past" | "offline";
 
 /** One row of player_coaches_list(). */
 export interface PlayerCoach {
@@ -65,6 +70,7 @@ export function shareHint(status: PlayerCoachStatus): string | null {
 /** What the row says under the name in a list. */
 export function statusLabel(coach: PlayerCoach): string {
   if (coach.status === "invited") return "Invite sent";
+  if (coach.status === "past") return "No longer connected";
   if (coach.status === "offline") return "Not on PongLens";
   return coach.shared_count > 0
     ? `${coach.shared_count} of ${coach.entry_count} entries shared`
@@ -83,6 +89,8 @@ export function sortCoaches(rows: PlayerCoach[]): PlayerCoach[] {
     connected: 0,
     invited: 1,
     offline: 2,
+    // Last: they taught you, and that is all they are now.
+    past: 3,
   };
   return [...rows].sort(
     (a, b) =>

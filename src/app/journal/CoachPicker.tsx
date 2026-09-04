@@ -122,13 +122,13 @@ export function CoachPicker({
                 control below is what says who can actually read an
                 entry. Marking all three would be three words of noise on
                 every chip. */}
-            {c.status === "invited" && (
+            {(c.status === "invited" || c.status === "past") && (
               <span
                 className={`ml-1.5 font-normal ${
                   c.id === value ? "text-cyan-glow/70" : "text-zinc-600"
                 }`}
               >
-                invited
+                {c.status === "invited" ? "invited" : "past"}
               </span>
             )}
           </button>
