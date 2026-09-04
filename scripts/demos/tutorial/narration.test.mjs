@@ -174,6 +174,53 @@ async function readManifest(course, slug) {
   return JSON.parse(await readFile(manifestPath, "utf8"));
 }
 
+function assertNarrationLines(lines, label) {
+  assert.ok(lines.length >= 5, `${label} line count`);
+  for (const [index, line] of lines.entries()) {
+    for (const field of ["id", "text", "beat"]) {
+      assert.equal(typeof line[field], "string", `${label} line ${index + 1} ${field} type`);
+      assert.ok(line[field].trim().length > 0, `${label} line ${index + 1} ${field} value`);
+    }
+  }
+
+  const ids = lines.map(({ id }) => id);
+  const beats = lines.map(({ beat }) => beat);
+  assert.equal(new Set(ids).size, ids.length, `${label} duplicate line ids`);
+  assert.equal(new Set(beats).size, beats.length, `${label} duplicate beats`);
+  assert.deepEqual(
+    ids,
+    lines.map((_, index) => `l${index + 1}`),
+    `${label} line ids must be sequential`,
+  );
+}
+
+test("narration line metadata rejects duplicate and non-sequential identifiers", () => {
+  const valid = [
+    { id: "l1", text: "First", beat: "open" },
+    { id: "l2", text: "Second", beat: "next" },
+    { id: "l3", text: "Third", beat: "detail" },
+    { id: "l4", text: "Fourth", beat: "review" },
+    { id: "l5", text: "Fifth", beat: "finish" },
+  ];
+
+  assert.throws(
+    () => assertNarrationLines(valid.with(1, { ...valid[1], id: "l1" }), "duplicate id"),
+    /duplicate line ids/i,
+  );
+  assert.throws(
+    () => assertNarrationLines(valid.with(1, { ...valid[1], beat: "open" }), "duplicate beat"),
+    /duplicate beats/i,
+  );
+  assert.throws(
+    () => assertNarrationLines(valid.with(1, { ...valid[1], id: "l6" }), "bad sequence"),
+    /sequential/i,
+  );
+  assert.throws(
+    () => assertNarrationLines(valid.with(1, { ...valid[1], text: " " }), "empty text"),
+    /text value/i,
+  );
+});
+
 for (const course of ["player", "coach"]) {
   test(`${course} narration matches the approved course and catalog`, async () => {
     const catalog = catalogChapters(course, "web");
@@ -187,11 +234,7 @@ for (const course of ["player", "coach"]) {
       assert.equal(script.voice, "sage", `${course}/${chapter.slug} voice`);
       assert.equal(script.speed, 1.3, `${course}/${chapter.slug} speed`);
       assert.match(script.instructions, /Warm and plain spoken/, `${course}/${chapter.slug} direction`);
-      assert.ok(script.lines.length >= 5, `${course}/${chapter.slug} line count`);
-      assert.ok(
-        script.lines.every((line) => line.id && line.text && line.beat),
-        `${course}/${chapter.slug} line fields`,
-      );
+      assertNarrationLines(script.lines, `${course}/${chapter.slug}`);
       assert.deepEqual(
         script.lines.map(({ text }) => text),
         approvedNarration[course][chapter.slug],

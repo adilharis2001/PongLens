@@ -226,17 +226,39 @@ Web only:
 Account values stay in the shell. Never put real addresses or credentials in
 the repository.
 
+The staging script owns fixed rows for John Miller's shared-match account and
+Miguel Santos's coach account. These identities were verified against their
+fixed auth-user IDs before documenting them here. The student used for coach
+capture is John because that is the connected roster row with the shared,
+scored match. `TUTORIAL_ACCOUNT` is the variable the current player flows
+consume; it aliases the explicit player identity.
+
 ```bash
 export BASE="http://localhost:3000"
 export SERVICE_KEY="$(security find-generic-password -a openclaw -s ponglens-service-role -w)"
-export TUTORIAL_ACCOUNT="player-test@example.com"
-export TUTORIAL_COACH="coach-test@example.com"
-export TUTORIAL_STUDENT="student-test@example.com"
+export TUTORIAL_PLAYER="uploader-test@example.com"
+export TUTORIAL_COACH="miguel-demo@example.com"
+export TUTORIAL_STUDENT="uploader-test@example.com"
+export TUTORIAL_ACCOUNT="$TUTORIAL_PLAYER"
 export OPENAI_API_KEY="$(security find-generic-password -a openclaw -s openai-api-key -w)"
 ```
 
-`TUTORIAL_ACCOUNT`, `TUTORIAL_COACH`, and `TUTORIAL_STUDENT` must identify
-approved test or demo accounts. The coach fixtures are staged by
+Load the database URL from the existing keychain item without printing or
+committing it. If `psql` is not installed, install Homebrew `libpq` once and
+put its binaries on the current shell's path. Stop if either credential is
+empty.
+
+```bash
+command -v psql >/dev/null || brew install libpq
+export PATH="$(brew --prefix libpq)/bin:$PATH"
+export DATABASE_URL="$(security find-generic-password -a openclaw -s ponglens-db-url -w)"
+test -n "$DATABASE_URL"
+test -n "$SERVICE_KEY"
+psql "$DATABASE_URL" -f scripts/demos/stage_coach.sql
+```
+
+The `DATABASE_URL` and service-role key are secrets; never paste either value
+into a command log, document, issue, or commit. The coach fixtures come from
 `scripts/demos/stage_coach.sql`. Stable tutorial-owned values begin with
 `Tutorial fixture` so reruns and cleanup do not touch unrelated rows.
 
