@@ -253,3 +253,63 @@ Where it lives today:
 6. Ask grouping.
 7. The sharing grant and the coach's read of it. Built with step 4 rather
    than after it, because the ask lives inside the move.
+
+---
+
+## As built (2026-09-04)
+
+Migration **164**, plus the web and iOS surfaces. Where the build differs
+from the plan above, the reason is here rather than in a commit nobody
+will find.
+
+**Ask needed no change at all.** The plan said `corpus.ts` would group by
+`coach_ref_id`. It does not have to: `lessons_coach_normalise` copies the
+coach row's name onto `coach_name` on every write, so the text column that
+Ask already groups by becomes correct the moment an entry is moved.
+"Jonathan" and "Jonotan" both read "Jonathan" once they point at one row.
+Nothing changed in Ask, iOS's readers, `/s/[token]` or the share page,
+which is the whole reason `coach_name` was kept rather than migrated away.
+
+**No write RPC.** The plan had `set_lesson_coach`. The trigger turned out
+to be the better home for every rule it would have carried — a lesson may
+only point at its own author's coach, the name is copied, no coach means
+no grant — and once the rules live there, a plain table write is safe from
+web, iOS and anything future. One implementation instead of two.
+
+**`merge_player_coaches` was added, and it is not optional.** A name typed
+before an account arrives will not match the name on it: Adil's own case
+is a row he would call "Jonathan" and an account called "Jonatan
+Mcdonald". Without a merge the two would sit side by side forever. It
+refuses to fold two connected accounts together, because those are two
+different people and folding them hands one coach the other's entries.
+Surfaced as "Same as an existing coach" on a coach's row, the same words
+the coach side already uses for the mirror problem.
+
+**Naming a coach while creating their invite** is what makes "invited"
+usable rather than theoretical. `player_coaches.invite_id` points at the
+pending link, so binding on accept is exact rather than a guess at a name,
+and the waiting invite in Coaches says who it is for instead of "Invite
+link".
+
+**`student_shared_lessons()` needs two things, not one:** the entry shared
+AND the coach link still accepted. Sharing alone would let a coach who was
+removed keep receiving journal entries, which is 157's bug arriving in a
+new place. `leave_coach` stops the sharing for the same reason it unbinds
+the roster, and keeps the attribution: you stopped working with them, you
+did not stop having had the lessons.
+
+**"Move entries" shows even with no coaches yet.** That is precisely the
+journal that needs it, and naming a coach lives inside the move sheet.
+Gating the button on an existing coach left the only door through the
+composer for a NEW entry.
+
+**Pending-invite scope** (item 3.1) shipped with it: the two pills now
+appear on a waiting invite and write `all_matches` straight onto the row,
+because `set_coach_access` needs an accepted link to hang a connection
+off. That was the one step of the flow with no way back.
+
+**Not done, deliberately:** Adil's own backfill. He asked to send Jonathan
+a real link and watch the feature work rather than have the relationship
+wired up by hand, so migration 164 creates rows only for coaches a player
+is ALREADY connected to, and touches no lesson. His two entries stay as
+they are until he moves them himself.

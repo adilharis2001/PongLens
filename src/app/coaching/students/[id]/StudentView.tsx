@@ -47,6 +47,21 @@ interface LessonRow {
   created_at: string;
 }
 
+/** One row of student_shared_lessons() (164): a journal entry this
+ *  student attributed to you and chose to share. Read-only here — it is
+ *  their journal, and it stays theirs. */
+interface SharedFromStudent {
+  lesson_id: string;
+  student_id: string;
+  student_name: string;
+  transcript: string;
+  takeaways: Takeaways | null;
+  image_path: string | null;
+  match_id: string | null;
+  shared_at: string;
+  created_at: string;
+}
+
 interface MatchRow {
   id: string;
   opponent_name: string | null;
@@ -89,6 +104,9 @@ export function StudentView({
   const [entries, setEntries] = useState<EntryRow[]>([]);
   const [lessons, setLessons] = useState<Record<string, LessonRow>>({});
   const [matches, setMatches] = useState<MatchRow[]>([]);
+  /** Their journal entries, shared with you (164). */
+  const [fromStudent, setFromStudent] = useState<SharedFromStudent[]>([]);
+  const [openShared, setOpenShared] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
   /** The entry being corrected, in the shape the journal's editor takes. */
@@ -136,12 +154,25 @@ export function StudentView({
     const fresh = studentRes.data as CoachStudentRow | null;
     if (fresh) setStudent(fresh);
     if (fresh?.player_id) {
-      const { data: matchRows } = await supabase
-        .from("matches")
-        .select("id, opponent_name, original_name, match_type, played_at, status")
-        .eq("user_id", fresh.player_id)
-        .order("created_at", { ascending: false });
+      const playerId = fresh.player_id;
+      const [{ data: matchRows }, { data: sharedRows }] = await Promise.all([
+        supabase
+          .from("matches")
+          .select("id, opponent_name, original_name, match_type, played_at, status")
+          .eq("user_id", playerId)
+          .order("created_at", { ascending: false }),
+        // Every student's shared entries come back; this page wants one
+        // student's. Filtering here rather than parameterising the RPC
+        // keeps the access rule in a function that takes no arguments,
+        // which is one fewer thing a caller can get wrong.
+        supabase.rpc("student_shared_lessons"),
+      ]);
       setMatches((matchRows as MatchRow[]) ?? []);
+      setFromStudent(
+        ((sharedRows as SharedFromStudent[]) ?? []).filter(
+          (r) => r.student_id === playerId,
+        ),
+      );
     }
   }, [initialStudent.id]);
 
@@ -831,6 +862,81 @@ export function StudentView({
             );
           })}
         </div>
+      )}
+
+      {/* Their journal, the half they chose to show you (164). Read-only
+          and clearly theirs: the entries above are yours, written about
+          them, and the two must never look like one pile. */}
+      {student.player_id && fromStudent.length > 0 && (
+        <>
+          <h3 className="mt-8 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            From {student.display_name}
+          </h3>
+          <div className="mt-3 space-y-2">
+            {fromStudent.map((entry) => {
+              const isOpen = openShared === entry.lesson_id;
+              return (
+                <div
+                  key={entry.lesson_id}
+                  className="overflow-hidden rounded-2xl border border-edge bg-surface"
+                >
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenShared(isOpen ? null : entry.lesson_id)
+                    }
+                    aria-expanded={isOpen}
+                    className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-2"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-zinc-100">
+                        {entryTitleOf(entry.transcript, entry.takeaways)}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-zinc-500">
+                        {day(entry.created_at)}
+                      </span>
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <div className="border-t border-edge/60 px-4 py-3">
+                      {entry.image_path && (
+                        <EntryImage
+                          lessonId={entry.lesson_id}
+                          className="mb-3"
+                        />
+                      )}
+                      {entry.takeaways?.themes?.length ? (
+                        <div className="space-y-3">
+                          {entry.takeaways.themes.map((theme) => (
+                            <div key={theme.name}>
+                              <p className="text-xs font-semibold uppercase tracking-wider text-cyan-glow/80">
+                                {theme.name}
+                              </p>
+                              <ul className="mt-1 space-y-1">
+                                {theme.points.map((point) => (
+                                  <li
+                                    key={point}
+                                    className="text-sm leading-relaxed text-zinc-300"
+                                  >
+                                    <LinkedText text={point} />
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">
+                          <LinkedText text={entry.transcript} />
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {student.player_id && (

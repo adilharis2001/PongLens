@@ -49,6 +49,14 @@ struct LessonRow: Codable, Identifiable, Hashable {
     let status: String
     let kind: String
     let coachName: String?
+    /// The player_coaches row this entry is attributed to (164). The real
+    /// relationship; coachName is the words, kept in step by a trigger so
+    /// every reader that predates this keeps working. Defaulted so a
+    /// query that does not select it still decodes.
+    var coachRefId: UUID? = nil
+    /// When that coach was let read it (164). Nil means attributed but
+    /// private, which is the default.
+    var sharedWithCoachAt: String? = nil
     let imagePath: String?
     /// "Lesson about this match" (037). Defaulted so the journal's own
     /// queries, which never select it, keep decoding.
@@ -59,6 +67,8 @@ struct LessonRow: Codable, Identifiable, Hashable {
         case id, transcript, takeaways, status, kind
         case userId = "user_id"
         case coachName = "coach_name"
+        case coachRefId = "coach_ref_id"
+        case sharedWithCoachAt = "shared_with_coach_at"
         case imagePath = "image_path"
         case matchId = "match_id"
         case createdAt = "created_at"
@@ -68,22 +78,74 @@ struct LessonRow: Codable, Identifiable, Hashable {
     /// untouched on purpose: editing a note writes the note and the
     /// coach's name, and must never disturb the words, the kind or the
     /// status.
-    func withNote(_ takeaways: LessonTakeaways?, coachName: String?) -> LessonRow {
+    func withNote(
+        _ takeaways: LessonTakeaways?, coachName: String?,
+        coachRefId: UUID? = nil, sharedWithCoachAt: String? = nil
+    ) -> LessonRow {
         LessonRow(
             id: id, userId: userId, transcript: transcript, takeaways: takeaways,
             status: status, kind: kind, coachName: coachName,
+            coachRefId: coachRefId, sharedWithCoachAt: sharedWithCoachAt,
             imagePath: imagePath, matchId: matchId, createdAt: createdAt
         )
     }
 
     /// A copy carrying rewritten words. Only reachable for an entry that
     /// never had a note, where the words are the note.
-    func withWords(_ transcript: String, coachName: String?) -> LessonRow {
+    func withWords(
+        _ transcript: String, coachName: String?,
+        coachRefId: UUID? = nil, sharedWithCoachAt: String? = nil
+    ) -> LessonRow {
         LessonRow(
             id: id, userId: userId, transcript: transcript, takeaways: takeaways,
             status: status, kind: kind, coachName: coachName,
+            coachRefId: coachRefId, sharedWithCoachAt: sharedWithCoachAt,
             imagePath: imagePath, matchId: matchId, createdAt: createdAt
         )
+    }
+}
+
+/// One of the player's own coaches, as player_coaches_list() returns it
+/// (164). The web twin is `PlayerCoach` in src/lib/coaches/playerCoaches.ts;
+/// keep the rules in step.
+///
+/// coachId is optional and that is the point: a coach who has been INVITED
+/// has nobody behind their link yet, so an entry could not be attributed to
+/// them at all if this pointed at an account. It also covers the coach who
+/// will never join, which is most of them.
+struct PlayerCoach: Codable, Identifiable, Hashable {
+    let id: UUID
+    let coachId: UUID?
+    let displayName: String
+    let coachEmail: String?
+    let inviteId: UUID?
+    /// "connected" | "invited" | "offline", derived from coach_links.
+    let status: String
+    let entryCount: Int
+    let sharedCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, status
+        case coachId = "coach_id"
+        case displayName = "display_name"
+        case coachEmail = "coach_email"
+        case inviteId = "invite_id"
+        case entryCount = "entry_count"
+        case sharedCount = "shared_count"
+    }
+
+    /// Whether sharing an entry with them can ever reach them. "invited"
+    /// counts: student_shared_lessons() needs an accepted link too, so a
+    /// share set while an invite is out simply waits for it.
+    var canReceiveEntries: Bool { status == "connected" || status == "invited" }
+
+    /// The line under the share control. Never guesses a pronoun.
+    var shareHint: String? {
+        switch status {
+        case "connected": return "They can read it in their coaching workspace."
+        case "invited": return "They can read it once they accept your invite."
+        default: return nil
+        }
     }
 }
 
@@ -166,6 +228,9 @@ final class JournalStore {
     var notes: [NoteFeedRow] = []
     var lessons: [LessonRow] = []
     var coachShared: [CoachSharedEntry] = []
+    /// The player's own coaches (164), connected first. What the entry
+    /// composer and the edit sheet pick from.
+    var playerCoaches: [PlayerCoach] = []
     var tagStats: [TagStatRow] = []
     var entryTags: [EntryTagRow] = []
     var cues: [FocusPointRow] = []
@@ -201,6 +266,67 @@ final class JournalStore {
         entryTags.filter { $0.tagId == tagId }.count
     }
 
+    /// The player's own coaches (164), connected first. Loaded with the
+    /// journal, so the composer's picker is populated before it opens.
+    func loadCoaches() async {
+        let rows: [PlayerCoach]? = try? await supa
+            .rpc("player_coaches_list").execute().value
+        applyCoaches(rows ?? [])
+    }
+
+    /// Connected first, then invited, then offline; alphabetical inside
+    /// each. The coach you are working with today is the one you are
+    /// about to pick. Mirrors sortCoaches() on the web.
+    private func applyCoaches(_ rows: [PlayerCoach]) {
+        let rank = ["connected": 0, "invited": 1, "offline": 2]
+        playerCoaches = rows.sorted {
+            let a = rank[$0.status] ?? 3
+            let b = rank[$1.status] ?? 3
+            if a != b { return a < b }
+            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName)
+                == .orderedAscending
+        }
+    }
+
+    /// Find-or-create a coach by name. Typing a name that already exists
+    /// has to resolve to that row: a second row for one person is the
+    /// defect this whole feature exists to remove.
+    func createCoach(named name: String) async -> PlayerCoach? {
+        guard let userId = try? await supa.auth.session.user.id else { return nil }
+        let clean = name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .prefix(80)
+        guard !clean.isEmpty else { return nil }
+        if let existing = playerCoaches.first(where: {
+            $0.displayName.trimmingCharacters(in: .whitespaces)
+                .caseInsensitiveCompare(String(clean)) == .orderedSame
+        }) { return existing }
+
+        struct NewCoach: Encodable {
+            let player_id: String
+            let display_name: String
+        }
+        let inserted: [PlayerCoach]? = try? await supa
+            .from("player_coaches")
+            .insert(NewCoach(
+                player_id: userId.uuidString.lowercased(),
+                display_name: String(clean)
+            ))
+            .select("id,coach_id,display_name,invite_id")
+            .execute().value
+        guard let id = inserted?.first?.id else {
+            // The insert returns a partial row; a full one comes from the
+            // RPC, which is the only place status and the counts exist.
+            await loadCoaches()
+            return playerCoaches.first(where: {
+                $0.displayName.caseInsensitiveCompare(String(clean)) == .orderedSame
+            })
+        }
+        await loadCoaches()
+        return playerCoaches.first(where: { $0.id == id })
+    }
+
     var activeCues: [FocusPointRow] { cues.filter { $0.retiredAt == nil } }
     var retiredCues: [FocusPointRow] { cues.filter { $0.retiredAt != nil } }
 
@@ -213,12 +339,15 @@ final class JournalStore {
         // belong to the coaching workspace, not this journal.
         async let lessonsQ: [LessonRow]? = try? supa
             .from("lessons")
-            .select("id,user_id,transcript,takeaways,status,kind,coach_name,image_path,created_at")
+            .select("id,user_id,transcript,takeaways,status,kind,coach_name,coach_ref_id,shared_with_coach_at,image_path,created_at")
             .neq("kind", value: "coach")
             .order("created_at", ascending: false)
             .execute().value
         async let coachSharedQ: [CoachSharedEntry]? = try? supa
             .rpc("coach_shared_entries")
+            .execute().value
+        async let coachesQ: [PlayerCoach]? = try? supa
+            .rpc("player_coaches_list")
             .execute().value
         async let tagsQ: [TagStatRow]? = try? supa
             .rpc("tag_stats").execute().value
@@ -239,6 +368,7 @@ final class JournalStore {
 
         let (n, l, t, c, e, r) = await (notesQ, lessonsQ, tagsQ, cuesQ, entryTagsQ, recollectQ)
         coachShared = (await coachSharedQ) ?? []
+        applyCoaches((await coachesQ) ?? [])
         notes = n ?? []
         lessons = l ?? []
         tagStats = t ?? []
@@ -366,7 +496,8 @@ final class JournalStore {
     /// throw their edit away.
     func saveEntry(
         transcript: String, kind: String, coachName: String?, summarize: Bool,
-        imagePath: String? = nil
+        imagePath: String? = nil,
+        coachRefId: UUID? = nil, shareWithCoach: Bool = false
     ) async -> Bool {
         struct Req: Encodable {
             let transcript: String
@@ -376,6 +507,9 @@ final class JournalStore {
             // Already uploaded and checked by /api/entry-image; the route
             // re-checks it sits under this caller's own entry folder.
             let imagePath: String?
+            // Which coach, as a row (164), and whether they may read it.
+            let coachRefId: String?
+            let shareWithCoach: Bool
         }
         struct Res: Decodable {
             let id: String?
@@ -383,9 +517,12 @@ final class JournalStore {
         }
         let req = Req(
             transcript: transcript, kind: kind, coachName: coachName,
-            summarize: summarize, imagePath: imagePath
+            summarize: summarize, imagePath: imagePath,
+            coachRefId: coachRefId?.uuidString.lowercased(),
+            shareWithCoach: shareWithCoach
         )
         let res: Res? = try? await API.post("api/lesson", req)
+        if res?.id != nil, coachRefId != nil { await loadCoaches() }
         return res?.id != nil
     }
 
@@ -404,16 +541,20 @@ final class JournalStore {
     /// back.
     func saveNote(
         lesson: LessonRow, takeaways: LessonTakeaways, coachName: String?,
-        photo: EntryPhotoSave = .unchanged
+        photo: EntryPhotoSave = .unchanged,
+        coachRefId: UUID? = nil, shareWithCoach: Bool = false
     ) async -> String? {
         struct Req: Encodable {
             let lessonId: String
             let takeaways: LessonTakeaways
             let coachName: String?
             let photo: EntryPhotoSave
+            let coachRefId: UUID?
+            let shareWithCoach: Bool
 
             enum CodingKeys: String, CodingKey {
                 case lessonId, takeaways, coachName, imagePath
+                case coachRefId, shareWithCoach
             }
 
             func encode(to encoder: Encoder) throws {
@@ -424,6 +565,12 @@ final class JournalStore {
                 // name is cleared. The synthesised encoder would drop the
                 // key entirely and the old name would survive the save.
                 try c.encode(coachName, forKey: .coachName)
+                // Same rule for the coach row: null is how an attribution
+                // is removed, so the key is always written. The route
+                // treats an ABSENT key as "leave it alone", which is what
+                // keeps older app builds from clearing one.
+                try c.encode(coachRefId?.uuidString.lowercased(), forKey: .coachRefId)
+                try c.encode(shareWithCoach, forKey: .shareWithCoach)
                 // The photo is the opposite: the key's ABSENCE is what
                 // says "leave it alone", so it is written only when the
                 // edit actually changed it.
@@ -438,18 +585,35 @@ final class JournalStore {
         }
 
         let previous = lesson
-        apply(lesson.withNote(takeaways, coachName: coachName))
+        // What the row will read once the trigger has had it: the name
+        // comes from the coach row when there is one.
+        let named = coachRefId.flatMap { id in
+            playerCoaches.first(where: { $0.id == id })?.displayName
+        } ?? coachName
+        let sharedAt = shareWithCoach && coachRefId != nil
+            ? (lesson.coachRefId == coachRefId ? lesson.sharedWithCoachAt : nil)
+                ?? ISO8601DateFormatter().string(from: Date())
+            : nil
+        apply(lesson.withNote(
+            takeaways, coachName: named,
+            coachRefId: coachRefId, sharedWithCoachAt: sharedAt
+        ))
         do {
             let res: Res = try await API.request(
                 "api/lesson/note", method: "PATCH",
                 body: Req(
                     lessonId: lesson.id.uuidString.lowercased(),
-                    takeaways: takeaways, coachName: coachName, photo: photo
+                    takeaways: takeaways, coachName: coachName, photo: photo,
+                    coachRefId: coachRefId, shareWithCoach: shareWithCoach
                 )
             )
             if let stored = res.takeaways {
-                apply(lesson.withNote(stored, coachName: coachName))
+                apply(lesson.withNote(
+                    stored, coachName: named,
+                    coachRefId: coachRefId, sharedWithCoachAt: sharedAt
+                ))
             }
+            await loadCoaches()
             return nil
         } catch {
             apply(previous)
@@ -469,7 +633,8 @@ final class JournalStore {
     /// default a practice entry into a lesson.
     func saveWords(
         lesson: LessonRow, transcript: String, coachName: String?,
-        photo: EntryPhotoSave = .unchanged
+        photo: EntryPhotoSave = .unchanged,
+        coachRefId: UUID? = nil, shareWithCoach: Bool = false
     ) async -> String? {
         struct Req: Encodable {
             let lessonId: String
@@ -477,9 +642,12 @@ final class JournalStore {
             let coachName: String?
             let summarize = false
             let photo: EntryPhotoSave
+            let coachRefId: UUID?
+            let shareWithCoach: Bool
 
             enum CodingKeys: String, CodingKey {
                 case lessonId, transcript, coachName, summarize, imagePath
+                case coachRefId, shareWithCoach
             }
 
             func encode(to encoder: Encoder) throws {
@@ -488,6 +656,8 @@ final class JournalStore {
                 try c.encode(transcript, forKey: .transcript)
                 try c.encode(coachName, forKey: .coachName)
                 try c.encode(summarize, forKey: .summarize)
+                try c.encode(coachRefId?.uuidString.lowercased(), forKey: .coachRefId)
+                try c.encode(shareWithCoach, forKey: .shareWithCoach)
                 if case .set(let path) = photo {
                     try c.encode(path, forKey: .imagePath)
                 }
@@ -496,15 +666,27 @@ final class JournalStore {
         struct Res: Decodable { let id: String? }
 
         let previous = lesson
-        apply(lesson.withWords(transcript, coachName: coachName))
+        let named = coachRefId.flatMap { id in
+            playerCoaches.first(where: { $0.id == id })?.displayName
+        } ?? coachName
+        let sharedAt = shareWithCoach && coachRefId != nil
+            ? (lesson.coachRefId == coachRefId ? lesson.sharedWithCoachAt : nil)
+                ?? ISO8601DateFormatter().string(from: Date())
+            : nil
+        apply(lesson.withWords(
+            transcript, coachName: named,
+            coachRefId: coachRefId, sharedWithCoachAt: sharedAt
+        ))
         do {
             let _: Res = try await API.request(
                 "api/lesson", method: "PATCH",
                 body: Req(
                     lessonId: lesson.id.uuidString.lowercased(),
-                    transcript: transcript, coachName: coachName, photo: photo
+                    transcript: transcript, coachName: coachName, photo: photo,
+                    coachRefId: coachRefId, shareWithCoach: shareWithCoach
                 )
             )
+            await loadCoaches()
             return nil
         } catch {
             apply(previous)

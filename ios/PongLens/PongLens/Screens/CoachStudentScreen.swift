@@ -180,6 +180,20 @@ struct CoachStudentScreen: View {
                     }
                 }
 
+                // Their journal, the half they chose to show you (164).
+                // Read-only and clearly theirs: the entries above are
+                // yours, written about them, and the two must never look
+                // like one pile.
+                let fromThem = workspace.shared(from: student)
+                if !fromThem.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionHeading("From \(student.displayName)")
+                        ForEach(fromThem) { shared in
+                            StudentSharedCard(entry: shared)
+                        }
+                    }
+                }
+
                 if student.linked {
                     VStack(alignment: .leading, spacing: 10) {
                         SectionHeading("Matches")
@@ -219,5 +233,75 @@ struct CoachStudentScreen: View {
             .padding(20)
             .padding(.bottom, 60)
         }
+    }
+}
+
+/// One entry a student shared from their own journal (164). Their words,
+/// so there is nothing to edit and nothing to share on: the only actions
+/// on this card are reading it.
+private struct StudentSharedCard: View {
+    let entry: StudentSharedLesson
+    @State private var open = false
+
+    /// One line to name it: the distilled title, else the opening words.
+    /// Same rule as CoachEntryCard and the web's entryTitle().
+    private var title: String {
+        if let t = entry.takeaways?.title, !t.isEmpty { return t }
+        let words = entry.transcript
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespaces)
+        if words.isEmpty { return "Entry" }
+        return words.count > 72 ? String(words.prefix(72)) + "…" : words
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                open.toggle()
+            } label: {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(PL.text100)
+                            .multilineTextAlignment(.leading)
+                        Text(PGDate.shortDate(entry.createdAt))
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: open ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(PL.text500)
+                }
+            }
+            .buttonStyle(.plain)
+
+            if open {
+                if let themes = entry.takeaways?.themes, !themes.isEmpty {
+                    ForEach(themes, id: \.name) { theme in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(theme.name.uppercased())
+                                .font(.system(size: 11, weight: .semibold))
+                                .kerning(0.6)
+                                .foregroundStyle(PL.cyan.opacity(0.8))
+                            ForEach(theme.points, id: \.self) { point in
+                                Text(point)
+                                    .font(.plBody)
+                                    .foregroundStyle(PL.text300)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                } else {
+                    Text(entry.transcript)
+                        .font(.plBody)
+                        .foregroundStyle(PL.text300)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 16)
     }
 }

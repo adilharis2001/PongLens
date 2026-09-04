@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { coachRefUpdate } from "@/lib/journal/coachRef";
 import { entryImageEdit } from "@/lib/journal/entryImage";
 import { releaseEntryImage } from "@/lib/journal/releaseEntryImage";
 import type { LessonTakeaways } from "@/lib/types";
@@ -192,7 +193,13 @@ export async function PATCH(req: Request) {
     );
   }
 
-  let body: { lessonId?: unknown; takeaways?: unknown; coachName?: unknown };
+  let body: {
+    lessonId?: unknown;
+    takeaways?: unknown;
+    coachName?: unknown;
+    coachRefId?: unknown;
+    shareWithCoach?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -215,7 +222,7 @@ export async function PATCH(req: Request) {
   // never a hint that it exists.
   const { data: row } = await supabase
     .from("lessons")
-    .select("id, kind, takeaways, image_path")
+    .select("id, kind, takeaways, image_path, coach_ref_id, shared_with_coach_at")
     .eq("id", lessonId)
     .maybeSingle();
   if (!row) {
@@ -250,6 +257,8 @@ export async function PATCH(req: Request) {
   const update: {
     takeaways: LessonTakeaways;
     coach_name?: string | null;
+    coach_ref_id?: string | null;
+    shared_with_coach_at?: string | null;
     image_path?: string | null;
   } = {
     takeaways: result.takeaways,
@@ -260,6 +269,24 @@ export async function PATCH(req: Request) {
   // leave the name alone; an empty one means clear it.
   if (row.kind === "lesson" && "coachName" in body) {
     update.coach_name = line(body.coachName, MAX_COACH_NAME) || null;
+  }
+  // Which coach, as a row (164), and whether they may read it. Same
+  // absent-means-leave-it rule as the name above, so a caller that has
+  // never heard of coaches cannot clear an attribution by omission —
+  // which is exactly what the iOS app does until it ships this.
+  //
+  // Whose row it is stays the database's question: lessons_coach_normalise
+  // refuses one that is not the author's own, for every writer at once.
+  if (row.kind === "lesson" && "coachRefId" in body) {
+    Object.assign(
+      update,
+      coachRefUpdate({
+        coachRefId: body.coachRefId,
+        shareWithCoach: body.shareWithCoach,
+        currentRefId: row.coach_ref_id as string | null,
+        currentSharedAt: row.shared_with_coach_at as string | null,
+      }),
+    );
   }
 
   // The row is read back on the way out. An update that matches nothing

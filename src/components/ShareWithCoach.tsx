@@ -53,6 +53,11 @@ export function ShareWithCoachSheet({
   const [copied, setCopied] = useState(false);
   const [coaches, setCoaches] = useState<ConnectedCoach[] | null>(null);
   const [busyCoach, setBusyCoach] = useState<string | null>(null);
+  // Who the invite is for (164). Optional, and it does two things: the
+  // waiting invite says a name instead of "Invite link", and the journal
+  // can attribute entries to them straight away, before they accept.
+  // That second one is the whole reason an invited coach needed a row.
+  const [inviteName, setInviteName] = useState("");
 
   const loadCoaches = useCallback(async () => {
     if (!matchId) {
@@ -108,6 +113,7 @@ export function ShareWithCoachSheet({
     setLink(null);
     setError(null);
     setCopied(false);
+    setInviteName("");
     void loadCoaches();
   }, [open, matchId, loadCoaches]);
 
@@ -157,16 +163,53 @@ export function ShareWithCoachSheet({
         scope_match_id: scope === "match" && matchId ? matchId : null,
         all_matches: scope === "all",
       })
-      .select("invite_token")
+      .select("id, invite_token")
       .single();
-    setCreating(false);
     if (dbError || !data?.invite_token) {
+      setCreating(false);
       setError("Couldn't create the link. Try again.");
       return;
     }
+    // The name, if one was given. Find-or-create, never a blind insert:
+    // a player who already has "Jonathan" in their journal and then
+    // invites Jonathan must end up with ONE of him, or this feature has
+    // created the duplicate it exists to remove.
+    //
+    // A failure here loses the name and not the invite: the link is the
+    // thing being asked for, and the row can be made again from the
+    // journal or by the accept itself.
+    const name = inviteName.trim().replace(/\s+/gu, " ").slice(0, 80);
+    if (name) {
+      const { data: mine } = await supabase
+        .from("player_coaches")
+        .select("id, display_name, coach_id")
+        .eq("player_id", userId)
+        .is("archived_at", null);
+      const existing = (
+        (mine as { id: string; display_name: string; coach_id: string | null }[]) ??
+        []
+      ).find(
+        (c) =>
+          c.coach_id === null &&
+          c.display_name.trim().toLowerCase() === name.toLowerCase(),
+      );
+      if (existing) {
+        await supabase
+          .from("player_coaches")
+          .update({ invite_id: data.id })
+          .eq("id", existing.id);
+      } else {
+        await supabase.from("player_coaches").insert({
+          player_id: userId,
+          display_name: name,
+          invite_id: data.id,
+        });
+      }
+    }
+    setCreating(false);
     setLink(`${window.location.origin}/coach-invite/${data.invite_token}`);
     onLinkCreated?.();
-  }, [userId, matchId, scope, onLinkCreated]);
+  }, [userId, matchId, scope, inviteName, onLinkCreated]);
 
   const copy = useCallback(async () => {
     if (!link) return;
@@ -276,7 +319,19 @@ export function ShareWithCoachSheet({
             <p className="mt-1 text-sm text-zinc-400">
               Your coach can watch, but not edit. They can add notes.
             </p>
-            <div className="mt-4 space-y-2">
+            {/* Naming them now is what lets the journal attribute lessons
+                to this coach before they have accepted anything. */}
+            <input
+              type="text"
+              value={inviteName}
+              onChange={(e) => setInviteName(e.target.value.slice(0, 80))}
+              maxLength={80}
+              placeholder="Their name (optional)"
+              aria-label="Coach name"
+              autoComplete="off"
+              className="mt-4 w-full rounded-xl border border-edge bg-surface-2/40 px-3.5 py-2.5 text-[15px] text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
+            />
+            <div className="mt-3 space-y-2">
               {matchId && (
                 <button
                   type="button"

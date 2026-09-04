@@ -1106,6 +1106,17 @@ struct LessonCardView: View {
                         .font(.system(size: 13))
                         .foregroundStyle(PL.text500)
                 }
+                // Whether the coach can read it (164). Only ever shown
+                // when they can: an entry that says nothing is private,
+                // which is the default and the common case, and a
+                // "Private" badge on every card would be noise on a
+                // journal that is private by nature.
+                if lesson.sharedWithCoachAt != nil, let name = lesson.coachName {
+                    Text("· Shared with \(name)")
+                        .font(.system(size: 13))
+                        .foregroundStyle(PL.cyan)
+                        .lineLimit(1)
+                }
                 Spacer()
             }
 
@@ -1426,6 +1437,11 @@ struct JournalComposer: View {
     @Environment(\.dismiss) private var dismiss
     @State private var kind: String
     @State private var coachName: String
+    /// Which of the player's own coaches taught it, and whether they may
+    /// read it (164). A pick, not a typed name: two spellings of one
+    /// person is the defect that replaced.
+    @State private var coachRefId: UUID?
+    @State private var shareWithCoach = false
     @State private var body_: String
     @State private var summarize = true
     @State private var saving = false
@@ -1481,7 +1497,12 @@ struct JournalComposer: View {
             Form {
                 if kind == "lesson" {
                     Section {
-                        TextField("Who taught it?", text: $coachName)
+                        CoachPickerRow(
+                            coaches: store.playerCoaches,
+                            coachRefId: $coachRefId,
+                            shareWithCoach: $shareWithCoach,
+                            onCreate: { await store.createCoach(named: $0) }
+                        )
                     }
                 }
 
@@ -1666,13 +1687,21 @@ struct JournalComposer: View {
     private func save() async {
         saving = true
         errorMessage = nil
+        // Switching back to Practice after picking a coach must not
+        // smuggle them through.
+        let refId = kind == "lesson" ? coachRefId : nil
+        let named = refId.flatMap { id in
+            store.playerCoaches.first(where: { $0.id == id })?.displayName
+        }
+        let typed = coachName.trimmingCharacters(in: .whitespaces)
         let ok = await store.saveEntry(
             transcript: body_.trimmingCharacters(in: .whitespacesAndNewlines),
             kind: kind,
-            coachName: kind == "lesson" && !coachName.trimmingCharacters(in: .whitespaces).isEmpty
-                ? coachName.trimmingCharacters(in: .whitespaces) : nil,
+            coachName: kind == "lesson" ? (named ?? (typed.isEmpty ? nil : typed)) : nil,
             summarize: summarize,
-            imagePath: photo.path
+            imagePath: photo.path,
+            coachRefId: refId,
+            shareWithCoach: kind == "lesson" && shareWithCoach && refId != nil
         )
         saving = false
         if ok {

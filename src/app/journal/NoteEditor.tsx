@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Lesson, LessonTakeaways } from "@/lib/types";
 import { AutoTextarea } from "@/components/AutoTextarea";
+import { CoachPicker } from "./CoachPicker";
+import type { PlayerCoach } from "@/lib/coaches/playerCoaches";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import {
   EntryImage,
@@ -69,6 +71,13 @@ function draftThemes(takeaways: LessonTakeaways | null): DraftTheme[] {
 /** What "unsaved changes" compares. Blank points and emptied themes are
  *  dropped first, because they are exactly what the save drops too: an
  *  added-then-abandoned empty line is not a change worth guarding. */
+/** The coach half of the dirty check: who, and whether they can read it.
+ *  Both have to count, or turning sharing on and pressing Save would do
+ *  nothing and say nothing. */
+function coachKey(refId: string | null, share: boolean): string {
+  return `${refId ?? ""}:${share ? "1" : "0"}`;
+}
+
 function snapshot(
   title: string,
   coach: string,
@@ -135,14 +144,20 @@ const LABEL =
 
 export function NoteEditor({
   lesson,
-  coachNames = [],
+  coaches = [],
+  // Defaulted, because this overlay also edits COACH entries on the
+  // coaching side (kind 'coach'), and those have no coach of their own —
+  // the picker below never renders for them.
+  createCoach = async () => null,
   onClose,
   onSaved,
 }: {
   /** The entry being edited. Null closes the overlay. */
   lesson: Lesson | null;
-  /** Coaches already named in this journal, for the suggestion list. */
-  coachNames?: string[];
+  /** The player's own coaches (164), for the picker. */
+  coaches?: PlayerCoach[];
+  /** Find-or-create a coach by name. */
+  createCoach?: (name: string) => Promise<PlayerCoach | null>;
   onClose: () => void;
   /** The saved row, for the feed to repaint without a reload. */
   onSaved: (lesson: Lesson) => void;
@@ -153,7 +168,8 @@ export function NoteEditor({
   const [title, setTitle] = useState("");
   const [themes, setThemes] = useState<DraftTheme[]>([]);
   const [words, setWords] = useState("");
-  const [coachName, setCoachName] = useState("");
+  const [coachRefId, setCoachRefId] = useState<string | null>(null);
+  const [shareWithCoach, setShareWithCoach] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showTranscript, setShowTranscript] = useState(false);
@@ -189,7 +205,8 @@ export function NoteEditor({
     setTitle(t?.title ?? "");
     setThemes(seedThemes);
     setWords(t ? "" : lesson.transcript);
-    setCoachName(lesson.coach_name ?? "");
+    setCoachRefId(lesson.coach_ref_id ?? null);
+    setShareWithCoach(lesson.shared_with_coach_at != null);
     setError(null);
     setShowTranscript(false);
     setFocusId(null);
@@ -198,7 +215,7 @@ export function NoteEditor({
     setPhotoBusy(false);
     originalRef.current = snapshot(
       t?.title ?? "",
-      lesson.coach_name ?? "",
+      coachKey(lesson.coach_ref_id ?? null, lesson.shared_with_coach_at != null),
       seedThemes,
       t ? "" : lesson.transcript
     );
@@ -209,7 +226,8 @@ export function NoteEditor({
 
   const dirty =
     open &&
-    (snapshot(title, coachName, themes, words) !== originalRef.current ||
+    (snapshot(title, coachKey(coachRefId, shareWithCoach), themes, words) !==
+      originalRef.current ||
       photoChanged);
 
   /** A photo uploaded here and then abandoned belongs to nobody. */
@@ -363,9 +381,18 @@ export function NoteEditor({
   const save = async () => {
     if (!lesson || saving) return;
     // Only a lesson has a coach, and this overlay cannot change an
-    // entry's kind, so practice entries never carry a name through.
-    const coach =
-      lesson.kind === "lesson" ? coachName.trim().slice(0, 80) || null : null;
+    // entry's kind, so practice entries never carry one through.
+    const isLesson = lesson.kind === "lesson";
+    const refId = isLesson ? coachRefId : null;
+    const share = isLesson && shareWithCoach && refId !== null;
+    const coachRow = coaches.find((c) => c.id === refId) ?? null;
+    // What the row will read afterwards, for the card the feed repaints.
+    const savedName = coachRow?.display_name ?? (refId ? lesson.coach_name ?? null : null);
+    const savedShareAt = share
+      ? lesson.coach_ref_id === refId && lesson.shared_with_coach_at
+        ? lesson.shared_with_coach_at
+        : new Date().toISOString()
+      : null;
 
     if (hasNote) {
       const cleaned = themes
@@ -389,7 +416,8 @@ export function NoteEditor({
           body: JSON.stringify({
             lessonId: lesson.id,
             takeaways: { title: title.trim(), themes: cleaned },
-            coachName: coach,
+            coachRefId: refId,
+            shareWithCoach: share,
             // Only when it changed: the field's absence is what tells the
             // route to leave the photo alone.
             ...(photoChanged ? { imagePath: photoPath } : {}),
@@ -410,7 +438,9 @@ export function NoteEditor({
         onSaved({
           ...lesson,
           takeaways: data.takeaways as LessonTakeaways,
-          coach_name: coach,
+          coach_name: savedName,
+          coach_ref_id: refId,
+          shared_with_coach_at: savedShareAt,
           image_path: photoPath,
         });
         onClose();
@@ -436,7 +466,8 @@ export function NoteEditor({
         body: JSON.stringify({
           lessonId: lesson.id,
           transcript,
-          coachName: coach,
+          coachRefId: refId,
+          shareWithCoach: share,
           ...(photoChanged ? { imagePath: photoPath } : {}),
           // This entry has no note, so its words are the note. Improving
           // is a choice made when an entry is written; offering it again
@@ -459,7 +490,9 @@ export function NoteEditor({
         transcript,
         takeaways: null,
         status: "ready",
-        coach_name: coach,
+        coach_name: savedName,
+        coach_ref_id: refId,
+        shared_with_coach_at: savedShareAt,
         image_path: photoPath,
       });
       onClose();
@@ -522,27 +555,21 @@ export function NoteEditor({
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
               {lesson.kind === "lesson" && (
                 <div className="mb-4">
-                  <label className={LABEL} htmlFor="note-coach">
-                    Coach
-                  </label>
-                  <input
-                    id="note-coach"
-                    type="text"
-                    value={coachName}
-                    onChange={(e) => setCoachName(e.target.value.slice(0, 80))}
-                    list="note-coach-names"
-                    maxLength={80}
-                    placeholder="Who taught it?"
-                    autoComplete="off"
-                    className={`mt-2 ${FIELD}`}
+                  {/* The picker, not a text field (164). Correcting an
+                      entry is where a journal full of spellings gets
+                      cleaned up, so this is the surface that has to make
+                      moving one onto a real coach easy. */}
+                  <CoachPicker
+                    coaches={coaches}
+                    value={coachRefId}
+                    share={shareWithCoach}
+                    disabled={saving}
+                    onChange={(id, share) => {
+                      setCoachRefId(id);
+                      setShareWithCoach(share);
+                    }}
+                    onCreate={createCoach}
                   />
-                  {coachNames.length > 0 && (
-                    <datalist id="note-coach-names">
-                      {coachNames.map((n) => (
-                        <option key={n} value={n} />
-                      ))}
-                    </datalist>
-                  )}
                 </div>
               )}
 

@@ -5,6 +5,11 @@ import { createClient } from "@/lib/supabase/client";
 import { ShareWithCoach } from "@/components/ShareWithCoach";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import type { CoachLinkRow } from "@/lib/types";
+import {
+  entryCountLabel,
+  mergeCandidates,
+  type PlayerCoach,
+} from "@/lib/coaches/playerCoaches";
 
 /**
  * Player-side sharing, modelled as PEOPLE, not links. Each accepted coach is
@@ -61,9 +66,16 @@ export function SharingSection({ userId }: { userId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [expandedCoach, setExpandedCoach] = useState<string | null>(null);
   const [pendingOpen, setPendingOpen] = useState(false);
+  // The journal side of the same people (164): how many entries are
+  // attributed to each, and which named rows are still unclaimed.
+  const [journalCoaches, setJournalCoaches] = useState<PlayerCoach[]>([]);
+  const [mergeFor, setMergeFor] = useState<string | null>(null);
 
   const fetchLinks = useCallback(async () => {
     const supabase = createClient();
+    void supabase
+      .rpc("player_coaches_list")
+      .then(({ data: rows }) => setJournalCoaches((rows as PlayerCoach[]) ?? []));
     const { data } = await supabase.rpc("player_coach_links");
     const rows = (data ?? []) as CoachLinkRow[];
     setLinks(rows);
@@ -190,6 +202,53 @@ export function SharingSection({ userId }: { userId: string }) {
     [fetchLinks]
   );
 
+  /** The scope of an invite nobody has accepted yet (164).
+   *
+   *  set_coach_access refuses a pending link — it needs an accepted one to
+   *  hang the connection off — so this writes the flag directly, which the
+   *  player's own "manage own coach links" policy already allows. Without
+   *  it the only way down from "all matches" before an invite is accepted
+   *  was to revoke it and send a new link. */
+  const setPendingScope = useCallback(
+    async (link: CoachLinkRow, all: boolean) => {
+      if (link.all_matches === all) return;
+      setError(null);
+      setBusyIds((prev) => new Set(prev).add(link.id));
+      const supabase = createClient();
+      const { error: dbError } = await supabase
+        .from("coach_links")
+        .update({ all_matches: all })
+        .eq("id", link.id);
+      if (dbError) setError("Couldn't change it. Try again.");
+      await fetchLinks();
+      setBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(link.id);
+        return next;
+      });
+    },
+    [fetchLinks],
+  );
+
+  /** Fold a coach the player named into the row an accept created, or the
+   *  other way round (164). Needed because a name typed before an account
+   *  arrives will not match the name on it: "Jonathan" and "Jonatan
+   *  Mcdonald" are one man and two rows. */
+  const mergeCoach = useCallback(
+    async (into: string, from: string) => {
+      setError(null);
+      setMergeFor(null);
+      const supabase = createClient();
+      const { error: rpcError } = await supabase.rpc("merge_player_coaches", {
+        p_into: into,
+        p_from: from,
+      });
+      if (rpcError) setError("Couldn't join them up. Try again.");
+      await fetchLinks();
+    },
+    [fetchLinks],
+  );
+
   const copyInvite = useCallback(async (link: CoachLinkRow) => {
     try {
       await navigator.clipboard.writeText(
@@ -285,6 +344,68 @@ export function SharingSection({ userId }: { userId: string }) {
                         {g.email}
                       </p>
                     )}
+                    {/* The journal half of the same person (164). Match
+                        access and attributed entries are two different
+                        grants, so they are said separately rather than
+                        rolled into one number. */}
+                    {(() => {
+                      const j = journalCoaches.find(
+                        (x) => x.coach_id && x.coach_id === g.coachId,
+                      );
+                      if (!j) return null;
+                      const spare = mergeCandidates(journalCoaches, j);
+                      return (
+                        <div className="mt-3">
+                          <p className="text-sm text-zinc-300">
+                            {entryCountLabel(j.entry_count)} in your journal
+                            {j.shared_count > 0
+                              ? `, ${j.shared_count} shared with them`
+                              : ""}
+                            .
+                          </p>
+                          {spare.length > 0 && (
+                            <div className="mt-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setMergeFor(mergeFor === j.id ? null : j.id)
+                                }
+                                className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                              >
+                                Same as an existing coach
+                              </button>
+                              {mergeFor === j.id && (
+                                <ul className="mt-2 space-y-2">
+                                  {spare.map((other) => (
+                                    <li
+                                      key={other.id}
+                                      className="flex items-center justify-between gap-3"
+                                    >
+                                      <span className="min-w-0 truncate text-sm text-zinc-300">
+                                        {other.display_name}
+                                        <span className="text-zinc-500">
+                                          {" · "}
+                                          {entryCountLabel(other.entry_count)}
+                                        </span>
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void mergeCoach(j.id, other.id)
+                                        }
+                                        className="shrink-0 rounded-full border border-edge bg-surface-2 px-4 py-1.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+                                      >
+                                        Join up
+                                      </button>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     <div className="mt-3 flex flex-wrap gap-2">
                       {(
                         [
@@ -384,39 +505,69 @@ export function SharingSection({ userId }: { userId: string }) {
           {pendingOpen && (
             <ul className="divide-y divide-edge/60 border-t border-edge/60">
               {pending.map((l) => (
-                <li
-                  key={l.id}
-                  className="flex items-center justify-between gap-3 px-4 py-3"
-                >
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium text-zinc-200">
-                      Invite link
+                <li key={l.id} className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-zinc-200">
+                        {journalCoaches.find((j) => j.invite_id === l.id)
+                          ?.display_name ?? "Invite link"}
+                      </span>
+                      <span className="mt-0.5 block truncate text-xs text-zinc-500">
+                        {l.scope_match_id
+                          ? `Only ${matchNames.get(l.scope_match_id) ?? "one match"}`
+                          : l.all_matches
+                            ? "All matches"
+                            : "Only matches you share"}
+                      </span>
                     </span>
-                    <span className="mt-0.5 block truncate text-xs text-zinc-500">
-                      {l.scope_match_id
-                        ? `Only ${matchNames.get(l.scope_match_id) ?? "one match"}`
-                        : l.all_matches
-                          ? "All matches"
-                          : "Only matches you share"}
+                    <span className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void copyInvite(l)}
+                        className="rounded-full border border-edge bg-surface-2 px-4 py-1.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+                      >
+                        {copiedId === l.id ? "Copied" : "Copy link"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void revokeLinks([l.id])}
+                        disabled={busyIds.has(l.id)}
+                        className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-60"
+                      >
+                        {busyIds.has(l.id) ? "Revoking…" : "Revoke"}
+                      </button>
                     </span>
-                  </span>
-                  <span className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void copyInvite(l)}
-                      className="rounded-full border border-edge bg-surface-2 px-4 py-1.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
-                    >
-                      {copiedId === l.id ? "Copied" : "Copy link"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void revokeLinks([l.id])}
-                      disabled={busyIds.has(l.id)}
-                      className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-60"
-                    >
-                      {busyIds.has(l.id) ? "Revoking…" : "Revoke"}
-                    </button>
-                  </span>
+                  </div>
+                  {/* Changing your mind before it is accepted (164). It
+                      used to take a revoke and a fresh link, which is a
+                      dead end on the one step of this flow you cannot
+                      undo by yourself. A match-scoped invite has nothing
+                      to choose. */}
+                  {l.scope_match_id === null && (
+                    <div className="mt-2.5 flex flex-wrap gap-2">
+                      {(
+                        [
+                          [true, "All matches"],
+                          [false, "Only matches I share"],
+                        ] as const
+                      ).map(([all, label]) => (
+                        <button
+                          key={label}
+                          type="button"
+                          aria-pressed={l.all_matches === all}
+                          disabled={busyIds.has(l.id)}
+                          onClick={() => void setPendingScope(l, all)}
+                          className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-60 ${
+                            l.all_matches === all
+                              ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
+                              : "border-edge text-zinc-300 hover:border-zinc-500 hover:text-white"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>

@@ -158,6 +158,18 @@ export function LessonCard({
         ) : null}
         {" · "}
         {shortDateTime(lesson.created_at)}
+        {/* Whether the coach can read it (164). Only ever shown when they
+            can: an entry that says nothing is private, which is the
+            default and the common case, and a "Private" badge on every
+            card would be noise on a journal that is private by nature. */}
+        {lesson.shared_with_coach_at && lesson.coach_name ? (
+          <>
+            {" · "}
+            <span className="text-cyan-glow">
+              Shared with {lesson.coach_name}
+            </span>
+          </>
+        ) : null}
       </p>
 
       {t ? (
