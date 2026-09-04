@@ -70,6 +70,8 @@ export function SharingSection({ userId }: { userId: string }) {
   // attributed to each, and which named rows are still unclaimed.
   const [journalCoaches, setJournalCoaches] = useState<PlayerCoach[]>([]);
   const [mergeFor, setMergeFor] = useState<string | null>(null);
+  const [renameFor, setRenameFor] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
 
   const fetchLinks = useCallback(async () => {
     const supabase = createClient();
@@ -249,6 +251,31 @@ export function SharingSection({ userId }: { userId: string }) {
     [fetchLinks],
   );
 
+  /** What YOU call this coach, which is not always what their account
+   *  says (164). Adil's own case: the account reads "Jonatan Mcdonald"
+   *  and he has always written "Jonathan". The name is what every journal
+   *  entry shows, and a trigger carries a rename to all of them, so this
+   *  is the one place it can be put right. The coach's own account is
+   *  untouched — this is a label, not their identity. */
+  const renameCoach = useCallback(
+    async (id: string, name: string) => {
+      const clean = name.trim().replace(/\s+/gu, " ").slice(0, 80);
+      if (!clean) return;
+      setError(null);
+      setRenameFor(null);
+      const supabase = createClient();
+      const { error: dbError } = await supabase
+        .from("player_coaches")
+        // name_from_account false: you typed it, so it stops following
+        // the account. Same rule as the coach's roster (161).
+        .update({ display_name: clean, name_from_account: false })
+        .eq("id", id);
+      if (dbError) setError("Couldn't rename them. Try again.");
+      await fetchLinks();
+    },
+    [fetchLinks],
+  );
+
   const copyInvite = useCallback(async (link: CoachLinkRow) => {
     try {
       await navigator.clipboard.writeText(
@@ -361,8 +388,56 @@ export function SharingSection({ userId }: { userId: string }) {
                             {j.shared_count > 0
                               ? `, ${j.shared_count} shared with them`
                               : ""}
+                            {j.display_name !== g.name
+                              ? `, under "${j.display_name}"`
+                              : ""}
                             .
                           </p>
+                          <div className="mt-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMergeFor(null);
+                                setRenameDraft(j.display_name);
+                                setRenameFor(renameFor === j.id ? null : j.id);
+                              }}
+                              className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                            >
+                              Rename in your journal
+                            </button>
+                            {renameFor === j.id && (
+                              <div className="mt-2 flex gap-2">
+                                <input
+                                  type="text"
+                                  value={renameDraft}
+                                  onChange={(e) =>
+                                    setRenameDraft(e.target.value.slice(0, 80))
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      void renameCoach(j.id, renameDraft);
+                                    }
+                                    if (e.key === "Escape") setRenameFor(null);
+                                  }}
+                                  maxLength={80}
+                                  autoFocus
+                                  aria-label="What you call this coach"
+                                  className="min-w-0 flex-1 rounded-xl border border-edge bg-surface-2/40 px-3.5 py-2 text-sm text-zinc-100 focus:border-cyan-glow/60 focus:outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void renameCoach(j.id, renameDraft)
+                                  }
+                                  disabled={renameDraft.trim() === ""}
+                                  className="shrink-0 rounded-full border border-edge bg-surface-2 px-4 py-1.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 disabled:opacity-60"
+                                >
+                                  Save
+                                </button>
+                              </div>
+                            )}
+                          </div>
                           {spare.length > 0 && (
                             <div className="mt-2">
                               <button
