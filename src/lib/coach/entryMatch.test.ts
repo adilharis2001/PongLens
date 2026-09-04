@@ -5,6 +5,7 @@ import {
   setCoachEntryMatch,
   type EntryMatchRepository,
 } from "./entryMatch.ts";
+import * as entryMatchClient from "./entryMatch.ts";
 
 const COACH = "00000000-0000-4000-8000-000000000001";
 const OTHER_COACH = "00000000-0000-4000-8000-000000000002";
@@ -147,4 +148,133 @@ test("a failed lesson update is reported without claiming success", async () => 
     "failed",
   );
   assert.deepEqual(data.writes, []);
+});
+
+test("a rejected create link request rolls back the just-created lesson", async () => {
+  assert.equal(typeof entryMatchClient.finalizeCreatedEntryMatch, "function");
+  const calls: { url: string; method: string; body: unknown }[] = [];
+  const result = await entryMatchClient.finalizeCreatedEntryMatch(
+    async (url, init) => {
+      calls.push({
+        url: String(url),
+        method: String(init?.method),
+        body: JSON.parse(String(init?.body)),
+      });
+      if (String(url) === "/api/coaching/entry-match") {
+        throw new TypeError("network unavailable");
+      }
+      return { ok: true };
+    },
+    { entryId: ENTRY, lessonId: LESSON, matchId: MATCH },
+  );
+
+  assert.equal(result, "rolled_back");
+  assert.deepEqual(calls, [
+    {
+      url: "/api/coaching/entry-match",
+      method: "PATCH",
+      body: { entryId: ENTRY, matchId: MATCH },
+    },
+    {
+      url: "/api/journal-entry",
+      method: "DELETE",
+      body: { entryId: LESSON },
+    },
+  ]);
+});
+
+test("a failed create rollback reports the surviving entry for reconciliation", async () => {
+  assert.equal(typeof entryMatchClient.finalizeCreatedEntryMatch, "function");
+  for (const cleanup of [
+    async () => ({ ok: false }),
+    async () => {
+      throw new TypeError("cleanup network unavailable");
+    },
+  ]) {
+    let requests = 0;
+    const result = await entryMatchClient.finalizeCreatedEntryMatch(
+      async (url, init) => {
+        requests += 1;
+        if (String(url) === "/api/coaching/entry-match") {
+          throw new TypeError("link network unavailable");
+        }
+        assert.equal(init?.method, "DELETE");
+        return cleanup();
+      },
+      { entryId: ENTRY, lessonId: LESSON, matchId: MATCH },
+    );
+    assert.equal(result, "saved_unlinked");
+    assert.equal(requests, 2);
+  }
+});
+
+test("a failed create rollback reconciles once and retires the retry path", async () => {
+  assert.equal(typeof entryMatchClient.completeCreatedEntryMatch, "function");
+  let requests = 0;
+  let reconciliations = 0;
+  const result = await entryMatchClient.completeCreatedEntryMatch(
+    async (url) => {
+      requests += 1;
+      if (String(url) === "/api/coaching/entry-match") {
+        throw new TypeError("link network unavailable");
+      }
+      return { ok: false };
+    },
+    { entryId: ENTRY, lessonId: LESSON, matchId: MATCH },
+    async () => {
+      reconciliations += 1;
+    },
+  );
+
+  assert.equal(result, "reconciled");
+  assert.equal(requests, 2);
+  assert.equal(reconciliations, 1);
+});
+
+test("rejected existing-entry link, change, and unlink requests return false", async () => {
+  assert.equal(typeof entryMatchClient.persistEntryMatch, "function");
+  const changedMatch = "00000000-0000-4000-8000-000000000009";
+  for (const matchId of [MATCH, changedMatch, null]) {
+    let requests = 0;
+    const saved = await entryMatchClient.persistEntryMatch(
+      async () => {
+        requests += 1;
+        throw new TypeError("network unavailable");
+      },
+      ENTRY,
+      matchId,
+    );
+    assert.equal(saved, false);
+    assert.equal(requests, 1);
+  }
+});
+
+test("rejected existing-entry changes clear busy state and report failure", async () => {
+  assert.equal(typeof entryMatchClient.updateExistingEntryMatch, "function");
+  const changedMatch = "00000000-0000-4000-8000-000000000009";
+  for (const matchId of [MATCH, changedMatch, null]) {
+    const busy: (string | null)[] = [];
+    const saved: (string | null)[] = [];
+    let failures = 0;
+    await entryMatchClient.updateExistingEntryMatch(
+      async () => {
+        throw new TypeError("network unavailable");
+      },
+      { entryId: ENTRY, matchId },
+      {
+        setBusy(value) {
+          busy.push(value);
+        },
+        onSaved(value) {
+          saved.push(value);
+        },
+        onFailed() {
+          failures += 1;
+        },
+      },
+    );
+    assert.deepEqual(busy, [ENTRY, null]);
+    assert.deepEqual(saved, []);
+    assert.equal(failures, 1);
+  }
 });

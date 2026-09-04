@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { entryTitle as entryTitleOf, matchLabel } from "@/lib/coach/entryView";
+import {
+  completeCreatedEntryMatch,
+  updateExistingEntryMatch,
+} from "@/lib/coach/entryMatch";
 import { DictateMic, useDictation } from "@/components/dictation";
 import {
   AddPhotoButton,
@@ -248,18 +252,6 @@ export function StudentView({
     setComposerOpen(false);
   };
 
-  const persistEntryMatch = async (
-    entryId: string,
-    matchId: string | null,
-  ): Promise<boolean> => {
-    const res = await fetch("/api/coaching/entry-match", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entryId, matchId }),
-    });
-    return res.ok;
-  };
-
   /** A student who joined from the general invite link, folded into the
    *  row the coach had already typed: entries move, the typed name stays,
    *  the account binds to it (161). */
@@ -316,19 +308,34 @@ export function StudentView({
         });
         throw error;
       }
-      if (
-        draftMatchId &&
-        !(await persistEntryMatch(coachEntry.id, draftMatchId))
-      ) {
-        // The wrapper and lesson are one entry. If its requested match is
-        // not valid for this student, remove the whole unsaved entry rather
-        // than silently saving something different from what the coach saw.
-        await fetch("/api/journal-entry", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ entryId: data.id }),
-        });
-        throw new Error("match link failed");
+      if (draftMatchId) {
+        const matchResult = await completeCreatedEntryMatch(
+          fetch,
+          {
+            entryId: coachEntry.id,
+            lessonId: data.id,
+            matchId: draftMatchId,
+          },
+          async () => {
+            // The delete failed or its result is unknown. Retire this draft
+            // before reloading the real journal so it cannot create a second
+            // copy of an entry that may already exist.
+            setDraft("");
+            setDraftMatchId(null);
+            setImprove(true);
+            releasePhoto();
+            setComposerOpen(false);
+            await load();
+            flash("Couldn't confirm the match link. The journal was refreshed.");
+          },
+        );
+        if (matchResult === "rolled_back") {
+          throw new Error("match link failed");
+        }
+        if (matchResult === "reconciled") {
+          setSaving(false);
+          return;
+        }
       }
       setDraft("");
       setDraftMatchId(null);
@@ -398,16 +405,22 @@ export function StudentView({
   };
 
   const setEntryMatch = async (entry: EntryRow, matchId: string | null) => {
-    setLinkingId(entry.id);
-    if (await persistEntryMatch(entry.id, matchId)) {
-      setLessons((all) => ({
-        ...all,
-        [entry.lesson_id]: { ...all[entry.lesson_id], match_id: matchId },
-      }));
-    } else {
-      flash("Couldn't link the match. Try again.");
-    }
-    setLinkingId(null);
+    await updateExistingEntryMatch(
+      fetch,
+      { entryId: entry.id, matchId },
+      {
+        setBusy: setLinkingId,
+        onSaved(value) {
+          setLessons((all) => ({
+            ...all,
+            [entry.lesson_id]: { ...all[entry.lesson_id], match_id: value },
+          }));
+        },
+        onFailed() {
+          flash("Couldn't link the match. Try again.");
+        },
+      },
+    );
   };
 
   const deleteEntry = async (entry: EntryRow) => {

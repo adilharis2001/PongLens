@@ -100,6 +100,18 @@ cover create/change/unlink semantics, malformed requests, RLS-hidden rows,
 cross-coach entry/roster/lesson attempts, non-coach lessons, wrong-player
 matches, and failed writes.
 
+The second review follow-up began with three focused failures: the new-entry
+link path had no rejected-request boundary, an unconfirmed lesson rollback
+had no reconciliation result, and existing link/change/unlink requests had
+no failure-safe UI controller. The final focused suite passes 10 of 10. A
+rejected match request now returns failure instead of escaping. For a new
+entry it always attempts the lesson rollback and checks the DELETE response;
+an unsuccessful or rejected rollback retires the draft, reloads the journal,
+and reports the uncertain link result without claiming deletion or survival,
+so retry cannot create a duplicate. For an existing entry, link, change, and
+unlink rejections all show the failure treatment and clear the disabled/busy
+state in `finally`.
+
 ## Staging and cleanup evidence
 
 Before the first live write, Supabase admin checks proved the fixed UUIDs map
@@ -186,6 +198,11 @@ active and the demo lesson's `match_id` was restored to null.
   tutorial PASS 35/35, coach entry/view PASS 11/11, Learn PASS 36/36, coach
   landing PASS 1/1, and full production build PASS. It was created from the
   exact Task 4 index and excludes the concurrent player-flow working files.
+- Network-rollback review tree `d52a3ce551b994e49d99c44a1737ba440d91b826`:
+  coach entry/view PASS 16/16, coach flows PASS 15/15, tutorial PASS 40/40,
+  Learn PASS 36/36, coach landing PASS 1/1, and full production build PASS.
+  It was created from the exact staged Task 4 files on top of Task 5 and
+  excludes the concurrent unstaged player-flow review test.
 
 Node printed the repository's existing `MODULE_TYPELESS_PACKAGE_JSON`
 warning during tutorial tests; there were no test failures.

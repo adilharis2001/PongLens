@@ -38,6 +38,20 @@ export interface EntryMatchRequest {
 
 export type EntryMatchResult = "saved" | "not_found" | "failed";
 
+export interface EntryMatchFetchResponse {
+  ok: boolean;
+}
+
+export type EntryMatchFetch = (
+  input: string,
+  init?: RequestInit,
+) => Promise<EntryMatchFetchResponse>;
+
+export type CreatedEntryMatchResult =
+  | "linked"
+  | "rolled_back"
+  | "saved_unlinked";
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -49,6 +63,86 @@ export function parseEntryMatchRequest(body: unknown): EntryMatchRequest | null 
   if (record.matchId === null) return { entryId, matchId: null };
   const matchId = typeof record.matchId === "string" ? record.matchId.trim() : "";
   return UUID_RE.test(matchId) ? { entryId, matchId } : null;
+}
+
+/** A request failure is a normal unsuccessful save, never an escaped promise. */
+export async function persistEntryMatch(
+  request: EntryMatchFetch,
+  entryId: string,
+  matchId: string | null,
+): Promise<boolean> {
+  try {
+    const response = await request("/api/coaching/entry-match", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entryId, matchId }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Finish a newly-created entry's requested match link atomically from the
+ * composer's point of view. A failed link removes the whole new lesson. If
+ * that removal cannot be confirmed, the caller must reconcile the surviving
+ * entry instead of leaving the composer open to create a duplicate.
+ */
+export async function finalizeCreatedEntryMatch(
+  request: EntryMatchFetch,
+  input: { entryId: string; lessonId: string; matchId: string },
+): Promise<CreatedEntryMatchResult> {
+  if (await persistEntryMatch(request, input.entryId, input.matchId)) {
+    return "linked";
+  }
+  try {
+    const response = await request("/api/journal-entry", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ entryId: input.lessonId }),
+    });
+    return response.ok ? "rolled_back" : "saved_unlinked";
+  } catch {
+    return "saved_unlinked";
+  }
+}
+
+/** Turn an uncertain rollback into one explicit reconciliation path. The
+ * caller's callback reloads the real journal and retires the composer, so a
+ * surviving entry cannot be duplicated by retrying the same draft. */
+export async function completeCreatedEntryMatch(
+  request: EntryMatchFetch,
+  input: { entryId: string; lessonId: string; matchId: string },
+  reconcileSavedEntry: () => Promise<void>,
+): Promise<"linked" | "rolled_back" | "reconciled"> {
+  const result = await finalizeCreatedEntryMatch(request, input);
+  if (result !== "saved_unlinked") return result;
+  await reconcileSavedEntry();
+  return "reconciled";
+}
+
+/** Drive the existing-entry UI through success or failure and always retire
+ * its busy state, including when the browser rejects the request itself. */
+export async function updateExistingEntryMatch(
+  request: EntryMatchFetch,
+  input: { entryId: string; matchId: string | null },
+  effects: {
+    setBusy(entryId: string | null): void;
+    onSaved(matchId: string | null): void;
+    onFailed(): void;
+  },
+): Promise<void> {
+  effects.setBusy(input.entryId);
+  try {
+    if (await persistEntryMatch(request, input.entryId, input.matchId)) {
+      effects.onSaved(input.matchId);
+    } else {
+      effects.onFailed();
+    }
+  } finally {
+    effects.setBusy(null);
+  }
 }
 
 /**
