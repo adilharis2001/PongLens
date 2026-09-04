@@ -609,6 +609,8 @@ struct CoachInviteSheet: View {
     /// waiting invite says a name instead of "Invite sent", and the
     /// journal can attribute entries to them before they accept.
     @State private var inviteName = ""
+    @Environment(LibraryStore.self) private var library
+    @State private var starter = StarterPackStore()
     /// The waiting invite being named after the fact, and its draft.
     @State private var namingInvite: UUID?
     @State private var nameDraft = ""
@@ -747,6 +749,16 @@ struct CoachInviteSheet: View {
                          ? "It is waiting above until they open it."
                          : "For a coach you haven't connected yet. They open the link, sign in, and can watch your matches point by point and leave notes.")
                 }
+
+                if link == nil {
+                    InviteStarterPackSections(
+                        store: starter,
+                        // "All my matches" already covers every match, and
+                        // a match-scoped invite is about this one.
+                        offerMatches: scope != "all",
+                        named: !inviteName.trimmingCharacters(in: .whitespaces).isEmpty
+                    )
+                }
             }
             .tint(PL.cyan)
             .navigationTitle("Share with coach")
@@ -760,6 +772,10 @@ struct CoachInviteSheet: View {
         }
         .preferredColorScheme(.dark)
         .task { await load() }
+        .task {
+            guard let uid = app.userId, !starter.loaded else { return }
+            await starter.load(userId: uid, library: library.matches)
+        }
         .alert(
             "Name this invite",
             isPresented: Binding(
@@ -979,6 +995,9 @@ struct CoachInviteSheet: View {
                 .value
             await coaching.nameInvite(
                 playerId: uid, inviteId: row.id, name: inviteName
+            )
+            await starter.apply(
+                userId: uid, inviteId: row.id, includeMatches: scope != "all"
             )
             link = URL(string: "https://www.ponglens.com/coach-invite/\(row.invite_token)")
             await load()
