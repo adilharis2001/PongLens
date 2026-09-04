@@ -2,7 +2,12 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { visibleChapters, visibleGuides } from "../src/app/learn/catalog.ts";
-import type { Guide, GuideSection, LearnAudience, TutorialChapter } from "../src/app/learn/catalogTypes.ts";
+import type {
+  Guide,
+  GuideSection,
+  LearnAudience,
+  NumberedTutorialChapter,
+} from "../src/app/learn/catalogTypes.ts";
 
 const audiences: LearnAudience[] = ["player", "coach"];
 const target = fileURLToPath(
@@ -23,8 +28,8 @@ function serializeGuide(guide: Guide, audience: LearnAudience) {
   };
 }
 
-function serializeChapter(chapter: TutorialChapter, audience: LearnAudience) {
-  const { visibility: _visibility, ...serialized } = chapter;
+function serializeChapter(chapter: NumberedTutorialChapter, audience: LearnAudience) {
+  const { visibility: _visibility, n: _number, ...serialized } = chapter;
   return { audience, ...serialized };
 }
 

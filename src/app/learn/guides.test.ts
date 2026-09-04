@@ -140,13 +140,17 @@ test("generated iOS catalog stays fresh and excludes web-only coach commerce", a
   const catalog = JSON.parse(output) as {
     groups: Array<{ audience: string; groups: string[] }>;
     guides: Array<{ audience: string }>;
-    chapters: Array<{ audience: string }>;
+    chapters: Array<Record<string, unknown> & { audience: string }>;
   };
   assert.deepEqual(
     catalog.groups.map((group) => group.audience),
     ["player", "coach"],
   );
   assert.ok(catalog.groups.every((group) => group.groups.length > 0));
+  assert.ok(
+    catalog.chapters.every((chapter) => !Object.hasOwn(chapter, "n")),
+    "iOS tutorial chapter numbers must be derived after platform filtering",
+  );
 
   const coachRecords = JSON.stringify({
     groups: catalog.groups.filter((group) => group.audience === "coach"),

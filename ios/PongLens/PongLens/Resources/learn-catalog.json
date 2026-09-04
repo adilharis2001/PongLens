@@ -864,8 +864,7 @@
       "title": "Start here",
       "blurb": "What PongLens does and what Home is showing you.",
       "seconds": 34,
-      "mediaKey": "tutorial/player/home.mp4",
-      "n": 1
+      "mediaKey": "tutorial/player/home.mp4"
     },
     {
       "audience": "player",
@@ -874,8 +873,7 @@
       "blurb": "Record or choose a video, then set up the match for processing.",
       "seconds": 39,
       "guide": "upload-a-video",
-      "mediaKey": "tutorial/player/upload.mp4",
-      "n": 2
+      "mediaKey": "tutorial/player/upload.mp4"
     },
     {
       "audience": "player",
@@ -884,8 +882,7 @@
       "blurb": "Move point by point, use the player gestures, and open the original upload.",
       "seconds": 55,
       "guide": "match-viewer",
-      "mediaKey": "tutorial/player/viewer.mp4",
-      "n": 3
+      "mediaKey": "tutorial/player/viewer.mp4"
     },
     {
       "audience": "player",
@@ -894,8 +891,7 @@
       "blurb": "Score one rally and add the details that feed analysis and statistics.",
       "seconds": 32,
       "guide": "score-points",
-      "mediaKey": "tutorial/player/point.mp4",
-      "n": 4
+      "mediaKey": "tutorial/player/point.mp4"
     },
     {
       "audience": "player",
@@ -904,8 +900,7 @@
       "blurb": "Score a whole match quickly and correct footage without breaking the flow.",
       "seconds": 60,
       "guide": "score-keeper",
-      "mediaKey": "tutorial/player/keepscore.mp4",
-      "n": 5
+      "mediaKey": "tutorial/player/keepscore.mp4"
     },
     {
       "audience": "player",
@@ -914,8 +909,7 @@
       "blurb": "Read the score, momentum, tactical answers, and placement maps together.",
       "seconds": 43,
       "guide": "match-analysis",
-      "mediaKey": "tutorial/player/analysis.mp4",
-      "n": 6
+      "mediaKey": "tutorial/player/analysis.mp4"
     },
     {
       "audience": "player",
@@ -924,8 +918,7 @@
       "blurb": "Use automatic highlights, stars, tags, exports, and public links.",
       "seconds": 41,
       "guide": "create-share-highlights",
-      "mediaKey": "tutorial/player/export.mp4",
-      "n": 7
+      "mediaKey": "tutorial/player/export.mp4"
     },
     {
       "audience": "player",
@@ -934,8 +927,7 @@
       "blurb": "Choose match access and receive feedback and lesson entries in context.",
       "seconds": 50,
       "guide": "invite-a-coach",
-      "mediaKey": "tutorial/player/coach.mp4",
-      "n": 8
+      "mediaKey": "tutorial/player/coach.mp4"
     },
     {
       "audience": "player",
@@ -944,8 +936,7 @@
       "blurb": "Keep notes, lessons, scanned pages, current cues, and Recollect together.",
       "seconds": 55,
       "guide": "journal",
-      "mediaKey": "tutorial/player/journal.mp4",
-      "n": 9
+      "mediaKey": "tutorial/player/journal.mp4"
     },
     {
       "audience": "coach",
@@ -954,8 +945,7 @@
       "blurb": "See Coach Home, the roster, and the switch between Playing and Coaching.",
       "seconds": 42,
       "guide": "coaching-workspace",
-      "mediaKey": "tutorial/coach/coach-start.mp4",
-      "n": 1
+      "mediaKey": "tutorial/coach/coach-start.mp4"
     },
     {
       "audience": "coach",
@@ -964,8 +954,7 @@
       "blurb": "Start a private lesson record before the student has an account.",
       "seconds": 44,
       "guide": "add-connect-student",
-      "mediaKey": "tutorial/coach/coach-add-student.mp4",
-      "n": 2
+      "mediaKey": "tutorial/coach/coach-add-student.mp4"
     },
     {
       "audience": "coach",
@@ -974,8 +963,7 @@
       "blurb": "Send the invite, apply the student's match access, and merge a duplicate.",
       "seconds": 46,
       "guide": "add-connect-student",
-      "mediaKey": "tutorial/coach/coach-connect-account.mp4",
-      "n": 3
+      "mediaKey": "tutorial/coach/coach-connect-account.mp4"
     },
     {
       "audience": "coach",
@@ -984,8 +972,7 @@
       "blurb": "Capture rough lesson notes and prepare them for later use.",
       "seconds": 48,
       "guide": "keep-lesson-entries",
-      "mediaKey": "tutorial/coach/coach-lesson-entry.mp4",
-      "n": 4
+      "mediaKey": "tutorial/coach/coach-lesson-entry.mp4"
     },
     {
       "audience": "coach",
@@ -994,8 +981,7 @@
       "blurb": "Capture the lesson audio and review the transcript and prepared notes.",
       "seconds": 50,
       "guide": "audio-record-lesson",
-      "mediaKey": "tutorial/coach/coach-audio-lesson.mp4",
-      "n": 5
+      "mediaKey": "tutorial/coach/coach-audio-lesson.mp4"
     },
     {
       "audience": "coach",
@@ -1004,8 +990,7 @@
       "blurb": "Send an entry to a connected student's Journal or share that entry by link.",
       "seconds": 43,
       "guide": "share-coach-entry",
-      "mediaKey": "tutorial/coach/coach-share-entry.mp4",
-      "n": 6
+      "mediaKey": "tutorial/coach/coach-share-entry.mp4"
     },
     {
       "audience": "coach",
@@ -1014,8 +999,7 @@
       "blurb": "Open shared footage and read the player's score, analysis, and maps.",
       "seconds": 51,
       "guide": "review-student-match",
-      "mediaKey": "tutorial/coach/coach-review-match.mp4",
-      "n": 7
+      "mediaKey": "tutorial/coach/coach-review-match.mp4"
     },
     {
       "audience": "coach",
@@ -1024,8 +1008,7 @@
       "blurb": "Keep written, spoken, and drawn feedback beside the moment it explains.",
       "seconds": 49,
       "guide": "leave-match-feedback",
-      "mediaKey": "tutorial/coach/coach-feedback.mp4",
-      "n": 8
+      "mediaKey": "tutorial/coach/coach-feedback.mp4"
     }
   ]
 }
