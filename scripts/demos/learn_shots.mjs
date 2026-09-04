@@ -89,7 +89,7 @@ async function magicLink(email = DEMO_EMAIL) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function waitVideoReady(page, timeout = 15000) {
-  await page
+  return await page
     .waitForFunction(
       () => {
         const v = document.querySelector("video");
@@ -97,7 +97,8 @@ async function waitVideoReady(page, timeout = 15000) {
       },
       { timeout }
     )
-    .catch(() => {});
+    .then(() => true)
+    .catch(() => false);
 }
 
 async function pauseVideos(page) {
@@ -276,7 +277,12 @@ const shots = {
       await page.goto(`${BASE}/match/${ORIGINAL_MATCH}`);
       await page.getByRole("button", { name: "Original", exact: true }).click();
       await page.getByRole("dialog", { name: "Original video" }).waitFor();
-      await waitVideoReady(page);
+      if (!(await waitVideoReady(page))) throw new Error("Original video did not become playable");
+      await page.evaluate((t) => {
+        const video = document.querySelector("video");
+        if (video) video.currentTime = Math.min(t, Math.max(0, video.duration - 1));
+      }, GAME2_T);
+      await sleep(1200);
       await pauseVideos(page);
     },
   },
@@ -293,7 +299,12 @@ const shots = {
       await page.goto(`${BASE}/match/${ORIGINAL_MATCH}`);
       await page.getByRole("button", { name: "Original", exact: true }).click();
       await page.getByRole("dialog", { name: "Original video" }).waitFor();
-      await waitVideoReady(page);
+      if (!(await waitVideoReady(page))) throw new Error("Original video did not become playable");
+      await page.evaluate((t) => {
+        const video = document.querySelector("video");
+        if (video) video.currentTime = Math.min(t, Math.max(0, video.duration - 1));
+      }, GAME2_T);
+      await sleep(1200);
       await pauseVideos(page);
     },
   },
@@ -330,8 +341,10 @@ const shots = {
         );
       }
       await openPlayer(page, RESTORE_RALLY_MATCH);
+      await page.getByRole("button", { name: "Score Keeper", exact: true }).click();
       const offer = page.locator('[aria-label*="Add a missing rally"]').first();
-      await offer.waitFor({ timeout: 15000 });
+      await offer.waitFor({ state: "attached", timeout: 15000 });
+      await offer.scrollIntoViewIfNeeded();
       await offer.click();
       await page.waitForSelector("text=Add a missing rally", { timeout: 15000 });
       await waitVideoReady(page);
@@ -345,8 +358,10 @@ const shots = {
     run: async (page) => {
       if (!RESTORE_RALLY_MATCH || !RESTORE_RALLY_ACCOUNT) throw new Error("RESTORE_RALLY_MATCH and RESTORE_RALLY_ACCOUNT must name a staged match with a real gap");
       await openPlayer(page, RESTORE_RALLY_MATCH);
+      await page.getByRole("button", { name: "Score Keeper", exact: true }).click();
       const offer = page.locator('[aria-label*="Add a missing rally"]').first();
-      await offer.waitFor({ timeout: 15000 });
+      await offer.waitFor({ state: "attached", timeout: 15000 });
+      await offer.scrollIntoViewIfNeeded();
       await offer.click();
       await page.waitForSelector("text=Add a missing rally", { timeout: 15000 });
       await waitVideoReady(page);
@@ -621,6 +636,8 @@ const shots = {
       await page.goto(`${BASE}/account`);
       await page.getByRole("button", { name: "Manage" }).click();
       await page.getByText("Public links", { exact: true }).last().waitFor({ timeout: 20000 });
+      await scrollToText(page, "Public links", "start");
+      await sleep(500);
     },
   },
   "coach-public-entry-link-m": {
@@ -630,6 +647,8 @@ const shots = {
       await page.goto(`${BASE}/account`);
       await page.getByRole("button", { name: "Manage" }).click();
       await page.getByText("Public links", { exact: true }).last().waitFor({ timeout: 20000 });
+      await scrollToText(page, "Public links", "start");
+      await sleep(500);
     },
   },
 };

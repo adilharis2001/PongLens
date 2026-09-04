@@ -188,12 +188,20 @@ export const coachGuides: Guide[] = [
         paragraphs: [
           "Direct sharing places the entry in the connected student's Journal. If you edit the shared entry later, their version updates too. Stop sharing when it should no longer appear there.",
         ],
+        images: [
+          { src: "/learn/coach-direct-share-d.jpg", alt: "A connected student's lesson entry ready to share directly", kind: "d" },
+          { src: "/learn/coach-direct-share-m.jpg", alt: "Share with student controls on a phone", kind: "m", phoneTwin: true },
+        ],
       },
       {
         heading: "Share one entry by public link",
         paragraphs: [
           "A public link is useful when the student does not have an account. It opens only the individual entry and does not expose the rest of the student's coaching record.",
           "Copy the link again while it remains active. Reset it when you want a replacement, or revoke public access when nobody should be able to open it.",
+        ],
+        images: [
+          { src: "/learn/coach-public-entry-link-d.jpg", alt: "An active public journal entry link in Account", kind: "d" },
+          { src: "/learn/coach-public-entry-link-m.jpg", alt: "Public entry link management on a phone", kind: "m", phoneTwin: true },
         ],
       },
     ],

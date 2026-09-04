@@ -179,6 +179,10 @@ export const playerGuides: Guide[] = [
           "Star the current point, share it, or leave a note from the player.",
           "Choose Original if the cut left out footage or you want to see the breaks between rallies.",
         ],
+        images: [
+          { src: "/learn/original-d.jpg", alt: "The retained Original video open on desktop", kind: "d" },
+          { src: "/learn/original-m.jpg", alt: "The Original video takeover on a phone", kind: "m", phoneTwin: true },
+        ],
       },
     ],
   },
@@ -218,6 +222,10 @@ export const playerGuides: Guide[] = [
           "Join neighboring clips when one rally was cut into separate pieces.",
           "Remove warm-up, dead space, or footage that is not a point.",
           "Open the original match and put back a missed rally when the cut left it out.",
+        ],
+        images: [
+          { src: "/learn/restore-rally-d.jpg", alt: "The Add a missing rally sheet on a genuine gap in the source video", kind: "d" },
+          { src: "/learn/restore-rally-m.jpg", alt: "Missing-rally restoration controls on a phone", kind: "m", phoneTwin: true },
         ],
         tip: "A corrected clip can briefly show an updating state while PongLens prepares it.",
       },
@@ -338,6 +346,12 @@ export const playerGuides: Guide[] = [
         paragraphs: [
           "Placement is prepared after the initial match processing when it was selected during upload. If it was not selected, request it from Tools while the original video is still available.",
           "A processing state means PongLens is still preparing the maps. Retry starts another attempt after a failed result. Unavailable means the original or a usable camera view is not available for a new attempt.",
+        ],
+        images: [
+          { src: "/learn/placement-current-d.jpg", alt: "Current serve landing and heat maps populated from the match", kind: "d" },
+          { src: "/learn/placement-current-m.jpg", alt: "A populated serve placement map on a phone", kind: "m", phoneTwin: true },
+          { src: "/learn/placement-retry-d.jpg", alt: "The one-time placement retry confirmation", kind: "d" },
+          { src: "/learn/placement-retry-m.jpg", alt: "Placement retry confirmation on a phone", kind: "m", phoneTwin: true },
         ],
         tip: "Placement is still in beta. Mark a result that looks wrong so it stops counting in the map.",
       },

@@ -316,6 +316,28 @@ test("web guide screenshots cover the refreshed player and coach workflows", () 
   }
 });
 
+test("externally staged Learn states ship as real desktop and mobile captures", () => {
+  const stagedStates = new Set([
+    "original-video",
+    "missed-rally-restoration",
+    "placement-retry",
+    "placement-current",
+    "coach-direct-share",
+    "coach-public-entry-link",
+  ]);
+
+  for (const item of learnShotManifest.filter(({ state }) => stagedStates.has(state))) {
+    assert.equal(item.status, "captured", `${item.state} is still missing its staged capture`);
+    for (const variant of Object.values(item.variants)) {
+      assert.equal(
+        variant.guideImage,
+        `/learn/${variant.shot}.jpg`,
+        `${variant.shot} is not wired to the guide catalog`,
+      );
+    }
+  }
+});
+
 test("guide search helpers retain their legacy behavior", () => {
   const searchable = guide({
     title: "Search test",
