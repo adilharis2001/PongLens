@@ -572,6 +572,7 @@ struct CoachInviteSheet: View {
     let match: MatchRow
 
     @Environment(AppState.self) private var app
+    @Environment(CoachingStore.self) private var coaching
     @Environment(\.dismiss) private var dismiss
 
     struct ConnectedCoach: Identifiable {
@@ -589,6 +590,8 @@ struct CoachInviteSheet: View {
         let token: String
         /// "this match", "all matches" or "matches you share".
         let access: String
+        /// What the player calls them, when the invite was named (164).
+        let name: String?
     }
 
     @State private var coaches: [ConnectedCoach] = []
@@ -597,6 +600,10 @@ struct CoachInviteSheet: View {
     @State private var busyCoach: UUID?
 
     @State private var scope = "match"
+    /// Who the invite is for (164). Optional, and it does two things: the
+    /// waiting invite says a name instead of "Invite sent", and the
+    /// journal can attribute entries to them before they accept.
+    @State private var inviteName = ""
     @State private var link: URL?
     @State private var creating = false
     @State private var errorMessage: String?
@@ -622,7 +629,7 @@ struct CoachInviteSheet: View {
                         ForEach(pending) { invite in
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text("Invite sent")
+                                    Text(invite.name ?? "Invite sent")
                                         .foregroundStyle(PL.text100)
                                     Text("Waiting for them to open it · \(invite.access)")
                                         .font(.plCaption)
@@ -641,6 +648,11 @@ struct CoachInviteSheet: View {
                 }
 
                 Section {
+                    if link == nil {
+                        TextField("Their name (optional)", text: $inviteName)
+                            .textInputAutocapitalization(.words)
+                            .autocorrectionDisabled()
+                    }
                     Picker("Share", selection: $scope) {
                         Text("This match").tag("match")
                         Text("All my matches").tag("all")
@@ -752,6 +764,12 @@ struct CoachInviteSheet: View {
             .execute().value
         async let namesQ: [NameRow]? = try? await supa
             .rpc("player_coach_links").execute().value
+        let namedQ: [PlayerCoach]? = try? await supa
+            .rpc("player_coaches_list").execute().value
+        let namedByInvite = Dictionary(
+            (namedQ ?? []).compactMap { row in row.inviteId.map { ($0, row.displayName) } },
+            uniquingKeysWith: { first, _ in first }
+        )
         let (links, names) = await (linksQ ?? [], namesQ ?? [])
         let nameById = Dictionary(uniqueKeysWithValues: names.map { ($0.id, $0.coach_name ?? $0.coach_email ?? "Coach") })
 
@@ -777,7 +795,8 @@ struct CoachInviteSheet: View {
                     id: $0.id,
                     token: $0.invite_token,
                     access: $0.scope_match_id != nil ? "this match"
-                        : $0.all_matches ? "all matches" : "matches you share"
+                        : $0.all_matches ? "all matches" : "matches you share",
+                    name: namedByInvite[$0.id]
                 )
             }
         loaded = true
@@ -825,7 +844,7 @@ struct CoachInviteSheet: View {
             let player_id: String
             let scope_match_id: String?
         }
-        struct TokenRow: Decodable { let invite_token: String }
+        struct TokenRow: Decodable { let id: UUID; let invite_token: String }
         do {
             let row: TokenRow = try await supa
                 .from("coach_links")
@@ -833,10 +852,13 @@ struct CoachInviteSheet: View {
                     player_id: uid.uuidString.lowercased(),
                     scope_match_id: scope == "match" ? match.id.uuidString.lowercased() : nil
                 ))
-                .select("invite_token")
+                .select("id,invite_token")
                 .single()
                 .execute()
                 .value
+            await coaching.nameInvite(
+                playerId: uid, inviteId: row.id, name: inviteName
+            )
             link = URL(string: "https://www.ponglens.com/coach-invite/\(row.invite_token)")
             await load()
         } catch {

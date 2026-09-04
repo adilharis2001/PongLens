@@ -54,6 +54,11 @@ final class CoachingStore {
     var coachesAnyone = false
     var showTab: Bool
     var coachLinks: [CoachLinkRow] = []
+    /// Invite id -> what the player calls that coach (164), so a waiting
+    /// invite can say a name instead of "Invite sent". The web has said a
+    /// name since 164 shipped; the phone said nothing, which is also why
+    /// an invited coach never reached the journal's picker there.
+    var invitedNames: [UUID: String] = [:]
     var orders: [StudentOrderRow] = []
     var loaded = false
 
@@ -101,7 +106,69 @@ final class CoachingStore {
                 || !coachLinks.isEmpty
                 || !orders.isEmpty)
         UserDefaults.standard.set(showTab, forKey: Self.tabCacheKey(userId))
+        let named: [PlayerCoach]? = try? await supa
+            .rpc("player_coaches_list").execute().value
+        invitedNames = Dictionary(
+            (named ?? []).compactMap { row in
+                row.inviteId.map { ($0, row.displayName) }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         loaded = true
+    }
+
+    /// Put a name on an invite you just created (164).
+    ///
+    /// Find-or-create, never a blind insert: a player who already has
+    /// "Jonathan" in their journal and then invites Jonathan must end up
+    /// with ONE of him, or this makes the duplicate the whole feature
+    /// exists to remove. A row already bound to an account is never
+    /// reused — hanging a fresh invite off somebody's account would be
+    /// wrong, and that is what the coach_id check is for.
+    ///
+    /// The web twin is createLink() in ShareWithCoach.tsx; keep them in
+    /// step. A failure here loses the name, never the invite: the link is
+    /// what was asked for, and the row can be made again from the journal
+    /// or by the accept itself.
+    func nameInvite(playerId: UUID, inviteId: UUID, name: String) async {
+        let clean = name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .prefix(80)
+        guard !clean.isEmpty else { return }
+
+        let mine: [PlayerCoach]? = try? await supa
+            .rpc("player_coaches_list").execute().value
+        let existing = (mine ?? []).first {
+            $0.coachId == nil
+                && $0.displayName.trimmingCharacters(in: .whitespaces)
+                    .caseInsensitiveCompare(String(clean)) == .orderedSame
+        }
+
+        if let existing {
+            _ = try? await supa
+                .from("player_coaches")
+                .update(["invite_id": AnyJSON.string(inviteId.uuidString.lowercased())])
+                .eq("id", value: existing.id.uuidString.lowercased())
+                .execute()
+            invitedNames[inviteId] = existing.displayName
+            return
+        }
+
+        struct NewCoach: Encodable {
+            let player_id: String
+            let display_name: String
+            let invite_id: String
+        }
+        _ = try? await supa
+            .from("player_coaches")
+            .insert(NewCoach(
+                player_id: playerId.uuidString.lowercased(),
+                display_name: String(clean),
+                invite_id: inviteId.uuidString.lowercased()
+            ))
+            .execute()
+        invitedNames[inviteId] = String(clean)
     }
 
     /// The per-coach setting (161): all matches, or only the ones shared

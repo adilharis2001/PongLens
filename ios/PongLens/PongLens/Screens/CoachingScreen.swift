@@ -311,6 +311,10 @@ struct AllMatchesCoachInvite: View {
     @Environment(CoachingStore.self) private var coaching
     @Environment(\.dismiss) private var dismiss
     @State private var allMatches = true
+    /// Who the invite is for (164). Optional, and it does two things: the
+    /// waiting invite says a name instead of "Invite sent", and the
+    /// journal can attribute entries to them before they accept.
+    @State private var inviteName = ""
     @State private var link: URL?
     @State private var creating = false
     @State private var errorMessage: String?
@@ -349,6 +353,13 @@ struct AllMatchesCoachInvite: View {
                     }
                 } else {
                     Section {
+                        // Naming them now is what lets the journal
+                        // attribute lessons to this coach before they
+                        // have accepted anything (164), and what makes
+                        // the waiting invite say a name.
+                        TextField("Their name (optional)", text: $inviteName)
+                            .textInputAutocapitalization(.words)
+                            .autocorrectionDisabled()
                         Picker("Access", selection: $allMatches) {
                             Text("All my matches").tag(true)
                             Text("Only matches I share").tag(false)
@@ -391,15 +402,18 @@ struct AllMatchesCoachInvite: View {
             let player_id: String
             let all_matches: Bool
         }
-        struct TokenRow: Decodable { let invite_token: String }
+        struct TokenRow: Decodable { let id: UUID; let invite_token: String }
         do {
             let row: TokenRow = try await supa
                 .from("coach_links")
                 .insert(Insert(player_id: uid.uuidString.lowercased(), all_matches: allMatches))
-                .select("invite_token")
+                .select("id,invite_token")
                 .single()
                 .execute()
                 .value
+            await coaching.nameInvite(
+                playerId: uid, inviteId: row.id, name: inviteName
+            )
             link = URL(string: "https://www.ponglens.com/coach-invite/\(row.invite_token)")
             await coaching.load(userId: uid)
         } catch {

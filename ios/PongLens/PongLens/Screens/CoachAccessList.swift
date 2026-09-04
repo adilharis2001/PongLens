@@ -143,7 +143,10 @@ struct CoachAccessList: View {
     private func pendingRow(_ link: CoachLinkRow) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Invite pending")
+                // The name, when the invite was created with one (164).
+                // "Invite pending" over three waiting invites tells you
+                // nothing about which is which.
+                Text(coaching.invitedNames[link.id] ?? "Invite pending")
                     .font(.plRowTitle)
                     .foregroundStyle(PL.text100)
                 Text(link.scopeMatchId != nil
