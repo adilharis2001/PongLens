@@ -3,13 +3,23 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { setWorkspace } from "@/lib/workspace";
 
 /**
  * Auto-accepts the invite the moment an authenticated coach lands here — the
  * click was pure friction (they already chose to open the link). On success
- * we drop them straight onto the shared match (or the dashboard for an
- * all-matches invite). The server callback handles the sign-in round trip;
- * this covers the already-signed-in visitor.
+ * we drop them straight onto the shared match, or onto the coaching home
+ * when the invite covers more than one. The server callback handles the
+ * sign-in round trip; this covers the already-signed-in visitor.
+ *
+ * The coaching side, never the player's Home. This used to send every
+ * non-match invite to /dashboard, which is player territory, so the nav
+ * remembered "player" and a coach who has no playing side of their own was
+ * left standing in one (Adil, 2026-09-04). The workspace is stamped before
+ * navigating for the same reason the server path stamps it: accept_coach_
+ * invite sets is_coach on the account, but this session's token predates
+ * that, so the flag alone would not carry the first paint — and /coaching
+ * is shared ground that renders whichever side the workspace names.
  */
 export function AcceptInvite({ token }: { token: string }) {
   const router = useRouter();
@@ -31,9 +41,14 @@ export function AcceptInvite({ token }: { token: string }) {
         );
         return;
       }
-      // Land on the match itself when the invite is scoped to one; the
-      // all-matches scope has no single target, so go to the dashboard.
-      let dest = "/dashboard";
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) setWorkspace(user.id, "coach");
+      // Land on the match itself when the invite is scoped to one; a
+      // connection that covers more than one match has no single target,
+      // so go to the coaching home, where their new student is waiting.
+      let dest = "/coaching";
       const { data: link } = await supabase
         .from("coach_links")
         .select("scope_match_id")

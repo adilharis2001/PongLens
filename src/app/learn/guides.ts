@@ -793,7 +793,7 @@ export const guides: Guide[] = [
         steps: [
           "Open the invite link from your player.",
           "Sign in to PongLens if asked. The invite is accepted automatically.",
-          "A one-match invite opens that match. For all-match access, open Shared with me on Home.",
+          "A one-match invite opens that match. Any wider invite opens Coaching, where the player appears on your students list.",
           "Open a point and add feedback in Notes.",
           "Use Overall notes on the match page for feedback that is not about one point.",
         ],

@@ -29,7 +29,14 @@ export async function resolvePendingCoachInviteDestination(
     return fallbackDestination;
   }
 
+  // A coach invite lands on the COACHING side, never the player's Home.
+  // It used to return /dashboard, which is player territory, so the nav
+  // remembered "player" (rememberLanding) and a coach who had never set
+  // up a playing side was dropped into one — Adil, 2026-09-04. A
+  // match-scoped invite still opens its match, because that is the thing
+  // the player sent; the workspace cookie is stamped by the caller so the
+  // bar around it is the coach's.
   return link.scope_match_id
     ? `/match/${link.scope_match_id}`
-    : "/dashboard";
+    : "/coaching";
 }
