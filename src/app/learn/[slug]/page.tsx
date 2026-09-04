@@ -4,11 +4,13 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
 import {
-  guideBySlug,
-  guides,
+  guideBySlugForPlatform,
+  legacyGuideRedirect,
   type GuideImage,
   type GuideSection,
-} from "../guides";
+  visibleGuides,
+  visibleRelatedGuides,
+} from "../catalog";
 
 /**
  * One guide, rendered from its data in guides.ts. Screenshots follow the
@@ -18,7 +20,9 @@ import {
  */
 
 export function generateStaticParams() {
-  return guides.map((g) => ({ slug: g.slug }));
+  return (["player", "coach"] as const).flatMap((audience) =>
+    visibleGuides(audience, "web").map((guide) => ({ slug: guide.slug })),
+  );
 }
 
 export async function generateMetadata({
@@ -27,7 +31,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const guide = guideBySlug(slug);
+  const guide = guideBySlugForPlatform(slug, "web");
   return {
     title: guide ? guide.title : "Learn",
     robots: { index: false, follow: false },
@@ -123,10 +127,17 @@ export default async function GuidePage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  // The scoring guide shipped as /learn/keep-score before the rename.
-  if (slug === "keep-score") redirect("/learn/score-keeper");
-  const guide = guideBySlug(slug);
+  const redirectSlug = legacyGuideRedirect(slug);
+  if (redirectSlug) {
+    redirect(
+      slug === "for-coaches"
+        ? `/learn/${redirectSlug}?audience=coach`
+        : `/learn/${redirectSlug}`,
+    );
+  }
+  const guide = guideBySlugForPlatform(slug, "web");
   if (!guide) notFound();
+  const audience = guide.visibility.audiences[0];
 
   const supabase = await createClient();
   const {
@@ -139,14 +150,12 @@ export default async function GuidePage({
     (user.user_metadata?.picture as string | undefined) ??
     null;
 
-  const related = (guide.related ?? [])
-    .map((s) => guideBySlug(s))
-    .filter((g): g is NonNullable<typeof g> => Boolean(g));
+  const related = visibleRelatedGuides(guide, audience, "web");
 
   return (
     <AppShell avatarUrl={avatarUrl}>
       <Link
-        href="/learn"
+        href={`/learn?audience=${audience}`}
         className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-500 transition-colors hover:text-cyan-glow"
       >
         <svg
@@ -182,7 +191,7 @@ export default async function GuidePage({
             {related.map((r) => (
               <Link
                 key={r.slug}
-                href={`/learn/${r.slug}`}
+                href={`/learn/${r.slug}?audience=${audience}`}
                 className="block rounded-2xl border border-edge bg-surface p-4 transition-colors hover:border-cyan-glow/40 hover:bg-surface-2"
               >
                 <h3 className="text-sm font-semibold text-zinc-100">

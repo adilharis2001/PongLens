@@ -79,6 +79,13 @@ export function guideBySlugForPlatform(
     .find((guide): guide is Guide => guide !== undefined);
 }
 
+export function legacyGuideRedirect(slug: string): string | undefined {
+  return {
+    "keep-score": "score-keeper",
+    "for-coaches": "review-student-match",
+  }[slug];
+}
+
 export function visibleRelatedGuides(
   guide: Guide,
   audience: LearnAudience,

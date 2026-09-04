@@ -7,6 +7,7 @@ import {
   guideBySlugForPlatform,
   guideSearchText,
   guideSnippet,
+  legacyGuideRedirect,
   tutorialTotalSeconds,
   validateLearnCatalog,
   visibleChapters,
@@ -188,6 +189,31 @@ test("catalog selectors find only visible slugs and derive tutorial totals", () 
   assert.equal(
     tutorialTotalSeconds("player", "web"),
     visibleChapters("player", "web").reduce((total, item) => total + item.seconds, 0),
+  );
+});
+
+test("legacy guide redirects preserve both renamed routes", () => {
+  assert.equal(legacyGuideRedirect("keep-score"), "score-keeper");
+  assert.equal(legacyGuideRedirect("for-coaches"), "review-student-match");
+});
+
+test("coach guide relationships stay visible on their platform", () => {
+  for (const coachGuide of visibleGuides("coach", "ios")) {
+    for (const related of visibleRelatedGuides(coachGuide, "coach", "ios")) {
+      assert.ok(
+        related.visibility.platforms.includes("ios"),
+        `${coachGuide.slug} only links to iOS-visible guides`,
+      );
+    }
+  }
+
+  const paidReviewGuides = visibleGuides("coach", "web").filter((item) =>
+    guideSearchText(item).includes("paid review"),
+  );
+  assert.ok(paidReviewGuides.length > 0, "coach paid-review guides remain on web");
+  assert.ok(
+    paidReviewGuides.every((item) => item.visibility.platforms.includes("web")),
+    "every coach paid-review guide is web-visible",
   );
 });
 
