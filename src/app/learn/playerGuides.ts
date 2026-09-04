@@ -337,7 +337,7 @@ export const playerGuides: Guide[] = [
         bullets: [
           "Overview uses confirmed winners, game boundaries, and the serve rotation.",
           "Serve, Mistakes, and Placement use the answers you chose while scoring.",
-          "Where the ball landed uses tracking created from the video. Serve placement shows the landing of the serve, while rally views show later landings PongLens could follow.",
+          "Where the ball landed uses tracking created from the video. Serve placement shows where each serve landed and groups those landings into a heat map.",
           "A coach can read the player's score, analysis, and maps but cannot change them.",
         ],
       },

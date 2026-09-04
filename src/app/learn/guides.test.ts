@@ -515,6 +515,15 @@ test("player curriculum retains established guides and gates recording to iOS", 
   ]);
 });
 
+test("player placement guidance describes the current serve-only maps", () => {
+  const placementGuide = guideBySlug("match-analysis", "player", "web");
+  assert.ok(placementGuide);
+
+  const copy = guideSearchText(placementGuide);
+  assert.match(copy, /serve placement shows where each serve landed/i);
+  assert.doesNotMatch(copy, /rally views?|later landings/i);
+});
+
 test("Instagram highlight instructions render only for iOS players", () => {
   const webGuide = guideBySlug("create-share-highlights", "player", "web");
   const iosGuide = guideBySlug("create-share-highlights", "player", "ios");
