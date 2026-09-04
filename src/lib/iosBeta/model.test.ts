@@ -53,10 +53,11 @@ test("tester email gives one safe invitation action and complete installation in
   );
 
   assert.equal(content.subject, "Your PongLens iPhone beta is ready");
-  assert.match(content.html, /Open PongLens in TestFlight/);
+  assert.match(content.html, /Install PongLens beta/);
   assert.match(content.html, /Install TestFlight/);
   assert.match(content.html, /Tap Accept/);
-  assert.match(content.html, /Beta access and essential beta updates only/);
+  assert.match(content.html, /Beta access and essential beta notices only/);
+  assert.match(content.text, /No marketing/);
   assert.equal(
     content.html.match(/https:\/\/testflight\.apple\.com\/join\/Ab12Cd34/g)
       ?.length,
@@ -70,7 +71,10 @@ test("admin email escapes requester data before rendering it", () => {
     "2026-09-04T14:30:00.000Z",
   );
 
-  assert.equal(content.subject, "New PongLens iOS beta request");
+  assert.equal(
+    content.subject,
+    "player+<tag>@example.com joined the iPhone beta",
+  );
   assert.doesNotMatch(content.html, /player\+<tag>/);
   assert.match(content.html, /player\+&lt;tag&gt;@example\.com/);
   assert.match(content.html, /2026-09-04T14:30:00\.000Z/);
