@@ -10,6 +10,7 @@ import {
   mergeCandidates,
   type PlayerCoach,
 } from "@/lib/coaches/playerCoaches";
+import { UNNAMED_INVITE, nameCoachInvite } from "@/lib/coaches/nameInvite";
 
 /**
  * Player-side sharing, modelled as PEOPLE, not links. Each accepted coach is
@@ -72,6 +73,9 @@ export function SharingSection({ userId }: { userId: string }) {
   const [mergeFor, setMergeFor] = useState<string | null>(null);
   const [renameFor, setRenameFor] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  /** The waiting invite whose name is being typed, if any. */
+  const [namingId, setNamingId] = useState<string | null>(null);
+  const [inviteNameDraft, setInviteNameDraft] = useState("");
 
   const fetchLinks = useCallback(async () => {
     const supabase = createClient();
@@ -274,6 +278,27 @@ export function SharingSection({ userId }: { userId: string }) {
       await fetchLinks();
     },
     [fetchLinks],
+  );
+
+  /** Name a waiting invite that was created without one (164). The field
+   *  is optional at creation and easy to skip, and the name is what puts
+   *  that coach in the journal's picker — so it has to be addable
+   *  afterwards rather than needing a revoke and a fresh link. */
+  const nameInvite = useCallback(
+    async (inviteId: string, name: string) => {
+      setError(null);
+      setBusyIds((prev) => new Set(prev).add(inviteId));
+      const ok = await nameCoachInvite(createClient(), userId, inviteId, name);
+      if (!ok) setError("Couldn't save that name. Try again.");
+      await fetchLinks();
+      setBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(inviteId);
+        return next;
+      });
+      setNamingId(null);
+    },
+    [userId, fetchLinks],
   );
 
   const copyInvite = useCallback(async (link: CoachLinkRow) => {
@@ -583,10 +608,20 @@ export function SharingSection({ userId }: { userId: string }) {
                 <li key={l.id} className="px-4 py-3">
                   <div className="flex items-center justify-between gap-3">
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-zinc-200">
-                        {journalCoaches.find((j) => j.invite_id === l.id)
-                          ?.display_name ?? "Invite link"}
-                      </span>
+                      {(() => {
+                        const named = journalCoaches.find(
+                          (j) => j.invite_id === l.id,
+                        )?.display_name;
+                        return (
+                          <span
+                            className={`block truncate text-sm font-medium ${
+                              named ? "text-zinc-200" : "text-zinc-500"
+                            }`}
+                          >
+                            {named ?? UNNAMED_INVITE}
+                          </span>
+                        );
+                      })()}
                       <span className="mt-0.5 block truncate text-xs text-zinc-500">
                         {l.scope_match_id
                           ? `Only ${matchNames.get(l.scope_match_id) ?? "one match"}`
@@ -618,6 +653,57 @@ export function SharingSection({ userId }: { userId: string }) {
                       dead end on the one step of this flow you cannot
                       undo by yourself. A match-scoped invite has nothing
                       to choose. */}
+                  {/* Naming it afterwards. "Invite link" used to sit
+                      exactly where a coach's name goes, so an unnamed
+                      invite read as a coach called Invite Link — and
+                      there was no way to put a name on it short of
+                      revoking and sending a new one. */}
+                  {!journalCoaches.some((j) => j.invite_id === l.id) &&
+                    (namingId === l.id ? (
+                      <div className="mt-2.5 flex gap-2">
+                        <input
+                          type="text"
+                          value={inviteNameDraft}
+                          onChange={(e) =>
+                            setInviteNameDraft(e.target.value.slice(0, 80))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              void nameInvite(l.id, inviteNameDraft);
+                            }
+                            if (e.key === "Escape") setNamingId(null);
+                          }}
+                          maxLength={80}
+                          autoFocus
+                          placeholder="Their name"
+                          aria-label="Coach name"
+                          className="min-w-0 flex-1 rounded-xl border border-edge bg-surface-2/40 px-3.5 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void nameInvite(l.id, inviteNameDraft)}
+                          disabled={
+                            busyIds.has(l.id) || inviteNameDraft.trim() === ""
+                          }
+                          className="shrink-0 rounded-full border border-edge bg-surface-2 px-4 py-1.5 text-sm font-semibold text-zinc-200 disabled:opacity-60"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setInviteNameDraft("");
+                          setNamingId(l.id);
+                        }}
+                        className="mt-2.5 rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                      >
+                        Add a name
+                      </button>
+                    ))}
+
                   {l.scope_match_id === null && (
                     <div className="mt-2.5 flex flex-wrap gap-2">
                       {(
