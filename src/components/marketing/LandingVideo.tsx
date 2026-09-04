@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { landingVideoPresentation } from "@/lib/landingVideoState";
 import { CUTS, PLAY_DEFAULT, type Cut } from "@/lib/videoCuts";
 import { WALKTHROUGH } from "@/lib/walkthrough";
 
@@ -76,23 +77,14 @@ export function LandingVideo({
 
   const c = cuts[cut];
   const play = c.play ?? PLAY_DEFAULT;
+  const presentation = landingVideoPresentation(playing);
 
   return (
     <div className="mx-auto" style={{ width: c.width }}>
-      {/* The control used to be a pill in the page's flow ABOVE the video,
-          and it did not work: people arrived at this section, read "Watch
-          the walkthrough" as a heading rather than as a button, and left
-          without knowing there was a video. Three separate people reported
-          the same thing, all of them on a phone.
-          It is now the one shape everybody on earth already reads as
-          "video": a large disc with a triangle in it, sitting ON the
-          picture. That was rejected once for a good reason — the poster is
-          the title card, so a centred control lands on the name — but the
-          reason was really about SIZE. A small pill on a wordmark is a
-          collision; a disc that covers the lens ring, with the wordmark
-          under it, is a composition. The ring and the button are both
-          circles in the same place, so the button reads as having replaced
-          it rather than as having landed on it. */}
+      {/* Idle is deliberately unbranded: a black field with one universally
+          recognisable play control. The logo belongs to the opening motion,
+          where its ring and wordmark can be one correctly spaced lockup
+          instead of being pulled apart to make room for this button. */}
       {/* The box is sized here, on a div. A media element has no intrinsic
           size until its metadata arrives, so sizing the <video> itself starts
           it at the spec's 300x150 and makes it jump when the file answers. */}
@@ -113,10 +105,11 @@ export function LandingVideo({
           // Native controls only once it is running. Idle, the browser paints
           // its own play button, a scrubber and (on iOS) an expand icon
           // across the picture, which is three things nobody designed.
-          controls={playing}
+          controls={presentation.showNativeControls}
           onPlay={() => setPlaying(true)}
           onEnded={() => setPlaying(false)}
           className="absolute inset-0 h-full w-full"
+          style={{ opacity: presentation.videoOpacity }}
         >
           {c.captions && (
             <track
@@ -127,11 +120,14 @@ export function LandingVideo({
             />
           )}
         </video>
+        {presentation.showIdleCover && (
+          <div aria-hidden className="absolute inset-0 bg-ink" />
+        )}
         {/* The whole poster is a tap target too. Reaching for the picture is
             what people do, and a poster that ignores the tap is a poster
             that looks broken. Not focusable — the disc below is the real
             control and two tab stops for one action is one too many. */}
-        {!playing && (
+        {presentation.showPlayControl && (
           <button
             type="button"
             onClick={start}
@@ -141,16 +137,15 @@ export function LandingVideo({
           />
         )}
 
-        {/* The disc. Positioned off the poster's own geometry rather than
-            off the centre of the frame — see `play` in videoCuts.ts. */}
-        {!playing && (
+        {/* With the poster hidden, the disc belongs at the true centre. */}
+        {presentation.showPlayControl && (
           <button
             type="button"
             onClick={start}
             aria-label={`Play the walkthrough, ${length}`}
             className="glow-cta group absolute left-1/2 grid -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-cyan-glow text-ink transition-transform duration-200 hover:scale-105 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-glow/40 active:scale-100"
             style={{
-              top: `calc(50% - ${play.rise})`,
+              top: presentation.playTop,
               width: play.size,
               aspectRatio: "1 / 1",
               // A floor, so the button is still a real target on a narrow

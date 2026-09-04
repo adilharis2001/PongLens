@@ -13,11 +13,10 @@
  * number matched here. CRF with a ceiling rather than a fixed bitrate, so a
  * still section costs nothing and the rallies get the bits.
  *
- * THE POSTER. It is the title card, not a frame from the middle. The play
- * control on the page sits above the picture precisely because the poster
- * is a centred logo over a wordmark; a frame of the app instead would put
- * an arbitrary screenshot where the name should be, and the control would
- * have nothing to sit against.
+ * THE POSTER. It is the title card, not a frame from the middle. The landing
+ * page deliberately masks it with a black idle cover and one centred play
+ * control, but the branded frame still represents the file in other media
+ * surfaces and appears immediately once playback begins.
  *
  * faststart matters more than it looks: without it the moov atom is at the
  * end of the file and the browser downloads the whole thing before the
