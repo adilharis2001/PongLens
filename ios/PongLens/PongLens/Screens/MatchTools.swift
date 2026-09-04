@@ -592,6 +592,11 @@ struct CoachInviteSheet: View {
         let access: String
         /// What the player calls them, when the invite was named (164).
         let name: String?
+        /// Their invite already covers this match, so there is nothing to
+        /// line up: every match, or an invite minted for this one.
+        let covers: Bool
+        /// This match is queued to go over the moment they accept (166).
+        let queued: Bool
     }
 
     @State private var coaches: [ConnectedCoach] = []
@@ -624,26 +629,44 @@ struct CoachInviteSheet: View {
                     }
                 }
 
+                // Coaches you have invited who have not opened the link
+                // yet (166). Sharing writes an accepted link and there is
+                // no account to write one for, so this lines the match up
+                // instead and the accept hands it over.
                 if !pending.isEmpty {
                     Section {
                         ForEach(pending) { invite in
-                            HStack {
+                            HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(invite.name ?? "Invite sent")
                                         .foregroundStyle(PL.text100)
-                                    Text("Waiting for them to open it · \(invite.access)")
+                                    Text(invite.covers
+                                         ? "Gets \(invite.access) when they accept"
+                                         : invite.queued
+                                            ? "Gets this match when they accept"
+                                            : "Hasn't opened the link yet")
                                         .font(.plCaption)
                                         .foregroundStyle(PL.text500)
                                 }
                                 Spacer()
+                                if busyCoach == invite.id {
+                                    ProgressView().tint(PL.cyan)
+                                } else if !invite.covers {
+                                    Button(invite.queued ? "Remove" : "Share") {
+                                        Task { await queue(invite, on: !invite.queued) }
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .fontWeight(invite.queued ? .regular : .semibold)
+                                    .foregroundStyle(invite.queued ? PL.text400 : PL.cyan)
+                                }
                                 ShareLink(item: URL(string: "https://www.ponglens.com/coach-invite/\(invite.token)")!) {
-                                    Text("Send again")
+                                    Image(systemName: "square.and.arrow.up")
                                 }
                                 .buttonStyle(.borderless)
                             }
                         }
                     } header: {
-                        Text("Invites sent")
+                        Text("Waiting to accept")
                     }
                 }
 
@@ -764,6 +787,14 @@ struct CoachInviteSheet: View {
             .execute().value
         async let namesQ: [NameRow]? = try? await supa
             .rpc("player_coach_links").execute().value
+        struct QueuedRow: Decodable { let invite_id: UUID }
+        struct MatchParam: Encodable { let p_match_id: String }
+        let queuedQ: [QueuedRow]? = try? await supa
+            .from("coach_invite_matches")
+            .select("invite_id")
+            .eq("match_id", value: match.id.uuidString.lowercased())
+            .execute().value
+        let queuedIds = Set((queuedQ ?? []).map(\.invite_id))
         let namedQ: [PlayerCoach]? = try? await supa
             .rpc("player_coaches_list").execute().value
         let namedByInvite = Dictionary(
@@ -796,10 +827,40 @@ struct CoachInviteSheet: View {
                     token: $0.invite_token,
                     access: $0.scope_match_id != nil ? "this match"
                         : $0.all_matches ? "all matches" : "matches you share",
-                    name: namedByInvite[$0.id]
+                    name: namedByInvite[$0.id],
+                    covers: $0.all_matches || $0.scope_match_id == match.id,
+                    queued: queuedIds.contains($0.id)
                 )
             }
         loaded = true
+    }
+
+    /// Line this match up for an invite, or take it back off (166).
+    /// Nothing is shared: the row says what the accept should hand over.
+    private func queue(_ invite: PendingInvite, on: Bool) async {
+        busyCoach = invite.id
+        struct Insert: Encodable {
+            let invite_id: String
+            let match_id: String
+        }
+        if on {
+            _ = try? await supa
+                .from("coach_invite_matches")
+                .insert(Insert(
+                    invite_id: invite.id.uuidString.lowercased(),
+                    match_id: match.id.uuidString.lowercased()
+                ))
+                .execute()
+        } else {
+            _ = try? await supa
+                .from("coach_invite_matches")
+                .delete()
+                .eq("invite_id", value: invite.id.uuidString.lowercased())
+                .eq("match_id", value: match.id.uuidString.lowercased())
+                .execute()
+        }
+        await load()
+        busyCoach = nil
     }
 
     private func share(_ coach: ConnectedCoach) async {
