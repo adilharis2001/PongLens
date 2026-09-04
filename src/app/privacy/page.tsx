@@ -24,15 +24,16 @@ export const metadata: Metadata = {
 export default async function PrivacyPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Privacy Policy" updated="August 25, 2026">
+    <LegalPage title="Privacy Policy" updated="September 4, 2026">
       <section>
         <h2>The short version</h2>
         <p>
-          We collect the minimum needed to run the service: your account
-          email, the videos you upload, and the notes you add. Google sign-in
-          can also provide your name and profile picture. Videos are processed
-          on hardware we operate and stored privately. Your videos stay in
-          your library, within your storage allowance, until you delete them.
+          We collect the minimum needed to run the service: your account or
+          beta-access email, the videos you upload, and the notes you add.
+          Google sign-in can also provide your name and profile picture.
+          Videos are processed on hardware we operate and stored privately.
+          Your videos stay in your library, within your storage allowance,
+          until you delete them.
           Voice note audio is deleted after 90 days. Your point clips and
           match data stay available while your account is active. Payments go
           to Stripe directly; we never see card details. Nothing is sold or
@@ -53,6 +54,13 @@ export default async function PrivacyPage() {
             Google provides. If you sign in by email, Supabase emails you a
             one-time sign-in link. PongLens does not collect or store an
             account password for either method.
+          </li>
+          <li>
+            <strong>iPhone beta requests.</strong> If you request the iPhone
+            beta, we keep the email address you provide, when you requested
+            access, and whether the invitation was delivered. We use it only
+            to send TestFlight access and essential beta updates, not
+            marketing.
           </li>
           <li>
             <strong>Your videos.</strong> The match footage you upload, plus
@@ -138,6 +146,11 @@ export default async function PrivacyPage() {
           <li>
             <strong>Note transcripts, account, and job records:</strong>{" "}
             kept while your account is active.
+          </li>
+          <li>
+            <strong>iPhone beta requests:</strong> kept while the beta is
+            active and for up to 90 days afterward, unless you ask us to
+            remove yours sooner.
           </li>
           <li>
             <strong>Recollect reminders and scheduling:</strong> kept while
@@ -258,7 +271,8 @@ export default async function PrivacyPage() {
           </li>
           <li>
             <strong>Resend</strong>: transactional email, including one-time
-            sign-in links and notifications when your match is ready.
+            sign-in links, match-ready notifications, and requested iPhone
+            beta invitations.
           </li>
         </ul>
         <p>
