@@ -96,7 +96,17 @@ struct RootView: View {
                     .requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
             }
             #if DEBUG
-            await devSignInIfRequested()
+            // The auth-state listener must exist before the simulator hook
+            // verifies its one-time token. Starting it afterwards can miss
+            // the signed-in event and leave a successfully authenticated
+            // screenshot run on the login screen.
+            if ProcessInfo.processInfo.arguments.contains("--dev-token-hash") {
+                Task { await app.start() }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                await devSignInIfRequested()
+                await app.refreshAdmin()
+                return
+            }
             #endif
             await app.start()
             await app.refreshAdmin()
@@ -138,6 +148,13 @@ struct RootView: View {
     /// The web's middleware gate: onboarding when the display name is empty
     /// OR there is no player_profiles row.
     private func checkOnboarding() async {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--dev-coach-record") {
+            app.setWorkspace(.coach)
+            gate = .done
+            return
+        }
+        #endif
         guard case .signedIn(let session) = app.phase else { return }
         app.loadWorkspace()
         let uid = session.user.id.uuidString.lowercased()

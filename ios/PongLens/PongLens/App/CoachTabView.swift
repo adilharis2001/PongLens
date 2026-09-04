@@ -55,6 +55,7 @@ final class CoachRouter {
     var devOpenFirstStudent = false
     var devOpenFirstEntry = false
     var devComposeWrite = false
+    var devComposeRecord = false
     var devInvite = false
     #endif
 
@@ -68,6 +69,7 @@ final class CoachRouter {
         devOpenFirstStudent = args.contains("--dev-open-first-student")
         devOpenFirstEntry = args.contains("--dev-open-first-entry")
         devComposeWrite = args.contains("--dev-coach-compose")
+        devComposeRecord = args.contains("--dev-coach-record")
         devInvite = args.contains("--dev-coach-invite")
         #endif
     }
@@ -212,6 +214,23 @@ struct CoachTabView: View {
                 router.devComposeWrite = false
                 router.composeWrite = CoachComposerRequest(
                     mode: .write, student: workspace.activeStudents.first
+                )
+            }
+            if router.devComposeRecord {
+                router.devComposeRecord = false
+                let student = workspace.activeStudents.first ?? CoachStudentRow(
+                    id: UUID(),
+                    coachId: app.userId ?? UUID(),
+                    playerId: nil,
+                    displayName: "John Miller",
+                    createdAt: ISO8601DateFormatter().string(from: Date()),
+                    archivedAt: nil
+                )
+                if workspace.activeStudents.isEmpty {
+                    workspace.students = [student]
+                }
+                router.composeRecord = CoachComposerRequest(
+                    mode: .record, student: student
                 )
             }
             if router.devInvite {

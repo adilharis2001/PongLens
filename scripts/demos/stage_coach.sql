@@ -22,6 +22,15 @@ begin;
 
 -- The coach ------------------------------------------------------------
 
+insert into player_profiles (user_id)
+values ('07601580-0ce3-4a4f-82b0-10ea04cac180')
+on conflict (user_id) do nothing;
+
+update auth.users
+   set raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb)
+                            || '{"is_coach":true,"full_name":"Miguel Santos"}'::jsonb
+ where id = '07601580-0ce3-4a4f-82b0-10ea04cac180';
+
 insert into coach_profiles (
   user_id, handle, display_name, headline, bio, credentials,
   stripe_account_id, charges_enabled, payouts_enabled, accepting_orders,
@@ -349,6 +358,110 @@ on conflict (order_id) do update set
   sections = excluded.sections,
   status = excluded.status;
 
+-- The roster-first coaching workspace --------------------------------
+-- These rows are the story the coach landing page now leads with. John
+-- is connected and has shared a match; Maya can be coached before she
+-- creates an account; Priya shows a second connected student.
+
+insert into coach_students (
+  id, coach_id, player_id, display_name, name_from_account, created_at
+) values
+(
+  '0a5e0004-0000-4000-8000-000000000001',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  '6eb09df4-7d44-4ef9-b1cc-8cdfc4119fc4',
+  'John Miller', true, '2026-09-01 14:00:00+00'
+),
+(
+  '0a5e0004-0000-4000-8000-000000000002',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  null,
+  'Maya Chen', false, '2026-08-29 17:30:00+00'
+),
+(
+  '0a5e0004-0000-4000-8000-000000000003',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  '18844af1-9030-4507-bbbb-a488b5164294',
+  'Priya Raman', true, '2026-08-26 12:15:00+00'
+)
+on conflict (id) do update set
+  player_id = excluded.player_id,
+  display_name = excluded.display_name,
+  name_from_account = excluded.name_from_account,
+  archived_at = null;
+
+insert into lessons (
+  id, user_id, transcript, takeaways, status, kind, created_at
+) values
+(
+  '0a5e0006-0000-4000-8000-000000000001',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  'Keep the elbow in front on the backhand block. Start with two controlled blocks, then change direction on the third ball. Finish with five minutes of short serve and receive.',
+  '{"title":"Backhand block and first change","themes":[{"name":"Backhand block","points":["Keep the elbow in front and meet the ball earlier.","Make two controlled blocks before changing direction."]},{"name":"Next lesson","points":["Repeat the short serve and receive drill for five minutes."]}]}'::jsonb,
+  'ready', 'coach', '2026-09-02 18:30:00+00'
+),
+(
+  '0a5e0006-0000-4000-8000-000000000002',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  'The forehand timing was better once the first step became smaller. Keep the body low and recover through the middle after the wide ball.',
+  '{"title":"Forehand timing","themes":[{"name":"Timing","points":["Use a smaller first step so the swing starts on time.","Recover through the middle after the wide forehand."]}]}'::jsonb,
+  'ready', 'coach', '2026-08-27 16:20:00+00'
+),
+(
+  '0a5e0006-0000-4000-8000-000000000003',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  'Serve practice. Keep the same preparation for short backspin and long topspin. The contact point should stay hidden until the last moment.',
+  '{"title":"Serve variation","themes":[{"name":"Serve","points":["Use the same preparation for both serves.","Hide the contact point until the last moment."]}]}'::jsonb,
+  'ready', 'coach', '2026-08-29 17:45:00+00'
+)
+on conflict (id) do update set
+  transcript = excluded.transcript,
+  takeaways = excluded.takeaways,
+  status = excluded.status,
+  kind = excluded.kind,
+  created_at = excluded.created_at;
+
+insert into coach_entries (
+  id, coach_id, student_id, lesson_id, shared_at, created_at
+) values
+(
+  '0a5e0007-0000-4000-8000-000000000001',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  '0a5e0004-0000-4000-8000-000000000001',
+  '0a5e0006-0000-4000-8000-000000000001',
+  '2026-09-02 19:00:00+00', '2026-09-02 18:30:00+00'
+),
+(
+  '0a5e0007-0000-4000-8000-000000000002',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  '0a5e0004-0000-4000-8000-000000000003',
+  '0a5e0006-0000-4000-8000-000000000002',
+  '2026-08-27 17:00:00+00', '2026-08-27 16:20:00+00'
+),
+(
+  '0a5e0007-0000-4000-8000-000000000003',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  '0a5e0004-0000-4000-8000-000000000002',
+  '0a5e0006-0000-4000-8000-000000000003',
+  null, '2026-08-29 17:45:00+00'
+)
+on conflict (id) do update set
+  student_id = excluded.student_id,
+  lesson_id = excluded.lesson_id,
+  shared_at = excluded.shared_at,
+  created_at = excluded.created_at;
+
+insert into coach_student_invites (
+  id, coach_id, student_id, token, created_at
+) values (
+  '0a5e0008-0000-4000-8000-000000000001',
+  '07601580-0ce3-4a4f-82b0-10ea04cac180',
+  '0a5e0004-0000-4000-8000-000000000002',
+  '0a5e0008-0000-4000-8000-000000000099',
+  '2026-08-29 17:50:00+00'
+)
+on conflict (id) do update set revoked_at = null;
+
 commit;
 
 -- A second coach, part way through setup -------------------------------
@@ -358,17 +471,24 @@ commit;
 -- what puts the coach hub into setup mode.
 
 insert into player_profiles (user_id)
-values ('c02832b6-cdb1-4417-bc85-228ee46a1083')
+select 'c02832b6-cdb1-4417-bc85-228ee46a1083'
+where exists (
+  select 1 from auth.users
+  where id = 'c02832b6-cdb1-4417-bc85-228ee46a1083'
+)
 on conflict (user_id) do nothing;
 
 insert into coach_profiles (
   user_id, handle, display_name, headline, bio, credentials,
   stripe_account_id, charges_enabled, payouts_enabled, accepting_orders,
   published, samples
-) values (
+) select
   'c02832b6-cdb1-4417-bc85-228ee46a1083', 'elena', 'Elena Duarte',
   'Club coach', '', array[]::text[],
   null, false, false, true, false, '[]'::jsonb
+where exists (
+  select 1 from auth.users
+  where id = 'c02832b6-cdb1-4417-bc85-228ee46a1083'
 )
 on conflict (user_id) do update set
   handle = excluded.handle,
@@ -382,7 +502,7 @@ insert into offerings (
   id, coach_id, template_key, title, description, includes, price_cents,
   turnaround_days, followup_rounds, image, active, sort,
   intake_questions, review_sections
-) values (
+) select
   '0a5e0001-0000-4000-8000-000000000011',
   'c02832b6-cdb1-4417-bc85-228ee46a1083',
   'full_match', 'Full match review',
@@ -391,5 +511,8 @@ insert into offerings (
   4000, 5, 1, 'stock:full-match', true, 0,
   '[{"id":"goal","label":"What do you want out of this review?"}]'::jsonb,
   '[{"key":"summary","label":"Summary"},{"key":"notes","label":"Notes"}]'::jsonb
+where exists (
+  select 1 from coach_profiles
+  where user_id = 'c02832b6-cdb1-4417-bc85-228ee46a1083'
 )
 on conflict (id) do update set active = true;
