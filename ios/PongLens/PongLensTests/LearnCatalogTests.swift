@@ -48,6 +48,29 @@ final class LearnCatalogTests: XCTestCase {
         XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 11.5), .review)
     }
 
+    func testPlayerTutorialCaptureCannotPrepareScoreListenerFromSettingsObserver() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("PongLens/Screens/RecordScreen.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let observerStart = try XCTUnwrap(
+            source.range(of: ".onChange(of: settings.callOutScore)")
+        )
+        let observerTail = source[observerStart.lowerBound...]
+        let observerEnd = try XCTUnwrap(observerTail.range(of: ".onDisappear"))
+        let observer = String(observerTail[..<observerEnd.lowerBound])
+
+        XCTAssertTrue(
+            observer.contains("guard !tutorialCaptureActive else { return }"),
+            "The spoken-score settings observer must not prepare ScoreListener during tutorial capture"
+        )
+        XCTAssertTrue(
+            observer.contains("#if DEBUG") && observer.contains("#endif"),
+            "The capture-only observer guard must stay excluded from Release"
+        )
+    }
+
     func testEveryTutorialCaptureHookIsInsideADebugCompilationBranch() throws {
         let sourceRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

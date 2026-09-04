@@ -675,6 +675,9 @@ struct RecordScreen: View {
         // user is still looking at a settings screen, rather than at the
         // moment they press record.
         .onChange(of: settings.callOutScore) { _, on in
+            #if DEBUG
+            guard !tutorialCaptureActive else { return }
+            #endif
             if on, hearsScores { Task { await listener.prepare() } }
         }
         .onDisappear {

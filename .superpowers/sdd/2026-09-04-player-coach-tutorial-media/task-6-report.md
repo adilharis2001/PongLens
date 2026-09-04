@@ -70,3 +70,34 @@ No coach video-recording or coming-soon copy was introduced.
 
 Existing iOS 26 and Swift 6 migration warnings remain in the builds; neither
 build reported a new error.
+
+## Review round 1
+
+Review found that the deterministic player ready state sets
+`settings.callOutScore` to true. Although the recorder's initial setup path
+was capture-guarded, the shipping settings `onChange` observer was not, so it
+could still call `ScoreListener.prepare()` during tutorial capture.
+
+RED: added
+`testPlayerTutorialCaptureCannotPrepareScoreListenerFromSettingsObserver`
+against the real `RecordScreen` observer before changing production code. The
+focused suite at `/tmp/ponglens-media-task6-review-red` exited 65: the 26
+existing tests passed and only the new safety contract failed.
+
+The observer now returns immediately for player tutorial capture inside a
+`#if DEBUG` branch, before it can create the task that prepares the score
+listener. Normal Debug use and all Release behavior keep the shipping path.
+
+Review GREEN and renewed verification:
+
+- Focused `LearnCatalogTests` at
+  `/tmp/ponglens-media-task6-review-green`: PASS, 27/27.
+- Debug simulator build at
+  `/tmp/ponglens-media-task6-review-debug-build`: `** BUILD SUCCEEDED **`.
+- Release generic simulator build at
+  `/tmp/ponglens-media-task6-review-release-build`: `** BUILD SUCCEEDED **`.
+- The Debug app dylib still contains both scenario values and the readiness
+  marker.
+- `nm -gj` scanned 9,803 symbols and `strings -a` scanned 285,177 lines in
+  the renewed universal arm64/x86_64 Release executable. No capture type,
+  property, flag, marker, or scenario value was present.
