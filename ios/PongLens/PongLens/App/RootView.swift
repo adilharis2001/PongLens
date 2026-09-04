@@ -60,11 +60,25 @@ struct RootView: View {
                     // One account, two workspaces. The remembered choice
                     // decides which side of the app stands up; Account
                     // switches it, and the whole tree swaps.
+                    #if DEBUG
+                    if router.tutorialCapture == .coachAudioLesson {
+                        LessonRecordScreen(
+                            hideAuthorField: true,
+                            saveAs: { _ in false },
+                            onSaved: {}
+                        )
+                    } else if app.workspace == .coach {
+                        CoachTabView()
+                    } else {
+                        MainTabView()
+                    }
+                    #else
                     if app.workspace == .coach {
                         CoachTabView()
                     } else {
                         MainTabView()
                     }
+                    #endif
                 }
             }
         }
@@ -149,6 +163,14 @@ struct RootView: View {
     /// OR there is no player_profiles row.
     private func checkOnboarding() async {
         #if DEBUG
+        if let tutorialCapture = router.tutorialCapture {
+            // Capture must not persist a workspace preference or update the
+            // signed-in account's metadata. The direct assignment lasts for
+            // this process only.
+            app.workspace = tutorialCapture == .coachAudioLesson ? .coach : .player
+            gate = .done
+            return
+        }
         if ProcessInfo.processInfo.arguments.contains("--dev-coach-record") {
             app.setWorkspace(.coach)
             gate = .done

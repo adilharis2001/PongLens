@@ -475,6 +475,12 @@ struct RecordScreen: View {
 
     private var queue: RecordingQueue { RecordingQueue.shared }
 
+    #if DEBUG
+    private var tutorialCaptureActive: Bool {
+        TutorialCaptureScenario.current == .playerRecord
+    }
+    #endif
+
     var body: some View {
         GeometryReader { geo in
             let portrait = geo.size.height > geo.size.width
@@ -597,6 +603,12 @@ struct RecordScreen: View {
             reveal()
         }
         .task {
+            #if DEBUG
+            if tutorialCaptureActive {
+                await runTutorialCapture()
+                return
+            }
+            #endif
             recorder.onSegment = { url, duration in
                 queue.enqueue(
                     fileURL: url, durationS: duration, sessionId: sessionId,
@@ -644,6 +656,9 @@ struct RecordScreen: View {
             if settings.callOutScore, hearsScores { await listener.prepare() }
         }
         .onChange(of: recorder.state) { _, newState in
+            #if DEBUG
+            guard !tutorialCaptureActive else { return }
+            #endif
             if newState == .recording {
                 startListening()
             } else {
@@ -669,6 +684,9 @@ struct RecordScreen: View {
             RecordOrientation.release(heldSideways: level.sideways)
             level.stop()
             recorder.teardown()
+            #if DEBUG
+            guard !tutorialCaptureActive else { return }
+            #endif
             // Never leave a completion hold behind; releasing twice is
             // harmless, leaking once strands the upload short of register.
             queue.releaseCompletion(sessionId: sessionId)
@@ -706,8 +724,16 @@ struct RecordScreen: View {
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
-            .onAppear { queue.holdCompletion(sessionId: sessionId) }
+            .onAppear {
+                #if DEBUG
+                guard !tutorialCaptureActive else { return }
+                #endif
+                queue.holdCompletion(sessionId: sessionId)
+            }
             .onDisappear {
+                #if DEBUG
+                guard !tutorialCaptureActive else { return }
+                #endif
                 queue.releaseCompletion(sessionId: sessionId)
                 // The details sheet closing on a live session is the end
                 // of this errand, the same as the upload flow: land in the
@@ -758,7 +784,7 @@ struct RecordScreen: View {
             }
             .padding(.horizontal, 16)
 
-            if recorder.state == .ready, !queue.active.isEmpty {
+            if recorder.state == .ready, hasVisibleUploads {
                 uploadsShelf.padding(.horizontal, 16)
             }
 
@@ -778,7 +804,7 @@ struct RecordScreen: View {
                 Spacer()
                 scoreBoard
                     .padding(.bottom, 4)
-                if recorder.state == .ready, !queue.active.isEmpty {
+                if recorder.state == .ready, hasVisibleUploads {
                     uploadsShelf
                         .frame(maxWidth: 420)
                         .padding(.bottom, 16)
@@ -815,6 +841,13 @@ struct RecordScreen: View {
     /// the zoom pill grows with the number of lenses and the shutter must
     /// stay in the middle of the screen regardless.
     private static let slotWidth: CGFloat = 132
+
+    private var hasVisibleUploads: Bool {
+        #if DEBUG
+        if tutorialCaptureActive { return false }
+        #endif
+        return !queue.active.isEmpty
+    }
 
     /// The slot beside the shutter: zoom while idle, pause while recording.
     @ViewBuilder
@@ -1253,6 +1286,73 @@ struct RecordScreen: View {
         return String(format: "%d:%02d", s / 60, s % 60)
     }
 
+    #if DEBUG
+    /// Runs the shipping recorder UI through the states needed by the
+    /// tutorial insert without starting AVCapture, creating files, touching
+    /// the upload queue, or registering a match.
+    private func runTutorialCapture() async {
+        guard tutorialCaptureActive else { return }
+        await RecordOrientation.pinLandscape(attempts: 14)
+        await applyTutorialCapture(.ready)
+        print(TutorialCaptureScenario.playerRecord.readinessMarker)
+
+        for transition in TutorialCaptureScenario.playerRecord.transitions {
+            try? await Task.sleep(
+                nanoseconds: UInt64(transition.after * 1_000_000_000)
+            )
+            guard !Task.isCancelled else { return }
+            await applyTutorialCapture(transition.phase)
+        }
+    }
+
+    private func applyTutorialCapture(
+        _ phase: TutorialCaptureScenario.Phase
+    ) async {
+        switch phase {
+        case .ready:
+            recorder.state = .ready
+            recorder.elapsed = 0
+            recorder.sessionElapsed = 0
+            recorder.isPaused = false
+            settingsOpen = false
+            metadataOpen = false
+            overlay = .ghost
+            revealed = true
+            settings.fps = 30
+            settings.callOutScore = true
+            draft = RecordingMetadata(
+                opponent: "Training partner",
+                venue: "Club session",
+                matchType: kind.defaultType,
+                userSide: "near",
+                firstServer: "user",
+                spokenScores: [SpokenGameScore(game: 1, you: 11, them: 7)]
+            )
+        case .settings:
+            recorder.state = .ready
+            settingsOpen = true
+        case .recording:
+            settingsOpen = false
+            recorder.elapsed = 14
+            recorder.sessionElapsed = 14
+            recorder.isPaused = false
+            recorder.state = .recording
+        case .paused:
+            recorder.elapsed = 22
+            recorder.sessionElapsed = 22
+            recorder.isPaused = true
+        case .handoff:
+            recorder.state = .ready
+            recorder.isPaused = false
+            revealed = false
+            await RecordOrientation.pinPortrait()
+            metadataOpen = true
+        case .writingUp, .review:
+            break
+        }
+    }
+    #endif
+
     // MARK: - Uploads shelf
 
     private var uploadsShelf: some View {
@@ -1634,8 +1734,16 @@ struct MatchDetailsSheet: View {
         .sheet(item: $spokenEdit) { target in
             spokenEditorSheet(target)
         }
-        .task { await loadPoster() }
         .task {
+            #if DEBUG
+            guard TutorialCaptureScenario.current != .playerRecord else { return }
+            #endif
+            await loadPoster()
+        }
+        .task {
+            #if DEBUG
+            guard TutorialCaptureScenario.current != .playerRecord else { return }
+            #endif
             struct ProcessingRow: Decodable {
                 let minutesBalance: Double?
                 enum CodingKeys: String, CodingKey { case minutesBalance = "minutes_balance" }
@@ -1668,10 +1776,18 @@ struct MatchDetailsSheet: View {
     }
 
     private var sessionCount: Int {
-        queue.items.count { $0.sessionId == sessionId }
+        #if DEBUG
+        if TutorialCaptureScenario.current == .playerRecord { return 0 }
+        #endif
+        return queue.items.count { $0.sessionId == sessionId }
     }
 
     private var processingFootnote: String {
+        #if DEBUG
+        if TutorialCaptureScenario.current == .playerRecord {
+            return "The video will upload when you close this form."
+        }
+        #endif
         if !processOn {
             return "The video just lands in your library. You can process it any time from the match page."
         }
@@ -1717,6 +1833,9 @@ struct MatchDetailsSheet: View {
     }
 
     private func pushProcessing() {
+        #if DEBUG
+        guard TutorialCaptureScenario.current != .playerRecord else { return }
+        #endif
         queue.updateProcessing(sessionId: sessionId, process: processOn, placement: placementOn && processOn)
     }
 
@@ -1780,6 +1899,25 @@ struct MatchDetailsSheet: View {
 
     @ViewBuilder
     private var progressRow: some View {
+        #if DEBUG
+        if TutorialCaptureScenario.current == .playerRecord {
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(PL.successText)
+                Text("Recording ready")
+                    .font(.plBody)
+                    .foregroundStyle(PL.text300)
+            }
+        } else {
+            queuedProgressRow
+        }
+        #else
+        queuedProgressRow
+        #endif
+    }
+
+    @ViewBuilder
+    private var queuedProgressRow: some View {
         let session = queue.items.filter { $0.sessionId == sessionId }
         if session.isEmpty {
             HStack(spacing: 12) {
@@ -1909,6 +2047,9 @@ struct MatchDetailsSheet: View {
     }
 
     private func pushDraft() {
+        #if DEBUG
+        guard TutorialCaptureScenario.current != .playerRecord else { return }
+        #endif
         queue.updateMetadata(sessionId: sessionId, draft)
     }
 

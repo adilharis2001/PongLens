@@ -65,6 +65,14 @@ struct LessonRecordScreen: View {
     @State private var notesStale = false
     @State private var reviewTab = ReviewTab.notes
 
+    #if DEBUG
+    @State private var tutorialCapturePhase: TutorialCaptureScenario.Phase?
+
+    private var tutorialCaptureActive: Bool {
+        TutorialCaptureScenario.current == .coachAudioLesson
+    }
+    #endif
+
     private enum ReviewTab: String, CaseIterable {
         case notes = "Notes"
         case transcript = "Transcript"
@@ -80,6 +88,33 @@ struct LessonRecordScreen: View {
     /// and leave headroom above it.
     private static func shaped(_ level: Double) -> Double {
         min(1, level.squareRoot() * 1.4)
+    }
+
+    private var displayedRecorderPhase: LessonRecorder.Phase {
+        #if DEBUG
+        if tutorialCaptureActive {
+            return tutorialCapturePhase == .paused ? .paused : .recording
+        }
+        #endif
+        return recorder.phase
+    }
+
+    private var displayedRecorderElapsed: TimeInterval {
+        #if DEBUG
+        if tutorialCaptureActive {
+            return tutorialCapturePhase == .paused ? 32 : 18
+        }
+        #endif
+        return recorder.elapsed
+    }
+
+    private var displayedRecorderLevel: Double {
+        #if DEBUG
+        if tutorialCaptureActive {
+            return tutorialCapturePhase == .paused ? 0 : 0.18
+        }
+        #endif
+        return recorder.level
     }
 
     var body: some View {
@@ -101,8 +136,19 @@ struct LessonRecordScreen: View {
         }
         .preferredColorScheme(.dark)
         .interactiveDismissDisabled(stage != .ready)
-        .task { await transcriber.prepare() }
         .task {
+            #if DEBUG
+            guard !tutorialCaptureActive else { return }
+            #endif
+            await transcriber.prepare()
+        }
+        .task {
+            #if DEBUG
+            guard !tutorialCaptureActive else {
+                await runTutorialCapture()
+                return
+            }
+            #endif
             guard stage == .ready else { return }
             orphan = LessonRecorder.orphans().first
         }
@@ -278,7 +324,7 @@ struct LessonRecordScreen: View {
                     .frame(width: 208, height: 208)
                 // The ring breathes with the room. It is the part you can
                 // read from two metres away, which is where the phone is.
-                let pulse = Self.shaped(recorder.level)
+                let pulse = Self.shaped(displayedRecorderLevel)
                 Circle()
                     .strokeBorder(PL.cyan.opacity(0.25 + pulse * 0.5), lineWidth: 2)
                     .frame(width: 208 + pulse * 22, height: 208 + pulse * 22)
@@ -289,7 +335,7 @@ struct LessonRecordScreen: View {
                         .font(.system(size: 42, weight: .semibold))
                         .monospacedDigit()
                         .foregroundStyle(PL.textBody)
-                    if recorder.phase == .paused {
+                    if displayedRecorderPhase == .paused {
                         Text("Paused")
                             .font(.plMicro)
                             .textCase(.uppercase)
@@ -298,17 +344,17 @@ struct LessonRecordScreen: View {
                     }
                 }
             }
-            .shadow(color: PL.cyan.opacity(0.12 + Self.shaped(recorder.level) * 0.2), radius: 34)
+            .shadow(color: PL.cyan.opacity(0.12 + Self.shaped(displayedRecorderLevel) * 0.2), radius: 34)
 
             Waveform(
                 samples: trace,
                 capacity: Self.traceLength,
-                live: recorder.phase == .recording
+                live: displayedRecorderPhase == .recording
             )
             .frame(height: 64)
 
             VStack(spacing: 8) {
-                Text(recorder.phase == .paused
+                Text(displayedRecorderPhase == .paused
                      ? "Paused. Nothing is being recorded."
                      : "Recording. You can lock your phone.")
                     .font(.plBody)
@@ -576,13 +622,13 @@ struct LessonRecordScreen: View {
                     .buttonStyle(PLPrimaryButtonStyle())
                 HStack(spacing: 12) {
                     Button {
-                        if recorder.phase == .paused {
+                        if displayedRecorderPhase == .paused {
                             recorder.resume()
                         } else {
                             recorder.pause()
                         }
                     } label: {
-                        wide(recorder.phase == .paused ? "Resume" : "Pause")
+                        wide(displayedRecorderPhase == .paused ? "Resume" : "Pause")
                     }
                     .buttonStyle(PLSecondaryButtonStyle())
                     Button { discardAsk = true } label: { wide("Discard") }
@@ -640,6 +686,9 @@ struct LessonRecordScreen: View {
     // MARK: - Flow
 
     private func begin() async {
+        #if DEBUG
+        guard !tutorialCaptureActive else { return }
+        #endif
         starting = true
         defer { starting = false }
         if await recorder.start() {
@@ -673,6 +722,9 @@ struct LessonRecordScreen: View {
     }
 
     private func save() async {
+        #if DEBUG
+        guard !tutorialCaptureActive else { return }
+        #endif
         saving = true
         saveFailed = false
         let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -704,10 +756,75 @@ struct LessonRecordScreen: View {
         dismiss()
     }
 
+    #if DEBUG
+    /// Drives the shipping lesson recorder through its visible stages. It
+    /// never starts the microphone or transcriber, creates an audio file, or
+    /// reaches either journal save path.
+    private func runTutorialCapture() async {
+        guard tutorialCaptureActive else { return }
+        applyTutorialCapture(.ready)
+        print(TutorialCaptureScenario.coachAudioLesson.readinessMarker)
+
+        for transition in TutorialCaptureScenario.coachAudioLesson.transitions {
+            try? await Task.sleep(
+                nanoseconds: UInt64(transition.after * 1_000_000_000)
+            )
+            guard !Task.isCancelled else { return }
+            applyTutorialCapture(transition.phase)
+        }
+    }
+
+    private func applyTutorialCapture(_ phase: TutorialCaptureScenario.Phase) {
+        tutorialCapturePhase = phase
+        switch phase {
+        case .ready:
+            stage = .ready
+            trace = []
+            draft = ""
+            takeaways = nil
+        case .recording:
+            stage = .recording
+            trace = [
+                0.18, 0.3, 0.5, 0.34, 0.62, 0.44, 0.25, 0.56,
+                0.38, 0.7, 0.48, 0.22, 0.42, 0.58, 0.31, 0.52,
+            ]
+        case .paused:
+            stage = .recording
+        case .writingUp:
+            stage = .writingUp
+        case .review:
+            draft = "Today we worked on keeping the receive short, then stepping in for the first attack. On longer serves, make the first move with the legs and keep the racket in front. Finish each drill by recovering to a balanced ready position."
+            takeaways = LessonTakeaways(
+                title: "Receive and first attack",
+                themes: [
+                    .init(
+                        name: "Receive",
+                        points: [
+                            "Keep the touch short over the net.",
+                            "Move the legs first against a long serve.",
+                        ]
+                    ),
+                    .init(
+                        name: "Recovery",
+                        points: [
+                            "Return to a balanced ready position after each ball.",
+                        ]
+                    ),
+                ]
+            )
+            notesStale = false
+            reviewTab = .notes
+            stage = .review
+        case .settings, .handoff:
+            break
+        }
+    }
+    #endif
+
     // MARK: - Bits
 
     private var clock: String {
-        let total = Int(recorder.elapsed)
+        let total = Int(displayedRecorderElapsed)
         return total >= 3600
             ? String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
             : String(format: "%02d:%02d", total / 60, total % 60)

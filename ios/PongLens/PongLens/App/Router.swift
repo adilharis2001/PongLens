@@ -24,11 +24,13 @@ final class Router {
     var devOpenAccount = false
     var devOpenStarred = false
     var devOpenScore = false
+    let tutorialCapture: TutorialCaptureScenario?
     #endif
 
     init() {
         #if DEBUG
         let args = ProcessInfo.processInfo.arguments
+        tutorialCapture = TutorialCaptureScenario.parse(arguments: args)
         if let i = args.firstIndex(of: "--dev-tab"), args.indices.contains(i + 1),
            let requested = MainTab(rawValue: args[i + 1].capitalized) {
             tab = requested
@@ -48,6 +50,10 @@ final class Router {
         // capture script cannot rely on, because the app restores
         // whatever screen it was last on and the taps land elsewhere.
         if args.contains("--dev-open-record") { recordOpen = true }
+        if tutorialCapture == .playerRecord {
+            recordKind = .match
+            recordOpen = true
+        }
         devOpenScore = args.contains("--dev-open-score")
         #endif
     }

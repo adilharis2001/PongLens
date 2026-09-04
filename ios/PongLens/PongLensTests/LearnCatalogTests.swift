@@ -11,6 +11,110 @@ final class LearnCatalogTests: XCTestCase {
         return try LearnCatalogStore(data: Data(contentsOf: resourceURL))
     }
 
+    #if DEBUG
+    func testTutorialCaptureScenarioParsesOnlyExactLaunchValues() {
+        XCTAssertEqual(
+            TutorialCaptureScenario.parse(arguments: [
+                "PongLens", "--tutorial-capture", "player-record",
+            ]),
+            .playerRecord
+        )
+        XCTAssertEqual(
+            TutorialCaptureScenario.parse(arguments: [
+                "PongLens", "--tutorial-capture", "coach-audio-lesson",
+            ]),
+            .coachAudioLesson
+        )
+        XCTAssertNil(TutorialCaptureScenario.parse(arguments: ["PongLens"]))
+        XCTAssertNil(TutorialCaptureScenario.parse(arguments: [
+            "PongLens", "--tutorial-capture",
+        ]))
+        XCTAssertNil(TutorialCaptureScenario.parse(arguments: [
+            "PongLens", "--tutorial-capture", "coach-video-lesson",
+        ]))
+    }
+
+    func testTutorialCaptureTimelinesHaveDeterministicRealScreenPhases() {
+        XCTAssertEqual(TutorialCaptureScenario.playerRecord.phase(at: 0), .ready)
+        XCTAssertEqual(TutorialCaptureScenario.playerRecord.phase(at: 2.5), .settings)
+        XCTAssertEqual(TutorialCaptureScenario.playerRecord.phase(at: 5), .recording)
+        XCTAssertEqual(TutorialCaptureScenario.playerRecord.phase(at: 8), .paused)
+        XCTAssertEqual(TutorialCaptureScenario.playerRecord.phase(at: 10.5), .handoff)
+
+        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 0), .ready)
+        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 2.5), .recording)
+        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 5.5), .paused)
+        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 8.5), .writingUp)
+        XCTAssertEqual(TutorialCaptureScenario.coachAudioLesson.phase(at: 11.5), .review)
+    }
+
+    func testEveryTutorialCaptureHookIsInsideADebugCompilationBranch() throws {
+        let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("PongLens")
+        let relativePaths = [
+            "Core/TutorialCaptureScenario.swift",
+            "App/Router.swift",
+            "App/RootView.swift",
+            "Screens/RecordScreen.swift",
+            "Screens/LessonRecordScreen.swift",
+        ]
+
+        for relativePath in relativePaths {
+            let source = try String(
+                contentsOf: sourceRoot.appendingPathComponent(relativePath),
+                encoding: .utf8
+            )
+            let hookLines = debugProtection(of: source)
+                .filter { $0.text.localizedCaseInsensitiveContains("tutorialCapture") }
+
+            XCTAssertFalse(hookLines.isEmpty, "\(relativePath) has no tutorial capture hook")
+            XCTAssertTrue(
+                hookLines.allSatisfy(\.isDebugProtected),
+                "\(relativePath) exposes a tutorial capture hook outside #if DEBUG"
+            )
+        }
+    }
+
+    private func debugProtection(of source: String) -> [(text: String, isDebugProtected: Bool)] {
+        struct Branch {
+            let parentProtected: Bool
+            let conditionIsDebug: Bool
+            var activeProtected: Bool
+        }
+
+        var stack: [Branch] = []
+        var protected = false
+        var result: [(String, Bool)] = []
+
+        for rawLine in source.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(rawLine)
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("#if ") {
+                let isDebug = trimmed == "#if DEBUG"
+                stack.append(Branch(
+                    parentProtected: protected,
+                    conditionIsDebug: isDebug,
+                    activeProtected: protected || isDebug
+                ))
+                protected = stack.last?.activeProtected ?? protected
+            } else if trimmed == "#else", var branch = stack.popLast() {
+                branch.activeProtected = branch.conditionIsDebug
+                    ? branch.parentProtected
+                    : branch.activeProtected
+                stack.append(branch)
+                protected = branch.activeProtected
+            } else if trimmed == "#endif", let branch = stack.popLast() {
+                protected = branch.parentProtected
+            } else {
+                result.append((line, protected))
+            }
+        }
+        return result
+    }
+    #endif
+
     func testCatalogContainsEveryIOSChapterForEachAudience() throws {
         let store = try loadStore()
 
