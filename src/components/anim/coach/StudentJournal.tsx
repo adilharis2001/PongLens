@@ -25,7 +25,7 @@ export function StudentJournal() {
             <motion.div
               key={width}
               className="h-1.5 rounded-full bg-zinc-500/70"
-              style={{ width }}
+              style={{ width, transformOrigin: "left" }}
               initial={reduced ? undefined : { opacity: 0, scaleX: 0 }}
               animate={
                 reduced
@@ -39,7 +39,6 @@ export function StudentJournal() {
                 delay: index * 0.18,
                 ease: "easeOut",
               }}
-              transformOrigin="left"
             />
           ))}
         </div>
