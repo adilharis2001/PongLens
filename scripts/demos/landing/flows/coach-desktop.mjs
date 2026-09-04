@@ -12,4 +12,4 @@ export { stage, cleanup };
 
 export const prepare = sharedPrepare;
 
-export const flow = makeFlow();
+export const flow = makeFlow({ platform: "desktop" });

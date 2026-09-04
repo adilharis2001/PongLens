@@ -16,7 +16,7 @@ reviews. It shows product areas rather than setup instructions.
 | *(opening)* | the coach roster |
 | Coach profile | the public coach page |
 | Your students | the student roster and connected history |
-| Lesson recording | the real iOS lesson recorder |
+| Lesson recording | the iOS recorder on mobile; the lesson composer on desktop |
 | Shared journals | the student's shared coaching entry |
 | Review orders | an incoming request and the coach's order queue |
 | Delivery and payouts | a detailed review and payout history |
@@ -43,7 +43,8 @@ staged screens.
 
 - The staged coach is Miguel Santos (`miguel-demo@example.com`). No real coach
   or student data appears.
-- Profile, student, order and journal screens come from the live web app. The recording beat
-  uses `public/showcase/coach-record-m.jpg`, captured from the real iOS screen.
+- Every desktop beat uses a 1440 × 900 web capture. The mobile cut uses
+  390 × 844 mobile views, with `public/showcase/coach-record-m.jpg` captured
+  from the real iOS lesson recorder.
 - The recording line includes video recording, which is shipping with this page.
 - Desktop is 1440 × 810. Mobile is 390 × 844.

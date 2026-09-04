@@ -3,6 +3,8 @@
  *
  * The first frame is the live staged roster. The remaining beats use real
  * product captures made by scripts/demos/shots.mjs and the iOS simulator.
+ * Desktop and mobile have separate shot manifests: the wide cut stays in the
+ * web workspace, while the phone cut may show the native lesson recorder.
  * Swapping already-decoded images inside a fixed overlay keeps loading and
  * browser chrome out of the finished take while preserving the exact app UI.
  */
@@ -103,7 +105,33 @@ export const prepare = async (page) => {
   });
 };
 
-export function makeFlow() {
+const SHOTS = {
+  desktop: {
+    profile: "coach-page-d",
+    students: "coach-students-d",
+    record: "coach-entry-compose-d",
+    share: "coach-entry-shared-d",
+    request: "coach-order-d",
+    orders: "coach-queue-d",
+    delivery: "coach-points-d",
+    payout: "coach-payout-d",
+  },
+  mobile: {
+    profile: "coach-page-m",
+    students: "coach-students-m",
+    record: "coach-record-m",
+    share: "coach-entry-shared-m",
+    request: "coach-order-m",
+    orders: "coach-queue-m",
+    delivery: "coach-review-m",
+    payout: "coach-payout-m",
+  },
+};
+
+export function makeFlow({ platform = "mobile" } = {}) {
+  const shots = SHOTS[platform];
+  if (!shots) throw new Error(`unknown coach video platform: ${platform}`);
+
   return async function flow(page, clock, { beat }) {
     const base = process.env.BASE ?? "https://www.ponglens.com";
 
@@ -113,51 +141,51 @@ export function makeFlow() {
     // The public presence comes first, before the private student workspace.
     await showShot(page, clock, base, {
       at: beat("profile").start - 2.6,
-      file: "coach-page-m",
+      file: shots.profile,
     });
     await clock.until(beat("profile").end);
 
     await showShot(page, clock, base, {
       at: beat("students").start - 2.6,
-      file: "coach-students-m",
+      file: shots.students,
     });
     await clock.until(beat("students").end);
 
-    // The real iPhone lesson recorder.
+    // Native recorder on mobile; the web lesson composer on desktop.
     await showShot(page, clock, base, {
       at: beat("record").start - 2.6,
-      file: "coach-record-m",
+      file: shots.record,
     });
     await clock.until(beat("record").end);
 
     // The result in the student's journal, not the sharing controls.
     await showShot(page, clock, base, {
       at: beat("share").start - 2.6,
-      file: "coach-entry-shared-m",
+      file: shots.share,
     });
     await clock.until(beat("share").end);
 
     // Incoming review requests and the queue are separate views of one area.
     await showShot(page, clock, base, {
       at: beat("request").start - 2.6,
-      file: "coach-order-m",
+      file: shots.request,
     });
     await clock.until(beat("request").end);
     await showShot(page, clock, base, {
       at: beat("orders").start - 0.5,
-      file: "coach-queue-m",
+      file: shots.orders,
     });
     await clock.until(beat("orders").end);
 
     // Close the commercial workflow with the delivered review and payout.
     await showShot(page, clock, base, {
       at: beat("delivery").start - 2.6,
-      file: "coach-review-m",
+      file: shots.delivery,
     });
     await clock.until(beat("delivery").end);
     await showShot(page, clock, base, {
       at: beat("payout").start - 0.5,
-      file: "coach-payout-m",
+      file: shots.payout,
     });
     await clock.until(beat("payout").end);
   };
