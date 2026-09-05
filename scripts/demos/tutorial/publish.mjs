@@ -9,8 +9,8 @@
  * SHA-256 digests without loading credentials or making a network request.
  *
  * A non-dry run loads credentials from the macOS Keychain (account
- * `openclaw`), uploads with fixed media metadata, then confirms each remote
- * Content-Length with HEAD.
+ * `openclaw`), uploads with fixed media metadata, confirms the remote headers
+ * with HEAD, and reads the object back to compare its SHA-256.
  */
 
 import { AwsClient } from "aws4fetch";
@@ -117,6 +117,30 @@ export async function publishManifest(manifest, { account, fetch }) {
     if (remoteSize !== entry.size) {
       throw new Error(
         `${entry.key}: HEAD size ${String(remoteSize)} does not match local size ${entry.size}`,
+      );
+    }
+    const remoteContentType = head.headers.get("content-type");
+    if (remoteContentType !== entry.contentType) {
+      throw new Error(
+        `${entry.key}: HEAD Content-Type ${String(remoteContentType)} does not match ${entry.contentType}`,
+      );
+    }
+    const remoteCacheControl = head.headers.get("cache-control");
+    if (remoteCacheControl !== entry.cacheControl) {
+      throw new Error(
+        `${entry.key}: HEAD Cache-Control ${String(remoteCacheControl)} does not match ${entry.cacheControl}`,
+      );
+    }
+
+    const get = await fetch(url, { method: "GET" });
+    if (!get.ok) {
+      throw new Error(`GET ${entry.key}: ${get.status} ${(await get.text()).slice(0, 200)}`);
+    }
+    const remoteBody = Buffer.from(await get.arrayBuffer());
+    const remoteSha256 = createHash("sha256").update(remoteBody).digest("hex");
+    if (remoteSha256 !== entry.sha256) {
+      throw new Error(
+        `${entry.key}: GET SHA-256 ${remoteSha256} does not match ${entry.sha256}`,
       );
     }
     bytes += entry.size;

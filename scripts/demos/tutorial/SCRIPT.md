@@ -372,11 +372,12 @@ node --experimental-strip-types scripts/demos/tutorial/publish.mjs --course play
 node --experimental-strip-types scripts/demos/tutorial/publish.mjs --course coach
 ```
 
-After publication, compare every HEAD `Content-Length` with its local file.
-Then play all nine player and nine coach chapters on web, and all nine player
-and eight coach chapters on iOS. On iOS, rotate during playback, use previous
-and next, open the chapter sheet, and confirm no paid-review title or request
-appears.
+After publication, the publisher compares every HEAD `Content-Length`,
+`Content-Type`, and `Cache-Control` with its local manifest, then reads the
+object back and compares its SHA-256. Then play all nine player and nine coach
+chapters on web, and all nine player and eight coach chapters on iOS. On iOS,
+rotate during playback, use previous and next, open the chapter sheet, and
+confirm no paid-review title or request appears.
 
 ## Production rules
 

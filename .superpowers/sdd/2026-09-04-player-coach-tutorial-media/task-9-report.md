@@ -1,20 +1,24 @@
-# Task 9 report — publication dry-run and approval boundary
+# Task 9 report — publication and playback boundary
 
-Date: 2026-09-04
+Started: 2026-09-04
+Published: 2026-09-05 after explicit approval
 Starting HEAD: `64aacee5`
 
 ## Result
 
-The course-aware publisher now selects its files and object keys only from
+The course-aware publisher selects its files and object keys only from
 the Learn catalog, verifies every local output before publication, emits an
 exact dry-run manifest, and delays credential loading until a real publish is
 requested. A real publish writes only `tutorial/player/<slug>.mp4` or
 `tutorial/coach/<slug>.mp4`, uploads with the fixed metadata below, and checks
-the remote `Content-Length` with HEAD after every PUT.
+the remote size and metadata with HEAD after every PUT. It then reads the
+stored object back and requires its SHA-256 to match the approved local file.
 
-No R2 credentials were loaded by either dry-run. No PUT, HEAD, upload,
-publication, deletion, or TestFlight action was performed. The old flat
-`tutorial/<slug>.mp4` objects remain outside this task's write scope.
+After Adil explicitly approved the exact manifest below, all 18 namespaced
+objects were published. All 18 passed remote size, content-type, cache-policy,
+and full read-back SHA-256 verification with no mismatch. The old flat
+`tutorial/<slug>.mp4` objects were not read, overwritten, or deleted. No
+TestFlight action was performed.
 
 ## Fixed upload metadata
 
@@ -64,6 +68,13 @@ against an injected in-memory transport.
 - Real player dry-run: 9 verified files, 54,888,167 bytes.
 - Real coach dry-run: 9 verified files, 40,082,459 bytes.
 - Independent report-to-filesystem path, size, and SHA-256 comparison: 18/18.
+- Production upload: player 9/9 and coach 9/9.
+- Production verification: 18/18 HEAD sizes, `video/mp4` content types,
+  `public, max-age=86400` cache policies, and GET read-back SHA-256 hashes
+  match the approved manifest.
+- Authenticated local feature endpoint: web player 9/9, web coach 9/9, iOS
+  player 9/9, and iOS coach 8/8 signed URLs returned; every URL served a valid
+  MP4 byte range. The iOS response contained no paid-review chapter or URL.
 - `npm run test:tutorial`: 112/112 pass.
 - `npm run test:learn`: 36/36 pass.
 - `npm run learn:ios:check`: pass.
@@ -78,8 +89,18 @@ The referenced Task 9 brief was absent from the worktree. The task proceeded
 from the authoritative Task 9 plan section and the ledger's explicit-approval
 ruling after the controller confirmed that this was not a blocker.
 
-## Approval boundary
+## Remaining deployment and UI playback boundary
 
-Stop here. Running either command without `--dry-run` requires explicit user
-approval for the exact 18 mappings above. Post-publish web/iOS playback checks
-and TestFlight remain pending until publication is approved and completed.
+The public `www.ponglens.com/api/tutorial-url` implementation and
+`origin/main` still use the old flat player-only contract. The iOS app points
+to that public host, so production iOS cannot request the new namespaced coach
+course until the web route in this branch is integrated and deployed. Starting
+TestFlight before that deployment would ship an app whose new tutorial request
+contract the public API does not yet understand.
+
+The in-app browser had no available browser session, so interactive web UI
+playback could not be performed in this task. The authenticated endpoint and
+actual signed-media byte path were verified locally as described above, but
+the planned web UI playback pass and the iOS simulator interactions (rotate,
+previous/next, and chapter sheet) remain to be run after the web route is
+deployed. No TestFlight build was started.

@@ -172,15 +172,25 @@ test("publication PUTs verified bytes with fixed metadata and confirms remote si
       account: "test-account",
       fetch: async (url, init) => {
         requests.push({ url, init });
-        return init.method === "HEAD"
-          ? new Response(null, { status: 200, headers: { "Content-Length": "11" } })
+        if (init.method === "HEAD") {
+          return new Response(null, {
+            status: 200,
+            headers: {
+              "Content-Length": "11",
+              "Content-Type": "video/mp4",
+              "Cache-Control": "public, max-age=86400",
+            },
+          });
+        }
+        return init.method === "GET"
+          ? new Response("player/home", { status: 200 })
           : new Response(null, { status: 200 });
       },
     },
   );
 
   assert.deepEqual(result, { count: 1, bytes: 11 });
-  assert.equal(requests.length, 2);
+  assert.equal(requests.length, 3);
   assert.equal(
     requests[0].url,
     "https://test-account.r2.cloudflarestorage.com/ponglens-media/tutorial/player/home.mp4",
@@ -191,6 +201,7 @@ test("publication PUTs verified bytes with fixed metadata and confirms remote si
   assert.equal(requests[0].init.headers["Cache-Control"], "public, max-age=86400");
   assert.equal(requests[0].init.body.toString("utf8"), "player/home");
   assert.equal(requests[1].init.method, "HEAD");
+  assert.equal(requests[2].init.method, "GET");
 });
 
 test("publication rejects a changed local file, an outside key, or a HEAD size mismatch", async () => {
@@ -244,6 +255,46 @@ test("publication rejects a changed local file, an outside key, or a HEAD size m
         : new Response(null, { status: 200 }),
     }),
     /HEAD size 10.*local size 11/i,
+  );
+  await assert.rejects(
+    publishManifest([baseEntry], {
+      account: "test-account",
+      fetch: async (_url, init) => {
+        if (init.method === "HEAD") {
+          return new Response(null, {
+            status: 200,
+            headers: {
+              "Content-Length": "11",
+              "Content-Type": "application/octet-stream",
+              "Cache-Control": "public, max-age=86400",
+            },
+          });
+        }
+        return new Response(null, { status: 200 });
+      },
+    }),
+    /HEAD content-type.*application\/octet-stream.*video\/mp4/i,
+  );
+  await assert.rejects(
+    publishManifest([baseEntry], {
+      account: "test-account",
+      fetch: async (_url, init) => {
+        if (init.method === "HEAD") {
+          return new Response(null, {
+            status: 200,
+            headers: {
+              "Content-Length": "11",
+              "Content-Type": "video/mp4",
+              "Cache-Control": "public, max-age=86400",
+            },
+          });
+        }
+        return init.method === "GET"
+          ? new Response("wrong bytes", { status: 200 })
+          : new Response(null, { status: 200 });
+      },
+    }),
+    /GET SHA-256.*does not match/i,
   );
 });
 
