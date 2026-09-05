@@ -25,7 +25,7 @@ enum CoachTab: String, CaseIterable, Identifiable {
 /// whom if that is already decided. Carried by the cover so the composer
 /// cannot disagree with the tap that raised it.
 struct CoachComposerRequest: Identifiable {
-    enum Mode { case write, record }
+    enum Mode { case write, record, video }
     let id = UUID()
     let mode: Mode
     let student: CoachStudentRow?
@@ -150,9 +150,8 @@ struct CoachTabView: View {
                     if mode == .write { router.composeWrite = request } else { router.composeRecord = request }
                 }
             }
-            // Two available ways to start an entry: write it, or record
-            // audio. Keep the detent fitted to those rows.
-            .presentationDetents([.height(276)])
+            // Three entry choices, including the imported video recap.
+            .presentationDetents([.height(348)])
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
@@ -160,7 +159,9 @@ struct CoachTabView: View {
             CoachEntryComposer(request: request)
                 .presentationDetents([.large])
         }
-        .fullScreenCover(item: $router.composeRecord) { request in
+        .fullScreenCover(item: $router.composeRecord, onDismiss: {
+            Task { await workspace.load(userId: app.userId) }
+        }) { request in
             CoachEntryComposer(request: request)
         }
         .sheet(isPresented: $devInviteOpen) {
@@ -297,6 +298,7 @@ struct CoachNewEntryChoice: Identifiable {
     enum Kind: Hashable {
         case write
         case audio
+        case video
     }
 
     let kind: Kind
@@ -307,7 +309,11 @@ struct CoachNewEntryChoice: Identifiable {
     var id: Kind { kind }
 
     var mode: CoachComposerRequest.Mode {
-        kind == .write ? .write : .record
+        switch kind {
+        case .write: .write
+        case .audio: .record
+        case .video: .video
+        }
     }
 
     static let available = [
@@ -323,11 +329,16 @@ struct CoachNewEntryChoice: Identifiable {
             title: "Audio record a lesson",
             detail: "Put your phone near the net. Your notes are prepared automatically."
         ),
+        CoachNewEntryChoice(
+            kind: .video,
+            icon: "video",
+            title: "Import a lesson video",
+            detail: "Record with Camera, then import and review the recap."
+        ),
     ]
 }
 
-/// How a new entry starts. Writing and audio recording are the two ways
-/// words arrive.
+/// Writing, audio recording, or an imported lesson video.
 struct CoachNewEntrySheet: View {
     let student: CoachStudentRow?
     let onChoose: (CoachComposerRequest.Mode) -> Void
