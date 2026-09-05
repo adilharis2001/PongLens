@@ -4,6 +4,27 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 const local = process.env.BETA_LOCAL_DB_TEST === "1";
 test(
+  "account removal records displaced beta and account state without altering original touches",
+  { skip: !local },
+  () => {
+    const out = sql(`begin; ${seed}
+    insert into auth.users(id,email) values ('10000000-0000-0000-0000-000000000001','linked@club.org');
+    insert into user_outreach_contacts(user_id,status,follow_up_on) values ('10000000-0000-0000-0000-000000000001','closed','2026-09-06');
+    insert into ios_beta_outreach(request_id,status,follow_up_on) values ('30000000-0000-0000-0000-000000000001','in_touch','2026-09-10');
+    insert into user_outreach_touches(user_id,kind,body,author,at) values ('10000000-0000-0000-0000-000000000001','note','Original account note','Adil','2026-09-02');
+    insert into user_outreach_touches(beta_request_id,kind,body,author,at) values ('30000000-0000-0000-0000-000000000001','feedback','Original beta reply','Anton','2026-09-03');
+    delete from auth.users where id='10000000-0000-0000-0000-000000000001';
+    select 'effective='||status||':'||follow_up_on from ios_beta_outreach where request_id='30000000-0000-0000-0000-000000000001';
+    select 'preserved='||count(*) from user_outreach_touches where beta_request_id='30000000-0000-0000-0000-000000000001' and body like '%Account contact status: Closed; follow-up: 2026-09-06.%' and body like '%Previous beta contact status: In touch; follow-up: 2026-09-10.%';
+    select 'original='||body||':'||author||':'||at::date from user_outreach_touches where body like 'Original %' order by body;
+    rollback;`);
+    assert.match(out, /effective=closed:2026-09-06/);
+    assert.match(out, /preserved=1/);
+    assert.match(out, /original=Original account note:Adil:2026-09-02/);
+    assert.match(out, /original=Original beta reply:Anton:2026-09-03/);
+  },
+);
+test(
   "the complete outreach migration replays with the normal postgres migration role",
   { skip: !local },
   () => {

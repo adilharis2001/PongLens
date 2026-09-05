@@ -5,7 +5,47 @@ import {
   unifiedQueueFor,
   feedbackLabel,
   invitationLabel,
+  effectiveInvitationState,
 } from "./betaOutreachView.ts";
+
+test("Needs attention filtering includes overdue schedules and near-deadline unknown requests", () => {
+  const fixtures = [
+    {
+      ...beta,
+      id: "overdue",
+      delivery_state: "scheduled",
+      scheduled_at: "2026-09-05T11:59:00Z",
+    },
+    {
+      ...beta,
+      id: "near",
+      delivery_state: "unknown",
+      scheduled_at: "2026-09-05T12:30:00Z",
+    },
+    {
+      ...beta,
+      id: "later",
+      delivery_state: "scheduled",
+      scheduled_at: "2026-09-06T11:00:00Z",
+    },
+    {
+      ...beta,
+      id: "delivered",
+      delivery_state: "delivered",
+      scheduled_at: "2026-09-04T11:00:00Z",
+    },
+  ];
+  assert.deepEqual(
+    fixtures
+      .filter((row) => effectiveInvitationState(row, now) === "needs_attention")
+      .map((row) => row.id),
+    ["overdue", "near"],
+  );
+  assert.deepEqual(
+    fixtures.map((row) => invitationLabel(row, now)),
+    ["Needs attention", "Needs attention", "Scheduled", "Delivered"],
+  );
+});
 import type { OutreachRow, PersonRow, TouchRow } from "./outreachView.ts";
 
 const account = {

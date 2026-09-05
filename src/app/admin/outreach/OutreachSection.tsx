@@ -6,6 +6,7 @@ import {
   unifyOutreach,
   unifiedQueueFor,
   invitationLabel,
+  effectiveInvitationState,
   pendingInvitation,
   type BetaOutreachRow,
   type UnifiedOutreachRow,
@@ -107,6 +108,7 @@ export function OutreachSection() {
     () => unifyOutreach(rows ?? [], people, betas, touches),
     [rows, people, betas, touches],
   );
+  const now = new Date();
   const selected = unified.filter(
     (r) =>
       (!r.account || kindFilter === "all" || r.account.kind === kindFilter) &&
@@ -115,14 +117,15 @@ export function OutreachSection() {
       (!betaOnly ||
         !interestFilter ||
         r.beta?.interests.includes(interestFilter)) &&
-      (!betaOnly || !inviteFilter || r.beta?.delivery_state === inviteFilter) &&
+      (!betaOnly ||
+        !inviteFilter ||
+        (r.beta && effectiveInvitationState(r.beta, now) === inviteFilter)) &&
       (!betaOnly ||
         !channelFilter ||
         r.beta?.feedback_channels.includes(channelFilter)),
   );
   const visible = selected.filter((r) => !r.account?.hidden);
   const hidden = selected.filter((r) => r.account?.hidden);
-  const now = new Date();
   const pending = visible
     .filter((r) => r.beta && pendingInvitation(r.beta))
     .sort((a, b) => a.beta!.scheduled_at.localeCompare(b.beta!.scheduled_at));

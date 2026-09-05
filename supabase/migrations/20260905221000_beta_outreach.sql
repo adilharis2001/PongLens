@@ -197,10 +197,32 @@ end; $$;
 -- Only its subject changes; the original note, author and timestamp do not.
 create function public._outreach_preserve_beta_history()
 returns trigger language plpgsql security definer set search_path=public as $$
-declare g record;
+declare
+  g record;
+  account_source record;
+  beta_source record;
 begin
  select * into g from _outreach_groups() where user_id=old.id and beta_id is not null;
  if found then
+   -- The account is about to disappear, and its effective state will become
+   -- the beta record's current state. Preserve BOTH source values before that
+   -- replacement so a later reminder or conflicting status is not erased.
+   select status, follow_up_on into account_source
+     from user_outreach_contacts where user_id = old.id;
+   select status, follow_up_on into beta_source
+     from ios_beta_outreach where request_id = g.beta_id;
+   insert into user_outreach_touches(beta_request_id, kind, body, author)
+   values (g.beta_id, 'note', format(
+     'Account removed. Account contact status: %s; follow-up: %s. Previous beta contact status: %s; follow-up: %s.',
+     case coalesce(account_source.status, 'new')
+       when 'new' then 'New' when 'contacted' then 'Reached out'
+       when 'in_touch' then 'In touch' when 'closed' then 'Closed' end,
+     coalesce(account_source.follow_up_on::text, 'None'),
+     case coalesce(beta_source.status, 'new')
+       when 'new' then 'New' when 'contacted' then 'Reached out'
+       when 'in_touch' then 'In touch' when 'closed' then 'Closed' end,
+     coalesce(beta_source.follow_up_on::text, 'None')
+   ), 'PongLens');
    insert into ios_beta_outreach(request_id,status,follow_up_on) values(g.beta_id,g.status,g.follow_up_on)
    on conflict(request_id) do update set status=excluded.status,follow_up_on=excluded.follow_up_on,updated_at=now();
    update user_outreach_touches set user_id=null,beta_request_id=g.beta_id where user_id=old.id;

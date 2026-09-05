@@ -231,6 +231,44 @@ for (const viewport of [
       "Some invitation statuses could not be confirmed. Please refresh again.",
     )
     .waitFor();
+  failRefresh = false;
+  beta = {
+    ...beta,
+    delivery_state: "scheduled",
+    scheduled_at: new Date(Date.now() - 60000).toISOString(),
+  };
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page
+    .getByText("iPhone beta · Needs attention", { exact: true })
+    .first()
+    .waitFor();
+  if (viewport.width < 640)
+    await page.getByRole("button", { name: "Filters", exact: true }).click();
+  await page.getByLabel("Filter invitation").selectOption("needs_attention");
+  assert.ok(
+    (await page.getByRole("button", { name: /player@club.org/ }).count()) > 0,
+    "Needs attention includes an overdue Scheduled invitation",
+  );
+  beta = {
+    ...beta,
+    delivery_state: "unknown",
+    scheduled_at: new Date(Date.now() + 1800000).toISOString(),
+  };
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.getByRole("button", { name: "Refresh", exact: true }).waitFor();
+  assert.ok(
+    (await page.getByRole("button", { name: /player@club.org/ }).count()) > 0,
+    "Needs attention includes a near-deadline Unknown invitation",
+  );
+  if (viewport.width < 640)
+    await page.getByRole("button", { name: "Filters", exact: true }).click();
+  await page
+    .getByRole("heading", { name: /Pending invitations/ })
+    .evaluate((element) => element.scrollIntoView({ block: "start" }));
+  await page.evaluate(() => window.scrollBy(0, -80));
+  await page.screenshot({
+    path: `${output}/${viewport.width}-needs-attention.png`,
+  });
   await page.close();
 }
 await browser.close();

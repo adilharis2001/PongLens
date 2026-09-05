@@ -3,7 +3,7 @@ import { AppShell } from "@/components/AppShell";
 import { AdminHeader } from "@/app/admin/AdminHeader";
 export default function Preview() {
   return (
-    <AppShell>
+    <AppShell avatarUrl={null}>
       <AdminHeader title="Outreach and feedback" />
       <div className="mt-6">
         <OutreachSection />

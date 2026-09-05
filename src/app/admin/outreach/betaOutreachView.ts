@@ -181,7 +181,10 @@ export const pendingInvitation = (beta: BetaOutreachRow) =>
     "complained",
     "canceled",
   ].includes(beta.delivery_state);
-export function invitationLabel(beta: BetaOutreachRow, now: Date): string {
+export function effectiveInvitationState(
+  beta: BetaOutreachRow,
+  now: Date,
+): string {
   const state = beta.delivery_state;
   if (
     pendingInvitation(beta) &&
@@ -189,7 +192,11 @@ export function invitationLabel(beta: BetaOutreachRow, now: Date): string {
       (["failed", "unknown", "needs_attention"].includes(state) &&
         new Date(beta.scheduled_at).getTime() - now.getTime() <= 3600000))
   )
-    return "Needs attention";
+    return "needs_attention";
+  return state;
+}
+
+export function invitationLabel(beta: BetaOutreachRow, now: Date): string {
   const labels: Record<string, string> = {
     pending: "Pending",
     scheduled: "Scheduled",
@@ -204,5 +211,5 @@ export function invitationLabel(beta: BetaOutreachRow, now: Date): string {
     complained: "Complaint",
     canceled: "Canceled",
   };
-  return labels[state] ?? "Unknown";
+  return labels[effectiveInvitationState(beta, now)] ?? "Unknown";
 }
