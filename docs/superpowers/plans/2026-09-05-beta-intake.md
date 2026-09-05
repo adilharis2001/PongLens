@@ -85,8 +85,8 @@
 
 **Files:** Extend scripts/qa/ios-beta-form.mjs for integration and admin fixtures; add docs/superpowers/plans/2026-09-05-beta-intake-verification.md with commands/results and release checklist. Amend implementation files only in response to reproducible failures.
 
-- [ ] Exercise all spec §9 cases across actual implementation. Run `node --test --experimental-strip-types src/lib/iosBeta/*.test.ts src/app/api/ios-beta/route.test.ts src/app/admin/outreach/*.test.ts` and `npm run test:email`. Run local migration tests and verify private access denial.
-- [ ] Run real `npm run build` using this worktree's own .next; stop dev server in THIS worktree if needed without affecting other checkouts. Record exit code, no filtered typecheck claims.
-- [ ] Run actual browser QA desktop/mobile/narrow, capture form and admin detail screenshots, inspect screenshots and open useful preview in right-hand browser. Verify no unwanted email sends during UI QA.
-- [ ] Perform independent task/final review, fix reproducible issues and rerun affected tests. Do not mutate production or send external emails without explicit controlled-test authorization. Record which live checks remain (real provider scheduled send/early-send, 23h observation) rather than equating mocks with live success.
-- [ ] Commit verification notes. Hand off implementation with preview and remaining release prerequisites; no production deployment claimed.
+- [x] Exercise all locally authorized spec §9 cases across actual implementation. Run `node --test --experimental-strip-types src/lib/iosBeta/*.test.ts src/app/api/ios-beta/route.test.ts src/app/admin/outreach/*.test.ts` and `npm run test:email`. Run local migration tests and verify private access denial.
+- [x] Run real `npm run build` using this worktree's own .next; stop dev server in THIS worktree if needed without affecting other checkouts. Record exit code, no filtered typecheck claims.
+- [x] Run actual browser QA desktop/mobile/narrow, capture form and admin detail screenshots, inspect screenshots and open useful preview in right-hand browser. Verify no unwanted email sends during UI QA.
+- [x] Perform independent task/final review, fix reproducible issues and rerun affected tests. Do not mutate production or send external emails without explicit controlled-test authorization. Record which live checks remain (real provider scheduled send/early-send, 23h observation) rather than equating mocks with live success.
+- [x] Commit verification notes. Hand off implementation with preview and remaining release prerequisites; no production deployment claimed.

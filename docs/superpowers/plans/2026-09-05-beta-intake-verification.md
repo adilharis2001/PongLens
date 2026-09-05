@@ -1,6 +1,6 @@
 # Beta intake verification
 
-Implementation is in progress. This is not a production release record.
+Local implementation and independent review are complete. This is not a production release record.
 
 ## Completed checks
 
@@ -20,11 +20,21 @@ These browser checks used synthetic addresses and intercepted the submission API
 - Controller ran all 20 package `test:*` commands: 19 exited 0. `test:costs` failed one pre-existing source-text assertion expecting metering inside `reviewEmails.ts`, where delivery now delegates to the shared sender. Those source/test files are unchanged from the branch baseline; shared sender behavior tests pass. This remains an integration issue to resolve, not a passing full-suite claim.
 - Full build at `c65fa955` failed because the retained QA fixture omitted the required `AppShell.avatarUrl` value. Corrected at `c2b52a1b`; a fresh actual production build exited 0, generating 150 pages.
 - Outreach review fixes at `c2b52a1b`: 111 focused tests passed without skips, including local database tests. Browser checks passed at 1440×900, 393×660 and 320×660. Independent scoped review confirmed all three findings addressed: fixture build, consistent Needs attention filtering, and preservation of differing source contact status/reminders during account removal.
+- Post-main integration at `48e99aaf`: controller ran the real isolated production build again. Exit 0, 151 pages generated. This includes the concurrent research changes merged into the feature branch; no shared branch was updated.
+- Final integration fixes at `5edc9f86`: 117 focused tests passed with actual local PostgreSQL tests enabled and no skips; 40 email and 146 cost tests passed. The full production build exited 0 with 151 pages. Browser checks passed at 1440×900, 393×660 and 320×660, including early-send busy feedback, fair refresh across eleven pending applicants and priority for an opened request. The controller inspected the final mobile retry screen.
+- Controller ran all 20 package `test:*` scripts again at `5edc9f86`: all exited 0. This supersedes the earlier 19/20 checkpoint; the stale cost test was repaired without changing existing review email behavior. Existing warnings remain; no separate unfiltered typecheck pass is claimed.
+- The unshipped delivery migration is now `20260905220500_beta_intake_delivery.sql`, preserving its contents and its ordering before `20260905221000_beta_outreach.sql`. Clean replay passed using the new name. A uniqueness check covers timestamp-format migration versions; historical short-number migration naming was not rewritten.
+- Final review amendment at `2e4ddf32`: confirmed provider bounce/failure/cancellation evidence now reaches the existing database state merge before the local terminal-state guard. Three new regression tests failed before the correction and passed afterward; 121 focused/local-database tests and 40 email tests passed. The real production build again exited 0 with 151 pages. Controller reran all 20 package test scripts on this final product revision: all exited 0. No UI changed in this amendment, so the three-viewport browser evidence remains applicable.
+- Final controller verification on the same product revision: independently reran the combined focused command with `BETA_LOCAL_DB_TEST=1`, 121 passed, 0 failed, 0 skipped, and the complete `npm run build`, exit 0, 151 pages. No development server shared this worktree's build output.
 
-## Remaining implementation checks
+## Final review
 
-- Final whole-branch review and integration checks against the latest main branch.
-- Resolve the existing stale cost-metering test and the migration timestamp collision introduced by concurrent work on main.
+The independent whole-branch review and its scoped fix review are complete. All reported findings are addressed, including migration numbering, both early-send handoff boundaries, fair refresh batching, the stale cost test, and preservation of stronger delivery evidence. No remaining code-review findings. The live release checks below remain required.
+
+## Review decisions
+
+- Historical unstamped invitations without a provider identity or exact retry payload stay in Needs attention rather than risking a duplicate. Cost: an invitation that was genuinely never sent needs manual reconciliation. Audit counts before release.
+- Keep behavior and visual checks for the approved questionnaire copy rather than adding a complete copy snapshot. Package-wide module warnings and the separately recorded baseline test-type diagnostics were not expanded into unrelated configuration changes.
 
 ## Release checklist
 
