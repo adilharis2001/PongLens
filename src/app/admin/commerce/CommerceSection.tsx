@@ -255,7 +255,7 @@ export function CommerceSection({ initial }: { initial: Initial }) {
                 else {
                   setPurchasesEnabled(data.enabled); setEnabled(true);
                   setCleanupIncomplete(data.cleanupFailed);
-                  setFlash(data.cleanupFailed ? "New purchases are paused, but an existing checkout could not be closed. Please retry." : "Saved.");
+                  setFlash(data.cleanupFailed ? "New purchases are disabled, but an existing checkout could not be closed. Please retry." : "Saved.");
                 }
               } catch { setFlash("Could not save. Check your connection and try again."); }
               finally { setBusy(false); }

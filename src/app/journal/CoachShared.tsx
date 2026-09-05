@@ -52,7 +52,7 @@ function day(iso: string): string {
 
 /**
  * One shared entry as a feed card. The journal renders these among its
- * own entries under All and under the From your coach tab (Adil,
+ * own entries under All and under the From Coaches tab (Adil,
  * 2026-09-02) — they used to sit in a section of their own above the
  * tabs, which read as a second journal.
  */

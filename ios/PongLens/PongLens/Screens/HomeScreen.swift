@@ -82,7 +82,7 @@ struct HomeScreen: View {
                     // over a fourth tab — what a coach sends arrives here.
                     if let fresh = journal.unseenCoachShare(userId: app.userId) {
                         VStack(alignment: .leading, spacing: 10) {
-                            SectionHeading("From your coach")
+                            SectionHeading("From Coaches")
                             Button {
                                 coachEntryOpen = fresh
                             } label: {
