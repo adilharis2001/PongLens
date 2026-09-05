@@ -40,6 +40,7 @@ export async function POST(req:Request){
  const {user,db}=await context();if(!user||!db)return failure('Not signed in',401);
  let body:Record<string,unknown>;try{body=await req.json();}catch{return failure('Invalid request');}
  const action=String(body.action??'');
+ if(['create','edit','retry','share'].includes(action)&&user.user_metadata?.is_coach!==true)return failure('Lesson video imports are available in the coaching workspace.',403);
  try{
   if(action==='create'){
    const fileSize=Number(body.fileSize),duration=Number(body.durationS);const invalid=validateImport(fileSize,duration);if(invalid)return failure(invalid);
