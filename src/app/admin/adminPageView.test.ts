@@ -25,13 +25,18 @@ test("every admin page has a distinct route under /admin", () => {
 // Research and marketing are advertised nowhere else on purpose. The admin
 // hub is the one door, and it is admin-only, so this reveals nothing to
 // anyone who could not already open them.
-test("the private workspaces are linked from the admin hub, and live outside /admin", () => {
+//
+// Outreach joined them on 2026-09-05 and is the one whose route IS under
+// /admin — a workspace by what it is for rather than by where it lives.
+test("the private workspaces are linked from the admin hub", () => {
   assert.deepEqual(
     ADMIN_WORKSPACES.map((w) => w.href),
-    ["/research", "/marketing", "/testing"],
+    ["/admin/outreach", "/research", "/marketing", "/testing"],
   );
   for (const workspace of ADMIN_WORKSPACES) {
-    assert.doesNotMatch(workspace.href, /^\/admin/);
+    if (workspace.key !== "outreach") {
+      assert.doesNotMatch(workspace.href, /^\/admin/);
+    }
     assert.ok(workspace.title.length > 0);
   }
   const page = readFileSync(new URL("./page.tsx", import.meta.url), "utf8");
@@ -40,11 +45,11 @@ test("the private workspaces are linked from the admin hub, and live outside /ad
 });
 
 test("pending requests surface on the hub", () => {
-  assert.deepEqual(hubDetail("storage", COUNTS), {
+  assert.deepEqual(hubDetail("commerce", COUNTS), {
     text: "1 request waiting",
     attention: true,
   });
-  assert.deepEqual(hubDetail("storage", { ...COUNTS, quota_requests: 2 }), {
+  assert.deepEqual(hubDetail("commerce", { ...COUNTS, quota_requests: 2 }), {
     text: "2 requests waiting",
     attention: true,
   });
@@ -52,8 +57,33 @@ test("pending requests surface on the hub", () => {
 
 test("cards stay quiet when there is nothing to do", () => {
   const idle = { ...COUNTS, quota_requests: 0 };
-  assert.equal(hubDetail("storage", idle), null);
+  assert.equal(hubDetail("commerce", idle), null);
   assert.equal(hubDetail("costs", COUNTS), null);
+});
+
+// Storage was a card whose route did nothing but redirect to Purchases,
+// showing Purchases' own number: two doors, one room (2026-09-05).
+test("the hub does not carry a second card for the same place", () => {
+  const keys = ADMIN_PAGES.map((p) => p.key);
+  assert.equal(keys.includes("storage" as never), false);
+  const hrefs = [...ADMIN_PAGES, ...ADMIN_WORKSPACES].map((p) => p.href);
+  assert.equal(new Set(hrefs).size, hrefs.length);
+});
+
+// Adil moved it, 2026-09-05: it is a place you work rather than a setting
+// you change. Its count has to survive the move, which is why a workspace
+// can carry a detail line at all.
+test("outreach is a workspace and keeps its count", () => {
+  assert.equal(
+    ADMIN_WORKSPACES.some((w) => w.href === "/admin/outreach"),
+    true
+  );
+  assert.equal(
+    (ADMIN_PAGES as readonly { href: string }[]).some(
+      (p) => p.href === "/admin/outreach"
+    ),
+    false
+  );
 });
 
 test("players card carries the headline counts without urgency", () => {
