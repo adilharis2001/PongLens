@@ -140,14 +140,6 @@ final class LessonVideoQueue: NSObject {
         try? persist()
     }
 
-    private struct Create: Encodable {
-        let action = "create"
-        let studentId: UUID?
-        let originalName: String
-        let fileSize: Int64
-        let durationS: Double
-        let contentType: String
-    }
     private struct Created: Decodable { let video: LessonVideo; let id: UUID; let partSize: Int64 }
     private struct Sign: Encodable { let action = "sign-part"; let id: UUID; let partNumber: Int }
     private struct Signed: Decodable { let url: String }
@@ -164,7 +156,7 @@ final class LessonVideoQueue: NSObject {
             guard owner == items[i].ownerId else { return }
             if items[i].videoId == nil {
                 let item = items[i]
-                let response: Created = try await API.post("api/lesson-video", Create(studentId: item.studentId,
+                let response: Created = try await API.post("api/lesson-video", LessonVideoCreateRequest(clientRequestId: item.id, studentId: item.studentId,
                     originalName: item.originalName, fileSize: item.bytes, durationS: item.duration,
                     contentType: item.fileName.hasSuffix("mp4") ? "video/mp4" : "video/quicktime"))
                 guard response.video.owner_id == item.ownerId, response.partSize == LessonVideoUploadPlan.partSize else {

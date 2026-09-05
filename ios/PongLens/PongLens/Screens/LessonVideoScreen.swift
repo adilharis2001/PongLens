@@ -124,7 +124,7 @@ struct LessonVideoScreen: View {
                 await refresh()
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .seconds(10)) } catch { return }
-                    if videos.contains(where: \.isProcessing) || !uploads.isEmpty { await refresh() }
+                    if videos.contains(where: \.needsRefresh) || !uploads.isEmpty { await refresh() }
                 }
             }
             .onChange(of: queue.items.filter { $0.state == "done" }.count) { _, _ in Task { await refresh() } }
@@ -210,6 +210,9 @@ struct LessonVideoDetailScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var detail: LessonVideoDetail?
     @State private var player: AVPlayer?
+    @State private var urlsFetchedAt: Date?
+    @State private var playerURLFetchedAt: Date?
+    @State private var visible = false
     @State private var original = false
     @State private var editOpen = false
     @State private var busy = false
@@ -285,18 +288,22 @@ struct LessonVideoDetailScreen: View {
         .background(PL.ink)
         .navigationTitle("Lesson video")
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await load() }
+        .refreshable { await load(refreshPlayback: true) }
         .task {
-            await load()
+            await load(refreshPlayback: true)
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(10)) } catch { return }
-                if detail?.video.isProcessing == true { await load() }
+                let renewPlayback = LessonVideoPlaybackRefresh.isDue(lastRefresh: playerURLFetchedAt)
+                if detail?.video.needsRefresh == true || renewPlayback {
+                    await load(refreshPlayback: renewPlayback)
+                }
             }
         }
-        .onDisappear { player?.pause() }
+        .onAppear { visible = true }
+        .onDisappear { visible = false; player?.pause() }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { player?.pause() }
-            else { Task { await load() } }
+            else { Task { await load(refreshPlayback: true) } }
         }
         .sheet(isPresented: $editOpen) {
             if let edit = detail?.video.edit {
@@ -304,19 +311,35 @@ struct LessonVideoDetailScreen: View {
             }
         }
     }
-    private func setPlayer() {
+    private func setPlayer(preservingPosition: Bool = false) {
+        let position = preservingPosition ? player?.currentTime() : nil
+        let wasPlaying = preservingPosition && (player?.rate ?? 0) > 0
         player?.pause()
-        guard let detail else { player = nil; return }
+        guard let detail else { player = nil; playerURLFetchedAt = nil; return }
         let raw = original ? (detail.sourceUrl ?? detail.originalUrl) : (detail.playbackUrl ?? detail.summaryUrl)
-        player = raw.flatMap(URL.init(string:)).map { AVPlayer(url: $0) }
+        let replacement = raw.flatMap(URL.init(string:)).map { AVPlayer(url: $0) }
+        player = replacement
+        playerURLFetchedAt = replacement == nil ? nil : urlsFetchedAt
+        if let replacement, let position, position.seconds.isFinite, position.seconds > 0 {
+            replacement.seek(to: position, toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+                Task { @MainActor in
+                    if finished && wasPlaying && visible && scenePhase == .active && player === replacement {
+                        replacement.play()
+                    }
+                }
+            }
+        } else if wasPlaying && visible && scenePhase == .active { replacement?.play() }
     }
-    private func load() async {
+    private func load(refreshPlayback: Bool = false) async {
         do {
             let value: LessonVideoDetail = try await API.get("api/lesson-video", query: ["id": id.uuidString])
             let changed = detail?.video.revision != value.video.revision || detail?.video.status != value.video.status
             detail = value
+            urlsFetchedAt = Date()
             error = nil
-            if player == nil || changed { setPlayer() }
+            if player == nil || changed || refreshPlayback {
+                setPlayer(preservingPosition: !changed && player != nil)
+            }
         } catch { self.error = error.localizedDescription }
     }
     private func perform(_ action: String) {

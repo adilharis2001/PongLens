@@ -16,6 +16,7 @@ struct LessonVideo: Codable, Identifiable {
     let revision: Int?
 
     var isProcessing: Bool { status == "queued" || status == "processing" }
+    var needsRefresh: Bool { status == "uploading" || isProcessing }
     var title: String { edit?.title ?? original_name }
     var statusLabel: String {
         switch status {
@@ -117,3 +118,22 @@ struct LessonVideoUploadedParts: Decodable {
     let complete: Bool?
     var needsCompletion: Bool { complete == true || gone == true }
 }
+
+/// API media URLs last four hours. Renew after three, or whenever the app
+/// returns to the foreground, without rebuilding playback every status poll.
+nonisolated enum LessonVideoPlaybackRefresh {
+    static func isDue(lastRefresh: Date?, now: Date = Date()) -> Bool {
+        guard let lastRefresh else { return false }
+        return now.timeIntervalSince(lastRefresh) >= 3 * 3600
+    }
+}
+
+nonisolated struct LessonVideoCreateRequest: Encodable {
+        let action = "create"
+        let clientRequestId: UUID
+        let studentId: UUID?
+        let originalName: String
+        let fileSize: Int64
+        let durationS: Double
+        let contentType: String
+    }

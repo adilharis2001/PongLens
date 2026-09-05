@@ -32,3 +32,21 @@ check(goneResponse.needsCompletion, "Gone multipart must check assembled source"
 let pendingResponse = try JSONDecoder().decode(LessonVideoUploadedParts.self, from: Data(#"{"parts":[]}"#.utf8))
 check(!pendingResponse.needsCompletion, "Fresh upload still requires parts")
 print("Lesson video: 90-minute import, maximum limits, trailing part and lost-completion checks passed")
+
+for status in ["uploading", "queued", "processing", "review", "ready", "failed"] {
+    let data = Data("""
+    {"id":"00000000-0000-0000-0000-000000000001","owner_id":"00000000-0000-0000-0000-000000000002","original_name":"Lesson.mov","file_size":1024,"duration_s":5400,"status":"\(status)","created_at":"2026-09-05T00:00:00Z"}
+    """.utf8)
+    let video = try JSONDecoder().decode(LessonVideo.self, from: data)
+    check(video.needsRefresh == ["uploading", "queued", "processing"].contains(status), "Uploading detail must keep updating until review")
+}
+let now = Date(timeIntervalSince1970: 1_800_000_000)
+check(LessonVideoPlaybackRefresh.isDue(lastRefresh: now.addingTimeInterval(-5 * 3600), now: now), "An old signed player URL must refresh")
+check(!LessonVideoPlaybackRefresh.isDue(lastRefresh: now.addingTimeInterval(-300), now: now), "A fresh player must not be replaced on every poll")
+check(!LessonVideoPlaybackRefresh.isDue(lastRefresh: nil, now: now), "No player means no URL expiry to poll")
+print("Lesson video: upload polling and playback expiry checks passed")
+let requestId = UUID(uuidString: "00000000-0000-0000-0000-000000000099")!
+let request = LessonVideoCreateRequest(clientRequestId: requestId, studentId: nil, originalName: "Lesson.mov", fileSize: 1024, durationS: 5400, contentType: "video/quicktime")
+let requestBody = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as! [String: Any]
+check(UUID(uuidString: requestBody["clientRequestId"] as! String) == requestId, "The persisted local ID must reach create for retry deduplication")
+print("Lesson video: stable create request ID check passed")
