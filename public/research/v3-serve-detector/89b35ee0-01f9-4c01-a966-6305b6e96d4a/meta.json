@@ -1,0 +1,19 @@
+{
+ "match": "89b35ee0",
+ "matchId": "89b35ee0-01f9-4c01-a966-6305b6e96d4a",
+ "title": "Yu Yu Lin",
+ "venue": "LYTTC",
+ "crop": [
+  462.0,
+  158.0,
+  902.0,
+  506.0
+ ],
+ "rawOffsetS": 242.133,
+ "offsetErr": 1.897,
+ "cards": 93,
+ "points": 93,
+ "ok": 93,
+ "srvAgree": 93,
+ "srvDisagree": 0
+}
