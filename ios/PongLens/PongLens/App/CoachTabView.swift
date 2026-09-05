@@ -80,6 +80,7 @@ final class CoachRouter {
 /// roster. Matches shared by students open the same match screens the
 /// player side uses — access was never the tab's job.
 struct CoachTabView: View {
+    @Environment(\.openURL) private var openURL
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
     @Environment(ScoresStore.self) private var scores
@@ -175,6 +176,14 @@ struct CoachTabView: View {
                     }
                 },
                 onOpenHref: { href in
+                    if href.hasPrefix("/admin/"), let url = URL(string: "https://www.ponglens.com" + href) {
+                        bellOpen = false
+                        openURL(url)
+                    }
+                    if href.hasPrefix("/account") {
+                        bellOpen = false
+                        path.append("account")
+                    }
                     // A student joining lands on the roster.
                     if href.hasPrefix("/coaching/students") {
                         bellOpen = false

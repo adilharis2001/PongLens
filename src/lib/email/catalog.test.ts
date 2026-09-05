@@ -10,7 +10,7 @@ import { renderEmail } from "./render.ts";
 
 test("fixture catalog covers every TypeScript email state with unique identities", () => {
   const fixtures = typescriptEmailFixtures();
-  assert.equal(fixtures.length, 16);
+  assert.equal(fixtures.length, 17);
   assert.equal(
     new Set(fixtures.map((fixture) => fixture.message.templateId)).size,
     fixtures.length,
@@ -83,4 +83,3 @@ test("the TestFlight sample contains one approved Apple invitation", () => {
   assert.match(rendered.text, /Install TestFlight/);
   assert.match(rendered.text, /Tap Accept, then Install/);
 });
-

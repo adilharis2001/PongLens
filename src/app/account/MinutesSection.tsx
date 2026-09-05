@@ -14,6 +14,7 @@ import type { MinutePack } from "@/lib/commerce/packs";
 import { PackTiles } from "@/components/PackTiles";
 import { formatUsd } from "@/lib/reviews/money";
 import { createClient } from "@/lib/supabase/client";
+import { AllowanceRequest } from "@/components/AllowanceRequest";
 
 interface PurchaseRow {
   id: string;
@@ -23,7 +24,7 @@ interface PurchaseRow {
   paid_at: string | null;
 }
 
-export function MinutesSection({ packs }: { packs: MinutePack[] }) {
+export function MinutesSection({ packs, purchasesEnabled = false }: { packs: MinutePack[]; purchasesEnabled?: boolean }) {
   const [balance, setBalance] = useState<number | null>(null);
   const [history, setHistory] = useState<PurchaseRow[]>([]);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -85,7 +86,7 @@ export function MinutesSection({ packs }: { packs: MinutePack[] }) {
         fewer.
       </p>
 
-      <div className="mt-4">
+      {purchasesEnabled && <div className="mt-4">
         <PackTiles
           tiles={packs.map((p) => ({
             key: p.key,
@@ -96,7 +97,8 @@ export function MinutesSection({ packs }: { packs: MinutePack[] }) {
           busy={busyKey !== null}
           onPick={(key) => void buy(key)}
         />
-      </div>
+      </div>}
+      {!purchasesEnabled && <AllowanceRequest resource="minutes" />}
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
 
       {history.length > 0 && (

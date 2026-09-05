@@ -17,6 +17,9 @@ import type {
  */
 
 export const fakeGateway: PaymentGateway = {
+  async expirePlatformCheckout() {
+    // Fake checkout reads the live switch before accepting payment.
+  },
   async createConnectAccount() {
     return `acct_fake_${randomUUID().slice(0, 8)}`;
   },

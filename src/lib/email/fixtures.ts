@@ -1,5 +1,6 @@
 import { betaAdminNoticeEmail, betaInvitationEmail, confirmAccountEmail, magicLinkEmail, purchaseReceiptEmail, reviewLifecycleEmail, type ReviewMessageKind } from "./catalog.ts";
 import type { EmailMessage } from "./message.ts";
+import { allowanceRequestEmail } from "../commerce/allowances.ts";
 
 export type EmailFixture = { id: string; label: string; message: EmailMessage };
 
@@ -17,6 +18,7 @@ const reviewKinds: readonly ReviewMessageKind[] = [
 export function typescriptEmailFixtures(): EmailFixture[] {
   const confirmationUrl = "https://www.ponglens.com/auth/confirm?token_hash=preview&type=magiclink";
   const fixtures: EmailFixture[] = [
+    { id: "beta.allowance-request", label: "Allowance request", message: allowanceRequestEmail({ name: "Maya Chen", email: "maya.chen@example.com", resource: "storage", message: "I am recording a tournament this weekend." }) },
     { id: "auth.confirm-account", label: "Confirm account", message: confirmAccountEmail({ confirmationUrl: confirmationUrl.replace("magiclink", "signup"), code: "248613" }) },
     { id: "auth.magic-link", label: "Magic-link sign in", message: magicLinkEmail({ confirmationUrl, code: "248613" }) },
     { id: "beta.invitation", label: "iPhone beta invitation", message: betaInvitationEmail("https://testflight.apple.com/join/H9XdnySg") },
@@ -33,4 +35,3 @@ export function typescriptEmailFixtures(): EmailFixture[] {
   );
   return fixtures;
 }
-

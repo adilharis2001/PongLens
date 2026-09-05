@@ -13,6 +13,7 @@ import { DeleteAccountSection } from "./DeleteAccountSection";
 import {
   isAdminEmail,
   getCommerceEnabled,
+  getPurchasesEnabled,
   getMinutePacks,
   getStoragePacks,
   getSupportEmail,
@@ -81,6 +82,7 @@ export default async function AccountPage() {
   const isQa = qa === true;
   const supportEmail = await getSupportEmail();
   const commerceEnabled = await getCommerceEnabled();
+  const purchasesEnabled = commerceEnabled && await getPurchasesEnabled();
   const { workspace } = await rememberedWorkspace();
   const coachSide = workspace === "coach";
   // The Profile type row's label: the coach flag, or any coach data — a
@@ -109,7 +111,7 @@ export default async function AccountPage() {
         .limit(1)
         .maybeSingle(),
     ]).then((rows) => rows.some((r) => Boolean(r.data))));
-  const [minutePacks, storagePacks] = commerceEnabled
+  const [minutePacks, storagePacks] = purchasesEnabled
     ? await Promise.all([getMinutePacks(), getStoragePacks()])
     : [[], []];
   const { data: recollectPreference } = await supabase
@@ -193,13 +195,13 @@ export default async function AccountPage() {
       {commerceEnabled && !coachSide && (
         <div id="minutes" className="mt-8 scroll-mt-20">
           <SectionLabel>Processing minutes</SectionLabel>
-          <MinutesSection packs={minutePacks} />
+          <MinutesSection packs={minutePacks} purchasesEnabled={purchasesEnabled} />
         </div>
       )}
       {!coachSide && (
         <div id="storage" className="mt-8 scroll-mt-20">
           <SectionLabel>Storage</SectionLabel>
-          <StorageSection packs={commerceEnabled ? storagePacks : []} />
+          <StorageSection packs={storagePacks} purchasesEnabled={purchasesEnabled} />
         </div>
       )}
 

@@ -17,9 +17,11 @@ import {
 } from "@/lib/commerce/packs";
 import { createClient } from "@/lib/supabase/client";
 import { AdminHeader } from "../AdminHeader";
+import { AllowanceAdmin } from "./AllowanceAdmin";
 
 interface Initial {
   enabled: boolean;
+  purchasesEnabled: boolean;
   freeMinutes: number;
   reviewMinutes: number;
   sponsoredFree: number;
@@ -97,6 +99,8 @@ const PILL =
 
 export function CommerceSection({ initial }: { initial: Initial }) {
   const [enabled, setEnabled] = useState(initial.enabled);
+  const [purchasesEnabled, setPurchasesEnabled] = useState(initial.purchasesEnabled);
+  const [cleanupIncomplete, setCleanupIncomplete] = useState(false);
   const [freeMinutes, setFreeMinutes] = useState(String(initial.freeMinutes));
   const [reviewMinutes, setReviewMinutes] = useState(
     String(initial.reviewMinutes),
@@ -225,37 +229,65 @@ export function CommerceSection({ initial }: { initial: Initial }) {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <AdminHeader title="Commerce" />
+      <AdminHeader title="Purchases and allowances" />
 
       <section className="mt-6 rounded-2xl border border-edge bg-surface p-5">
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-medium text-zinc-200">
-              Purchases and minute charging
+              Storage and processing purchases
             </p>
             <p className="mt-0.5 text-xs text-zinc-500">
-              Off means today&apos;s behavior: uploads process straight away
-              and nothing is for sale.
+              Off pauses purchases on web and iOS. Players keep their allowances and can request an increase. Usage limits remain enforced.
             </p>
           </div>
           <button
             type="button"
             disabled={busy}
-            onClick={() => {
-              const next = !enabled;
-              setEnabled(next);
-              void write("commerce_enabled", next ? "true" : "false");
+            onClick={async () => {
+              setBusy(true); setFlash(null);
+              const next = !purchasesEnabled;
+              try {
+                const res = await fetch("/api/admin/purchases", { method: "POST",
+                  headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: next }) });
+                const data = await res.json();
+                if (!res.ok) setFlash("Could not save. Try again.");
+                else {
+                  setPurchasesEnabled(data.enabled); setEnabled(true);
+                  setCleanupIncomplete(data.cleanupFailed);
+                  setFlash(data.cleanupFailed ? "New purchases are paused, but an existing checkout could not be closed. Please retry." : "Saved.");
+                }
+              } catch { setFlash("Could not save. Check your connection and try again."); }
+              finally { setBusy(false); }
             }}
             className={`rounded-full border px-4 py-1.5 text-sm font-medium ${
-              enabled
+              purchasesEnabled
                 ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-300"
                 : "border-edge text-zinc-400"
             }`}
           >
-            {enabled ? "On" : "Off"}
+            {purchasesEnabled ? "On" : "Off"}
           </button>
         </div>
+        <p className="mt-3 text-sm text-zinc-400">{enabled ? "Processing-minute limits are active." : "Save the purchase setting to activate processing-minute limits."}</p>
+        {cleanupIncomplete && <button disabled={busy} className={PILL + " mt-3"} onClick={async () => {
+          setBusy(true);
+          try {
+            const res = await fetch("/api/admin/purchases", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: false }) });
+            const data = await res.json();
+            if (res.ok) {
+              setCleanupIncomplete(data.cleanupFailed);
+              setFlash(data.cleanupFailed ? "An existing checkout could not be closed. Please retry." : "All unpaid checkouts are closed.");
+            }
+          } catch { setFlash("Could not close existing checkouts. Try again."); }
+          finally { setBusy(false); }
+        }}>Retry closing checkouts</button>}
+        {flash && <p role="status" className="mt-3 text-sm text-zinc-300">{flash}</p>}
       </section>
+
+      <div className="mt-8">
+        <AllowanceAdmin />
+      </div>
 
       <div className="mt-8">
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
@@ -352,12 +384,12 @@ export function CommerceSection({ initial }: { initial: Initial }) {
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
           Support
         </h2>
-        <GrantCard />
+        <details className="mt-6">
+          <summary className="cursor-pointer text-sm text-zinc-400">Advanced balance adjustments</summary>
+          <GrantCard />
+        </details>
       </div>
 
-      <p aria-live="polite" className="mt-4 min-h-5 text-center text-xs">
-        {flash && <span className="text-emerald-400">{flash}</span>}
-      </p>
     </div>
   );
 }

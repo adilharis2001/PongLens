@@ -28,6 +28,7 @@ enum MainTab: String, CaseIterable, Identifiable {
 }
 
 struct MainTabView: View {
+    @Environment(\.openURL) private var openURL
     @Environment(Router.self) private var router
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
@@ -254,6 +255,14 @@ struct MainTabView: View {
                     }
                 },
                 onOpenHref: { href in
+                    if href.hasPrefix("/admin/"), let url = URL(string: "https://www.ponglens.com" + href) {
+                        bellOpen = false
+                        openURL(url)
+                    }
+                    if href.hasPrefix("/account") {
+                        bellOpen = false
+                        path.append("account")
+                    }
                     // "shared a lesson note" lands on the journal, where the
                     // From your coach section sits at the top.
                     if href.hasPrefix("/journal") {

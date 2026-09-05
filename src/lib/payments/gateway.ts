@@ -69,6 +69,8 @@ export interface PayoutResult {
 }
 
 export interface PaymentGateway {
+  /** Close an unpaid platform checkout when purchases are paused. */
+  expirePlatformCheckout(sessionId: string): Promise<void>;
   /**
    * Create the coach's connected account; returns the account id.
    *

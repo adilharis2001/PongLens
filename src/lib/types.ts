@@ -598,6 +598,8 @@ export interface NoteFeedRow {
 }
 
 export type NotificationKind =
+  | "allowance_request"
+  | "allowance_decided"
   | "note"
   | "match_ready"
   | "match_failed"

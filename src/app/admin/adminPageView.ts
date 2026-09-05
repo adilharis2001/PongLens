@@ -11,7 +11,7 @@ export const ADMIN_PAGES = [
   { key: "uploads", href: "/admin/uploads", title: "Uploads" },
   { key: "costs", href: "/admin/costs", title: "Platform costs" },
   { key: "reviews", href: "/admin/reviews", title: "Paid reviews" },
-  { key: "commerce", href: "/admin/commerce", title: "Commerce" },
+  { key: "commerce", href: "/admin/commerce", title: "Purchases and allowances" },
   { key: "outreach", href: "/admin/outreach", title: "Outreach and feedback" },
   // "QA access" rather than "Testing": this page is who holds the QA role
   // and which billing mode the admin is in. The tester's own workspace is
@@ -107,6 +107,8 @@ export function hubDetail(
   }
   if (!counts) return null;
   switch (key) {
+    case "commerce":
+      return waiting(counts.quota_requests, "request");
     case "storage":
       return waiting(counts.quota_requests, "request");
     case "players":

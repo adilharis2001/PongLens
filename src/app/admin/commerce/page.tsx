@@ -11,6 +11,7 @@ export const metadata: Metadata = {
 
 const KEYS = [
   "commerce_enabled",
+  "purchases_enabled",
   "free_processing_minutes",
   "review_included_minutes",
   "sponsored_free_credits",
@@ -45,6 +46,7 @@ export default async function AdminCommercePage() {
       <CommerceSection
         initial={{
           enabled: cfg.get("commerce_enabled") === "true",
+          purchasesEnabled: cfg.get("purchases_enabled") === "true",
           freeMinutes: Number(cfg.get("free_processing_minutes") ?? "250"),
           reviewMinutes: Number(cfg.get("review_included_minutes") ?? "45"),
           sponsoredFree: Number(cfg.get("sponsored_free_credits") ?? "3"),

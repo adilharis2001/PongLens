@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { PAYMENTS_ENABLED } from "@/lib/flags";
 import type { StorageState } from "@/lib/quota";
 import { formatUsd } from "@/lib/reviews/money";
+import { AllowanceRequest } from "@/components/AllowanceRequest";
 
 const GB = 1024 ** 3;
 
@@ -18,10 +19,12 @@ function gb(n: number, decimals = 1) {
 
 export function StorageSection({
   packs = [],
+  purchasesEnabled = false,
 }: {
   // Commerce (096): 12-month storage packs from admin config. Empty
   // before the flip — the section then reads exactly as it always has.
   packs?: StoragePack[];
+  purchasesEnabled?: boolean;
 }) {
   const [state, setState] = useState<StorageState | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -82,8 +85,7 @@ export function StorageSection({
       </div>
       {full && (
         <p className="mt-2 text-xs text-red-400">
-          Storage is full. Your videos stay put; delete some or add space to
-          upload more.
+          Storage is full. Your videos are safe. Delete a video or {purchasesEnabled ? "add space" : "request more storage"} to upload more.
         </p>
       )}
       {(state?.entitlement_bytes ?? 0) > 0 && state?.entitlement_expires_at && (
@@ -98,7 +100,7 @@ export function StorageSection({
         </p>
       )}
 
-      {packs.length > 0 && (
+      {purchasesEnabled && packs.length > 0 && (
         <p className="mt-2 text-xs text-zinc-500">
           Storage holds your match videos, so your playing history lives in
           one place instead of scattered across phones. Your uploads and
@@ -106,7 +108,7 @@ export function StorageSection({
           don&apos;t.
         </p>
       )}
-      {packs.length > 0 && (
+      {purchasesEnabled && packs.length > 0 && (
         <div className="mt-4">
           <PackTiles
             tiles={packs.map((p) => ({
@@ -123,6 +125,7 @@ export function StorageSection({
         </div>
       )}
 
+      {!purchasesEnabled && <AllowanceRequest resource="storage" />}
       {submitError && (
         <p className="mt-2 text-xs text-red-400">{submitError}</p>
       )}

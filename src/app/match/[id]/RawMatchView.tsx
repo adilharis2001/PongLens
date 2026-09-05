@@ -742,7 +742,7 @@ export function RawMatchView({
                 )}
                 {charge != null && minutesBalance != null && !enough && (
                   <a
-                    href="/account"
+                    href="/account#minutes"
                     className="mx-auto mt-3 block w-fit rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-200 hover:border-zinc-500"
                   >
                     Get more minutes
