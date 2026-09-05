@@ -14,7 +14,7 @@ try {
  create table public.coach_entries(id uuid primary key default gen_random_uuid(),coach_id uuid,student_id uuid,lesson_id uuid unique,shared_at timestamptz);
  create table public.storage_ledger(user_id uuid,kind text,bytes bigint,r2_key text);
  `);
- for (const name of ['173_lesson_video.sql','174_lesson_video_import_identity.sql','175_lesson_video_storage.sql','176_lesson_video_account_deletion.sql'])
+ for (const name of ['173_lesson_video.sql','174_lesson_video_import_identity.sql','175_lesson_video_storage.sql','177_lesson_video_account_deletion.sql'])
   await db.exec(await readFile(new URL('../../supabase/migrations/'+name,import.meta.url),'utf8'));
  const owner='11111111-1111-1111-1111-111111111111', video='22222222-2222-2222-2222-222222222222';
  await db.query('insert into auth.users values($1)',[owner]);
