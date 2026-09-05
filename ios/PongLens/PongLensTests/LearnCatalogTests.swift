@@ -375,6 +375,34 @@ final class LearnCatalogTests: XCTestCase {
         )
     }
 
+    func testDirectGuideRelatedLinksAreRegisteredAtBothNavigationRoots() throws {
+        let sourceRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("PongLens")
+        let registrar = try String(
+            contentsOf: sourceRoot.appendingPathComponent("App/AppRoute.swift"),
+            encoding: .utf8
+        )
+        let learnScreen = try String(
+            contentsOf: sourceRoot.appendingPathComponent("Screens/LearnScreen.swift"),
+            encoding: .utf8
+        )
+
+        // A direct guide route skips LearnScreen. The typed links rendered
+        // by its Keep going section must therefore be owned by the roots.
+        XCTAssertTrue(learnScreen.contains("NavigationLink(value: next)"))
+        XCTAssertTrue(registrar.contains("navigationDestination(for: LearnGuide.self)"))
+        XCTAssertFalse(learnScreen.contains("navigationDestination(for: LearnGuide.self)"))
+        for root in ["MainTabView.swift", "CoachTabView.swift"] {
+            let source = try String(
+                contentsOf: sourceRoot.appendingPathComponent("App/\(root)"),
+                encoding: .utf8
+            )
+            XCTAssertTrue(source.contains(".appRoutes()"), root)
+        }
+    }
+
     func testLearnAudienceSwitchUsesTheWorkspaceSwitcherEligibility() {
         XCTAssertTrue(LearnAudienceAccess.canSwitch(
             isCoach: true, coachesAnyone: false, metadataCoach: false,

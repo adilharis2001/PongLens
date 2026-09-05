@@ -110,5 +110,8 @@ extension View {
         .navigationDestination(for: LearnVideosRoute.self) { route in
             TutorialVideosScreen(audience: route.audience)
         }
+        .navigationDestination(for: LearnGuide.self) { guide in
+            GuideDetailScreen(guide: guide)
+        }
     }
 }

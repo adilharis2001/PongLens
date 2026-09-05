@@ -166,9 +166,6 @@ struct LearnScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .plKeyboardDismiss()
-        .navigationDestination(for: LearnGuide.self) { guide in
-            GuideDetailScreen(guide: guide)
-        }
     }
 }
 
