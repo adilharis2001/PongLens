@@ -330,6 +330,14 @@ export function V3ServeDetector({
                   : "") + "</span>"
               : '<br><span class="how">from the first bounce we could see</span>';
           }
+          // A card the rotation's own shape corrected. Said out loud rather
+          // than applied silently: the reading and the correction disagree,
+          // and which one was trusted is exactly what you want to see.
+          if (r.geo_fixed)
+            srv +=
+              '<br><span class="how">corrected against the rotation\u2019s shape \u2014 ' +
+              "the reading itself said " +
+              (r.geo_raw === "near" ? "near end" : "far end") + "</span>";
           srv += r.rot
             ? '<br><span class="lbl">your scoring:</span> ' + who(r.rot, r.rot_name)
             : '<br><span class="none">you marked no point here</span>';
@@ -718,6 +726,8 @@ export function V3ServeDetector({
         s.blind_cards + " cards never saw the ball cross the net, " +
         s.blind_held + " held open longer</span>" +
         '<span class="chip v-ok"><b>' + s.srv_agree + "</b> right server</span>" +
+        '<span class="chip"><b>' + s.srv_fixed +
+        "</b> corrected by the rotation\u2019s shape</span>" +
         '<span class="chip v-missed"><b>' + s.srv_disagree + "</b> wrong server</span>" +
         '<span class="chip"><b>' + s.srv_by_dwell +
         "</b> read from the ball in a player’s box, <b>" + s.srv_by_bounce +
