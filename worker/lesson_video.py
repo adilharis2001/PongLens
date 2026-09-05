@@ -86,6 +86,13 @@ def load_secret(env,service):
  if not value:raise RuntimeError('Missing configuration: '+env)
  return value
 
+def sparse_transcript(utterances):
+ return sum(len(u.get('text',u.get('transcript','')).split()) for u in utterances)<3
+
+def transcript_chunk_reusable(chunk):
+ # Old successful-but-empty provider responses must not pin a retry forever.
+ return chunk.get('asr_version',0)>=2 or not sparse_transcript(chunk.get('utterances',[]))
+
 class Runtime:
  def __init__(self):
   import requests,boto3
@@ -123,6 +130,20 @@ class Runtime:
     r.raise_for_status();d=r.json();self.meter_events(self.meter.openai_usage_events(d,model=MODEL,operation='lesson_video_summary',idempotency_key='openai:'+str(d.get('id',uuid.uuid4()))));return json.loads(d['choices'][0]['message']['content'])
    except (requests.RequestException,ValueError,KeyError) as e:last=e;time.sleep(2*(attempt+1))
   raise RuntimeError('The lesson could not be written up. Retry to continue from the saved transcript.') from last
+ def transcribe_fallback(self,path,start):
+  # Nova can return HTTP 200 with no speech on audible far-field coaching.
+  # Diarized JSON preserves measured segment times, unlike plain text ASR.
+  model='gpt-4o-transcribe-diarize'
+  with open(path,'rb') as audio:
+   r=self.http.post('https://api.openai.com/v1/audio/transcriptions',headers={'Authorization':'Bearer '+self.openai},files={'file':(Path(path).name,audio,'audio/mpeg')},data={'model':model,'response_format':'diarized_json','chunking_strategy':'auto'},timeout=600)
+  r.raise_for_status();d=r.json();duration=float(d['duration'])
+  self.meter_events([{'provider':'OpenAI','service':'Transcription','operation':'lesson_video_transcription_fallback','sku':model,'quantity':duration,'unit':'audio_second','idempotency_key':'openai:'+str(r.headers.get('x-request-id') or uuid.uuid4())+':audio'}])
+  result=[]
+  for segment in d['segments']:
+   a=float(segment['start']);b=float(segment['end']);text=str(segment.get('text','')).strip()
+   if not all(math.isfinite(x) for x in (a,b,duration)) or a<0 or b<=a or b>duration+.5:raise ValueError('Invalid transcription segment timing.')
+   if text:result.append({'start_s':round(start+a,3),'end_s':round(start+b,3),'speaker':segment.get('speaker'),'text':text})
+  return result
  def transcribe(self,path,start):
   import requests
   for attempt in range(3):
@@ -134,6 +155,7 @@ class Runtime:
      words=data.get('channels',[{}])[0].get('alternatives',[{}])[0].get('words',[])
      for i in range(0,len(words),35):
       w=words[i:i+35];utterances.append({'start':w[0]['start'],'end':w[-1]['end'],'transcript':' '.join(x.get('punctuated_word',x['word']) for x in w),'speaker':None})
+    if sparse_transcript(utterances):return self.transcribe_fallback(path,start)
     return [{'start_s':round(start+float(u['start']),3),'end_s':round(start+float(u['end']),3),'speaker':u.get('speaker'),'text':u.get('transcript','')} for u in utterances]
    except (requests.RequestException,ValueError,KeyError):
     if attempt==2:raise RuntimeError('Part of the audio could not be transcribed. Retry to continue; the original and completed sections are kept.')
@@ -243,12 +265,15 @@ def process(rt,row):
    transcript=row.get('transcript') or []
    if not row.get('edit'):
     for i,(start,end) in enumerate(chunk_ranges(duration)):
-     if i<len(transcript):continue
+     if i<len(transcript) and transcript_chunk_reusable(transcript[i]):continue
      if lease_lost.is_set():raise RuntimeError('Lesson lease heartbeat was lost.')
      rt.stage(row,f"Transcribing section {i+1} of {len(chunk_ranges(duration))}")
      audio=Path(directory)/'audio.mp3';run(['ffmpeg','-v','error','-y','-ss',str(start),'-t',str(end-start),'-i',str(source),'-vn','-ac','1','-ar','16000','-c:a','libmp3lame','-b:a','64k',str(audio)],180)
      utterances=rt.transcribe(audio,start)
-     transcript.append({'start_s':start,'end_s':end,'utterances':utterances});rt.update(row,transcript=transcript)
+     chunk={'start_s':start,'end_s':end,'utterances':utterances,'asr_version':2}
+     if i<len(transcript):transcript[i]=chunk
+     else:transcript.append(chunk)
+     rt.update(row,transcript=transcript)
     edit=create_edit(rt,row,source,directory,transcript,duration);rt.update(row,edit=edit)
    else:edit=normalize_edit(row['edit'],duration)
    output=render(source,edit,directory,lambda text:rt.stage(row,text))
