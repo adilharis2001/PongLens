@@ -8,6 +8,13 @@ export interface ResearchPage {
 
 export const RESEARCH_PAGES = [
   {
+    title: "Active ball",
+    category: "Model evaluation",
+    description: "Mark the active ball in short frame sequences and review the locally trained detector.",
+    href: "/research/active-ball",
+    accent: "cyan",
+  },
+  {
     title: "Audio impacts",
     category: "Data labeling",
     description:
