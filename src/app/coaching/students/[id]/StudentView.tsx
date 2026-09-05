@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LessonVideosSection } from "../../LessonVideosSection";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
@@ -653,7 +654,6 @@ export function StudentView({
         New entry
       </button>
 
-      <Link href={`/coaching/videos?studentId=${student.id}`} className="mt-3 inline-flex rounded-full border border-zinc-700 px-5 py-2.5 text-sm text-zinc-200 hover:border-cyan-400">Import a lesson video</Link>
 
       {composerOpen && (
         <div className="mt-4 rounded-2xl border border-edge bg-surface p-4">
@@ -890,6 +890,8 @@ export function StudentView({
           </div>
         </div>
       )}
+
+      <LessonVideosSection studentId={student.id} />
 
       <h3 className="mt-8 text-xs font-semibold uppercase tracking-wider text-zinc-500">
         Journal

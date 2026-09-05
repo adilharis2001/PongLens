@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SharingSection } from "@/components/SharingSection";
 import { useWorkspace } from "@/lib/workspace";
 import type { Workspace } from "@/lib/workspaceModel";
+import { LessonVideosSection } from "./LessonVideosSection";
 import { StudentsCard } from "./StudentsCard";
 import { CoachFirstSteps, type CoachFirstStepsState } from "./CoachFirstSteps";
 import { formatUsd } from "@/lib/reviews/money";
@@ -289,7 +290,6 @@ export function CoachHub({
   return (
     <>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Coaching</h1>
-      {workspace === "coach" && <Link href="/coaching/videos" className="mt-4 inline-flex rounded-full border border-zinc-700 px-5 py-2.5 text-sm text-zinc-200 hover:border-cyan-400">Lesson videos</Link>}
 
       {/* ---- the coaching side ---- */}
 
@@ -331,6 +331,8 @@ export function CoachHub({
       )}
 
       {coachWorkspace && !noStudents && <StudentsCard />}
+
+      {coachWorkspace && <LessonVideosSection />}
 
       {/* ---- the player's side of coaching ---- */}
 
