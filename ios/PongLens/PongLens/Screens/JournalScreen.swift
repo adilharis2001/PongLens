@@ -11,7 +11,6 @@ struct JournalScreen: View {
     @State private var tab = "All"
     @State private var selectedTag: TagStatRow?
     @State private var newEntryOpen = false
-    @State private var lessonVideoOpen = false
     @State private var entryChoice: NewEntryChoice?
     @State private var lessonRecordOpen = false
 
@@ -123,8 +122,6 @@ struct JournalScreen: View {
                 composerRequest = ComposerRequest()
             case .record:
                 lessonRecordOpen = true
-            case .video:
-                lessonVideoOpen = true
             case nil:
                 break
             }
@@ -134,14 +131,9 @@ struct JournalScreen: View {
                 entryChoice = choice
                 newEntryOpen = false
             }
-            .presentationDetents([.height(348)])
+            .presentationDetents([.height(276)])
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
-        }
-        .fullScreenCover(isPresented: $lessonVideoOpen, onDismiss: {
-            Task { await store.load(userId: app.userId) }
-        }) {
-            LessonVideoScreen()
         }
         .fullScreenCover(isPresented: $lessonRecordOpen) {
             LessonRecordScreen {
@@ -1406,7 +1398,6 @@ struct EntryShareSheet: View {
 enum NewEntryChoice {
     case note
     case record
-    case video
 }
 
 /// What the journal's create button opens. Practice and lesson are the
@@ -1431,11 +1422,6 @@ struct NewEntrySheet: View {
                 title: "Audio record a lesson",
                 detail: "Put your phone near the net. Your notes are prepared automatically."
             ) { onChoose(.record) }
-            PLChooserRow(
-                icon: "video",
-                title: "Import a lesson video",
-                detail: "Record with Camera, then import and review the recap."
-            ) { onChoose(.video) }
         }
     }
 }
