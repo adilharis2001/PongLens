@@ -87,14 +87,31 @@ export default async function AdminPage() {
 
       <SectionHeading className="mt-10">Workspaces</SectionHeading>
       <ul className="mt-3 grid gap-3 sm:grid-cols-2">
-        {ADMIN_WORKSPACES.map((workspace) => (
+        {ADMIN_WORKSPACES.map((workspace) => {
+          // A workspace carries a detail line too. Outreach moved down
+          // here and "15 to contact" is the whole reason to glance at the
+          // hub; losing it in the move would have made the move a
+          // downgrade.
+          const detail = hubDetail(workspace.key, counts, backlogOpen, outreach);
+          return (
           <li key={workspace.key}>
             <Link
               href={workspace.href}
               className="group flex h-full items-center justify-between gap-3 rounded-2xl border border-edge bg-surface p-5 transition-colors hover:border-cyan-glow/40"
             >
-              <span className="block text-base font-semibold text-zinc-100">
-                {workspace.title}
+              <span className="min-w-0">
+                <span className="block text-base font-semibold text-zinc-100">
+                  {workspace.title}
+                </span>
+                {detail && (
+                  <span
+                    className={`mt-1 block truncate text-sm ${
+                      detail.attention ? "text-cyan-glow" : "text-zinc-500"
+                    }`}
+                  >
+                    {detail.text}
+                  </span>
+                )}
               </span>
               <svg
                 viewBox="0 0 24 24"
@@ -112,7 +129,8 @@ export default async function AdminPage() {
               </svg>
             </Link>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </AppShell>
   );
