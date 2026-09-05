@@ -20,6 +20,7 @@ struct RootView: View {
 
     @State private var gate: OnboardingGate = .checking
     @State private var splashDone = false
+    @State private var lessonVideoLink: LessonVideoLink?
 
     var body: some View {
         #if DEBUG
@@ -91,6 +92,21 @@ struct RootView: View {
         .environment(coaching)
         .environment(coach)
         .environment(coachWorkspace)
+        .environment(\.openURL, OpenURLAction { url in
+            guard app.userId != nil, let link = LessonVideoLink(url: url) else { return .systemAction }
+            lessonVideoLink = link
+            return .handled
+        })
+        .sheet(item: $lessonVideoLink) { link in
+            NavigationStack {
+                LessonVideoDetailScreen(id: link.id)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") { lessonVideoLink = nil }
+                        }
+                    }
+            }
+        }
         .overlay {
             if !splashDone {
                 SplashScreen()
@@ -139,6 +155,7 @@ struct RootView: View {
         }
         .onChange(of: app.userId) { previous, next in
             guard previous != next else { return }
+            lessonVideoLink = nil
             Task { await app.refreshAdmin(); await LessonVideoQueue.shared.resume() }
             // A different account (or none) owns the screen now. Stores
             // are process-lifetime objects, so without this the next

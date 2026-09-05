@@ -137,3 +137,15 @@ nonisolated struct LessonVideoCreateRequest: Encodable {
         let durationS: Double
         let contentType: String
     }
+
+/// Only first-party recap URLs enter the authenticated native player.
+nonisolated struct LessonVideoLink: Identifiable {
+    let id: UUID
+    init?(url: URL) {
+        guard url.scheme?.lowercased() == "https",
+              ["ponglens.com", "www.ponglens.com"].contains(url.host?.lowercased() ?? "") else { return nil }
+        let path = url.pathComponents.filter { $0 != "/" }
+        guard path.count == 2, path[0] == "lesson-video", let id = UUID(uuidString: path[1]) else { return nil }
+        self.id = id
+    }
+}

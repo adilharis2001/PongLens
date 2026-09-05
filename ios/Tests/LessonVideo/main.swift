@@ -50,3 +50,9 @@ let request = LessonVideoCreateRequest(clientRequestId: requestId, studentId: ni
 let requestBody = try JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as! [String: Any]
 check(UUID(uuidString: requestBody["clientRequestId"] as! String) == requestId, "The persisted local ID must reach create for retry deduplication")
 print("Lesson video: stable create request ID check passed")
+let lessonLink = URL(string: "https://ponglens.com/lesson-video/00000000-0000-0000-0000-000000000099")!
+check(LessonVideoLink(url: lessonLink)?.id == requestId, "Shared note must open its native recap")
+for invalid in ["https://other.example/lesson-video/00000000-0000-0000-0000-000000000099", "https://ponglens.com/lesson-video/not-an-id", "https://ponglens.com/match/00000000-0000-0000-0000-000000000099"] {
+    check(LessonVideoLink(url: URL(string: invalid)!) == nil, "Unrecognized links keep normal browser handling")
+}
+print("Lesson video: shared note routing checks passed")

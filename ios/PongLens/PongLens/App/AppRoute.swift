@@ -6,6 +6,7 @@ import SwiftUI
 /// an `EmptyView` on a device.
 enum AppRouteDestination: Equatable {
     case account
+    case lessonVideo(UUID)
     case stats
     case statsTactics
     case starred
@@ -38,6 +39,10 @@ enum AppRouteDestination: Equatable {
         case "coach-profile": return .coachProfile
         case "coach-sponsored": return .coachSponsored
         default:
+            if route.hasPrefix("lesson-video:"),
+               let id = UUID(uuidString: String(route.dropFirst("lesson-video:".count))) {
+                return .lessonVideo(id)
+            }
             if route.hasPrefix("feedback:"),
                let id = UUID(uuidString: String(route.dropFirst(9))) {
                 return .feedback(matchId: id)
@@ -71,6 +76,8 @@ private struct AppRoute: View {
         switch destination {
         case .account:
             AccountScreen()
+        case .lessonVideo(let id):
+            LessonVideoDetailScreen(id: id)
         case .stats:
             StatsScreen()
         case .statsTactics:
