@@ -257,6 +257,20 @@ test("delivered evidence during retrieval prevents a stale scheduled response fr
   assert.equal(await runBetaDelivery("job-1", f.deps), "delivered");
   assert.deepEqual(f.calls, ["GET:provider-1"]);
 });
+
+for (const observed of ["bounced", "failed", "canceled"] as const) {
+  test(`provider ${observed} during retrieval reaches finish even when Sent arrives locally`, async () => {
+    const f = fixture({ state: "scheduled", provider_email_id: "provider-1" });
+    f.requestEarly();
+    f.deps.provider.retrieve = async (id) => {
+      f.calls.push(`GET:${id}`);
+      f.job.state = "sent";
+      return { state: observed, id };
+    };
+    assert.equal(await runBetaDelivery("job-1", f.deps), observed);
+    assert.deepEqual(f.calls, ["GET:provider-1"]);
+  });
+}
 test("early send racing dispatch retrieves sent evidence and never updates or recreates", async () => {
   const f = fixture({
     state: "scheduled",

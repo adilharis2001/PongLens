@@ -77,6 +77,19 @@ function sql(query: string): string {
     { input: query, encoding: "utf8" },
   ).trim();
 }
+
+test("terminal provider evidence keeps SQL merge precedence in either arrival order", { skip: !local }, () => {
+  assert.equal(sql(`select string_agg(beta_delivery_merge(old_state,new_state),',' order by n)
+    from (values
+      (1,'sent','bounced'), (2,'bounced','sent'),
+      (3,'sent','failed'), (4,'failed','scheduled'),
+      (5,'sent','canceled'), (6,'canceled','sent'),
+      (7,'delivered','failed'), (8,'failed','delivered'),
+      (9,'canceled','bounced'), (10,'bounced','canceled'),
+      (11,'complained','bounced'), (12,'bounced','complained')
+    ) as cases(n,old_state,new_state)`),
+    "bounced,bounced,failed,failed,canceled,canceled,delivered,delivered,bounced,bounced,complained,complained");
+});
 test("delivery storage is installed and service-only", { skip: !local }, () => {
   assert.equal(
     sql("select to_regclass('public.ios_beta_deliveries') is not null"),

@@ -199,12 +199,6 @@ async function runBetaDeliveryAttempt(
       ...(await dependencies.read(id)),
       provider_email_id: providerId,
     };
-    if (isBetaDeliveryComplete(job))
-      return await finish({
-        state: job.state,
-        id: providerId,
-        error: job.error_code ?? undefined,
-      });
     suppressed =
       job.cancel_requested || (await dependencies.isSuppressed(job.recipient));
     if (TERMINAL.has(observed.state) || observed.state === "failed") {
@@ -217,6 +211,14 @@ async function runBetaDeliveryAttempt(
             : observed.state,
       });
     }
+    // Confirmed provider outcomes reach the SQL merge above. Only a stale
+    // nonterminal observation is stopped by newer local terminal evidence.
+    if (isBetaDeliveryComplete(job))
+      return await finish({
+        state: job.state,
+        id: providerId,
+        error: job.error_code ?? undefined,
+      });
     if (suppressed) {
       const canceled = await dependencies.provider.cancel(providerId);
       return await finish({
