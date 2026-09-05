@@ -1,9 +1,15 @@
 /**
  * Pure logic for /admin/outreach: which queue a user belongs in, and the
- * labels the page prints. The roster itself comes from
- * admin_outreach_roster() (162), which already excludes the fixture
- * domains; hiding the manufactured real-domain accounts is per-row state.
+ * labels the page prints. The roster comes from admin_outreach_roster()
+ * (162), which since 177 returns every account with the kind attached
+ * rather than excluding fixture domains by hand — the page filters on
+ * the kind instead, so a demo account is one tab away rather than
+ * invisible. Hiding an individual is still per-row state.
  */
+
+import type { PlayerKind } from "../players/playersView";
+
+export type { PlayerKind };
 
 export type OutreachStatus = "new" | "contacted" | "in_touch" | "closed";
 
@@ -22,6 +28,9 @@ export interface OutreachRow {
   journal_entries: number;
   share_links: number;
   is_coach: boolean;
+  /** What this account is (176), shared with the Players page: marking
+   *  somebody in one place moves them in the other. */
+  kind: PlayerKind;
   status: OutreachStatus;
   follow_up_on: string | null;
   hidden: boolean;
