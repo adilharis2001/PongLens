@@ -58,7 +58,7 @@ export function ActiveBallReview({initial}:{initial:BallSample[]}) {
     <Link href="/research" className={button} aria-disabled={dirty || busy} onClick={e=>{if(dirty || busy){e.preventDefault();setMessage('Save or discard your label before leaving.');}}}>Research</Link>
     <h1 className="my-5 text-2xl font-semibold">Active ball</h1>
     {!sample ? <p>No samples yet.</p> : <>
-      <div className="mb-3 flex flex-wrap items-center gap-3 text-sm"><span>{index+1} of {rows.length}</span><span>{sample.venue}</span><span>{sample.time_s.toFixed(3)}s</span><span>{rows.filter(r=>r.label).length} reviewed</span></div>
+      <div className="mb-3 flex flex-wrap items-center gap-3 text-sm"><span>{index+1} of {rows.length}</span><span>{sample.venue}</span><span>{sample.split === 'train' ? 'Training match' : 'Unseen venue'}</span><span>{sample.time_s.toFixed(3)}s</span><span>{rows.filter(r=>r.label).length} reviewed</span></div>
       <div ref={media} className="mx-auto w-full overflow-auto bg-black" style={{aspectRatio:`${sample.width}/${sample.height}`}}>
       <div className="relative" style={{width:`${zoom*100}%`,aspectRatio:`${sample.width}/${sample.height}`}}>
         {urls[frame] ? <img key={`${sample.id}:${frame}`} src={urls[frame]} alt={frame === 1 ? 'Mark the active ball in this frame' : 'Neighbouring frame for context'} className="absolute inset-0 h-full w-full" draggable={false} onLoad={()=>setLoadedImage(`${sample.id}:${frame}`)} onError={()=>{setLoadedImage('');setMessage('Could not load this frame. Reload to try again.');}} onClick={e=>{
@@ -79,7 +79,7 @@ export function ActiveBallReview({initial}:{initial:BallSample[]}) {
       {dirty && <div className="my-3 flex items-center gap-2 text-sm"><span>Unsaved label</span><button className={button} disabled={busy} onClick={()=>setLabel(sample.label)}>Discard change</button></div>}
       <div className="flex flex-wrap gap-2"><button className={button} disabled={busy || dirty || index===0} onClick={()=>setIndex(i=>i-1)}>Previous sample</button><button className={button} disabled={busy || dirty || index===rows.length-1} onClick={()=>setIndex(i=>i+1)}>Next sample</button></div>
       <label className="mt-5 flex items-center gap-2 text-sm"><input type="checkbox" checked={showPrediction} onChange={e=>setShowPrediction(e.target.checked)}/>Show model prediction</label>
-      {showPrediction && <p className="mt-2 text-sm text-zinc-400">{sample.model_run ? `Run ${sample.model_run}. Pink square: prediction. Cyan circle: your label.` : 'No prediction for this sample yet.'}</p>}
+      {showPrediction && <p className="mt-2 text-sm text-zinc-400">{sample.model_run ? `Run ${sample.model_run}. ${sample.prediction?.state === 'visible' ? 'Pink square: prediction.' : sample.prediction?.state === 'unsure' ? 'The model could not choose between candidates.' : 'The model did not locate a visible active ball.'} Cyan circle: your label.` : 'No prediction for this sample yet.'}</p>}
     </>}
   </main>;
 }

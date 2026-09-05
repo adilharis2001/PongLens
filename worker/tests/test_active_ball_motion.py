@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 import cv2
-from worker.active_ball_motion import motion_candidates
+from worker.active_ball_motion import motion_candidates, consistent_candidate
 
 
 class MotionTests(unittest.TestCase):
@@ -20,3 +20,12 @@ class MotionTests(unittest.TestCase):
     def test_no_motion_yields_no_candidates(self):
         image=np.full((120,200,3),200,np.uint8)
         self.assertEqual(motion_candidates([image,image,image]),[])
+
+    def test_temporal_filter_rejects_slow_logo_and_keeps_fast_straight_flight(self):
+        point=lambda x:{'x':x,'y':60.}
+        self.assertIsNone(consistent_candidate([point(98)],[point(100)],[point(102)],[0,1/30,2/30],300))
+        self.assertEqual(consistent_candidate([point(70)],[point(100)],[point(130)],[0,1/30,2/30],300),point(100))
+
+    def test_two_plausible_balls_are_left_ambiguous(self):
+        point=lambda x,y:{'x':x,'y':y}
+        self.assertIsNone(consistent_candidate([point(70,60),point(70,100)],[point(100,60),point(100,100)],[point(130,60),point(130,100)],[0,1/30,2/30],300))

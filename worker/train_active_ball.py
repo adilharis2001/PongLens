@@ -48,7 +48,7 @@ def select_training(rows,weak=False):
         if r['split']!='train':continue
         label=r.get('label')
         if not label and weak:label=r.get('weak_label')
-        if label and label['state']!='unsure' and label.get('provenance') in (('human','local_motion_v0') if weak else ('human',)):
+        if label and label['state']!='unsure' and label.get('provenance') in (('human','local_motion_v0','local_motion_v1','assistant_visual_v1') if weak else ('human',)):
             selected.append({**r,'label':label})
     return selected
 

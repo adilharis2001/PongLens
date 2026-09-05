@@ -7,15 +7,18 @@ def motion_candidates(frames):
     previous,middle,following=frames
     gray=[cv2.cvtColor(f,cv2.COLOR_BGR2GRAY) for f in frames]
     change=np.minimum(cv2.absdiff(gray[1],gray[0]),cv2.absdiff(gray[1],gray[2]))
-    white=(middle.min(axis=2)>135)&((middle.max(axis=2).astype(float)-middle.min(axis=2))<85)
-    mask=((change>22)&white).astype(np.uint8)
+    blue,green,red=cv2.split(middle)
+    low=cv2.min(blue,cv2.min(green,red));high=cv2.max(blue,cv2.max(green,red))
+    white=cv2.bitwise_and(cv2.inRange(low,136,255),cv2.inRange(cv2.subtract(high,low),0,84))
+    mask=cv2.bitwise_and(cv2.inRange(change,23,255),white)
     count,labels,stats,centers=cv2.connectedComponentsWithStats(mask,8)
+    sums=np.bincount(labels.ravel(),weights=change.ravel(),minlength=count)
     candidates=[]
     for i in range(1,count):
         x,y,w,h,area=stats[i]
         if not 4<=area<=900 or max(w,h)>90 or max(w,h)/max(1,min(w,h))>12:continue
         cx,cy=centers[i]
-        candidates.append({'x':float(cx),'y':float(cy),'area':int(area),'motion':float(change[labels==i].mean())})
+        candidates.append({'x':float(cx),'y':float(cy),'area':int(area),'motion':float(sums[i]/area)})
     return candidates
 
 
@@ -37,3 +40,25 @@ def propose(frames,corners):
             return {'state':'unsure','x':None,'y':None,'provenance':'local_motion_v0'},ranked
         return {'state':'visible','x':best['x'],'y':best['y'],'provenance':'local_motion_v0'},ranked
     return {'state':'hidden','x':None,'y':None,'provenance':'local_motion_v0'},ranked
+
+
+def consistent_candidate(previous,middle,following,times,table_width):
+    """Conservative straight-flight proposals; declines slow/ambiguous motion.
+
+    Speeds use elapsed time and apparent table width, not a fixed pixel/frame
+    limit. This deliberately does not label contacts or slow serves by itself.
+    Each candidate already incorporates its two neighbouring RGB frames.
+    """
+    if table_width<=0 or not times[0]<times[1]<times[2]:raise ValueError('invalid geometry or timestamps')
+    plausible=[]
+    for b in middle:
+        for a in previous:
+            v1=np.array([b['x']-a['x'],b['y']-a['y']])/(times[1]-times[0])
+            speed=np.linalg.norm(v1)/table_width
+            if not 1.5<speed<25:continue
+            for c in following:
+                v2=np.array([c['x']-b['x'],c['y']-b['y']])/(times[2]-times[1])
+                delta=np.linalg.norm(v2-v1)/max(1,np.linalg.norm(v1));ratio=np.linalg.norm(v2)/max(1,np.linalg.norm(v1))
+                if delta<.35 and .65<ratio<1.35:plausible.append((delta,b))
+    if not plausible or len({(round(b['x']),round(b['y'])) for _,b in plausible})!=1:return None
+    return min(plausible,key=lambda pair:pair[0])[1]

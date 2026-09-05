@@ -14,6 +14,11 @@ class TrainingTests(unittest.TestCase):
         r={'split':'train','label':{'state':'hidden','provenance':'human'},'weak_label':{'state':'visible','provenance':'local_motion_v0'}}
         self.assertEqual(select_training([r],weak=True)[0]['label']['state'],'hidden')
 
+    def test_assistant_review_is_explicit_weak_supervision_not_human_truth(self):
+        row={'split':'train','label':None,'weak_label':{'state':'visible','provenance':'assistant_visual_v1'}}
+        self.assertEqual(select_training([row]),[])
+        self.assertEqual(select_training([row],weak=True)[0]['label']['provenance'],'assistant_visual_v1')
+
     def test_missing_visible_ball_costs_more_than_dim_empty_background(self):
         target=ball_target({'state':'visible','x':960,'y':540},1920,1080,320,192)[None,None]
         missed=loss_for(torch.full_like(target,-10),torch.tensor([10.]),target,torch.ones(1))
