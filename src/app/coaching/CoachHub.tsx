@@ -265,6 +265,12 @@ export function CoachHub({
     (payoutsReady ? 1 : 0) +
     (profile?.published ? 1 : 0);
 
+  /** A coach with an empty roster, which is the only state where the
+   *  order of this page matters: the card that adds somebody has to come
+   *  before the eight-row checklist rather than after it. Read from the
+   *  server's own count so the two do not disagree for a frame. */
+  const noStudents = !!firstSteps && firstSteps.studentCount === 0;
+
   const orderSummary = (() => {
     const parts: string[] = [];
     if (counts.toStart > 0) parts.push(`${counts.toStart} to start`);
@@ -287,7 +293,14 @@ export function CoachHub({
       {/* ---- the coaching side ---- */}
 
       {/* First steps: the new-coach checklist. Gone once the roster is
-          established, every step is done, or it was hidden. */}
+          established, every step is done, or it was hidden.
+          BELOW the card while there are no students. Eight rows fill a
+          660px phone on their own, which put the one thing a new coach
+          came here to do — add somebody — under the fold and out of
+          sight (Adil, 2026-09-05). The checklist is reference; the card
+          is the door, and the door goes first. */}
+      {coachWorkspace && noStudents && <StudentsCard />}
+
       {coachWorkspace && firstSteps && firstSteps.studentCount < 5 && (
         <CoachFirstSteps state={firstSteps} />
       )}
@@ -316,7 +329,7 @@ export function CoachHub({
         </div>
       )}
 
-      {coachWorkspace && <StudentsCard />}
+      {coachWorkspace && !noStudents && <StudentsCard />}
 
       {/* ---- the player's side of coaching ---- */}
 

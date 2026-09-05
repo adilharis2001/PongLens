@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import { FirstStudentCard } from "../FirstStudentCard";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { studentSummary } from "@/lib/coach/entryView";
@@ -130,7 +131,13 @@ export function StudentsView({ userId }: { userId: string }) {
 
       <div className="mt-6">
         {students === null ? null : students.length === 0 ? (
-          <p className="text-sm text-zinc-400">No students yet.</p>
+          // The same card the hub shows, so the two places a new coach
+          // lands say the same thing. Its Add row opens the form already
+          // on this page rather than navigating to it.
+          <FirstStudentCard
+            coachId={userId}
+            onAddStudent={() => setAddOpen(true)}
+          />
         ) : (
           <div className="divide-y divide-edge overflow-hidden rounded-2xl border border-edge bg-surface">
             {students.map((student) => (

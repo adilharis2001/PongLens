@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { entryTitle, studentSummary } from "@/lib/coach/entryView";
 import { createClient } from "@/lib/supabase/client";
 import { EntryImage } from "@/components/entryPhoto";
+import { FirstStudentCard } from "./FirstStudentCard";
 
 /**
  * The coaching workspace's home card on /coaching (157): the roster at a
@@ -35,6 +36,7 @@ interface LessonRow {
 }
 
 export function StudentsCard() {
+  const [coachId, setCoachId] = useState<string | null>(null);
   const [students, setStudents] = useState<StudentRow[] | null>(null);
   const [entries, setEntries] = useState<EntryRow[]>([]);
   const [lessons, setLessons] = useState<Record<string, LessonRow>>({});
@@ -48,6 +50,7 @@ export function StudentsCard() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+      if (user) setCoachId(user.id);
       if (!user) return;
       const [studentsRes, entriesRes, lessonsRes, matchesRes] =
         await Promise.all([
@@ -124,21 +127,24 @@ export function StudentsCard() {
   return (
     <div className="mt-6 space-y-6">
       <div>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Students
-          </h2>
-          <Link
-            href="/coaching/students"
-            className="text-sm text-cyan-glow underline-offset-2 hover:underline"
-          >
-            {students.length === 0 ? "Add a student" : "All students"}
-          </Link>
-        </div>
-        {students.length === 0 ? (
-          <div className="rounded-2xl border border-edge bg-surface p-5">
-            <p className="text-sm text-zinc-400">No students yet.</p>
+        {/* The heading and its link are for a roster that exists. With no
+            students the card says everything, and a bare "Students /
+            Add a student" above it is two doors to one room. */}
+        {students.length > 0 && (
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Students
+            </h2>
+            <Link
+              href="/coaching/students"
+              className="text-sm text-cyan-glow underline-offset-2 hover:underline"
+            >
+              All students
+            </Link>
           </div>
+        )}
+        {students.length === 0 ? (
+          coachId && <FirstStudentCard coachId={coachId} />
         ) : (
           <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
             {students.slice(0, 5).map((s) => (
