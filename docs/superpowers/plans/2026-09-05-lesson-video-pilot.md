@@ -64,3 +64,11 @@ Create /coaching/videos page for owner listing and /lesson-video/[id] responsive
 
 - Production deployment 71cc2a94 includes c1b258c7 and is READY. Actual owner authenticated lesson GET returned 200 with source, recap and playback grants. Source and recap retained privately; no student share performed.
 - Real recap exported to /tmp/ponglens-adam-hugh-recap.mp4 and opened for user review. Full composite decode passed, H264/BT709 1920×1080 with AAC audio, 377.011224 seconds including container timing.
+
+## Context rewrite verification
+
+- Added a source-grounded text pass after footage selection. Selected speech stays separate from surrounding context; only titles/cues change. Raw lengths validate before normalization, so conditions cannot be silently truncated. Sixteen relevant tests pass, including unchanged footage, context across clip boundaries, panel retry, and preserving an overlong trailing exception.
+- Full npm run build exits 0 (compile, type checking, generation complete). Embedded ESLint still reports the existing eslint-config-next/Rushstack configuration failure; lint is not claimed passed.
+- Real lesson rewrite was generated then editorially corrected against its noisy transcript and independently reviewed. Important corrections retained emergency-only arm recovery, avoided misreading a long shot as incoming depth, and kept the close-attempt condition for retrying an opening. This is not evidence that unreviewed model output is reliable; coach review remains required.
+- User-authorized targeted rerender completed as revision 2 under the same manual student, private review state, with source and footage boundaries retained. Six updated chapter frames inspected; complete video/audio decode passed; duration 377.011224 seconds including container timing; live owner API returned the revised text and media grants.
+- Sealed worker release lesson-video-403199d1c96253b3 used for this private rerender. Automatic processing and cloud promotion remain disabled pending the earlier project-rule exception/Modal connection. No native change or new TestFlight build needed for revised media.

@@ -13,3 +13,7 @@ Pilot excludes native camera capture and Apple-only spatial cleanup, detailed ti
 Verification: independent access tests, 90-minute duration/20 GiB boundary, multipart completion recovery, source timestamp and edit validation, renderer with real ffmpeg, full npm build in isolated worktree, native simulator/device archive, production API smoke, TestFlight processing status. Never claim real-world 90-minute recording quality tested without such a recording.
 
 UI revision approved during implementation: use existing coach typography, cards, buttons and Back navigation on import, detail and editing. Avoid default SwiftUI Form/List styling.
+
+## Contextual recap text revision (2026-09-05)
+
+Chapter reminders must be understandable years later without remembering the conversation. After footage selection, reread the selected source speech and up to two minutes on either side. Keep the selected instruction primary; nearby speech can resolve references and conditions, not replace the topic. Use concrete shot/situation titles and complete situation-plus-action reminders. Avoid unexplained coaching shorthand. Keep the existing text size and two reminders per panel, preserving exceptions. Validate raw lengths before normalization so a trailing condition is never silently truncated; retry once with shorter complete text if needed. The text rewrite cannot change footage ranges, order or duration. Coach review remains required.
