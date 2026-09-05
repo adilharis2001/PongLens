@@ -419,7 +419,10 @@ function FromYourCoaches({ notes }: { notes: NoteFeedRow[] }) {
 
   return (
     <div className="mt-8">
-      <SectionLabel>From your coaches</SectionLabel>
+      {/* One label for this everywhere: the journal tab, this page and
+          the phone's two. It read three different ways across four
+          screens (Adil, 2026-09-05). */}
+      <SectionLabel>From Coaches</SectionLabel>
       <div className="space-y-4">
         {groups.map(([matchId, list]) => {
           const newest = list[0];
