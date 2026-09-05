@@ -356,8 +356,12 @@ every output from intro through outro after the automated check passes.
 ### Publish
 
 Publishing uses only catalog-owned source-to-key mappings under
-`tutorial/player/` and `tutorial/coach/`. Dry-run both courses first. Actual
-R2 publication requires explicit approval after all 18 local outputs pass.
+`tutorial/player/` and `tutorial/coach/`. Dry-run verifies each chapter again
+and prints the exact local path, R2 key, byte count, SHA-256 digest,
+`video/mp4` content type, and `public, max-age=86400` cache policy. It does not
+load R2 credentials or make a network request. Dry-run both courses first.
+Actual R2 publication requires explicit approval after all 18 local outputs
+pass.
 
 ```bash
 node --experimental-strip-types scripts/demos/tutorial/publish.mjs --course player --dry-run
