@@ -7,7 +7,7 @@ from worker.lesson_release.package import seal, verify, worker_release_id, launc
 
 class LessonReleaseTests(unittest.TestCase):
     def fixture(self, root):
-        for name in ['lesson_video.py','lesson-video-requirements.txt','cost_meter.py','lesson-font.ttf']:
+        for name in ['lesson_video.py','lesson-video-requirements.txt','cost_meter.py','lesson-font.ttf','lesson_deletion.py']:
             (root/name).write_text(name)
     def test_sealed_payload_refuses_tampering_and_undeclared_files(self):
         with tempfile.TemporaryDirectory() as d:

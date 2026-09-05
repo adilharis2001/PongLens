@@ -7,6 +7,10 @@ seconds until normalize_edit assigns the separate summary playback clock.
 from __future__ import annotations
 import argparse,base64,hashlib,json,logging,math,os,shutil,subprocess,tempfile,threading,time,uuid
 from pathlib import Path
+try:
+ from worker.lesson_deletion import cleanup_cancelled_attempt,drain_deletions
+except ModuleNotFoundError:
+ from lesson_deletion import cleanup_cancelled_attempt,drain_deletions
 
 MAX_SECONDS=10800
 BUCKET='ponglens-media'
@@ -16,7 +20,7 @@ log=logging.getLogger('lesson-video')
 
 def release_id():
  h=hashlib.sha256()
- for name in ['lesson_video.py','lesson-video-requirements.txt','cost_meter.py','lesson-font.ttf']:
+ for name in ['lesson_video.py','lesson-video-requirements.txt','cost_meter.py','lesson-font.ttf','lesson_deletion.py']:
   path=Path(__file__).with_name(name)
   if path.exists():h.update(name.encode());h.update(path.read_bytes())
  return 'lesson-video-'+h.hexdigest()[:16]
@@ -202,7 +206,7 @@ def render(source,edit,directory,on_progress=lambda x:None):
  return output
 
 def process(rt,row):
- stop=threading.Event();lease_lost=threading.Event()
+ stop=threading.Event();lease_lost=threading.Event();attempt_keys=[]
  def heartbeat():
   while not stop.wait(45):
    try:rt.update(row,lease_until=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime(time.time()+300)))
@@ -232,14 +236,16 @@ def process(rt,row):
    if lease_lost.is_set():raise RuntimeError('Lesson lease heartbeat was lost.')
    rt.stage(row,'Saving the recap')
    key=f"lesson-video/{row['owner_id']}/{row['id']}/recap-v{row['revision']}-{row['lease_token']}.mp4"
-   rt.s3.upload_file(str(output),BUCKET,key,ExtraArgs={'ContentType':'video/mp4'})
    playback_key=key.replace('/recap-','/playback-')
+   attempt_keys=[key,playback_key]
+   rt.s3.upload_file(str(output),BUCKET,key,ExtraArgs={'ContentType':'video/mp4'})
    rt.s3.upload_file(str(Path(directory)/'playback.mp4'),BUCKET,playback_key,ExtraArgs={'ContentType':'video/mp4'})
    rt.update(row,status='review',stage='Ready to review',summary_key=key,playback_key=playback_key,edit=edit,error=None,lease_until=None)
    try:rt.rest('storage_ledger','POST',[{'user_id':row['owner_id'],'kind':'other','bytes':output.stat().st_size,'r2_key':'r2://'+BUCKET+'/'+key},{'user_id':row['owner_id'],'kind':'other','bytes':(Path(directory)/'playback.mp4').stat().st_size,'r2_key':'r2://'+BUCKET+'/'+playback_key}])
    except Exception:log.warning('Lesson storage ledger failed',exc_info=True)
  except Exception as e:
   log.exception('Lesson %s failed',row['id'])
+  cleanup_cancelled_attempt(rt,row,attempt_keys)
   message=str(e) if isinstance(e,ValueError) or str(e).startswith(('Part of the audio','The lesson could not')) else 'The recap could not be completed. Your original and completed work are kept. Retry to continue.'
   try:rt.update(row,status='failed',stage=None,error=message[:600],lease_until=None)
   except Exception:log.exception('Could not save failure state')
@@ -252,6 +258,7 @@ def main():
  rt=Runtime();identity=os.environ.get('LESSON_VIDEO_WORKER_ID','mac')+'-'+str(os.getpid());rid=release_id();log.info('Lesson worker release %s',rid)
  while True:
   try:
+   drain_deletions(rt)
    rows=rt.rest('rpc/claim_lesson_video','POST',{'p_release':rid,'p_worker':identity,'p_cloud':args.cloud})
    if rows:process(rt,rows[0])
   except Exception:log.exception('Lesson worker poll failed')

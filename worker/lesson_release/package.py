@@ -14,7 +14,7 @@ import tempfile
 
 LABEL = 'com.adil.ponglens-lesson-video-worker'
 DEFAULT_ROOT = Path.home() / 'Library/Application Support/PongLensLessonVideoWorker'
-WORKER_FILES = ('lesson_video.py', 'lesson-video-requirements.txt', 'cost_meter.py', 'lesson-font.ttf')
+WORKER_FILES = ('lesson_video.py', 'lesson-video-requirements.txt', 'cost_meter.py', 'lesson-font.ttf', 'lesson_deletion.py')
 ENV_KEYS = {'SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','OPENAI_API_KEY','DEEPGRAM_API_KEY',
             'R2_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY','LESSON_VIDEO_WORKER_ID'}
 

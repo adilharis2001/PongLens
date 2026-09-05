@@ -158,3 +158,34 @@ has not been remotely built or smoke-tested. Compare the same fixture's
 transcription, chapter decisions, source/summary times and both video outputs
 on Mac and Modal before enabling cloud claiming. The CPU render is deliberate;
 there are no BlurBall or table-checkpoint licensing/model dependencies.
+
+## Account deletion cleanup
+
+Migration 176 must be applied before the updated account-deletion endpoint is
+deployed. Account deletion creates a private owner marker without an auth
+foreign key, fences lesson rows/leases, aborts known multipart uploads and
+sweeps the lesson-video owner prefix. New inserts and claims for that owner
+are blocked. Other account-deletion settlement and match behavior is unchanged.
+
+The lesson worker checks due markers before polling for work. It aborts all
+remaining multipart uploads and sweeps that owner's lesson prefix again,
+acknowledging only successful sweeps. Markers remain for at least 24 hours after
+account absence is confirmed; retirement requires a successful final sweep.
+If the account deletion itself failed, the marker remains and lesson imports
+stay blocked until deletion is retried. No age-based cleanup applies to accounts
+that have not requested deletion.
+
+An in-flight worker whose publication fails removes its own attempt objects
+only when the database affirmatively confirms deletion/cancellation. A network
+error is insufficient: a lost response may have published the result. The
+marker covers interrupted cleanup and late uploads. lesson_deletion.py is part
+of the sealed release hash and must be deployed with this worker revision.
+
+The isolated SQL check uses PostgreSQL-WASM with no hosted connection:
+
+```sh
+npm install --prefix /tmp/lesson-deletion-sql --no-audit --no-fund @electric-sql/pglite
+PGLITE_MODULE=/tmp/lesson-deletion-sql/node_modules/@electric-sql/pglite/dist/index.js \
+  node scripts/tests/lesson-video-deletion.mjs
+python3 -m unittest worker.tests.test_lesson_deletion
+```
