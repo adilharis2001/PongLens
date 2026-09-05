@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 export default async function PrivacyPage() {
   const supportEmail = await getSupportEmail();
   return (
-    <LegalPage title="Privacy Policy" updated="September 4, 2026">
+    <LegalPage title="Privacy Policy" updated="September 5, 2026">
       <section>
         <h2>The short version</h2>
         <p>
@@ -57,10 +57,13 @@ export default async function PrivacyPage() {
           </li>
           <li>
             <strong>iPhone beta requests.</strong> If you request the iPhone
-            beta, we keep the email address you provide, when you requested
-            access, and whether the invitation was delivered. We use it only
-            to send TestFlight access and essential beta updates, not
-            marketing.
+            beta, we keep the email address, role, feature interests and
+            optional feedback preferences you provide, along with when you
+            requested access and whether the invitation was delivered. If you
+            volunteer to share feedback, we may email you about your
+            experience or to arrange the type of call you chose. This does not
+            affect beta access. Only PongLens administrators can access these
+            requests. We do not use them for marketing.
           </li>
           <li>
             <strong>Your videos.</strong> The match footage you upload, plus
