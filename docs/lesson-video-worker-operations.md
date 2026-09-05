@@ -54,7 +54,7 @@ Platform wheels differ by design. FFmpeg encodes still require parity fixtures.
 /opt/homebrew/bin/python3.12 worker/lesson_release/package.py install \
   /absolute/path/to/BUNDLE_SHA/payload \
   --python /opt/homebrew/bin/python3.12 \
-  --ffmpeg /opt/homebrew/bin/ffmpeg --ffprobe /opt/homebrew/bin/ffprobe
+  --ffmpeg /opt/homebrew/Cellar/ffmpeg-full/9.0.1_1/bin/ffmpeg --ffprobe /opt/homebrew/Cellar/ffmpeg-full/9.0.1_1/bin/ffprobe
 ```
 
 Default root is `~/Library/Application Support/PongLensLessonVideoWorker`.
@@ -189,3 +189,24 @@ PGLITE_MODULE=/tmp/lesson-deletion-sql/node_modules/@electric-sql/pglite/dist/in
   node scripts/tests/lesson-video-deletion.mjs
 python3 -m unittest worker.tests.test_lesson_deletion
 ```
+
+## Pilot media and speech requirements
+
+The final lesson runtime requires FFmpeg with zscale/libzimg and tonemap. The
+Mac uses the separately installed keg-only ffmpeg-full9.0.1_1 above; this does
+not replace the match worker's ffmpeg. HDR HLG/PQ is converted through linear
+floating point to SDR BT.709 before frame selection and both renders. The
+composite panel is converted from sRGB, and exports are tagged BT.709/yuv420p.
+The Modal adapter must pass the HDR fixture with its own FFmpeg before enable.
+
+Deepgram Nova3 can return HTTP200 with essentially empty text for audible
+far-field speech. Fewer than three words invokes timestamped
+gpt-4o-transcribe-diarize. Chunk ASR version2 causes legacy sparse results to
+retry once, while preserving substantive prior transcripts and new valid
+silent results. Migration178 records the provider's $0.006/minute estimated
+rate for the audio-second usage estimate; actual provider billing is token-based.
+
+Account cleanup is migration177 (renumbered from176 after a concurrent main
+migration took176). It was applied live under timestamp20260905121500. Coach
+creation follows the app's existing verified user metadata is_coach flag;
+coach_profiles is an optional public page, not the creator role.
