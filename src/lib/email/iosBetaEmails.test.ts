@@ -229,7 +229,7 @@ test("durable orchestration retries only Anton after a partial admin failure and
           first_attempt_at: row.first_attempt_at ?? new Date().toISOString(),
           state: "unknown",
         });
-        return { ...row };
+        return { ...row, create_allowed: true };
       },
       async finish(job, _token, result) {
         Object.assign(jobs.find((j) => j.id === job.id)!, {

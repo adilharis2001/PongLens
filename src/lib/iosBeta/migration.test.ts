@@ -195,6 +195,22 @@ test(
         ),
         "55555555-5555-4555-8555-555555555555",
       );
+      const raceResult = sql(`begin;
+        insert into ios_beta_requests(email) values ('fresh-prepare-race@example.com');
+        update ios_beta_deliveries set state='unknown',first_attempt_at=now()-interval '1 hour',create_payload='{}',attempt_count=1 where recipient='fresh-prepare-race@example.com';
+        select lease_ios_beta_delivery(id,'77777777-7777-4777-8777-777777777777') from ios_beta_deliveries where recipient='fresh-prepare-race@example.com';
+        select apply_resend_beta_event('fresh-prepare-event',jsonb_build_object('type','email.delivered','data',jsonb_build_object('email_id','fresh-provider-delivered','tags',jsonb_build_object('beta_delivery_id',id)))) from ios_beta_deliveries where recipient='fresh-prepare-race@example.com';
+        select 'can-create='||(prepare_ios_beta_delivery(id,'77777777-7777-4777-8777-777777777777','{}')->>'create_allowed') from ios_beta_deliveries where recipient='fresh-prepare-race@example.com';
+        select 'preserved='||state||':'||attempt_count from ios_beta_deliveries where recipient='fresh-prepare-race@example.com';
+        insert into ios_beta_requests(email) values ('fresh-failed@example.com');
+        update ios_beta_deliveries set state='failed',provider_email_id='fresh-provider-failed',cancel_requested=true where recipient='fresh-failed@example.com';
+        select 'cancellation='||cardinality(apply_resend_beta_event('fresh-failed-event','{"type":"email.complained","data":{"email_id":"unrelated","to":["fresh-failed@example.com"]}}'));
+        select 'retry='||cardinality(apply_resend_beta_event('fresh-failed-event','{"type":"email.complained","data":{"email_id":"unrelated","to":["fresh-failed@example.com"]}}'));
+        rollback;`);
+      assert.match(raceResult, /can-create=false/);
+      assert.match(raceResult, /preserved=delivered:1/);
+      assert.match(raceResult, /cancellation=0/);
+      assert.match(raceResult, /retry=0/);
     } finally {
       sql(`drop database ${database}`, "postgres");
     }

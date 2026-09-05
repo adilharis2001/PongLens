@@ -6,6 +6,45 @@ import test from "node:test";
 const local = process.env.BETA_LOCAL_DB_TEST === "1";
 
 test(
+  "suppression cancellation queues exclude confirmed failed IDs but keep ambiguous failures",
+  { skip: !local },
+  () => {
+    const result = sql(`begin;
+    insert into ios_beta_requests(email) values ('failed-known@example.com'),('failed-unknown@example.com');
+    update ios_beta_deliveries set state='failed',provider_email_id='provider-known-failed',cancel_requested=true where recipient='failed-known@example.com';
+    update ios_beta_deliveries set state='failed',first_attempt_at=now()-interval '1 hour',create_payload='{}' where recipient='failed-unknown@example.com';
+    select 'known-first='||cardinality(apply_resend_beta_event('known-failed-event','{"type":"email.complained","data":{"email_id":"another-message","to":["failed-known@example.com"]}}'));
+    select 'known-retry='||cardinality(apply_resend_beta_event('known-failed-event','{"type":"email.complained","data":{"email_id":"another-message","to":["failed-known@example.com"]}}'));
+    select 'unknown-first='||cardinality(apply_resend_beta_event('unknown-failed-event','{"type":"email.complained","data":{"email_id":"another-message","to":["failed-unknown@example.com"]}}'));
+    select 'unknown-retry='||cardinality(apply_resend_beta_event('unknown-failed-event','{"type":"email.complained","data":{"email_id":"another-message","to":["failed-unknown@example.com"]}}'));
+    rollback;`);
+    assert.match(result, /known-first=0/);
+    assert.match(result, /known-retry=0/);
+    assert.match(result, /unknown-first=1/);
+    assert.match(result, /unknown-retry=1/);
+  },
+);
+
+test(
+  "prepare lock preserves a webhook delivered after the retry lease",
+  { skip: !local },
+  () => {
+    const result = sql(`begin;
+    insert into ios_beta_requests(email) values ('prepare-race@example.com');
+    update ios_beta_deliveries set state='unknown',first_attempt_at=now()-interval '1 hour',create_payload='{}',attempt_count=1 where recipient='prepare-race@example.com';
+    select lease_ios_beta_delivery(id,'11111111-1111-4111-8111-111111111111') from ios_beta_deliveries where recipient='prepare-race@example.com';
+    select apply_resend_beta_event('prepare-race-event',jsonb_build_object('type','email.delivered','data',jsonb_build_object('email_id','provider-prepare-race','tags',jsonb_build_object('beta_delivery_id',id)))) from ios_beta_deliveries where recipient='prepare-race@example.com';
+    select 'prepared='||(prepare_ios_beta_delivery(id,'11111111-1111-4111-8111-111111111111','{}')->>'state') from ios_beta_deliveries where recipient='prepare-race@example.com';
+    select 'attempts='||attempt_count||':state='||state from ios_beta_deliveries where recipient='prepare-race@example.com';
+    select 'allow='||(prepare_ios_beta_delivery(id,'11111111-1111-4111-8111-111111111111','{}')->>'create_allowed') from ios_beta_deliveries where recipient='prepare-race@example.com';
+    rollback;`);
+    assert.match(result, /prepared=delivered/);
+    assert.match(result, /attempts=1:state=delivered/);
+    assert.match(result, /allow=false/);
+  },
+);
+
+test(
   "late scheduling observations cannot erase confirmed provider failure",
   { skip: !local },
   () => {

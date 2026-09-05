@@ -422,6 +422,13 @@ begin
   if not found or d.lease_token is distinct from p_token or d.lease_until <= now() then
     raise exception 'beta lease lost';
   end if;
+  -- A signed event or old-server stamp can land after lease acquisition.
+  -- Keep that locked evidence intact and tell the caller not to create again.
+  if d.provider_email_id is not null
+    or d.state in ('sent', 'delivered', 'suppressed', 'bounced', 'complained', 'canceled')
+    or d.cancel_requested then
+    return to_jsonb(d) || jsonb_build_object('create_allowed', false);
+  end if;
   -- Reserve the final minute for network transit before provider key expiry.
   if d.first_attempt_at is not null and d.first_attempt_at <= now() - interval '23 hours 59 minutes' then
     raise exception 'beta idempotency expired';
@@ -446,7 +453,7 @@ begin
     id = p_id
   returning
     * into d;
-  return to_jsonb (d);
+  return to_jsonb(d) || jsonb_build_object('create_allowed', true);
 end
 $$;
 
@@ -574,6 +581,7 @@ begin
       where
         cancel_requested
         and state not in ('sent', 'delivered', 'bounced', 'complained', 'suppressed', 'canceled')
+        and not (state = 'failed' and provider_email_id is not null)
         and recipient in (
           select
             lower(btrim(value))
@@ -609,14 +617,17 @@ begin
           updated_at = now()
         where
           ios_beta_deliveries.recipient = v_recipient
-          and state not in ('sent', 'delivered', 'bounced', 'complained', 'suppressed', 'canceled');
+          and state not in ('sent', 'delivered', 'bounced', 'complained', 'suppressed', 'canceled')
+          and not (state = 'failed' and provider_email_id is not null);
         ids := ids || array ( select distinct
             request_id
           from
             public.ios_beta_deliveries
           where
             ios_beta_deliveries.recipient = v_recipient
-            and cancel_requested);
+            and cancel_requested
+            and state not in ('sent', 'delivered', 'bounced', 'complained', 'suppressed', 'canceled')
+            and not (state = 'failed' and provider_email_id is not null));
       end loop;
   end if;
   st := case t

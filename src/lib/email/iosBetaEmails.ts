@@ -2,7 +2,10 @@ import type {
   BetaDeliveryResult,
   BetaDeliveryState,
 } from "../iosBeta/delivery.ts";
-import { runBetaDelivery } from "../iosBeta/scheduledDelivery.ts";
+import {
+  isBetaDeliveryComplete,
+  runBetaDelivery,
+} from "../iosBeta/scheduledDelivery.ts";
 import {
   betaEmailDependencies,
   type BetaEmailDependencies,
@@ -74,22 +77,14 @@ export async function reconcileIosBetaCancellations(
   provided?: BetaEmailDependencies,
 ): Promise<boolean> {
   const dependencies = provided ?? (await betaEmailDependencies());
-  const terminal = new Set([
-    "sent",
-    "delivered",
-    "suppressed",
-    "bounced",
-    "complained",
-    "canceled",
-  ]);
   const pending = (await dependencies.jobs(requestId)).filter(
-    (job) => job.cancel_requested && !terminal.has(job.state),
+    (job) => job.cancel_requested && !isBetaDeliveryComplete(job),
   );
   await Promise.all(
     pending.map((job) => runBetaDelivery(job.id, dependencies.delivery)),
   );
   return (await dependencies.jobs(requestId)).every(
-    (job) => !job.cancel_requested || terminal.has(job.state),
+    (job) => !job.cancel_requested || isBetaDeliveryComplete(job),
   );
 }
 

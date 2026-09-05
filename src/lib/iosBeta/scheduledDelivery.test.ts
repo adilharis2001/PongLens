@@ -8,6 +8,39 @@ import {
 
 const deadline = "2026-09-06T11:00:00.000Z";
 
+test("a webhook between lease and prepare prevents another create and preserves delivered evidence", async () => {
+  const f = fixture({
+    state: "unknown",
+    first_attempt_at: "2026-09-05T11:00:00Z",
+    create_payload: "{}",
+  });
+  f.deps.prepare = async () => ({
+    ...f.job,
+    state: "delivered",
+    provider_email_id: "provider-1",
+    create_allowed: false,
+  });
+  assert.equal(await runBetaDelivery("job-1", f.deps), "delivered");
+  assert.equal(f.job.state, "delivered");
+  assert.deepEqual(f.calls, []);
+});
+
+test("scheduled identity appearing during prepare is retrieved instead of posted again", async () => {
+  const f = fixture({
+    state: "unknown",
+    first_attempt_at: "2026-09-05T11:00:00Z",
+    create_payload: "{}",
+  });
+  f.deps.prepare = async () => ({
+    ...f.job,
+    state: "scheduled",
+    provider_email_id: "provider-1",
+    create_allowed: false,
+  });
+  assert.equal(await runBetaDelivery("job-1", f.deps), "scheduled");
+  assert.deepEqual(f.calls, ["GET:provider-1"]);
+});
+
 test("confirmed provider failure is not turned back into a sendable invitation", async () => {
   const f = fixture({
     state: "failed",
@@ -67,7 +100,7 @@ function fixture(over: Partial<BetaJob> = {}) {
           job.first_attempt_at ?? new Date(current).toISOString(),
         state: "unknown",
       };
-      return { ...job };
+      return { ...job, create_allowed: true };
     },
     async finish(_job, _token, result) {
       job = {

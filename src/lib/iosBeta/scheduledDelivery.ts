@@ -22,6 +22,7 @@ export type ProviderResult = {
   scheduledAt?: string | null;
   error?: string;
 };
+export type BetaPreparedJob = BetaJob & { create_allowed: boolean };
 export type BetaProvider = {
   create(payload: string, key: string): Promise<ProviderResult>;
   retrieve(id: string): Promise<ProviderResult>;
@@ -32,7 +33,11 @@ export type ScheduledDeliveryDependencies = {
   now(): number;
   lease(id: string, token: string): Promise<BetaJob | null>;
   read(id: string): Promise<BetaJob | null>;
-  prepare(job: BetaJob, token: string, payload: string): Promise<BetaJob>;
+  prepare(
+    job: BetaJob,
+    token: string,
+    payload: string,
+  ): Promise<BetaPreparedJob>;
   finish(job: BetaJob, token: string, result: ProviderResult): Promise<boolean>;
   payload(job: BetaJob): Promise<string>;
   isSuppressed(recipient: string): Promise<boolean>;
@@ -47,6 +52,15 @@ const TERMINAL = new Set<BetaDeliveryState>([
   "complained",
   "canceled",
 ]);
+
+export function isBetaDeliveryComplete(
+  job: Pick<BetaJob, "state" | "provider_email_id">,
+): boolean {
+  return (
+    TERMINAL.has(job.state) ||
+    (job.state === "failed" && !!job.provider_email_id)
+  );
+}
 
 export async function runBetaDelivery(
   id: string,
@@ -64,8 +78,7 @@ export async function runBetaDelivery(
     job = await dependencies.lease(id, token);
     if (!job) return (await dependencies.read(id))?.state ?? "unknown";
     if (
-      TERMINAL.has(job.state) ||
-      (job.state === "failed" && job.provider_email_id) ||
+      isBetaDeliveryComplete(job) ||
       job.error_code === "legacy_unconfirmed"
     ) {
       return await finish({
@@ -94,24 +107,52 @@ export async function runBetaDelivery(
         });
       }
       const payload = job.create_payload ?? (await dependencies.payload(job));
-      job = await dependencies.prepare(job, token, payload);
-      const created = await dependencies.provider.create(
-        payload,
-        job.idempotency_key,
-      );
-      if (!created.id) return await finish(created);
-      job = {
-        ...job,
-        ...(await dependencies.read(id)),
-        provider_email_id: created.id,
-      };
-      suppressed =
-        job.cancel_requested ||
-        (await dependencies.isSuppressed(job.recipient));
-      // The immutable original create may be replayed after an early-send request.
-      // Keep that original provider ID and bring it forward, never replace it.
-      if ((!job.early_target_at && !suppressed) || created.state === "sent")
-        return await finish(created);
+      const prepared = await dependencies.prepare(job, token, payload);
+      job = prepared;
+      if (!prepared.create_allowed) {
+        // The prepare lock may see evidence or suppression that arrived after
+        // our lease snapshot. Its decision, not that snapshot, authorizes POST.
+        if (isBetaDeliveryComplete(job)) {
+          return await finish({
+            state: job.state,
+            id: job.provider_email_id ?? undefined,
+            error: job.error_code ?? undefined,
+          });
+        }
+        suppressed =
+          job.cancel_requested ||
+          (await dependencies.isSuppressed(job.recipient));
+        if (!job.provider_email_id) {
+          return await finish({
+            state: suppressed
+              ? job.first_attempt_at
+                ? "needs_attention"
+                : "suppressed"
+              : job.state,
+            error:
+              suppressed && job.first_attempt_at
+                ? "suppressed_unknown_acceptance"
+                : (job.error_code ?? undefined),
+          });
+        }
+      } else {
+        const created = await dependencies.provider.create(
+          payload,
+          job.idempotency_key,
+        );
+        if (!created.id) return await finish(created);
+        job = {
+          ...job,
+          ...(await dependencies.read(id)),
+          provider_email_id: created.id,
+        };
+        suppressed =
+          job.cancel_requested ||
+          (await dependencies.isSuppressed(job.recipient));
+        // A replay retains its original provider ID, including early-send intent.
+        if ((!job.early_target_at && !suppressed) || created.state === "sent")
+          return await finish(created);
+      }
     }
     const providerId = job.provider_email_id;
     if (!providerId)

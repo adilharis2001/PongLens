@@ -1,5 +1,6 @@
 import type {
   BetaJob,
+  BetaPreparedJob,
   ScheduledDeliveryDependencies,
 } from "./scheduledDelivery.ts";
 import { betaProviderPayload, createBetaProvider } from "./provider.ts";
@@ -54,7 +55,7 @@ export async function betaEmailDependencies(): Promise<BetaEmailDependencies> {
       return data as BetaJob | null;
     },
     prepare: (job, token, payload) =>
-      rpc<BetaJob>("prepare_ios_beta_delivery", {
+      rpc<BetaPreparedJob>("prepare_ios_beta_delivery", {
         p_id: job.id,
         p_token: token,
         p_payload: payload,
