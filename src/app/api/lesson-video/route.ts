@@ -28,7 +28,12 @@ export async function GET(req:Request){
    const sourceUrl=owner&&row.status!=='uploading'?await presignGet(MEDIA_BUCKET,row.source_key,{expiresSeconds:14400,filename:row.original_name,disposition:'inline'}):undefined;
    const summaryUrl=row.summary_key&&['review','ready'].includes(row.status)?await presignGet(MEDIA_BUCKET,row.summary_key,{expiresSeconds:14400}):undefined;
    const playbackUrl=row.playback_key&&['review','ready'].includes(row.status)?await presignGet(MEDIA_BUCKET,row.playback_key,{expiresSeconds:14400}):summaryUrl;
-   return NextResponse.json({video:publicVideo(row,owner),isOwner:owner,sourceUrl,summaryUrl,playbackUrl},{headers:{'Cache-Control':'private, no-store'}});
+   let posterUrl: string | undefined;
+   if(playbackUrl&&row.playback_key){
+    const posterKey=row.playback_key.replace(/\.mp4$/,'.jpg');
+    try{if(await headObject(MEDIA_BUCKET,posterKey)!==null)posterUrl=await presignGet(MEDIA_BUCKET,posterKey,{expiresSeconds:14400});}catch{ /* A missing preview must not prevent playback. */ }
+   }
+   return NextResponse.json({video:publicVideo(row,owner),isOwner:owner,sourceUrl,summaryUrl,playbackUrl,posterUrl},{headers:{'Cache-Control':'private, no-store'}});
   }
   let q=db.from('lesson_videos').select('id,owner_id,student_id,lesson_id,original_name,file_size,duration_s,status,stage,error,edit,revision,created_at,updated_at').eq('owner_id',user.id).order('created_at',{ascending:false}).limit(100);
   if(studentId){if(!UUID.test(studentId))return failure('Invalid student');q=q.eq('student_id',studentId);}

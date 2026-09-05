@@ -117,6 +117,7 @@ function writeHintState(next: { shows: number; used: boolean }) {
  */
 export function ClipPlayer({
   src,
+  poster,
   videoElRef,
   mode = "clip",
   startPaused = false,
@@ -138,6 +139,8 @@ export function ClipPlayer({
   quietChrome = false,
 }: {
   src: string;
+  /** Optional saved preview for media that has not decoded its first frame. */
+  poster?: string;
   /** Exposes the <video> element so the point view can capture the
    *  on-screen frame for annotation (Player.captureFrame rationale). */
   videoElRef?: React.MutableRefObject<HTMLVideoElement | null>;
@@ -1031,6 +1034,7 @@ export function ClipPlayer({
       onPointerCancel={(e) => endPointer(e, true)}
     >
       <video
+        poster={poster}
         ref={(el) => {
           videoRef.current = el;
           if (videoElRef) videoElRef.current = el;

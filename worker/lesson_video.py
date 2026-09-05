@@ -256,6 +256,11 @@ def draw_panel(chapter,index,count,path):
  d.text((48,990),'Lesson recap',font=font(24),fill=(147,158,176))
  im.save(path)
 
+def write_lesson_poster(playback,directory):
+ poster=Path(directory)/'poster.jpg'
+ run(['ffmpeg','-v','error','-y','-ss','0.1','-i',str(playback),'-frames:v','1','-vf',"scale='min(1280,iw)':-2",'-q:v','3',str(poster)],90)
+ return poster
+
 def render(source,edit,directory,on_progress=lambda x:None):
  files=[];clean_files=[]
  color=lesson_color_filter(probe(source))
@@ -311,11 +316,14 @@ def process(rt,row):
    rt.stage(row,'Saving the recap')
    key=f"lesson-video/{row['owner_id']}/{row['id']}/recap-v{row['revision']}-{row['lease_token']}.mp4"
    playback_key=key.replace('/recap-','/playback-')
-   attempt_keys=[key,playback_key]
+   poster_key=playback_key.replace('.mp4','.jpg')
+   poster=write_lesson_poster(Path(directory)/'playback.mp4',directory)
+   attempt_keys=[key,playback_key,poster_key]
    rt.s3.upload_file(str(output),BUCKET,key,ExtraArgs={'ContentType':'video/mp4'})
    rt.s3.upload_file(str(Path(directory)/'playback.mp4'),BUCKET,playback_key,ExtraArgs={'ContentType':'video/mp4'})
+   rt.s3.upload_file(str(poster),BUCKET,poster_key,ExtraArgs={'ContentType':'image/jpeg'})
    rt.update(row,status='review',stage='Ready to review',summary_key=key,playback_key=playback_key,edit=edit,error=None,lease_until=None)
-   try:rt.rest('storage_ledger','POST',[{'user_id':row['owner_id'],'kind':'other','bytes':output.stat().st_size,'r2_key':'r2://'+BUCKET+'/'+key},{'user_id':row['owner_id'],'kind':'other','bytes':(Path(directory)/'playback.mp4').stat().st_size,'r2_key':'r2://'+BUCKET+'/'+playback_key}])
+   try:rt.rest('storage_ledger','POST',[{'user_id':row['owner_id'],'kind':'other','bytes':output.stat().st_size,'r2_key':'r2://'+BUCKET+'/'+key},{'user_id':row['owner_id'],'kind':'other','bytes':(Path(directory)/'playback.mp4').stat().st_size,'r2_key':'r2://'+BUCKET+'/'+playback_key},{'user_id':row['owner_id'],'kind':'other','bytes':poster.stat().st_size,'r2_key':'r2://'+BUCKET+'/'+poster_key}])
    except Exception:log.warning('Lesson storage ledger failed',exc_info=True)
  except Exception as e:
   log.exception('Lesson %s failed',row['id'])

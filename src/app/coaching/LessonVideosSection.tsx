@@ -38,7 +38,7 @@ export function LessonVideosSection({ studentId }: { studentId?: string }) {
             </span>{chevron}
           </Link>
         ))}
-        {videos.length === 0 && <p className="px-5 py-4 text-sm text-zinc-400">{!loaded ? "Loading…" : error ? "Could not load lesson videos." : "No lesson videos yet."}</p>}
+        {videos.length === 0 && (!loaded || error) && <p className="px-5 py-4 text-sm text-zinc-400">{!loaded ? "Loading…" : error ? "Could not load lesson videos." : "No lesson videos yet."}</p>}
         <Link href={`/coaching/videos${query}`} className={row}><span>{videos.length > 0 ? "All lesson videos" : "Import a lesson video"}</span>{chevron}</Link>
       </div>
     </section>
