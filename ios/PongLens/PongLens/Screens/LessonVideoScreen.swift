@@ -303,113 +303,72 @@ struct LessonVideoDetailScreen: View {
     @State private var player: AVPlayer?
     @State private var urlsFetchedAt: Date?
     @State private var playerURLFetchedAt: Date?
-    @State private var visible = false
     @State private var original = false
     @State private var editOpen = false
     @State private var busy = false
     @State private var error: String?
 
-    @State private var started = false
-    @State private var buffering = false
-    @State private var playbackFailed = false
-    @State private var selectedChapter = 0
-    @State private var seeking = false
+    @State private var watchOpen = false
     @State private var deleteOpen = false
-    private let playbackTick = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ScrollViewReader { scroll in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    HStack {
-                        Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
-                            .buttonStyle(PLSecondaryButtonStyle())
-                        Spacer()
-                        if let detail { moreMenu(detail) }
-                    }
-                    if let detail {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack {
+                    Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
+                        .buttonStyle(PLSecondaryButtonStyle())
+                    Spacer()
+                    if let detail { moreMenu(detail) }
+                }
+                if let detail {
+                    VStack(alignment: .leading, spacing: 8) {
                         Text(detail.video.title).font(.plPageTitle).tracking(-0.6).foregroundStyle(PL.textBody)
-                        if let player {
+                        Text(detail.video.statusLabel).font(.plCaption).foregroundStyle(PL.cyan)
+                    }
+                    if detail.playbackUrl != nil || detail.summaryUrl != nil {
+                        Button {
+                            if original { original = false; setPlayer() }
+                            watchOpen = true
+                        } label: {
                             ZStack {
-                                VideoPlayer(player: player).accessibilityHidden(!started)
-                                if !started {
-                                    ZStack {
-                                        PL.surface2
-                                        AsyncImage(url: detail.posterUrl.flatMap(URL.init(string:))) { phase in
-                                            if let image = phase.image { image.resizable().scaledToFill() }
-                                            else if phase.error == nil && detail.posterUrl != nil { ProgressView().tint(PL.cyan).offset(y: 60) }
-                                        }
-                                        Button { started = true; player.play() } label: {
-                                            Image(systemName: "play.fill").font(.system(size: 26, weight: .semibold))
-                                                .foregroundStyle(.white).frame(width: 68, height: 68)
-                                                .background(.black.opacity(0.65), in: Circle())
-                                        }.accessibilityLabel(original ? "Play original lesson video" : "Play lesson recap")
-                                    }
+                                PL.surface2
+                                AsyncImage(url: detail.posterUrl.flatMap(URL.init(string:))) { phase in
+                                    if let image = phase.image { image.resizable().scaledToFill() }
+                                    else if phase.error == nil && detail.posterUrl != nil { ProgressView().tint(PL.cyan).offset(y: 60) }
                                 }
-                                if started && buffering && !playbackFailed { ProgressView().tint(.white).padding(18).background(.black.opacity(0.6), in: Circle()) }
-                                if playbackFailed {
-                                    VStack(spacing: 12) {
-                                        Text("Video could not play").font(.plCardTitle)
-                                        Button("Try again") { Task { await load(refreshPlayback: true); if visible && scenePhase == .active { started = true; self.player?.play() } } }
-                                            .buttonStyle(PLSecondaryButtonStyle())
-                                    }.frame(maxWidth: .infinity, maxHeight: .infinity).background(PL.surface)
-                                }
+                                Image(systemName: "play.fill").font(.system(size: 26, weight: .semibold))
+                                    .foregroundStyle(.white).frame(width: 68, height: 68)
+                                    .background(.black.opacity(0.65), in: Circle())
                             }
                             .aspectRatio(16 / 9, contentMode: .fit)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .id("lesson-player")
+                        }.buttonStyle(.plain).accessibilityLabel("Watch lesson recap")
+                        if let count = detail.video.edit?.chapters.count, count > 0 {
+                            Label("\(count) chapters · Watch with coaching notes", systemImage: "text.bubble")
+                                .font(.plBody).foregroundStyle(PL.text300)
                         }
-                        if let chapters = detail.video.edit?.chapters, !chapters.isEmpty {
-                            let index = min(selectedChapter, chapters.count - 1)
-                            VStack(alignment: .leading, spacing: 14) {
-                                Menu {
-                                    ForEach(Array(chapters.enumerated()), id: \.offset) { offset, chapter in
-                                        Button("\(offset + 1). \(chapter.title)") {
-                                            chooseChapter(offset, chapter)
-                                            withAnimation { scroll.scrollTo("lesson-player", anchor: .top) }
-                                        }
-                                    }
-                                } label: {
-                                    HStack(spacing: 10) {
-                                        Text("Chapter \(index + 1) of \(chapters.count)").font(.plButton)
-                                        Spacer()
-                                        Image(systemName: "chevron.up.chevron.down")
-                                    }.foregroundStyle(PL.cyan).frame(minHeight: 44)
-                                }
-                                Text(chapters[index].title).font(.plCardTitle).foregroundStyle(PL.text100)
-                                ForEach(Array(chapters[index].cues.enumerated()), id: \.offset) { _, cue in
-                                    Text(cue).foregroundStyle(PL.text300)
-                                }
-                            }.plCard(padding: 16)
-                        }
-                        if detail.isOwner {
-                            HStack(spacing: 12) {
-                                if detail.video.status == "review" {
-                                    Button(detail.video.student_id == nil ? "Save recap" : "Share with student") { perform("share") }
-                                        .buttonStyle(PLPrimaryButtonStyle())
-                                }
-                                if detail.video.status == "failed" {
-                                    Button("Retry processing") { perform("retry") }.buttonStyle(PLPrimaryButtonStyle())
-                                }
-                                if detail.video.edit != nil && ["review", "ready", "failed"].contains(detail.video.status) {
-                                    Button("Edit") { player?.pause(); editOpen = true }.buttonStyle(PLSecondaryButtonStyle())
-                                }
-                            }.disabled(busy)
-                        }
-                        Text(detail.video.statusLabel).font(.plCaption).foregroundStyle(PL.text400)
-                        if let message = detail.video.error { Text(message).foregroundStyle(PL.dangerText) }
-                        if let warning = detail.video.edit?.warning, !warning.isEmpty {
-                            DisclosureGroup("Review note") { Text(warning).foregroundStyle(PL.warningText).padding(.top, 8) }
-                                .font(.plCaption)
-                        }
-                    } else if error == nil {
-                        ProgressView().tint(PL.cyan).frame(maxWidth: .infinity, minHeight: 160)
                     }
-                    if let error { Text(error).foregroundStyle(PL.dangerText) }
+                    if detail.isOwner && detail.video.status == "review" {
+                        Button { perform("share") } label: {
+                            Text(detail.video.student_id == nil ? "Save recap" : "Share with student")
+                                .frame(maxWidth: .infinity)
+                        }.buttonStyle(PLPrimaryButtonStyle()).disabled(busy)
+                    }
+                    if detail.isOwner && detail.video.status == "failed" {
+                        Button("Retry processing") { perform("retry") }.buttonStyle(PLPrimaryButtonStyle()).disabled(busy)
+                    }
+                    if let message = detail.video.error { Text(message).foregroundStyle(PL.dangerText) }
+                    if let warning = detail.video.edit?.warning, !warning.isEmpty {
+                        DisclosureGroup("Review note") { Text(warning).foregroundStyle(PL.warningText).padding(.top, 8) }
+                            .font(.plCaption)
+                    }
+                } else if error == nil {
+                    ProgressView().tint(PL.cyan).frame(maxWidth: .infinity, minHeight: 160)
                 }
-                .font(.plBody).lineSpacing(3).padding(20).padding(.bottom, 40)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                if let error { Text(error).foregroundStyle(PL.dangerText) }
             }
+            .font(.plBody).lineSpacing(3).padding(20).padding(.bottom, 40)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background { ArenaBackground() }
         .toolbar(.hidden, for: .navigationBar)
@@ -419,7 +378,7 @@ struct LessonVideoDetailScreen: View {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(10)) } catch { return }
                 let renewPlayback = LessonVideoPlaybackRefresh.isDue(lastRefresh: playerURLFetchedAt)
-                if detail?.video.needsRefresh == true || renewPlayback {
+                if !watchOpen && (detail?.video.needsRefresh == true || renewPlayback) {
                     await load(refreshPlayback: renewPlayback)
                 }
             }
@@ -427,19 +386,20 @@ struct LessonVideoDetailScreen: View {
         .confirmationDialog("Delete this lesson video?", isPresented: $deleteOpen, titleVisibility: .visible) {
             Button("Delete lesson video", role: .destructive) { perform("delete") }
         } message: { Text("The original video and recap will be permanently deleted.") }
-        .onReceive(playbackTick) { _ in
-            playbackFailed = player?.currentItem?.status == .failed
-            buffering = player?.timeControlStatus == .waitingToPlayAtSpecifiedRate
-            if started && !seeking, let seconds = player?.currentTime().seconds, seconds.isFinite,
-               let chapters = detail?.video.edit?.chapters {
-                selectedChapter = LessonVideoChapterSelection.index(at: seconds, chapters: chapters, original: original) ?? selectedChapter
-            }
-        }
-        .onAppear { visible = true }
-        .onDisappear { visible = false; player?.pause() }
+        .onDisappear { if !watchOpen { player?.pause() } }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { player?.pause() }
-            else { Task { await load(refreshPlayback: true) } }
+            else if !watchOpen { Task { await load(refreshPlayback: true) } }
+        }
+        .fullScreenCover(isPresented: $watchOpen, onDismiss: { player?.pause() }) {
+            if let player, player.currentItem != nil, let detail {
+                LessonVideoTakeover(player: player, title: detail.video.title,
+                    chapters: detail.video.edit?.chapters ?? [], original: original,
+                    refresh: { await load(refreshPlayback: true) },
+                    renewIfNeeded: {
+                        if LessonVideoPlaybackRefresh.isDue(lastRefresh: playerURLFetchedAt) { await load(refreshPlayback: true) }
+                    })
+            }
         }
         .sheet(isPresented: $editOpen) {
             if let edit = detail?.video.edit {
@@ -449,8 +409,11 @@ struct LessonVideoDetailScreen: View {
     }
     private func moreMenu(_ detail: LessonVideoDetail) -> some View {
         Menu {
+            if detail.isOwner && detail.video.edit != nil && ["review", "ready", "failed"].contains(detail.video.status) {
+                Button("Edit recap", systemImage: "pencil") { editOpen = true }
+            }
             if detail.isOwner, detail.sourceUrl != nil || detail.originalUrl != nil {
-                Button(original ? "Watch recap" : "Watch original") { original.toggle(); setPlayer() }
+                Button(original ? "Watch recap" : "Watch original") { original.toggle(); setPlayer(); watchOpen = true }
                 if let url = (detail.sourceUrl ?? detail.originalUrl).flatMap(URL.init(string:)) {
                     ShareLink(item: url) { Label("Export original video", systemImage: "square.and.arrow.up") }
                 }
@@ -464,39 +427,28 @@ struct LessonVideoDetailScreen: View {
         } label: { Label("More", systemImage: "ellipsis") }
             .buttonStyle(PLSecondaryButtonStyle()).disabled(busy)
     }
-    private func chooseChapter(_ index: Int, _ chapter: LessonVideoEdit.Chapter) {
-        selectedChapter = index
-        guard let seconds = original ? chapter.start_s : chapter.summary_start_s, let player else { return }
-        seeking = true
-        started = true
-        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { finished in
-            Task { @MainActor in
-                seeking = false
-                if finished && visible && scenePhase == .active && self.player === player { player.play() }
-            }
-        }
-    }
     private func setPlayer(preservingPosition: Bool = false) {
         let position = preservingPosition ? player?.currentTime() : nil
         let wasPlaying = preservingPosition && (player?.rate ?? 0) > 0
         player?.pause()
-        playbackFailed = false
-        buffering = false
-        if !preservingPosition { started = false; selectedChapter = 0 }
-        guard let detail else { player = nil; playerURLFetchedAt = nil; return }
+        guard let detail else { return }
         let raw = original ? (detail.sourceUrl ?? detail.originalUrl) : (detail.playbackUrl ?? detail.summaryUrl)
-        let replacement = raw.flatMap(URL.init(string:)).map { AVPlayer(url: $0) }
-        player = replacement
-        playerURLFetchedAt = replacement == nil ? nil : urlsFetchedAt
-        if let replacement, let position, position.seconds.isFinite, position.seconds > 0 {
-            replacement.seek(to: position, toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+        guard let url = raw.flatMap(URL.init(string:)) else { player?.replaceCurrentItem(with: nil); return }
+        // Keep one player across the detail, takeover, source changes and URL renewal.
+        let activePlayer = player ?? AVPlayer()
+        let item = AVPlayerItem(url: url)
+        activePlayer.replaceCurrentItem(with: item)
+        player = activePlayer
+        playerURLFetchedAt = urlsFetchedAt
+        if let position, position.seconds.isFinite, position.seconds > 0 {
+            activePlayer.seek(to: position, toleranceBefore: .zero, toleranceAfter: .zero) { finished in
                 Task { @MainActor in
-                    if finished && wasPlaying && visible && scenePhase == .active && player === replacement {
-                        replacement.play()
+                    if finished && wasPlaying && watchOpen && scenePhase == .active && activePlayer.currentItem === item {
+                        activePlayer.play()
                     }
                 }
             }
-        } else if wasPlaying && visible && scenePhase == .active { replacement?.play() }
+        } else if wasPlaying && watchOpen && scenePhase == .active { activePlayer.play() }
     }
     private func load(refreshPlayback: Bool = false) async {
         do {
@@ -519,6 +471,234 @@ struct LessonVideoDetailScreen: View {
                 if action == "delete" { dismiss() } else { await load() }
             } catch { self.error = error.localizedDescription }
         }
+    }
+}
+
+/// Watch-style presentation: footage and synchronized notes stay together in both orientations.
+private struct LessonVideoTakeover: View {
+    let player: AVPlayer
+    let title: String
+    let chapters: [LessonVideoEdit.Chapter]
+    let original: Bool
+    let refresh: () async -> Void
+    let renewIfNeeded: () async -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var selected = 0
+    @State private var currentTime = 0.0
+    @State private var duration = 0.0
+    @State private var isPlaying = false
+    @State private var buffering = false
+    @State private var failed = false
+    @State private var visible = false
+    @State private var seeking = false
+    @State private var seekGeneration = UUID()
+    @State private var scrubbing = false
+    @State private var resumeAfterScrub = false
+    @State private var retrying = false
+    @State private var forcedLandscape = false
+    @State private var chromeVisible = true
+    @State private var chromeGeneration = UUID()
+    private let tick = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        GeometryReader { geo in
+            let landscape = geo.size.width > geo.size.height
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Button { player.pause(); dismiss() } label: {
+                        Image(systemName: "xmark").font(.plCardTitle).frame(width: 44, height: 44)
+                    }.accessibilityLabel("Close lesson viewer")
+                    Text(original ? "Original lesson video" : title).font(.plRowTitle).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Button {
+                        forcedLandscape = !landscape
+                        requestOrientation(landscape ? .portrait : .landscapeRight)
+                    } label: {
+                        Image(systemName: landscape ? "rectangle.portrait.arrowtriangle.2.outward" : "rectangle.landscape.rotate")
+                            .font(.plCardTitle).frame(width: 44, height: 44)
+                    }.accessibilityLabel(landscape ? "Back to portrait" : "Turn to landscape")
+                }.foregroundStyle(PL.text100).padding(.horizontal, 8)
+                if landscape {
+                    HStack(spacing: 0) {
+                        video.frame(width: geo.size.width * 0.56)
+                        chapterPages.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                } else {
+                    video.frame(height: geo.size.width * 9 / 16)
+                    chapterPages.frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+        }
+        .background { ArenaBackground() }
+        .preferredColorScheme(.dark)
+        .onAppear {
+            visible = true
+            synchronize()
+            if duration > 0 && currentTime >= duration - 0.1 { seek(to: 0, resume: true) }
+            else { player.play() }
+        }
+        .onDisappear {
+            visible = false
+            seekGeneration = UUID()
+            player.pause()
+            if forcedLandscape && !UIDevice.current.orientation.isLandscape { requestOrientation(.portrait) }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { player.pause() }
+            else { Task { await refresh() } }
+        }
+        .task {
+            await renewIfNeeded()
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                await renewIfNeeded()
+            }
+        }
+        .onReceive(tick) { _ in synchronize() }
+    }
+
+    private var video: some View {
+        ZStack {
+            PlayerLayerView(player: player)
+                .contentShape(Rectangle()).onTapGesture { revealControls() }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Show playback controls")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction { revealControls() }
+            VStack {
+                Spacer()
+                HStack {
+                    Button {
+                        if player.rate > 0 { player.pause() }
+                        else if duration > 0 && currentTime >= duration - 0.1 { seek(to: 0, resume: true) }
+                        else { player.play() }
+                    } label: {
+                        Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 24, weight: .semibold)).foregroundStyle(.white)
+                            .frame(width: 56, height: 56).background(.black.opacity(0.5), in: Circle())
+                    }.accessibilityLabel(isPlaying ? "Pause lesson" : "Play lesson")
+                }
+                Spacer()
+                HStack(spacing: 10) {
+                    Text(timeLabel(currentTime)).monospacedDigit().frame(minWidth: 34)
+                    Slider(value: $currentTime, in: 0...max(duration, 1)) { editing in
+                        if editing { resumeAfterScrub = player.rate > 0; scrubbing = true; player.pause() }
+                        else { scrubbing = false; seek(to: currentTime, resume: resumeAfterScrub) }
+                    }.tint(PL.cyan).disabled(duration <= 0).accessibilityLabel("Lesson playback position")
+                    Text(timeLabel(duration)).monospacedDigit().frame(minWidth: 34)
+                }
+                .font(.plCaption).foregroundStyle(.white).padding(.horizontal, 12).padding(.vertical, 6)
+                .background(.black.opacity(0.65))
+            }
+            .opacity(chromeVisible ? 1 : 0).allowsHitTesting(chromeVisible).accessibilityHidden(!chromeVisible)
+            .animation(.easeInOut(duration: 0.2), value: chromeVisible)
+            if buffering && !failed { ProgressView().tint(.white).padding(16).background(.black.opacity(0.75), in: Circle()).allowsHitTesting(false) }
+            if failed {
+                VStack(spacing: 12) {
+                    Text("Video could not play").font(.plCardTitle)
+                    Button(retrying ? "Loading…" : "Try again") {
+                        retrying = true
+                        Task {
+                            await refresh()
+                            retrying = false
+                            if visible && scenePhase == .active { player.play() }
+                        }
+                    }.buttonStyle(PLSecondaryButtonStyle()).disabled(retrying)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity).background(PL.surface)
+            }
+        }.clipped()
+    }
+
+    private var chapterPages: some View {
+        VStack(spacing: 0) {
+            if !chapters.isEmpty {
+                HStack {
+                    Button { selectChapter(max(0, selected - 1)) } label: {
+                        Image(systemName: "chevron.left").frame(width: 44, height: 44)
+                    }.disabled(selected == 0).accessibilityLabel("Previous chapter")
+                    Spacer()
+                    Text("Chapter \(selected + 1) of \(chapters.count)").font(.plButton).foregroundStyle(PL.cyan)
+                    Spacer()
+                    Button { selectChapter(min(chapters.count - 1, selected + 1)) } label: {
+                        Image(systemName: "chevron.right").frame(width: 44, height: 44)
+                    }.disabled(selected == chapters.count - 1).accessibilityLabel("Next chapter")
+                }.foregroundStyle(PL.text100).padding(.horizontal, 8).padding(.top, 8)
+                // Only user-driven page writes seek. Playback-driven selection assigns
+                // `selected` directly, so an automatic cue transition cannot seek back.
+                TabView(selection: Binding(get: { selected }, set: { selectChapter($0) })) {
+                    ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 18) {
+                                Text(chapter.title).font(.plPageTitle).foregroundStyle(PL.text100)
+                                ForEach(Array(chapter.cues.enumerated()), id: \.offset) { _, cue in
+                                    Text(cue).font(.plCardTitle.weight(.regular)).foregroundStyle(PL.text300).lineSpacing(5)
+                                }
+                            }.frame(maxWidth: .infinity, alignment: .leading).padding(20).padding(.bottom, 20)
+                        }.tag(index)
+                    }
+                }.tabViewStyle(.page(indexDisplayMode: .automatic))
+            } else {
+                Text("Coaching notes are not available for this video yet.")
+                    .font(.plBody).foregroundStyle(PL.text400).padding(20)
+                Spacer()
+            }
+        }
+    }
+
+    private func selectChapter(_ index: Int) {
+        guard chapters.indices.contains(index), index != selected else { return }
+        selected = index
+        let chapter = chapters[index]
+        if let start = original ? chapter.start_s : chapter.summary_start_s { seek(to: start, resume: true) }
+    }
+    private func seek(to seconds: Double, resume: Bool) {
+        guard seconds.isFinite else { return }
+        let generation = UUID()
+        seekGeneration = generation
+        seeking = true
+        let item = player.currentItem
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+            Task { @MainActor in
+                guard generation == seekGeneration else { return }
+                seeking = false
+                if finished && resume && visible && scenePhase == .active && player.currentItem === item { player.play() }
+            }
+        }
+    }
+    private func synchronize() {
+        guard visible else { return }
+        let playing = player.rate > 0
+        if playing != isPlaying {
+            isPlaying = playing
+            if playing { revealControls() } else { chromeVisible = true }
+        }
+        failed = player.currentItem?.status == .failed
+        buffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+        let length = player.currentItem?.duration.seconds ?? 0
+        if length.isFinite && length > 0 { duration = length }
+        guard !scrubbing && !seeking else { return }
+        let time = player.currentTime().seconds
+        guard time.isFinite else { return }
+        currentTime = time
+        if let index = LessonVideoChapterSelection.index(at: time, chapters: chapters, original: original) { selected = index }
+    }
+    private func revealControls() {
+        chromeVisible = true
+        let generation = UUID()
+        chromeGeneration = generation
+        Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            if generation == chromeGeneration && visible && player.rate > 0 && !scrubbing { chromeVisible = false }
+        }
+    }
+    private func timeLabel(_ seconds: Double) -> String {
+        let value = seconds.isFinite ? max(0, Int(seconds)) : 0
+        return String(format: "%d:%02d", value / 60, value % 60)
+    }
+    private func requestOrientation(_ orientations: UIInterfaceOrientationMask) {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
+        scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations))
     }
 }
 
