@@ -58,7 +58,7 @@ export function AllowanceRequest({ resource }: { resource: AllowanceResource }) 
         </form>
       ) : (
         <>
-          <p className="mb-3 text-sm text-zinc-400">Purchases are paused during beta. You can request a free allowance increase.</p>
+          <p className="mb-3 text-sm text-zinc-400">PongLens is in beta. Enjoying the app and need more storage or processing minutes? You can request a free allowance increase.</p>
           <button disabled={pending === null} onClick={() => setOpen(true)} className={pill}>Request more {label}</button>
         </>
       )}

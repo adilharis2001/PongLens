@@ -17,7 +17,7 @@ private struct AllowanceRequestRow: View {
                 Text("Request sent. We will notify you when it has been reviewed.")
                     .font(.plBody).foregroundStyle(PL.cyan)
             } else {
-                Text("Purchases are paused during beta. You can request a free allowance increase.")
+                Text("PongLens is in beta. Enjoying the app and need more storage or processing minutes? You can request a free allowance increase.")
                     .font(.plBody).foregroundStyle(PL.text400)
                 Button("Request more \(resource)") { open = true }
                     .buttonStyle(PLSecondaryButtonStyle())
