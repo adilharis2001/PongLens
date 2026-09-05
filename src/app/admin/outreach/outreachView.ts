@@ -40,13 +40,14 @@ export interface OutreachRow {
 }
 
 export type TouchKind = "outreach" | "feedback" | "note";
-export type TouchChannel = "email" | "dm" | "in_person";
+export type TouchChannel = "email" | "dm" | "in_person" | "audio_call" | "video_call";
 
 /** A touch is about exactly one of a platform user or a hand-added person. */
 export interface TouchRow {
   id: string;
   user_id: string | null;
   person_id: string | null;
+  beta_request_id?: string | null;
   kind: TouchKind;
   channel: TouchChannel | null;
   body: string;
@@ -92,6 +93,8 @@ export const CHANNEL_COPY: Record<TouchChannel, string> = {
   email: "Email",
   dm: "DM",
   in_person: "In person",
+  audio_call: "Audio call",
+  video_call: "Video call",
 };
 
 export type QueueKey = "due" | "stuck" | "to_contact" | "quiet";
