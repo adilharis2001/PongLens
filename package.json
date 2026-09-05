@@ -26,6 +26,8 @@
     "test:qa": "node --test --experimental-strip-types src/lib/qa/*.test.ts",
     "qa:affected": "node --experimental-strip-types scripts/qa/affected.ts",
     "test:email": "node --test --experimental-strip-types src/lib/email/*.test.ts",
+    "email:preview": "node --experimental-strip-types scripts/email/preview-catalog.ts",
+    "email:send-samples": "node --experimental-strip-types scripts/email/send-preview-catalog.ts",
     "test:starred": "node --test --experimental-strip-types src/app/starred/starred.test.ts"
   },
   "dependencies": {

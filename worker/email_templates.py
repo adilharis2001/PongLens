@@ -1,7 +1,11 @@
 """Pure PongLens email messages and rendering for the independent worker."""
 
-from dataclasses import dataclass
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass
 import html
+import json
+import sys
 from typing import Any
 from urllib.parse import urlparse
 
@@ -461,3 +465,22 @@ def operational_fixtures() -> list[dict[str, Any]]:
             dashboard_url="https://www.ponglens.com/admin/costs",
         )},
     ]
+
+
+def rendered_fixture_catalog() -> list[dict[str, Any]]:
+    """Synthetic worker messages for previewing without touching product data."""
+    fixtures = [*worker_outcome_fixtures(), *operational_fixtures()]
+    return [
+        {
+            "id": fixture["id"],
+            "label": fixture["id"],
+            **asdict(render_email(fixture["message"])),
+        }
+        for fixture in fixtures
+    ]
+
+
+if __name__ == "__main__":
+    if sys.argv[1:] != ["--fixtures-json"]:
+        raise SystemExit("usage: email_templates.py --fixtures-json")
+    print(json.dumps(rendered_fixture_catalog(), separators=(",", ":")))
