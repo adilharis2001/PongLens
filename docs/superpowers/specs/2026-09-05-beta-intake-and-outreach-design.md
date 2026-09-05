@@ -1,6 +1,6 @@
 # iPhone beta intake, invitations and outreach
 
-Status: product direction approved in conversation; written spec awaiting review.
+Status: approved in conversation on 2026-09-05; implementation authorized.
 Date: 2026-09-05.
 Scope: public desktop/mobile web signup, admin Outreach and feedback, beta email delivery and private storage. No native iOS or worker changes.
 
@@ -11,6 +11,8 @@ This supersedes the immediate-send behavior in the 2026-09-04 iOS beta signup de
 A visitor can request the iPhone beta, tell us what they want to try, and optionally offer feedback. Adil and Anton receive the request and can send the invitation early from the admin portal. Otherwise the invitation is scheduled for 23 hours after the first accepted request. Neither admin must act for access to arrive.
 
 The form promises an email within 24 hours. Scheduling at 23 hours leaves recovery margin; it cannot guarantee inbox delivery during provider outages or to invalid addresses. Delivery problems must be visible to admins rather than reported as successful sends.
+
+Final copy direction at approval: use words sparingly. Keep the approved choices; omit redundant explanations and heading subtitles. Error or consent instructions stay only where needed to use the form correctly.
 
 Applicants belong in the existing Outreach and feedback page even if they have not made a PongLens account. A request or sent invitation is not evidence that they installed the app.
 
