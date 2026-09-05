@@ -148,7 +148,10 @@ struct JournalNoteEditor: View {
             onDone: { Task { await save() } }
         ) {
             Form {
-                if lesson.kind == "lesson" {
+                // Any note of the player's own may name a coach now;
+                // only a coach-written entry has none of its own
+                // (2026-09-04). The web twin is NoteEditor.tsx.
+                if lesson.kind != "coach" {
                     Section {
                         // The picker, not a text field (164). Correcting
                         // an entry is where a journal full of spellings
@@ -169,9 +172,7 @@ struct JournalNoteEditor: View {
                 } else {
                     Section {
                         TextField(
-                            lesson.kind == "lesson"
-                                ? "What your coach told you"
-                                : "What you worked on",
+                            "What you worked on",
                             text: $words, axis: .vertical
                         )
                         .lineLimit(8...20)
@@ -362,9 +363,9 @@ struct JournalNoteEditor: View {
     private func save() async {
         saving = true
         errorMessage = nil
-        // A practice entry has no coach, and the picker is not shown for
-        // one, so nothing is sent for it either.
-        let isLesson = lesson.kind == "lesson"
+        // Every own note may carry a coach; a coach-written entry never
+        // does.
+        let isLesson = lesson.kind != "coach"
         let refId = isLesson ? coachRefId : nil
         let named = refId.flatMap { id in
             coaches.first(where: { $0.id == id })?.displayName

@@ -15,20 +15,22 @@ import { CoachPicker } from "./CoachPicker";
 import type { PlayerCoach } from "@/lib/coaches/playerCoaches";
 
 /**
- * The Journal's capture sheet. Two kinds of entry — a lesson (what a
- * coach gave you) or practice (your own drills and reflections) — and
- * three ways in: write it, speak it (recorded here, transcribed by the
- * same route voice notes use), or paste it. One quiet choice, "Improve
- * with AI", default on: the text comes back as clear grouped points with
- * the original kept; off stores every word exactly as written.
+ * The Journal's capture sheet. ONE kind of entry — a note — with three
+ * ways in: write it, speak it (recorded here, transcribed by the same
+ * route voice notes use), or paste it. It used to make you pick Practice
+ * or Lesson before writing a word, and that choice controlled only
+ * whether a coach could be named; the coach picker is offered on every
+ * note now instead (Adil, 2026-09-04). One quiet choice, "Improve with
+ * AI", default on: the text comes back as clear grouped points with the
+ * original kept; off stores every word exactly as written.
  *
  * Match notes are NOT created here — they are born inside matches, where
  * the footage is.
  *
  * This sheet only ever creates. Editing an existing entry is NoteEditor's
  * job, because what you want to fix afterwards is the note, not the
- * speech-to-text underneath it. That also puts the kind tab and the
- * condense choice where they belong: both are decisions about an entry
+ * speech-to-text underneath it. That also puts the
+ * condense choice where it belongs: a decision about an entry
  * being written, and neither can be re-asked later without rewriting what
  * the entry already is.
  *
@@ -61,7 +63,10 @@ export function JournalEditor({
   createTag: (label: string) => Promise<Tag | null>;
   onSaved: (lesson: Lesson, tags: Tag[]) => void;
 }) {
-  const [kind, setKind] = useState<"practice" | "lesson">("practice");
+  /* The kind is no longer asked for. It is derived on save from whether
+     a coach was named — 'lesson' when one was, 'practice' when not —
+     because that is the only thing the old choice ever controlled (Adil,
+     2026-09-04). Nothing reads it for display any more. */
   const [text, setText] = useState("");
   const [coachRefId, setCoachRefId] = useState<string | null>(null);
   const [shareWithCoach, setShareWithCoach] = useState(false);
@@ -97,7 +102,6 @@ export function JournalEditor({
     }
     if (seeded.current) return;
     seeded.current = true;
-    setKind("practice");
     setText("");
     setCoachRefId(null);
     setShareWithCoach(false);
@@ -166,13 +170,13 @@ export function JournalEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transcript,
-          kind,
+          kind: coachRefId ? "lesson" : "practice",
           summarize,
           imagePath: photo?.path ?? null,
-          // Only a lesson has a coach. Switching back to Practice after
+          // The coach rides along whenever one was named.
           // picking one must not smuggle it through.
-          coachRefId: kind === "lesson" ? coachRefId : null,
-          shareWithCoach: kind === "lesson" && shareWithCoach,
+          coachRefId,
+          shareWithCoach,
         }),
       });
       const data = res.ok ? await res.json() : null;
@@ -197,11 +201,11 @@ export function JournalEditor({
           transcript,
           takeaways: data.takeaways ?? null,
           status: data.status === "ready" ? "ready" : "failed",
-          kind,
-          coach_name: kind === "lesson" ? (chosenCoach?.display_name ?? null) : null,
-          coach_ref_id: kind === "lesson" ? coachRefId : null,
+          kind: coachRefId ? "lesson" : "practice",
+          coach_name: chosenCoach?.display_name ?? null,
+          coach_ref_id: coachRefId,
           shared_with_coach_at:
-            kind === "lesson" && shareWithCoach && chosenCoach
+            shareWithCoach && chosenCoach
               ? new Date().toISOString()
               : null,
           image_path: photo?.path ?? null,
@@ -225,21 +229,6 @@ export function JournalEditor({
 
   if (!open) return null;
 
-  const kindChip = (value: "practice" | "lesson", label: string) => (
-    <button
-      type="button"
-      onClick={() => setKind(value)}
-      aria-pressed={kind === value}
-      className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${
-        kind === value
-          ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
-          : "border-edge text-zinc-400 hover:text-zinc-200"
-      }`}
-    >
-      {label}
-    </button>
-  );
-
   return (
     <div className="fixed inset-0 z-[70]" role="dialog" aria-modal="true">
       <button
@@ -250,10 +239,7 @@ export function JournalEditor({
       />
       <div className="absolute inset-x-0 bottom-0 max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl border border-edge bg-surface p-5 pb-[max(2rem,env(safe-area-inset-bottom))] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-2rem)] sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
         <div className="flex items-center justify-between">
-          <div className="flex gap-1.5">
-            {kindChip("practice", "Practice")}
-            {kindChip("lesson", "Lesson")}
-          </div>
+          <h2 className="text-base font-semibold text-zinc-100">New note</h2>
           <button
             type="button"
             onClick={closeEditor}
@@ -273,18 +259,16 @@ export function JournalEditor({
           </button>
         </div>
         <p className="mt-2 text-sm text-zinc-400">
-          {kind === "lesson"
-            ? "What your coach gave you. Type it, speak it, or paste it."
-            : "Drills, reflections, anything worth keeping."}
+          Anything worth keeping. Type it, speak it, or paste it.
         </p>
 
-        {/* Who taught it. Optional, and only on a lesson — practice is
-            your own. A pick rather than a typed name (164), so the second
-            lesson with someone is the same coach rather than a second
-            spelling of them, and so the entry can reach their account.
-            The share answer sits in here with it: one moment, one
-            decision. */}
-        {kind === "lesson" && (
+        {/* Who taught it, on every note rather than behind a mode picked
+            before a word is written. A pick rather than a typed name
+            (164), so the second lesson with someone is the same coach
+            rather than a second spelling of them, and so the entry can
+            reach their account. The share answer sits in here with it:
+            one moment, one decision. */}
+        {(
           <CoachPicker
             coaches={coaches}
             value={coachRefId}
@@ -302,11 +286,7 @@ export function JournalEditor({
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={
-              kind === "lesson"
-                ? "Paste the transcript, or start writing"
-                : "What did you work on today?"
-            }
+            placeholder="What did you work on today?"
             aria-label="Entry text"
             className="min-h-44 w-full resize-y rounded-xl border border-edge bg-surface-2/40 px-3.5 py-3 pb-11 text-[15px] leading-relaxed text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
           />

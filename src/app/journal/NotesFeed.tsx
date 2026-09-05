@@ -25,7 +25,6 @@ import { FabButton } from "@/components/Fab";
 import { journalTagsForOwner } from "@/lib/journal/tags";
 import { JournalEditor } from "./JournalEditor";
 import { NoteEditor } from "./NoteEditor";
-import { MoveToCoach } from "./MoveToCoach";
 import {
   sortCoaches,
   statusLabel,
@@ -37,13 +36,12 @@ import { askExamples, topOpponentFromNotes } from "@/lib/ask/examples";
 import { Recollect } from "./Recollect";
 import type { RecollectSource } from "@/lib/recollect/types";
 
-type Section =
-  | "all"
-  | "matches"
-  | "lessons"
-  | "practice"
-  | "coach"
-  | "recollect";
+/* Four sections, not six. Lessons and Practice were never two kinds of
+   entry — the composer's choice between them controlled only whether the
+   entry could carry a coach, so the tab bar was showing an internal split
+   rather than a question anybody asks (Adil, 2026-09-04). They are one
+   list now, and the only remaining distinction is who wrote it. */
+type Section = "all" | "matches" | "notes" | "coach" | "recollect";
 
 /**
  * Export a tag's points as ONE video across every match (042). Request →
@@ -244,12 +242,8 @@ export function NotesFeed({
   // entries would otherwise report however many happened to be loaded.
   const [coaches, setCoaches] = useState<PlayerCoach[]>([]);
   // Which coach the lesson list is narrowed to, or null for everyone.
-  const [coachFilter, setCoachFilter] = useState<string | null>(null);
   // Bulk move: the ids ticked, and whether the sheet is up. Empty set
   // means selection mode is off, which is also why leaving it is one tap.
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [selecting, setSelecting] = useState(false);
-  const [movingOpen, setMovingOpen] = useState(false);
   // Working on cues (active + retired). The hook owns loading and every
   // server-confirmed write; it lives here so lesson takeaways and
   // Recollect file cues into the same list the pinned card renders.
@@ -280,8 +274,8 @@ export function NotesFeed({
      new one, and the picker still showed the old coach (2026-09-04).
      Cheap: one RPC, and only when a sheet opens. */
   useEffect(() => {
-    if (composeOpen || noteEditing || movingOpen) void loadCoaches();
-  }, [composeOpen, noteEditing, movingOpen, loadCoaches]);
+    if (composeOpen || noteEditing) void loadCoaches();
+  }, [composeOpen, noteEditing, loadCoaches]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -551,7 +545,7 @@ export function NotesFeed({
   const filteredNotes = (rows ?? []).filter(noteMatches);
   const filteredLessons = lessons
     .filter(lessonMatches)
-    .filter((l) => !coachFilter || l.coach_ref_id === coachFilter);
+;
   const filteredShared = shared.filter(
     (e) =>
       tokens.length === 0 ||
@@ -628,39 +622,6 @@ export function NotesFeed({
     [coaches, userId],
   );
 
-  /** The bulk move. One statement, so a half-moved batch is impossible,
-   *  and the trigger does the rest: it copies the name onto every row and
-   *  refuses anything that is not this player's own coach. */
-  const moveEntries = useCallback(
-    async (ids: string[], coachRefId: string, share: boolean) => {
-      if (ids.length === 0) return false;
-      const at = share ? new Date().toISOString() : null;
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("lessons")
-        .update({ coach_ref_id: coachRefId, shared_with_coach_at: at })
-        .in("id", ids);
-      if (error) return false;
-      const name =
-        coaches.find((c) => c.id === coachRefId)?.display_name ?? null;
-      setLessons((ls) =>
-        ls.map((l) =>
-          ids.includes(l.id)
-            ? {
-                ...l,
-                coach_ref_id: coachRefId,
-                shared_with_coach_at: at,
-                coach_name: name ?? l.coach_name,
-              }
-            : l,
-        ),
-      );
-      void loadCoaches();
-      return true;
-    },
-    [coaches, loadCoaches],
-  );
-
   // The rail: every tag with any reach — points (tag_stats) or entries.
   const railTags = useMemo(() => {
     const statByTag = new Map(tagStats.map((s) => [s.tag_id, s]));
@@ -700,17 +661,9 @@ export function NotesFeed({
     ...(section === "all" || section === "matches"
       ? filteredNotes.map((n) => ({ type: "note" as const, note: n }))
       : []),
-    ...(section === "all"
+    ...(section === "all" || section === "notes"
       ? filteredLessons.map((l) => ({ type: "lesson" as const, lesson: l }))
-      : section === "lessons"
-        ? filteredLessons
-            .filter((l) => l.kind !== "practice")
-            .map((l) => ({ type: "lesson" as const, lesson: l }))
-        : section === "practice"
-          ? filteredLessons
-              .filter((l) => l.kind === "practice")
-              .map((l) => ({ type: "lesson" as const, lesson: l }))
-          : []),
+      : []),
     ...(section === "all" || section === "coach"
       ? filteredShared.map((e) => ({ type: "shared" as const, entry: e }))
       : []),
@@ -767,7 +720,12 @@ export function NotesFeed({
         if (matchFilter) clearMatchFilter();
       }}
       aria-pressed={section === value}
-      className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
+      /* Tighter on a phone so the whole set fits 393px without a
+         sideways scroll — a primary navigation row you have to drag is
+         one you miss options in. Roomy again from sm up, where there is
+         width to spend. The height, which is what a thumb actually
+         needs, does not change. */
+      className={`shrink-0 whitespace-nowrap rounded-full px-2 py-1.5 text-[13px] font-medium transition-colors sm:px-3.5 ${
         section === value
           ? "bg-surface-2 text-white"
           : "text-zinc-500 hover:text-zinc-300"
@@ -849,56 +807,13 @@ export function NotesFeed({
     />
   );
 
-  const toggleSelected = (id: string) =>
-    setSelected((s) => {
-      const next = new Set(s);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  /* While moving entries the card keeps its own controls but gains a tick
-     box. A practice entry has no coach, so it is not offered: moving one
-     would be attributing your own drills to somebody who never gave
-     them. */
-  const lessonItem = (l: Lesson) => {
-    if (!selecting || l.kind === "practice") return lessonCard(l);
-    const on = selected.has(l.id);
-    return (
-      <div key={l.id} className="flex items-start gap-3">
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={on}
-          aria-label={`Select entry ${l.takeaways?.title ?? "entry"}`}
-          onClick={() => toggleSelected(l.id)}
-          className={`mt-4 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition-colors ${
-            on
-              ? "border-cyan-glow bg-cyan-glow text-ink"
-              : "border-edge text-transparent hover:border-cyan-glow/60"
-          }`}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            className="h-4 w-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-            aria-hidden="true"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" d="m5 13 4 4 10-10" />
-          </svg>
-        </button>
-        <div className="min-w-0 flex-1">{lessonCard(l)}</div>
-      </div>
-    );
-  };
+  const lessonItem = (l: Lesson) => lessonCard(l);
 
   const openRecollectSource = useCallback((source: RecollectSource) => {
     setActiveTag(null);
     setQuery("");
     setMatchFilter(null);
-    setSection(source.kind === "practice" ? "practice" : "lessons");
+    setSection("notes");
     window.history.replaceState(null, "", "/journal");
     window.setTimeout(() => {
       document
@@ -919,23 +834,12 @@ export function NotesFeed({
   const empty =
     (rows?.length ?? 0) === 0 && lessons.length === 0 && shared.length === 0;
 
-  /* Whether there is anything to move. The rail shows for a journal with
-     no coaches in it yet as well: that is exactly the journal that needs
-     Move entries most, and hiding the button until a coach exists left
-     the only way in through the composer for a NEW entry. Naming one is
-     inside the move sheet. */
-  const hasLessons = lessons.some((l) => l.kind !== "practice");
-
   return (
     <div>
       {/* Every section of the journal is the same page with a different
           list in it, Recollect included, so the chrome around the list does
           not come and go with the tab. */}
-      {/* The FAB and the move bar share the foot of the screen, so the
-          one that is not being used steps aside. */}
-      {!(selecting && selected.size > 0) && (
-        <FabButton label="New" onClick={() => setComposeOpen(true)} />
-      )}
+      <FabButton label="New" onClick={() => setComposeOpen(true)} />
       <JournalEditor
         open={composeOpen}
         onClose={() => setComposeOpen(false)}
@@ -971,41 +875,6 @@ export function NotesFeed({
           void loadCoaches();
         }}
       />
-      {/* What the ticks are for. Fixed to the foot of the window rather
-          than the list, because the entries being ticked are what the
-          player is looking at and the list is long. */}
-      {selecting && selected.size > 0 && !movingOpen && (
-        <div className="fixed inset-x-0 bottom-0 z-[60] border-t border-edge bg-surface/95 px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
-          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
-            <span className="text-sm text-zinc-300">
-              {selected.size} selected
-            </span>
-            <button
-              type="button"
-              onClick={() => setMovingOpen(true)}
-              className="glow-cta shrink-0 rounded-full bg-cyan-glow px-5 py-2 text-sm font-semibold text-ink"
-            >
-              Move to a coach
-            </button>
-          </div>
-        </div>
-      )}
-      <MoveToCoach
-        open={movingOpen}
-        count={selected.size}
-        coaches={coaches}
-        onCreate={createCoach}
-        onClose={() => setMovingOpen(false)}
-        onMove={async (coachRefId, share) => {
-          const ok = await moveEntries([...selected], coachRefId, share);
-          if (ok) {
-            setSelected(new Set());
-            setSelecting(false);
-          }
-          return ok;
-        }}
-      />
-
       {/* One search across everything the journal holds — and the same
           words, on request, as a question. Typing only ever filters; the
           Ask row below is the deliberate second step. */}
@@ -1148,80 +1017,14 @@ export function NotesFeed({
       {!activeTag &&
         rows !== null &&
         (!empty || recollectEnabled) && (
-        <div className="flex gap-1 overflow-x-auto border-b border-edge/60 pb-2">
+        <div className="flex gap-0.5 overflow-x-auto border-b border-edge/60 pb-2 sm:gap-1">
           {sectionTab("all", "All")}
           {sectionTab("matches", "Matches")}
-          {sectionTab("lessons", "Lessons")}
-          {/* Beside Lessons, because that is what it is: a lesson from a
-              coach. Practice is your own work and belongs after both
-              (Adil, 2026-09-04). */}
-          {shared.length > 0 && sectionTab("coach", "From your coach")}
-          {sectionTab("practice", "Practice")}
+          {sectionTab("notes", "Notes")}
+          {shared.length > 0 && sectionTab("coach", "From Coaches")}
           {recollectEnabled && sectionTab("recollect", "Recollect")}
         </div>
       )}
-
-      {/* Your coaches (164): a filter, and the door into moving entries
-          onto one. Under Lessons only — practice entries are your own, so
-          a coach rail over them would be answering a question nobody
-          asked. It appears the moment there is a coach to name, which is
-          also the moment the picker in the editor stops being empty. */}
-      {!activeTag &&
-        (section === "lessons" || section === "all") &&
-        (coaches.length > 0 || hasLessons) && (
-          <div className="mt-4 flex items-start justify-between gap-3">
-            <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-1">
-              {coaches.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setCoachFilter(null)}
-                aria-pressed={coachFilter === null}
-                className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${
-                  coachFilter === null
-                    ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
-                    : "border-edge text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                All coaches
-              </button>
-              )}
-              {sortCoaches(coaches).map((c) => {
-                const on = coachFilter === c.id;
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => setCoachFilter(on ? null : c.id)}
-                    aria-pressed={on}
-                    title={statusLabel(c)}
-                    className={`shrink-0 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${
-                      on
-                        ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
-                        : "border-edge text-zinc-400 hover:text-zinc-200"
-                    }`}
-                  >
-                    {c.display_name}
-                    {c.entry_count > 0 && (
-                      <span className="ml-1.5 tabular-nums text-zinc-500">
-                        {c.entry_count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setSelecting((v) => !v);
-                setSelected(new Set());
-              }}
-              className="shrink-0 rounded-full border border-edge bg-surface-2 px-4 py-1.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white"
-            >
-              {selecting ? "Done" : "Move entries"}
-            </button>
-          </div>
-        )}
 
       {activeTag ? (
         <>
@@ -1445,13 +1248,11 @@ export function NotesFeed({
         </>
       ) : feedItems.length === 0 ? (
         <p className="mt-4 text-sm text-zinc-500">
-          {section === "practice"
-            ? "No practice entries yet. New starts one."
-            : section === "lessons"
-              ? "No lessons yet. New saves your first."
-              : section === "coach"
-                ? "Nothing from a coach yet."
-                : "Nothing found."}
+          {section === "notes"
+            ? "No notes yet. New saves your first."
+            : section === "coach"
+              ? "Nothing from a coach yet."
+              : "Nothing found."}
         </p>
       ) : (
         <>

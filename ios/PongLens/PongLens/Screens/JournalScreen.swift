@@ -15,11 +15,11 @@ struct JournalScreen: View {
     @State private var lessonRecordOpen = false
 
     /// Everything the composer needs, in one value. Presenting on a flag
-    /// while the kind and text sat in their own @State meant the sheet
-    /// could be built before those landed.
+    /// while the text sat in its own @State meant the sheet could be
+    /// built before it landed. The kind used to ride along here too; it
+    /// is derived on save now (2026-09-04).
     struct ComposerRequest: Identifiable {
         let id = UUID()
-        var kind = "practice"
         var text = ""
     }
     @State private var composerRequest: ComposerRequest?
@@ -118,10 +118,8 @@ struct JournalScreen: View {
         // one of the two is dropped.
         .sheet(isPresented: $newEntryOpen, onDismiss: {
             switch entryChoice {
-            case .practice:
-                composerRequest = ComposerRequest(kind: "practice")
-            case .lesson:
-                composerRequest = ComposerRequest(kind: "lesson")
+            case .note:
+                composerRequest = ComposerRequest()
             case .record:
                 lessonRecordOpen = true
             case nil:
@@ -148,7 +146,7 @@ struct JournalScreen: View {
         // recorded lesson opened as an empty practice note.
         .sheet(item: $composerRequest) { request in
             JournalComposer(
-                store: store, initialKind: request.kind, initialText: request.text
+                store: store, initialText: request.text
             ) {
                 Task { await store.load(userId: app.userId) }
             }
@@ -184,7 +182,7 @@ struct JournalScreen: View {
     private func revealSource(_ source: RecollectSource, proxy: ScrollViewProxy) {
         selectedTag = nil
         query = ""
-        tab = source.kind == "practice" ? "Practice" : "Lessons"
+        tab = "Notes"
         if let i = feedItems.firstIndex(where: { $0.id == source.lessonId }), i >= feedCap {
             showAll = true
         }
@@ -343,26 +341,32 @@ struct JournalScreen: View {
     // MARK: - Tabs + feed
 
     private var tabs: some View {
-        // "From your coach" is a filter, not a tab bar item: it appears
-        // once a coach has shared something, the same way Recollect appears
-        // when it is on. Its entries also sit under All, the way the web's
-        // journal reads (Adil, 2026-09-02) — no section of their own.
-        // Beside Lessons, because that is what it is: a lesson from a
-        // coach. Practice is your own work and belongs after both (Adil,
-        // 2026-09-04). Built in two halves so the optional tab keeps its
-        // place in the middle rather than falling to the end.
-        let names = ["All", "Matches", "Lessons"]
-            + (store.coachShared.isEmpty ? [] : ["From your coach"])
-            + ["Practice"]
+        // Four, not six. Lessons and Practice were never two kinds of
+        // entry — the composer's choice between them controlled only
+        // whether a coach could be named — so they are one list now
+        // (Adil, 2026-09-04). "From Coaches" is a filter, not a tab bar
+        // item: it appears once a coach has shared something, the same
+        // way Recollect appears when it is on, and its entries also sit
+        // under All. Built in halves so the optional tab keeps its place
+        // in the middle rather than falling to the end.
+        let names = ["All", "Matches", "Notes"]
+            + (store.coachShared.isEmpty ? [] : ["From Coaches"])
             + (store.recollectEnabled ? ["Recollect"] : [])
         return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+            // 13/8/2, the same numbers the web uses below sm, so the two
+            // tab rows are the same object on both platforms and the whole
+            // set fits a 402pt phone without a sideways drag — a primary
+            // navigation row you have to scroll is one you miss options
+            // in. The vertical padding, which is what a thumb actually
+            // needs, is unchanged. A narrower phone still scrolls, which
+            // is the graceful end of this rather than a broken one.
+            HStack(spacing: 2) {
                 ForEach(names, id: \.self) { name in
                     let active = tab == name
                     Button(name) { tab = name }
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(active ? .white : PL.text500)
-                        .padding(.horizontal, 14)
+                        .padding(.horizontal, 8)
                         .padding(.vertical, 8)
                         .background(active ? PL.surface2 : .clear, in: Capsule())
                         .buttonStyle(.plain)
@@ -401,19 +405,11 @@ struct JournalScreen: View {
         if tab == "All" || tab == "Matches" {
             items += store.notes.map { .note($0) }
         }
-        if tab == "All" || tab == "From your coach" {
+        if tab == "All" || tab == "From Coaches" {
             items += store.coachShared.map { .coach($0) }
         }
-        if tab != "Matches", tab != "From your coach" {
-            items += store.lessons
-                .filter { lesson in
-                    switch tab {
-                    case "Lessons": lesson.kind == "lesson"
-                    case "Practice": lesson.kind == "practice"
-                    default: true
-                    }
-                }
-                .map { .lesson($0) }
+        if tab != "Matches", tab != "From Coaches" {
+            items += store.lessons.map { .lesson($0) }
         }
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         if !q.isEmpty, !askable(query) {
@@ -503,9 +499,8 @@ struct JournalScreen: View {
 
     private var emptyLine: String {
         switch tab {
-        case "Lessons": "No lessons yet. New saves your first."
-        case "Practice": "No practice entries yet. New starts one."
-        case "From your coach": "Nothing from a coach yet."
+        case "Notes": "No notes yet. New saves your first."
+        case "From Coaches": "Nothing from a coach yet."
         default: "Nothing found."
         }
     }
@@ -941,9 +936,11 @@ struct AskPanelView: View {
 
     private func kindLabel(_ kind: String) -> String {
         switch kind {
-        case "note": "Note"
-        case "lesson": "Lesson"
-        case "practice": "Practice"
+        // Practice and Lesson both read "Note" now; a match note keeps
+        // its own label because it is anchored to footage.
+        case "note": "Match note"
+        case "lesson": "Note"
+        case "practice": "Note"
         case "match": "Match"
         case "working_on": "Working on"
         case "tags": "Tags"
@@ -1101,13 +1098,18 @@ struct LessonCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 4) {
-                if lesson.kind == "lesson" {
+                // Derived from the coach, not from kind. Practice and
+                // Lesson stopped being a choice (2026-09-04), and an entry
+                // that gains a coach later keeps whatever kind it was
+                // written with — so reading kind here would label it
+                // wrongly.
+                if let coachName = lesson.coachName, !coachName.isEmpty {
                     (Text("Lesson with ").foregroundColor(PL.text500)
-                        + Text(lesson.coachName ?? "your coach").foregroundColor(PL.text200).fontWeight(.semibold)
+                        + Text(coachName).foregroundColor(PL.text200).fontWeight(.semibold)
                         + Text(" · \(PGDate.shortDate(lesson.createdAt))").foregroundColor(PL.text500))
                         .font(.system(size: 13))
                 } else {
-                    Text("Practice · \(PGDate.shortDate(lesson.createdAt))")
+                    Text("Note · \(PGDate.shortDate(lesson.createdAt))")
                         .font(.system(size: 13))
                         .foregroundStyle(PL.text500)
                 }
@@ -1355,9 +1357,7 @@ struct EntryShareSheet: View {
         // The entry's current headline rides along and is stored on the
         // link, so the Account list can tell shared entries apart.
         // Re-sharing refreshes it (the route patches the title on reuse).
-        let kindLine = lesson.kind == "practice"
-            ? "Practice"
-            : lesson.coachName.map { "Lesson with \($0)" } ?? "Lesson"
+        let kindLine = lesson.coachName.map { "Lesson with \($0)" } ?? "Note"
         let title = lesson.takeaways?.title
             ?? "\(kindLine) · \(PGDate.shortDate(lesson.createdAt))"
         struct Req: Encodable {
@@ -1396,8 +1396,7 @@ struct EntryShareSheet: View {
 // MARK: - Composer
 
 enum NewEntryChoice {
-    case practice
-    case lesson
+    case note
     case record
 }
 
@@ -1414,15 +1413,10 @@ struct NewEntrySheet: View {
     var body: some View {
         PLChooserSheet(title: "New entry") {
             PLChooserRow(
-                icon: "figure.table.tennis",
-                title: "Practice note",
-                detail: "Drills, reflections, anything worth keeping."
-            ) { onChoose(.practice) }
-            PLChooserRow(
-                icon: "text.bubble",
-                title: "Lesson",
-                detail: "What your coach gave you. Type it, speak it, or paste it."
-            ) { onChoose(.lesson) }
+                icon: "square.and.pencil",
+                title: "Note",
+                detail: "Anything worth keeping. Say who taught it if a coach did."
+            ) { onChoose(.note) }
             PLChooserRow(
                 icon: "waveform",
                 title: "Audio record a lesson",
@@ -1440,7 +1434,6 @@ struct JournalComposer: View {
     let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var kind: String
     /// Which of the player's own coaches taught it, and whether they may
     /// read it (164). A pick, not a typed name: two spellings of one
     /// person is the defect that replaced.
@@ -1472,13 +1465,11 @@ struct JournalComposer: View {
 
     init(
         store: JournalStore,
-        initialKind: String = "practice",
         initialText: String = "",
         onSaved: @escaping () -> Void
     ) {
         self.store = store
         self.onSaved = onSaved
-        _kind = State(initialValue: initialKind)
         _body_ = State(initialValue: initialText)
     }
 
@@ -1498,23 +1489,21 @@ struct JournalComposer: View {
             onDone: { Task { await save() } }
         ) {
             Form {
-                if kind == "lesson" {
-                    Section {
-                        CoachPickerRow(
-                            coaches: store.playerCoaches,
-                            coachRefId: $coachRefId,
-                            shareWithCoach: $shareWithCoach,
-                            onCreate: { await store.createCoach(named: $0) },
-                            onAppearReload: { await store.loadCoaches() }
-                        )
-                    }
+                // Offered on every note now, rather than behind a mode
+                // picked before a word is written (2026-09-04).
+                Section {
+                    CoachPickerRow(
+                        coaches: store.playerCoaches,
+                        coachRefId: $coachRefId,
+                        shareWithCoach: $shareWithCoach,
+                        onCreate: { await store.createCoach(named: $0) },
+                        onAppearReload: { await store.loadCoaches() }
+                    )
                 }
 
                 Section {
                     TextField(
-                        kind == "lesson"
-                            ? "Paste the transcript, or start writing"
-                            : "What did you work on today?",
+                        "What did you work on today?",
                         text: $body_, axis: .vertical
                     )
                     .lineLimit(8...20)
@@ -1586,11 +1575,7 @@ struct JournalComposer: View {
         }
     }
 
-    /// The kind is settled before this opens, so the bar says which one
-    /// this is instead of asking again.
-    private var title: String {
-        kind == "lesson" ? "New lesson" : "New practice note"
-    }
+    private let title = "New note"
 
     /// Photographed pages, in the same section as dictation because they
     /// are the same offer: a way to get words into the field without
@@ -1691,20 +1676,22 @@ struct JournalComposer: View {
     private func save() async {
         saving = true
         errorMessage = nil
-        // Switching back to Practice after picking a coach must not
-        // smuggle them through.
-        let refId = kind == "lesson" ? coachRefId : nil
+        // The kind is derived, never chosen: 'lesson' when a coach was
+        // named, 'practice' when not. It is the only thing the old
+        // Practice/Lesson choice ever controlled, and nothing reads it
+        // for display any more. The web twin is JournalEditor.tsx.
+        let refId = coachRefId
         let named = refId.flatMap { id in
             store.playerCoaches.first(where: { $0.id == id })?.displayName
         }
         let ok = await store.saveEntry(
             transcript: body_.trimmingCharacters(in: .whitespacesAndNewlines),
-            kind: kind,
+            kind: refId == nil ? "practice" : "lesson",
             coachName: named,
             summarize: summarize,
             imagePath: photo.path,
             coachRefId: refId,
-            shareWithCoach: kind == "lesson" && shareWithCoach && refId != nil
+            shareWithCoach: shareWithCoach && refId != nil
         )
         saving = false
         if ok {

@@ -136,11 +136,7 @@ export function LessonCard({
   const shareTitle =
     t?.title ??
     `${
-      lesson.kind === "practice"
-        ? "Practice"
-        : lesson.coach_name
-          ? `Lesson with ${lesson.coach_name}`
-          : "Lesson"
+      lesson.coach_name ? `Lesson with ${lesson.coach_name}` : "Note"
     } · ${shortDateTime(lesson.created_at)}`;
 
   return (
@@ -149,13 +145,18 @@ export function LessonCard({
       className="scroll-mt-24 rounded-2xl border border-edge bg-surface p-4"
     >
       <p className="text-xs text-zinc-500">
-        {lesson.kind === "practice" ? "Practice" : "Lesson"}
+        {/* Derived from the coach, not from kind. Practice and Lesson
+            stopped being a choice (2026-09-04), and an entry that gains a
+            coach later keeps whatever kind it was written with — so
+            reading kind here would label it wrongly. */}
         {lesson.coach_name ? (
           <>
-            {" with "}
+            {"Lesson with "}
             <span className="text-zinc-300">{lesson.coach_name}</span>
           </>
-        ) : null}
+        ) : (
+          "Note"
+        )}
         {" · "}
         {shortDateTime(lesson.created_at)}
         {/* Whether the coach can read it (164). Only ever shown when they
@@ -279,7 +280,7 @@ export function LessonCard({
       {/* Same tag row as a point's — one vocabulary across the app. */}
       <div className="mt-3">
         <PointTags
-          pointLabel={lesson.kind === "practice" ? "Practice entry" : "Lesson"}
+          pointLabel={lesson.coach_name ? "Lesson" : "Note"}
           tags={tags}
           vocab={vocab}
           onToggle={onToggleTag}

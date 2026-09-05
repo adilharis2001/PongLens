@@ -57,13 +57,18 @@ export function askable(query: string): boolean {
     q.includes(" ");
 }
 
+/* Practice and Lesson both read "Note": they stopped being a distinction
+   the player makes (2026-09-04), and an entry that gained a coach later
+   still carries whatever kind it was written with. "Match note" keeps its
+   own label because it is anchored to footage, which is a real
+   difference. */
 const KIND_LABEL: Record<AskSource["kind"], string> = {
-  note: "Note",
-  lesson: "Lesson",
-  practice: "Practice",
+  note: "Match note",
+  lesson: "Note",
+  practice: "Note",
   match: "Match",
   working_on: "Working on",
-  coach: "From your coach",
+  coach: "From Coaches",
   tags: "Tags",
   profile: "Profile",
 };
