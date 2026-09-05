@@ -1152,8 +1152,11 @@ export function NotesFeed({
           {sectionTab("all", "All")}
           {sectionTab("matches", "Matches")}
           {sectionTab("lessons", "Lessons")}
-          {sectionTab("practice", "Practice")}
+          {/* Beside Lessons, because that is what it is: a lesson from a
+              coach. Practice is your own work and belongs after both
+              (Adil, 2026-09-04). */}
           {shared.length > 0 && sectionTab("coach", "From your coach")}
+          {sectionTab("practice", "Practice")}
           {recollectEnabled && sectionTab("recollect", "Recollect")}
         </div>
       )}

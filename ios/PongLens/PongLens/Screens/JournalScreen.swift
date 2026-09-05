@@ -347,8 +347,13 @@ struct JournalScreen: View {
         // once a coach has shared something, the same way Recollect appears
         // when it is on. Its entries also sit under All, the way the web's
         // journal reads (Adil, 2026-09-02) — no section of their own.
-        let names = ["All", "Matches", "Lessons", "Practice"]
+        // Beside Lessons, because that is what it is: a lesson from a
+        // coach. Practice is your own work and belongs after both (Adil,
+        // 2026-09-04). Built in two halves so the optional tab keeps its
+        // place in the middle rather than falling to the end.
+        let names = ["All", "Matches", "Lessons"]
             + (store.coachShared.isEmpty ? [] : ["From your coach"])
+            + ["Practice"]
             + (store.recollectEnabled ? ["Recollect"] : [])
         return ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
