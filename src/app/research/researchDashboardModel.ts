@@ -8,6 +8,14 @@ export interface ResearchPage {
 
 export const RESEARCH_PAGES = [
   {
+    title: "V3 serve detector",
+    category: "Card assembly",
+    description:
+      "The rebuilt card assembler, card by card against your scorekeeper. Every point you kept, whether it got exactly one card, who served, and where each card starts and stops.",
+    href: "/research/v3-serve-detector",
+    accent: "magenta",
+  },
+  {
     title: "Active ball",
     category: "Model evaluation",
     description: "Mark the active ball in short frame sequences and review the locally trained detector.",
