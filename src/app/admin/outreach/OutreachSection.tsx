@@ -18,6 +18,7 @@ import {
   STATUSES,
   touchLine,
   type OutreachRow,
+  type PlayerKind,
   type OutreachStatus,
   type PersonRow,
   type TouchChannel,
@@ -49,6 +50,10 @@ export function OutreachSection() {
   const [touches, setTouches] = useState<TouchRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"players" | "feedback">("players");
+  /** Real / team / test, shared with the Players page (176). Opens on
+   *  Real: this queue is a list of people to write to, and our own
+   *  accounts were sitting in it. */
+  const [kindFilter, setKindFilter] = useState<PlayerKind | "all">("real");
   const [open, setOpen] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
 
@@ -100,6 +105,21 @@ export function OutreachSection() {
             supabase.rpc("admin_outreach_status_set", {
               p_user_id: row.user_id,
               p_status: status,
+            })
+        );
+
+  /** The same control the Players page has, writing the same row, so
+   *  marking somebody here moves them there and the other way round. */
+  const setKind = (row: OutreachRow, kind: PlayerKind) =>
+    row.kind === kind
+      ? Promise.resolve()
+      : act(
+          () => patch(row.user_id, { kind }),
+          () => patch(row.user_id, { kind: row.kind }),
+          () =>
+            supabase.rpc("admin_player_kind_set", {
+              p_user_id: row.user_id,
+              p_kind: kind,
             })
         );
 
@@ -296,10 +316,19 @@ export function OutreachSection() {
     );
   }
 
-  const visible = rows.filter((r) => !r.hidden);
-  const hiddenRows = rows.filter((r) => r.hidden);
+  const kindCounts: Record<string, number> = {
+    real: 0, team: 0, test: 0, all: rows.length,
+  };
+  for (const r of rows) kindCounts[r.kind] = (kindCounts[r.kind] ?? 0) + 1;
+  // Applied before the queues are built, so a filtered-out account cannot
+  // sit in "to contact" and inflate the section counts.
+  const ofKind =
+    kindFilter === "all" ? rows : rows.filter((r) => r.kind === kindFilter);
+
+  const visible = ofKind.filter((r) => !r.hidden);
+  const hiddenRows = ofKind.filter((r) => r.hidden);
   const now = new Date();
-  const queues = buildQueues(rows, now);
+  const queues = buildQueues(ofKind, now);
   const personQueues = buildPersonQueues(people, now);
   const feedback = touches.filter((t) => t.kind === "feedback");
   const nameOf = (t: TouchRow) => {
@@ -329,6 +358,7 @@ export function OutreachSection() {
         onStatus={(s) => void setStatus(row, s)}
         onFollowUp={(on) => void setFollowUp(row, on)}
         onHidden={(h) => void setHidden(row, h)}
+        onKind={(k) => void setKind(row, k)}
         onAdd={(kind, channel, body) => addTouch(row, kind, channel, body)}
         onDeleteTouch={deleteTouch}
       />
@@ -362,22 +392,52 @@ export function OutreachSection() {
     <>
       {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
 
-      <div className="flex gap-2">
-        {(["players", "feedback"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`rounded-full border px-4 py-1.5 text-sm transition-colors ${
-              tab === t
-                ? "border-cyan-glow/50 text-cyan-glow"
-                : "border-edge text-zinc-400 hover:text-zinc-200"
-            }`}
-          >
-            {t === "players"
-              ? countLabel(visible.length + people.length, "player")
-              : `Feedback (${feedback.length})`}
-          </button>
-        ))}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex gap-2">
+          {(["players", "feedback"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`rounded-full border px-4 py-1.5 text-sm transition-colors ${
+                tab === t
+                  ? "border-cyan-glow/50 text-cyan-glow"
+                  : "border-edge text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              {t === "players"
+                ? countLabel(visible.length + people.length, "player")
+                : `Feedback (${feedback.length})`}
+            </button>
+          ))}
+        </div>
+
+        {/* The same four the Players page offers, on the same rule, so a
+            person marked in one place is marked in both. Only on the
+            players tab: feedback is logged against a person, and a note
+            somebody left does not stop being feedback because their
+            account turned out to be ours. */}
+        {tab === "players" && (
+          <div className="flex gap-1 overflow-x-auto">
+            {(["real", "team", "test", "all"] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKindFilter(k)}
+                aria-pressed={kindFilter === k}
+                className={`shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                  kindFilter === k
+                    ? "bg-surface-2 text-white"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                {k === "all" ? "All" : k[0].toUpperCase() + k.slice(1)}
+                <span className="ml-1.5 tabular-nums text-zinc-600">
+                  {kindCounts[k] ?? 0}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {tab === "feedback" ? (
@@ -828,6 +888,7 @@ function UserDetail({
   onStatus,
   onFollowUp,
   onHidden,
+  onKind,
   onAdd,
   onDeleteTouch,
 }: {
@@ -836,6 +897,7 @@ function UserDetail({
   onStatus: (s: OutreachStatus) => void;
   onFollowUp: (on: string | null) => void;
   onHidden: (h: boolean) => void;
+  onKind: (k: PlayerKind) => void;
   onAdd: (
     kind: TouchKind,
     channel: TouchChannel | null,
@@ -887,14 +949,31 @@ function UserDetail({
         onDeleteTouch={onDeleteTouch}
       />
 
-      {!row.hidden && (
-        <button
-          onClick={() => onHidden(true)}
-          className="mt-4 rounded-full border border-edge px-3 py-1 text-sm text-zinc-400 transition-colors hover:border-amber-400/40 hover:text-amber-300"
-        >
-          Hide from outreach
-        </button>
-      )}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        {/* Marking somebody writes the same row the Players page reads.
+            Hiding is different and stays: it takes ONE person out of the
+            queue without saying they are not a user. */}
+        <label className="flex items-center gap-2 text-sm text-zinc-500">
+          Kind
+          <select
+            value={row.kind}
+            onChange={(e) => onKind(e.target.value as PlayerKind)}
+            className="rounded-full border border-edge bg-surface-2 px-2.5 py-1 text-xs text-zinc-300 focus:border-cyan-glow/60 focus:outline-none"
+          >
+            <option value="real">Real</option>
+            <option value="team">Team</option>
+            <option value="test">Test</option>
+          </select>
+        </label>
+        {!row.hidden && (
+          <button
+            onClick={() => onHidden(true)}
+            className="rounded-full border border-edge px-3 py-1 text-sm text-zinc-400 transition-colors hover:border-amber-400/40 hover:text-amber-300"
+          >
+            Hide from outreach
+          </button>
+        )}
+      </div>
     </div>
   );
 }

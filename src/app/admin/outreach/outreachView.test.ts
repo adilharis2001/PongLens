@@ -30,6 +30,7 @@ function row(over: Partial<OutreachRow> = {}): OutreachRow {
     journal_entries: 0,
     share_links: 0,
     is_coach: false,
+  kind: "real" as const,
     status: "new",
     follow_up_on: null,
     hidden: false,
