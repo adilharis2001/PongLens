@@ -50,3 +50,33 @@ class LessonContextTests(unittest.TestCase):
    result=contextualize_edit(rt,{},self.fixture(),[],600,directory)
   self.assertEqual(rt.calls,2)
   self.assertIn('except in tight',result['chapters'][0]['cues'][0])
+
+ def test_three_contextual_reminders_survive_and_fit_export_panel(self):
+  cues=[
+   'When an opponent pushes with more backspin than you expected, make a small adjustment to your usual opening shot.',
+   'When your opening attempt is close, try again confidently and use the result to adjust to that opponent’s push.',
+   'When learning how a new opponent pushes, keep the rest of your opening consistent so you can judge each adjustment.'
+  ]
+  class Runtime:
+   def stage(self,*args):pass
+   def model(self,*args):return {'title':'Adjust to a push with more backspin','cues':cues}
+  with tempfile.TemporaryDirectory() as directory:
+   result=contextualize_edit(Runtime(),{},self.fixture(),[],600,directory)
+   self.assertTrue((Path(directory)/'context-panel-0.png').is_file())
+  self.assertEqual(result['chapters'][0]['cues'],cues)
+  self.assertEqual(result['chapters'][0]['start_s'],200)
+  self.assertEqual(result['chapters'][0]['end_s'],250)
+
+ def test_panel_retry_keeps_three_distinct_reminders(self):
+  cues=['When a push has extra backspin, adjust your usual opening shot.',
+        'When an opening attempt is close, try again and judge its result.',
+        'Against a new opponent, keep the rest of your opening consistent.']
+  class Runtime:
+   calls=0
+   def stage(self,*args):pass
+   def model(self,*args):self.calls+=1;return {'title':'Read the opponent’s push','cues':cues}
+  rt=Runtime()
+  with tempfile.TemporaryDirectory() as directory, patch('worker.lesson_video.draw_panel',side_effect=[ValueError('overflow'),None]):
+   result=contextualize_edit(rt,{},self.fixture(),[],600,directory)
+  self.assertEqual(rt.calls,2)
+  self.assertEqual(len(result['chapters'][0]['cues']),3)
