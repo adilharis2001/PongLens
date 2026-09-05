@@ -59,7 +59,7 @@ class PlacementEmailTests(unittest.TestCase):
     def test_ready_email_keeps_existing_message(self):
         html = worker.done_email_html("vaibhav.mov")
         self.assertIn("Your match is ready", html)
-        self.assertIn("Review your match", html)
+        self.assertIn("Open your match", html)
         self.assertIn("vaibhav.mov", html)
         self.assertIsNone(self.TECHNICAL_LANGUAGE.search(html))
 
@@ -73,8 +73,8 @@ class PlacementEmailTests(unittest.TestCase):
         """
         sent = []
 
-        def capture_email(_to, subject, body, **_kwargs):
-            sent.append((subject, body))
+        def capture_email(_to, rendered, **_kwargs):
+            sent.append((rendered.subject, rendered.html))
 
         with (
             patch.object(worker, "get_user_email", return_value="user@example.com"),
@@ -84,7 +84,7 @@ class PlacementEmailTests(unittest.TestCase):
             worker.notify_job_done(None, "job-id", "user-id")
 
         self.assertEqual([subject for subject, _ in sent],
-                         ["Your match is ready to review"])
+                         ["Your PongLens match is ready"])
         self.assertNotIn("placement", sent[0][1].lower())
 
     def test_no_placement_email_helpers_remain(self):

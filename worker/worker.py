@@ -60,6 +60,14 @@ try:
         deliver_cost_alerts,
     )
     from worker.cost_meter import CostMeter, stable_key
+    from worker.email_templates import (
+        RenderedEmail,
+        admin_job_failure_message,
+        export_ready_message,
+        match_ready_message,
+        render_email,
+        upload_failed_message,
+    )
     from worker.cost_reconcile import (
         record_r2_storage_snapshot,
         run_daily_reconciliation,
@@ -67,6 +75,14 @@ try:
 except ModuleNotFoundError:  # direct `python worker/worker.py` execution
     from cost_alerts import PostgresCostAlertStore, deliver_cost_alerts
     from cost_meter import CostMeter, stable_key
+    from email_templates import (
+        RenderedEmail,
+        admin_job_failure_message,
+        export_ready_message,
+        match_ready_message,
+        render_email,
+        upload_failed_message,
+    )
     from cost_reconcile import (
         record_r2_storage_snapshot,
         run_daily_reconciliation,
@@ -494,7 +510,7 @@ RESEND_API_KEY = os.environ.get("PONGLENS_RESEND_KEY") or keychain(
 # OpenAI key for the upfront content check. Optional: if missing, the check
 # is skipped (fail open) — it must never block job processing.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or keychain("openai-api-key")
-EMAIL_FROM = "PongLens <noreply@ponglens.com>"
+EMAIL_FROM = "PongLens <support@ponglens.com>"
 # Replies land in the Fastmail support mailbox instead of dying at noreply@.
 EMAIL_REPLY_TO = "support@ponglens.com"
 ADMIN_EMAIL = "adilharis2001@gmail.com"
@@ -640,15 +656,19 @@ def address_suppressed(to: str) -> bool:
 
 def send_email(
     to: str,
-    subject: str,
-    html_body: str,
+    subject: str | RenderedEmail,
+    html_body: str | None = None,
     bcc: str | list[str] | None = None,
     *,
     idempotency_key: str | None = None,
     cost_meter: CostMeter | None = None,
 ):
+    rendered = subject if isinstance(subject, RenderedEmail) else None
+    subject_text = rendered.subject if rendered else subject
+    if rendered is None and html_body is None:
+        raise ValueError("legacy email delivery requires an HTML body")
     if not RESEND_API_KEY:
-        log.warning("email skipped (no Resend key in Keychain): %s", subject)
+        log.warning("email skipped (no Resend key in Keychain): %s", subject_text)
         return
     if address_suppressed(to):
         log.info("email skipped (address suppressed): %s", subject)
@@ -664,9 +684,15 @@ def send_email(
         "from": EMAIL_FROM,
         "to": [to],
         "reply_to": EMAIL_REPLY_TO,
-        "subject": subject,
-        "html": html_body,
+        "subject": subject_text,
+        "html": rendered.html if rendered else html_body,
     }
+    if rendered:
+        payload["text"] = rendered.text
+        payload["headers"] = {
+            "X-PongLens-Template-Id": rendered.template_id,
+            "X-PongLens-Template-Version": str(rendered.template_version),
+        }
     if bcc_list:
         payload["bcc"] = bcc_list
     r = requests.post(
@@ -698,7 +724,7 @@ def send_email(
     ])
     log.info(
         "  email sent: %r -> %s%s",
-        subject,
+        subject_text,
         to,
         f" (bcc {', '.join(bcc_list)})" if bcc_list else "",
     )
@@ -832,13 +858,10 @@ def done_email_html(original_name: str, match_id: str | None = None) -> str:
     video they had just been told was ready. Falls back to the dashboard
     only when the match cannot be resolved, which is the old behaviour and
     still better than a dead link."""
-    return email_card_html(
-        "Your match is ready",
-        f"We finished processing {original_name}. Open PongLens to review "
-        "the match point by point, add notes, and share it with your coach.",
-        "Review your match",
+    return render_email(match_ready_message(
+        original_name,
         f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL,
-    )
+    )).html
 
 
 # PLACEMENT SENDS NO EMAIL, in either direction.
@@ -863,15 +886,18 @@ def notify_job_done(conn, job_id: str, user_id: str):
     """Email the uploader that their video is ready. Never raises."""
     try:
         original_name = get_job_original_name(conn, job_id) or "your match video"
-        body = done_email_html(original_name, get_job_match_id(conn, job_id))
-        subject = "Your match is ready to review"
+        match_id = get_job_match_id(conn, job_id)
+        message = render_email(match_ready_message(
+            original_name,
+            f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL,
+        ))
         to = get_user_email(conn, user_id)
         if to:
-            send_email(to, subject, body, bcc=ADMIN_EMAIL)
+            send_email(to, message)
         else:
             log.warning("  no email found for user %s; notifying admin only",
                         user_id)
-            send_email(ADMIN_EMAIL, subject, body)
+            send_email(ADMIN_EMAIL, message)
     except Exception as e:
         log.warning("  done email failed (non-fatal): %s", e)
 
@@ -882,19 +908,12 @@ def notify_job_failed(conn, job_id: str, error: str):
     is exactly who QA is. Never raises.
     """
     try:
-        body = (
-            "<div style=\"font-family:monospace;font-size:13px;\">"
-            f"<p>PongLens job failed.</p>"
-            f"<p><strong>Job:</strong> {html.escape(job_id)}</p>"
-            f"<p><strong>Error:</strong> {html.escape(error[:1000])}</p>"
-            "</div>"
-        )
-        send_email(
-            ADMIN_EMAIL,
-            f"PongLens job failed: {job_id[:8]}",
-            body,
-            bcc=failure_watchers(conn, exclude=ADMIN_EMAIL),
-        )
+        message = render_email(admin_job_failure_message(
+            job_id,
+            error,
+            f"{APP_URL}/admin/uploads",
+        ))
+        send_email(ADMIN_EMAIL, message)
     except Exception as e:
         log.warning("  failure email failed (non-fatal): %s", e)
 
@@ -915,17 +934,14 @@ def notify_upload_failed(conn, user_id: str, kind: str,
     try:
         if not user_id:
             return False
-        what = "Import failed" if kind == "youtube_import" else "Upload failed"
-        body = email_card_html(
-            what,
+        source = "youtube" if kind == "youtube_import" else "upload"
+        rendered = render_email(upload_failed_message(
+            source,
             message or "We couldn't process this video.",
-            "Try another video",
-            f"{APP_URL}/upload",
-        )
+        ))
         to = get_user_email(conn, user_id)
         if to:
-            send_email(to, what, body,
-                       bcc=failure_watchers(conn, exclude=to))
+            send_email(to, rendered)
             return True
         return False
     except Exception as e:
@@ -6158,49 +6174,22 @@ def render_story(manifest: dict, show_score: bool, workdir: str,
 
 
 def reel_email_html(match_url: str) -> str:
-    return f"""\
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your shareable match video is ready.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#f4f5f7;">
-  <tr>
-    <td align="center" style="padding:48px 16px;background-color:#f4f5f7;">
-      <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;width:100%;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:16px;">
-        <tr>
-          <td align="center" style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-            <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
-            <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;color:#0f172a;">Your export is ready</h1>
-            <p style="margin:0 0 28px;font-size:14px;line-height:1.6;color:#475569;">
-              Your shareable match video has finished rendering. Open the
-              match to save it or share it anywhere.
-            </p>
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
-              <tr>
-                <td align="center" style="background-color:#0891b2;border-radius:999px;">
-                  <a href="{match_url}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">Open your match</a>
-                </td>
-              </tr>
-            </table>
-            <p style="margin:32px 0 0;font-size:12px;line-height:1.5;color:#94a3b8;">Sent by PongLens &middot; ponglens.com</p>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
-"""
+    return render_email(export_ready_message(match_url)).html
 
 
 def notify_reel_done(conn, user_id: str, match_id: str):
     """Email the owner that their reel is ready. Never raises."""
     try:
         to = get_user_email(conn, user_id)
-        body = reel_email_html(f"https://www.ponglens.com/match/{match_id}")
+        message = render_email(export_ready_message(
+            f"https://www.ponglens.com/match/{match_id}"
+        ))
         if to:
-            send_email(to, "Your match export is ready", body,
-                       bcc=ADMIN_EMAIL)
+            send_email(to, message)
         else:
             log.warning("  no email for user %s; notifying admin only",
                         user_id)
-            send_email(ADMIN_EMAIL, "Your match export is ready", body)
+            send_email(ADMIN_EMAIL, message)
     except Exception as e:
         log.warning("  reel email failed (non-fatal): %s", e)
 

@@ -108,8 +108,10 @@ class GateRefusalReachesTheUploader(unittest.TestCase):
     def _render(self, message, kind):
         sent = {}
         with mock.patch.object(worker, "send_email",
-                               side_effect=lambda to, subj, body, bcc=None:
-                               sent.update(to=to, subject=subj, body=body)), \
+                               side_effect=lambda to, rendered, **kwargs:
+                               sent.update(to=to, subject=rendered.subject,
+                                           body=rendered.html,
+                                           text=rendered.text)), \
              mock.patch.object(worker, "get_user_email",
                                return_value="player@example.com"), \
              mock.patch.object(worker, "failure_watchers", return_value=[]):
@@ -123,8 +125,8 @@ class GateRefusalReachesTheUploader(unittest.TestCase):
         # message is only findable when it happens to contain no
         # apostrophe, which the table tennis one does.
         for message in worker.GATE_REJECT_MSGS:
-            for kind, subject in (("content_check", "Upload failed"),
-                                  ("youtube_import", "Import failed")):
+            for kind, subject in (("content_check", "We couldn't process your video"),
+                                  ("youtube_import", "We couldn't process your video")):
                 with self.subTest(kind=kind, message=message[:40]):
                     ok, sent = self._render(message, kind)
                     self.assertTrue(ok)
