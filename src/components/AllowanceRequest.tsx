@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { AllowanceResource } from "@/lib/commerce/allowances";
 import { createClient } from "@/lib/supabase/client";
 
-export function AllowanceRequest({ resource }: { resource: AllowanceResource }) {
+export function AllowanceRequest({ resource, compact = false, refreshToken = 0 }: { resource: AllowanceResource; compact?: boolean; refreshToken?: number }) {
   const [pending, setPending] = useState<boolean | null>(null);
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
@@ -19,7 +19,7 @@ export function AllowanceRequest({ resource }: { resource: AllowanceResource }) 
       if (!error) setPending(Boolean(data?.length));
       else { setPending(false); setError("Could not check your requests. You can try again."); }
     });
-  }, [resource]);
+  }, [resource, refreshToken]);
   const submit = async () => {
     setBusy(true); setError(null);
     try {
@@ -46,7 +46,7 @@ export function AllowanceRequest({ resource }: { resource: AllowanceResource }) 
         <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-3">
           <label className="block text-sm text-zinc-300">
             Anything you would like us to know? (optional)
-            <textarea value={message} onChange={(e) => setMessage(e.target.value)} maxLength={1000} rows={3}
+            <textarea autoFocus value={message} onChange={(e) => setMessage(e.target.value)} maxLength={1000} rows={3}
               className="mt-2 block w-full rounded-xl border border-edge bg-ink p-3 text-sm text-zinc-100 focus:border-cyan-glow focus:outline-none" />
           </label>
           <div className="flex flex-wrap gap-2">
@@ -58,7 +58,7 @@ export function AllowanceRequest({ resource }: { resource: AllowanceResource }) 
         </form>
       ) : (
         <>
-          <p className="mb-3 text-sm text-zinc-400">PongLens is in beta. Enjoying the app and need more storage or processing minutes? You can request a free allowance increase.</p>
+          <p className="mb-3 text-sm text-zinc-400">{compact ? "Need a little more? You can request a free allowance increase during beta." : "PongLens is in beta. Enjoying the app and need more storage or processing minutes? You can request a free allowance increase."}</p>
           <button disabled={pending === null} onClick={() => setOpen(true)} className={pill}>Request more {label}</button>
         </>
       )}

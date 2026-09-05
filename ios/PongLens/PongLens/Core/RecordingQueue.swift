@@ -410,6 +410,8 @@ final class RecordingQueue: NSObject {
                         .execute()
                 }
             }
+            var processingJobID: String?
+            var processingErrorCode: String?
             if item.processOn, let matchId {
                 struct ProcessReq: Encodable {
                     let matchId: String
@@ -417,11 +419,16 @@ final class RecordingQueue: NSObject {
                     let placement: Bool
                     let strictness = "normal"
                 }
-                struct ProcessRes: Decodable { let code: String? }
-                let _: ProcessRes? = try? await API.post(
-                    "api/process",
-                    ProcessReq(matchId: matchId.uuidString.lowercased(), placement: item.placementOn)
-                )
+                struct ProcessRes: Decodable { let job_id: String? }
+                do {
+                    let result: ProcessRes = try await API.post(
+                        "api/process",
+                        ProcessReq(matchId: matchId.uuidString.lowercased(), placement: item.placementOn)
+                    )
+                    processingJobID = result.job_id
+                } catch let APIError.http(_, code) {
+                    processingErrorCode = code
+                } catch { processingErrorCode = "unavailable" }
             }
             update(id) {
                 $0.state = .done
@@ -431,9 +438,9 @@ final class RecordingQueue: NSObject {
             NotificationCenter.default.post(name: .plUploadRegistered, object: nil)
             notify(
                 title: "Match uploaded",
-                body: item.processOn
-                    ? "Processing has started. You'll get an email when it's ready."
-                    : "It's in your library, unprocessed."
+                body: UploadProcessingStatus(requested: item.processOn,
+                                             jobID: processingJobID,
+                                             errorCode: processingErrorCode).message
             )
         } catch {
             // The likeliest reason a complete fails is that it already
@@ -497,7 +504,11 @@ final class RecordingQueue: NSObject {
         // The footage's parachute: a permanent failure exports the original
         // to Photos so it exists somewhere the player already trusts.
         exportToPhotos(id)
-        notify(title: "Upload failed", body: "\(message) A copy was saved to Photos.")
+        if AllowanceLimit.isStorage(message) {
+            notify(title: "More storage needed", body: "Your video is safe on this phone. Open PongLens to request more storage.")
+        } else {
+            notify(title: "Upload failed", body: "\(message) A copy was saved to Photos.")
+        }
     }
 
     private func cleanup(_ id: UUID, keepOriginal: Bool) {

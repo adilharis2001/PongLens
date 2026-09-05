@@ -1,4 +1,6 @@
 "use client";
+import { AllowanceRecovery } from "./AllowanceRecovery";
+import { uploadAllowanceResource, importNeedsMinutes } from "@/lib/commerce/allowanceRecovery";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BetaPill } from "@/components/BetaPill";
@@ -173,6 +175,59 @@ export function YouTubeImport({
   const [processingLocked, setProcessingLocked] = useState(false);
   const jobIdRef = useRef<string | null>(null);
   const jobOptionsRef = useRef<Record<string, unknown> | null>(null);
+  const importedIdRef = useRef<string | null>(null);
+  const [importedMatch, setImportedMatch] = useState<{ id: string; status: string; duration_s: number | null } | null>(null);
+  const [importMinutes, setImportMinutes] = useState<number | null>(null);
+  const [importShort, setImportShort] = useState(false);
+  const [importProblem, setImportProblem] = useState<string | null>(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const refreshImported = useCallback(async (rawPath?: string | null) => {
+    const jobId = jobIdRef.current;
+    if (!jobId) return;
+    const supabase = createClient();
+    const [initialMatch, balance] = await Promise.all([
+      supabase.from("matches").select("id, status, duration_s").eq(importedIdRef.current ? "id" : "job_id", importedIdRef.current ?? jobId).maybeSingle(),
+      supabase.rpc("my_processing_state").single(),
+    ]);
+    let match = initialMatch;
+    // Processing replaces matches.job_id. The downloaded video's path stays
+    // stable, including when this tab was asleep through processing startup.
+    if (!match.data && rawPath) {
+      match = await supabase.from("matches").select("id, status, duration_s").eq("raw_path", rawPath).maybeSingle();
+    }
+    if (jobIdRef.current !== jobId) return false;
+    if (match.data) {
+      importedIdRef.current = match.data.id;
+      const active = await supabase.from("jobs").select("id")
+        .eq("options->>match_id", match.data.id).in("status", ["queued", "processing"]).limit(1);
+      if (active.error) return false;
+      setImportedMatch(active.data?.length ? { ...match.data, status: "queued" } : match.data);
+    }
+    const state = balance.data as { minutes_balance?: number } | null;
+    if (typeof state?.minutes_balance === "number") setImportMinutes(state.minutes_balance);
+    return Boolean(match.data) && typeof state?.minutes_balance === "number";
+  }, []);
+  const needsMinutes = importShort || importNeedsMinutes(importedMatch, importMinutes, form.autoProcess);
+  const processImported = async () => {
+    if (!importedMatch || importBusy) return;
+    setImportBusy(true);
+    setImportProblem(null);
+    try {
+    const response = await fetch("/api/process", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ matchId: importedMatch.id, points: true, placement: form.placement, strictness: form.strictness }) });
+    const data = await response.json();
+    if (!response.ok) {
+      setImportShort(data.code === "insufficient_minutes");
+      setImportProblem(data.code === "insufficient_minutes" ? "There aren't enough minutes yet. Your video is saved." : data.code === "queue_full" ? "Your queue is full. Wait for a video to finish, then try again." : "Processing could not start. Try again.");
+      await refreshImported();
+      return;
+    }
+    setImportShort(false);
+    setImportedMatch({ ...importedMatch, status: "queued" });
+    window.dispatchEvent(new CustomEvent("ponglens:job-created"));
+    } catch { setImportProblem("Processing could not start. Your video is saved. Try again."); }
+    finally { setImportBusy(false); }
+  };
 
   useEffect(() => {
     // Clipboard read needs a secure context and browser support; only
@@ -374,7 +429,7 @@ export function YouTubeImport({
       if (done) return;
       const { data } = await supabase
         .from("jobs")
-        .select("status, progress, options, user_message")
+        .select("status, progress, options, user_message, result_path")
         .eq("id", jobId)
         .maybeSingle();
       if (stopped || !data) return;
@@ -412,7 +467,10 @@ export function YouTubeImport({
         data.status === "done" ||
         (data.status === "processing" && (data.progress ?? 0) >= 10);
       if (past) setProcessingLocked(true);
-      if (data.status === "done") done = true;
+      if (data.status === "done") {
+        // A completed download does not prove that processing could start.
+        done = !commerceEnabled || Boolean(await refreshImported(data.result_path));
+      }
     };
     void check();
     const iv = window.setInterval(() => void check(), 8000);
@@ -420,9 +478,14 @@ export function YouTubeImport({
       stopped = true;
       window.clearInterval(iv);
     };
-  }, [phase]);
+  }, [phase, commerceEnabled, refreshImported]);
 
   const reset = useCallback(() => {
+    importedIdRef.current = null;
+    setImportedMatch(null);
+    setImportMinutes(null);
+    setImportShort(false);
+    setImportProblem(null);
     setPhase("idle");
     setUrl("");
     setError(null);
@@ -444,11 +507,15 @@ export function YouTubeImport({
         <h2 className="text-lg font-semibold">Import from YouTube</h2>
         <div className="mt-6">
           <p className="text-center text-sm font-medium text-emerald-400">
-            We&apos;re fetching it. You can leave this page.
+            {importedMatch ? needsMinutes ? "Imported. Your video needs more minutes to process." : importedMatch.status === "uploaded" ? "Imported. Your video is saved in your library." : "Imported. Your video is in your library." : "We're fetching it. You can leave this page."}
           </p>
           <p className="mt-1 text-center text-xs text-zinc-500">
-            You&apos;ll get an email when your match is ready.
+            {importedMatch?.status === "uploaded" ? "You can continue processing when you're ready." : "You'll get an email when your match is ready."}
           </p>
+          {needsMinutes && <AllowanceRecovery resource="minutes" retryLabel="Try processing again" onRetry={processImported} />}
+          {importProblem && <p role="alert" className="mt-3 text-sm text-amber-300">{importProblem}</p>}
+          {importProblem && !needsMinutes && importedMatch?.status === "uploaded" && <button type="button" disabled={importBusy} onClick={() => void processImported()} className="mt-3 rounded-full border border-edge px-4 py-2 text-sm text-zinc-200 disabled:opacity-50">{importBusy ? "Starting…" : "Try processing again"}</button>}
+          {importedMatch && <a className="mt-3 inline-block rounded-full border border-edge px-4 py-2 text-sm text-zinc-200" href={`/match/${importedMatch.id}`}>Open the video</a>}
 
           {/* One form, identical in structure and behavior to the upload
               card's: everything auto-saves. Processing toggles lock once
@@ -770,7 +837,10 @@ export function YouTubeImport({
       </div>
 
       {phase === "error" && error ? (
-        <p className="mt-3 text-sm text-red-300">{error}</p>
+        <div className="mt-3">
+          <p className="text-sm text-red-300">{uploadAllowanceResource(error) ? "There isn't enough storage to import this video. Your link is still here." : error}</p>
+          {uploadAllowanceResource(error) && <AllowanceRecovery resource="storage" onRetry={submit} retryLabel="Try import again" />}
+        </div>
       ) : null}
     </section>
   );

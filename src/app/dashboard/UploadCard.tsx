@@ -16,6 +16,8 @@ import { TrimBar } from "@/components/TrimBar";
 import { createClient } from "@/lib/supabase/client";
 import { installBackGuard, setUploading } from "@/lib/uploadGuard";
 import { QUOTA_ERRORS } from "@/lib/quota";
+import { uploadAllowanceResource } from "@/lib/commerce/allowanceRecovery";
+import { AllowanceRecovery } from "@/components/AllowanceRecovery";
 import { PickSide } from "@/app/match/[id]/PickSide";
 import type { Side } from "@/app/match/[id]/sides";
 import type { MatchServer } from "@/app/match/[id]/serving";
@@ -772,9 +774,14 @@ export function UploadCard({
         window.dispatchEvent(new CustomEvent("ponglens:job-created"));
         return;
       }
-      setAutoState(data?.code === "insufficient_minutes" ? "short" : "manual");
+      if (data?.code === "insufficient_minutes") setAutoState("short");
+      else {
+        setAutoState((previous) => previous === "short" ? "short" : "manual");
+        setSaveError(data?.code === "queue_full" ? "Your queue is full. Wait for a video to finish, then try again." : "Processing could not start. Your video is saved. Try again.");
+      }
     } catch {
-      setAutoState("manual");
+      setAutoState((previous) => previous === "short" ? "short" : "manual");
+      setSaveError("Processing could not start. Your video is saved. Try again.");
     }
   }, [orderId]);
   // Read from the upload handler, which is built once and would otherwise
@@ -1691,9 +1698,10 @@ export function UploadCard({
                     ? undo && undo.minutes > 0
                       ? `${formatMinutes(undo.minutes)} used. You'll get an email when it's ready.`
                       : "You'll get an email when it's ready."
-                    : "Get more minutes in Account."}
+                    : "Your video is saved. You can continue once you have enough minutes."}
                 </p>
               )}
+              {autoState === "short" && <AllowanceRecovery resource="minutes" onRetry={claimProcessing} retryLabel="Try processing again" />}
             </>
           ) : (
             <>
@@ -2061,8 +2069,9 @@ export function UploadCard({
         /* The action follows the error. A file that is the wrong type or
            too long has nothing to retry; a quota wall has nothing at all,
            and the old panel's single Retry button just failed again. */
-        <div className="mt-6 rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-center">
-          <p className="text-sm text-red-300">{error}</p>
+        <div className={`mt-6 rounded-2xl border p-6 text-center ${uploadAllowanceResource(error) ? "border-edge bg-surface" : "border-red-500/30 bg-red-500/10"}`}>
+          <p className={`text-sm ${uploadAllowanceResource(error) ? "text-zinc-300" : "text-red-300"}`}>{uploadAllowanceResource(error) ? "There isn't enough storage for this video. Your selected video is still here." : error}</p>
+          {uploadAllowanceResource(error) && <AllowanceRecovery resource="storage" onRetry={retry} retryLabel="Try upload again" />}
           {errorAction !== "none" && (
             <button
               type="button"

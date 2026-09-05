@@ -1389,10 +1389,13 @@ struct RecordScreen: View {
 struct RecordingUploadRow: View {
     let item: QueuedRecording
     var compact = false
+    @State private var storageOptionsOpen = false
 
     private var queue: RecordingQueue { RecordingQueue.shared }
+    private var storageBlocked: Bool { item.state == .failed && AllowanceLimit.isStorage(item.errorMessage) }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 13))
@@ -1407,7 +1410,7 @@ struct RecordingUploadRow: View {
                     .foregroundStyle(tint)
             }
             Spacer()
-            if item.state == .failed {
+            if item.state == .failed && !storageBlocked {
                 Button("Retry") { queue.retry(item.id) }
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(PL.cyan)
@@ -1419,6 +1422,17 @@ struct RecordingUploadRow: View {
                     .foregroundStyle(PL.text400)
             }
         }
+        if storageBlocked {
+            if compact {
+                Button("Storage options") { storageOptionsOpen = true }
+                    .buttonStyle(PLSecondaryButtonStyle())
+            } else {
+            AllowanceRecoveryView(resource: "storage", retryLabel: "Try upload again") {
+                queue.retry(item.id)
+            }
+            }
+        }
+        }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(
@@ -1429,6 +1443,18 @@ struct RecordingUploadRow: View {
             if !compact {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(PL.edge, lineWidth: 1)
+            }
+        }
+        .sheet(isPresented: $storageOptionsOpen) {
+            PLSheetScaffold(title: "Storage") {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("There isn't enough storage. Your video is safe on this phone.")
+                        .font(.plBody).foregroundStyle(PL.text300)
+                    AllowanceRecoveryView(resource: "storage", retryLabel: "Try upload again") {
+                        queue.retry(item.id)
+                        storageOptionsOpen = false
+                    }
+                }.padding(20)
             }
         }
     }
@@ -1455,7 +1481,7 @@ struct RecordingUploadRow: View {
         case .preparing: "Getting ready to upload"
         case .uploading: "Uploading. It keeps going with the app closed."
         case .finishing: "Almost there"
-        case .failed: item.errorMessage ?? "Upload failed. The footage is safe on this phone."
+        case .failed: storageBlocked ? "There isn't enough storage. Your video is safe on this phone." : item.errorMessage ?? "Upload failed. The footage is safe on this phone."
         case .done: "Uploaded"
         }
     }
@@ -1679,6 +1705,27 @@ struct MatchDetailsSheet: View {
                     Text(processingFootnote)
                 }
 
+                if processOn, let minutesBalance,
+                   queue.items.filter({ $0.sessionId == sessionId }).reduce(0, { $0 + max(1, Int(ceil($1.durationS / 60))) }) > minutesBalance {
+                    Section {
+                        Text("Your video can upload, but it needs more minutes to process.")
+                            .font(.plBody).foregroundStyle(PL.warningText)
+                        AllowanceRecoveryView(resource: "minutes", retryLabel: "Check minutes") {
+                            await loadMinutes()
+                        }
+                    }
+                }
+
+                ForEach(queue.items.filter { $0.sessionId == sessionId && $0.state == .failed && AllowanceLimit.isStorage($0.errorMessage) }) { item in
+                    Section {
+                        Text("There isn't enough storage. Your video is safe on this phone.")
+                            .font(.plBody).foregroundStyle(PL.warningText)
+                        AllowanceRecoveryView(resource: "storage", retryLabel: "Try upload again") {
+                            queue.retry(item.id)
+                        }
+                    }
+                }
+
                 Section {
                     entryRow("Opponent", text: opponentBinding, options: recentOpponents)
                     entryRow("Club or location", text: venueBinding, options: recentVenues)
@@ -1747,13 +1794,7 @@ struct MatchDetailsSheet: View {
             #if DEBUG
             guard TutorialCaptureScenario.current != .playerRecord else { return }
             #endif
-            struct ProcessingRow: Decodable {
-                let minutesBalance: Double?
-                enum CodingKeys: String, CodingKey { case minutesBalance = "minutes_balance" }
-            }
-            let rows: [ProcessingRow]? = try? await supa
-                .rpc("my_processing_state").execute().value
-            minutesBalance = rows?.first?.minutesBalance.map(Int.init)
+            await loadMinutes()
         }
         .onChange(of: processOn) { pushProcessing() }
         .onChange(of: placementOn) { pushProcessing() }
@@ -1806,6 +1847,14 @@ struct MatchDetailsSheet: View {
             text += " Placement maps show where every ball landed and add processing time."
         }
         return text
+    }
+
+    private func loadMinutes() async {
+        struct Row: Decodable {
+            let minutes_balance: Double?
+        }
+        let rows: [Row]? = try? await supa.rpc("my_processing_state").execute().value
+        minutesBalance = rows?.first?.minutes_balance.map(Int.init)
     }
 
     /// Which spoken game the editor is open for; nil game means adding.

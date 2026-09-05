@@ -38,6 +38,7 @@ final class MatchDetailModel {
     var error: String?
     var job: MatchJob?
     var minutesBalance: Int?
+    var needsMoreMinutes = false
 
     var jobRunning: Bool { job?.running ?? false }
 
@@ -214,6 +215,14 @@ final class MatchDetailModel {
         }
     }
 
+    func refreshMinutes() async throws {
+        struct Row: Decodable { let minutes_balance: Double }
+        let rows: [Row] = try await supa.rpc("my_processing_state").execute().value
+        guard let row = rows.first else { throw URLError(.badServerResponse) }
+        minutesBalance = Int(row.minutes_balance)
+        needsMoreMinutes = false
+    }
+
     func refetchMatch(_ id: UUID) async -> MatchRow? {
         try? await supa
             .from("matches")
@@ -259,6 +268,7 @@ final class MatchDetailModel {
             }
             return nil
         } catch let APIError.http(_, code) {
+            if code == "insufficient_minutes" { needsMoreMinutes = true }
             return switch code {
             case "insufficient_minutes": "Not enough minutes for this video."
             case "queue_full": "Your queue is full. Wait for a video to finish."
@@ -1581,6 +1591,12 @@ struct MatchDetailScreen: View {
                             .font(.plCaption)
                             .foregroundStyle(enoughMinutes ? PL.text500 : PL.warningText)
                         }
+                        if !enoughMinutes {
+                            AllowanceRecoveryView(resource: "minutes", retryLabel: "Check minutes") {
+                                try await model.refreshMinutes()
+                                processError = nil
+                            }
+                        }
                     }
                     .padding(.top, 2)
                 }
@@ -1613,6 +1629,7 @@ struct MatchDetailScreen: View {
     }
 
     private var enoughMinutes: Bool {
+        if model.needsMoreMinutes { return false }
         guard let charge = minutesCharge, let balance = model.minutesBalance else { return true }
         return balance >= charge
     }
@@ -1625,6 +1642,7 @@ struct MatchDetailScreen: View {
             trimEnd: trimmed ? trimEnd : nil,
             strictness: strictness
         )
+        if processError != nil { try? await model.refreshMinutes() }
         if processError == nil {
             if let fresh = await model.refetchMatch(current.id) {
                 live = fresh

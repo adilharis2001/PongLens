@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { SpokenGamesToggle, SpokenLine, cleanSpoken } from "./SpokenScore";
 import { useRouter } from "next/navigation";
+import { AllowanceRecovery } from "@/components/AllowanceRecovery";
 import Link from "next/link";
 import { NoteComposer, NoteItem } from "./Notes";
 
@@ -99,6 +100,9 @@ export function RawMatchView({
   const [job, setJob] = useState<ActiveJob | null>(initialJob);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [availableMinutes, setAvailableMinutes] = useState(minutesBalance);
+  const [minutesShort, setMinutesShort] = useState(false);
+  useEffect(() => { setAvailableMinutes(minutesBalance); }, [minutesBalance]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   /** Is the process card open? Closed on a fresh upload; a failed one
    *  opens itself, because its reason and its retry are why anyone is
@@ -291,7 +295,7 @@ export function RawMatchView({
     duration != null &&
     (trimStart > 0.5 || (trimEnd != null && trimEnd < duration - 0.5));
   const enough =
-    charge != null && minutesBalance != null && minutesBalance >= charge;
+    charge != null && availableMinutes != null && availableMinutes >= charge && !minutesShort;
 
   const process = async () => {
     if (busy || charge == null) return;
@@ -312,6 +316,7 @@ export function RawMatchView({
       });
       const data = await res.json();
       if (!res.ok) {
+        if (data.code === "insufficient_minutes") setMinutesShort(true);
         setError(
           data.code === "insufficient_minutes"
             ? "Not enough minutes for this video."
@@ -729,24 +734,26 @@ export function RawMatchView({
                 >
                   {charge != null ? `Process · ${charge} min` : "Process"}
                 </button>
-                {minutesBalance != null && (
+                {availableMinutes != null && (
                   <p
                     className={`mt-2 w-full text-center text-xs sm:max-w-xs ${
                       enough ? "text-zinc-500" : "text-amber-300/90"
                     }`}
                   >
                     {enough
-                      ? `${formatMinutes(minutesBalance)} left`
-                      : `Not enough minutes. You have ${formatMinutes(minutesBalance)}.`}
+                      ? `${formatMinutes(availableMinutes)} left`
+                      : `Not enough minutes. You have ${formatMinutes(availableMinutes)}.`}
                   </p>
                 )}
-                {charge != null && minutesBalance != null && !enough && (
-                  <a
-                    href="/account#minutes"
-                    className="mx-auto mt-3 block w-fit rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-200 hover:border-zinc-500"
-                  >
-                    Get more minutes
-                  </a>
+                {charge != null && availableMinutes != null && !enough && (
+                  <AllowanceRecovery resource="minutes" retryLabel="Check minutes" onRetry={async () => {
+                    const { data, error } = await createClient().rpc("my_processing_state").single();
+                    const state = data as { minutes_balance?: number } | null;
+                    if (error || typeof state?.minutes_balance !== "number") throw new Error("Balance unavailable");
+                    setAvailableMinutes(state.minutes_balance);
+                    setMinutesShort(false);
+                    setError(null);
+                  }} />
                 )}
               </div>
             </>
