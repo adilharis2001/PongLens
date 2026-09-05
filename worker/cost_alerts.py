@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-import html
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from typing import Callable, Protocol
+
+try:
+    from worker.email_templates import cost_alert_message, render_email
+except ModuleNotFoundError:
+    from email_templates import cost_alert_message, render_email
 
 
 @dataclass(frozen=True)
@@ -84,45 +88,22 @@ def _format_usd(value: Decimal) -> str:
     return f"${value.quantize(Decimal('0.01')):,.2f}"
 
 
-def _alert_html(alert: CostAlert, dashboard_url: str) -> str:
-    provider_rows = "".join(
-        "<tr>"
-        f"<td style='padding:7px 0;color:#475569;'>"
-        f"{html.escape(provider)}</td>"
-        f"<td style='padding:7px 0;text-align:right;color:#0f172a;"
-        f"font-variant-numeric:tabular-nums;'>{_format_usd(cost)}</td>"
-        "</tr>"
+def _alert_email(alert: CostAlert, dashboard_url: str):
+    month_label = alert.period_start.strftime("%B %Y")
+    providers = [
+        {"label": provider, "value": _format_usd(cost)}
         for provider, cost in sorted(
             alert.provider_costs.items(),
             key=lambda item: (-item[1], item[0]),
         )
-    )
-    safe_url = html.escape(dashboard_url, quote=True)
-    month_label = alert.period_start.strftime("%B %Y")
-    return f"""\
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">PongLens crossed {_format_usd(alert.threshold_usd)} in {month_label}.&nbsp;&zwnj;&nbsp;&zwnj;</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background:#f4f5f7;">
-  <tr>
-    <td align="center" style="padding:48px 16px;">
-      <table role="presentation" width="520" cellpadding="0" cellspacing="0" border="0" style="max-width:520px;width:100%;background:#fff;border:1px solid #e4e4e7;border-radius:16px;">
-        <tr>
-          <td style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-            <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
-            <p style="margin:0;text-align:center;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#0891b2;">Platform cost alert</p>
-            <h1 style="margin:10px 0 0;text-align:center;font-size:24px;line-height:1.25;color:#0f172a;">Crossed {_format_usd(alert.threshold_usd)}</h1>
-            <p style="margin:10px 0 0;text-align:center;font-size:14px;line-height:1.6;color:#64748b;">Month-to-date estimated spend for {month_label} is now <strong style="color:#0f172a;">{_format_usd(alert.observed_cost_usd)}</strong>.</p>
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:28px 0 0;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;">
-              {provider_rows}
-            </table>
-            <p style="margin:28px 0 0;text-align:center;"><a href="{safe_url}" style="display:inline-block;padding:11px 18px;border-radius:999px;background:#0891b2;color:#fff;text-decoration:none;font-size:13px;font-weight:700;">Open cost dashboard</a></p>
-            <p style="margin:24px 0 0;text-align:center;font-size:11px;line-height:1.5;color:#94a3b8;">Internal metered costs only. Provider reconciliation and synthetic compute are not double-counted.</p>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
-"""
+    ]
+    return render_email(cost_alert_message(
+        threshold=_format_usd(alert.threshold_usd),
+        observed=_format_usd(alert.observed_cost_usd),
+        period=month_label,
+        providers=providers,
+        dashboard_url=dashboard_url,
+    ))
 
 
 def deliver_cost_alerts(
@@ -142,11 +123,7 @@ def deliver_cost_alerts(
         try:
             send_email(
                 recipient,
-                (
-                    "PongLens cost alert: crossed "
-                    f"{_format_usd(alert.threshold_usd)}"
-                ),
-                _alert_html(alert, dashboard_url),
+                _alert_email(alert, dashboard_url),
                 idempotency_key=alert.idempotency_key,
             )
         except Exception as error:

@@ -122,7 +122,7 @@ class CommentsRideTheSameDailyEmail(unittest.TestCase):
     def test_one_recipient_gets_one_mail_for_both_halves(self):
         # A single send_email call inside the loop, fed both lists.
         self.assertEqual(self.digest.count("send_email("), 1)
-        self.assertIn("qa_closed_digest_html(items, first_name, convo)",
+        self.assertIn("qa_digest_message(",
                       self.digest)
 
 
@@ -136,7 +136,7 @@ class DigestSubjectLine(unittest.TestCase):
         ns = {}
         exec(text[start:text.index("\ndef ", start + 10)], ns)
         subject = ns["qa_digest_subject"]
-        self.assertEqual(subject(7, 2), "PongLens: 2 replies and 7 reports closed")
-        self.assertEqual(subject(0, 1), "PongLens: 1 reply")
-        self.assertEqual(subject(1, 0), "PongLens: 1 report closed")
-        self.assertEqual(subject(3, 0), "PongLens: 3 reports closed")
+        self.assertEqual(subject(7, 2), "9 updates to your PongLens reports")
+        self.assertEqual(subject(0, 1), "1 update to your PongLens reports")
+        self.assertEqual(subject(1, 0), "1 update to your PongLens reports")
+        self.assertEqual(subject(3, 0), "3 updates to your PongLens reports")

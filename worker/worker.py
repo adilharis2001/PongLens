@@ -64,7 +64,9 @@ try:
         RenderedEmail,
         admin_job_failure_message,
         export_ready_message,
+        feedback_digest_message,
         match_ready_message,
+        qa_digest_message,
         render_email,
         upload_failed_message,
     )
@@ -79,7 +81,9 @@ except ModuleNotFoundError:  # direct `python worker/worker.py` execution
         RenderedEmail,
         admin_job_failure_message,
         export_ready_message,
+        feedback_digest_message,
         match_ready_message,
+        qa_digest_message,
         render_email,
         upload_failed_message,
     )
@@ -1233,10 +1237,13 @@ def maybe_send_feedback_digest(conn):
             to = (get_config(conn, "digest_recipient") or "").strip() \
                 or ADMIN_EMAIL
             n = len(new_items)
+            message = render_email(feedback_digest_message(
+                new_items,
+                leaderboard,
+            ))
             send_email(
                 to,
-                f"PongLens feedback: {n} new item{'s' if n != 1 else ''}",
-                feedback_digest_html(new_items, leaderboard),
+                message,
             )
             log.info("feedback digest sent to %s (%d new item(s))", to, n)
         else:
@@ -1339,12 +1346,8 @@ def qa_digest_subject(n_closed: int, n_comments: int) -> str:
     """What the inbox line says. Both counts when both happened, because a
     mail titled "7 reports closed" that also holds two replies buries the
     half somebody is waiting on."""
-    parts = []
-    if n_comments:
-        parts.append(f"{n_comments} repl{'ies' if n_comments != 1 else 'y'}")
-    if n_closed:
-        parts.append(f"{n_closed} report{'s' if n_closed != 1 else ''} closed")
-    return "PongLens: " + " and ".join(parts)
+    count = n_closed + n_comments
+    return f"{count} update{'s' if count != 1 else ''} to your PongLens reports"
 
 
 def qa_closed_digest_html(
@@ -1526,10 +1529,14 @@ def maybe_send_qa_closed_digest(conn):
             n = len(items)
             c = len(convo)
             try:
+                message = render_email(qa_digest_message(
+                    items,
+                    first_name,
+                    convo,
+                ))
                 send_email(
                     email,
-                    qa_digest_subject(n, c),
-                    qa_closed_digest_html(items, first_name, convo),
+                    message,
                 )
             except Exception as e:
                 # Unstamped, so tomorrow's run picks the same rows back up.
@@ -7685,15 +7692,13 @@ def maybe_send_cost_alerts():
 
         def send_threshold_email(
             to: str,
-            subject: str,
-            body: str,
+            message: RenderedEmail,
             *,
             idempotency_key: str,
         ):
             return send_email(
                 to,
-                subject,
-                body,
+                message,
                 idempotency_key=idempotency_key,
                 cost_meter=alert_meter,
             )

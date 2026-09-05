@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 // @ts-expect-error plain JS module, no types
-import { digestHtml, digestStats, digestSubject, sortFound } from "./notify.mjs";
+import {
+  digestHtml,
+  digestMessage,
+  digestStats,
+  digestSubject,
+  sortFound,
+} from "./notify.mjs";
 
 interface Row {
   handle: string;
@@ -102,7 +108,7 @@ test("the mail names the coaches and marks the ones Stripe cannot reach", () => 
   assert.match(html, /@lilyyip/);
   assert.match(html, /@mumbaitt/);
   assert.match(html, /can pay/);
-  assert.match(html, /no Stripe/);
+  assert.match(html, /Stripe unavailable/);
   assert.match(html, /\$0\.31/);
   assert.match(html, /marketing\/coach-outreach/);
 });
@@ -116,7 +122,7 @@ test("a failed run leads with the error instead of a count of nothing", () => {
     runs: [],
     error: "apify 402: monthly usage exceeded",
   });
-  assert.match(html, /The run failed/);
+  assert.match(html, /The coach search did not finish/);
   assert.match(html, /monthly usage exceeded/);
 });
 
@@ -131,4 +137,20 @@ test("a handle with markup in it cannot break out of the mail", () => {
   });
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
+});
+
+test("the outreach digest uses the adaptive shell and explicit plain text", () => {
+  const rendered = digestMessage({
+    found: [coach({ handle: "lilyyip" })],
+    stats: digestStats([coach()]),
+    status: "succeeded",
+    terms: "en-city-us",
+    runs: [{ cost_usd: "0.3078" }],
+    error: null,
+  });
+  assert.match(rendered.html, /prefers-color-scheme:\s*dark/);
+  assert.match(rendered.html, /max-width:600px/);
+  assert.match(rendered.text, /@lilyyip/);
+  assert.match(rendered.text, /Open the outreach list/);
+  assert.equal(rendered.templateId, "ops.coach-outreach");
 });

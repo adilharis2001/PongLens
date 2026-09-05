@@ -87,7 +87,7 @@ fi
 # The digest goes out even when the run failed, because a morning with no
 # mail should mean the machine was off, not that the search broke quietly.
 say "digest"
-if ! "$NODE" scripts/marketing/notify.mjs \
+if ! "$NODE" --experimental-strip-types scripts/marketing/notify.mjs \
       --since "$SINCE" --status "$STATUS" --terms "$TERM_SET" $DRY >>"$LOG" 2>&1; then
   say "digest FAILED (run itself was $STATUS)"
 fi

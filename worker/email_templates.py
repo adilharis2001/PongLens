@@ -324,3 +324,140 @@ def worker_outcome_fixtures() -> list[dict[str, Any]]:
         {"id": "ops.job-failed", "message": admin_job_failure_message("12345678-0000-0000-0000-preview", "decoder stopped at frame 91", "https://www.ponglens.com/admin/uploads/preview")},
     ]
 
+
+def feedback_digest_message(new_items: list[dict[str, Any]],
+                            leaderboard: list[dict[str, Any]]) -> EmailMessage:
+    items = []
+    for item in new_items:
+        votes = int(item.get("vote_count") or 0)
+        meta_parts = []
+        if item.get("severity"):
+            meta_parts.append(str(item["severity"]))
+        meta_parts.append(str(item.get("author") or "Someone"))
+        meta_parts.append(f"{votes} vote{'s' if votes != 1 else ''}")
+        environment = item.get("environment") or {}
+        if isinstance(environment, dict) and environment.get("viewport"):
+            meta_parts.append(str(environment["viewport"]))
+        description = str(item.get("body") or "").strip()
+        qa = item.get("qa") or []
+        for pair in qa:
+            if isinstance(pair, dict) and (pair.get("q") or pair.get("a")):
+                description += f'\n{pair.get("q", "")}\n{pair.get("a", "")}'
+        items.append({
+            "title": str(item.get("title") or "Untitled feedback"),
+            "description": description,
+            "meta": " · ".join(meta_parts),
+        })
+    board = [
+        {
+            "title": f'{rank}. {item.get("title") or "Untitled"}',
+            "meta": f'{int(item.get("vote_count") or 0)} votes',
+        }
+        for rank, item in enumerate(leaderboard, 1)
+    ]
+    n = len(new_items)
+    blocks = [{
+        "type": "paragraph",
+        "text": f"{n} new feedback item{'s' if n != 1 else ''} arrived in the last 24 hours.",
+    }]
+    if items:
+        blocks.append({"type": "items", "heading": "New feedback", "items": items})
+    if board:
+        blocks.append({"type": "items", "heading": "Top of the board", "items": board})
+    return EmailMessage(
+        template_id="digest.feedback", template_version=1, category="digest",
+        audience="admin", subject=f"PongLens feedback · {n} new item{'s' if n != 1 else ''}",
+        preheader=f"{n} new feedback item{'s' if n != 1 else ''} in the last day.",
+        heading="Feedback digest", blocks=blocks,
+        action={"label": "Open the feedback board", "url": "https://www.ponglens.com/feedback"},
+        reason="This daily digest includes new PongLens feedback and the current board leaders.",
+        support=False,
+    )
+
+
+_STATUS_LABELS = {
+    "done": "Done", "declined": "Not doing", "closed": "Fixed and closed",
+    "rejected": "Not a bug", "duplicate": "Already reported",
+}
+
+
+def qa_digest_message(items: list[dict[str, Any]], first_name: str,
+                      comments: list[dict[str, Any]] | None = None) -> EmailMessage:
+    comments = comments or []
+    blocks: list[dict[str, Any]] = []
+    n, c = len(items), len(comments)
+    if c:
+        reply_items = []
+        for item in comments:
+            reply_items.append({
+                "title": str(item.get("bug_title") or "Report reply"),
+                "description": str(item.get("body") or "")[:320],
+                "meta": f'{str(item.get("writer") or "PongLens").split(" ")[0]} replied',
+                "url": f'https://www.ponglens.com/testing/bugs?bug={item.get("bug_id")}',
+            })
+        blocks.append({"type": "items", "heading": "Replies on your reports", "items": reply_items})
+    if n:
+        closed_items = []
+        for item in items:
+            closed_items.append({
+                "title": str(item.get("title") or "Report"),
+                "description": str(item.get("body") or item.get("note") or "")[:240],
+                "meta": _STATUS_LABELS.get(str(item.get("status")), str(item.get("status") or "Closed")),
+            })
+        blocks.append({"type": "items", "heading": "Closed", "items": closed_items})
+    if c and n:
+        heading = "Replies and closed reports"
+        preheader = f"{c} repl{'ies' if c != 1 else 'y'} and {n} reports closed."
+    elif c:
+        heading = "Someone replied to you"
+        preheader = f"{c} of your reports {'have' if c != 1 else 'has'} a new reply."
+    else:
+        heading = "Reports closed"
+        preheader = f"{n} report{'s' if n != 1 else ''} you filed {'have' if n != 1 else 'has'} been closed."
+    if first_name:
+        blocks.insert(0, {"type": "paragraph", "text": f"Hi {first_name}, {preheader}"})
+    return EmailMessage(
+        template_id="digest.qa", template_version=1, category="digest", audience="tester",
+        subject=f"{n + c} updates to your PongLens reports", preheader=preheader,
+        heading=heading, blocks=blocks,
+        action={"label": "Open your reports", "url": "https://www.ponglens.com/testing/bugs"},
+        reason="PongLens sends this digest once a day when one of your reports changes.",
+        support=True,
+    )
+
+
+def cost_alert_message(*, threshold: str, observed: str, period: str,
+                       providers: list[dict[str, str]],
+                       dashboard_url: str) -> EmailMessage:
+    return EmailMessage(
+        template_id="ops.cost-alert", template_version=1, category="ops", audience="admin",
+        subject=f"PongLens costs crossed {threshold} this month",
+        preheader=f"Estimated spend for {period} is now {observed}.",
+        eyebrow="Platform cost alert", heading=f"Costs crossed {threshold}",
+        blocks=[
+            {"type": "paragraph", "text": f"Month-to-date estimated spend for {period} is now {observed}."},
+            {"type": "details", "rows": providers},
+        ],
+        action={"label": "Open cost dashboard", "url": dashboard_url},
+        reason="Internal metered costs only. Provider reconciliation and synthetic compute are not counted twice.",
+        support=False,
+    )
+
+
+def operational_fixtures() -> list[dict[str, Any]]:
+    return [
+        {"id": "digest.feedback", "message": feedback_digest_message(
+            [{"title": "Score correction", "body": "The point moved to the wrong player.", "type": "bug", "visibility": "board", "qa": [], "vote_count": 3, "author": "Maya", "severity": "high", "environment": {"viewport": "393x660"}}],
+            [{"title": "Score correction", "vote_count": 3}],
+        )},
+        {"id": "digest.qa", "message": qa_digest_message(
+            [{"id": "preview-1", "title": "Mobile crop", "status": "closed", "body": "The video now fits the available height."}],
+            "Maya",
+            [{"bug_id": "preview-2", "bug_title": "Dark theme", "body": "Can you check this again?", "writer": "Adil"}],
+        )},
+        {"id": "ops.cost-alert", "message": cost_alert_message(
+            threshold="$100.00", observed="$123.46", period="September 2026",
+            providers=[{"label": "OpenAI", "value": "$80.25"}, {"label": "Cloudflare", "value": "$43.21"}],
+            dashboard_url="https://www.ponglens.com/admin/costs",
+        )},
+    ]
