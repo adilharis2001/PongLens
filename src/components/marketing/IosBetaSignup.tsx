@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, type RefObject, useId, useRef, useState } from "react";
+import { type FormEvent, type RefObject, useEffect, useId, useRef, useState } from "react";
 
 import {
   submitBetaSignup,
@@ -88,6 +88,7 @@ export function IosBetaSignup({
   const emailRef = useRef<HTMLInputElement>(null);
   const firstRoleRef = useRef<HTMLInputElement>(null);
   const firstInterestRef = useRef<HTMLInputElement>(null);
+  const confirmationRef = useRef<HTMLHeadingElement>(null);
   const submissionRef = useRef(0);
   const titleId = useId();
   const roleHelpId = useId();
@@ -104,6 +105,10 @@ export function IosBetaSignup({
   const [status, setStatus] = useState<BetaSignupResult | "idle" | "loading">(
     "idle",
   );
+
+  useEffect(() => {
+    if (status === "success") confirmationRef.current?.focus();
+  }, [status]);
 
   function openDialog() {
     if (!dialogRef.current?.open) dialogRef.current?.showModal();
@@ -239,7 +244,12 @@ export function IosBetaSignup({
 
           {status === "success" ? (
             <div className="py-5 text-left" aria-live="polite">
-              <h2 id={titleId} className="pr-12 text-2xl font-bold tracking-tight">
+              <h2
+                ref={confirmationRef}
+                id={titleId}
+                tabIndex={-1}
+                className="pr-12 text-2xl font-bold tracking-tight outline-none"
+              >
                 Request received.
               </h2>
               <p className="mt-4 text-sm text-zinc-300">

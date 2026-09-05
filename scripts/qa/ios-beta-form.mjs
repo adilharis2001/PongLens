@@ -97,7 +97,9 @@ try {
   outcome = "success";
   await dialog.getByRole("button", { name: "Request beta access", exact: true }).click();
   const successDialog = page.getByRole("dialog", { name: "Request received." });
-  await successDialog.getByRole("heading", { name: "Request received." }).waitFor();
+  const successHeading = successDialog.getByRole("heading", { name: "Request received." });
+  await successHeading.waitFor();
+  assert.equal(await successHeading.evaluate((element) => document.activeElement === element), true, "confirmation receives keyboard focus");
   await assertMobileAction(successDialog, "Done");
   assert.equal(await successDialog.getByText("player@example.com", { exact: true }).count(), 1);
   assert.deepEqual(payloads.at(-1), {
