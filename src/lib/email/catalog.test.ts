@@ -3,10 +3,20 @@ import test from "node:test";
 
 import {
   purchaseReceiptEmail,
+  betaAdminNoticeEmail,
   reviewLifecycleEmail,
 } from "./catalog.ts";
 import { typescriptEmailFixtures } from "./fixtures.ts";
 import { renderEmail } from "./render.ts";
+
+test("beta admin notice describes a request, not an installation or completed invitation", () => {
+  const message = betaAdminNoticeEmail({ email: "tester@example.com", requestedAt: "2026-09-05T12:00:00Z", scheduledAt: "2026-09-06T11:00:00Z", role: "Coach", interests: ["Recording lessons as audio or video"], feedback: "Audio call", requestId: "50aa4d45-9570-4d9b-90d6-79768994ce80" });
+  const rendered = renderEmail(message);
+  assert.doesNotMatch(rendered.subject + rendered.text, /joined|was sent|were sent|installed/i);
+  assert.match(rendered.text, /2026-09-06T11:00:00Z/);
+  assert.match(rendered.text, /Audio call/);
+  assert.equal(message.action?.url, "https://www.ponglens.com/admin/outreach?beta=50aa4d45-9570-4d9b-90d6-79768994ce80");
+});
 
 test("fixture catalog covers every TypeScript email state with unique identities", () => {
   const fixtures = typescriptEmailFixtures();

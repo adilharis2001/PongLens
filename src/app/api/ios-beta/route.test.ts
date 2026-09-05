@@ -31,10 +31,7 @@ function dependencies(
   };
 }
 
-function request(
-  body: unknown,
-  headers: Record<string, string> = {},
-): Request {
+function request(body: unknown, headers: Record<string, string> = {}): Request {
   return new Request("https://www.ponglens.com/api/ios-beta", {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
@@ -193,4 +190,55 @@ test("malformed JSON is treated as invalid input rather than a server error", as
     ok: false,
     code: "invalid_request",
   });
+});
+
+test("supplied malformed or oversized answers are rejected before claim", async () => {
+  for (const answers of [
+    null,
+    {},
+    {
+      formVersion: 2,
+      role: "player",
+      interests: ["coach_students"],
+      feedback: [],
+    },
+  ]) {
+    let claimed = false;
+    const result = await handleIosBetaRequest(
+      request({ email: "player@example.com", answers }),
+      dependencies({
+        async claim() {
+          claimed = true;
+          return claim;
+        },
+      }),
+    );
+    assert.equal(result.status, 400);
+    assert.equal(claimed, false);
+  }
+  const result = await handleIosBetaRequest(
+    request({ email: "player@example.com", padding: "x".repeat(17000) }),
+    dependencies(),
+  );
+  assert.equal(result.status, 413);
+});
+
+test("scheduled and suppressed invitations receive privacy-safe success without claiming dispatch", async () => {
+  for (const invite of [
+    "scheduled",
+    "suppressed",
+    "bounced",
+    "complained",
+  ] as const) {
+    const result = await handleIosBetaRequest(
+      request({ email: "player@example.com" }),
+      dependencies({
+        async deliver() {
+          return { invite, admin: "failed" };
+        },
+      }),
+    );
+    assert.equal(result.status, 200);
+    assert.deepEqual(await responseJson(result), { ok: true });
+  }
 });

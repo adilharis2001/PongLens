@@ -11,7 +11,8 @@ export async function POST(request: Request): Promise<Response> {
     return await handleIosBetaRequest(request, {
       testFlightUrl: process.env.IOS_TESTFLIGHT_URL,
       serviceSecret: process.env.SUPABASE_SERVICE_ROLE_KEY,
-      claim: claimIosBetaRequest,
+      claim: (email, ipHash, answers) =>
+        claimIosBetaRequest(email, ipHash, undefined, answers),
       deliver: deliverIosBetaRequest,
     });
   } catch (error) {

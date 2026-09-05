@@ -1,6 +1,18 @@
 export type BetaMessageKind = "invite" | "admin";
+export { runBetaDelivery } from "./scheduledDelivery.ts";
 export type BetaSendState = "sent" | "suppressed" | "failed";
-export type BetaDeliveryState = BetaSendState | "already_sent";
+export type BetaDeliveryState =
+  | BetaSendState
+  | "already_sent"
+  | "scheduled"
+  | "sending"
+  | "delivered"
+  | "pending"
+  | "unknown"
+  | "needs_attention"
+  | "bounced"
+  | "complained"
+  | "canceled";
 export type BetaDeliveryStamp =
   | "invite_sent"
   | "invite_suppressed"

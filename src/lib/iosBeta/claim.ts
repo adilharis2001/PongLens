@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import type { BetaAnswers } from "./questionnaire.ts";
 
 export type BetaClaim = {
   id: string | null;
@@ -17,7 +18,7 @@ type RpcResult = {
 export type BetaClaimClient = {
   rpc(
     name: string,
-    params: { p_email: string; p_ip_hash: string },
+    params: { p_email: string; p_ip_hash: string; p_answers?: BetaAnswers },
   ): PromiseLike<RpcResult>;
 };
 
@@ -54,6 +55,7 @@ export async function claimIosBetaRequest(
   email: string,
   ipHash: string,
   client?: BetaClaimClient,
+  answers?: BetaAnswers,
 ): Promise<BetaClaim> {
   let rpcClient = client;
   if (!rpcClient) {
@@ -61,10 +63,14 @@ export async function claimIosBetaRequest(
     rpcClient = createAdminClient() as unknown as BetaClaimClient;
   }
 
-  const { data, error } = await rpcClient.rpc("claim_ios_beta_request", {
-    p_email: email,
-    p_ip_hash: ipHash,
-  });
+  const { data, error } = await rpcClient.rpc(
+    answers ? "claim_ios_beta_request_v2" : "claim_ios_beta_request",
+    {
+      p_email: email,
+      p_ip_hash: ipHash,
+      ...(answers ? { p_answers: answers } : {}),
+    },
+  );
   if (error) throw new Error(error.message || "iOS beta claim failed");
 
   const row = Array.isArray(data) ? data[0] : data;

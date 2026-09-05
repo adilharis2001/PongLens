@@ -55,18 +55,23 @@ export function betaInvitationEmail(testFlightUrl: string): EmailMessage {
   };
 }
 
-export function betaAdminNoticeEmail(facts: { email: string; requestedAt: string }): EmailMessage {
+export function betaAdminNoticeEmail(facts: { email: string; requestedAt: string; scheduledAt?: string; role?: string; interests?: string[]; feedback?: string; requestId?: string }): EmailMessage {
   return {
-    templateId: "beta.admin-notice", templateVersion: VERSION, category: "beta", audience: "admin",
-    subject: `${facts.email} joined the iPhone beta`,
-    preheader: "Their TestFlight invitation was sent automatically.",
+    templateId: "beta.admin-notice", templateVersion: 2, category: "beta", audience: "admin",
+    subject: "New iPhone beta request",
+    preheader: "You can send the invitation sooner from Outreach.",
     eyebrow: "iPhone beta",
-    heading: "A player requested beta access",
+    heading: "New iPhone beta request",
     blocks: [{ type: "details", rows: [
       { label: "Email", value: facts.email },
       { label: "Requested", value: facts.requestedAt },
+      { label: "Scheduled", value: facts.scheduledAt ?? "Not provided" },
+      { label: "Role", value: facts.role ?? "Not provided" },
+      { label: "Interests", value: facts.interests?.join("; ") || "Not provided" },
+      { label: "Feedback", value: facts.feedback ?? "Not provided" },
     ] }],
-    reason: "The invitation and setup instructions were sent automatically. No action is required.",
+    ...(facts.requestId ? { action: { label: "View beta request", url: `https://www.ponglens.com/admin/outreach?beta=${encodeURIComponent(facts.requestId)}` } } : {}),
+    reason: "Either admin can send the invitation sooner from Outreach.",
     support: false,
   };
 }
@@ -200,4 +205,3 @@ export function purchaseReceiptEmail(facts: PurchaseEmailFacts): EmailMessage {
     support: true,
   };
 }
-

@@ -73,7 +73,7 @@ test("admin email escapes requester data before rendering it", () => {
 
   assert.equal(
     content.subject,
-    "player+<tag>@example.com joined the iPhone beta",
+    "New iPhone beta request",
   );
   assert.doesNotMatch(content.html, /player\+<tag>/);
   assert.match(content.html, /player\+&lt;tag&gt;@example\.com/);
