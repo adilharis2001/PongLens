@@ -71,7 +71,12 @@ export function LessonPlayback({src,poster,edit,initialTime,onClose,onRetry}:Pro
    scrolling.current=false;
   },160);
  }
- function close(){transport.current?.pause();onClose(player.current?.currentTime??savedPosition.current,chapterRef.current);}
+ function close(){
+  const video=player.current;
+  const finished=video?.ended??false;
+  transport.current?.pause();
+  onClose(finished?0:(video?.currentTime??savedPosition.current),finished?0:chapterRef.current);
+ }
  async function retry(){
   setRetrying(true);
   pending.current??={time:savedPosition.current,playing:true};
