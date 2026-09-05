@@ -1,4 +1,6 @@
 import SwiftUI
+import Combine
+
 import PhotosUI
 import AVKit
 import UniformTypeIdentifiers
@@ -307,83 +309,107 @@ struct LessonVideoDetailScreen: View {
     @State private var busy = false
     @State private var error: String?
 
+    @State private var started = false
+    @State private var buffering = false
+    @State private var playbackFailed = false
+    @State private var selectedChapter = 0
+    @State private var seeking = false
+    @State private var deleteOpen = false
+    private let playbackTick = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Button { dismiss() } label: {
-                    Label("Back", systemImage: "chevron.left")
-                }
-                .buttonStyle(PLSecondaryButtonStyle())
-                if let detail {
-                    Text(detail.video.title).font(.plPageTitle).tracking(-0.6).foregroundStyle(PL.textBody)
-                    if let player {
-                        VideoPlayer(player: player)
+        ScrollViewReader { scroll in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack {
+                        Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
+                            .buttonStyle(PLSecondaryButtonStyle())
+                        Spacer()
+                        if let detail { moreMenu(detail) }
+                    }
+                    if let detail {
+                        Text(detail.video.title).font(.plPageTitle).tracking(-0.6).foregroundStyle(PL.textBody)
+                        if let player {
+                            ZStack {
+                                VideoPlayer(player: player).accessibilityHidden(!started)
+                                if !started {
+                                    ZStack {
+                                        PL.surface2
+                                        AsyncImage(url: detail.posterUrl.flatMap(URL.init(string:))) { phase in
+                                            if let image = phase.image { image.resizable().scaledToFill() }
+                                            else if phase.error == nil && detail.posterUrl != nil { ProgressView().tint(PL.cyan).offset(y: 60) }
+                                        }
+                                        Button { started = true; player.play() } label: {
+                                            Image(systemName: "play.fill").font(.system(size: 26, weight: .semibold))
+                                                .foregroundStyle(.white).frame(width: 68, height: 68)
+                                                .background(.black.opacity(0.65), in: Circle())
+                                        }.accessibilityLabel(original ? "Play original lesson video" : "Play lesson recap")
+                                    }
+                                }
+                                if started && buffering && !playbackFailed { ProgressView().tint(.white).padding(18).background(.black.opacity(0.6), in: Circle()) }
+                                if playbackFailed {
+                                    VStack(spacing: 12) {
+                                        Text("Video could not play").font(.plCardTitle)
+                                        Button("Try again") { Task { await load(refreshPlayback: true); if visible && scenePhase == .active { started = true; self.player?.play() } } }
+                                            .buttonStyle(PLSecondaryButtonStyle())
+                                    }.frame(maxWidth: .infinity, maxHeight: .infinity).background(PL.surface)
+                                }
+                            }
                             .aspectRatio(16 / 9, contentMode: .fit)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
-                    }
-                    Text(detail.video.statusLabel).foregroundStyle(PL.text400)
-                    if let message = detail.video.error { Text(message).foregroundStyle(PL.dangerText) }
-                    if let warning = detail.video.edit?.warning, !warning.isEmpty {
-                        Text(warning).foregroundStyle(PL.warningText)
-                    }
-                    if detail.isOwner {
-                        if let url = (detail.sourceUrl ?? detail.originalUrl).flatMap(URL.init(string:)) {
-                            HStack {
-                                Button(original ? "Watch recap" : "Watch original") { original.toggle(); setPlayer() }
-                                    .buttonStyle(PLSecondaryButtonStyle())
-                                    .disabled(!original && detail.sourceUrl == nil && detail.originalUrl == nil)
-                                ShareLink(item: url) { Label("Original", systemImage: "square.and.arrow.up") }
-                                    .buttonStyle(PLSecondaryButtonStyle())
-                            }
+                            .id("lesson-player")
                         }
-                        if detail.video.edit != nil && ["review", "ready", "failed"].contains(detail.video.status) {
-                            Button("Edit title and cues") { editOpen = true }
-                                .buttonStyle(PLSecondaryButtonStyle()).disabled(busy)
-                        }
-                        if detail.video.status == "review" {
-                            Button(detail.video.student_id == nil ? "Save recap" : "Share with student") { perform("share") }
-                                .buttonStyle(PLPrimaryButtonStyle()).disabled(busy)
-                        }
-                        if detail.video.status == "failed" {
-                            Button("Retry processing") { perform("retry") }
-                                .buttonStyle(PLPrimaryButtonStyle()).disabled(busy)
-                        }
-                    }
-                    if let edit = detail.video.edit {
-                        ForEach(Array(edit.chapters.enumerated()), id: \.offset) { _, chapter in
-                            VStack(alignment: .leading, spacing: 8) {
-                                Button {
-                                    let seconds = original ? chapter.start_s : chapter.summary_start_s
-                                    if let seconds { player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600)); player?.play() }
+                        if let chapters = detail.video.edit?.chapters, !chapters.isEmpty {
+                            let index = min(selectedChapter, chapters.count - 1)
+                            VStack(alignment: .leading, spacing: 14) {
+                                Menu {
+                                    ForEach(Array(chapters.enumerated()), id: \.offset) { offset, chapter in
+                                        Button("\(offset + 1). \(chapter.title)") {
+                                            chooseChapter(offset, chapter)
+                                            withAnimation { scroll.scrollTo("lesson-player", anchor: .top) }
+                                        }
+                                    }
                                 } label: {
-                                    Label(chapter.title, systemImage: "play.circle").font(.plCardTitle)
-                                        .frame(minHeight: 44, alignment: .leading)
-                                }.disabled(player == nil || (!original && chapter.summary_start_s == nil))
-                                ForEach(Array(chapter.cues.enumerated()), id: \.offset) { _, cue in
+                                    HStack(spacing: 10) {
+                                        Text("Chapter \(index + 1) of \(chapters.count)").font(.plButton)
+                                        Spacer()
+                                        Image(systemName: "chevron.up.chevron.down")
+                                    }.foregroundStyle(PL.cyan).frame(minHeight: 44)
+                                }
+                                Text(chapters[index].title).font(.plCardTitle).foregroundStyle(PL.text100)
+                                ForEach(Array(chapters[index].cues.enumerated()), id: \.offset) { _, cue in
                                     Text(cue).foregroundStyle(PL.text300)
                                 }
-                            }
+                            }.plCard(padding: 16)
                         }
-                        if !edit.themes.isEmpty {
-                            Text("Lesson notes").font(.plCardTitle)
-                            ForEach(Array(edit.themes.enumerated()), id: \.offset) { _, theme in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(theme.name).font(.plCardTitle)
-                                    ForEach(Array(theme.points.enumerated()), id: \.offset) { _, point in Text(point).foregroundStyle(PL.text300) }
+                        if detail.isOwner {
+                            HStack(spacing: 12) {
+                                if detail.video.status == "review" {
+                                    Button(detail.video.student_id == nil ? "Save recap" : "Share with student") { perform("share") }
+                                        .buttonStyle(PLPrimaryButtonStyle())
                                 }
-                            }
+                                if detail.video.status == "failed" {
+                                    Button("Retry processing") { perform("retry") }.buttonStyle(PLPrimaryButtonStyle())
+                                }
+                                if detail.video.edit != nil && ["review", "ready", "failed"].contains(detail.video.status) {
+                                    Button("Edit") { player?.pause(); editOpen = true }.buttonStyle(PLSecondaryButtonStyle())
+                                }
+                            }.disabled(busy)
                         }
+                        Text(detail.video.statusLabel).font(.plCaption).foregroundStyle(PL.text400)
+                        if let message = detail.video.error { Text(message).foregroundStyle(PL.dangerText) }
+                        if let warning = detail.video.edit?.warning, !warning.isEmpty {
+                            DisclosureGroup("Review note") { Text(warning).foregroundStyle(PL.warningText).padding(.top, 8) }
+                                .font(.plCaption)
+                        }
+                    } else if error == nil {
+                        ProgressView().tint(PL.cyan).frame(maxWidth: .infinity, minHeight: 160)
                     }
-                } else if error == nil {
-                    ProgressView().tint(PL.cyan).frame(maxWidth: .infinity, minHeight: 160)
+                    if let error { Text(error).foregroundStyle(PL.dangerText) }
                 }
-                if let error { Text(error).foregroundStyle(PL.dangerText) }
+                .font(.plBody).lineSpacing(3).padding(20).padding(.bottom, 40)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .font(.plBody)
-            .lineSpacing(3)
-            .padding(20)
-            .padding(.bottom, 40)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background { ArenaBackground() }
         .toolbar(.hidden, for: .navigationBar)
@@ -398,6 +424,17 @@ struct LessonVideoDetailScreen: View {
                 }
             }
         }
+        .confirmationDialog("Delete this lesson video?", isPresented: $deleteOpen, titleVisibility: .visible) {
+            Button("Delete lesson video", role: .destructive) { perform("delete") }
+        } message: { Text("The original video and recap will be permanently deleted.") }
+        .onReceive(playbackTick) { _ in
+            playbackFailed = player?.currentItem?.status == .failed
+            buffering = player?.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            if started && !seeking, let seconds = player?.currentTime().seconds, seconds.isFinite,
+               let chapters = detail?.video.edit?.chapters {
+                selectedChapter = LessonVideoChapterSelection.index(at: seconds, chapters: chapters, original: original) ?? selectedChapter
+            }
+        }
         .onAppear { visible = true }
         .onDisappear { visible = false; player?.pause() }
         .onChange(of: scenePhase) { _, phase in
@@ -410,10 +447,42 @@ struct LessonVideoDetailScreen: View {
             }
         }
     }
+    private func moreMenu(_ detail: LessonVideoDetail) -> some View {
+        Menu {
+            if detail.isOwner, detail.sourceUrl != nil || detail.originalUrl != nil {
+                Button(original ? "Watch recap" : "Watch original") { original.toggle(); setPlayer() }
+                if let url = (detail.sourceUrl ?? detail.originalUrl).flatMap(URL.init(string:)) {
+                    ShareLink(item: url) { Label("Export original video", systemImage: "square.and.arrow.up") }
+                }
+            }
+            if let url = detail.summaryUrl.flatMap(URL.init(string:)) {
+                ShareLink(item: url) { Label("Export recap with cues", systemImage: "square.and.arrow.up") }
+            }
+            if detail.isOwner && !detail.video.needsRefresh {
+                Button("Delete lesson video", role: .destructive) { deleteOpen = true }
+            }
+        } label: { Label("More", systemImage: "ellipsis") }
+            .buttonStyle(PLSecondaryButtonStyle()).disabled(busy)
+    }
+    private func chooseChapter(_ index: Int, _ chapter: LessonVideoEdit.Chapter) {
+        selectedChapter = index
+        guard let seconds = original ? chapter.start_s : chapter.summary_start_s, let player else { return }
+        seeking = true
+        started = true
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { finished in
+            Task { @MainActor in
+                seeking = false
+                if finished && visible && scenePhase == .active && self.player === player { player.play() }
+            }
+        }
+    }
     private func setPlayer(preservingPosition: Bool = false) {
         let position = preservingPosition ? player?.currentTime() : nil
         let wasPlaying = preservingPosition && (player?.rate ?? 0) > 0
         player?.pause()
+        playbackFailed = false
+        buffering = false
+        if !preservingPosition { started = false; selectedChapter = 0 }
         guard let detail else { player = nil; playerURLFetchedAt = nil; return }
         let raw = original ? (detail.sourceUrl ?? detail.originalUrl) : (detail.playbackUrl ?? detail.summaryUrl)
         let replacement = raw.flatMap(URL.init(string:)).map { AVPlayer(url: $0) }
@@ -447,7 +516,7 @@ struct LessonVideoDetailScreen: View {
             defer { busy = false }
             do {
                 let _: LessonVideoOK = try await API.post("api/lesson-video", LessonVideoAction(action: action, id: id))
-                await load()
+                if action == "delete" { dismiss() } else { await load() }
             } catch { self.error = error.localizedDescription }
         }
     }

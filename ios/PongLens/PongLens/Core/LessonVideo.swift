@@ -56,6 +56,7 @@ struct LessonVideoDetail: Decodable {
     let originalUrl: String?
     let summaryUrl: String?
     let playbackUrl: String?
+    let posterUrl: String?
     let isOwner: Bool
 }
 struct LessonVideoList: Decodable { let videos: [LessonVideo] }
@@ -155,4 +156,15 @@ nonisolated struct LessonVideoScope {
     let studentId: UUID?
     var query: [String: String] { studentId.map { ["studentId": $0.uuidString] } ?? [:] }
     func includes(studentId candidate: UUID?) -> Bool { studentId == nil || studentId == candidate }
+}
+
+/// The cue panel follows the timeline currently shown by the player.
+enum LessonVideoChapterSelection {
+    static func index(at seconds: Double, chapters: [LessonVideoEdit.Chapter], original: Bool) -> Int? {
+        guard seconds.isFinite, !chapters.isEmpty else { return nil }
+        return chapters.lastIndex(where: { chapter in
+            let start = original ? chapter.start_s : chapter.summary_start_s
+            return start.map { $0 <= seconds } ?? false
+        }) ?? 0
+    }
 }

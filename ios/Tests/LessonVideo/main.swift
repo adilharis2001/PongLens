@@ -64,3 +64,13 @@ check(!studentScope.includes(studentId: nil), "Student page excludes unassigned 
 check(LessonVideoScope(studentId: nil).query.isEmpty, "Home lists all coach videos")
 check(LessonVideoScope(studentId: nil).includes(studentId: requestId), "Home includes every student")
 print("Lesson video: student section scoping checks passed")
+let chapters = [
+    LessonVideoEdit.Chapter(title: "One", cues: [], start_s: 100, end_s: 130, summary_start_s: 0, summary_end_s: 30),
+    LessonVideoEdit.Chapter(title: "Two", cues: [], start_s: 400, end_s: 440, summary_start_s: 30, summary_end_s: 70)
+]
+check(LessonVideoChapterSelection.index(at: 29.9, chapters: chapters, original: false) == 0, "Cue must not change before the next clip")
+check(LessonVideoChapterSelection.index(at: 30, chapters: chapters, original: false) == 1, "Cue changes at the exact next clip boundary")
+check(LessonVideoChapterSelection.index(at: 200, chapters: chapters, original: true) == 0, "Original video uses source timestamps")
+check(LessonVideoChapterSelection.index(at: 400, chapters: chapters, original: true) == 1, "Original seek selects its chapter")
+check(LessonVideoChapterSelection.index(at: .nan, chapters: chapters, original: false) == nil, "Unknown playback time cannot change the selected cue")
+print("Lesson video: active chapter playback boundaries passed")

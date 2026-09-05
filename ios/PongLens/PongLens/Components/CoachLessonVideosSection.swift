@@ -21,8 +21,7 @@ struct CoachLessonVideosSection: View {
                 CoachNavRow(label: "Try loading lesson videos again", symbol: "arrow.clockwise") {
                     Task { await refresh() }
                 }
-            } else if videos.isEmpty {
-                CoachEmptyLine(text: "No lesson videos yet.")
+
             } else {
                 ForEach(Array(videos.prefix(3).enumerated()), id: \.element.id) { index, video in
                     NavigationLink {
@@ -49,7 +48,7 @@ struct CoachLessonVideosSection: View {
                     if index < min(videos.count, 3) - 1 { CoachRowDivider() }
                 }
             }
-            CoachRowDivider()
+            if !videos.isEmpty || loading || failed { CoachRowDivider() }
             CoachNavRow(label: videos.isEmpty ? "Import a lesson video" : "All lesson videos", symbol: "video.badge.plus") {
                 router.composeRecord = CoachComposerRequest(mode: .video, student: student)
             }
