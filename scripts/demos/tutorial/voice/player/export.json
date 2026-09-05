@@ -1,60 +1,90 @@
 {
   "chapter": "export",
-  "title": "Export and share",
+  "title": "Highlights, export and share",
   "subtitle": "Chapter 7 of 9",
   "model": "gpt-4o-mini-tts",
+  "delivery": {
+    "provider": "openai",
+    "voice": "sage",
+    "speed": 1.3,
+    "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences."
+  },
   "lead": 0.6,
   "gap": 0.5,
-  "total": 37.296,
-  "wpm": 192,
+  "total": 42.4,
+  "wpm": 176,
   "lines": [
     {
       "id": "l1",
-      "beat": "stars",
-      "text": "As you work through a match you can star the rallies worth keeping, and those become your highlights.",
-      "file": "audio/export/l1.mp3",
+      "beat": "highlights",
+      "label": "",
+      "text": "PongLens builds a short and a longer highlight from the best rallies in the match.",
+      "file": "audio/player/export/l1.mp3",
       "start": 0.6,
-      "dur": 5.568
+      "dur": 4.56
     },
     {
       "id": "l2",
-      "beat": "tags",
-      "text": "You can also tag a point with whatever you would call it yourself, like a backhand loop or a serve that keeps letting you down.",
-      "file": "audio/export/l2.mp3",
-      "start": 6.668,
-      "dur": 6.144
+      "beat": "highlight-actions",
+      "label": "",
+      "text": "Watch either one first, then download or share the version you want.",
+      "file": "audio/player/export/l2.mp3",
+      "start": 5.66,
+      "dur": 4.152
     },
     {
       "id": "l3",
-      "beat": "open",
-      "text": "Once the match is scored, everything you have marked turns into something you can take away.",
-      "file": "audio/export/l3.mp3",
-      "start": 13.312,
-      "dur": 5.064
+      "beat": "stars",
+      "label": "",
+      "text": "Stars let you keep your own collection of rallies across matches.",
+      "file": "audio/player/export/l3.mp3",
+      "start": 10.312,
+      "dur": 3.936
     },
     {
       "id": "l4",
-      "beat": "score",
-      "text": "Turning on Include score burns the scoreboard into the video, so the file reads the way the match did.",
-      "file": "audio/export/l4.mp3",
-      "start": 18.876,
-      "dur": 6.792
+      "beat": "tags",
+      "label": "",
+      "text": "Tags gather points under the words you use, such as backhand receive or third-ball attack.",
+      "file": "audio/player/export/l4.mp3",
+      "start": 14.748,
+      "dur": 5.424
     },
     {
       "id": "l5",
       "beat": "rows",
-      "text": "You can render the whole match, only your starred rallies, or every point carrying one tag, in order.",
-      "file": "audio/export/l5.mp3",
-      "start": 26.168,
-      "dur": 6.288
+      "label": "",
+      "text": "You can export the full match, starred rallies, or every point carrying one tag.",
+      "file": "audio/player/export/l5.mp3",
+      "start": 20.672,
+      "dur": 5.376
     },
     {
       "id": "l6",
+      "beat": "score",
+      "label": "",
+      "text": "Turn on Include score when you want the running scoreboard added to the video.",
+      "file": "audio/player/export/l6.mp3",
+      "start": 26.548,
+      "dur": 4.44
+    },
+    {
+      "id": "l7",
       "beat": "share",
-      "text": "And a share link lets anyone watch it without making an account.",
-      "file": "audio/export/l6.mp3",
-      "start": 32.956,
-      "dur": 3.84
+      "label": "",
+      "text": "A public link lets someone watch a match, point or collection without making an account.",
+      "file": "audio/player/export/l7.mp3",
+      "start": 31.488,
+      "dur": 5.112
+    },
+    {
+      "id": "l8",
+      "beat": "original",
+      "label": "",
+      "text": "The original upload remains available from the match while you keep it in your library.",
+      "file": "audio/player/export/l8.mp3",
+      "start": 37.1,
+      "dur": 4.8
     }
   ]
 }

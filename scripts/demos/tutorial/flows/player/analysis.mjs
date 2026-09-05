@@ -20,11 +20,9 @@ export const entry = "/match/efff9208-abf2-4a20-a498-18cc5a5130b3";
 
 /**
  * The chapter covers everything the app tells you about a scored match:
- * the analysis deck, then the placement maps that sit under it. It has to
- * cross matches to do it. The Gui match carries the why-you-lost answers
- * but no drawable geometry; the Jason match has the only trusted maps in
- * the account. So the analysis half is shot on one and the maps half on
- * the other, with the crossing hidden in the hold after line five.
+ * the analysis deck, then the placement maps that sit under it. The stage
+ * helper gives the fixed match three vetted maps, so both halves now live
+ * on the same page and the transition is an ordinary scroll.
  */
 const MAPPED = MATCH_ID;
 
@@ -36,7 +34,6 @@ const MAP = {
   heading: { text: "Serve placement", tag: "h2" },
   games: { aria: "Which games" },
   whose: { aria: "Whose shots" },
-  which: { aria: "Which shots" },
   landings: { aria: "Placement map, Me at the bottom" },
   heatmap: { aria: "Placement heat map" },
   wrong: { aria: "placement maps are wrong" },
@@ -159,12 +156,6 @@ export async function flow(page, clock, { beat, voice, union, serviceKey }) {
 
   // -------------------------------------------- 5. and the maps below
   const b5 = beat("maps");
-  const crossing = page.goto(
-    `${new URL(page.url()).origin}/match/${MAPPED}`
-  );
-  await crossing;
-  await page.waitForSelector("text=Serve placement", { timeout: 60000 });
-  await page.waitForTimeout(2200);
   await page.evaluate(() => {
     [...document.querySelectorAll("h2")]
       .find((h) => h.textContent.trim().startsWith("Serve placement"))
@@ -187,12 +178,11 @@ export async function flow(page, clock, { beat, voice, union, serviceKey }) {
   const b6 = beat("filters");
   await clock.until(b6.start + 0.1);
   const whose = await clock.rect(MAP.whose);
-  const which = await clock.rect(MAP.which);
   const games = await clock.rect(MAP.games);
   const c6 = clock.mark({
     kind: "box",
-    label: "Whose shots, which shots",
-    rect: union(whose, which),
+    label: "Your serves or theirs",
+    rect: whose,
   });
   await clock.until(b6.start + b6.dur * 0.35);
   clock.close(c6);
@@ -255,7 +245,7 @@ export async function flow(page, clock, { beat, voice, union, serviceKey }) {
   await page.evaluate(() => {
     [...document.querySelectorAll("h2")]
       .find((heading) => heading.textContent.trim().startsWith("Serve placement"))
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      ?.scrollIntoView({ block: "start" });
     window.scrollBy(0, -70);
   });
   await clock.sleep(700);

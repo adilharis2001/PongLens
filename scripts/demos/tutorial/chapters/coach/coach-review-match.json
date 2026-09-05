@@ -6,9 +6,9 @@
   "speed": 1.3,
   "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
   "lines": [
-    { "id": "l1", "text": "Matches a student shares appear beside their lesson entries.", "beat": "shared-matches" },
+    { "id": "l1", "text": "Matches a student shares appear beside their lesson entries.", "beat": "shared-matches", "pause": 2.5 },
     { "id": "l2", "text": "Open one to watch the cut video or the original upload.", "beat": "open-match" },
-    { "id": "l3", "text": "Move through the match point by point and follow the score the student recorded.", "beat": "point-by-point" },
+    { "id": "l3", "text": "Move through the match point by point and follow the score the student recorded.", "beat": "point-by-point", "pause": 3 },
     { "id": "l4", "text": "You can also read their match analysis and placement maps.", "beat": "analysis-maps" },
     { "id": "l5", "text": "The match remains theirs. You cannot change their score, clips or details.", "beat": "read-only" },
     { "id": "l6", "text": "If they change your match access, the list updates to match their choice.", "beat": "access-update" }

@@ -30,6 +30,8 @@ export async function prepare(page) {
   // where a processed match actually turns up before opening one.
   await page.waitForSelector('a[href^="/match/"]', { timeout: 90000 });
   await page.waitForTimeout(2500);
+  await page.goto(`${new URL(page.url()).origin}/match/${MATCH}`);
+  await openPlayer(page);
 }
 
 /** Wait until the player is open and has real frames. */
@@ -80,9 +82,8 @@ const half = (pic, side) => ({
 });
 
 export async function flow(page, clock, { beat, voice, union, dismiss }) {
-  // Open the approved player fixture before the first narrated beat.
-  await page.goto(`${new URL(page.url()).origin}/match/${MATCH}`);
-  await openPlayer(page);
+  // prepare() opens the approved player fixture before the recording clock
+  // starts, so the first narrated cue is not consumed by route/media setup.
   const pic = await pictureRect(page);
   if (!pic) throw new Error("video has no picture yet");
   const b1 = beat("open");

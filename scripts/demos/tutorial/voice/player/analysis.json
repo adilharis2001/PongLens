@@ -3,66 +3,79 @@
   "title": "Read your match",
   "subtitle": "Chapter 6 of 9",
   "model": "gpt-4o-mini-tts",
+  "delivery": {
+    "provider": "openai",
+    "voice": "sage",
+    "speed": 1.3,
+    "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences."
+  },
   "lead": 0.6,
   "gap": 0.5,
-  "total": 39.428,
-  "wpm": 186,
+  "total": 40.028,
+  "wpm": 175,
   "lines": [
     {
       "id": "l1",
       "beat": "open",
+      "label": "",
       "text": "Once the points are scored, the match reads itself back to you.",
-      "file": "audio/analysis/l1.mp3",
+      "file": "audio/player/analysis/l1.mp3",
       "start": 0.6,
-      "dur": 3.72
+      "dur": 4.296
     },
     {
       "id": "l2",
-      "beat": "momentum",
-      "text": "This is how the match actually swung, point by point.",
-      "file": "audio/analysis/l2.mp3",
-      "start": 4.82,
-      "dur": 3.312
+      "beat": "stats",
+      "label": "",
+      "text": "See how the match swung, how you performed serving and receiving, and what happened at the tight ends of games.",
+      "file": "audio/player/analysis/l2.mp3",
+      "start": 5.396,
+      "dur": 6.576
     },
     {
       "id": "l3",
-      "beat": "stats",
-      "text": "Then the numbers. Serve, receive, the tight ends of games, your best run, and how it all finished.",
-      "file": "audio/analysis/l3.mp3",
-      "start": 8.632,
-      "dur": 6.912
+      "beat": "why",
+      "label": "",
+      "text": "The reasons you chose while scoring show what cost you points.",
+      "file": "audio/player/analysis/l3.mp3",
+      "start": 12.472,
+      "dur": 4.224
     },
     {
       "id": "l4",
-      "beat": "why",
-      "text": "And why you lost points, from the reasons you chose while scoring them.",
-      "file": "audio/analysis/l4.mp3",
-      "start": 16.044,
-      "dur": 5.136
+      "beat": "maps",
+      "label": "",
+      "text": "Placement maps show where the camera could follow the ball.",
+      "file": "audio/player/analysis/l4.mp3",
+      "start": 17.196,
+      "dur": 3.72
     },
     {
       "id": "l5",
-      "beat": "maps",
-      "text": "When the ball can be tracked, you also get a map of where it landed.",
-      "file": "audio/analysis/l5.mp3",
-      "start": 21.68,
-      "dur": 4.176
+      "beat": "filters",
+      "label": "",
+      "text": "Move between your serves, their serves, individual landings and the heat map.",
+      "file": "audio/player/analysis/l5.mp3",
+      "start": 21.416,
+      "dur": 4.68
     },
     {
       "id": "l6",
-      "beat": "filters",
-      "text": "Your serves or theirs, dots for each landing or a heat map, and one game at a time.",
-      "file": "audio/analysis/l6.mp3",
-      "start": 27.556,
-      "dur": 5.424
+      "beat": "request-placement",
+      "label": "",
+      "text": "If placement was not generated with the original processing, you can request it from Tools while the original video is still available.",
+      "file": "audio/player/analysis/l6.mp3",
+      "start": 26.596,
+      "dur": 6.48
     },
     {
       "id": "l7",
       "beat": "beta",
-      "text": "That part is still in beta, so if a map looks wrong you can say so and it stops counting.",
-      "file": "audio/analysis/l7.mp3",
-      "start": 33.48,
-      "dur": 5.448
+      "label": "",
+      "text": "Placement is still in beta, so you can mark a result that looks wrong and it stops counting.",
+      "file": "audio/player/analysis/l7.mp3",
+      "start": 33.576,
+      "dur": 5.952
     }
   ]
 }

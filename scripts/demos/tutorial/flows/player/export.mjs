@@ -9,8 +9,10 @@ export const entry = "/match/efff9208-abf2-4a20-a498-18cc5a5130b3";
 export const guard = playerGuard;
 
 const TAG = "backhand error";
-const STAR_POINT = 3;
-const TAG_POINT = 41;
+// The first raw point is deleted in this fixed fixture, so the product's
+// visible card numbers are one below their database idx values.
+const STAR_POINT = 2;
+const TAG_POINT = 40;
 const SHEET = { sel: '[role="dialog"]' };
 
 /** Original media is disposable; all highlight/star/tag rows are fixtures. */
@@ -35,8 +37,8 @@ async function bring(page, clock, text) {
 }
 
 async function bringPoint(page, clock, point) {
-  await page.evaluate((label) => document.querySelector(`[aria-label="${label}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" }), `Open point ${point}`);
-  await clock.sleep(800);
+  await page.evaluate((label) => document.querySelector(`[aria-label="${label}"]`)?.scrollIntoView({ block: "center" }), `Open point ${point}`);
+  await clock.sleep(300);
 }
 
 const pad = (rect) => ({ x: rect.x - 10, y: rect.y - 10, w: rect.w + 20, h: rect.h + 20 });
@@ -72,6 +74,18 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
 
   const stars = beat("stars");
   await bring(page, clock, "Points");
+  // The match page intentionally virtualises the long tail behind “Show
+  // all”; the tagged fixture card is in that tail.
+  await page.evaluate(() =>
+    [...document.querySelectorAll("button")]
+      .find((button) => button.textContent.trim().startsWith("Show all"))
+      ?.click()
+  );
+  await page.waitForFunction(
+    (label) => Boolean(document.querySelector(`[aria-label="${label}"]`)),
+    `Tag point ${TAG_POINT}`,
+    { timeout: 10000 },
+  );
   await bringPoint(page, clock, STAR_POINT);
   await clock.until(stars.start + 0.1);
   const star = await clock.rect({ aria: "Remove star" });

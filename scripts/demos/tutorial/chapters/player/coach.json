@@ -6,7 +6,7 @@
   "speed": 1.3,
   "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
   "lines": [
-    { "id": "l1", "text": "Invite a coach with one link and choose whether they see every match or only the matches you share.", "beat": "invite" },
+    { "id": "l1", "text": "Invite a coach with one link and choose whether they see every match or only the matches you share.", "beat": "invite", "pause": 6 },
     { "id": "l2", "text": "They open the same points, score and analysis that you do.", "beat": "sees" },
     { "id": "l3", "text": "They can leave written or spoken feedback on a point and draw directly on a frame.", "beat": "feedback" },
     { "id": "l4", "text": "A coach can also keep lesson entries for you and share them when they are ready.", "beat": "lesson-entries" },

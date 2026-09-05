@@ -3,81 +3,78 @@
   "title": "Watch it back",
   "subtitle": "Chapter 3 of 9",
   "model": "gpt-4o-mini-tts",
+  "delivery": {
+    "provider": "openai",
+    "voice": "sage",
+    "speed": 1.3,
+    "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences."
+  },
   "lead": 0.6,
   "gap": 0.5,
-  "total": 50.972,
-  "wpm": 195,
+  "total": 37.868,
+  "wpm": 179,
   "lines": [
     {
       "id": "l1",
-      "beat": "matches",
-      "text": "Once a match has been processed it turns up in your matches list.",
-      "file": "audio/viewer/l1.mp3",
+      "beat": "open",
+      "label": "",
+      "text": "Your match comes back with the time between rallies removed.",
+      "file": "audio/player/viewer/l1.mp3",
       "start": 0.6,
-      "dur": 4.056
+      "dur": 3.864
     },
     {
       "id": "l2",
-      "beat": "open",
-      "text": "Opening one gives you the whole match back with the dead time already cut out.",
-      "file": "audio/viewer/l2.mp3",
-      "start": 7.356,
-      "dur": 4.152
+      "beat": "taps",
+      "label": "",
+      "text": "Double tap the right side to move forward one point, the left side to go back, or the middle to replay the point.",
+      "file": "audio/player/viewer/l2.mp3",
+      "start": 4.964,
+      "dur": 7.152
     },
     {
       "id": "l3",
-      "beat": "taps",
-      "text": "Double tap the right of the screen to skip to the next point, and the left to go back one.",
-      "file": "audio/viewer/l3.mp3",
-      "start": 13.008,
-      "dur": 5.904
+      "beat": "fast",
+      "label": "",
+      "text": "Hold the right side for double speed and the left side for quarter speed.",
+      "file": "audio/player/viewer/l3.mp3",
+      "start": 12.616,
+      "dur": 4.44
     },
     {
       "id": "l4",
-      "beat": "fast",
-      "text": "Hold the right side and it runs at 2x speed, only while you hold it.",
-      "file": "audio/viewer/l4.mp3",
-      "start": 19.412,
-      "dur": 4.944
+      "beat": "zoom",
+      "label": "",
+      "text": "Pinch to zoom in on the table, then drag to move around.",
+      "file": "audio/player/viewer/l4.mp3",
+      "start": 17.556,
+      "dur": 4.848
     },
     {
       "id": "l5",
-      "beat": "slow",
-      "text": "Hold the left side for 0.25x speed, to see what your hand actually did.",
-      "file": "audio/viewer/l5.mp3",
-      "start": 24.856,
-      "dur": 6.024
-    },
-    {
-      "id": "l6",
-      "beat": "zoom",
-      "text": "Pinch to zoom in on the table, and drag to move around.",
-      "file": "audio/viewer/l6.mp3",
-      "start": 31.38,
+      "beat": "jump",
+      "label": "",
+      "text": "Open the point grid when you want to jump directly to another rally.",
+      "file": "audio/player/viewer/l5.mp3",
+      "start": 22.904,
       "dur": 3.936
     },
     {
-      "id": "l7",
-      "beat": "jump",
-      "text": "And you can jump straight to any point in the match without scrubbing for it.",
-      "file": "audio/viewer/l7.mp3",
-      "start": 35.816,
-      "dur": 4.248
-    },
-    {
-      "id": "l8",
-      "beat": "score",
-      "text": "Once the match is scored, the running score sits in the bottom left as it plays.",
-      "file": "audio/viewer/l8.mp3",
-      "start": 40.564,
-      "dur": 4.296
-    },
-    {
-      "id": "l9",
+      "id": "l6",
       "beat": "star",
-      "text": "Star a rally you want to come back to, or leave a note on it, without leaving the video.",
-      "file": "audio/viewer/l9.mp3",
-      "start": 45.36,
+      "label": "",
+      "text": "Star a point, share it, or leave a note without closing the player.",
+      "file": "audio/player/viewer/l6.mp3",
+      "start": 27.34,
+      "dur": 4.416
+    },
+    {
+      "id": "l7",
+      "beat": "original",
+      "label": "",
+      "text": "If the cut missed something, open Original to watch the video exactly as you uploaded it.",
+      "file": "audio/player/viewer/l7.mp3",
+      "start": 32.256,
       "dur": 5.112
     }
   ]

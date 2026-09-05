@@ -22,10 +22,15 @@ export const guard = coachGuard([
 
 export async function prepare(page) {
   await blockReviewSweep(page);
+  // Orders performs a relatively heavy first load. Do it before the
+  // recording clock starts (with the automatic sweep already blocked), so
+  // the opening narration shows the product instead of a route transition.
+  await page.goto(`${new URL(page.url()).origin}/coaching/orders`);
+  await page.waitForSelector("h1:has-text('Orders')", { timeout: 60000 });
 }
 
 export const scenes = [
-  { beat: "reviews", route: "/coaching/orders", waitFor: { text: "Orders", tag: "h1" }, target: { text: "Orders", tag: "h1" }, label: "Optional paid reviews on web" },
+  { beat: "reviews", waitFor: { text: "Orders", tag: "h1" }, target: { text: "Orders", tag: "h1" }, label: "Optional paid reviews on web" },
   { beat: "offering", target: { text: "Offerings", tag: "a" }, label: "Your page and offerings" },
   { beat: "order-request", target: { text: "Your move", tag: "h2" }, label: "The player's request" },
   { beat: "accept", target: { text: "New order", tag: "p" }, label: "You choose when to accept" },

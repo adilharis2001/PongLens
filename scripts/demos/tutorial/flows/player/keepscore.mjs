@@ -43,7 +43,9 @@ const AT = {
   serveTheirs: { aria: "Give the serve to Alex" },
   strip: { aria: "Go to point 1," },
   analysis: { aria: "Add analysis for this point" },
-  skip: { text: "Skip let", tag: "button", min: { w: 80, h: 40 } },
+  // Two block spans render as `Skiplet` in textContent, even though they
+  // read as two lines on screen. Match the stable first span.
+  skip: { text: "Skip", tag: "button", min: { w: 80, h: 40 } },
   modify: { text: "Modify", tag: "button", min: { w: 80, h: 40 } },
   padMine: { text: "Me", tag: "button", min: { w: 120, h: 200 } },
   padTheirs: { text: "Alex", tag: "button", min: { w: 120, h: 200 } },
@@ -131,6 +133,10 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
   await clock.until(b6.start + 0.1);
   const pad = await clock.rect(AT.padMine);
   const c6 = clock.mark({ kind: "box", label: "Swipe here", rect: pad });
+  // Let the gesture target read before the gesture replaces it with the
+  // full-screen panel. The screencast cannot show a box that lasted only
+  // for the pointer travel itself.
+  await clock.until(b6.start + 0.55);
   // A real swipe: the handler wants pointer events, 56px of travel, and
   // mostly horizontal movement (Player.tsx padSwipeHandlers).
   const y = pad.y + pad.h / 2;
@@ -173,7 +179,7 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
   const gone = () =>
     page
       .waitForFunction(() => !document.querySelector(".ks-slide-left"), null, {
-        timeout: 1500,
+        timeout: 500,
       })
       .then(() => true)
       .catch(() => false);

@@ -1,0 +1,63 @@
+{
+  "chapter": "coach-connect-account",
+  "title": "Connect their account",
+  "subtitle": "Chapter 3 of 9",
+  "model": "gpt-4o-mini-tts",
+  "delivery": {
+    "provider": "openai",
+    "voice": "sage",
+    "speed": 1.3,
+    "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences."
+  },
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 28.828,
+  "wpm": 187,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "invite",
+      "label": "",
+      "text": "When the student is ready, send the invite link from their page.",
+      "file": "audio/coach/coach-connect-account/l1.mp3",
+      "start": 0.6,
+      "dur": 4.728
+    },
+    {
+      "id": "l2",
+      "beat": "connect",
+      "label": "",
+      "text": "The invite connects their account to the name and entries already on your roster.",
+      "file": "audio/coach/coach-connect-account/l2.mp3",
+      "start": 5.828,
+      "dur": 4.296
+    },
+    {
+      "id": "l3",
+      "beat": "match-access",
+      "label": "",
+      "text": "They choose whether you can see every match or only the matches they share individually.",
+      "file": "audio/coach/coach-connect-account/l3.mp3",
+      "start": 10.624,
+      "dur": 5.376
+    },
+    {
+      "id": "l4",
+      "beat": "privacy",
+      "label": "",
+      "text": "You see only the matches covered by that choice, not the rest of their account or private Journal.",
+      "file": "audio/coach/coach-connect-account/l4.mp3",
+      "start": 16.5,
+      "dur": 5.376
+    },
+    {
+      "id": "l5",
+      "beat": "merge",
+      "label": "",
+      "text": "If the same student joined as a second row, merge the two and keep the name and history you already entered.",
+      "file": "audio/coach/coach-connect-account/l5.mp3",
+      "start": 22.376,
+      "dur": 5.952
+    }
+  ]
+}

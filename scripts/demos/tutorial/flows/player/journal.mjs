@@ -50,7 +50,10 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
 
   const searchAsk = beat("search-ask");
   await page.click('[aria-label="Search or ask your journal"]');
-  await page.type('[aria-label="Search or ask your journal"]', "backhand", { delay: 55 });
+  // Ask deliberately ignores one-word filters: it only offers the model
+  // action for a phrase that could be a real question. Use an askable
+  // phrase while keeping the staged backhand tag and entries in view.
+  await page.type('[aria-label="Search or ask your journal"]', "backhand error", { delay: 55 });
   await page.waitForSelector("text=Ask your journal", { timeout: 10000 });
   await clock.until(searchAsk.start + 0.1);
   const search = await clock.rect({ aria: "Search or ask your journal" });
@@ -75,13 +78,16 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
 
   const recollect = beat("recollect");
   await page.evaluate(() => window.__pick({ text: "Recollect", tag: "button", max: { w: 160, h: 60 } })?.click());
-  await page.waitForSelector("text=Recollect groups", { timeout: 20000 });
+  // The explanatory notice is intentionally one-time and this established
+  // demo account has already acknowledged it. A real topic card is the
+  // durable proof that Recollect loaded and the better match for the line.
+  await page.waitForSelector("text=Point construction", { timeout: 20000 });
   await page.evaluate(() => window.__pick({ text: "Recollect", tag: "button", max: { w: 160, h: 60 } })?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" }));
   await clock.sleep(600);
   await clock.until(recollect.start + 0.1);
   const recollectHeading = await clock.rect({ text: "Recollect", tag: "button", max: { w: 160, h: 60 } });
-  const recollectCopy = await clock.rect({ text: "Recollect groups", tag: "p" });
-  const recollectMark = clock.mark({ kind: "box", label: "Older advice, back in view", rect: union(recollectHeading, recollectCopy) });
+  const recollectTopic = await clock.rect({ text: "Point construction", tag: "button", max: { w: 380, h: 100 }, visible: true });
+  const recollectMark = clock.mark({ kind: "box", label: "Older advice, back in view", rect: union(recollectHeading, recollectTopic) });
   await clock.until(recollect.end);
   clock.close(recollectMark);
   await clock.until(voice.total + 0.4);

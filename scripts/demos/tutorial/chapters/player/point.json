@@ -9,8 +9,8 @@
     { "id": "l1", "text": "Open any point and you get that rally on its own.", "beat": "open" },
     { "id": "l2", "text": "Choose who won it. That is enough to build the score.", "beat": "winner" },
     { "id": "l3", "text": "You can also record how the point ended, what happened on the serve, and what went wrong.", "beat": "detail" },
-    { "id": "l4", "text": "Those answers fill the match analysis and your statistics.", "beat": "feeds" },
+    { "id": "l4", "text": "Those answers fill the match analysis and your statistics.", "beat": "feeds", "pause": 3.5 },
     { "id": "l5", "text": "Notes, tags, stars and drawings stay attached to the exact rally.", "beat": "notes" },
-    { "id": "l6", "text": "If the cut is wrong, you can adjust it, split joined rallies, remove dead space, or put back a rally PongLens missed.", "beat": "clip-tools" }
+    { "id": "l6", "text": "If the cut is wrong, you can adjust it, split joined rallies, remove dead space, or put back a rally PongLens missed.", "beat": "clip-tools", "pause": 6 }
   ]
 }

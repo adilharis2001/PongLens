@@ -1,0 +1,72 @@
+{
+  "chapter": "coach-feedback",
+  "title": "Leave feedback",
+  "subtitle": "Chapter 8 of 9",
+  "model": "gpt-4o-mini-tts",
+  "delivery": {
+    "provider": "openai",
+    "voice": "sage",
+    "speed": 1.3,
+    "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences."
+  },
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 29.404,
+  "wpm": 173,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "open-point",
+      "label": "",
+      "text": "Open the point that shows what you want to explain.",
+      "file": "audio/coach/coach-feedback/l1.mp3",
+      "start": 0.6,
+      "dur": 3.792
+    },
+    {
+      "id": "l2",
+      "beat": "point-note",
+      "label": "",
+      "text": "Write a note or record a voice note on that rally.",
+      "file": "audio/coach/coach-feedback/l2.mp3",
+      "start": 4.892,
+      "dur": 3.984
+    },
+    {
+      "id": "l3",
+      "beat": "drawing",
+      "label": "",
+      "text": "Pause on a useful frame and draw directly onto it.",
+      "file": "audio/coach/coach-feedback/l3.mp3",
+      "start": 9.376,
+      "dur": 3.6
+    },
+    {
+      "id": "l4",
+      "beat": "overall-notes",
+      "label": "",
+      "text": "Use Overall notes when the feedback applies across the whole match.",
+      "file": "audio/coach/coach-feedback/l4.mp3",
+      "start": 13.476,
+      "dur": 3.864
+    },
+    {
+      "id": "l5",
+      "beat": "student-view",
+      "label": "",
+      "text": "The student receives your feedback in the match and in their Journal.",
+      "file": "audio/coach/coach-feedback/l5.mp3",
+      "start": 17.84,
+      "dur": 3.912
+    },
+    {
+      "id": "l6",
+      "beat": "context",
+      "label": "",
+      "text": "Keeping the note beside the footage makes it clear which moment you meant.",
+      "file": "audio/coach/coach-feedback/l6.mp3",
+      "start": 24.752,
+      "dur": 4.152
+    }
+  ]
+}

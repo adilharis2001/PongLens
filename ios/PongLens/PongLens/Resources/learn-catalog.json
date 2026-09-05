@@ -822,7 +822,7 @@
       "slug": "home",
       "title": "Start here",
       "blurb": "What PongLens does and what Home is showing you.",
-      "seconds": 34,
+      "seconds": 36,
       "mediaKey": "tutorial/player/home.mp4"
     },
     {
@@ -830,7 +830,7 @@
       "slug": "upload",
       "title": "Upload a match",
       "blurb": "Record or choose a video, then set up the match for processing.",
-      "seconds": 39,
+      "seconds": 40,
       "guide": "upload-a-video",
       "mediaKey": "tutorial/player/upload.mp4"
     },
@@ -839,7 +839,7 @@
       "slug": "viewer",
       "title": "Watch it back",
       "blurb": "Move point by point, use the player gestures, and open the original upload.",
-      "seconds": 55,
+      "seconds": 41,
       "guide": "match-viewer",
       "mediaKey": "tutorial/player/viewer.mp4"
     },
@@ -848,7 +848,7 @@
       "slug": "point",
       "title": "Score a point",
       "blurb": "Score one rally and add the details that feed analysis and statistics.",
-      "seconds": 32,
+      "seconds": 45,
       "guide": "score-points",
       "mediaKey": "tutorial/player/point.mp4"
     },
@@ -857,7 +857,7 @@
       "slug": "keepscore",
       "title": "Score Keeper",
       "blurb": "Score a whole match quickly and correct footage without breaking the flow.",
-      "seconds": 60,
+      "seconds": 49,
       "guide": "score-keeper",
       "mediaKey": "tutorial/player/keepscore.mp4"
     },
@@ -875,7 +875,7 @@
       "slug": "export",
       "title": "Highlights, export and share",
       "blurb": "Use automatic highlights, stars, tags, exports, and public links.",
-      "seconds": 41,
+      "seconds": 45,
       "guide": "create-share-highlights",
       "mediaKey": "tutorial/player/export.mp4"
     },
@@ -884,7 +884,7 @@
       "slug": "coach",
       "title": "You and your coach",
       "blurb": "Choose match access and receive feedback and lesson entries in context.",
-      "seconds": 50,
+      "seconds": 45,
       "guide": "invite-a-coach",
       "mediaKey": "tutorial/player/coach.mp4"
     },
@@ -893,7 +893,7 @@
       "slug": "journal",
       "title": "The Journal",
       "blurb": "Keep notes, lessons, scanned pages, current cues, and Recollect together.",
-      "seconds": 55,
+      "seconds": 44,
       "guide": "journal",
       "mediaKey": "tutorial/player/journal.mp4"
     },
@@ -902,7 +902,7 @@
       "slug": "coach-start",
       "title": "Start here",
       "blurb": "See Coach Home, the roster, and the switch between Playing and Coaching.",
-      "seconds": 42,
+      "seconds": 31,
       "guide": "coaching-workspace",
       "mediaKey": "tutorial/coach/coach-start.mp4"
     },
@@ -911,7 +911,7 @@
       "slug": "coach-add-student",
       "title": "Add a student",
       "blurb": "Start a private lesson record before the student has an account.",
-      "seconds": 44,
+      "seconds": 28,
       "guide": "add-connect-student",
       "mediaKey": "tutorial/coach/coach-add-student.mp4"
     },
@@ -920,7 +920,7 @@
       "slug": "coach-connect-account",
       "title": "Connect their account",
       "blurb": "Send the invite, apply the student's match access, and merge a duplicate.",
-      "seconds": 46,
+      "seconds": 32,
       "guide": "add-connect-student",
       "mediaKey": "tutorial/coach/coach-connect-account.mp4"
     },
@@ -929,7 +929,7 @@
       "slug": "coach-lesson-entry",
       "title": "Write a lesson entry",
       "blurb": "Capture rough lesson notes and prepare them for later use.",
-      "seconds": 48,
+      "seconds": 36,
       "guide": "keep-lesson-entries",
       "mediaKey": "tutorial/coach/coach-lesson-entry.mp4"
     },
@@ -938,7 +938,7 @@
       "slug": "coach-audio-lesson",
       "title": "Audio record a lesson",
       "blurb": "Capture the lesson audio and review the transcript and prepared notes.",
-      "seconds": 50,
+      "seconds": 33,
       "guide": "audio-record-lesson",
       "mediaKey": "tutorial/coach/coach-audio-lesson.mp4"
     },
@@ -947,7 +947,7 @@
       "slug": "coach-share-entry",
       "title": "Share it with the student",
       "blurb": "Send an entry to a connected student's Journal or share that entry by link.",
-      "seconds": 43,
+      "seconds": 31,
       "guide": "share-coach-entry",
       "mediaKey": "tutorial/coach/coach-share-entry.mp4"
     },
@@ -956,7 +956,7 @@
       "slug": "coach-review-match",
       "title": "Review their matches",
       "blurb": "Open shared footage and read the player's score, analysis, and maps.",
-      "seconds": 51,
+      "seconds": 40,
       "guide": "review-student-match",
       "mediaKey": "tutorial/coach/coach-review-match.mp4"
     },
@@ -965,7 +965,7 @@
       "slug": "coach-feedback",
       "title": "Leave feedback",
       "blurb": "Keep written, spoken, and drawn feedback beside the moment it explains.",
-      "seconds": 49,
+      "seconds": 32,
       "guide": "leave-match-feedback",
       "mediaKey": "tutorial/coach/coach-feedback.mp4"
     }

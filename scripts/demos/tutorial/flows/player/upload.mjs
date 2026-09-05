@@ -40,8 +40,7 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
   const header = beat("header");
   await clock.until(header.start + 0.2);
   const title = await clock.rect({ sel: "main h1" });
-  const intro = await clock.rect({ sel: "main h1 + p" });
-  const headerMark = clock.mark({ kind: "box", label: "Start with a video", rect: union(title, intro) });
+  const headerMark = clock.mark({ kind: "box", label: "Start with a video", rect: padded(title) });
   await clock.until(header.end);
   clock.close(headerMark);
 
@@ -63,21 +62,31 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
 
   const guide = beat("guide");
   await clock.until(guide.start + 0.1);
+  await page.evaluate(() => {
+    window.__pick({ text: "How to record", tag: "button" })?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  });
+  await clock.sleep(450);
   const guideButton = await clock.rect({ text: "How to record", tag: "button" });
   const guideMark = clock.mark({ kind: "box", label: "Camera setup", rect: padded(guideButton) });
   await clock.until(guide.start + Math.min(1.6, guide.dur * 0.55));
   await page.evaluate(() => window.__pick({ text: "How to record", tag: "button" })?.click());
-  await page.waitForSelector("text=Where to put the camera", { timeout: 15000 });
+  await page.waitForSelector("text=Where to place the camera", { timeout: 15000 });
   await clock.sleep(500);
   await clock.until(guide.end - 0.4);
   clock.close(guideMark);
-  await dismiss(page, { click: { text: "Got it", tag: "button" }, gone: { text: "Where to put the camera" } });
+  await dismiss(page, { click: { text: "Got it", tag: "button" }, gone: { text: "Where to place the camera" } });
 
   const duration = beat("duration-limit");
   await clock.until(duration.start + 0.1);
   const limit = await clock.rect({ text: "MP4 or MOV, up to 45 minutes.", tag: "p" });
   const durationMark = clock.mark({ kind: "box", label: "Up to 45 minutes", rect: padded(limit) });
-  await clock.until(duration.end);
+  // Leave enough of this short line for the match route to load before the
+  // next sentence starts. Waiting to its final word made both detail cues
+  // collapse while the browser was navigating.
+  await clock.until(duration.start + Math.min(1.1, duration.dur * 0.45));
   clock.close(durationMark);
 
   const details = beat("details");
@@ -115,7 +124,6 @@ export async function flow(page, clock, { beat, voice, union, dismiss }) {
   const sideRowMark = clock.mark({ kind: "box", label: "Which side is yours", rect: padded(yourSide) });
   await page.click('button:has-text("Your side")');
   await page.waitForSelector("text=Which player are you?", { timeout: 20000 });
-  await clock.sleep(450);
   clock.close(sideRowMark);
   const sideQuestion = await clock.rect({ text: "Which player are you?", tag: "h2" });
   const bottomChoice = await clock.rect({ text: "I'm at the bottom", tag: "button" });

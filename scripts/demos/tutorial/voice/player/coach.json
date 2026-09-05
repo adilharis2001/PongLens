@@ -3,58 +3,79 @@
   "title": "You and your coach",
   "subtitle": "Chapter 8 of 9",
   "model": "gpt-4o-mini-tts",
+  "delivery": {
+    "provider": "openai",
+    "voice": "sage",
+    "speed": 1.3,
+    "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences."
+  },
   "lead": 0.6,
   "gap": 0.5,
-  "total": 49.488,
-  "wpm": 194,
+  "total": 41.564,
+  "wpm": 177,
   "lines": [
     {
       "id": "l1",
       "beat": "invite",
-      "text": "Inviting your coach takes one link, and you choose whether they see a single match or everything you play.",
-      "file": "audio/coach/l1.mp3",
+      "label": "",
+      "text": "Invite a coach with one link and choose whether they see every match or only the matches you share.",
+      "file": "audio/player/coach/l1.mp3",
       "start": 0.6,
-      "dur": 6.024
+      "dur": 5.904
     },
     {
       "id": "l2",
       "beat": "sees",
-      "text": "They open the same points you do, in the same order, with the same score.",
-      "file": "audio/coach/l2.mp3",
-      "start": 11.624,
-      "dur": 4.536
+      "label": "",
+      "text": "They open the same points, score and analysis that you do.",
+      "file": "audio/player/coach/l2.mp3",
+      "start": 13.004,
+      "dur": 4.104
     },
     {
       "id": "l3",
-      "beat": "draw",
-      "text": "They can pause on any frame, draw straight onto it, and leave the note on that exact point instead of in a message thread you will lose.",
-      "file": "audio/coach/l3.mp3",
-      "start": 16.66,
-      "dur": 8.52
+      "beat": "feedback",
+      "label": "",
+      "text": "They can leave written or spoken feedback on a point and draw directly on a frame.",
+      "file": "audio/player/coach/l3.mp3",
+      "start": 17.608,
+      "dur": 4.752
     },
     {
       "id": "l4",
-      "beat": "audio",
-      "text": "They can also just hold the microphone and leave a spoken note on a point, which is quicker when they are courtside between games.",
-      "file": "audio/coach/l4.mp3",
-      "start": 25.68,
-      "dur": 7.632
+      "beat": "lesson-entries",
+      "label": "",
+      "text": "A coach can also keep lesson entries for you and share them when they are ready.",
+      "file": "audio/player/coach/l4.mp3",
+      "start": 22.86,
+      "dur": 4.56
     },
     {
       "id": "l5",
-      "beat": "overall",
-      "text": "At the bottom of the match they can write up how the whole thing went and what you should work on next.",
-      "file": "audio/coach/l5.mp3",
-      "start": 33.812,
-      "dur": 5.76
+      "beat": "journal",
+      "label": "",
+      "text": "Their point notes and shared lesson entries arrive in your Journal.",
+      "file": "audio/player/coach/l5.mp3",
+      "start": 27.92,
+      "dur": 4.44
     },
     {
       "id": "l6",
-      "beat": "lands",
-      "text": "Everything they leave shows up in your journal alongside your own notes.",
-      "file": "audio/coach/l6.mp3",
-      "start": 44.572,
-      "dur": 4.416
+      "beat": "boundaries",
+      "label": "",
+      "text": "Your coach cannot change your score, clips or match details.",
+      "file": "audio/player/coach/l6.mp3",
+      "start": 32.86,
+      "dur": 4.248
+    },
+    {
+      "id": "l7",
+      "beat": "access",
+      "label": "",
+      "text": "You remain in control of which matches they can open.",
+      "file": "audio/player/coach/l7.mp3",
+      "start": 37.608,
+      "dur": 3.456
     }
   ]
 }

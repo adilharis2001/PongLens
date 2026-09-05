@@ -13,6 +13,11 @@
 
 import { makePlayerGuardAdapter } from "../../guard.mjs";
 import {
+  hideCaptureTransition,
+  showCaptureTransition,
+  waitBeforeCaptureTransition,
+} from "../../capture-transition.mjs";
+import {
   MATCH_ID,
   TUTORIAL_POINT_NOTE,
   playerGuard,
@@ -88,6 +93,15 @@ export async function stage(key) {
 
 export async function prepare(page) {
   await page.waitForSelector("text=Who won this point?", { timeout: 90000 });
+  await page.waitForSelector('[aria-label="Play the full video"]', { timeout: 60000 });
+  await page.waitForFunction(
+    () => {
+      const video = document.querySelector('[role="dialog"] video');
+      return video && video.readyState >= 2 && video.videoWidth > 0;
+    },
+    undefined,
+    { timeout: 30000 },
+  );
   await page.waitForTimeout(2200);
 }
 
@@ -98,7 +112,8 @@ const SHEET = { sel: '[role="dialog"]' };
 /** Bring an element to the middle of the sheet and let the scroll settle. */
 async function centre(page, clock, text) {
   await page.evaluate((t) => {
-    const el = [...document.querySelectorAll("span, p, h3")].find((e) =>
+    const root = document.querySelector('[role="dialog"]');
+    const el = [...(root?.querySelectorAll("span, p, h3") ?? [])].find((e) =>
       e.textContent.trim().toLowerCase().startsWith(t.toLowerCase())
     );
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -167,10 +182,10 @@ export async function flow(page, clock, { beat, voice, union, dismiss, sectionRe
 
   // --------------------------------------- 3. how it ended, and why
   const b3 = beat("detail");
-  await centre(page, clock, "Recorded earlier");
+  await centre(page, clock, "Who served?");
   await clock.until(b3.start + 0.1);
-  const how = await clock.rect({ text: "Recorded earlier", tag: "span" });
-  const c3 = clock.mark({ kind: "box", label: "How it ended", rect: row(how) });
+  const how = await clock.rect({ text: "Who served?", tag: "h3" });
+  const c3 = clock.mark({ kind: "box", label: "Serve and outcome", rect: row(how) });
   await clock.until(b3.start + b3.dur * 0.4);
   clock.close(c3);
 
@@ -193,6 +208,18 @@ export async function flow(page, clock, { beat, voice, union, dismiss, sectionRe
     click: { aria: "Close point view" },
     gone: { text: "Who won this point?", tag: "h3" },
   });
+  // The full-match preview remounts when the sheet closes. Its signed URL
+  // arrives asynchronously, and the play affordance can mount one paint
+  // before the video has a decoded frame. Require the actual frame.
+  await page.waitForSelector('[aria-label="Play the full video"]', { timeout: 60000 });
+  await page.waitForFunction(
+    () => {
+      const video = document.querySelector("video");
+      return video && video.readyState >= 2 && video.videoWidth > 0;
+    },
+    undefined,
+    { timeout: 30000 },
+  );
   await clock.sleep(700);
   await page.evaluate(() => {
     [...document.querySelectorAll("button")]
@@ -206,16 +233,37 @@ export async function flow(page, clock, { beat, voice, union, dismiss, sectionRe
   await clock.until(b4.end);
   clock.close(c4);
 
-  await page.goto(`${new URL(page.url()).origin}/match/${MAPPED}?p=${MAPPED_POINT}`);
-  await page.waitForSelector("text=Who won this point?", { timeout: 60000 });
-  await clock.sleep(700);
+  // This is the same fixture and point the chapter opened on. Re-open its
+  // shipping card in place so the already-loaded match is preserved; a
+  // full route reload exposes both the preview and clip placeholders under
+  // the next narrated line.
+  await waitBeforeCaptureTransition(clock);
+  await showCaptureTransition(page);
+  try {
+    await page.evaluate((spec) => window.__pick(spec)?.click(), {
+      aria: `Open point ${MAPPED_POINT}`,
+    });
+    await page.waitForSelector("text=Who won this point?", { timeout: 60000 });
+    await page.waitForFunction(
+      () => {
+        const video = document.querySelector('[role="dialog"] video');
+        return video && video.readyState >= 2 && video.videoWidth > 0;
+      },
+      undefined,
+      { timeout: 30000 },
+    );
+    await clock.sleep(700);
+  } finally {
+    await hideCaptureTransition(page);
+  }
 
   // ------------------------------------------- 5. the notes on the point
   const b5 = beat("notes");
-  // Notes are fetched after the sheet paints, so wait for the staged one to
-  // actually be on screen rather than assuming it arrived with the point.
-  await page.waitForSelector("text=Caught flat", { timeout: 30000 });
-  await centre(page, clock, "Caught flat");
+  // The lesson is the point-scoped Notes surface, not one fixture sentence.
+  // Wait for and centre that shipping section so the cue remains truthful
+  // even when the optional staged example is not in the server payload.
+  await page.waitForSelector("text=Notes", { timeout: 30000 });
+  await centre(page, clock, "Notes");
   await clock.until(b5.start + 0.1);
   const c5 = clock.mark({
     kind: "box",
@@ -227,12 +275,21 @@ export async function flow(page, clock, { beat, voice, union, dismiss, sectionRe
 
   // --------------------------------------------- 6. repair the clip
   const b6 = beat("clip-tools");
+  await page.evaluate(() => {
+    const root = document.querySelector('[role="dialog"]');
+    [...(root?.querySelectorAll("button") ?? [])]
+      .find((button) => button.textContent.trim().startsWith("Modify"))
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+  await clock.sleep(600);
   await clock.until(b6.start + 0.1);
-  const modify = await clock.rect({ text: "Modify", tag: "button" });
-  const remove = await clock.rect({ text: "Remove", tag: "button" });
+  const modify = await clock.rect({ text: "Modify", tag: "button", within: SHEET, visible: true });
+  const remove = await clock.rect({ text: "Remove", tag: "button", within: SHEET, visible: true });
   const c6 = clock.mark({ kind: "box", label: "Repair a bad cut", rect: union(modify, remove) });
   await clock.until(b6.start + Math.min(1.5, b6.dur * 0.45));
-  await page.evaluate(() => window.__pick({ text: "Modify", tag: "button" })?.click());
+  await page.evaluate(() =>
+    window.__pick({ text: "Modify", tag: "button", within: { sel: '[role="dialog"]' }, visible: true })?.click()
+  );
   await page.waitForSelector("text=Split", { timeout: 20000 });
   await clock.sleep(500);
   const split = await clock.rect({ text: "Split", tag: "button" });
@@ -251,8 +308,8 @@ export async function flow(page, clock, { beat, voice, union, dismiss, sectionRe
   await page.evaluate(() =>
     document.querySelector('[aria-label="Play the full video"]')?.click()
   );
-  await page.waitForSelector("text=Score the Match", { timeout: 30000 });
-  await page.click('button:has-text("Score the Match")');
+  await page.waitForSelector("text=Score Keeper", { timeout: 30000 });
+  await page.click('button:has-text("Score Keeper")');
   await page.waitForSelector('button[aria-label*="Add a missing rally"]', { timeout: 30000 });
   await page.evaluate(() =>
     document.querySelector('button[aria-label*="Add a missing rally"]')?.scrollIntoView({ block: "center" })
@@ -276,7 +333,7 @@ export async function flow(page, clock, { beat, voice, union, dismiss, sectionRe
     label: "Choose the missing rally",
     rect: fit(union(missingTitle, startHandle)),
   });
-  await clock.until(b6.end);
+  await clock.until(voice.total - 0.5);
   clock.close(missingSheet);
   await clock.until(voice.total + 0.4);
 }

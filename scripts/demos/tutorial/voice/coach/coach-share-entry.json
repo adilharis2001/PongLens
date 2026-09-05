@@ -1,0 +1,72 @@
+{
+  "chapter": "coach-share-entry",
+  "title": "Share it with the student",
+  "subtitle": "Chapter 6 of 9",
+  "model": "gpt-4o-mini-tts",
+  "delivery": {
+    "provider": "openai",
+    "voice": "sage",
+    "speed": 1.3,
+    "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences."
+  },
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 28.32,
+  "wpm": 167,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "private-entry",
+      "label": "",
+      "text": "A lesson entry stays in your private coaching record until you share it.",
+      "file": "audio/coach/coach-share-entry/l1.mp3",
+      "start": 0.6,
+      "dur": 4.344
+    },
+    {
+      "id": "l2",
+      "beat": "share-with",
+      "label": "",
+      "text": "For a connected student, Share with sends it directly to their Journal.",
+      "file": "audio/coach/coach-share-entry/l2.mp3",
+      "start": 5.444,
+      "dur": 4.296
+    },
+    {
+      "id": "l3",
+      "beat": "updates",
+      "label": "",
+      "text": "If you edit the entry later, the version in their Journal updates too.",
+      "file": "audio/coach/coach-share-entry/l3.mp3",
+      "start": 10.24,
+      "dur": 4.416
+    },
+    {
+      "id": "l4",
+      "beat": "stop-sharing",
+      "label": "",
+      "text": "You can stop sharing at any time.",
+      "file": "audio/coach/coach-share-entry/l4.mp3",
+      "start": 15.156,
+      "dur": 3.096
+    },
+    {
+      "id": "l5",
+      "beat": "public-link",
+      "label": "",
+      "text": "For someone without an account, copy a public link to that individual entry.",
+      "file": "audio/coach/coach-share-entry/l5.mp3",
+      "start": 18.752,
+      "dur": 5.04
+    },
+    {
+      "id": "l6",
+      "beat": "link-privacy",
+      "label": "",
+      "text": "The link does not expose the rest of the student's record.",
+      "file": "audio/coach/coach-share-entry/l6.mp3",
+      "start": 24.292,
+      "dur": 3.528
+    }
+  ]
+}

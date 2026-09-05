@@ -1,4 +1,9 @@
 import { coachAccount, student } from "../account.mjs";
+import {
+  hideCaptureTransition,
+  showCaptureTransition,
+  waitBeforeCaptureTransition,
+} from "../../capture-transition.mjs";
 
 export const account = coachAccount();
 export const studentAccount = student();
@@ -42,6 +47,28 @@ export async function blockReviewSweep(page) {
 }
 
 const origin = (page) => new URL(page.url()).origin;
+
+/** A match route paints before its signed preview URL arrives. The play
+ * affordance exists only after that URL has replaced "Loading preview…". */
+export async function waitForMatchPreview(page) {
+  // The button proves URL signing completed; the media predicate proves the
+  // browser has replaced the placeholder with a real decoded poster frame.
+  await page.waitForFunction(
+    () => Boolean(document.querySelector('[aria-label="Play the full video"]')),
+    undefined,
+    { timeout: 60000 },
+  );
+  await page.waitForFunction(
+    () => {
+      const video = [...document.querySelectorAll("video")].find(
+        (candidate) => !candidate.closest('[role="dialog"]'),
+      );
+      return video && video.readyState >= 2 && video.videoWidth > 0;
+    },
+    undefined,
+    { timeout: 30000 },
+  );
+}
 
 async function hit(page, selector) {
   return page.evaluate((spec) => {
@@ -114,8 +141,16 @@ async function act(page, action) {
  * element, while capture still drives the shipping page.
  */
 export async function showScene(page, clock, scene, timing) {
+  const covered = Boolean(scene.transition) || scene.route?.startsWith("/match/");
+  if (covered) {
+    await waitBeforeCaptureTransition(clock);
+    await showCaptureTransition(page);
+  }
   if (scene.route) {
     await page.goto(`${origin(page)}${scene.route}`);
+    if (scene.route.startsWith("/match/")) {
+      await waitForMatchPreview(page);
+    }
   }
   if (scene.action) {
     await page.waitForFunction(
@@ -145,6 +180,21 @@ export async function showScene(page, clock, scene, timing) {
       { timeout: 30000 },
     );
   }
+  if (scene.transition === "dialog-video") {
+    await page.waitForFunction(
+      () => {
+        const video = document.querySelector('[role="dialog"] video');
+        return video && video.readyState >= 2 && video.videoWidth > 0;
+      },
+      undefined,
+      { timeout: 30000 },
+    );
+    // Put the narrated section in view before exposing the shipping page.
+    await page.evaluate((spec) => {
+      window.__pick(spec)?.scrollIntoView({ behavior: "auto", block: "center" });
+    }, scene.target);
+  }
+  if (covered) await hideCaptureTransition(page);
 
   const viewport = page.viewportSize() ?? { width: 390, height: 844 };
   const openCue = async (target, label) => {

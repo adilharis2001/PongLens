@@ -1,0 +1,81 @@
+{
+  "chapter": "coach-lesson-entry",
+  "title": "Write a lesson entry",
+  "subtitle": "Chapter 4 of 9",
+  "model": "gpt-4o-mini-tts",
+  "delivery": {
+    "provider": "openai",
+    "voice": "sage",
+    "speed": 1.3,
+    "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences."
+  },
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 32.732,
+  "wpm": 166,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "new-entry",
+      "label": "",
+      "text": "Open a student and start a new lesson entry.",
+      "file": "audio/coach/coach-lesson-entry/l1.mp3",
+      "start": 0.6,
+      "dur": 3.264
+    },
+    {
+      "id": "l2",
+      "beat": "entry-text",
+      "label": "",
+      "text": "Type, paste, or dictate what you worked on.",
+      "file": "audio/coach/coach-lesson-entry/l2.mp3",
+      "start": 4.364,
+      "dur": 3.984
+    },
+    {
+      "id": "l3",
+      "beat": "attachments",
+      "label": "",
+      "text": "Add a photo or include a useful link in the text.",
+      "file": "audio/coach/coach-lesson-entry/l3.mp3",
+      "start": 8.848,
+      "dur": 3.408
+    },
+    {
+      "id": "l4",
+      "beat": "improve",
+      "label": "",
+      "text": "Improve with AI can prepare rough notes as clear points for you to review.",
+      "file": "audio/coach/coach-lesson-entry/l4.mp3",
+      "start": 12.756,
+      "dur": 4.872
+    },
+    {
+      "id": "l5",
+      "beat": "edit",
+      "label": "",
+      "text": "You can edit the original words or correct the prepared notes directly.",
+      "file": "audio/coach/coach-lesson-entry/l5.mp3",
+      "start": 18.128,
+      "dur": 4.608
+    },
+    {
+      "id": "l6",
+      "beat": "link-match",
+      "label": "",
+      "text": "Link the entry to one of the student's matches when the lesson refers to it.",
+      "file": "audio/coach/coach-lesson-entry/l6.mp3",
+      "start": 23.236,
+      "dur": 4.152
+    },
+    {
+      "id": "l7",
+      "beat": "private",
+      "label": "",
+      "text": "The entry stays private until you decide to share it.",
+      "file": "audio/coach/coach-lesson-entry/l7.mp3",
+      "start": 27.888,
+      "dur": 4.344
+    }
+  ]
+}

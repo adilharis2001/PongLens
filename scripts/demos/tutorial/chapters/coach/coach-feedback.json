@@ -10,7 +10,7 @@
     { "id": "l2", "text": "Write a note or record a voice note on that rally.", "beat": "point-note" },
     { "id": "l3", "text": "Pause on a useful frame and draw directly onto it.", "beat": "drawing" },
     { "id": "l4", "text": "Use Overall notes when the feedback applies across the whole match.", "beat": "overall-notes" },
-    { "id": "l5", "text": "The student receives your feedback in the match and in their Journal.", "beat": "student-view" },
+    { "id": "l5", "text": "The student receives your feedback in the match and in their Journal.", "beat": "student-view", "pause": 2.5 },
     { "id": "l6", "text": "Keeping the note beside the footage makes it clear which moment you meant.", "beat": "context" }
   ]
 }

@@ -3,58 +3,70 @@
   "title": "Score a point",
   "subtitle": "Chapter 4 of 9",
   "model": "gpt-4o-mini-tts",
+  "delivery": {
+    "provider": "openai",
+    "voice": "sage",
+    "speed": 1.3,
+    "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences."
+  },
   "lead": 0.6,
   "gap": 0.5,
-  "total": 28.584,
-  "wpm": 184,
+  "total": 42.308,
+  "wpm": 166,
   "lines": [
     {
       "id": "l1",
       "beat": "open",
+      "label": "",
       "text": "Open any point and you get that rally on its own.",
-      "file": "audio/point/l1.mp3",
+      "file": "audio/player/point/l1.mp3",
       "start": 0.6,
-      "dur": 3.456
+      "dur": 3.384
     },
     {
       "id": "l2",
       "beat": "winner",
-      "text": "You can say who won it.",
-      "file": "audio/point/l2.mp3",
-      "start": 4.556,
-      "dur": 2.76
+      "label": "",
+      "text": "Choose who won it. That is enough to build the score.",
+      "file": "audio/player/point/l2.mp3",
+      "start": 4.484,
+      "dur": 3.912
     },
     {
       "id": "l3",
       "beat": "detail",
-      "text": "You can also add how the point ended, and what went wrong.",
-      "file": "audio/point/l3.mp3",
-      "start": 7.816,
-      "dur": 3.672
+      "label": "",
+      "text": "You can also record how the point ended, what happened on the serve, and what went wrong.",
+      "file": "audio/player/point/l3.mp3",
+      "start": 8.896,
+      "dur": 4.992
     },
     {
       "id": "l4",
-      "beat": "map",
-      "text": "Every point also maps where the ball landed, and traces the line the rally took.",
-      "file": "audio/point/l4.mp3",
-      "start": 13.788,
-      "dur": 5.352
+      "beat": "feeds",
+      "label": "",
+      "text": "Those answers fill the match analysis and your statistics.",
+      "file": "audio/player/point/l4.mp3",
+      "start": 14.388,
+      "dur": 4.44
     },
     {
       "id": "l5",
       "beat": "notes",
-      "text": "And your notes sit on the point itself, right beside the rally they are about.",
-      "file": "audio/point/l5.mp3",
-      "start": 19.64,
-      "dur": 4.416
+      "label": "",
+      "text": "Notes, tags, stars and drawings stay attached to the exact rally.",
+      "file": "audio/player/point/l5.mp3",
+      "start": 22.828,
+      "dur": 4.848
     },
     {
       "id": "l6",
-      "beat": "feeds",
-      "text": "Those answers are what fill in the match analysis and your stats.",
-      "file": "audio/point/l6.mp3",
-      "start": 24.556,
-      "dur": 3.528
+      "beat": "clip-tools",
+      "label": "",
+      "text": "If the cut is wrong, you can adjust it, split joined rallies, remove dead space, or put back a rally PongLens missed.",
+      "file": "audio/player/point/l6.mp3",
+      "start": 28.176,
+      "dur": 7.632
     }
   ]
 }

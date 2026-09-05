@@ -37,6 +37,9 @@ export function parseGuardArgs(args) {
 /** Everything Keep score (and its follow-ups) can write on a point. */
 const POINT_FIELDS = [
   "confirmed_winner",
+  // Keep score records the video playhead together with the winner. A
+  // restored outcome without its original timestamp is not a restoration.
+  "scored_at_cut_s",
   "confirmed_how",
   "is_let",
   "starred",
@@ -643,6 +646,15 @@ export async function snapshot(key, matchId, adapter) {
 
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
+/** Exact legacy point patch used by Keep score and its recovery command. */
+export function restoredPointPatch(current, original) {
+  const patch = {};
+  for (const field of POINT_FIELDS) {
+    if (!same(current[field], original[field])) patch[field] = original[field];
+  }
+  return patch;
+}
+
 /** Put back anything that moved. Returns the number of rows restored. */
 export async function restore(key, snap, adapter) {
   if (snap?.kind === "coach") {
@@ -658,10 +670,7 @@ export async function restore(key, snap, adapter) {
   for (const current of now.points) {
     const original = before.get(current.id);
     if (!original) continue;
-    const diff = {};
-    for (const f of POINT_FIELDS) {
-      if (!same(current[f], original[f])) diff[f] = original[f];
-    }
+    const diff = restoredPointPatch(current, original);
     if (Object.keys(diff).length === 0) continue;
     await rest(key, `points?id=eq.${current.id}`, {
       method: "PATCH",

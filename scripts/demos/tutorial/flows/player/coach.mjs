@@ -4,6 +4,8 @@ export { account };
 
 const MATCH = "efff9208-abf2-4a20-a498-18cc5a5130b3";
 const STUDENT = "0a5e0004-0000-4000-8000-000000000001";
+// A published demo rally with a verified playable clip. The narration
+// teaches the feedback controls; it does not require a prewritten note.
 const POINT = 48;
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
 
@@ -45,7 +47,7 @@ export async function flow(page, clock, { beat, voice, union, dismiss, serviceKe
   const coachRow = await clock.rect({ text: "Add a coach", tag: "button" });
   const inviteMark = clock.mark({ kind: "box", label: "Invite your coach", rect: coachRow });
   await clock.until(invite.start + Math.min(1.5, invite.dur * 0.45));
-  await page.evaluate(() => window.__pick({ text: "Add a coach", tag: "button" })?.click());
+  await page.click("button:has-text('Add a coach')");
   await page.waitForSelector("text=Share with coach", { timeout: 20000 });
   await clock.sleep(400);
   clock.close(inviteMark);
@@ -59,7 +61,13 @@ export async function flow(page, clock, { beat, voice, union, dismiss, serviceKe
   const coachLink = await magicLink(serviceKey, coach(), `/match/${MATCH}?p=${POINT}`, origin);
   await page.goto(coachLink);
   await page.waitForSelector('[aria-label="Close point view"]', { timeout: 60000 });
-  await clock.sleep(900);
+  // The point sheet mounts before its clip: /api/media-url still has to
+  // authorize the coach and sign the R2 object. On a cold dev route that
+  // routinely takes longer than the old fixed 900 ms sleep, leaving the
+  // recorded screen on "Loading clip…" and no <video> for the cue. Wait on
+  // the product state the narration actually promises.
+  await page.waitForSelector('[role="dialog"] video', { timeout: 20000 });
+  await clock.sleep(300);
 
   const sees = beat("sees");
   await clock.until(sees.start + 0.1);
@@ -71,7 +79,7 @@ export async function flow(page, clock, { beat, voice, union, dismiss, serviceKe
   const feedback = beat("feedback");
   await bring(page, clock, "Notes", "h2, h3");
   await clock.until(feedback.start + 0.1);
-  const note = await clock.rect({ text: "Tutorial fixture: Stay over the table", tag: "p, span, div" });
+  const note = await clock.rect({ text: "Notes", tag: "h2, h3", within: { sel: '[role="dialog"]' } });
   const microphone = await clock.rect({ aria: "Record a voice note", within: { sel: '[role="dialog"]' } });
   const draw = await clock.rect({ text: "Draw", tag: "button", within: { sel: '[role="dialog"]' } });
   const feedbackMark = clock.mark({ kind: "box", label: "Written, spoken, or drawn", rect: union(note, microphone, draw) });

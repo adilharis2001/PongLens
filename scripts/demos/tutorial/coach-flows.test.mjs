@@ -167,6 +167,70 @@ test("coach match review stages a real Original and three trusted serve maps", a
   assert.equal(observations.length, 3);
 });
 
+test("coach match review leaves route time before its split analysis cue", async () => {
+  const manifest = JSON.parse(
+    await readFile(
+      path.join(DIR, "chapters", "coach", "coach-review-match.json"),
+      "utf8",
+    ),
+  );
+  const pointByPoint = manifest.lines.find(
+    ({ beat }) => beat === "point-by-point",
+  );
+  assert.ok(
+    pointByPoint?.pause >= 3,
+    "returning from the player needs time before the analysis midpoint",
+  );
+});
+
+test("coach media-loading covers stay inside silent narration holds", async () => {
+  const review = JSON.parse(
+    await readFile(
+      path.join(DIR, "chapters", "coach", "coach-review-match.json"),
+      "utf8",
+    ),
+  );
+  const feedback = JSON.parse(
+    await readFile(
+      path.join(DIR, "chapters", "coach", "coach-feedback.json"),
+      "utf8",
+    ),
+  );
+  assert.ok(
+    review.lines.find(({ beat }) => beat === "shared-matches")?.pause >= 2.5,
+    "opening a shared match needs a silent media-loading hold",
+  );
+  assert.ok(
+    feedback.lines.find(({ beat }) => beat === "student-view")?.pause >= 2.5,
+    "reopening a point clip needs a silent media-loading hold",
+  );
+});
+
+test("coach match review and feedback close overlays without reloading the match", async () => {
+  const review = await loadFlow("coach-review-match");
+  const analysis = review.scenes.find(({ beat }) => beat === "analysis-maps");
+  assert.equal(analysis?.route, undefined);
+  assert.deepEqual(analysis?.action, {
+    type: "click",
+    target: { aria: "Close player" },
+  });
+
+  const feedback = await loadFlow("coach-feedback");
+  const overall = feedback.scenes.find(({ beat }) => beat === "overall-notes");
+  const context = feedback.scenes.find(({ beat }) => beat === "context");
+  assert.equal(overall?.route, undefined);
+  assert.deepEqual(overall?.action, {
+    type: "click",
+    target: { aria: "Close point view" },
+  });
+  assert.equal(context?.route, undefined);
+  assert.deepEqual(context?.action, {
+    type: "click",
+    target: { aria: "Open point 48" },
+  });
+  assert.equal(context?.transition, "dialog-video");
+});
+
 test("coach lesson entry selects the student's real shared match", async () => {
   const flow = await loadFlow("coach-lesson-entry");
   const scene = flow.scenes.find((candidate) => candidate.beat === "link-match");
@@ -217,10 +281,65 @@ test("the coach scene runner can select an accessible match option", async () =>
   );
 });
 
+test("coach match routes wait through the signed preview placeholder", async () => {
+  const { showScene } = await import("./flows/coach/shared.mjs");
+  const trace = [];
+  const page = {
+    url() {
+      return "https://staging.invalid/coaching/students/student";
+    },
+    async goto(url) {
+      trace.push({ type: "goto", url });
+    },
+    async waitForFunction(fn, argument, options) {
+      trace.push({ type: "waitForFunction", source: String(fn), argument, options });
+    },
+    async evaluate() {},
+    viewportSize() {
+      return { width: 390, height: 844 };
+    },
+  };
+  const clock = {
+    async sleep() {},
+    async until() {},
+    async rect() {
+      return { x: 10, y: 100, w: 200, h: 40 };
+    },
+    mark() {
+      return "cue";
+    },
+    close() {},
+  };
+
+  await showScene(
+    page,
+    clock,
+    {
+      beat: "open-match",
+      route: "/match/fixture",
+      target: { text: "Original", tag: "button" },
+      label: "Cut or original video",
+    },
+    { start: 0, end: 1, dur: 1 },
+  );
+
+  const previewReady = trace.findIndex(
+    ({ type, source }) =>
+      type === "waitForFunction" &&
+      source.includes("readyState >= 2") &&
+      source.includes("videoWidth > 0"),
+  );
+  const targetReady = trace.findLastIndex(
+    ({ type, source }) => type === "waitForFunction" && source.includes("window.__pick"),
+  );
+  assert.ok(previewReady >= 0, "match route must wait until Loading preview is gone");
+  assert.ok(targetReady > previewReady, "preview readiness must precede the narrated target");
+});
+
 test("coach Home and paid review block only automatic review sweeps", async () => {
-  for (const [slug, firstRoute] of [
-    ["coach-start", "/coaching"],
-    ["coach-paid-review", "/coaching/orders"],
+  for (const [slug, firstRoute, preparedRoute] of [
+    ["coach-start", "/coaching", null],
+    ["coach-paid-review", undefined, "/coaching/orders"],
   ]) {
     const flow = await loadFlow(slug);
     assert.equal(flow.entry, "/coaching/students");
@@ -229,12 +348,23 @@ test("coach Home and paid review block only automatic review sweeps", async () =
 
     let pattern;
     let handler;
+    const gotos = [];
     await flow.prepare({
+      url: () => "https://staging.invalid/coaching/students",
       async route(nextPattern, nextHandler) {
         pattern = nextPattern;
         handler = nextHandler;
       },
+      async goto(url) {
+        gotos.push(url);
+      },
+      async waitForSelector() {},
     });
+    assert.deepEqual(
+      gotos,
+      preparedRoute ? [`https://staging.invalid${preparedRoute}`] : [],
+      `${slug} preload route`,
+    );
     assert.equal(pattern, "**/api/reviews/transition");
 
     for (const request of [
