@@ -129,6 +129,7 @@ export function StudentView({
   const [matchPoints, setMatchPoints] = useState<PointLite[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
   /** The entry being corrected, in the shape the journal's editor takes. */
   const [editing, setEditing] = useState<Lesson | null>(null);
 
@@ -325,6 +326,30 @@ export function StudentView({
     image_path: lesson.image_path,
     created_at: lesson.created_at,
   });
+
+  /** Mark every entry in this folder, in one statement (2026-09-04).
+   *
+   *  The head start, for a student who has not joined. Not a picker: the
+   *  entries are listed further down this same page, so a second
+   *  multi-select over the same three or four things would be the
+   *  redundant one. This says what is waiting and offers the whole
+   *  folder; changing one is a tap away below.
+   *
+   *  One update over the ids rather than a loop, so a half-shared folder
+   *  cannot happen. Same shape as the journal's moveEntries. */
+  const shareAllWaiting = async () => {
+    const ids = entries.filter((e) => !e.shared_at).map((e) => e.id);
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("coach_entries")
+      .update({ shared_at: new Date().toISOString() })
+      .in("id", ids);
+    if (error) flash("Couldn't share them. Try again.");
+    await load();
+    setBulkBusy(false);
+  };
 
   const setShared = async (entry: EntryRow, shared: boolean) => {
     setSharingId(entry.id);
@@ -650,6 +675,40 @@ export function StudentView({
             An invite links them to their PongLens account. You&apos;ll see the
             matches they upload, and the entries you share reach their journal.
           </p>
+          {/* What is already lined up for them, above the list rather
+              than instead of it (2026-09-04). A coach reading this panel
+              is deciding whether to send the link; what the link will
+              hand over is the thing they want to know. */}
+          {entries.length > 0 &&
+            (() => {
+              const marked = entries.filter((e) => e.shared_at).length;
+              const rest = entries.length - marked;
+              return (
+                <div className="mt-3">
+                  <p className="text-sm text-zinc-300">
+                    {marked === 0
+                      ? `None of your ${entries.length} ${entries.length === 1 ? "entry" : "entries"} are shared yet.`
+                      : rest === 0
+                        ? `${student.display_name} gets ${entries.length === 1 ? "your entry" : `all ${entries.length} entries`} when they join.`
+                        : `${student.display_name} gets ${marked} of ${entries.length} entries when they join.`}
+                  </p>
+                  {rest > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => void shareAllWaiting()}
+                      disabled={bulkBusy}
+                      className="mt-2 rounded-full border border-cyan-glow/60 bg-cyan-glow/10 px-4 py-1.5 text-sm font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/20 disabled:opacity-60"
+                    >
+                      {bulkBusy
+                        ? "Sharing…"
+                        : marked === 0
+                          ? `Share all ${rest} when they join`
+                          : `Share the other ${rest}`}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
           <div className="mt-4 overflow-hidden rounded-xl border border-edge bg-ink/40">
             <button
               type="button"
@@ -754,7 +813,20 @@ export function StudentView({
             const themes = lesson?.takeaways?.themes ?? [];
             // The share sits on the card, not inside it: a coach writing
             // in a student's folder assumes the student can read it.
-            const canShare = Boolean(student.player_id) && !entry.shared_at;
+            //
+            // It no longer waits for the student to have an account. A
+            // coach can fill a folder for somebody who is not on PongLens
+            // yet and, before this, could hand them none of it: the
+            // control did not exist, and nothing caught up on accept, so
+            // the day they joined they found an empty "From your coach"
+            // (Adil, 2026-09-04). Marking it early is safe by the
+            // database's own rules — every reader of a shared entry keys
+            // on cs.player_id = auth.uid(), so a mark with no account
+            // behind it matches nobody, and accept_student_invite binds
+            // the account onto this same row, which is what makes it
+            // appear with no backfill.
+            const canShare = !entry.shared_at;
+            const waiting = Boolean(entry.shared_at) && !student.player_id;
             return (
               <div
                 key={entry.id}
@@ -785,8 +857,17 @@ export function StudentView({
                   </button>
                   <span className="flex shrink-0 items-center gap-2">
                     {entry.shared_at ? (
-                      <span className="rounded-full bg-cyan-glow/10 px-2 py-0.5 text-[11px] font-medium text-cyan-glow">
-                        Shared
+                      // "Shared" over an entry nobody can read yet would
+                      // be a lie the coach could act on. Grey, and a
+                      // different word, until there is somebody there.
+                      <span
+                        className={
+                          waiting
+                            ? "rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-zinc-400"
+                            : "rounded-full bg-cyan-glow/10 px-2 py-0.5 text-[11px] font-medium text-cyan-glow"
+                        }
+                      >
+                        {waiting ? "Waiting" : "Shared"}
                       </span>
                     ) : (
                       canShare && (
@@ -851,7 +932,9 @@ export function StudentView({
                 )}
                 {expanded && (
                   <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-edge/60 pt-3">
-                    {student.player_id && entry.shared_at && (
+                    {/* Anchored on the mark, not on the account: a
+                        Waiting mark has to be takeable back too. */}
+                    {entry.shared_at && (
                       <button
                         type="button"
                         onClick={() => void setShared(entry, false)}
@@ -888,8 +971,9 @@ export function StudentView({
                 )}
                 {expanded && entry.shared_at && (
                   <p className="mt-3 text-xs text-zinc-500">
-                    Shared with {student.display_name}. Edits show on their
-                    side.
+                    {student.player_id
+                      ? `Shared with ${student.display_name}. Edits show on their side.`
+                      : `Waiting for ${student.display_name} to join. They get it the day they do.`}
                   </p>
                 )}
               </div>

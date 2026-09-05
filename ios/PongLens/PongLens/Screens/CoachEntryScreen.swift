@@ -150,46 +150,61 @@ struct CoachEntryScreen: View {
     @ViewBuilder
     private func shareGroup(_ entry: CoachEntryRow, _ student: CoachStudentRow) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            if student.linked {
-                if entry.sharedAt != nil {
-                    HStack(spacing: 10) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(PL.cyan)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Shared with \(student.displayName)")
-                                .font(.plRowTitle)
-                                .foregroundStyle(PL.text100)
-                            Text("Edits show on their side.")
-                                .font(.plCaption)
-                                .foregroundStyle(PL.text500)
-                        }
-                        Spacer()
-                    }
-                } else {
-                    Button {
-                        Task {
-                            sharing = true
-                            errorLine = nil
-                            let ok = await workspace.setShared(entry, shared: true)
-                            sharing = false
-                            if !ok {
-                                errorLine = "Couldn't share it. Try again."
-                            }
-                        }
-                    } label: {
-                        Text(sharing ? "Sharing…" : "Share with \(student.displayName)")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                    .disabled(sharing)
-                }
-            } else {
+            // A student who has not joined used to get this sentence and
+            // no control at all — a dead end at the exact moment the
+            // coach had just written something for them (Adil,
+            // 2026-09-04). The entry can now be marked, and lands the day
+            // they join. Safe by the database's own rules: every reader of
+            // a shared entry keys on the student's account id, so a mark
+            // with nobody behind it matches nobody.
+            if !student.linked {
                 Text("\(student.displayName) isn't on PongLens. Send the link below; it opens without an account, and joining from it connects you.")
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if entry.sharedAt != nil {
+                HStack(spacing: 10) {
+                    Image(systemName: student.linked ? "checkmark.circle.fill" : "clock")
+                        .font(.system(size: 16))
+                        .foregroundStyle(student.linked ? PL.cyan : PL.text500)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(student.linked
+                             ? "Shared with \(student.displayName)"
+                             : "Waiting for \(student.displayName)")
+                            .font(.plRowTitle)
+                            .foregroundStyle(PL.text100)
+                        Text(student.linked
+                             ? "Edits show on their side."
+                             : "They get it the day they join.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                    }
+                    Spacer()
+                }
+            } else {
+                Button {
+                    Task {
+                        sharing = true
+                        errorLine = nil
+                        let ok = await workspace.setShared(entry, shared: true)
+                        sharing = false
+                        if !ok {
+                            errorLine = "Couldn't share it. Try again."
+                        }
+                    }
+                } label: {
+                    Text(sharing
+                         ? "Sharing…"
+                         : student.linked
+                            ? "Share with \(student.displayName)"
+                            : "Share when \(student.displayName) joins")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PLPrimaryButtonStyle())
+                .disabled(sharing)
             }
 
             // Pills, not bare text.
@@ -221,7 +236,9 @@ struct CoachEntryScreen: View {
                     .buttonStyle(PLSecondaryButtonStyle())
                     .disabled(mintingLink)
                 }
-                if student.linked, entry.sharedAt != nil {
+                // Anchored on the mark, not on the account: a Waiting
+                // mark has to be takeable back too.
+                if entry.sharedAt != nil {
                     // Says what it is doing, and says when it failed. It
                     // used to do neither: the label never changed, so a
                     // press that worked and a press that did nothing

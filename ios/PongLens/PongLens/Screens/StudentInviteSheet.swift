@@ -17,10 +17,52 @@ struct StudentInviteSheet: View {
     @State private var failed = false
     @State private var copied = false
     @State private var resetAsk = false
+    /// Which roster row a GENERAL invite should bind, when the coach says
+    /// it is for somebody already on their list. Nil means someone new.
+    @State private var picked: CoachStudentRow?
+
+    /// The row this invite is really for. A general invite that names
+    /// nobody creates a BRAND NEW roster row on accept — so a coach who
+    /// has been filling a folder for "Emily" and sends the general link
+    /// ends up with two rows, and everything they wrote stays behind on
+    /// the unbound one (2026-09-04). Today the only repair is the merge
+    /// on the new row's page, which a coach finds only if they know to
+    /// look for it. Asking here stops it happening.
+    private var target: CoachStudentRow? { student ?? picked }
+
+    /// Rows worth offering: the ones with nobody behind them yet. A
+    /// student who has already joined has their own link and cannot be
+    /// bound twice.
+    private var offlineStudents: [CoachStudentRow] {
+        workspace.activeStudents.filter { !$0.linked }
+    }
 
     var body: some View {
-        PLSheetScaffold(title: student.map { "Invite \($0.displayName)" } ?? "Invite a new student") {
+        PLSheetScaffold(title: target.map { "Invite \($0.displayName)" } ?? "Invite a new student") {
             Form {
+                // Only on the GENERAL invite, and only when there is
+                // somebody to confuse it with.
+                if student == nil, !offlineStudents.isEmpty {
+                    Section {
+                        Button {
+                            picked = nil
+                        } label: {
+                            pickRow("Someone new", selected: picked == nil)
+                        }
+                        ForEach(offlineStudents) { row in
+                            Button {
+                                picked = row
+                            } label: {
+                                pickRow(row.displayName, selected: picked?.id == row.id)
+                            }
+                        }
+                    } header: {
+                        Text("Who is this for?")
+                    } footer: {
+                        Text("Picking a name links them to that folder, so the entries you have already written are waiting for them. Someone new starts a fresh one.")
+                    }
+                }
+
                 Section {
                     if let url {
                         QRCodeView(url: url)
@@ -38,9 +80,9 @@ struct StudentInviteSheet: View {
                         .padding(.vertical, 24)
                     }
                 } footer: {
-                    Text(student == nil
+                    Text(target == nil
                          ? "For someone not on your list yet. Whoever opens this link and signs in joins as your student; a student already listed gets their own link from their page. They choose whether you see all their matches or only the ones they share, and the entries you share reach their journal."
-                         : "Opening this link and signing in connects \(student!.displayName) to this row. They choose whether you see all their matches or only the ones they share, and the entries you share reach their journal.")
+                         : "Opening this link and signing in connects \(target!.displayName) to this row. They choose whether you see all their matches or only the ones they share, and the entries you share reach their journal.")
                 }
 
                 if let url {
@@ -70,9 +112,11 @@ struct StudentInviteSheet: View {
                 }
             }
         }
-        .task {
+        .task(id: target?.id) {
             guard let uid = app.userId else { return }
-            url = await workspace.inviteURL(coachId: uid, studentId: student?.id)
+            url = nil
+            failed = false
+            url = await workspace.inviteURL(coachId: uid, studentId: target?.id)
             failed = url == nil
         }
         .confirmationDialog("Reset this invite link?", isPresented: $resetAsk, titleVisibility: .visible) {
@@ -80,8 +124,8 @@ struct StudentInviteSheet: View {
                 Task {
                     guard let uid = app.userId else { return }
                     url = nil
-                    _ = await workspace.revokeInvites(coachId: uid, studentId: student?.id)
-                    url = await workspace.inviteURL(coachId: uid, studentId: student?.id)
+                    _ = await workspace.revokeInvites(coachId: uid, studentId: target?.id)
+                    url = await workspace.inviteURL(coachId: uid, studentId: target?.id)
                     failed = url == nil
                 }
             }
@@ -89,5 +133,20 @@ struct StudentInviteSheet: View {
         } message: {
             Text("The old link stops working. You get a new one straight away.")
         }
+    }
+
+    /// A choice, drawn as a row: the name, and a tick when it is the one.
+    private func pickRow(_ label: String, selected: Bool) -> some View {
+        HStack {
+            Text(label)
+                .foregroundStyle(selected ? PL.text100 : PL.text300)
+            Spacer()
+            if selected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(PL.cyan)
+            }
+        }
+        .contentShape(Rectangle())
     }
 }

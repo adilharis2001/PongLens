@@ -74,7 +74,8 @@ struct CoachHomeScreen: View {
                                         entry: entry,
                                         lesson: workspace.lesson(for: entry),
                                         studentName: student?.displayName,
-                                        shareWith: student?.linked == true ? student?.displayName : nil,
+                                        shareWith: student?.displayName,
+                                        studentLinked: student?.linked == true,
                                         sharing: sharingId == entry.id,
                                         onShare: {
                                             sharingId = entry.id

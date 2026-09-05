@@ -69,7 +69,10 @@ export function StudentsCard() {
             .eq("kind", "coach")
             .order("created_at", { ascending: false })
             .limit(20),
-          supabase.from("matches").select("id, user_id").neq("user_id", user.id),
+          supabase
+            .from("matches")
+            .select("id, user_id")
+            .neq("user_id", user.id),
         ]);
       if (!alive) return;
       setStudents((studentsRes.data as StudentRow[]) ?? []);
@@ -184,8 +187,17 @@ export function StudentsCard() {
                         {nameOf(e.student_id)}
                       </span>
                       {e.shared_at && (
-                        <span className="text-[11px] font-medium text-cyan-glow">
-                          Shared
+                        // Grey and a different word while there is
+                        // nobody to read it (2026-09-04). The student
+                        // page says the same thing the same way.
+                        <span
+                          className={
+                            linkedOf(e.student_id)
+                              ? "text-[11px] font-medium text-cyan-glow"
+                              : "text-[11px] font-medium text-zinc-400"
+                          }
+                        >
+                          {linkedOf(e.student_id) ? "Shared" : "Waiting"}
                         </span>
                       )}
                     </span>
@@ -201,13 +213,24 @@ export function StudentsCard() {
                       </span>
                     </span>
                   </Link>
-                  {linkedOf(e.student_id) && !e.shared_at && (
+                  {/* No longer waits for the student to have an
+                      account: a coach filling a folder for somebody not
+                      on PongLens yet could hand them none of it.
+                      Marking it early is safe — every reader of a
+                      shared entry keys on the student's account id, so
+                      a mark with nobody behind it matches nobody.
+
+                      And at the size of the badge above rather than a
+                      full cyan bar, which is what the student page and
+                      the phone both went to this morning; two screens
+                      one tap apart were disagreeing. */}
+                  {!e.shared_at && (
                     <div className="mt-3">
                       <button
                         type="button"
                         onClick={() => void share(e)}
                         disabled={sharingId === e.id}
-                        className="glow-cta rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink disabled:opacity-60"
+                        className="rounded-full border border-cyan-glow/60 bg-cyan-glow/10 px-3 py-1 text-xs font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/20 disabled:opacity-60"
                       >
                         {sharingId === e.id
                           ? "Sharing…"

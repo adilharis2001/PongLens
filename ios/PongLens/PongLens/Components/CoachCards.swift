@@ -12,11 +12,20 @@ struct CoachEntryCard: View {
     var studentName: String?
     /// The one-tap share, in the corner where the Shared badge lands. A
     /// coach writing in a student's folder assumes the student reads it,
-    /// and nothing said otherwise until the entry was opened. Non-nil for
-    /// a student who is on PongLens — the name itself is no longer drawn,
-    /// so this reads as "there is somebody to share with"; the card drops
-    /// the control once the entry is shared.
+    /// and nothing said otherwise until the entry was opened. The name
+    /// itself is no longer drawn, so this reads as "there is somebody to
+    /// share with"; the card drops the control once the entry is shared.
     var shareWith: String? = nil
+    /// Whether that student has a PongLens account behind them, which is
+    /// the difference between Shared and Waiting.
+    ///
+    /// DELIBERATELY WITHOUT A DEFAULT. This used to be folded into
+    /// shareWith, which meant two things at once — the name, and whether
+    /// they had joined — and splitting them is the whole point. A default
+    /// of true here would let a call site that was never updated keep the
+    /// old behaviour silently; with none, the compiler names every one of
+    /// them.
+    let studentLinked: Bool
     var sharing = false
     var onShare: (() -> Void)? = nil
 
@@ -45,9 +54,14 @@ struct CoachEntryCard: View {
                 }
                 Spacer()
                 if entry.sharedAt != nil {
-                    Text("Shared")
+                    // "Shared" over an entry nobody can read yet would be
+                    // a lie the coach could act on (2026-09-04). A coach
+                    // can now mark an entry for a student who has not
+                    // joined; it lands the day they do, and says so until
+                    // then.
+                    Text(studentLinked ? "Shared" : "Waiting")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(PL.cyan)
+                        .foregroundStyle(studentLinked ? PL.cyan : PL.text500)
                 } else if shareWith != nil, let onShare {
                     // In the corner the Shared badge would occupy, sized
                     // against it, but ringed and filled so it reads as a

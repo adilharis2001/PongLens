@@ -18,6 +18,7 @@ struct CoachStudentScreen: View {
     @State private var archiveAsk = false
     @State private var mergeAsk = false
     @State private var sharingId: UUID?
+    @State private var bulkBusy = false
 
     private var student: CoachStudentRow? { workspace.student(studentId) }
 
@@ -104,6 +105,40 @@ struct CoachStudentScreen: View {
         }
     }
 
+    @ViewBuilder
+    private func headStart(_ student: CoachStudentRow) -> some View {
+        let all = workspace.entries(for: student.id)
+        let marked = all.filter { $0.sharedAt != nil }.count
+        let rest = all.count - marked
+        if !all.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(marked == 0
+                     ? "None of your \(all.count) \(all.count == 1 ? "entry" : "entries") are shared yet."
+                     : rest == 0
+                        ? "\(student.displayName) gets \(all.count == 1 ? "your entry" : "all \(all.count) entries") when they join."
+                        : "\(student.displayName) gets \(marked) of \(all.count) entries when they join.")
+                    .font(.plBody)
+                    .foregroundStyle(PL.text200)
+                    .fixedSize(horizontal: false, vertical: true)
+                if rest > 0 {
+                    Button(bulkBusy
+                           ? "Sharing…"
+                           : marked == 0
+                              ? "Share all \(rest) when they join"
+                              : "Share the other \(rest)") {
+                        bulkBusy = true
+                        Task {
+                            _ = await workspace.shareAll(studentId: student.id)
+                            bulkBusy = false
+                        }
+                    }
+                    .buttonStyle(PLCyanGhostButtonStyle())
+                    .disabled(bulkBusy)
+                }
+            }
+        }
+    }
+
     private func content(_ student: CoachStudentRow) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -148,6 +183,14 @@ struct CoachStudentScreen: View {
                             .font(.plBody)
                             .foregroundStyle(PL.text400)
                             .lineSpacing(3)
+                        // What is already lined up for them, above the
+                        // list rather than instead of it (2026-09-04). A
+                        // coach reading this panel is deciding whether to
+                        // send the link; what the link hands over is the
+                        // thing they want to know. Not a picker — the
+                        // entries are listed a few rows below, where any
+                        // one of them can be changed.
+                        headStart(student)
                         VStack(spacing: 0) {
                             CoachNavRow(label: "Invite \(student.displayName)", symbol: "link") {
                                 inviteOpen = true
@@ -174,7 +217,8 @@ struct CoachStudentScreen: View {
                                 CoachEntryCard(
                                     entry: entry,
                                     lesson: workspace.lesson(for: entry),
-                                    shareWith: student.linked ? student.displayName : nil,
+                                    shareWith: student.displayName,
+                                    studentLinked: student.linked,
                                     sharing: sharingId == entry.id,
                                     onShare: { share(entry) }
                                 )
