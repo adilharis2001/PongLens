@@ -28,6 +28,17 @@ try {
     const context = await browser.newContext({ viewport });
     const page = await context.newPage();
     page.setDefaultTimeout(15000);
+    // Catch compact desktop buttons accidentally leaking into the mobile flow.
+    const assertMobileButton = async (name) => {
+      if (viewport.width >= 640) return;
+      const sizes = await page.getByRole("button", { name, exact: true }).evaluate(el => {
+        const parent = el.parentElement;
+        const style = getComputedStyle(parent);
+        return { width: el.getBoundingClientRect().width, available: parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight), height: el.getBoundingClientRect().height };
+      });
+      assert.ok(Math.abs(sizes.width - sizes.available) < 2, `${name} spans the mobile content width (${sizes.width}/${sizes.available})`);
+      assert.ok(sizes.height >= 44, `${name} has a comfortable touch target`);
+    };
     let purchases = false, pending = false, failSend = false, sends = 0, failConfig = false, imported = false, importCalls = 0, processCalls = 0, uploadCalls = 0, minutes = 0;
     const id = "11111111-1111-4111-8111-111111111111";
     await context.addInitScript(({ id }) => {
@@ -66,7 +77,11 @@ try {
       await route.fulfill({ status: failSend ? 500 : 200, json: failSend ? { code: "server_error" } : { id: "request" } });
     });
     await page.goto(`${base}/qa-allowance`);
+    await assertMobileButton("Request more storage");
+    await assertMobileButton("Try upload again");
     await page.getByRole("button", { name: "Request more storage", exact: true }).click();
+    await assertMobileButton("Send request");
+    await assertMobileButton("Cancel");
     const textarea = page.getByRole("textbox", { name: /Anything/ });
     await textarea.fill("Tournament this weekend");
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -95,6 +110,10 @@ try {
     purchases = true;
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await page.getByRole("link", { name: "Get more minutes", exact: true }).waitFor();
+    if (viewport.width < 640) {
+      const widths = await page.getByRole("link", { name: "Get more minutes", exact: true }).evaluate(el => [el.getBoundingClientRect().width, el.parentElement.clientWidth]);
+      assert.ok(Math.abs(widths[0] - widths[1]) < 2, "purchase alternative is also full-width on mobile");
+    }
     assert.equal(await page.getByRole("button", { name: "Request more minutes", exact: true }).count(), 0);
     assert.equal(await page.getByRole("link", { name: "Get more minutes", exact: true }).getAttribute("href"), "/account#minutes");
     failConfig = true;
@@ -129,6 +148,18 @@ try {
     pending = false;
     await page.getByRole("button", { name: "Show upload", exact: true }).click();
     await page.locator('input[type="file"]').setInputFiles(process.env.QA_VIDEO || "/tmp/ponglens-allowance-fixture.mp4");
+    await page.getByRole("button", { name: "Request more storage", exact: true }).waitFor();
+    await assertMobileButton("Request more storage");
+    await assertMobileButton("Try upload again");
+    await assertMobileButton("Close");
+    const borderCount = await page.getByRole("button", { name: "Request more storage", exact: true }).evaluate(el => {
+      let count = 0;
+      for (let parent = el.parentElement; parent && parent.tagName !== "MAIN"; parent = parent.parentElement) {
+        if (parseFloat(getComputedStyle(parent).borderTopWidth) > 0) count++;
+      }
+      return count;
+    });
+    assert.equal(borderCount, 1, "storage recovery stays inside the upload card without nested bordered panels");
     await page.getByRole("button", { name: "Request more storage", exact: true }).click();
     await page.getByRole("textbox", { name: /Anything/ }).fill("Tournament this weekend");
     await page.screenshot({ path: `/tmp/ponglens-allowance-upload-${viewport.width}.png`, fullPage: true });

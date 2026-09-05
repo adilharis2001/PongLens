@@ -506,16 +506,16 @@ export function YouTubeImport({
       <section className="rounded-2xl border border-edge bg-surface p-5 sm:p-8">
         <h2 className="text-lg font-semibold">Import from YouTube</h2>
         <div className="mt-6">
-          <p className="text-center text-sm font-medium text-emerald-400">
+          <p className={needsMinutes ? "text-sm text-zinc-300" : "text-center text-sm font-medium text-emerald-400"}>
             {importedMatch ? needsMinutes ? "Imported. Your video needs more minutes to process." : importedMatch.status === "uploaded" ? "Imported. Your video is saved in your library." : "Imported. Your video is in your library." : "We're fetching it. You can leave this page."}
           </p>
-          <p className="mt-1 text-center text-xs text-zinc-500">
+          {!needsMinutes && <p className="mt-1 text-center text-xs text-zinc-500">
             {importedMatch?.status === "uploaded" ? "You can continue processing when you're ready." : "You'll get an email when your match is ready."}
-          </p>
+          </p>}
           {needsMinutes && <AllowanceRecovery resource="minutes" retryLabel="Try processing again" onRetry={processImported} />}
           {importProblem && <p role="alert" className="mt-3 text-sm text-amber-300">{importProblem}</p>}
-          {importProblem && !needsMinutes && importedMatch?.status === "uploaded" && <button type="button" disabled={importBusy} onClick={() => void processImported()} className="mt-3 rounded-full border border-edge px-4 py-2 text-sm text-zinc-200 disabled:opacity-50">{importBusy ? "Starting…" : "Try processing again"}</button>}
-          {importedMatch && <a className="mt-3 inline-block rounded-full border border-edge px-4 py-2 text-sm text-zinc-200" href={`/match/${importedMatch.id}`}>Open the video</a>}
+          {importProblem && !needsMinutes && importedMatch?.status === "uploaded" && <button type="button" disabled={importBusy} onClick={() => void processImported()} className="mt-3 min-h-11 w-full rounded-full border border-edge px-4 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50 sm:w-auto">{importBusy ? "Starting…" : "Try processing again"}</button>}
+          {importedMatch && <a className="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-edge px-4 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white sm:w-auto" href={`/match/${importedMatch.id}`}>Open the video</a>}
 
           {/* One form, identical in structure and behavior to the upload
               card's: everything auto-saves. Processing toggles lock once

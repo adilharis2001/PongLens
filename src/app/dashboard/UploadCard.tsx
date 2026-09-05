@@ -2069,7 +2069,7 @@ export function UploadCard({
         /* The action follows the error. A file that is the wrong type or
            too long has nothing to retry; a quota wall has nothing at all,
            and the old panel's single Retry button just failed again. */
-        <div className={`mt-6 rounded-2xl border p-6 text-center ${uploadAllowanceResource(error) ? "border-edge bg-surface" : "border-red-500/30 bg-red-500/10"}`}>
+        <div className={uploadAllowanceResource(error) ? "mt-6 text-left" : "mt-6 rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-center"}>
           <p className={`text-sm ${uploadAllowanceResource(error) ? "text-zinc-300" : "text-red-300"}`}>{uploadAllowanceResource(error) ? "There isn't enough storage for this video. Your selected video is still here." : error}</p>
           {uploadAllowanceResource(error) && <AllowanceRecovery resource="storage" onRetry={retry} retryLabel="Try upload again" />}
           {errorAction !== "none" && (
@@ -2097,7 +2097,7 @@ export function UploadCard({
                   setError(null);
                   setPhase("idle");
                 }}
-                className="rounded-full border border-edge bg-surface px-5 py-2.5 text-sm text-zinc-200 transition-colors hover:border-cyan-glow/50"
+                className="min-h-11 w-full rounded-full border border-edge bg-surface px-5 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white sm:w-auto"
               >
                 Close
               </button>

@@ -18,7 +18,9 @@ struct AllowanceRecoveryView: View {
         VStack(alignment: .leading, spacing: 12) {
             if let purchasesEnabled {
                 if purchasesEnabled {
-                    Button("Get more \(resource)") { accountOpen = true }
+                    Button { accountOpen = true } label: {
+                        Text("Get more \(resource)").frame(maxWidth: .infinity, minHeight: 28)
+                    }
                         .buttonStyle(PLSecondaryButtonStyle())
                 } else {
                     AllowanceRequestRow(resource: resource, compact: true, refreshToken: refreshToken)
@@ -31,7 +33,7 @@ struct AllowanceRecoveryView: View {
                     .font(.plBody).foregroundStyle(PL.warningText)
             }
             if let retryError { Text(retryError).font(.plBody).foregroundStyle(PL.warningText) }
-            Button(busy ? "Checking…" : purchasesEnabled == nil ? "Try again" : retryLabel) {
+            Button {
                 Task {
                     busy = true
                     let hadOptions = purchasesEnabled != nil
@@ -44,6 +46,9 @@ struct AllowanceRecoveryView: View {
                     refreshToken += 1
                     busy = false
                 }
+            } label: {
+                Text(busy ? "Checking…" : purchasesEnabled == nil ? "Try again" : retryLabel)
+                    .frame(maxWidth: .infinity, minHeight: 28)
             }
             .buttonStyle(PLSecondaryButtonStyle())
             .disabled(busy)

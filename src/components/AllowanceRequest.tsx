@@ -37,11 +37,12 @@ export function AllowanceRequest({ resource, compact = false, refreshToken = 0 }
     finally { setBusy(false); }
   };
   const label = resource === "storage" ? "storage" : "minutes";
-  const pill = "rounded-full border border-edge px-4 py-2 text-sm text-zinc-200 disabled:opacity-50";
+  const pill = "inline-flex min-h-11 w-full items-center justify-center rounded-full border border-edge px-4 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50 sm:w-auto";
+  const primary = "glow-cta inline-flex min-h-11 w-full items-center justify-center rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-50 sm:w-auto";
   return (
-    <div className="mt-4">
+    <div className={compact ? "" : "mt-4"}>
       {pending ? (
-        <p role="status" className="text-sm text-cyan-glow">Request sent. We will notify you when it has been reviewed.</p>
+        <p role="status" className="text-sm text-zinc-300">Request sent. We will notify you when it has been reviewed.</p>
       ) : open ? (
         <form onSubmit={(e) => { e.preventDefault(); void submit(); }} className="space-y-3">
           <label className="block text-sm text-zinc-300">
@@ -49,8 +50,8 @@ export function AllowanceRequest({ resource, compact = false, refreshToken = 0 }
             <textarea autoFocus value={message} onChange={(e) => setMessage(e.target.value)} maxLength={1000} rows={3}
               className="mt-2 block w-full rounded-xl border border-edge bg-ink p-3 text-sm text-zinc-100 focus:border-cyan-glow focus:outline-none" />
           </label>
-          <div className="flex flex-wrap gap-2">
-            <button disabled={busy} className="rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink disabled:opacity-50">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <button disabled={busy} className={primary}>
               {busy ? "Sending…" : "Send request"}
             </button>
             <button type="button" onClick={() => setOpen(false)} disabled={busy} className={pill}>Cancel</button>
@@ -58,8 +59,8 @@ export function AllowanceRequest({ resource, compact = false, refreshToken = 0 }
         </form>
       ) : (
         <>
-          <p className="mb-3 text-sm text-zinc-400">{compact ? "Need a little more? You can request a free allowance increase during beta." : "PongLens is in beta. Enjoying the app and need more storage or processing minutes? You can request a free allowance increase."}</p>
-          <button disabled={pending === null} onClick={() => setOpen(true)} className={pill}>Request more {label}</button>
+          <p className="mb-3 text-sm text-zinc-400">{compact ? `PongLens is in beta. You can request more ${label === "minutes" ? "processing minutes" : label} for free.` : "PongLens is in beta. Enjoying the app and need more storage or processing minutes? You can request a free allowance increase."}</p>
+          <button disabled={pending === null} onClick={() => setOpen(true)} className={compact ? primary : pill}>Request more {label}</button>
         </>
       )}
       {error && <p role="alert" className="mt-2 text-sm text-red-400">{error}</p>}

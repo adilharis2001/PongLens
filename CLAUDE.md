@@ -144,6 +144,33 @@ explaining what the section would contain.
 
 ## Design and layout
 
+### Approved application baseline (2026-09-05)
+
+Adil approved the flattened inline allowance-request flow as the existing
+PongLens theme, not a new design direction. Reuse the app's colors, fonts,
+input treatments and button styles. Keep messages and forms left-aligned
+inside their existing card; do not add nested bordered panels around each
+part. Use one cyan primary action and outlined secondary actions.
+
+On mobile web and iOS, form/action buttons must fill the available content
+width, stack with spacing and provide at least a 44px/44pt touch target.
+Desktop actions may remain content-width. Chips, segmented controls and
+icon controls retain their established compact patterns. On iOS, size the
+button's label before applying the existing PL button style, so the visible
+button and its hit area both expand.
+
+The reference components are `AllowanceRequest` / `AllowanceRecovery` on
+web and `AllowanceRequestRow` / `AllowanceRecoveryView` on iOS. Compare the
+real rendered screen, not just matching color classes. Check desktop,
+393×660 mobile web, and native iOS separately. Preserve selected files,
+links and drafts when a user encounters a limit.
+
+The **Copy** rules above still apply. For beta allowances, the approved
+wording is “PongLens is in beta. You can request more storage for free.”
+(or “processing minutes”). Do not describe purchases as “paused”; they
+were never enabled. Prefer direct action labels such as “Request more
+storage” and “Send request”, with a calm confirmation afterward.
+
 **Compute the ceiling before laying anything out.** Aspect ratio times
 available space, first, out loud. A 9:16 video needs 699px of height to be
 full-width on a 393px phone. Discovering that after three rounds of

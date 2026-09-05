@@ -1424,7 +1424,9 @@ struct RecordingUploadRow: View {
         }
         if storageBlocked {
             if compact {
-                Button("Storage options") { storageOptionsOpen = true }
+                Button { storageOptionsOpen = true } label: {
+                    Text("Storage options").frame(maxWidth: .infinity, minHeight: 28)
+                }
                     .buttonStyle(PLSecondaryButtonStyle())
             } else {
             AllowanceRecoveryView(resource: "storage", retryLabel: "Try upload again") {
