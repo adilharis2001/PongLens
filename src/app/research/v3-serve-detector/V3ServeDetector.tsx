@@ -726,8 +726,10 @@ export function V3ServeDetector({
         s.blind_cards + " cards never saw the ball cross the net, " +
         s.blind_held + " held open longer</span>" +
         '<span class="chip v-ok"><b>' + s.srv_agree + "</b> right server</span>" +
-        '<span class="chip"><b>' + s.srv_fixed +
-        "</b> corrected by the rotation\u2019s shape</span>" +
+        (s.srv_fixed
+          ? '<span class="chip"><b>' + s.srv_fixed +
+            "</b> corrected by the rotation\u2019s shape</span>"
+          : "") +
         '<span class="chip v-missed"><b>' + s.srv_disagree + "</b> wrong server</span>" +
         '<span class="chip"><b>' + s.srv_by_dwell +
         "</b> read from the ball in a player’s box, <b>" + s.srv_by_bounce +
