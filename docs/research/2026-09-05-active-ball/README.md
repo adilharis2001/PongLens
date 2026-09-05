@@ -2,6 +2,16 @@
 
 Adil authorized implementation and local training, targeting a preliminary result September 6. This supersedes the earlier read-only investigation. No cloud GPUs, hired engineering team, or production model swap.
 
+## Review interface revision, September 5
+
+User rejected the initial three-image selector as unusable. Live reproduction confirmed that Next frame selects image2 once and every later click is a no-op; adjacent images are only about33ms apart. This was a control-design fault, not evidence that the JPEGs were identical.
+
+The replacement uses the existing research app theme and large media/side-action layout. Each example has a private2.4s source-video clip, replayed at half speed (quarter/normal also available), optional looping, and an explicit return to the exact original JPEG for labeling. Playback ends on that still automatically. Coordinates are never collected from a moving video. Save and next advances only after successful revision-checked persistence; failed saves retain the draft. Venue/review-status filters, skip-without-label, explicit discard, keyboard shortcuts and optional predictions are included. New sample state is keyed by id; mobile advancement scrolls back to the frame. Labels are unchanged by clip generation and upload.
+
+`python scripts/research/prepare-active-ball-context.py MANIFEST OUTPUT --upload` reproduces clips from the frozen source paths/timestamps.178 clips (202,203,216 bytes) were uploaded to private `research/active-ball/v1/{id}/context.mp4`. The authenticated media route signs only that fixed per-sample path and the original validated JPEG keys. No new SQL migration or processing/model change.
+
+Verification: full Next build passed; nine existing review/catalog tests passed. `node scripts/qa/active-ball-review.mjs` exercises actual authenticated sample/media reads and intercepts label POSTs only: replay moves, manual/automatic return uses exact still, dirty navigation disabled, save failure retains sample/mark, successful save advances and clears previous label, mobile advancement restores frame visibility. Screenshots at1440×1000 and393×660 were inspected. QA does not write labels. Independent review identified the mobile scroll issue and it was fixed.
+
 ## Preliminary delivery: run 4
 
 The user requested a reviewable preliminary model, allowing poor initial accuracy. That scope is delivered with the run-4 checkpoint and research batch; reliable production tracking remains unproven. Do not silently expand the completion requirement to production accuracy.

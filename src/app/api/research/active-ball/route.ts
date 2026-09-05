@@ -22,8 +22,8 @@ export async function GET(request: Request) {
   const keys: unknown = data.frame_keys;
   if (!Array.isArray(keys) || keys.length !== 3 || !keys.every(k => typeof k === 'string' && new RegExp(`^research/active-ball/v1/${id}/[012]\\.jpg$`).test(k)))
     return NextResponse.json({error:'Invalid frame manifest'}, {status:500});
-  const urls = await presignGetBatch(keys.map(key=>({bucket:MEDIA_BUCKET,key,opts:{expiresSeconds:3600,disposition:'inline'}})));
-  return NextResponse.json({urls},{headers:{'Cache-Control':'private, no-store'}});
+  const signed = await presignGetBatch([...keys,`research/active-ball/v1/${id}/context.mp4`].map(key=>({bucket:MEDIA_BUCKET,key,opts:{expiresSeconds:3600,disposition:'inline'}})));
+  return NextResponse.json({urls:signed.slice(0,3),clipUrl:signed[3]},{headers:{'Cache-Control':'private, no-store'}});
 }
 
 export async function POST(request: Request) {
