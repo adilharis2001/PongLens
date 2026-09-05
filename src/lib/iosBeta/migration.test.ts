@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
+
+test("timestamp migration versions are unique for the version-tracked runner", () => {
+  const versions = new Map<string, string>();
+  for (const file of readdirSync(new URL("../../../supabase/migrations/", import.meta.url))) {
+    // Historic short-number migrations predate the timestamp namespace.
+    const version = /^(\d{14})_.*\.sql$/.exec(file)?.[1];
+    if (!version) continue;
+    assert.equal(versions.has(version), false, `${version}: ${versions.get(version)} and ${file}`);
+    versions.set(version, file);
+  }
+});
 
 test(
   "clean local migration preserves legacy outcomes and enforces concurrent service leases",
@@ -65,7 +76,7 @@ test(
       sql(
         readFileSync(
           new URL(
-            "../../../supabase/migrations/20260905220000_beta_intake_delivery.sql",
+            "../../../supabase/migrations/20260905220500_beta_intake_delivery.sql",
             import.meta.url,
           ),
           "utf8",

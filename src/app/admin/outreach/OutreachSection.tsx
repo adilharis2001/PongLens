@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BetaDetail, OUTREACH_ACTION } from "./BetaDetail";
 import {
   unifyOutreach,
@@ -75,6 +75,8 @@ export function OutreachSection() {
   const [showHidden, setShowHidden] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const refreshedInvites = useRef(new Map<string, number>());
+  const refreshSequence = useRef(0);
 
   const load = useCallback(async () => {
     const results = await Promise.all([
@@ -142,8 +144,29 @@ export function OutreachSection() {
     setRefreshing(true);
     setError(null);
     try {
-      // Only the visible, earliest pending batch is reconciled per click.
-      const ids = pending.slice(0, 10).map((r) => r.beta!.id);
+      // Old quarantined rows can remain pending indefinitely. Rotate by last
+      // attempt, preserving deadline order for ties and the ten-request bound.
+      const opened = pending.find(
+        (r) =>
+          open === "beta-link:" + r.beta!.id ||
+          ["pending", "everyone", ...QUEUE_ORDER].some(
+            (section) => open === section + ":" + r.key,
+          ),
+      );
+      const batch = [...pending].sort(
+        (a, b) =>
+          (refreshedInvites.current.get(a.beta!.id) ?? 0) -
+          (refreshedInvites.current.get(b.beta!.id) ?? 0),
+      );
+      const ids = [
+        ...new Set([
+          ...(opened ? [opened.beta!.id] : []),
+          ...batch.map((r) => r.beta!.id),
+        ]),
+      ].slice(0, 10);
+      // Advance even on uncertainty, so another click can reach later rows.
+      const sequence = ++refreshSequence.current;
+      ids.forEach((id) => refreshedInvites.current.set(id, sequence));
       if (ids.length) {
         const response = await fetch("/api/admin/ios-beta/reconcile", {
           method: "POST",

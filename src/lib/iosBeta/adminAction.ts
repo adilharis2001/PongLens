@@ -27,7 +27,6 @@ export async function handleBetaAdminSend(
     return Response.json({
       ok: [
         "sending",
-        "scheduled",
         "sent",
         "delivered",
         "already_sent",

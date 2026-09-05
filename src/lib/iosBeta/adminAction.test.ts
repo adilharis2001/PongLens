@@ -59,3 +59,11 @@ test("admin action reports uncertain delivery without returning provider secrets
   assert.equal(result.status, 200);
   assert.deepEqual(await result.json(), { ok: false, status: "unknown" });
 });
+
+test("the original future schedule is not a successful send-now result", async () => {
+  const result = await handleBetaAdminSend(request(), id, {
+    async admin() { return { id: "admin" }; },
+    async send() { return "scheduled"; },
+  });
+  assert.deepEqual(await result.json(), { ok: false, status: "scheduled" });
+});

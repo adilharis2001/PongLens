@@ -33,11 +33,14 @@ for (const viewport of [
   };
   const touches = [];
   let failSend = false;
+  let busySend = false;
   let failRefresh = false;
+  let pendingRoster = null;
+  const batches = [];
   await page.route("**/rest/v1/**", async (route) => {
     const name = new URL(route.request().url()).pathname.split("/").pop();
     let data = [];
-    if (name === "admin_beta_outreach_roster") data = [beta];
+    if (name === "admin_beta_outreach_roster") data = pendingRoster ?? [beta];
     if (name === "admin_outreach_touches") data = touches;
     if (name === "admin_outreach_act") {
       const body = route.request().postDataJSON();
@@ -72,7 +75,9 @@ for (const viewport of [
   });
   await page.route("**/api/admin/ios-beta/**", async (route) => {
     if (route.request().url().endsWith("/send")) {
-      if (failSend)
+      if (busySend)
+        await route.fulfill({ status: 200, json: { ok: false, status: "scheduled" } });
+      else if (failSend)
         await route.fulfill({
           status: 503,
           json: { ok: false, status: "unknown" },
@@ -84,7 +89,13 @@ for (const viewport of [
           json: { ok: true, status: "sending" },
         });
       }
-    } else
+    } else {
+      const ids = route.request().postDataJSON().ids;
+      if (pendingRoster) {
+        batches.push(ids);
+        const last = pendingRoster[10];
+        if (ids.includes(last.id)) last.delivery_state = "sent";
+      }
       await route.fulfill({
         status: 200,
         json: {
@@ -94,6 +105,7 @@ for (const viewport of [
           ],
         },
       });
+    }
   });
   await page.goto("http://127.0.0.1:3024/qa-beta-outreach");
   await page
@@ -145,6 +157,13 @@ for (const viewport of [
     )
     .waitFor();
   failSend = false;
+  busySend = true;
+  await page.getByRole("button", { name: "Send invite now", exact: true }).click();
+  await page.getByText("The invitation is still scheduled. Please try Send invite now again.", { exact: true }).waitFor({ timeout: 5000 });
+  assert.equal(await page.getByRole("button", { name: "Send invite now", exact: true }).isEnabled(), true);
+  await page.getByRole("status").filter({ hasText: "The invitation is still scheduled." }).evaluate(element => element.scrollIntoView({ block: "center" }));
+  await page.screenshot({ path: `${output}/${viewport.width}-send-retry.png` });
+  busySend = false;
   await page
     .getByRole("button", { name: "Send invite now", exact: true })
     .click();
@@ -269,6 +288,36 @@ for (const viewport of [
   await page.screenshot({
     path: `${output}/${viewport.width}-needs-attention.png`,
   });
+  pendingRoster = Array.from({ length: 11 }, (_, index) => ({
+    ...beta,
+    id: `40000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`,
+    email: `pending-${index + 1}@club.org`,
+    scheduled_at: new Date(Date.now() - (11 - index) * 60000).toISOString(),
+    delivery_state: "needs_attention",
+    delivery_error_code: index < 10 ? "legacy_unconfirmed" : "provider_unconfirmed",
+  }));
+  await page.reload();
+  await page.getByRole("button", { name: "iPhone beta", exact: true }).click();
+  await page.getByRole("button", { name: /pending-11@club.org/ }).first().waitFor();
+  for (let refresh = 0; refresh < 2; refresh++) {
+    await page.getByRole("button", { name: "Refresh", exact: true }).click();
+    await page.getByRole("button", { name: "Refresh", exact: true }).waitFor();
+  }
+  assert.ok(batches.every(ids => ids.length <= 10), "each refresh is bounded to ten IDs");
+  assert.ok(batches.some(ids => ids.includes(pendingRoster[10].id)), "repeated refresh reaches the eleventh pending invitation");
+  assert.equal(pendingRoster.slice(0, 10).every(row => row.delivery_state === "needs_attention"), true);
+  await page.getByRole("button", { name: /pending-11@club.org.*Sent/ }).waitFor();
+  await page.getByRole("heading", { name: "Pending invitations 10", exact: true }).waitFor();
+  await page.screenshot({ path: `${output}/${viewport.width}-fair-refresh.png` });
+  pendingRoster[10].delivery_state = "needs_attention";
+  batches.length = 0;
+  await page.reload();
+  await page.getByRole("button", { name: "iPhone beta", exact: true }).click();
+  await page.getByRole("button", { name: /pending-11@club.org/ }).last().click();
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.getByRole("button", { name: "Refresh", exact: true }).waitFor();
+  assert.ok(batches[0].includes(pendingRoster[10].id), "an opened pending invitation is included immediately");
+  assert.equal(batches[0].length, 10);
   await page.close();
 }
 await browser.close();

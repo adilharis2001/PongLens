@@ -1,5 +1,6 @@
 import type { BetaDeliveryState } from "./delivery.ts";
 import { randomUUID } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 
 export type BetaJob = {
   id: string;
@@ -63,6 +64,41 @@ export function isBetaDeliveryComplete(
 }
 
 export async function runBetaDelivery(
+  id: string,
+  dependencies: ScheduledDeliveryDependencies,
+): Promise<BetaDeliveryState> {
+  // An admin can persist intent while an ordinary reconciliation holds the
+  // lease, including after its final intent read. Reacquire only for unapplied
+  // intent on a confirmed schedule; never retry ambiguous provider I/O here.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const state = await runBetaDeliveryAttempt(id, dependencies);
+    if (state !== "scheduled") return state;
+    try {
+      const current = await dependencies.read(id);
+      if (!current) return "unknown";
+      if (
+        current.state !== "scheduled" ||
+        !current.early_target_at ||
+        current.early_applied_at
+      )
+        return current.state;
+      if (attempt < 3) {
+        await delay(250);
+        const latest = await dependencies.read(id);
+        if (!latest) return "unknown";
+        if (latest.state !== "scheduled" || latest.early_applied_at)
+          return latest.state;
+      }
+    } catch {
+      return "unknown";
+    }
+  }
+  // Still scheduled is not send-now success. The admin can retry without
+  // changing the durable intent, provider identity or original POST bytes.
+  return "scheduled";
+}
+
+async function runBetaDeliveryAttempt(
   id: string,
   dependencies: ScheduledDeliveryDependencies,
 ): Promise<BetaDeliveryState> {
@@ -158,6 +194,19 @@ export async function runBetaDelivery(
     if (!providerId)
       return await finish({ state: "unknown", error: "provider_unconfirmed" });
     const observed = await dependencies.provider.retrieve(providerId);
+    job = {
+      ...job,
+      ...(await dependencies.read(id)),
+      provider_email_id: providerId,
+    };
+    if (isBetaDeliveryComplete(job))
+      return await finish({
+        state: job.state,
+        id: providerId,
+        error: job.error_code ?? undefined,
+      });
+    suppressed =
+      job.cancel_requested || (await dependencies.isSuppressed(job.recipient));
     if (TERMINAL.has(observed.state) || observed.state === "failed") {
       return await finish({
         ...observed,

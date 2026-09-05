@@ -160,6 +160,9 @@ function fixture(over: Partial<BetaJob> = {}) {
     suppress() {
       suppressed = true;
     },
+    requestEarly() {
+      job = { ...job, early_target_at: "2026-09-05T12:01:00.000Z" };
+    },
   };
 }
 
@@ -188,6 +191,71 @@ test("two concurrent early sends update one provider ID without a second POST", 
     "PATCH:provider-1:2026-09-05T12:01:00.000Z",
   ]);
   assert.equal(f.job.state, "sending");
+});
+
+for (const boundary of ["retrieve", "finish"] as const) {
+  test(`normal lease before early intent at ${boundary} brings forward the existing message`, async () => {
+    const f = fixture({
+      state: "scheduled", provider_email_id: "provider-1",
+      create_payload: '{"scheduled_at":"2026-09-06T11:00:00.000Z","version":1}',
+      first_attempt_at: "2026-09-05T11:00:00Z",
+    });
+    let admin: Promise<string> | undefined;
+    const requestEarly = () => {
+      if (admin) return;
+      f.requestEarly();
+      admin = runBetaDelivery("job-1", f.deps);
+    };
+    if (boundary === "retrieve") {
+      const retrieve = f.deps.provider.retrieve;
+      f.deps.provider.retrieve = async (id) => {
+        const observed = await retrieve(id);
+        requestEarly();
+        return observed;
+      };
+    } else {
+      const finish = f.deps.finish;
+      f.deps.finish = async (job, token, result) => {
+        requestEarly(); // after the owner's last intent read, before releasing its lease
+        return finish(job, token, result);
+      };
+    }
+    const normal = await runBetaDelivery("job-1", f.deps);
+    assert.equal(await admin, "sending");
+    assert.equal(normal, "sending");
+    assert.deepEqual(f.calls.filter(c => !c.startsWith("GET:")), [
+      "PATCH:provider-1:2026-09-05T12:01:00.000Z",
+    ]);
+    assert.equal(f.job.provider_email_id, "provider-1");
+    assert.equal(f.job.create_payload, '{"scheduled_at":"2026-09-06T11:00:00.000Z","version":1}');
+    assert.equal(f.job.idempotency_key, "ios-beta-request-1-invite");
+    assert.ok(f.job.early_applied_at);
+  });
+}
+
+test("busy early-send retries are bounded and preserve unapplied intent", async () => {
+  const f = fixture({ state: "scheduled", provider_email_id: "provider-1" });
+  f.requestEarly();
+  let leases = 0;
+  f.deps.lease = async () => { leases++; return null; };
+  assert.equal(await runBetaDelivery("job-1", f.deps), "scheduled");
+  assert.ok(leases > 1 && leases <= 4, `bounded handoff attempts: ${leases}`);
+  assert.ok(f.job.early_target_at);
+  assert.equal(f.job.early_applied_at, null);
+  assert.deepEqual(f.calls, []);
+});
+
+test("delivered evidence during retrieval prevents a stale scheduled response from triggering early update", async () => {
+  const f = fixture({ state: "scheduled", provider_email_id: "provider-1" });
+  f.requestEarly();
+  const retrieve = f.deps.provider.retrieve;
+  f.deps.provider.retrieve = async (id) => {
+    const result = await retrieve(id);
+    f.job.state = "delivered";
+    return result;
+  };
+  assert.equal(await runBetaDelivery("job-1", f.deps), "delivered");
+  assert.deepEqual(f.calls, ["GET:provider-1"]);
 });
 test("early send racing dispatch retrieves sent evidence and never updates or recreates", async () => {
   const f = fixture({

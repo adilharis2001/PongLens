@@ -70,7 +70,9 @@ export function BetaDetail({
       const result = await response.json();
       if (!response.ok || !result.ok)
         setMessage(
-          "The invitation status could not be confirmed. Refresh to check it.",
+          result.status === "scheduled"
+            ? "The invitation is still scheduled. Please try Send invite now again."
+            : "The invitation status could not be confirmed. Refresh to check it.",
         );
       await onRefresh();
     } catch {
