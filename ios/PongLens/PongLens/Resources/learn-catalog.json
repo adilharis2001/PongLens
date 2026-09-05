@@ -727,7 +727,7 @@
           "steps": [
             "Open the finished lesson entry.",
             "For a connected student, choose Share with to send it into their Journal.",
-            "For a student who is offline, create a public link to this individual entry.",
+            "If the student has not joined yet, share the entry now so it is ready when they connect, or copy a public link to that entry.",
             "Return to the entry when you need to update it, stop sharing, reset the link, or revoke access."
           ]
         },
@@ -735,6 +735,13 @@
           "heading": "Share with a connected student",
           "paragraphs": [
             "Direct sharing places the entry in the connected student's Journal. If you edit the shared entry later, their version updates too. Stop sharing when it should no longer appear there."
+          ]
+        },
+        {
+          "heading": "Prepare entries before the student joins",
+          "paragraphs": [
+            "Share an entry before the student has an account and it shows Waiting. It appears in their Journal when they join through the invite for that student record. Stop sharing removes the waiting entry from what they will receive.",
+            "The invite panel on the student's page shows how many entries are ready for them. Choose Share all when they join to include the remaining entries in one step."
           ]
         },
         {

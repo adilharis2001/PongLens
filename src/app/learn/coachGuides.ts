@@ -176,7 +176,7 @@ export const coachGuides: Guide[] = [
         steps: [
           "Open the finished lesson entry.",
           "For a connected student, choose Share with to send it into their Journal.",
-          "For a student who is offline, create a public link to this individual entry.",
+          "If the student has not joined yet, share the entry now so it is ready when they connect, or copy a public link to that entry.",
           "Return to the entry when you need to update it, stop sharing, reset the link, or revoke access.",
         ],
         images: [
@@ -191,6 +191,13 @@ export const coachGuides: Guide[] = [
         images: [
           { src: "/learn/coach-direct-share-d.jpg", alt: "A connected student's lesson entry ready to share directly", kind: "d" },
           { src: "/learn/coach-direct-share-m.jpg", alt: "Share with student controls on a phone", kind: "m", phoneTwin: true },
+        ],
+      },
+      {
+        heading: "Prepare entries before the student joins",
+        paragraphs: [
+          "Share an entry before the student has an account and it shows Waiting. It appears in their Journal when they join through the invite for that student record. Stop sharing removes the waiting entry from what they will receive.",
+          "The invite panel on the student's page shows how many entries are ready for them. Choose Share all when they join to include the remaining entries in one step.",
         ],
       },
       {
