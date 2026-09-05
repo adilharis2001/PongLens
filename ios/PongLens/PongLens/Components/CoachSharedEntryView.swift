@@ -48,6 +48,7 @@ struct CoachSharedEntryCard: View {
 
 struct CoachSharedEntrySheet: View {
     let entry: CoachSharedEntry
+    @State private var lessonVideoLink: LessonVideoLink?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -164,6 +165,22 @@ struct CoachSharedEntrySheet: View {
                     .padding(.top, 8)
                 }
                 .padding(24)
+            }
+        }
+        // Present from this sheet, not behind it at the app root.
+        .environment(\.openURL, OpenURLAction { url in
+            guard let link = LessonVideoLink(url: url) else { return .systemAction }
+            lessonVideoLink = link
+            return .handled
+        })
+        .sheet(item: $lessonVideoLink) { link in
+            NavigationStack {
+                LessonVideoDetailScreen(id: link.id)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") { lessonVideoLink = nil }
+                        }
+                    }
             }
         }
         .presentationDetents([.large, .medium])

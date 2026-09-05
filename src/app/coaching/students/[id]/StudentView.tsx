@@ -653,6 +653,8 @@ export function StudentView({
         New entry
       </button>
 
+      <Link href={`/coaching/videos?studentId=${student.id}`} className="mt-3 inline-flex rounded-full border border-zinc-700 px-5 py-2.5 text-sm text-zinc-200 hover:border-cyan-400">Import a lesson video</Link>
+
       {composerOpen && (
         <div className="mt-4 rounded-2xl border border-edge bg-surface p-4">
           <div className="relative">

@@ -37,6 +37,8 @@ struct CoachEntryComposer: View {
                 editor
             case .record:
                 recorder
+            case .video:
+                LessonVideoScreen(student: request.student)
             }
         }
         .onAppear {

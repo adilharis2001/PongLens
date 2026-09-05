@@ -3619,8 +3619,20 @@ def claim_processing_for(conn, user_id: str, match_id: str,
     (098). The import finishes on the worker with no browser left to make
     the claim, so the service role makes it — same function, same rules.
     A refusal (no minutes, queue full) is not an error: the video simply
-    waits in the library, which is what the import UI promises."""
+    waits in the library, which is what the import UI promises.
+
+    THE CLAIM MUST BE ONE TRANSACTION. `claim_processing` only lets a
+    caller act for someone else when auth.role() is service_role, and that
+    role is carried by `request.jwt.claims`, set LOCAL — meaning it lives
+    until the end of the current transaction and no longer. This
+    connection is autocommit, so each statement is its own transaction:
+    set the claim in one statement and the setting is already gone by the
+    next, the function sees an anonymous caller trying to act for another
+    user, and refuses. Every auto-process since the feature shipped failed
+    that way, silently, because the refusal is logged as ordinary."""
+    original_autocommit = conn.autocommit
     try:
+        conn.autocommit = False
         with conn.cursor() as cur:
             cur.execute(
                 "select set_config('request.jwt.claims', %s, true)",
@@ -3630,14 +3642,27 @@ def claim_processing_for(conn, user_id: str, match_id: str,
                 "%s, null, %s)",
                 (match_id, placement, strictness, user_id))
             claim = cur.fetchone()[0]
-            cur.execute("select set_config('request.jwt.claims', '', true)")
+        conn.commit()
         log.info("  auto-process claimed: %s minute(s), job %s",
                  claim.get("charged_minutes"), claim.get("job_id"))
         return True
     except psycopg2.Error as e:
-        log.info("  auto-process not started (%s) — the video is in the "
-                 "library", str(e).strip().splitlines()[0])
+        conn.rollback()
+        first = str(e).strip().splitlines()[0]
+        # 42501 is "not authorized"/"not authenticated" — never a thing the
+        # uploader did, always this code failing to prove who it is. It
+        # gets a warning so the next regression is visible in a day rather
+        # than in three weeks of imports quietly not starting.
+        if getattr(e, "pgcode", None) == "42501":
+            log.warning("  auto-process REFUSED AUTH (%s) — the worker could "
+                        "not act for the uploader; the video is in the "
+                        "library", first)
+        else:
+            log.info("  auto-process not started (%s) — the video is in the "
+                     "library", first)
         return False
+    finally:
+        conn.autocommit = original_autocommit
 
 
 def refund_processing_spend_direct(conn, job_id: str):

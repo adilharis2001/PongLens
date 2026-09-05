@@ -289,6 +289,7 @@ export function CoachHub({
   return (
     <>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Coaching</h1>
+      <Link href="/coaching/videos" className="mt-4 inline-flex rounded-full border border-zinc-700 px-5 py-2.5 text-sm text-zinc-200 hover:border-cyan-400">Lesson videos</Link>
 
       {/* ---- the coaching side ---- */}
 
@@ -419,7 +420,10 @@ function FromYourCoaches({ notes }: { notes: NoteFeedRow[] }) {
 
   return (
     <div className="mt-8">
-      <SectionLabel>From your coaches</SectionLabel>
+      {/* One label for this everywhere: the journal tab, this page and
+          the phone's two. It read three different ways across four
+          screens (Adil, 2026-09-05). */}
+      <SectionLabel>From Coaches</SectionLabel>
       <div className="space-y-4">
         {groups.map(([matchId, list]) => {
           const newest = list[0];
