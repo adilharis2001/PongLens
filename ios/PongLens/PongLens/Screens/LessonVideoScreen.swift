@@ -188,7 +188,8 @@ private struct LessonVideoPhotosPicker: UIViewControllerRepresentable {
         init(onPick: @escaping (Result<LessonVideoImport, Error>?) -> Void) { self.onPick = onPick }
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
             guard let provider = results.first?.itemProvider else { onPick(nil); return }
-            picker.dismiss(animated: true)
+            // SwiftUI dismisses the picker after the durable copy returns.
+            // Dismissing UIKit here too can close the parent lesson cover.
             let name = provider.suggestedName
             provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, error in
                 let result: Result<LessonVideoImport, Error>
