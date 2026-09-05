@@ -54,6 +54,11 @@ test("renderer preserves the message when images and theme CSS are unavailable",
   assert.match(rendered.html, /color-scheme: light dark/);
   assert.match(rendered.html, /prefers-color-scheme:\s*dark/);
   assert.match(rendered.html, /role="presentation"/);
+  assert.match(
+    rendered.html,
+    /<img src="https:\/\/www\.ponglens\.com\/img\/icon-192\.png"[^>]*alt=""/,
+  );
+  assert.match(rendered.html, /aria-label="PongLens"/);
   assert.match(rendered.html, /max-width:560px/);
   assert.equal(rendered.html.match(/<h1\b/g)?.length, 1);
   assert.match(rendered.html, /Player &lt;script&gt;/);
@@ -117,4 +122,3 @@ test("authored text and action token pairs meet normal-text contrast", () => {
   }
   assert.ok(contrast(EMAIL_COLORS.actionText, EMAIL_COLORS.accent) >= 4.5);
 });
-

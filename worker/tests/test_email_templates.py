@@ -40,6 +40,12 @@ class EmailRendererTests(unittest.TestCase):
         self.assertIn('lang="en" dir="ltr"', rendered.html)
         self.assertIn("prefers-color-scheme: dark", rendered.html)
         self.assertIn('role="presentation"', rendered.html)
+        self.assertIn(
+            '<img src="https://www.ponglens.com/img/icon-192.png"',
+            rendered.html,
+        )
+        self.assertIn('alt=""', rendered.html)
+        self.assertIn('aria-label="PongLens"', rendered.html)
         self.assertEqual(rendered.html.count("<h1"), 1)
         self.assertIn("Player &lt;script&gt;", rendered.html)
         self.assertNotIn("Player <script>", rendered.html)

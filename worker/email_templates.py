@@ -243,7 +243,10 @@ def render_email(message: EmailMessage) -> RenderedEmail:
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;mso-hide:all;">{html.escape(message.preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
 <table class="email-canvas" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:0;padding:0;background:{LIGHT['canvas']};"><tr><td align="center" style="padding:36px 16px;">
 <table class="email-card" role="presentation" width="{width}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:{width}px;background:{LIGHT['surface']};border:1px solid {LIGHT['border']};border-radius:20px;"><tr><td class="email-card-cell" style="padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-<div aria-label="PongLens" style="margin:0 0 28px;color:{LIGHT['primary']};font-size:20px;line-height:1;font-weight:800;letter-spacing:-0.03em;"><span class="primary-text">Pong</span><span style="color:{ACCENT};">Lens</span></div>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px;"><tr>
+<td width="48" style="width:48px;vertical-align:middle;"><img src="https://www.ponglens.com/img/icon-192.png" width="40" height="40" alt="" style="display:block;width:40px;height:40px;border:0;border-radius:10px;"></td>
+<td style="vertical-align:middle;"><div aria-label="PongLens" style="color:{LIGHT['primary']};font-size:21px;line-height:1;font-weight:800;letter-spacing:-0.03em;"><span class="primary-text">Pong</span><span style="color:{ACCENT};">Lens</span></div></td>
+</tr></table>
 {eyebrow}<h1 class="primary-text" style="margin:0 0 18px;color:{LIGHT['primary']};font-size:28px;line-height:1.2;font-weight:750;letter-spacing:-0.025em;">{html.escape(message.heading)}</h1>
 {"".join(_block_html(block) for block in message.blocks)}{action}
 <div class="details-table" style="margin-top:30px;padding-top:18px;border-top:1px solid {LIGHT['border']};"><p class="muted-text" style="margin:0;color:{LIGHT['muted']};font-size:12px;line-height:1.6;">{html.escape(message.reason)}</p>{support_html}</div>

@@ -166,7 +166,10 @@ export function renderEmail(message: EmailMessage): RenderedEmail {
 <tr><td align="center" style="padding:36px 16px;">
 <table class="email-card" role="presentation" width="${width}" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${width}px;background:${EMAIL_COLORS.light.surface};border:1px solid ${EMAIL_COLORS.light.border};border-radius:20px;">
 <tr><td class="email-card-cell" style="padding:32px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-<div aria-label="PongLens" style="margin:0 0 28px;color:${EMAIL_COLORS.light.primary};font-size:20px;line-height:1;font-weight:800;letter-spacing:-0.03em;"><span class="primary-text">Pong</span><span style="color:${EMAIL_COLORS.accent};">Lens</span></div>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 28px;"><tr>
+<td width="48" style="width:48px;vertical-align:middle;"><img src="https://www.ponglens.com/img/icon-192.png" width="40" height="40" alt="" style="display:block;width:40px;height:40px;border:0;border-radius:10px;"></td>
+<td style="vertical-align:middle;"><div aria-label="PongLens" style="color:${EMAIL_COLORS.light.primary};font-size:21px;line-height:1;font-weight:800;letter-spacing:-0.03em;"><span class="primary-text">Pong</span><span style="color:${EMAIL_COLORS.accent};">Lens</span></div></td>
+</tr></table>
 ${message.eyebrow ? `<p style="margin:0 0 10px;color:${EMAIL_COLORS.accent};font-size:12px;line-height:1.4;font-weight:800;letter-spacing:.12em;text-transform:uppercase;">${escapeHtml(message.eyebrow)}</p>` : ""}
 <h1 class="primary-text" style="margin:0 0 18px;color:${EMAIL_COLORS.light.primary};font-size:28px;line-height:1.2;font-weight:750;letter-spacing:-0.025em;">${escapeHtml(message.heading)}</h1>
 ${message.blocks.map(blockHtml).join("")}
@@ -201,4 +204,3 @@ ${support ? `<p class="muted-text" style="margin:7px 0 0;color:${EMAIL_COLORS.li
     text,
   };
 }
-
