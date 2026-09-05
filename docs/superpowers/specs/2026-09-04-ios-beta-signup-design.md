@@ -16,10 +16,17 @@ flow does not subscribe the visitor to marketing mail.
 
 ## Experience
 
-The web product remains the primary action. The hero keeps **Analyze your first
-match** and replaces the generic **See it work** secondary action with **Send
-PongLens to my iPhone**, followed by the quiet qualifier **TestFlight beta**.
-The walkthrough remains reachable through the page itself and navigation.
+The web product remains the primary action. The hero uses **Upload your first
+match** as a filled cyan primary action and replaces the generic **See it work**
+secondary action with the single-line, cyan-outlined **Get the iPhone beta**.
+Both controls have the same height and typography; their fill establishes the
+hierarchy. TestFlight is explained in the dialog instead of adding a second
+line to the trigger. The closing web action uses the same upload wording. The
+walkthrough remains reachable through the page itself and navigation.
+
+The hero description stays short enough to leave room for those two choices:
+**Upload a match video. PongLens removes the time between points, then gives
+you every point as a clip to score, review and share with your coach.**
 
 At the closing CTA, Web remains **available now**. The static iOS **coming
 soon** pill becomes an interactive **iOS beta / Get access** control. Both iOS
@@ -89,8 +96,10 @@ daily cron retries either unstamped message as a safety net.
 The trigger is a real button. The dialog is native, labeled by its heading,
 closes with Escape and a visible close control, focuses the email field, and
 announces errors and success. Loading disables duplicate submission. The dialog
-fits a narrow mobile viewport, while both hero actions remain clear and
-wrappable at existing breakpoints.
+fits a narrow mobile viewport. At 393×660 the two hero actions stack at the
+same 320px maximum width and 56px height, with at least 72px between the
+actions and the table illustration. At wider breakpoints they return to one
+row and content-driven widths.
 
 ## Configuration and rollout
 
@@ -106,4 +115,6 @@ Automated tests cover normalization and validation, TestFlight URL validation,
 email copy and escaping, rate-limit/claim integration boundaries, endpoint
 responses, client response states, and delivery orchestration. Verification
 also includes feature-file lint, a production build, and real desktop and
-mobile checks of both entry points against the local site.
+mobile checks of both entry points against the local site. With that site
+running on port 4010, `node scripts/qa/home-hero-layout.mjs` enforces the hero's
+393×660 and 1440×900 layout contract.
