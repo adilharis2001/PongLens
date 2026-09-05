@@ -2,7 +2,37 @@
 
 Adil authorized implementation and local training, targeting a preliminary result September 6. This supersedes the earlier read-only investigation. No cloud GPUs, hired engineering team, or production model swap.
 
-## Current state
+## Preliminary delivery: run 4
+
+The user requested a reviewable preliminary model, allowing poor initial accuracy. That scope is delivered with the run-4 checkpoint and research batch; reliable production tracking remains unproven. Do not silently expand the completion requirement to production accuracy.
+
+- Own random-initialized native-resolution patch classifier: `worker/active_ball_patches.py`, training and inference in the adjacent `train_active_ball_patches.py` / `predict_active_ball_patches.py`. Three native RGB patches plus soft table-relative geometry and measured frame spacing. Pixel motion proposes candidates; the network scores them and can abstain. No BlurBall code or weights. No hard table crop in inference. This is candidate detection, not a completed rally-level identity tracker.
+- All training ran on Mac Studio M1 Ultra MPS. Checkpoint: `/Users/adil/ponglens-data/active-ball/patch-run4/model.pt`, SHA256 `11d9046bf098496b517968244e7fd13c2a98d534e66845127ef278c7db6b7435`. Fixed 50 epochs; threshold 0.7, ambiguity margin 0.1 selected before viewing held-out outputs.
+- 22 unique training source frames from Kumar and Ishan at LYTTC: 16 assistant-checked moving balls, six held-ball/no-active-ball frames. They produce 384 jittered positive crops and 1,089 negative candidate crops. Augmentations are not additional independent observations. Provenance is explicitly `assistant_visual_v1`, not human gold labels. Native triptychs and full scenes were inspected locally; one uncertain frame was excluded.
+- Training-only proposal discovery yielded 356 provisional motion tracks, then 23 clear-table candidates; the assistant retained 22. Manifests and curation audit are local: `motion-v1-manifest.json`, `motion-v1-clear-manifest.json`, `curated-v1-manifest.json`, `curated-v1-audit.json`. Early automatic proposals frequently marked logos/watches. The older run2 training labels are not trustworthy gold.
+- Held-out data: 60 additional later-in-point frames, 30 PingPod and 30 Westchester. Entire matches and venues excluded from training. Only 30fps footage covered. Run4 emits 10 visible, 46 unlocated, four ambiguous. These are counts, not accuracy. Visual inspection confirms some real ball detections, including serves, but also shirt details and neighbouring-table balls. Abstention does not prove absence or occlusion. Human-independent accuracy, recall, identity switches, and improvement over BlurBall are NOT measured.
+- Inference median 62.4ms per held-out frame including three JPEG decodes and candidate generation; excludes video extraction and whole-pipeline processing. This is not a production throughput claim.
+- Review database now has 178 rows and 534 private JPEGs: original96 + curated22 + heldout60. Every row has run4 predictions, no human labels changed. Newest batches appear first. UI distinguishes training matches/unseen venues and explains abstentions. Authenticated page: https://www.ponglens.com/research/active-ball.
+- Full combined manifest: `/Users/adil/ponglens-data/active-ball/review-manifest.json`. Checkpoint, predictions, summaries and overlays are retained locally under `patch-run4/{training,original,heldout}`; old failed runs retained for comparison. Training labels are independent of optional displayed predictions.
+- Gemini key/upload permission remain pending. No external model uploads, paid API calls or cloud GPUs used. Production worker/iOS processing unchanged.
+
+### Reproduce and use feedback
+
+From this release worktree, with `/Users/adil/Desktop/Projects/TTVid/vendor/venv/bin/python`:
+
+```sh
+python -m worker.export_active_ball_labels /Users/adil/ponglens-data/active-ball/review-manifest.json
+python -m worker.train_active_ball_patches /Users/adil/ponglens-data/active-ball/curated-v1-manifest.json /Users/adil/ponglens-data/active-ball/patch-new --allow-assistant-labels --epochs 50
+python -m worker.predict_active_ball_patches /Users/adil/ponglens-data/active-ball/rally-heldout-manifest.json /Users/adil/ponglens-data/active-ball/patch-run4/model.pt /Users/adil/ponglens-data/active-ball/patch-repeat --run-name run4-repeat
+```
+
+For training from newly saved user feedback, pass the exported review manifest instead of the frozen curated manifest; omit `--allow-assistant-labels` to use only human-reviewed training rows. Validation/test rows are never training input. Human labels override provisional labels. Keep test feedback separate from training/tuning; this initial test batch has now been visually inspected and is no longer an untouched final benchmark.
+
+### Verification
+
+25 Python dataset/model/motion/training/prediction tests pass. Nine TypeScript review/catalog tests pass. Full `npm run build` passed (log `/Users/adil/ponglens-data/active-ball/build-run4.log`). No pytest is installed; tests use unittest. Private R2 upload completed, database count178 and preserved human labels checked transactionally. Earlier authenticated save/history, stale409, invalid400, anonymous403 and ordinary-user isolation checks passed; no fake human labels were left.
+
+## Earlier runs (historical)
 
 - Work here: `/Users/adil/Desktop/Projects/PongLens/.worktrees/active-ball-release`, branch `codex/active-ball-release`, based on production commit `ca99f55a` and updated to `37e7022a` to retain subsequent lesson-viewer releases. The original checkout and first pilot worktree diverge from production; do not deploy either wholesale.
 - LIVE page `https://www.ponglens.com/research/active-ball`: three adjacent frames, table polygon, source-pixel ball clicks, hidden/absent/unsure, 1/2/4× zoom, explicit save, stale-save rejection, private media. Predictions are optional and separate. Live authenticated mobile verification passed, including the research catalog link and run-2 label.
@@ -31,4 +61,4 @@ Real authenticated browser: desktop 1440×1000, mobile 393×660; images loaded, 
 
 Screenshots and build log are in `/Users/adil/ponglens-data/active-ball`. Independent review found and verified fixes for unsaved Research-link navigation and accepting clicks before the middle frame loaded. Browser regressions exercised both fixes, with a deliberately delayed image response. Expanded training/prediction code also independently reviewed without blockers. Research page source published as `1a8e56db`; actual run-2 predictions are in all 96 database rows and human labels were not modified. Model-run display explicitly says automatic labels and accuracy not measured. Local JSON/overlays retain both failed run1 and run2. Median model-only inference is 8.56ms/frame (excludes decoding/input preparation); not an end-to-end speed claim.
 
-Hourly automation `ponglens-preliminary-ball-model` resumes the current task. Active goal remains unfinished: a rough bootstrap is available, but reliable active-ball behavior still needs work. Do not start duplicate jobs. Next: inspect human feedback, improve label quality locally or through authorized Gemini assistance, expand training beyond 30 provisional samples, and rerun. A trained checkpoint and held-out outputs now exist; no verified accuracy or improvement over BlurBall has been established. No production worker or iOS pipeline changes.
+The initial hourly follow-up was scoped to preliminary delivery. Stop it after live run4 verification; further training should consume actual user feedback or an explicitly authorized next experiment. Do not launch duplicate jobs or claim production readiness.
