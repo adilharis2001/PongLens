@@ -1,12 +1,12 @@
 {
   "chapter": "keepscore",
-  "title": "Score Keeper",
+  "title": "Score the Match",
   "subtitle": "Chapter 5 of 9",
   "voice": "sage",
   "speed": 1.3,
   "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
   "lines": [
-    { "id": "l1", "text": "Score Keeper is built for scoring a whole match far faster than watching it back.", "beat": "intro" },
+    { "id": "l1", "text": "Score the Match is built for scoring a whole match far faster than watching it back.", "beat": "intro" },
     { "id": "l2", "text": "It plays the match one point at a time and waits for you.", "beat": "waits" },
     { "id": "l3", "text": "Watch the rally, then choose who won it. The score keeps itself.", "beat": "pads" },
     { "id": "l4", "text": "The lit ball shows who is serving. Change it if the rotation needs correcting.", "beat": "serve" },

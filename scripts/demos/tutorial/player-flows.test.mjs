@@ -775,7 +775,7 @@ test("point opens the genuine missing-rally affordance and sheet", async () => {
   const point = await import("./flows/player/point.mjs");
   await scheduledBeats(point, trace);
   assert.ok(trace.some(({ type, selector }) =>
-    type === "page.click" && selector === 'button:has-text("Score Keeper")'
+    type === "page.click" && selector === 'button:has-text("Score the Match")'
   ));
   assert.ok(trace.some(({ type, selector }) =>
     type === "waitForSelector" && selector === 'button[aria-label*="Add a missing rally"]'

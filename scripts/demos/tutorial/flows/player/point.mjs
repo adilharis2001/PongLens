@@ -300,7 +300,7 @@ export async function flow(page, clock, { beat, voice, union, dismiss, sectionRe
   await clock.until(b6.start + b6.dur * 0.55);
   clock.close(tools);
 
-  // The missing-rally tool belongs to the full Score Keeper strip rather
+  // The missing-rally tool belongs to the full Score the Match strip rather
   // than the point sheet. Open the real offer on a measured source gap, but
   // never press the sheet's Add rally mutation.
   await page.goto(`${new URL(page.url()).origin}/match/${MAPPED}`);
@@ -308,8 +308,8 @@ export async function flow(page, clock, { beat, voice, union, dismiss, sectionRe
   await page.evaluate(() =>
     document.querySelector('[aria-label="Play the full video"]')?.click()
   );
-  await page.waitForSelector("text=Score Keeper", { timeout: 30000 });
-  await page.click('button:has-text("Score Keeper")');
+  await page.waitForSelector("text=Score the Match", { timeout: 30000 });
+  await page.click('button:has-text("Score the Match")');
   await page.waitForSelector('button[aria-label*="Add a missing rally"]', { timeout: 30000 });
   await page.evaluate(() =>
     document.querySelector('button[aria-label*="Add a missing rally"]')?.scrollIntoView({ block: "center" })

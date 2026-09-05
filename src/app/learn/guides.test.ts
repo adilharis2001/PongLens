@@ -753,7 +753,7 @@ test("tutorial metadata matches the approved player and coach courses", () => {
       { slug: "upload", title: "Upload a match", guide: "upload-a-video" },
       { slug: "viewer", title: "Watch it back", guide: "match-viewer" },
       { slug: "point", title: "Score a point", guide: "score-points" },
-      { slug: "keepscore", title: "Score Keeper", guide: "score-keeper" },
+      { slug: "keepscore", title: "Score the Match", guide: "score-keeper" },
       { slug: "analysis", title: "Read your match", guide: "match-analysis" },
       {
         slug: "export",

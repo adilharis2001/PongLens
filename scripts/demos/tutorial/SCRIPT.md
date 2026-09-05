@@ -20,7 +20,7 @@ Every chapter has a one-second PongLens intro and outro.
 | 2 | `upload` | Upload a match | Web with native iPhone insert |
 | 3 | `viewer` | Watch it back | Web |
 | 4 | `point` | Score a point | Web |
-| 5 | `keepscore` | Score Keeper | Web |
+| 5 | `keepscore` | Score the Match | Web |
 | 6 | `analysis` | Read your match | Web |
 | 7 | `export` | Highlights, export and share | Web |
 | 8 | `coach` | You and your coach | Web |
@@ -83,9 +83,9 @@ one through eight. Paid match reviews are not included in the iOS catalog.
 5. “Notes, tags, stars and drawings stay attached to the exact rally.”
 6. “If the cut is wrong, you can adjust it, split joined rallies, remove dead space, or put back a rally PongLens missed.”
 
-### 5. Score Keeper
+### 5. Score the Match
 
-1. “Score Keeper is built for scoring a whole match far faster than watching it back.”
+1. “Score the Match is built for scoring a whole match far faster than watching it back.”
 2. “It plays the match one point at a time and waits for you.”
 3. “Watch the rally, then choose who won it. The score keeps itself.”
 4. “The lit ball shows who is serving. Change it if the rotation needs correcting.”

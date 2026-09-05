@@ -233,7 +233,7 @@ export const playerGuides: Guide[] = [
   },
   {
     slug: "score-keeper",
-    title: "Score a match with Score Keeper",
+    title: "Score the match",
     summary: "Score the match in one pass and correct cuts or game boundaries as you go.",
     group: "Review and score",
     visibility: { audiences: ["player"], platforms: ["web", "ios"] },
@@ -242,20 +242,20 @@ export const playerGuides: Guide[] = [
       {
         heading: "Quick steps",
         steps: [
-          "Open a match, go to Tools, and choose Score Keeper.",
+          "Open a match, go to Tools, and choose Score the Match.",
           "Confirm the player names and first server when asked.",
           "Watch each rally, then choose the player who won it.",
           "Review unresolved points at the end and choose Done.",
         ],
         images: [
-          { src: "/showcase/score-d.jpg", alt: "Score Keeper with the video and scoring controls", kind: "d" },
-          { src: "/showcase/score-m.jpg", alt: "Score Keeper controls on a phone", kind: "m", phoneTwin: true },
+          { src: "/showcase/score-d.jpg", alt: "Score the Match with the video and scoring controls", kind: "d" },
+          { src: "/showcase/score-m.jpg", alt: "Score the Match controls on a phone", kind: "m", phoneTwin: true },
         ],
       },
       {
         heading: "Follow the score and server",
         paragraphs: [
-          "Score Keeper plays one point at a time and waits for your answer. The lit ball shows who is serving; change it when the rotation needs correcting.",
+          "Score the Match plays one point at a time and waits for your answer. The lit ball shows who is serving; change it when the rotation needs correcting.",
           "A divider marks each game. Choose Game didn't end when a divider is wrong, or Game ended on the real final point when the automatic score missed the boundary.",
         ],
       },

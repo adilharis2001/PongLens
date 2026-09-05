@@ -58,7 +58,7 @@ export const tutorialChapters: TutorialChapter[] = [
   ),
   playerChapter(
     "keepscore",
-    "Score Keeper",
+    "Score the Match",
     "Score a whole match quickly and correct footage without breaking the flow.",
     49,
     "score-keeper",

@@ -195,7 +195,7 @@
     {
       "audience": "player",
       "slug": "score-keeper",
-      "title": "Score a match with Score Keeper",
+      "title": "Score the match",
       "summary": "Score the match in one pass and correct cuts or game boundaries as you go.",
       "group": "Review and score",
       "related": [
@@ -207,7 +207,7 @@
         {
           "heading": "Quick steps",
           "steps": [
-            "Open a match, go to Tools, and choose Score Keeper.",
+            "Open a match, go to Tools, and choose Score the Match.",
             "Confirm the player names and first server when asked.",
             "Watch each rally, then choose the player who won it.",
             "Review unresolved points at the end and choose Done."
@@ -216,7 +216,7 @@
         {
           "heading": "Follow the score and server",
           "paragraphs": [
-            "Score Keeper plays one point at a time and waits for your answer. The lit ball shows who is serving; change it when the rotation needs correcting.",
+            "Score the Match plays one point at a time and waits for your answer. The lit ball shows who is serving; change it when the rotation needs correcting.",
             "A divider marks each game. Choose Game didn't end when a divider is wrong, or Game ended on the real final point when the automatic score missed the boundary."
           ]
         },
@@ -855,7 +855,7 @@
     {
       "audience": "player",
       "slug": "keepscore",
-      "title": "Score Keeper",
+      "title": "Score the Match",
       "blurb": "Score a whole match quickly and correct footage without breaking the flow.",
       "seconds": 49,
       "guide": "score-keeper",

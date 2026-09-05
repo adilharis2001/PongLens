@@ -17,10 +17,10 @@ export const entry = "/match/efff9208-abf2-4a20-a498-18cc5a5130b3";
 export const guard = "efff9208-abf2-4a20-a498-18cc5a5130b3";
 
 export async function prepare(page) {
-  await page.waitForSelector("text=Score Keeper", { timeout: 90000 });
+  await page.waitForSelector("text=Score the Match", { timeout: 90000 });
   await page.waitForTimeout(1600);
   await page.evaluate(() =>
-    window.__pick({ text: "Score Keeper", tag: "button" })?.click()
+    window.__pick({ text: "Score the Match", tag: "button" })?.click()
   );
   await page.waitForSelector('[aria-label="Undo last tap"]', { timeout: 40000 });
   await page

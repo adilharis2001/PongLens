@@ -45,7 +45,7 @@ const approvedNarration = {
       "If the cut is wrong, you can adjust it, split joined rallies, remove dead space, or put back a rally PongLens missed.",
     ],
     keepscore: [
-      "Score Keeper is built for scoring a whole match far faster than watching it back.",
+      "Score the Match is built for scoring a whole match far faster than watching it back.",
       "It plays the match one point at a time and waits for you.",
       "Watch the rally, then choose who won it. The score keeps itself.",
       "The lit ball shows who is serving. Change it if the rotation needs correcting.",
