@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Email use is limited to beta access and essential beta updates; no marketing subscription is created.
-- The existing **Analyze your first match** web CTA remains primary.
+- The **Upload your first match** web CTA remains primary.
 - The TestFlight URL is server-only and must be HTTPS on `testflight.apple.com`.
 - Browser clients receive neither the TestFlight URL nor direct access to beta-request tables.
 - One request may produce at most one tester email and one admin email through stable Resend idempotency keys.
@@ -193,15 +193,17 @@ Run: `node --test --experimental-strip-types src/lib/iosBeta/client.test.ts`
 
 - [x] **Step 3: Implement the responsive accessible dialog and both triggers**
 
-Keep the web action primary. Use the hero button copy **Send PongLens to my
-iPhone** with **TestFlight beta**, and the platform pill copy **iOS / beta
-available / Get access**. Post only `email` and the hidden `company` field,
-announce state changes, and preserve the existing Android pill.
+Keep the web action primary. Use the single-line hero button copy **Get the
+iPhone beta** in the secondary cyan-outlined style, and the platform pill copy
+**iOS / beta available / Get access**. On mobile, stack the two hero actions at
+the same 320px maximum width and 56px height, with at least 72px before the
+table illustration. Post only `email` and the hidden `company` field, announce
+state changes, and preserve the existing Android pill.
 
 - [x] **Step 4: Run the client tests and inspect both real entry points**
 
 Run: `node --test --experimental-strip-types src/lib/iosBeta/client.test.ts`,
-then open both triggers in the local page at desktop and 390px widths.
+then open both triggers in the local page at desktop and 393×660.
 
 ### Task 6: End-to-end verification
 
@@ -227,7 +229,7 @@ Run: `npm run build`
 - [x] **Step 4: Inspect desktop and mobile locally**
 
 Open `/`, trigger each CTA, submit an invalid address, and verify the dialog at
-desktop width and approximately 390px width. Without `IOS_TESTFLIGHT_URL`,
+desktop width and 393×660. Without `IOS_TESTFLIGHT_URL`,
 verify a valid submission shows the temporary-unavailability state without
 revealing configuration details.
 

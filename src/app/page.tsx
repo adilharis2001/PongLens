@@ -272,7 +272,7 @@ export default async function Home() {
                 "linear-gradient(to top, rgba(10,10,18,.5) 0%, rgba(10,10,18,.1) 30%, rgba(10,10,18,0) 55%)",
             }}
           />
-          <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-16 text-center sm:pt-24 lg:text-left">
+          <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-44 pt-16 text-center sm:pb-24 sm:pt-24 lg:text-left">
             <div className="mx-auto max-w-3xl lg:mx-0">
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
                 A performance hub for{" "}
@@ -281,17 +281,16 @@ export default async function Home() {
                 </span>
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
-                Upload a match video. PongLens removes the dead time
-                between points, so every point comes back as its own clip.
-                Score them as you watch, and your stats, your notes and
-                your coach all live on the same match.
+                Upload a match video. PongLens removes the time between
+                points, then gives you every point as a clip to score, review
+                and share with your coach.
               </p>
-              <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
+              <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4 lg:justify-start">
                 <Link
                   href="/login"
-                  className="glow-cta rounded-full bg-cyan-glow px-8 py-3.5 text-base font-semibold text-ink sm:text-lg"
+                  className="glow-cta flex h-14 w-full max-w-80 items-center justify-center rounded-full bg-cyan-glow px-6 text-base font-semibold text-ink sm:w-auto sm:max-w-none sm:px-8 sm:text-lg"
                 >
-                  Analyze your first match
+                  Upload your first match
                 </Link>
                 <IosBetaSignup placement="hero" />
               </div>
@@ -434,7 +433,7 @@ export default async function Home() {
               href="/login"
               className="glow-cta rounded-full bg-cyan-glow px-8 py-3 text-base font-semibold text-ink"
             >
-              Analyze your first match
+              Upload your first match
             </Link>
 
             {/* Where it runs: the web today, plus the self-serve iPhone beta. */}

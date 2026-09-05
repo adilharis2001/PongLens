@@ -70,17 +70,10 @@ export function IosBetaSignup({
           type="button"
           onClick={openDialog}
           aria-haspopup="dialog"
-          className="group flex min-h-14 items-center gap-3 rounded-full border border-white/15 bg-black/25 px-6 py-2.5 text-left text-zinc-100 backdrop-blur-sm transition-colors hover:border-cyan-glow/50 hover:bg-surface/80 hover:text-white"
+          className="group flex h-14 w-full max-w-80 items-center justify-center gap-2.5 rounded-full border border-cyan-glow/40 bg-cyan-glow/[0.06] px-6 text-base font-semibold text-cyan-glow backdrop-blur-sm transition-colors hover:border-cyan-glow/70 hover:bg-cyan-glow/[0.12] hover:text-cyan-100 sm:w-auto sm:max-w-none sm:text-lg"
         >
-          <AppleMark className="h-5 w-5 shrink-0 text-zinc-100" />
-          <span className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold sm:text-base">
-              Send PongLens to my iPhone
-            </span>
-            <span className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.12em] text-zinc-500 transition-colors group-hover:text-cyan-glow">
-              TestFlight beta
-            </span>
-          </span>
+          <AppleMark className="h-5 w-5 shrink-0" />
+          <span>Get the iPhone beta</span>
         </button>
       ) : (
         <button

@@ -165,6 +165,7 @@ export function NeonBallHero({ background = false }: { background?: boolean }) {
 
           {/* table-top slab (side view) */}
           <rect
+            data-hero-table-slab
             x="120" y="323" width="560" height="14" rx="4"
             fill="#12121c" stroke="#232338" strokeWidth="1"
           />
