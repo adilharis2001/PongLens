@@ -1,6 +1,6 @@
 {
   "chapter": "keepscore",
-  "title": "Score Keeper",
+  "title": "Score the Match",
   "subtitle": "Chapter 5 of 9",
   "model": "gpt-4o-mini-tts",
   "delivery": {
@@ -11,17 +11,17 @@
   },
   "lead": 0.6,
   "gap": 0.5,
-  "total": 46.044,
+  "total": 46.428,
   "wpm": 167,
   "lines": [
     {
       "id": "l1",
       "beat": "intro",
       "label": "",
-      "text": "Score Keeper is built for scoring a whole match far faster than watching it back.",
+      "text": "Score the Match is built for scoring a whole match far faster than watching it back.",
       "file": "audio/player/keepscore/l1.mp3",
       "start": 0.6,
-      "dur": 4.8
+      "dur": 5.184
     },
     {
       "id": "l2",
@@ -29,7 +29,7 @@
       "label": "",
       "text": "It plays the match one point at a time and waits for you.",
       "file": "audio/player/keepscore/l2.mp3",
-      "start": 5.9,
+      "start": 6.284,
       "dur": 3.768
     },
     {
@@ -38,7 +38,7 @@
       "label": "",
       "text": "Watch the rally, then choose who won it. The score keeps itself.",
       "file": "audio/player/keepscore/l3.mp3",
-      "start": 10.168,
+      "start": 10.552,
       "dur": 4.296
     },
     {
@@ -47,7 +47,7 @@
       "label": "",
       "text": "The lit ball shows who is serving. Change it if the rotation needs correcting.",
       "file": "audio/player/keepscore/l4.mp3",
-      "start": 14.964,
+      "start": 15.348,
       "dur": 4.224
     },
     {
@@ -56,7 +56,7 @@
       "label": "",
       "text": "Open Analysis when you want to record what happened.",
       "file": "audio/player/keepscore/l5.mp3",
-      "start": 19.688,
+      "start": 20.072,
       "dur": 3.72
     },
     {
@@ -65,7 +65,7 @@
       "label": "",
       "text": "You can also add a note or tag without breaking your rhythm.",
       "file": "audio/player/keepscore/l6.mp3",
-      "start": 23.908,
+      "start": 24.292,
       "dur": 4.632
     },
     {
@@ -74,7 +74,7 @@
       "label": "",
       "text": "Correct a game ending when the real match does not match the automatic score.",
       "file": "audio/player/keepscore/l7.mp3",
-      "start": 29.04,
+      "start": 29.424,
       "dur": 4.488
     },
     {
@@ -83,7 +83,7 @@
       "label": "",
       "text": "Skip a let, remove dead space, or modify a clip that contains the wrong footage.",
       "file": "audio/player/keepscore/l8.mp3",
-      "start": 34.028,
+      "start": 34.412,
       "dur": 5.712
     },
     {
@@ -92,7 +92,7 @@
       "label": "",
       "text": "Every point you score feeds the scorecard, analysis and statistics.",
       "file": "audio/player/keepscore/l9.mp3",
-      "start": 40.24,
+      "start": 40.624,
       "dur": 5.304
     }
   ]
