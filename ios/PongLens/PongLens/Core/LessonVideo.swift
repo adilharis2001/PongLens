@@ -149,3 +149,10 @@ nonisolated struct LessonVideoLink: Identifiable {
         self.id = id
     }
 }
+
+/// One student filter drives the server list and this phone's pending uploads.
+nonisolated struct LessonVideoScope {
+    let studentId: UUID?
+    var query: [String: String] { studentId.map { ["studentId": $0.uuidString] } ?? [:] }
+    func includes(studentId candidate: UUID?) -> Bool { studentId == nil || studentId == candidate }
+}

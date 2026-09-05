@@ -206,6 +206,8 @@ struct CoachStudentScreen: View {
                     .plCard(padding: 16)
                 }
 
+                CoachLessonVideosSection(student: student)
+
                 let entries = workspace.entries(for: student.id)
                 VStack(alignment: .leading, spacing: 10) {
                     SectionHeading("Journal")

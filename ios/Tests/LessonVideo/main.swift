@@ -56,3 +56,11 @@ for invalid in ["https://other.example/lesson-video/00000000-0000-0000-0000-0000
     check(LessonVideoLink(url: URL(string: invalid)!) == nil, "Unrecognized links keep normal browser handling")
 }
 print("Lesson video: shared note routing checks passed")
+let studentScope = LessonVideoScope(studentId: requestId)
+check(studentScope.query["studentId"] == requestId.uuidString, "Student page must request only that student's videos")
+check(studentScope.includes(studentId: requestId), "Student page includes assigned private recaps")
+check(!studentScope.includes(studentId: UUID()), "Student page excludes another student's recaps")
+check(!studentScope.includes(studentId: nil), "Student page excludes unassigned recaps")
+check(LessonVideoScope(studentId: nil).query.isEmpty, "Home lists all coach videos")
+check(LessonVideoScope(studentId: nil).includes(studentId: requestId), "Home includes every student")
+print("Lesson video: student section scoping checks passed")

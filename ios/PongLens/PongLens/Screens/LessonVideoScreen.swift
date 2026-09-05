@@ -21,7 +21,10 @@ struct LessonVideoScreen: View {
     @State private var loading = true
 
     private var uploads: [QueuedLessonVideo] {
-        queue.items.filter { $0.ownerId == app.userId && $0.state != "done" }.reversed()
+        queue.items.filter {
+            $0.ownerId == app.userId && $0.state != "done"
+                && LessonVideoScope(studentId: student?.id).includes(studentId: $0.studentId)
+        }.reversed()
     }
 
     var body: some View {
@@ -96,6 +99,15 @@ struct LessonVideoScreen: View {
     private var importControls: some View {
         VStack(alignment: .leading, spacing: 20) {
             CoachGroup {
+                if let student {
+                    HStack {
+                        Text("Student").foregroundStyle(PL.text400)
+                        Spacer()
+                        Text(student.displayName).foregroundStyle(PL.text100)
+                    }
+                    .font(.plBody)
+                    .padding(16)
+                } else {
                 Menu {
                     Button("Private lesson") { studentId = nil }
                     ForEach(workspace.activeStudents) { row in
@@ -116,6 +128,7 @@ struct LessonVideoScreen: View {
                     .contentShape(Rectangle())
                 }
                 .disabled(importing)
+                }
             }
             VStack(alignment: .leading, spacing: 14) {
                 Text("Record in the Camera app at 1080p, 30 fps, landscape. Place the phone diagonally beside the table, near the coach so their voice is clear.")
@@ -236,7 +249,7 @@ struct LessonVideoScreen: View {
     }
     private func refresh() async {
         do {
-            let response: LessonVideoList = try await API.get("api/lesson-video")
+            let response: LessonVideoList = try await API.get("api/lesson-video", query: LessonVideoScope(studentId: student?.id).query)
             videos = response.videos
         } catch { self.error = error.localizedDescription }
         loading = false

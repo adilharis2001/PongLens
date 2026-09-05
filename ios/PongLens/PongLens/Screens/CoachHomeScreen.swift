@@ -47,8 +47,11 @@ struct CoachHomeScreen: View {
                     loadFailedState
                 } else if workspace.loaded && workspace.activeStudents.isEmpty {
                     firstStudentCard
+                    CoachLessonVideosSection()
                 } else if workspace.loaded {
                     studentsGroup
+
+                    CoachLessonVideosSection()
 
                     if !studentMatches.isEmpty {
                         CoachGroup("From your students") {
