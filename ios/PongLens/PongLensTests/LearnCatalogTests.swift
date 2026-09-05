@@ -308,6 +308,73 @@ final class LearnCatalogTests: XCTestCase {
         XCTAssertEqual(LearnVideosRoute(.coach).audience, .coach)
     }
 
+    func testCoachSupportRoutesResolveInsteadOfOpeningAnEmptyDestination() {
+        XCTAssertEqual(
+            AppRouteDestination.resolve("learn", workspace: .coach),
+            .learn
+        )
+        XCTAssertEqual(
+            AppRouteDestination.resolve("learn-videos", workspace: .coach),
+            .tutorialVideos(.coach)
+        )
+        XCTAssertEqual(
+            AppRouteDestination.resolve("feedback", workspace: .coach),
+            .feedback(matchId: nil)
+        )
+    }
+
+    func testPlayerTutorialStringRouteKeepsThePlayerCourse() {
+        XCTAssertEqual(
+            AppRouteDestination.resolve("learn-videos", workspace: .player),
+            .tutorialVideos(.player)
+        )
+    }
+
+    func testMatchFeedbackRouteCarriesItsMatchInEitherWorkspace() {
+        let matchId = UUID(uuidString: "5ba641bf-aef2-4d38-9f1a-9281e53d6bce")!
+
+        XCTAssertEqual(
+            AppRouteDestination.resolve(
+                "feedback:\(matchId.uuidString.lowercased())",
+                workspace: .coach
+            ),
+            .feedback(matchId: matchId)
+        )
+        XCTAssertEqual(
+            AppRouteDestination.resolve(
+                "feedback:\(matchId.uuidString.lowercased())",
+                workspace: .player
+            ),
+            .feedback(matchId: matchId)
+        )
+        XCTAssertEqual(
+            AppRouteDestination.resolve("feedback:not-a-match-id", workspace: .coach),
+            .unknown
+        )
+    }
+
+    func testGuideStringRouteUsesTheActiveWorkspaceCatalog() throws {
+        let store = try loadStore()
+
+        guard case .guide(let guide) = AppRouteDestination.resolve(
+            "guide:coaching-workspace",
+            workspace: .coach,
+            catalog: store
+        ) else {
+            return XCTFail("The coach guide route did not resolve")
+        }
+        XCTAssertEqual(guide.audience, .coach)
+        XCTAssertEqual(guide.slug, "coaching-workspace")
+        XCTAssertEqual(
+            AppRouteDestination.resolve(
+                "guide:coaching-workspace",
+                workspace: .player,
+                catalog: store
+            ),
+            .unknown
+        )
+    }
+
     func testLearnAudienceSwitchUsesTheWorkspaceSwitcherEligibility() {
         XCTAssertTrue(LearnAudienceAccess.canSwitch(
             isCoach: true, coachesAnyone: false, metadataCoach: false,

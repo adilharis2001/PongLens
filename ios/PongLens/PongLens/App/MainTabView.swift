@@ -160,48 +160,7 @@ struct MainTabView: View {
             .navigationDestination(for: MatchPointRoute.self) { route in
                 MatchDetailScreen(match: route.match, openPointId: route.pointId)
             }
-            .navigationDestination(for: String.self) { route in
-                switch route {
-                case "account": AccountScreen()
-                case "stats": StatsScreen()
-                case "stats-tactics": StatsScreen(initialTab: "Tactics")
-                case "starred": StarredScreen()
-                case "learn": LearnScreen()
-                case "learn-videos": TutorialVideosScreen(audience: .player)
-                case "feedback": FeedbackScreen()
-                // Marketplace screens: only the Coaching tab pushes these,
-                // and the tab is gated on the same flag — this is a second
-                // fence around the same boundary, not a separate decision.
-                case "coach-orders": if AppConfig.coachMarketplace { CoachOrdersScreen() }
-                case "coach-offerings": if AppConfig.coachMarketplace { CoachOfferingsScreen() }
-                case "coach-profile": if AppConfig.coachMarketplace { CoachProfileScreen() }
-                case "coach-sponsored": if AppConfig.coachMarketplace { CoachSponsoredScreen() }
-                default:
-                    // "guide:<slug>" opens one Learn guide directly. It is
-                    // resolved HERE rather than pushing a LearnGuide, because
-                    // the destination for that type is declared inside
-                    // LearnScreen — reachable only once Learn is already on
-                    // the stack, which is exactly not the case when the
-                    // first-steps checklist links to a guide from Home.
-                    // "feedback:<matchId>" opens the feedback board with
-                    // that match pre-selected — the match pages' "Report
-                    // an issue" rows, so the report arrives with context.
-                    if route.hasPrefix("feedback:"),
-                       let id = UUID(uuidString: String(route.dropFirst(9))) {
-                        FeedbackScreen(matchId: id)
-                    } else if route.hasPrefix("guide:"),
-                       let guide = LearnCatalogStore.bundled.guides(for: .player).first(
-                           where: { $0.slug == String(route.dropFirst(6)) }
-                       ) {
-                        GuideDetailScreen(guide: guide)
-                    } else {
-                        EmptyView()
-                    }
-                }
-            }
-            .navigationDestination(for: LearnVideosRoute.self) { route in
-                TutorialVideosScreen(audience: route.audience)
-            }
+            .appRoutes()
             .navigationDestination(for: CoachOrderRoute.self) { route in
                 if AppConfig.coachMarketplace {
                     CoachOrderScreen(orderId: route.id)
