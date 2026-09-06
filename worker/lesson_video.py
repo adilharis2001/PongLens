@@ -98,7 +98,7 @@ def lesson_color_filter(info):
  stream=next((s for s in info.get('streams',[]) if s.get('codec_type')=='video'),{})
  if stream.get('color_transfer') not in ('arib-std-b67','smpte2084'):return ''
  return ('zscale=transfer=linear:npl=100,format=gbrpf32le,'
-         'zscale=primaries=bt709,tonemap=tonemap=mobius:param=0.3:desat=2:peak=10,'
+         'zscale=primaries=bt709,tonemap=tonemap=hable:desat=1,'
          'zscale=transfer=bt709:matrix=bt709:range=limited,format=yuv420p,')
 
 SDR_OUTPUT=['-pix_fmt','yuv420p','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709','-color_range','tv']
@@ -457,7 +457,7 @@ def draw_panel(chapter,index,count,path):
 
 def write_lesson_poster(playback,directory):
  poster=Path(directory)/'poster.jpg'
- run(['ffmpeg','-v','error','-y','-ss','0.1','-i',str(playback),'-frames:v','1','-vf',"scale='min(1280,iw)':-2",'-q:v','3',str(poster)],90)
+ run(['ffmpeg','-v','error','-y','-ss','0.1','-i',str(playback),'-frames:v','1','-vf',"scale='min(1920,iw)':-2",'-q:v','2',str(poster)],90)
  return poster
 
 def render(source,edit,directory,on_progress=lambda x:None):
@@ -466,10 +466,10 @@ def render(source,edit,directory,on_progress=lambda x:None):
  for i,c in enumerate(edit['chapters']):
   on_progress(f"Rendering chapter {i+1} of {len(edit['chapters'])}")
   panel=Path(directory)/f'panel-{i}.png';clip=Path(directory)/f'clip-{i}.mp4';draw_panel(c,i,len(edit['chapters']),panel)
-  run(['ffmpeg','-v','error','-y','-ss',str(c['start_s']),'-t',str(c['end_s']-c['start_s']),'-i',str(source),'-loop','1','-i',str(panel),'-filter_complex','[0:v]'+color+'scale=1280:800:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=0x0c0f16,fps=30[v];[1:v]'+PANEL_SDR+'[panel];[panel][v]overlay=48:135:shortest=1,format=yuv420p[out]','-map','[out]','-map','0:a:0','-c:v','libx264','-preset','veryfast','-crf','22','-threads','4','-c:a','aac','-b:a','128k','-af','aresample=async=1:first_pts=0','-t',str(c['end_s']-c['start_s']),'-movflags','+faststart',*SDR_OUTPUT,str(clip)],1200)
+  run(['ffmpeg','-v','error','-y','-ss',str(c['start_s']),'-t',str(c['end_s']-c['start_s']),'-i',str(source),'-loop','1','-i',str(panel),'-filter_complex','[0:v]'+color+'scale=1280:800:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=0x0c0f16,fps=30[v];[1:v]'+PANEL_SDR+'[panel];[panel][v]overlay=48:135:shortest=1,format=yuv420p[out]','-map','[out]','-map','0:a:0','-c:v','libx264','-preset','fast','-crf','18','-threads','4','-c:a','aac','-b:a','160k','-af','aresample=async=1:first_pts=0','-t',str(c['end_s']-c['start_s']),'-movflags','+faststart',*SDR_OUTPUT,str(clip)],1200)
   files.append(clip)
   clean=Path(directory)/f'clean-{i}.mp4'
-  run(['ffmpeg','-v','error','-y','-ss',str(c['start_s']),'-t',str(c['end_s']-c['start_s']),'-i',str(source),'-vf',color+'scale=1280:720:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,pad=1280:720:(ow-iw)/2:(oh-ih)/2:color=black,fps=30','-map','0:v:0','-map','0:a:0','-c:v','libx264','-preset','veryfast','-crf','22','-threads','4','-c:a','aac','-b:a','128k','-af','aresample=async=1:first_pts=0','-movflags','+faststart',*SDR_OUTPUT,str(clean)],1200)
+  run(['ffmpeg','-v','error','-y','-ss',str(c['start_s']),'-t',str(c['end_s']-c['start_s']),'-i',str(source),'-vf',color+'scale=1920:1080:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,fps=30','-map','0:v:0','-map','0:a:0','-c:v','libx264','-preset','fast','-crf','18','-threads','4','-c:a','aac','-b:a','160k','-af','aresample=async=1:first_pts=0','-movflags','+faststart',*SDR_OUTPUT,str(clean)],1200)
   clean_files.append(clean)
  listing=Path(directory)/'clips.txt';listing.write_text(''.join("file '"+str(p).replace("'","'\\''")+"'\n" for p in files))
  output=Path(directory)/'recap.mp4'

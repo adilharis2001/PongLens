@@ -89,9 +89,8 @@ export function LessonVideoView({id}:{id:string}) {
      <span className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-md"><svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M8 4.5v15l12-7.5z"/></svg></span>
     </button>
     <div className="mt-4 flex items-center justify-between text-sm text-zinc-400"><span>{edit.chapters.length} chapters</span><span>{Math.round(edit.chapters.reduce((sum,c)=>sum+c.end_s-c.start_s,0)/60)} min recap</span></div>
-    <div className="mt-5 border-t border-edge pt-5"><p className="text-xs font-medium uppercase tracking-wider text-zinc-500">{resumeTime.current>0?'Continue watching':'First chapter'}</p><p className="mt-2 text-base font-medium">{current?.title}</p></div>
+    <div className="mt-5 border-t border-edge pt-5"><p className="text-xs font-medium uppercase tracking-wider text-zinc-500">{resumeTime.current>0?'Continue watching':'First chapter'}</p><p className="mt-2 text-base font-medium">{current?.title}</p>{current&&<div className="mt-3 space-y-2">{current.cues.map((cue,index)=><p key={index} className="text-sm leading-relaxed text-zinc-300">{cue}</p>)}</div>}</div>
    </div>:<div role="status" className="rounded-2xl border border-edge bg-surface p-5"><p className="font-medium">{v.status==='failed'?'The recap needs another try':v.stage??'Waiting for the upload'}</p><p className="mt-3 text-sm text-zinc-400">{v.error??'Your lesson will be here when it is ready.'}</p></div>}
-   {edit?.warning&&<p className="mt-5 text-sm text-amber-200">{edit.warning}</p>}
    {detail?.isOwner&&<footer className="mx-auto mt-7 w-full max-w-3xl">
      {v.status==='review'&&<button className={primary+' w-full min-h-12'} disabled={busy} onClick={()=>void action('share')}>{busy?'Saving…':v.student_id?'Share with student':'Approve recap'}</button>}
      {v.status==='failed'&&<button className={button+' w-full'} disabled={busy} onClick={()=>void action('retry')}>Retry processing</button>}

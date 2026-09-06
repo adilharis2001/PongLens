@@ -6,6 +6,8 @@ class LessonHDRTests(unittest.TestCase):
    f=lesson_color_filter({'streams':[{'codec_type':'video','color_transfer':transfer,'color_primaries':'bt2020','color_space':'bt2020nc'}]})
    self.assertIn('transfer=linear',f);self.assertLess(f.index('transfer=linear'),f.index('tonemap='))
    self.assertIn('format=gbrpf32le',f);self.assertIn('transfer=bt709',f);self.assertIn('matrix=bt709',f);self.assertIn('format=yuv420p',f)
+   self.assertIn('tonemap=tonemap=hable',f)
+   self.assertNotIn('peak=10',f)
  def test_sdr_does_not_get_tone_mapped(self):
   for transfer in ['bt709',None]:
    self.assertEqual(lesson_color_filter({'streams':[{'codec_type':'video','color_transfer':transfer}]}),'')
@@ -38,6 +40,7 @@ class LessonHDRFixtureTests(unittest.TestCase):
     video=next(s for s in result['streams'] if s['codec_type']=='video')
     self.assertEqual(video['codec_name'],'h264')
     self.assertEqual(video['pix_fmt'],'yuv420p')
+    self.assertEqual((video['width'],video['height']),(1920,1080))
     for field in ['color_space','color_transfer','color_primaries']:
      self.assertEqual(video[field],'bt709')
     self.assertTrue(any(s['codec_type']=='audio' for s in result['streams']))
