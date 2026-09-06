@@ -322,7 +322,14 @@ export function V3ServeDetector({
                 (r.verdict === "fused" ? "no card of its own" : "no card") + "</span>");
           const m0 = r.mine && r.mine[0];
           if (m0 && m0.serve_s != null) {
-            srv += m0.dwell
+            // Four readings, in the order they are trusted. The first is the
+            // only one right every time it speaks: walk the ball track back
+            // from the serve's first bounce to the hands it left. It exists
+            // because a neighbouring table's ball drifted through the near
+            // player's box on card 47 and the hold-based reading believed it.
+            srv += m0.origin
+              ? '<br><span class="how">traced back from the serve\u2019s first bounce to their hands</span>'
+              : m0.dwell
               ? '<br><span class="how">from the ball sitting in their box &middot; ' +
                 m0.runs[m0.dwell] + " frames unbroken" +
                 (m0.runs[m0.dwell === "near" ? "far" : "near"]
