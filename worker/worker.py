@@ -6659,7 +6659,7 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     # manifest; only the canvas differs.
     scope = options.get("scope") or "starred"
     _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-    if (scope not in ("starred", "full", "v:starred",
+    if (scope not in ("starred", "full", "highlights", "v:starred",
                       "v:hl:story", "v:hl:reel", "v:hl:long")
             and not re.fullmatch(rf"tag:{_UUID}", scope)
             and not re.fullmatch(rf"v:point:{_UUID}", scope)):
@@ -6668,7 +6668,8 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
 
     with conn.cursor() as cur:
         cur.execute(
-            "select m.user_id, r.show_score, r.manifest, m.story_crop "
+            "select m.user_id, r.show_score, r.manifest, m.story_crop, "
+            "r.r2_key "
             "from public.match_reels r "
             "join public.matches m on m.id = r.match_id "
             "where r.match_id = %s and r.scope = %s",
@@ -6677,27 +6678,53 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         row = cur.fetchone()
     if not row:
         raise RuntimeError(f"reel: no match_reels row for {match_id}/{scope}")
-    owner_id, show_score, manifest, story_crop = row
+    owner_id, show_score, manifest, story_crop, old_key = row
     # options.match_id is client-influenced: never render a match the job's
     # creator doesn't own.
     if str(owner_id) != str(user_id):
         raise RuntimeError("reel: job user does not own the match")
-    if not isinstance(manifest, dict) or not manifest.get("points"):
+    automatic = scope == "highlights"
+    if automatic:
+        from highlights import build_manifest
+        with conn.cursor() as cur:
+            cur.execute(
+                "select id, idx, t0, t1, cut_t0, rally_end_cut_s, "
+                "clip_path, deleted, edited, is_let, highlight_evidence "
+                "from public.points where match_id = %s order by idx, id",
+                (match_id,),
+            )
+            stored_points = [
+                dict(zip(("id", "idx", "t0", "t1", "cut_t0",
+                          "rally_end_cut_s", "clip_path", "deleted",
+                          "edited", "is_let", "highlight_evidence"), values))
+                for values in cur.fetchall()
+            ]
+        manifest = build_manifest(stored_points)
+        if not manifest["points"]:
+            _write_auto_highlight_state(conn, match_id, "empty", manifest)
+            _delete_auto_highlight_object(conn, old_key)
+            return
+    elif not isinstance(manifest, dict) or not manifest.get("points"):
         raise RuntimeError("reel: empty manifest")
 
     with conn.cursor() as cur:
         cur.execute(
-            "update public.match_reels set status = 'rendering' "
+            "update public.match_reels set status = 'rendering', "
+            "manifest = %s, error = null "
             "where match_id = %s and scope = %s",
-            (match_id, scope),
+            (json.dumps(manifest), match_id, scope),
         )
     update_job(conn, job_id, progress=15)
 
     workdir = tempfile.mkdtemp(prefix=f"ponglens-reel-{str(job_id)[:8]}-")
     try:
         t0 = time.time()
-        cut_local = None
-        if any(isinstance(p, dict) and p.get("seg_start") is not None
+        cut_local = _fetch_cut_video(conn, match_id, workdir) \
+            if automatic else None
+        if automatic and cut_local is None:
+            raise RuntimeError("automatic highlights cut is unavailable")
+        if not automatic and any(
+               isinstance(p, dict) and p.get("seg_start") is not None
                for p in manifest["points"]):
             # A share is rendered while its owner waits, and a vertical
             # render reads seconds out of the cut, not the whole thing —
@@ -6707,7 +6734,11 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
                          else _fetch_cut_video(conn, match_id, workdir))
             if vertical and cut_local is None:
                 cut_local = _fetch_cut_video(conn, match_id, workdir)
-        if vertical:
+        if automatic:
+            out, manifest = render_auto_highlights(
+                manifest, cut_local, workdir
+            )
+        elif vertical:
             out = render_story(manifest, bool(show_score), workdir,
                                cut_local, story_crop)
         else:
@@ -6719,7 +6750,9 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         # alongside it (tag:<uuid> -> -tag-<uuid>). Vertical share renders
         # get a v- prefix, which is also what the retention sweep matches
         # on — they are regenerable in seconds and must not accumulate.
-        key = (f"reels/{match_id}.mp4" if scope == "starred"
+        key = (f"reels/{match_id}-highlights-"
+               f"{manifest['points_revision'][:16]}.mp4" if automatic
+               else f"reels/{match_id}.mp4" if scope == "starred"
                else f"reels/{match_id}-full.mp4" if scope == "full"
                else f"reels/v-{match_id}-{scope.replace(':', '-')}.mp4"
                if vertical
@@ -6738,9 +6771,13 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
             cur.execute(
                 "update public.match_reels set status = 'ready', "
                 "r2_key = %s, duration_s = %s, size_bytes = %s, "
-                "error = null where match_id = %s and scope = %s",
-                (key, round(duration, 2), size, match_id, scope),
+                "manifest = %s, error = null "
+                "where match_id = %s and scope = %s",
+                (key, round(duration, 2), size, json.dumps(manifest),
+                 match_id, scope),
             )
+        if automatic and old_key and old_key != key:
+            _delete_auto_highlight_object(conn, old_key)
         log.info("  reel ready: %s (scope=%s, %.1fs video, %d KB, rendered "
                  "in %.0fs)",
                  r2_uri, scope, duration, size // 1024, time.time() - t0)
@@ -6748,7 +6785,7 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         # waiting for it, and an "export is ready" message arriving after
         # they have already posted to Instagram is noise. The bell is
         # suppressed for the same reason, in match_reels_notify (135).
-        if not vertical:
+        if not vertical and not automatic:
             notify_reel_done(conn, str(owner_id), match_id)
     except Exception as e:
         try:

@@ -98,6 +98,7 @@ export async function POST(req: Request) {
     const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
     scope =
       rawScope === "full" ||
+      rawScope === "highlights" ||
       rawScope === "v:starred" ||
       /^v:hl:(story|reel|long)$/.test(rawScope) ||
       new RegExp(`^tag:${UUID}$`).test(rawScope) ||

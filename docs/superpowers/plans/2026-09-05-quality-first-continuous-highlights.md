@@ -308,19 +308,19 @@ git commit -m "feat: render continuous automatic highlights"
 - Consumes: owner RLS, private switch, `match_reels`, current point boundaries,
   and the stored manifest revision.
 
-- [ ] **Step 1: Write failing route tests**
+- [x] **Step 1: Write failing route tests**
 
 Test authentication, ownership, switch-off behavior, R2-prefix validation,
 ready signing, empty/failed states, stale revision enqueue, cut-retention
 unavailable, and single-job deduplication.
 
-- [ ] **Step 2: Run route tests and observe missing route failure**
+- [x] **Step 2: Run route tests and observe missing route failure**
 
 Run: `node --test --experimental-strip-types src/app/api/highlights/highlightsRoute.test.ts`
 
 Expected: failure because the route does not exist.
 
-- [ ] **Step 3: Implement the read/freshness route**
+- [x] **Step 3: Implement the read/freshness route**
 
 Use the established server Supabase and R2 signing helpers. Never return or
 sign a row the authenticated owner cannot select. Validate `r2_key` begins
@@ -328,19 +328,19 @@ with `reels/`. If the stored revision is stale, enqueue the existing `reel`
 job with `scope: 'highlights'` only when the cut exists, otherwise return
 `unavailable`.
 
-- [ ] **Step 4: Teach reel processing the highlights scope**
+- [x] **Step 4: Teach reel processing the highlights scope**
 
 Allow only the exact non-vertical `highlights` scope, rebuild membership via
 the Python authority rather than client JSON, and retain revision-keyed
 automatic files. Keep current share/export scopes unchanged.
 
-- [ ] **Step 5: Run API and media tests**
+- [x] **Step 5: Run API and media tests**
 
 Run: `node --test --experimental-strip-types src/app/api/highlights/highlightsRoute.test.ts`
 
 Expected: all listed tests pass.
 
-- [ ] **Step 6: Commit the API unit**
+- [x] **Step 6: Commit the API unit**
 
 ```bash
 git add src/app/api/highlights src/app/api/reel/route.ts src/app/api/media-url/route.ts
