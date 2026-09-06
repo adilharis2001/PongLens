@@ -146,12 +146,24 @@ class LessonVideoTests(unittest.TestCase):
   repair=json.loads(runtime.window_contents[1])
   self.assertIn('Pips and point building',repair['window_validation_error'])
   self.assertEqual(repair['retain_supported_themes'],overlong['themes'])
+ def test_window_repairs_a_still_overlong_second_response_on_the_third_call(self):
+  overlong={'title':'Lesson','themes':[{'name':'Pips','points':['Build the point before attacking.']}],'chapters':[{'title':'Pips and point building','cues':['Build the point before attacking.'],'start_s':100,'end_s':400}]}
+  still_overlong={'title':'Lesson','themes':[{'name':'Pips','points':['Build the point before attacking.']}],'chapters':[{'title':'Pips and point building','cues':['Build the point before attacking.'],'start_s':100,'end_s':290}]}
+  repaired={'title':'Lesson','themes':[{'name':'Pips','points':['Build the point before attacking.']}],'chapters':[{'title':'Pips and point building','cues':['Build the point before attacking.'],'start_s':100,'end_s':160}]}
+  result,runtime=merge_edit(selected(['candidate-1']),window=[overlong,still_overlong,repaired])
+  self.assertEqual(runtime.window_calls,3);self.assertEqual(runtime.merge_calls,1)
+  self.assertEqual((result['chapters'][0]['start_s'],result['chapters'][0]['end_s']),(100,160))
+  third_content=json.loads(runtime.window_contents[2])
+  self.assertIn("'Pips and point building'",third_content['window_validation_error'])
+  self.assertIn('Range 100–290 is 70s over the 120s hard maximum',third_content['window_validation_error'])
+  self.assertIn('25–90 seconds',third_content['window_validation_error'])
+  self.assertEqual(third_content['retain_supported_themes'],overlong['themes'])
  def test_unrepaired_window_candidate_fails_instead_of_silently_dropping_teaching(self):
   overlong={'title':'Lesson','themes':[{'name':'Pips','points':['Build the point before attacking.']}],'chapters':[{'title':'Pips and point building','cues':['Build the point before attacking.'],'start_s':100,'end_s':400}]}
-  runtime=EditRuntime(selected(['candidate-1']),window=[overlong,overlong])
+  runtime=EditRuntime(selected(['candidate-1']),window=[overlong,overlong,overlong])
   with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),self.assertRaisesRegex(ValueError,'Retry to continue'):
    create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
-  self.assertEqual(runtime.window_calls,2);self.assertEqual(runtime.merge_calls,0)
+  self.assertEqual(runtime.window_calls,3);self.assertEqual(runtime.merge_calls,0)
  def test_rich_long_lessons_repair_to_cover_candidate_sections_and_twelve_chapters(self):
   outline={'title':'Lesson','themes':[{'name':f'Theme {i}','points':['Keep this supported instruction.']} for i in range(1,9)]}
   initial=selected(['candidate-1','candidate-3','candidate-5','candidate-7','candidate-9','candidate-10','candidate-11','candidate-12','candidate-13','candidate-14'])

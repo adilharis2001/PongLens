@@ -16,6 +16,7 @@ MAX_SECONDS=10800
 MAX_RECAP_SECONDS=900
 MAX_CHAPTERS=16
 MAX_MERGE_ATTEMPTS=3
+MAX_WINDOW_ATTEMPTS=3
 BUCKET='ponglens-media'
 MODEL='gpt-5.6-luna'
 KEYTERMS=['table tennis','topspin','backspin','underspin','sidespin','no-spin','anti-spin','long pips','short pips','twiddle','penhold','shakehand','forehand','backhand','counterloop','banana flick','chiquita','chop block','dead serve','half-long','third ball','footwork','bat angle','crosscourt','down the line','multiball']
@@ -239,9 +240,13 @@ def window_candidates(raw,chunk,duration):
  for index,proposal in enumerate(proposals,1):
   title=proposal.get('title','Untitled') if isinstance(proposal,dict) else 'Untitled'
   try:
+   if not isinstance(proposal,dict):raise ValueError('The proposal is not an object.')
+   start=float(proposal['start_s']);end=float(proposal['end_s'])
+   if not all(math.isfinite(value) for value in (start,end)) or end<=start:raise ValueError('The proposed range is invalid.')
+   range_label=f'{start:g}–{end:g}'
+   if end-start>120:raise ValueError(f'Range {range_label} is {end-start-120:g}s over the 120s hard maximum. Split or shorten it to 25–90 seconds (hard <=120) within [{chunk["start_s"]:g}, {chunk["end_s"]:g}].')
+   if start<chunk['start_s'] or end>chunk['end_s']:raise ValueError(f'Range {range_label} falls outside supplied section bounds [{chunk["start_s"]:g}, {chunk["end_s"]:g}].')
    normalized=normalize_edit({'title':raw.get('title','Lesson'),'chapters':[proposal]},duration)['chapters'][0]
-   if normalized['start_s']<chunk['start_s'] or normalized['end_s']>chunk['end_s']:
-    raise ValueError('The clip falls outside its supplied section bounds.')
    valid.append(normalized)
   except (ValueError,KeyError,TypeError) as error:
    errors.append(f'Proposal {index} ({str(title)[:80]!r}) failed: {error}')
@@ -302,15 +307,15 @@ def create_edit(rt,row,source,directory,transcript,duration):
   prior=transcript[i-1]['utterances'][-5:] if i else []
   content=json.dumps({'bounds':[chunk['start_s'],chunk['end_s']],'previous_context':prior,'utterances':chunk['utterances']},ensure_ascii=False)
   raw=rt.model(WINDOW_PROMPT,content)
-  valid,window_errors=window_candidates(raw,chunk,duration)
-  if window_errors:
-   prior_themes=raw.get('themes',[]) if isinstance(raw,dict) else []
+  prior_themes=raw.get('themes',[]) if isinstance(raw,dict) else []
+  for window_attempt in range(MAX_WINDOW_ATTEMPTS):
+   valid,window_errors=window_candidates(raw,chunk,duration)
+   if not window_errors:break
+   if window_attempt==MAX_WINDOW_ATTEMPTS-1:raise ValueError('The teaching footage in one lesson section could not be repaired. Your original and completed work are kept. Retry to continue.')
    repair_content=json.loads(content)|{'window_validation_error':' '.join(window_errors),'retain_supported_themes':prior_themes}
    repair_prompt=WINDOW_PROMPT+' The previous proposal was invalid: '+' '.join(window_errors)+' Return the supported themes and replacement clips only. Use distinct 25–90 second clips within the supplied bounds; 120 seconds is the hard maximum. Do not drop a claimed teaching topic just because its first clip was invalid.'
    raw=rt.model(repair_prompt,json.dumps(repair_content,ensure_ascii=False))
-   valid,window_errors=window_candidates(raw,chunk,duration)
-   if window_errors:raise ValueError('The teaching footage in one lesson section could not be repaired. Your original and completed work are kept. Retry to continue.')
-   if not raw.get('themes'):raw['themes']=prior_themes
+  if not raw.get('themes'):raw['themes']=prior_themes
   windows.append({'section_id':f'section-{i+1}','title':raw.get('title','Lesson'),'themes':raw.get('themes',[]),'chapters':valid})
  candidates=[{'section_id':w['section_id'],'section_title':w['title'],'chapter':c} for w in windows for c in w['chapters']]
  if not candidates:raise ValueError('No clear coaching was found. Your original is kept; try again or add a written lesson note.')
