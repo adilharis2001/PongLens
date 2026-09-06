@@ -58,4 +58,9 @@ class LessonReleaseTests(unittest.TestCase):
         self.assertLess(source.index("sys.path.insert(0,REMOTE)"),source.index('from package import'))
         self.assertIn('manifest=verify(PAYLOAD)',source)
         self.assertIn("os.environ.get('PONGLENS_LESSON_BUNDLE_ID'",source)
+    def test_modal_exposes_a_secret_free_media_parity_fixture(self):
+        source=(Path(__file__).parents[1]/'lesson_release'/'modal_app.py').read_text()
+        fixture=source[source.index('def verify_media_parity():'):]
+        self.assertIn("for name,transfer in (('sdr','bt709'),('hdr','arib-std-b67'))",fixture)
+        self.assertNotIn('ponglens-lesson-video-runtime',fixture)
 if __name__=='__main__':unittest.main()

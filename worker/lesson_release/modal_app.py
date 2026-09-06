@@ -35,3 +35,29 @@ def verify_release():
     # No secret or claims: operator can verify deployment identity independently.
     result=subprocess.run([sys.executable,'-I','-B',REMOTE+'/runner.py','--cloud','--check'],check=True,capture_output=True,text=True)
     return {'worker_release_id':result.stdout.strip(),'bundle_id':BUNDLE_ID}
+
+@app.function(image=image,timeout=600,cpu=2,memory=4096,min_containers=0,max_containers=1)
+def verify_media_parity():
+    """Render tiny SDR and HLG fixtures without credentials or queue access."""
+    import tempfile
+    os.environ['PATH']='/opt/ponglens-ffmpeg/bin:/usr/bin:/bin'
+    os.environ['LESSON_VIDEO_FONT']=REMOTE+'/lesson-font.ttf'
+    subprocess.run([sys.executable,'-I','-B',REMOTE+'/runner.py','--cloud','--check'],check=True,capture_output=True,text=True)
+    from lesson_video import normalize_edit,probe,render,run
+    report={}
+    with tempfile.TemporaryDirectory(prefix='lesson-media-parity-') as directory:
+        root=Path(directory)
+        for name,transfer in (('sdr','bt709'),('hdr','arib-std-b67')):
+            source=root/(name+'.mp4')
+            color=['-color_primaries','bt2020','-color_trc',transfer,'-colorspace','bt2020nc'] if name=='hdr' else ['-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709']
+            run(['ffmpeg','-v','error','-y','-f','lavfi','-i','testsrc2=size=320x180:rate=30','-f','lavfi','-i','sine=frequency=1000:sample_rate=48000','-t','2','-c:v','libx264','-pix_fmt','yuv420p',*color,'-c:a','aac','-shortest',str(source)],120)
+            output_dir=root/(name+'-render');output_dir.mkdir()
+            edit=normalize_edit({'title':'Media parity','chapters':[{'title':'Check the lesson','cues':['Use the same media path in both execution locations.'],'start_s':0,'end_s':1.5}]},2)
+            recap=render(source,edit,output_dir)
+            outputs={}
+            for output_name,output in (('recap',recap),('playback',output_dir/'playback.mp4')):
+                info=probe(output);video=next(stream for stream in info['streams'] if stream.get('codec_type')=='video')
+                outputs[output_name]={'codec':video.get('codec_name'),'pixel_format':video.get('pix_fmt'),'color_space':video.get('color_space'),'color_transfer':video.get('color_transfer'),'color_primaries':video.get('color_primaries'),'audio':any(stream.get('codec_type')=='audio' for stream in info['streams']),'duration':round(float(info['format']['duration']),3)}
+                run(['ffmpeg','-v','error','-xerror','-i',str(output),'-f','null','-'],120)
+            report[name]={'source_transfer':transfer,'outputs':outputs}
+    return {'worker_release_id':manifest['worker_release_id'],'bundle_id':BUNDLE_ID,'fixtures':report}
