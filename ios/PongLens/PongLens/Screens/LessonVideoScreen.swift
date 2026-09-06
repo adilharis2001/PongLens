@@ -347,6 +347,15 @@ struct LessonVideoDetailScreen: View {
                             Label("\(count) chapters · Watch with coaching notes", systemImage: "text.bubble")
                                 .font(.plBody).foregroundStyle(PL.text300)
                         }
+                        if let chapter = detail.video.edit?.chapters.first {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("First chapter").font(.plCaption).foregroundStyle(PL.text500)
+                                Text(chapter.title).font(.plCardTitle).foregroundStyle(PL.text100)
+                                ForEach(Array(chapter.cues.enumerated()), id: \.offset) { _, cue in
+                                    Text(cue).font(.plBody).foregroundStyle(PL.text300).lineSpacing(3)
+                                }
+                            }.padding(.top, 4)
+                        }
                     }
                     if detail.isOwner && detail.video.status == "review" {
                         Button { perform("share") } label: {
@@ -358,10 +367,6 @@ struct LessonVideoDetailScreen: View {
                         Button("Retry processing") { perform("retry") }.buttonStyle(PLPrimaryButtonStyle()).disabled(busy)
                     }
                     if let message = detail.video.error { Text(message).foregroundStyle(PL.dangerText) }
-                    if let warning = detail.video.edit?.warning, !warning.isEmpty {
-                        DisclosureGroup("Review note") { Text(warning).foregroundStyle(PL.warningText).padding(.top, 8) }
-                            .font(.plCaption)
-                    }
                 } else if error == nil {
                     ProgressView().tint(PL.cyan).frame(maxWidth: .infinity, minHeight: 160)
                 }
