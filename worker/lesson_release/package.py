@@ -12,11 +12,30 @@ import subprocess
 import sys
 import tempfile
 
+LINUX_FFMPEG_PACKAGE = '7:5.1.6-0+deb12u1'
+LINUX_FFMPEG_VERSION = LINUX_FFMPEG_PACKAGE.split(':',1)[1]
+
 LABEL = 'com.adil.ponglens-lesson-video-worker'
 DEFAULT_ROOT = Path.home() / 'Library/Application Support/PongLensLessonVideoWorker'
 WORKER_FILES = ('lesson_video.py', 'lesson-video-requirements.txt', 'cost_meter.py', 'lesson-font.ttf', 'lesson_deletion.py')
 ENV_KEYS = {'SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','OPENAI_API_KEY','DEEPGRAM_API_KEY',
             'R2_ACCOUNT_ID','R2_ACCESS_KEY_ID','R2_SECRET_ACCESS_KEY','LESSON_VIDEO_WORKER_ID'}
+
+def verify_lesson_ffmpeg(ffmpeg):
+    filters=subprocess.check_output([str(ffmpeg),'-hide_banner','-filters'],text=True)
+    encoders=subprocess.check_output([str(ffmpeg),'-hide_banner','-encoders'],text=True)
+    if 'zscale' not in filters or 'libx264' not in encoders or 'aac' not in encoders:
+        raise ValueError('Pinned FFmpeg lacks lesson HDR or H.264/AAC support')
+
+def verify_linux_media_tools():
+    installed=subprocess.check_output(['dpkg-query','-W','-f=${Version}','ffmpeg'],text=True).strip()
+    if installed!=LINUX_FFMPEG_PACKAGE:
+        raise ValueError('Pinned Linux FFmpeg package is not installed')
+    for tool in ('ffmpeg','ffprobe'):
+        version=subprocess.check_output([tool,'-version'],text=True)
+        if f'ffmpeg version {LINUX_FFMPEG_VERSION}' not in version:
+            raise ValueError('Pinned Linux media tool identity changed: '+tool)
+    verify_lesson_ffmpeg('ffmpeg')
 
 def sha(path):
     h=hashlib.sha256()
@@ -125,6 +144,7 @@ def verify_runtime(config):
         p=Path(c[tool])
         if not p.is_absolute() or p.resolve()!=p or not os.access(p,os.X_OK) or sha(p)!=c[tool+'_sha256']:
             raise ValueError('Runtime executable changed: '+tool)
+    verify_lesson_ffmpeg(c['ffmpeg'])
     venv=Path(c['venv'])
     if dependency_inventory(venv)!=c['dependencies']:raise ValueError('Installed dependencies changed')
     if c.get('secrets_file'):

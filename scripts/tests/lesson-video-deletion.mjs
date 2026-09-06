@@ -9,19 +9,40 @@ try {
  create role anon; create role authenticated; create role service_role;
  create schema auth; create table auth.users(id uuid primary key);
  create function auth.uid() returns uuid language sql as $$select null::uuid$$;
+ create function public.is_admin() returns boolean language sql as $$select true$$;
  create table public.coach_students(id uuid primary key,coach_id uuid,archived_at timestamptz);
  create table public.lessons(id uuid primary key default gen_random_uuid(),user_id uuid,transcript text,takeaways jsonb,status text,kind text);
  create table public.coach_entries(id uuid primary key default gen_random_uuid(),coach_id uuid,student_id uuid,lesson_id uuid unique,shared_at timestamptz);
  create table public.storage_ledger(user_id uuid,kind text,bytes bigint,r2_key text);
  `);
- for (const name of ['173_lesson_video.sql','174_lesson_video_import_identity.sql','175_lesson_video_storage.sql','177_lesson_video_account_deletion.sql'])
+ for (const name of ['173_lesson_video.sql','174_lesson_video_import_identity.sql','175_lesson_video_storage.sql','177_lesson_video_account_deletion.sql','20260905230000_lesson_video_production_hardening.sql'])
   await db.exec(await readFile(new URL('../../supabase/migrations/'+name,import.meta.url),'utf8'));
  const owner='11111111-1111-1111-1111-111111111111', video='22222222-2222-2222-2222-222222222222';
  await db.query('insert into auth.users values($1)',[owner]);
  await db.query("insert into lesson_videos(id,owner_id,original_name,file_size,duration_s,source_key,status,upload_id) values($1,$2,'test.mov',10,5400,'test-original','queued','multipart')",[video,owner]);
  await db.exec("insert into lesson_video_release(release_id,enabled) values('test-release',true)");
+ assert.equal((await db.query("select * from claim_lesson_video('test-release','cloud-worker',true)")).rows.length,0,'cloud claims remain gated');
+ await db.query("select record_lesson_video_worker_heartbeat('test-release','mac-worker',false)");
+ const health=(await db.query('select * from admin_lesson_video_health()')).rows[0];
+ assert.equal(health.mac_worker_active,true);assert.equal(health.queued_count,1);assert.equal('transcript' in health,false);
+ await db.query("select record_lesson_video_worker_heartbeat('test-release','mac-worker-2',false)");
+ assert.equal((await db.query('select * from admin_lesson_video_health()')).rows[0].queued_count,1,'multiple Mac heartbeats do not multiply the queue');
+ const healthGrants=await db.query("select has_function_privilege('anon','admin_lesson_video_health()','execute') as anon_health,has_function_privilege('authenticated','admin_lesson_video_health()','execute') as admin_health,has_function_privilege('authenticated','record_lesson_video_worker_heartbeat(text,text,boolean)','execute') as user_heartbeat,has_function_privilege('service_role','record_lesson_video_worker_heartbeat(text,text,boolean)','execute') as service_heartbeat");
+ assert.deepEqual(healthGrants.rows[0],{anon_health:false,admin_health:true,user_heartbeat:false,service_heartbeat:true});
  const claim=await db.query("select * from claim_lesson_video('test-release','test-worker',false)");
  assert.equal(claim.rows.length,1);assert.ok(claim.rows[0].lease_token);
+ for (let retries=1;retries<=3;retries++) {
+  await db.query("update lesson_videos set lease_until=now()-interval '1 minute' where id=$1",[video]);
+  const reclaimed=await db.query("select * from claim_lesson_video('test-release','test-worker',false)");
+  assert.equal(reclaimed.rows.length,1);assert.equal(reclaimed.rows[0].lease_reclaim_count,retries);
+ }
+ await db.query("update lesson_videos set lease_until=now()-interval '1 minute' where id=$1",[video]);
+ assert.equal((await db.query("select * from claim_lesson_video('test-release','test-worker',false)")).rows.length,0);
+ const exhausted=(await db.query('select status,error from lesson_videos where id=$1',[video])).rows[0];
+ assert.equal(exhausted.status,'failed');assert.match(exhausted.error,/Choose Retry/);
+ await db.query("update lesson_videos set status='queued',lease_reclaim_count=0,error=null where id=$1",[video]);
+ const retryClaim=await db.query("select * from claim_lesson_video('test-release','test-worker',false)");
+ assert.equal(retryClaim.rows.length,1,'an explicit retry starts a new bounded attempt');
  const fence=await db.query('select * from begin_lesson_video_account_deletion($1)',[owner]);
  assert.deepEqual(fence.rows,[{source_key:'test-original',upload_id:'multipart'}]);
  const state=(await db.query('select status,stage,lease_token,revision from lesson_videos where id=$1',[video])).rows[0];

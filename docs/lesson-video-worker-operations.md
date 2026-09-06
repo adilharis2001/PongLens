@@ -103,6 +103,24 @@ into the child environment and never printed. PATH/PYTHONPATH or arbitrary
 code-loading environment keys are rejected. Do not commit the file or put
 secret values in a shell command or transcript.
 
+## Operational health
+
+The separate lesson worker records a database heartbeat before every poll and
+while it holds a lesson lease. The admin-only `admin_lesson_video_health()`
+RPC and `GET /api/admin/lesson-video-health` expose only the enabled release,
+cloud setting, most recent Mac heartbeat, queued count and oldest queued age.
+They never return a lesson ID, coach, transcript, edit, error or media key.
+
+An enabled release with `mac_worker_active=false` and a growing
+`oldest_queue_age_seconds` means the independent Mac service needs attention.
+Cloud workers remain excluded from that signal because the lesson release's
+`cloud_enabled` gate remains off until the required parity work is complete.
+
+An expired processing lease is reclaimed at most three times. On the next
+expiry the worker marks the recap failed, preserves the original and completed
+transcript/edit work, and tells the coach to choose Retry. Retry starts a new
+bounded attempt; ordinary caught failures keep their existing retry behavior.
+
 ## Explicit activation, only after authorization
 
 Stage/check first. Then set the lesson release control row to the verified

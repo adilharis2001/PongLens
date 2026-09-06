@@ -97,7 +97,7 @@ export async function POST(req:Request){
   if(action==='retry'){
    if(row.stage==='Deleting')return failure('This lesson is being deleted.',409);
    if(row.status!=='failed')return failure('This lesson is not waiting for a retry.',409);
-   const {error}=await db.from('lesson_videos').update({status:'queued',stage:'Waiting to process',error:null,lease_token:null,lease_until:null,updated_at:new Date().toISOString()}).eq('id',id).eq('status','failed').eq('revision',row.revision).or('stage.is.null,stage.neq.Deleting');if(error)throw error;
+   const {error}=await db.from('lesson_videos').update({status:'queued',stage:'Waiting to process',error:null,lease_token:null,lease_until:null,lease_reclaim_count:0,updated_at:new Date().toISOString()}).eq('id',id).eq('status','failed').eq('revision',row.revision).or('stage.is.null,stage.neq.Deleting');if(error)throw error;
    return NextResponse.json({ok:true});
   }
   if(action==='edit'){

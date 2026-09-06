@@ -1,5 +1,31 @@
+import tempfile
 import unittest
-from worker.lesson_video import normalize_edit, chunk_ranges, release_id
+from unittest.mock import patch
+from worker.lesson_video import create_edit, normalize_edit, chunk_ranges, release_id
+
+
+class EditRuntime:
+ def __init__(self,merge): self.merge=merge;self.merge_content=None
+ def stage(self,*args): pass
+ def model(self,prompt,content):
+  if 'Extract the teaching' in prompt:
+   return {'title':'Lesson','themes':[{'name':'Footwork','points':['Recover after each shot.']}], 'chapters':[
+    {'title':'First','cues':['Recover after each shot.'],'start_s':100,'end_s':140},
+    {'title':'Second','cues':['Move back into position.'],'start_s':200,'end_s':250},
+   ]}
+  if 'Build the complete teaching outline' in prompt:
+   return {'title':'Lesson','themes':[{'name':'Footwork','points':['Recover after each shot.']}]}
+  self.merge_content=content
+  return self.merge
+
+
+def merge_edit(merge):
+ runtime=EditRuntime(merge)
+ with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit):
+  result=create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
+ return result,runtime
+
+
 class LessonVideoTests(unittest.TestCase):
  def test_ninety_minutes_has_complete_nonoverlapping_audio_coverage(self):
   ranges=chunk_ranges(5400)
@@ -20,4 +46,16 @@ class LessonVideoTests(unittest.TestCase):
   self.assertEqual(e['chapters'][0]['summary_end_s'],20)
  def test_release_is_content_addressed(self):
   self.assertRegex(release_id(),r'^lesson-video-[0-9a-f]{16}$')
+ def test_merge_candidate_id_maps_to_worker_owned_range_without_timestamps(self):
+  result,runtime=merge_edit({'title':'Lesson','chapters':[{'candidate_id':'candidate-2','title':'Recover','cues':['Move back into position.']}], 'themes':[]})
+  self.assertEqual((result['chapters'][0]['start_s'],result['chapters'][0]['end_s']),(200,250))
+  self.assertNotIn('start_s',str(runtime.merge_content))
+  self.assertNotIn('end_s',str(runtime.merge_content))
+ def test_merge_refuses_model_authored_timestamps(self):
+  with self.assertRaisesRegex(ValueError,'candidate ID'):
+   merge_edit({'title':'Lesson','chapters':[{'candidate_id':'candidate-1','title':'First','cues':['Recover after each shot.'],'start_s':0,'end_s':40}], 'themes':[]})
+ def test_merge_refuses_unknown_or_duplicate_candidate_ids(self):
+  for chapter_ids in [['candidate-3'],['candidate-1','candidate-1']]:
+   with self.subTest(chapter_ids=chapter_ids),self.assertRaisesRegex(ValueError,'candidate ID'):
+    merge_edit({'title':'Lesson','chapters':[{'candidate_id':candidate_id,'title':'Topic','cues':['Recover after each shot.']} for candidate_id in chapter_ids], 'themes':[]})
 if __name__=='__main__': unittest.main()

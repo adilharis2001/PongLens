@@ -9,7 +9,7 @@ import sys
 sys.dont_write_bytecode=True
 PAYLOAD=Path(__file__).resolve().parent
 sys.path.insert(0,str(PAYLOAD))
-from package import verify, verify_runtime, load_runtime_env
+from package import verify, verify_linux_media_tools, verify_runtime, load_runtime_env
 
 def main():
     parser=argparse.ArgumentParser()
@@ -19,6 +19,8 @@ def main():
     parser.add_argument('--check',action='store_true',help='Verify locally, without credentials or claims')
     args=parser.parse_args()
     manifest=verify(PAYLOAD)
+    if args.cloud:
+        verify_linux_media_tools()
     if args.config:
         c=verify_runtime(args.config)
         if Path(c['payload'])!=PAYLOAD:raise ValueError('Launcher/config release mismatch')

@@ -20,7 +20,7 @@ class CoverageTests(unittest.TestCase):
     calls.append(content)
     if len(calls)==1:return {'title':'Lesson','themes':[{'name':'All teaching','points':['First','Second','Third']}],'chapters':[chapter(i) for i in range(3)]}
     if len(calls)==2:return {'title':'Lesson','themes':[{'name':'Complete outline','points':['Third distinct correction']}]}
-    return {'title':'Lesson','chapters':[chapter(2)],'themes':[]}
+    return {'title':'Lesson','chapters':[{'candidate_id':'candidate-3','title':'Topic 2','cues':['When the ball changes, adjust to the return.']}],'themes':[]}
   transcript=[{'start_s':0,'end_s':600,'utterances':[]}]
   with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit):
    result=create_edit(Runtime(),{},'source',directory,transcript,600)
