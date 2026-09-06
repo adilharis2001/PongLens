@@ -365,20 +365,20 @@ git commit -m "feat: serve automatic highlight assets"
 - Produces: `PlayerHandle.openHighlights(asset, onDownload)` where `asset`
   contains one signed URL, duration, and manifest.
 
-- [ ] **Step 1: Replace picker tests with failing server-state tests**
+- [x] **Step 1: Replace picker tests with failing server-state tests**
 
 Assert the row renders exact ready/rendering/empty/failed copy, has no
 Short/Long chooser, and enables playback only for ready. Add a structural test
 that highlight mode selects one video URL and contains no assignment of
 `currentTime` for automatic rally transitions.
 
-- [ ] **Step 2: Run the affected web tests and observe failures**
+- [x] **Step 2: Run the affected web tests and observe failures**
 
 Run: `node --test --experimental-strip-types 'src/app/match/[id]/highlights.test.ts' 'src/app/match/[id]/playerStructure.test.ts'`
 
 Expected: failures against the client picker and boundary-seek implementation.
 
-- [ ] **Step 3: Make the row server-authoritative**
+- [x] **Step 3: Make the row server-authoritative**
 
 Fetch `/api/highlights`, poll only while rendering, show `Preparing highlights`,
 `No highlight rallies`, or `Highlights unavailable`, and show
@@ -386,7 +386,7 @@ Fetch `/api/highlights`, poll only while rendering, show `Preparing highlights`,
 asset directly to the player. Keep the row in its existing Tools card and use
 the existing row/button styling.
 
-- [ ] **Step 4: Add dedicated continuous source mode to Player**
+- [x] **Step 4: Add dedicated continuous source mode to Player**
 
 Store the highlight asset separately from the match-cut URL. On open, swap the
 video element to that one URL, start at zero, disable deleted-span/tape jumps
@@ -395,7 +395,7 @@ manifest. Closing restores the match-cut URL and its prior cut time. Previous
 and next use output positions; natural transitions never assign
 `currentTime`.
 
-- [ ] **Step 5: Run affected and match-structure tests**
+- [x] **Step 5: Run affected and match-structure tests**
 
 Run: `node --test --experimental-strip-types 'src/app/match/[id]/highlights.test.ts' 'src/app/match/[id]/playerStructure.test.ts'`
 
@@ -403,7 +403,7 @@ Run: `npm run test:match-structure`
 
 Expected: all listed tests pass.
 
-- [ ] **Step 6: Commit the web unit**
+- [x] **Step 6: Commit the web unit**
 
 ```bash
 git add 'src/app/match/[id]/HighlightsRow.tsx' 'src/app/match/[id]/MatchView.tsx' 'src/app/match/[id]/Player.tsx' 'src/app/match/[id]/highlights.test.ts' 'src/app/match/[id]/playerStructure.test.ts'
@@ -428,32 +428,32 @@ git commit -m "feat: play one continuous highlight on web"
 - Produces: one `AVPlayerItem` highlight mode with output-time point mapping and
   no rally-boundary observer.
 
-- [ ] **Step 1: Write failing Swift tests**
+- [x] **Step 1: Write failing Swift tests**
 
 Replace picker parity assertions with JSON decode, state-copy, and output-time
 mapping tests. Assert highlight mode does not install the boundary-seek
 observer and previous/next maps to manifest output positions.
 
-- [ ] **Step 2: Run focused Swift tests and observe failures**
+- [x] **Step 2: Run focused Swift tests and observe failures**
 
 Run: `ios/Tests/run.sh HighlightsTests PlayerTakeoverTests`
 
 Expected: failures because the models and continuous mode do not exist.
 
-- [ ] **Step 3: Add API models and row state**
+- [x] **Step 3: Add API models and row state**
 
 Decode `status`, `url`, `durationS`, and manifest points with snake-case point
 fields. Fetch on sheet/row appearance, poll rendering with cancellation, use
 the same four strings as web, and remove Short/Long selection.
 
-- [ ] **Step 4: Add one-item highlight mode**
+- [x] **Step 4: Add one-item highlight mode**
 
 Create one `AVPlayerItem` from the signed highlight URL. Do not build boundary
 observers that seek between cut positions. Map visible point and previous/next
 through `output_start_s` and `output_end_s`; closing restores normal match
 playback. Keep the existing native layout and touch-target conventions.
 
-- [ ] **Step 5: Run iOS tests and build**
+- [x] **Step 5: Run iOS tests and build**
 
 Run: `ios/Tests/run.sh`
 
@@ -461,7 +461,7 @@ Run the repository's documented `xcodebuild` command for the PongLens scheme.
 
 Expected: all shell tests and the native build pass.
 
-- [ ] **Step 6: Commit the iOS unit**
+- [x] **Step 6: Commit the iOS unit**
 
 ```bash
 git add ios/PongLens/PongLens/Core/Models.swift ios/PongLens/PongLens/Screens/HighlightsSheet.swift ios/PongLens/PongLens/Screens/MatchTools.swift ios/PongLens/PongLens/Screens/PlayerTakeover.swift ios/Tests/HighlightsTests.swift ios/Tests/PlayerTakeoverTests.swift
@@ -479,13 +479,13 @@ git commit -m "feat: play one continuous highlight on iOS"
 - Consumes: all preceding units.
 - Produces: verified release evidence and an enabled canary worker.
 
-- [ ] **Step 1: Run complete affected worker tests**
+- [x] **Step 1: Run complete affected worker tests**
 
 Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlights.py worker/tests/test_highlight_evidence.py worker/tests/test_auto_highlight_render.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2_rally_end.py worker/tests/test_worker.py -q`
 
 Expected: zero failures.
 
-- [ ] **Step 2: Run the real web build and tests**
+- [x] **Step 2: Run the real web build and tests**
 
 Use an isolated worktree with its own `.next` if a dev server is running.
 
@@ -495,7 +495,7 @@ Run: `npm run build`
 
 Expected: both exit zero.
 
-- [ ] **Step 3: Run full iOS verification**
+- [x] **Step 3: Run full iOS verification**
 
 Run: `ios/Tests/run.sh`
 
@@ -503,13 +503,13 @@ Run the documented native build/test command.
 
 Expected: zero failures and successful build.
 
-- [ ] **Step 4: Apply migration with the switch off**
+- [x] **Step 4: Apply migration with the switch off**
 
 Use the repository's documented direct production migration procedure. Query
 the resulting column, scope check, status check, trigger, and private config row
 before proceeding. Do not enable anonymous access to the key.
 
-- [ ] **Step 5: Deploy clients and restart the production Mac worker**
+- [x] **Step 5: Deploy clients and restart the production Mac worker**
 
 Confirm the startup/version line matches the released source. Keep cloud
 dispatch disabled because no matching Modal implementation exists in this
@@ -521,16 +521,44 @@ Review every selected rally and every rendered transition on web and native
 iOS. Confirm no selected point violates a threshold, no boundary seek occurs,
 and no match fails because highlights fail.
 
-- [ ] **Step 7: Record what was and was not verified**
+- [x] **Step 7: Record what was and was not verified**
 
 Add the exact commands, counts, device/simulator, desktop browser, 393×660
 browser, canary match IDs, selection review counts, and any unverified item to
 the final handoff. Do not claim production-safe or globally enabled without
 that evidence.
 
-- [ ] **Step 8: Commit verification documentation**
+- [x] **Step 8: Commit verification documentation**
 
 ```bash
 git add docs/superpowers/plans/2026-09-05-quality-first-continuous-highlights.md worker/README.md
 git commit -m "docs: record highlight release verification"
 ```
+
+### Production rollout record — September 5, 2026
+
+- Release source: `5e2e9cc24ff52f4b52afd069c6d40bcef00e6d20`.
+- Production database migrations `20260906040000` and
+  `20260906041000` are recorded. The private evidence column, highlight
+  queue scope, empty state, and let invalidation trigger were queried after
+  application.
+- The web production build passed and Vercel deployment
+  `dpl_4Uz7kR5UmTq97wsrBfML8V3pw4Bg` is Ready on `www.ponglens.com`.
+- The production Mac worker had no active job when restarted. The live
+  checkout intentionally retains its two pre-existing local production
+  adjustments. The feature was merged against their exact common base with
+  no conflicts; the exact live files passed 39 feature-specific tests.
+- Release verification passed: 47 affected worker tests, 21 API/schema tests,
+  124 match/web behavior tests, the real `npm run build`, 649/649 Swift
+  checks, and a complete iPhone 17 Pro simulator build.
+- iOS version 1.0 build 127 archived and uploaded successfully to App Store
+  Connect. Apple reported that the uploaded package is processing.
+- `automatic_highlights` is enabled only for the product owner's account.
+  It is not globally enabled. Cloud dispatch remains unchanged because this
+  repository has no matching deployed Modal implementation.
+- The required five-match, two-venue canary review is still outstanding.
+  No global rollout decision has been made. Existing matches need a full
+  reprocess because legacy point rows do not contain the new evidence.
+- Not manually verified yet: a real canary render, every selected rally and
+  transition in five matches, physical-device iOS playback, desktop browser
+  playback, or 393×660 browser playback.
