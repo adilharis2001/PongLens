@@ -20,10 +20,11 @@ image=(modal.Image.debian_slim(python_version='3.12')
 
 @app.function(image=image,secrets=[modal.Secret.from_name('ponglens-lesson-video-runtime')],
               schedule=modal.Period(minutes=1),timeout=10800,cpu=4,memory=8192,
-              ephemeral_disk=40*1024,min_containers=0,max_containers=1,retries=0)
+              min_containers=0,max_containers=1,retries=0)
 @modal.concurrent(max_inputs=1)
 def poll_once():
-    # Database cloud_enabled defaults false. No model volumes or match jobs.
+    # Modal's default 512 GiB ephemeral quota covers the 20 GiB source limit
+    # and render intermediates. Database cloud_enabled defaults false.
     subprocess.run([sys.executable,'-I','-B',REMOTE+'/runner.py','--cloud','--once'],check=True)
 
 @app.function(image=image,timeout=60,cpu=1,memory=512,min_containers=0,max_containers=1)

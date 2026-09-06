@@ -50,4 +50,7 @@ class LessonReleaseTests(unittest.TestCase):
         self.assertIn(LINUX_FFMPEG_ARTIFACT_SHA256,commands)
         self.assertIn('sha256sum -c -',commands)
         self.assertIn('releases/assets/',commands)
+    def test_modal_uses_default_ephemeral_disk_quota(self):
+        source=(Path(__file__).parents[1]/'lesson_release'/'modal_app.py').read_text()
+        self.assertNotIn('ephemeral_disk=',source)
 if __name__=='__main__':unittest.main()
