@@ -8,8 +8,8 @@ import { sourcePoint, type BallLabel, type BallSample } from '@/lib/research/act
 const secondary = 'min-h-11 rounded-full border border-edge px-4 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white disabled:opacity-40';
 const primary = 'min-h-11 w-full rounded-full border border-cyan-400/60 bg-cyan-500/15 px-5 py-2.5 text-sm font-medium text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40';
 const states = [
-  {state:'hidden',title:'Ball is hidden',detail:'In play, but behind a player or another object.'},
-  {state:'absent',title:'No active ball',detail:'Between points, held in a hand, or out of play.'},
+  {state:'hidden',title:'Ball is hidden',detail:'This table’s ball is present, but obscured or outside the frame.'},
+  {state:'absent',title:'No ball present',detail:'No ball belonging to this table is present. A visible held ball should be marked.'},
   {state:'unsure',title:'Can’t tell',detail:'There isn’t enough evidence. No need to guess.'},
 ] as const;
 
@@ -50,7 +50,7 @@ export function ActiveBallReview({initial,evaluations=[]}:{initial:BallSample[];
     <div className="h-0.5 bg-zinc-900"><div className="h-full bg-cyan-400 transition-all" style={{width:`${rows.length?reviewed/rows.length*100:0}%`}}/></div>
     <div className="mx-auto max-w-[1600px] p-4 sm:p-6">
       {evaluations.length>0 && <div className="mb-5 flex flex-wrap gap-x-8 gap-y-3 border-b border-edge pb-4 text-sm" aria-label="Gemini results">
-        <span>Gemini 3.8 Flash · Prompt 2</span>
+        <span>Gemini 3.8 Flash · Prompt 3</span>
         <span>{summary.total} / {rows.length} evaluated{summary.unanswered>0?` · ${summary.unanswered} unanswered`:null}</span>
         <span><strong className="text-cyan-100">{summary.located} / {summary.visible}</strong> visible balls within 20 pixels</span>
         <span><strong>{summary.falseDetections} / {summary.nonvisible}</strong> false visible-ball detections</span>
@@ -177,12 +177,12 @@ function SampleEditor({sample,comparison,onBlocked,onSaved,navigation}:{sample:B
           <p className="mt-3 text-sm text-pink-300">Gemini: {proposal?.state==='visible'?'visible ball':proposal?.state??'no usable response'}.{proposal?.state==='visible'?' Pink square.':''}</p>
           {label?.state==='visible' && proposal?.state==='visible' && <p className="mt-3 text-sm">{Math.hypot(label.x!-proposal.x!,label.y!-proposal.y!).toFixed(1)} pixels from your mark.</p>}
           <p className="mt-4 text-sm leading-relaxed text-zinc-400">{comparison.prediction?.reason ?? 'No usable model response was returned. This counts as an unanswered example.'}</p>
-          <p className="mt-4 text-xs leading-relaxed text-zinc-500">Gemini 3.8 Flash. Compared with your answers saved before this test. The 20-pixel threshold is a comparison tolerance, not a claim of production accuracy.</p>
+          <p className="mt-4 text-xs leading-relaxed text-zinc-500">This run counts a ball visibly held by either player as visible. Compared with your answers saved before this test. The 20-pixel threshold is a comparison tolerance, not a claim of production accuracy.</p>
           <div className="mt-5">{navigation}</div>
         </> : <>
         <h2 className="text-lg font-semibold">Where is the active ball?</h2>
-        <p className="mt-4 hidden text-sm leading-relaxed text-zinc-400 lg:block">Watch the replay if you need context, then click the centre of the ball in the labeled still. Only mark the ball playing on the outlined table.</p>
-        <p className="mt-2 text-sm text-zinc-400 lg:hidden">Click the ball in the still, or choose an option.</p>
+        <p className="mt-4 hidden text-sm leading-relaxed text-zinc-400 lg:block">Watch the replay if you need context, then click the centre of this table’s ball in the labeled still. Include a ball visibly held by either player.</p>
+        <p className="mt-2 text-sm text-zinc-400 lg:hidden">Click this table’s ball, including a visible ball held by either player, or choose an option.</p>
         <div className="mt-3 grid grid-cols-3 gap-2 lg:grid-cols-1">{states.map(s=><button key={s.state} disabled={busy||watching} aria-pressed={label?.state===s.state} className={`min-h-11 w-full rounded-xl border px-2 py-3 text-center lg:px-4 lg:text-left transition-colors disabled:opacity-40 ${label?.state===s.state?'border-cyan-400/60 bg-cyan-500/10':'border-edge hover:border-zinc-500'}`} onClick={()=>{setLabel({state:s.state,x:null,y:null});setError('');}}><span className="block text-sm text-zinc-100"><span className="lg:hidden">{s.state==='hidden'?'Hidden':s.state==='absent'?'No ball':'Can’t tell'}</span><span className="hidden lg:inline">{s.title}</span></span><span className="mt-1 hidden text-xs leading-relaxed text-zinc-400 lg:block">{s.detail}</span></button>)}</div>
         {label && label.state!=='visible' && <p className="mt-2 text-xs leading-relaxed text-zinc-400 lg:hidden">{states.find(s=>s.state===label.state)?.detail}</p>}
         <p className="my-3 text-sm text-cyan-100">{watching?'Watching context. Return to the still to label.':selected?`${selected}${dirty?' · not saved yet':' · saved'}`:''}</p>

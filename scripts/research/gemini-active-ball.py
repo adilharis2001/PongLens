@@ -8,6 +8,13 @@ PROMPT = '''Locate the active table-tennis ball belonging to ONE selected table 
 Return state visible if you can locate the active moving ball, hidden if the rally is in play but the ball is occluded or outside the image, absent if there is no active rally ball (including held balls/between points), unsure if evidence cannot resolve identity or visibility. For visible, return the centre of the ball or its motion blur in TARGET as x,y normalized 0..1000, x increasing right and y down. Otherwise x,y must be null. Do not invent a coordinate when hidden. Give a short explanation based only on the supplied images. Your answer will be evaluated against independently collected labels that are not available to you.'''
 SCHEMA={'type':'object','properties':{'state':{'type':'string','enum':['visible','hidden','absent','unsure']},'x':{'type':['number','null']},'y':{'type':['number','null']},'reason':{'type':'string'}},'required':['state','x','y','reason']}
 CONFIG={'temperature':0,'maxOutputTokens':2048,'mediaResolution':'MEDIA_RESOLUTION_HIGH','thinkingConfig':{'thinkingLevel':'LOW'},'responseMimeType':'application/json','responseJsonSchema':SCHEMA}
+CONTEXT_MODE = 'original_pixels'
+
+def image_context(row):
+    if CONTEXT_MODE == 'normalized':
+        corners = [[x/row['width']*1000,y/row['height']*1000] for x,y in row['corners']]
+        return '\nSelected table corners (x,y normalized 0..1000): '+json.dumps(corners)
+    return f'\nImage width={row["width"]}, height={row["height"]}. Selected table corners (pixels): '+json.dumps(row['corners'])
 
 def parse_prediction(d,width,height):
     if d.get('state') not in ['visible','hidden','absent','unsure']:raise ValueError('invalid state')
@@ -22,6 +29,7 @@ def main():
     a=argparse.ArgumentParser();a.add_argument('run',type=Path);a.add_argument('--limit',type=int,default=178);a.add_argument('--max-usd',type=float,default=5);a.add_argument('--shard',type=int,default=0);a.add_argument('--shards',type=int,default=1);a.add_argument('--interval',type=float,default=13);args=a.parse_args()
     rows=json.loads((args.run/'inputs.json').read_text()); model='gemini-3.8-flash'
     frozen={'model':model,'prompt':PROMPT,'config':CONFIG,'input_sha256':hashlib.sha256((args.run/'inputs.json').read_bytes()).hexdigest(),'estimated_price_per_million':{'input':.75,'output_including_thinking':3.75},'evaluation_tolerances_source_px':[10,20,40]}
+    if CONTEXT_MODE != 'original_pixels': frozen['coordinate_context'] = CONTEXT_MODE
     protocol=args.run/'protocol.json'
     if protocol.exists():assert json.loads(protocol.read_text())==frozen,'Protocol changed; start a separate run'
     else:protocol.write_text(json.dumps(frozen,indent=2))
@@ -39,7 +47,7 @@ def main():
         parts=[{'text':'Context video only. The TARGET still below is the frame to label.'},part(args.run.parent/'context'/f'{row["id"]}.mp4','video/mp4')]
         for i,name in enumerate(['BEFORE','TARGET','AFTER']):
             parts.extend([{'text':f'{name}: source time {row["frame_times_s"][i]:.6f}s'},part(row['frames'][i],'image/jpeg')])
-        parts.append({'text':PROMPT+f'\nImage width={row["width"]}, height={row["height"]}. Selected table corners (pixels): '+json.dumps(row['corners'])})
+        parts.append({'text':PROMPT+image_context(row)})
         payload=json.dumps({'contents':[{'role':'user','parts':parts}],'generationConfig':CONFIG}).encode()
         request=urllib.request.Request(f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',data=payload,headers={'x-goog-api-key':key,'Content-Type':'application/json'})
         start=time.monotonic()

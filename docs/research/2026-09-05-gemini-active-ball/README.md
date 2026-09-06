@@ -73,3 +73,17 @@ All 178 attempted; 177 usable structured answers. One answer returned x=1300 des
 Full aggregate output is in `prompt2-summary.json`. Raw responses and the frozen protocol remain in the local run directory. All runs preserve the same benchmark SHA-256 `62822f24273929e661ce2bdaf158d12a04cd71c0144cb1abe24824c02b35791d`.
 
 Verification: full `npm run build` passed after incorporating current main. All 28 active-ball Python tests and six TypeScript ball/comparison tests passed; a synthetic incomplete-run check verified invalid-answer denominators and false detections. Authenticated desktop (1440×1000) and mobile (393×660) browser checks passed for read-only comparison, next disagreement, no horizontal overflow and separate label editing. Publication asserts every existing immutable result and verifies human labels/revisions are unchanged within the transaction. No production worker or iOS change.
+
+## Prompt 3: consistent coordinates and visible held balls
+
+After the coordinate and presence diagnostics, Adil approved a full 178-example run with the tested corrections. Run 4 uses exactly the held-ball diagnostic's prompt and configuration: all geometry and answers use normalized 0..1000 coordinates, original image dimensions are omitted from the prompt, and a visibly held ball counts as visible. Media, model (`gemini-3.8-flash`), 8192-token allowance and generation settings are unchanged. The inputs contain no labels. The expanded visibility definition is shown on the comparison and label-editing pages, including the hidden/absent choices.
+
+The runner defaults to the old pixel context so old experiment fingerprints and resumability are preserved. Only normalized mode adds `coordinate_context` to the frozen protocol. The v4 wrapper loads the exact tested prompt from `gemini-active-ball-prompt3.txt`. The new run is `/Users/adil/ponglens-data/active-ball/gemini-run4`, database ID `gemini-3.8-flash-20260905-v4`, with a $3 estimated-cost stop. All original human labels remain frozen, including known presence-definition disagreements; no labels are repaired automatically. Prior run results stay immutable.
+
+This is an adjusted full-corpus comparison following error analysis, not an independent unseen benchmark. Do not present changed state agreement as a like-for-like measure of the old active-rally task. Visible-ball center localization remains measured against the same 109 visible reference positions; newly visible predictions on hidden/absent references remain disagreements.
+
+```sh
+python scripts/research/gemini-active-ball-v4.py /Users/adil/ponglens-data/active-ball/gemini-run4 --interval 0 --max-usd 3
+python scripts/research/publish-active-ball-evaluation.py /Users/adil/ponglens-data/active-ball/gemini-run4 --run-id gemini-3.8-flash-20260905-v4
+python scripts/research/summarize-active-ball-evaluation.py /Users/adil/ponglens-data/active-ball/gemini-run4 --prior-run /Users/adil/ponglens-data/active-ball/gemini-run3
+```
