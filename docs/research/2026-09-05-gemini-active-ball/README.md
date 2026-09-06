@@ -87,3 +87,22 @@ python scripts/research/gemini-active-ball-v4.py /Users/adil/ponglens-data/activ
 python scripts/research/publish-active-ball-evaluation.py /Users/adil/ponglens-data/active-ball/gemini-run4 --run-id gemini-3.8-flash-20260905-v4
 python scripts/research/summarize-active-ball-evaluation.py /Users/adil/ponglens-data/active-ball/gemini-run4 --prior-run /Users/adil/ponglens-data/active-ball/gemini-run3
 ```
+
+### Completed Prompt 3 results
+
+All 178 requests produced usable answers. Estimated list-price equivalent cost: $1.0220 for this run, not an invoice total.
+
+| Measurement against unchanged references | Prompt 2 | Prompt 3 |
+| --- | ---: | ---: |
+| Visible reference balls within 20px | 67/109 (61.5%) | 100/109 (91.7%) |
+| Visible reference balls within 10px | 58/109 | 88/109 |
+| Visible reference balls within 40px | 75/109 | 102/109 |
+| State agreement | 131/178 | 123/178 |
+| Visible predictions on hidden/absent references | 7/69 | 21/69 |
+| Unusable answers | 1 | 0 |
+
+The state figures are not directly comparable tasks: Prompt 3 includes visibly held balls and allows hidden balls outside an active rally, while the frozen labels retain the original mixed presence convention. All 21 new-run visible predictions on nonvisible references remain scored disagreements; none was silently relabeled or accepted. Twenty-eight absent references are now called hidden. Do not call the 91.7% figure overall accuracy or imply the increased visible predictions are all correct.
+
+Within 20px by venue: LYTTC 44/46, PingPod 43/46, Westchester TTC 13/17. Across the 87 reference-visible examples where Prompt 2 also said visible, Prompt 3 locates 84/87 within 20px versus the prior 67/87. This confirms localization improvement beyond merely admitting held balls. Six of the 109 visible reference balls are missed; another three are called visible but lie over 20px away. Both-visible conditional median error is 5.31px.
+
+Publication confirmed all 178 immutable records and unchanged human labels/revisions. The full build passed after incorporating current main, along with 28 Python active-ball tests and six TypeScript comparison/coordinate tests. All 178 input contexts were checked for both backwards-compatible original formatting and exact normalized diagnostic formatting. Local authenticated desktop/mobile QA passed. Raw responses, the protocol and full aggregate summary remain in the local run directory; `prompt3-summary.json` carries the aggregate report in this repository.

@@ -1,0 +1,154 @@
+{
+  "planned": 178,
+  "completed": 178,
+  "estimated_usd": 1.0220175,
+  "completed_metrics": {
+    "samples": 178,
+    "valid_predictions": 178,
+    "invalid_or_missing": 0,
+    "state_agreement": 123,
+    "visible_reference": 109,
+    "visible_missed": 6,
+    "false_visible": 21,
+    "within_10px": 88,
+    "within_20px": 100,
+    "within_40px": 102,
+    "confusion": {
+      "hidden -> hidden": 17,
+      "absent -> hidden": 28,
+      "absent -> visible": 14,
+      "visible -> visible": 103,
+      "visible -> hidden": 6,
+      "absent -> absent": 3,
+      "hidden -> visible": 7
+    },
+    "median_error_when_both_visible_px": 5.314037870855437
+  },
+  "by_venue": {
+    "LYTTC": {
+      "samples": 70,
+      "valid_predictions": 70,
+      "invalid_or_missing": 0,
+      "state_agreement": 51,
+      "visible_reference": 46,
+      "visible_missed": 1,
+      "false_visible": 8,
+      "within_10px": 41,
+      "within_20px": 44,
+      "within_40px": 44,
+      "confusion": {
+        "hidden -> hidden": 4,
+        "absent -> hidden": 10,
+        "absent -> visible": 7,
+        "visible -> visible": 45,
+        "visible -> hidden": 1,
+        "absent -> absent": 2,
+        "hidden -> visible": 1
+      },
+      "median_error_when_both_visible_px": 5.537378348466846
+    },
+    "PingPod": {
+      "samples": 54,
+      "valid_predictions": 54,
+      "invalid_or_missing": 0,
+      "state_agreement": 47,
+      "visible_reference": 46,
+      "visible_missed": 2,
+      "false_visible": 2,
+      "within_10px": 35,
+      "within_20px": 43,
+      "within_40px": 44,
+      "confusion": {
+        "absent -> hidden": 3,
+        "visible -> visible": 44,
+        "visible -> hidden": 2,
+        "absent -> visible": 1,
+        "hidden -> hidden": 3,
+        "hidden -> visible": 1
+      },
+      "median_error_when_both_visible_px": 4.8355124886133805
+    },
+    "Westchester TTC": {
+      "samples": 54,
+      "valid_predictions": 54,
+      "invalid_or_missing": 0,
+      "state_agreement": 25,
+      "visible_reference": 17,
+      "visible_missed": 3,
+      "false_visible": 11,
+      "within_10px": 12,
+      "within_20px": 13,
+      "within_40px": 14,
+      "confusion": {
+        "absent -> hidden": 15,
+        "absent -> visible": 6,
+        "visible -> visible": 14,
+        "hidden -> hidden": 10,
+        "hidden -> visible": 5,
+        "absent -> absent": 1,
+        "visible -> hidden": 3
+      },
+      "median_error_when_both_visible_px": 4.010696687413544
+    }
+  },
+  "previously_evaluated_subset": {
+    "samples": 178,
+    "valid_predictions": 178,
+    "invalid_or_missing": 0,
+    "state_agreement": 123,
+    "visible_reference": 109,
+    "visible_missed": 6,
+    "false_visible": 21,
+    "within_10px": 88,
+    "within_20px": 100,
+    "within_40px": 102,
+    "confusion": {
+      "hidden -> hidden": 17,
+      "absent -> hidden": 28,
+      "absent -> visible": 14,
+      "visible -> visible": 103,
+      "visible -> hidden": 6,
+      "absent -> absent": 3,
+      "hidden -> visible": 7
+    },
+    "median_error_when_both_visible_px": 5.314037870855437
+  },
+  "prior_on_same_subset": {
+    "samples": 178,
+    "valid_predictions": 177,
+    "invalid_or_missing": 1,
+    "state_agreement": 131,
+    "visible_reference": 109,
+    "visible_missed": 22,
+    "false_visible": 7,
+    "within_10px": 58,
+    "within_20px": 67,
+    "within_40px": 75,
+    "confusion": {
+      "hidden -> absent": 15,
+      "hidden -> hidden": 7,
+      "absent -> absent": 37,
+      "visible -> visible": 87,
+      "visible -> absent": 13,
+      "visible -> hidden": 8,
+      "absent -> hidden": 3,
+      "absent -> visible": 5,
+      "hidden -> visible": 2
+    },
+    "median_error_when_both_visible_px": 7.494147268327366
+  },
+  "not_previously_evaluated_subset": {
+    "samples": 0,
+    "valid_predictions": 0,
+    "invalid_or_missing": 0,
+    "state_agreement": 0,
+    "visible_reference": 0,
+    "visible_missed": 0,
+    "false_visible": 0,
+    "within_10px": 0,
+    "within_20px": 0,
+    "within_40px": 0,
+    "confusion": {},
+    "median_error_when_both_visible_px": null
+  }
+}
