@@ -1,5 +1,6 @@
 import json
 import os
+import ast
 from pathlib import Path
 import tempfile
 import unittest
@@ -8,7 +9,7 @@ from worker.lesson_release.package import LINUX_FFMPEG_ARTIFACT_SHA256, LINUX_FF
 
 class LessonReleaseTests(unittest.TestCase):
     def fixture(self, root):
-        for name in ['lesson_video.py','lesson-video-requirements.txt','cost_meter.py','lesson-font.ttf','lesson_deletion.py']:
+        for name in ['lesson_video.py','lesson-video-requirements.txt','cost_meter.py','lesson-font.ttf','lesson_deletion.py','lesson_cloud_dispatch.py']:
             (root/name).write_text(name)
     def test_sealed_payload_refuses_tampering_and_undeclared_files(self):
         with tempfile.TemporaryDirectory() as d:
@@ -53,6 +54,24 @@ class LessonReleaseTests(unittest.TestCase):
     def test_modal_uses_default_ephemeral_disk_quota(self):
         source=(Path(__file__).parents[1]/'lesson_release'/'modal_app.py').read_text()
         self.assertNotIn('ephemeral_disk=',source)
+    def test_modal_schedules_only_the_small_dispatcher(self):
+        source=(Path(__file__).parents[1]/'lesson_release'/'modal_app.py').read_text()
+        tree=ast.parse(source)
+        functions={node.name:node for node in tree.body if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef))}
+        self.assertIn('dispatch_once',functions)
+        self.assertIn('run_cloud_job',functions)
+        dispatch=ast.get_source_segment(source,functions['dispatch_once']) or ''
+        heavy=ast.get_source_segment(source,functions['run_cloud_job']) or ''
+        self.assertIn('run_cloud_job.spawn()',dispatch)
+        decorators='\n'.join(ast.get_source_segment(source,d) or '' for d in functions['dispatch_once'].decorator_list)
+        self.assertIn('schedule=modal.Period(minutes=5)',decorators)
+        self.assertIn('cpu=0.125',decorators)
+        self.assertIn('memory=128',decorators)
+        self.assertIn('scaledown_window=2',decorators)
+        heavy_decorators='\n'.join(ast.get_source_segment(source,d) or '' for d in functions['run_cloud_job'].decorator_list)
+        self.assertNotIn('schedule=',heavy_decorators)
+        self.assertIn('cpu=4',heavy_decorators)
+        self.assertIn('memory=8192',heavy_decorators)
     def test_modal_container_imports_and_verifies_the_mounted_payload(self):
         source=(Path(__file__).parents[1]/'lesson_release'/'modal_app.py').read_text()
         self.assertLess(source.index("sys.path.insert(0,REMOTE)"),source.index('from package import'))

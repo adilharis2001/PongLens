@@ -11,24 +11,38 @@ PAYLOAD=ROOT if (ROOT/'package.py').exists() else Path(REMOTE)
 sys.path.insert(0,REMOTE)
 sys.path.insert(0,str(ROOT))
 from package import linux_media_install_commands, verify
+from lesson_cloud_dispatch import cloud_dispatch_ready
 import modal
 
 manifest=verify(PAYLOAD)
 app=modal.App('ponglens-lesson-video')
+runtime_secret=modal.Secret.from_name('ponglens-lesson-video-runtime')
 image=(modal.Image.debian_slim(python_version='3.12')
        .run_commands(*linux_media_install_commands())
        .pip_install_from_requirements(str(PAYLOAD/'requirements.lock'))
        .env({'PYTHONDONTWRITEBYTECODE':'1','PONGLENS_LESSON_BUNDLE_ID':BUNDLE_ID})
        .add_local_dir(str(PAYLOAD),REMOTE,copy=True))
+dispatch_image=(modal.Image.debian_slim(python_version='3.12')
+                .env({'PYTHONDONTWRITEBYTECODE':'1','PONGLENS_LESSON_BUNDLE_ID':BUNDLE_ID})
+                .add_local_dir(str(PAYLOAD),REMOTE,copy=True))
 
-@app.function(image=image,secrets=[modal.Secret.from_name('ponglens-lesson-video-runtime')],
-              schedule=modal.Period(minutes=1),timeout=10800,cpu=4,memory=8192,
+@app.function(image=image,secrets=[runtime_secret],timeout=10800,cpu=4,memory=8192,
               min_containers=0,max_containers=1,retries=0)
 @modal.concurrent(max_inputs=1)
-def poll_once():
+def run_cloud_job():
     # Modal's default 512 GiB ephemeral quota covers the 20 GiB source limit
-    # and render intermediates. Database cloud_enabled defaults false.
+    # and render intermediates. The database rechecks fallback eligibility
+    # when this process tries to claim a lesson.
     subprocess.run([sys.executable,'-I','-B',REMOTE+'/runner.py','--cloud','--once'],check=True)
+
+@app.function(image=dispatch_image,secrets=[runtime_secret],schedule=modal.Period(minutes=5),
+              timeout=60,cpu=0.125,memory=128,scaledown_window=2,
+              min_containers=0,max_containers=1,retries=0)
+def dispatch_once():
+    if cloud_dispatch_ready(manifest['worker_release_id']):
+        run_cloud_job.spawn()
+        return {'dispatched':True}
+    return {'dispatched':False}
 
 @app.function(image=image,timeout=60,cpu=1,memory=512,min_containers=0,max_containers=1)
 def verify_release():

@@ -115,6 +115,15 @@ the page names it.**
   both workers, never one. Anything true of the Mac is a question about
   Modal.
 
+The lesson-recap cloud worker is a backup, not a second ordinary consumer.
+Its cheap dispatcher may start the media worker only when the database says
+the exact enabled release matches and the Mac has been absent for 15 minutes
+with a 30-minute wait, or the oldest eligible lesson has waited three hours.
+The claim repeats that check. The scheduled dispatcher never receives a media
+job or reports a worker heartbeat; the 4-CPU/8GiB worker has no schedule.
+`cloud_enabled` stays false until the same sealed bundle is installed on the
+Mac and Modal and its parity is accepted.
+
 **The code is built so a missed update is visible rather than silent.** An
 unrecognised kind or stage renders as its own raw name with a marker
 beside it, so `spin_report` turns up in the middle of a page of English
