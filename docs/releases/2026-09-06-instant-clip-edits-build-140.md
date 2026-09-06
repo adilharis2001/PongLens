@@ -35,7 +35,7 @@ applied. The `jobs` insert policy was deliberately left as it is: the library
 still inserts processing jobs as the signed-in user, and the Modal-control
 migrations that make that safe live only in the Mac checkout.
 
-`app_config.reclip_lane` is `main` and `device_reclip` is `off`.
+`app_config.reclip_lane` is `fast` (flipped once the fast lane was running, see Worker) and `device_reclip` is `off`.
 
 ## Backfills
 
