@@ -53,4 +53,9 @@ class LessonReleaseTests(unittest.TestCase):
     def test_modal_uses_default_ephemeral_disk_quota(self):
         source=(Path(__file__).parents[1]/'lesson_release'/'modal_app.py').read_text()
         self.assertNotIn('ephemeral_disk=',source)
+    def test_modal_container_imports_and_verifies_the_mounted_payload(self):
+        source=(Path(__file__).parents[1]/'lesson_release'/'modal_app.py').read_text()
+        self.assertLess(source.index("sys.path.insert(0,REMOTE)"),source.index('from package import'))
+        self.assertIn('manifest=verify(PAYLOAD)',source)
+        self.assertIn("os.environ.get('PONGLENS_LESSON_BUNDLE_ID'",source)
 if __name__=='__main__':unittest.main()
