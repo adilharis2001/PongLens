@@ -24,8 +24,10 @@ Released September 5, 2026 from
   the uploaded package build 135. Apple processed build 135 as `VALID`; it is
   `IN_BETA_TESTING` for the internal Team group.
 - Build 135 was also attached to the public External testers group with
-  automatic notification enabled and submitted to TestFlight Beta App Review.
-  Its external state was `WAITING_FOR_REVIEW` at the time of this record.
+  automatic notification enabled. TestFlight Beta App Review approved it, and
+  Apple reports `IN_BETA_TESTING` for both internal and external groups.
+- The live public web surface was visually checked at 393×660 and 1280×850
+  after deployment.
 
 Archive: `/tmp/PongLens-highlights-1.0-127.xcarchive`.
 Build log: `/tmp/ponglens-highlights-127-archive.log`.
@@ -33,5 +35,6 @@ Upload log: `/tmp/ponglens-highlights-127-export.log`.
 
 The five-match, two-venue highlight canary review is not complete, so automatic
 highlight generation is not globally enabled. Existing matches require a full
-reprocess to generate the new evidence. Physical-device playback and a real
-highlight render remain unverified.
+reprocess to generate the new evidence. Physical-device highlight playback,
+authenticated responsive highlight playback, and a real highlight render
+remain unverified.
