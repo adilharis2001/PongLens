@@ -7,8 +7,8 @@ import { AppShell } from "@/components/AppShell";
 import { BalancesCard } from "@/components/BalancesCard";
 import { UploadCard } from "@/app/dashboard/UploadCard";
 import { YouTubeImport } from "@/components/YouTubeImport";
-import { CameraGuideFirstRun } from "@/components/CameraGuideFirstRun";
-import { CAMERA_GUIDE_METADATA_KEY } from "@/lib/cameraGuideGate";
+import { RecordingBriefFirstRun } from "@/components/RecordingBriefFirstRun";
+import { RECORDING_BRIEF_METADATA_KEY } from "@/lib/cameraGuideGate";
 import { UpLink } from "@/components/UpLink";
 import { HideWhileUploading } from "@/components/HideWhileUploading";
 
@@ -38,11 +38,12 @@ export default async function UploadPage({
     null;
   const commerceEnabled = await getCommerceEnabled();
 
-  // The camera guide opens itself on this page for the first two
-  // occasions an account reaches it (src/lib/cameraGuideGate.ts). Both
-  // inputs are read here, on the server, so the decision is made in the
-  // first client frame rather than after a round trip — otherwise the
-  // page paints and a sheet drops onto it a moment later.
+  // The recording brief opens in front of this page the first time an
+  // account reaches it, and stays until its last page is finished
+  // (src/lib/cameraGuideGate.ts). Both inputs are read here, on the
+  // server, so the decision is made in the first client frame rather than
+  // after a round trip — otherwise the page paints and the brief drops
+  // onto it a moment later.
   //
   // The match count is the back-fill: an account that already has footage
   // in it has plainly worked out where the camera goes and is seeded
@@ -70,12 +71,12 @@ export default async function UploadPage({
             anchor to a second, full-width copy of the same control at the
             bottom — two entries into one sheet read as two features.
 
-            It also opens itself here, twice, for an account that has not
-            met it yet. Tapping the link is always available and never
-            counts against those two. */}
-        <CameraGuideFirstRun
+            The recording brief opens on its own, once, for an account
+            that has never finished it. Tapping the link is always
+            available and never counts. */}
+        <RecordingBriefFirstRun
           userId={user.id}
-          seenFromAccount={user.user_metadata?.[CAMERA_GUIDE_METADATA_KEY]}
+          seenFromAccount={user.user_metadata?.[RECORDING_BRIEF_METADATA_KEY]}
           hasAnyMatch={(matchCount ?? 0) > 0}
           className="shrink-0"
         />
