@@ -343,6 +343,10 @@ export function V3ServeDetector({
                   m0.runs[m0.asym] + " frames against none at the other end</span>"
                 // When the walk back from the first bounce breaks before reaching
                 // anyone, WHERE it broke still says which end the ball came from.
+                // A card holding a pass AND a serve: the toss says who served.
+                // Used only there; as a general reading it is 83% and loses.
+                : m0.toss
+                  ? '<br><span class="how">from the toss \u2014 this card holds a pass and a serve, and the toss says who served</span>'
                 : m0.emerged
                   ? '<br><span class="how">from the end the ball came out of, where the track broke</span>'
                 : '<br><span class="how">from the first bounce we could see</span>';
