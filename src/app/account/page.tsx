@@ -222,7 +222,8 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 7 — support block, just above legal */}
+      {/* 7 — support block, just above legal. Closing the account is its
+          last row, where the iOS app keeps it (Adil, 2026-09-05). */}
       <div className="mt-8">
         <SectionLabel>Support</SectionLabel>
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
@@ -249,6 +250,7 @@ export default async function AccountPage() {
               />
             </svg>
           </a>
+          <DeleteAccountSection />
         </div>
       </div>
 
@@ -261,13 +263,9 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 9 — the exits, alone at the very bottom. Closing the account sits
-          under signing out, quieter than it but reachable without asking
-          anyone: Apple requires it in the app, and it is the right thing
-          regardless. */}
-      <div className="mt-10 flex flex-col gap-3">
+      {/* 9 — the exit, alone at the very bottom. */}
+      <div className="mt-10">
         <SignOutRow />
-        <DeleteAccountSection />
       </div>
     </AppShell>
   );
