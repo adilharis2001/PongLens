@@ -111,3 +111,15 @@ check(!video("ready", student: false, shared: false).canShare(isOwner: true), "n
 check(!video("review", student: true, shared: nil).canShare(isOwner: false), "never for the student")
 check(LessonVideoLink(id: UUID(uuidString: "c75c8a89-16ee-41a1-b8f2-d3b441f0f82f")!).id.uuidString.lowercased() == "c75c8a89-16ee-41a1-b8f2-d3b441f0f82f", "a link from an id")
 print("lesson video checks passed")
+
+// The two numbers under the poster (twin of presentation.test.ts).
+check(LessonVideoLength.label(seconds: 0) == "0:00", "zero length")
+check(LessonVideoLength.label(seconds: 65) == "1:05", "minute and seconds")
+check(LessonVideoLength.label(seconds: 119.6) == "2:00", "rounds to the nearest second")
+check(LessonVideoLength.label(seconds: .nan) == "0:00", "unknown length reads as zero")
+let timedEdit = LessonVideoEdit(title: "T", chapters: [
+    LessonVideoEdit.Chapter(title: "a", cues: [], start_s: 0, end_s: 90, summary_start_s: nil, summary_end_s: nil),
+    LessonVideoEdit.Chapter(title: "b", cues: [], start_s: 100, end_s: 250, summary_start_s: nil, summary_end_s: nil),
+], themes: [], warning: nil)
+check(timedEdit.recapMinutes == 4, "recap minutes add the chapters up and round")
+print("lesson video length checks passed")

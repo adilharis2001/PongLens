@@ -1170,6 +1170,11 @@ struct ClipPlayerView: View {
     @State private var gestureBase: (scale: CGFloat, offset: CGSize)?
     @State private var observer: Any?
 
+    /// The window as one comparable value, so a changed edge can be watched.
+    private var windowKey: String {
+        window.map { "\($0.start)|\($0.end)" } ?? ""
+    }
+
     var body: some View {
         GeometryReader { geo in
             ZStack {
@@ -1252,6 +1257,19 @@ struct ClipPlayerView: View {
                     toleranceBefore: .zero, toleranceAfter: .zero)
             }
             player.play()
+        }
+        // The same file, a different stretch of it: an Adjust after the
+        // first one changes the window and nothing else, so the load task
+        // above, keyed on the URL, never ran again and the new edges only
+        // showed on a replay. Play the new window from its start.
+        .onChange(of: windowKey) { _, _ in
+            guard url != nil, let window else { return }
+            Task { @MainActor in
+                await player.seek(
+                    to: CMTime(seconds: window.start, preferredTimescale: 600),
+                    toleranceBefore: .zero, toleranceAfter: .zero)
+                player.play()
+            }
         }
         .onReceive(
             NotificationCenter.default.publisher(

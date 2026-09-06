@@ -193,3 +193,20 @@ enum LessonVideoChapterSelection {
         }) ?? 0
     }
 }
+
+extension LessonVideoEdit {
+    /// The recap's length in whole minutes, the chapter lengths added up.
+    /// Twin of lessonRecapMinutes on web.
+    var recapMinutes: Int {
+        let seconds = chapters.reduce(0.0) { total, chapter in total + max(0, chapter.end_s - chapter.start_s) }
+        return Int((seconds / 60).rounded())
+    }
+}
+
+/// m:ss for a chapter's length. Twin of formatClipLength on web.
+enum LessonVideoLength {
+    static func label(seconds: Double) -> String {
+        let whole = max(0, Int((seconds.isFinite ? seconds : 0).rounded()))
+        return String(format: "%d:%02d", whole / 60, whole % 60)
+    }
+}

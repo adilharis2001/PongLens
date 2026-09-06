@@ -629,7 +629,12 @@ export function ClipPlayer({
     }
     tryPlay();
     return () => v.removeEventListener("loadedmetadata", readDuration);
-  }, [src, applyTransform, mode, tryPlay, winStart]);
+    // winEnd is a dependency on purpose: an Adjust that moves only the END
+    // changes nothing this effect used to watch, so the player sat where it
+    // was and the longer point only showed on a replay. Both numbers come
+    // from a memoised window, so they change on a real edit and nothing
+    // else.
+  }, [src, applyTransform, mode, tryPlay, winStart, winEnd]);
 
   // React's touch listeners are passive, so scroll prevention during an
   // active pinch (or a pan while zoomed) needs a native non-passive hook —

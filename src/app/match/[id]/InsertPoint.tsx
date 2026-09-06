@@ -181,11 +181,40 @@ export function InsertPoint({
   // PLAY it. The whole reason to open this sheet is to see what is in the
   // gap; making that a second tap asks the owner to request the one thing
   // the screen exists for. Muted, so autoplay is allowed.
+  //
+  // The seek has to WAIT for the file. This effect runs the moment `source`
+  // is set, which is the same moment the <video> gets its src, so readyState
+  // is 0 and seek()'s own guard drops the request on the floor — the sheet
+  // then autoplayed the original from 0:00 and showed footage from the start
+  // of the match instead of the hole. Only the removed-seam case was
+  // affected, because a continuous seam reuses the file already streaming
+  // behind the sheet, which is loaded. Land again on loadedmetadata.
   useEffect(() => {
     if (!source || !seam) return;
-    seek(win.t0);
     const v = videoRef.current;
-    if (v) void v.play().catch(() => undefined);
+    seek(win.t0);
+    if (!v) return;
+    // Keep asking until it sticks. A seek issued at `loadedmetadata` is
+    // accepted and then thrown away again when a large remote .mov finishes
+    // loading — measured on the Chris match, seam 72-73: the playhead reached
+    // 795.11s at readyState 1 and was back at 0 by readyState 4. So re-assert
+    // through the loading states and stop at the first seek that holds, which
+    // also keeps this off the handles once the owner starts dragging.
+    let armed = true;
+    const land = () => {
+      if (!armed || v.readyState < 1) return;
+      v.currentTime = videoTimeFor(win.t0);
+      // Once the file is buffered a seek sticks, so that is the last one to
+      // issue. Staying armed past it would fight playback: `canplay` fires
+      // again on every re-buffer, and each of those yanked the picture back
+      // to the start of the gap a second after it began moving.
+      if (v.readyState >= 3) armed = false;
+    };
+    const events = ["loadedmetadata", "loadeddata", "canplay"];
+    events.forEach((e) => v.addEventListener(e, land));
+    land();
+    void v.play().catch(() => undefined);
+    return () => events.forEach((e) => v.removeEventListener(e, land));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 

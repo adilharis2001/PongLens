@@ -276,6 +276,71 @@ cp /Users/adil/Desktop/Projects/PongLens/worker/com.adil.ponglens-worker.plist ~
 launchctl load ~/Library/LaunchAgents/com.adil.ponglens-worker.plist
 ```
 
+## Saying what we are doing (`/admin/processing`)
+
+Every worker process beats once every 15 seconds into `worker_pulse`, from
+its own daemon thread on its own connection (`start_pulse_monitor`). The
+admin page at **https://www.ponglens.com/admin/processing** is the only
+reader.
+
+**Why it exists.** The job row cannot always answer "is the worker alive".
+How much it tells you depends on the kind: a `deadspace_cut` advances
+`jobs.progress` about every twenty seconds, but `placement_generate` writes
+5, then 20, then 100, and `jobs.updated_at` only moves when a column does.
+So a placement job that is running perfectly reads 20% with a timestamp
+three hours old, and a worker that crashed at the first milestone looks
+exactly the same. Only the process itself can tell those apart.
+
+**Until a worker is restarted onto code that beats, it does not appear
+here, and the page says so honestly.** A worker with no row has never
+reported, which is not the same as having stopped, so the page reads
+"Status unknown" in grey rather than raising an alarm. It falls back to the
+job rows for evidence: a job advancing its progress, or one just finished,
+proves a worker is running even though this table is empty. That fallback
+is one-directional — movement proves life, stillness proves nothing — and
+the page must never be changed to read it the other way. The full rule is
+in `CLAUDE.md`, "Never report a fault you have not got evidence for".
+
+**What a beat carries:** the lane, the pid, the commit the daemon loaded,
+when the process started, the job and its kind, the stage, the counter
+under it (`frame 57000/65807  6.1 fps`, taken from the line blurball has
+always printed), and the machine's load average with its core count. The
+load is there because the Mac Studio is shared: a research script holding
+1700% CPU is why a forty-minute job takes three hours, and nothing else
+reports it.
+
+**Setting the stage** from anywhere in a job's path:
+
+```python
+pulse_stage("ball")                     # which part is running
+pulse_note("frame 57000/65807", 87)     # a counter under it
+```
+
+Both are best-effort and neither can raise. A failed beat logs a warning
+and is forgotten — monitoring must never fail a job.
+
+**Adding a job kind or a stage is not finished until the page names it.**
+See "The processing page has to keep up with the worker" in the repo's
+`CLAUDE.md`. An unlabelled kind renders as its raw name with a marker, so
+the gap shows up on that kind's first job.
+
+**Checking it by hand:**
+
+```sql
+select worker_id, lane, pid, beat_at, stage, stage_note, stage_pct,
+       host_load_1m, host_cpu_count
+from public.worker_pulse order by worker_id;
+```
+
+A row older than 90 seconds means that process is not running. **No row at
+all means the same thing** — the page renders a missing worker as an
+outage rather than as blank space, which is the whole point.
+
+**A worker only pulses once it is restarted onto code that has the pulse.**
+Until then the page shows it as *Not reporting* with the in-flight job
+named underneath, which is honest and is exactly what a dead worker would
+look like. Restart between jobs, never mid-job.
+
 ## Fast lane (second process)
 
 Re-cuts and vertical share renders are the jobs a person is holding the

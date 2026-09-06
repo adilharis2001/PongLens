@@ -1058,10 +1058,16 @@ struct ModifySheet: View {
         failed = false
         let ok = await model.runAdjust(point, pad: pad, t0New: adjT0, t1New: adjT1)
         if ok {
-            // No landing: the point is still the point, it just has different
-            // edges. Moving the playhead would be answering a question nobody
-            // asked.
-            finish(ModifyOutcome(landing: nil, play: false, flash: "Timing saved"))
+            // Land on the point's NEW padded start and play it. The whole
+            // reason to adjust is to check the window, and handing back no
+            // landing left the pad paused wherever it was, so the change only
+            // showed on a replay while Split and Join moved on and played.
+            // runAdjust has re-anchored cutT0 by the time it returns.
+            let after = model.points.first(where: { $0.id == point.id })
+            finish(ModifyOutcome(
+                landing: after?.cutT0, play: after?.cutT0 != nil,
+                flash: "Timing saved"
+            ))
         } else {
             failed = true
         }

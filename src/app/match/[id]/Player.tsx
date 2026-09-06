@@ -4374,9 +4374,34 @@ export const Player = forwardRef<
       }
       setUndoStack((s) => [...s, { type: "adjust", pointId: A.id, ...prev }]);
       setModifyPoint(null);
+      // Show the change. Split and Join land on the next point and play;
+      // this used to close the sheet and leave the pad paused wherever it
+      // was, so the new edges only showed up on a replay. Land on the
+      // point's NEW padded start and play, and drop the consumed boundary
+      // so the pad stops again at the (possibly new) deciding shot. The
+      // optimistic mirror has already re-anchored cut_t0 by the time the
+      // save returns, and the returned row overwrites it with the same
+      // number.
+      const after = pointsRef.current.find((p) => p.id === A.id) ?? A;
+      pinEndPause(null);
+      endPauseFiredRef.current = null;
+      playTailRef.current = null;
+      if (after.cut_t0 !== null) {
+        seekTo(Number(after.cut_t0));
+        playNow();
+      }
       showFlash("Timing saved", 2000);
     },
-    [modifyBusy, onAdjustTiming, modifyPoint, showFlash, showToast]
+    [
+      modifyBusy,
+      onAdjustTiming,
+      modifyPoint,
+      pinEndPause,
+      seekTo,
+      playNow,
+      showFlash,
+      showToast,
+    ]
   );
 
   // Serve ball tap: hand the serve to the side whose ball was pressed.
