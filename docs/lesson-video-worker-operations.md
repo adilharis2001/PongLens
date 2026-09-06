@@ -2,9 +2,9 @@
 
 This is a separate service for imported lesson videos. It never installs,
 restarts or imports the match worker. Packaging and installation do not start
-processing. The current pilot has no verified Modal login or deployment; do
-not describe Mac/Modal parity as complete. Obtain the pending Mac-only pilot
-exception before enabling Mac alone, or deploy and verify the pair first.
+processing. The previous Modal counterpart is stopped, cloud claims remain
+disabled, and Mac/Modal output parity is not complete. Keep the Mac as the
+active worker until the identical sealed release and parity checks are accepted.
 
 ## Package and verify
 
@@ -153,7 +153,7 @@ stop the lesson service, verify a separately installed known bundle, then run
 its explicit enable command. Do not mutate or replace an active payload.
 Do not run com.adil.ponglens-worker commands for this feature.
 
-## Modal counterpart, not deployed by this tooling
+## Modal counterpart
 
 The optional sealed modal_app.py defines only app `ponglens-lesson-video`,
 secret `ponglens-lesson-video-runtime`, no volumes and no match functions.
@@ -161,8 +161,19 @@ It uses the same full lock, payload and font, plus the fixed BtbN FFmpeg
 release asset recorded in `package.py`. The image verifies the archive SHA-256
 before extraction; cloud startup verifies the FFmpeg and FFprobe binary hashes,
 their distinct version banners, and `zscale`/H.264/AAC support before any claim.
-A single CPU container has a 40GiB ephemeral disk and polls one claimed lesson
-per scheduled invocation. Database cloud_enabled still gates all claims.
+The scheduled function is only a dispatcher. Every five minutes it uses
+0.125 CPU and 128MiB to ask the database whether cloud fallback is allowed,
+then scales down after two seconds. It does not load media tools, claim a
+lesson or report a worker heartbeat. The 4-CPU, 8GiB media worker has no
+schedule and starts only after an affirmative answer.
+
+The database is the authority and rechecks the rule during the claim. Cloud
+must be explicitly enabled and the exact release must match. It can claim only
+when the Mac lesson heartbeat has been absent for 15 minutes and the oldest
+eligible lesson has waited 30 minutes, or when an eligible lesson has waited
+three hours. The latter is the overload threshold. The heavy worker remains
+limited to one container. Leave `cloud_enabled=false` until the same sealed
+release is installed on the Mac and Modal and parity is accepted.
 
 After connecting the correct Modal workspace and setting appropriate spending
 limits, create the separate runtime secret using the keys listed above. Then,
@@ -174,8 +185,7 @@ modal run --env main /absolute/path/to/BUNDLE_SHA/payload/modal_app.py::verify_r
 ```
 
 The verify function has no secret and no job claim; it reports both IDs.
-No Modal provider command was executed for this implementation. The adapter
-has not been remotely built or smoke-tested. Compare the same fixture's
+Compare the same fixture's
 transcription, chapter decisions, source/summary times and both video outputs
 on Mac and Modal before enabling cloud claiming. The CPU render is deliberate;
 there are no BlurBall or table-checkpoint licensing/model dependencies.

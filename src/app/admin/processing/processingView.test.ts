@@ -246,6 +246,7 @@ test("the lesson recap workers come from their own heartbeat", () => {
         mac_beat_at: ago(20),
         mac_started_at: ago(30000),
         cloud_beat_at: ago(40),
+        cloud_enabled: true,
         cloud_reporting_today: 142,
         release_id: "lesson-video-000cf954",
       },
@@ -255,7 +256,24 @@ test("the lesson recap workers come from their own heartbeat", () => {
   assert.equal(rows.find((r) => r.key === "lesson:mac")?.state, "idle");
   const cloud = rows.find((r) => r.key === "lesson:cloud");
   assert.equal(cloud?.state, "idle");
-  assert.match(cloud?.detail ?? "", /142 containers/);
+  assert.equal(cloud?.detail, "Waiting for the Mac fallback rule.");
+});
+
+test("a disabled lesson cloud worker is off despite historical heartbeats", () => {
+  const rows = buildWorkerRows(
+    overview({
+      lesson: {
+        cloud_enabled: false,
+        cloud_beat_at: ago(40),
+        cloud_reporting_today: 142,
+        release_id: "lesson-video-000cf954",
+      },
+    }),
+    NOW,
+  );
+  const cloud = rows.find((r) => r.key === "lesson:cloud");
+  assert.equal(cloud?.state, "off");
+  assert.equal(cloud?.detail, "Not switched on.");
 });
 
 // They beat once a minute, not every fifteen seconds, so the fast window
