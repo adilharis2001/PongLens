@@ -1,0 +1,19 @@
+{
+ "match": "d15aad4d",
+ "matchId": "d15aad4d-dfbf-4234-9b45-d68de83412cf",
+ "title": "Louis",
+ "venue": "Westchester TTC",
+ "crop": [
+  378.0,
+  92.0,
+  1032.0,
+  582.0
+ ],
+ "rawOffsetS": 0.0,
+ "offsetErr": 1.305,
+ "cards": 75,
+ "points": 95,
+ "ok": 60,
+ "srvAgree": 53,
+ "srvDisagree": 7
+}
