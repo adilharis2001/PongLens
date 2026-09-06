@@ -28,8 +28,8 @@ def make_cut(path, *, audio=True):
 
 def manifest():
     return {
-        "v": 1,
-        "rule": "quality-first-v1",
+        "v": 2,
+        "rule": "quality-first-v2",
         "max_seconds": 150.0,
         "points_revision": "a" * 64,
         "duration_s": 3.7,
@@ -43,6 +43,7 @@ def manifest():
                 "n_hits": 7,
                 "connected_crossings": 6,
                 "table_bounces": 3,
+                "alternating_table_landings": 4,
             },
             {
                 "point_id": "p2",
@@ -53,6 +54,7 @@ def manifest():
                 "n_hits": 6,
                 "connected_crossings": 5,
                 "table_bounces": 3,
+                "alternating_table_landings": 4,
             },
         ],
     }

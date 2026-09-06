@@ -52,18 +52,16 @@ def build_highlight_evidence(card, evidence, n_hits, route,
     owns the threshold and fails closed later.
     """
     observed_end = card.get("end_evidence_s") if card else None
+    end_source = "observed" if observed_end is not None else None
     reasons = []
     if unavailable_reason:
         reasons.append(str(unavailable_reason))
     if evidence is None and not reasons:
         reasons.append("no_candidates")
-    if n_hits is None and evidence is not None:
-        reasons.append("no_shot_count")
-    if observed_end is None and evidence is not None:
-        reasons.append("no_observed_end")
-
     crossing_chain = []
     table_bounces = None
+    alternating_landings = None
+    alternating_end = None
     if evidence is not None and card is not None:
         start, end = float(card["t0"]), float(card["t1"])
         crossings = sorted(float(t) for t in evidence.cross
@@ -76,21 +74,57 @@ def build_highlight_evidence(card, evidence, n_hits, route,
                 groups[-1].append(crossing)
         if groups:
             crossing_chain = max(groups, key=lambda group: len(group))
-        else:
-            reasons.append("no_crossing_chain")
         table_bounces = sum(
             1 for t in evidence.bt_table if start <= float(t) <= end
         )
 
+        landings = [
+            (float(t), str(side))
+            for t, side in getattr(evidence, "bt_table_landings", [])
+            if start <= float(t) <= end
+        ]
+        longest = []
+        current = []
+        for landing in sorted(landings):
+            connected = (
+                current
+                and landing[0] - current[-1][0] <= points_v2.CROSS_GAP_S
+            )
+            if not current or (connected and landing[1] != current[-1][1]):
+                current.append(landing)
+            else:
+                current = [landing]
+            if len(current) > len(longest):
+                longest = list(current)
+        alternating_landings = len(longest)
+        alternating_end = longest[-1][0] if longest else None
+
+        if observed_end is None:
+            if len(crossing_chain) >= 2:
+                chain_end = crossing_chain[-1]
+                trailing_bounces = [
+                    float(t) for t in evidence.bt_table
+                    if crossing_chain[0] <= float(t) <= min(end, chain_end + 2.0)
+                ]
+                observed_end = max([chain_end, *trailing_bounces])
+                end_source = "event_chain"
+            elif alternating_landings >= 3 and alternating_end is not None:
+                observed_end = alternating_end
+                end_source = "event_chain"
+
+    if evidence is not None and observed_end is None:
+        reasons.append("no_rally_end")
+
     gaps = [b - a for a, b in zip(crossing_chain, crossing_chain[1:])]
     return {
-        "v": 1,
+        "v": 2,
         "status": "unavailable" if reasons else "ready",
         "route": route,
         "n_hits": int(n_hits) if n_hits is not None else None,
         "connected_crossings": (len(crossing_chain)
                                 if evidence is not None else None),
         "table_bounces": table_bounces,
+        "alternating_table_landings": alternating_landings,
         "first_crossing_s": (round(crossing_chain[0], 2)
                              if crossing_chain else None),
         "last_crossing_s": (round(crossing_chain[-1], 2)
@@ -99,6 +133,7 @@ def build_highlight_evidence(card, evidence, n_hits, route,
                                if crossing_chain else None),
         "observed_end_s": (round(float(observed_end), 2)
                            if observed_end is not None else None),
+        "end_source": end_source,
         "reasons": reasons,
     }
 

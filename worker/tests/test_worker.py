@@ -4,6 +4,12 @@ import worker
 def test_automatic_highlights_switch_supports_one_user_canary():
     assert worker.automatic_highlights_enabled("on", "user-a") is True
     assert worker.automatic_highlights_enabled("user:user-a", "user-a") is True
+    assert worker.automatic_highlights_enabled(
+        "users:user-a,user-b", "user-a"
+    ) is True
+    assert worker.automatic_highlights_enabled(
+        "users:user-a, user-b", "user-b"
+    ) is True
     assert worker.automatic_highlights_enabled("off", "user-a") is False
     assert worker.automatic_highlights_enabled("user:user-b", "user-a") is False
     assert worker.automatic_highlights_enabled(None, "user-a") is False
@@ -53,11 +59,12 @@ def strong_point():
         "edited": False,
         "is_let": False,
         "highlight_evidence": {
-            "v": 1,
+            "v": 2,
             "status": "ready",
             "n_hits": 7,
             "connected_crossings": 6,
             "table_bounces": 3,
+            "alternating_table_landings": 2,
             "observed_end_s": 18.0,
         },
     }
@@ -85,6 +92,7 @@ def test_no_qualified_points_record_empty_without_rendering(tmp_path, monkeypatc
     conn = Connection()
     weak = strong_point()
     weak["highlight_evidence"]["n_hits"] = 2
+    weak["highlight_evidence"]["connected_crossings"] = 1
     monkeypatch.setattr(
         worker, "render_auto_highlights",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("rendered")),
