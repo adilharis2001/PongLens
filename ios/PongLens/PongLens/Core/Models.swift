@@ -201,7 +201,9 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     let idx: Int
     var t0: Double?
     var t1: Double?
-    let cutT0: Double?
+    /// Mutable so an Adjust can move it with the start edge (adjust_point
+    /// re-anchors it; runAdjust mirrors that).
+    var cutT0: Double?
     let server: Winner?
     var serverOverride: Winner?
     var isLet: Bool

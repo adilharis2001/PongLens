@@ -455,13 +455,16 @@ type UndoEntry =
     }
   | {
       /** Modify-modal Adjust (timing fix). Undo writes the previous
-       *  t0/t1/tight flags back — itself just another timing save. */
+       *  t0/t1/tight flags back — itself just another timing save — and
+       *  the observed endings the forward save cleared on an end move. */
       type: "adjust";
       pointId: string;
       prevT0: number;
       prevT1: number;
       prevTightStart: boolean;
       prevTightEnd: boolean;
+      prevScoredAtCutS: number | null;
+      prevRallyEndCutS: number | null;
     }
   | {
       /** "Match starts here" sweep — every point before the current one,
@@ -786,8 +789,14 @@ export const Player = forwardRef<
       point: Point,
       t0: number,
       t1: number,
-      /** Undo path: restore these tight flags instead of dissolving. */
-      tight?: { tight_start: boolean; tight_end: boolean }
+      /** Undo path: restore these tight flags (instead of dissolving) and
+       *  the observed endings the forward save cleared. */
+      restore?: {
+        tight_start: boolean;
+        tight_end: boolean;
+        scored_at_cut_s?: number | null;
+        rally_end_cut_s?: number | null;
+      }
     ) => Promise<boolean>;
     /** Open a point's detail view (the transient chip pill uses it). */
     onOpenPoint: (pointId: string) => void;
@@ -4316,6 +4325,8 @@ export const Player = forwardRef<
         prevT1: Number(A.t1),
         prevTightStart: A.tight_start,
         prevTightEnd: A.tight_end,
+        prevScoredAtCutS: A.scored_at_cut_s ?? null,
+        prevRallyEndCutS: A.rally_end_cut_s ?? null,
       };
       setModifyBusy(true);
       const ok = await onAdjustTiming(A, t0New, t1New);
@@ -4870,6 +4881,8 @@ export const Player = forwardRef<
         const ok = await onAdjustTiming(p, e.prevT0, e.prevT1, {
           tight_start: e.prevTightStart,
           tight_end: e.prevTightEnd,
+          scored_at_cut_s: e.prevScoredAtCutS,
+          rally_end_cut_s: e.prevRallyEndCutS,
         });
         if (!ok) showToast("Couldn't undo the timing change. Try again.");
       })();

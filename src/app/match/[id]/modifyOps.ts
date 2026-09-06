@@ -162,10 +162,26 @@ export async function runJoinPlan({
 }
 
 /**
- * The Adjust save: new t0/t1, with a manually re-timed split-boundary edge
- * dissolving its tight flag so the reclip pads the moved edge with full
- * strictness context again. Pure patch builder — the host owns the write,
- * the optimistic mirror, and the reclip schedule.
+ * What the undo path hands back to an Adjust so the reverse write restores
+ * exactly what the forward write changed: the tight flags the forward save
+ * may have dissolved, and the observed endings it cleared when the end
+ * moved (adjust_point nulls scored_at_cut_s / rally_end_cut_s on an end
+ * move, because a player who extended the end has overruled them).
+ */
+export interface AdjustRestore {
+  tight_start: boolean;
+  tight_end: boolean;
+  scored_at_cut_s?: number | null;
+  rally_end_cut_s?: number | null;
+}
+
+/**
+ * The Adjust save's tight-flag rule: a manually re-timed split-boundary
+ * edge dissolves its tight flag so the re-cut pads the moved edge with full
+ * strictness context again. Pure — the host owns the write (adjust_point)
+ * and the optimistic mirror; the database re-anchors cut_t0 and the host
+ * mirrors that with reanchorCutT0 so the pad is right before the row
+ * comes back.
  */
 export function adjustPatch(
   point: Point,

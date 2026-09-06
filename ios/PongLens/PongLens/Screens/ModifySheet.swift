@@ -1031,7 +1031,7 @@ struct ModifySheet: View {
         guard adjDirty, !busy, !adjustLocked else { return }
         busy = true
         failed = false
-        let ok = await model.runAdjust(point, t0New: adjT0, t1New: adjT1)
+        let ok = await model.runAdjust(point, pad: pad, t0New: adjT0, t1New: adjT1)
         if ok {
             // No landing: the point is still the point, it just has different
             // edges. Moving the playhead would be answering a question nobody

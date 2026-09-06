@@ -58,7 +58,13 @@ import { mergeSkipSpans, paddedEnd,
   type EndOptions,
 } from "./playhead";
 import { clipPad } from "./clipEdit";
-import { adjustPatch, runJoinPlan, runSplitPlan } from "./modifyOps";
+import {
+  adjustPatch,
+  runJoinPlan,
+  runSplitPlan,
+  type AdjustRestore,
+} from "./modifyOps";
+import { reanchorCutT0 } from "./clipEdit";
 import { Player, type PlayerHandle } from "./Player";
 import { PointDetail } from "./PointDetail";
 import { PointSheet } from "./PointSheet";
@@ -539,8 +545,6 @@ export function MatchView({
     undo: () => void;
   } | null>(null);
   const snackbarTimer = useRef<number | null>(null);
-  // Debounce: many quick edits -> ONE reclip job per match.
-  const reclipTimer = useRef<number | null>(null);
 
   const isOwner = match.user_id === userId;
   const isDesktop = useIsDesktop();
@@ -2156,31 +2160,12 @@ export function MatchView({
     }
   }, [match.id, router]);
 
-  // One debounced 'reclip' job per match: skip when one is already queued
-  // (a job that is mid-processing may have read the points before the
-  // latest edit, so only 'queued' suppresses a new enqueue).
-  const enqueueReclip = useCallback(async () => {
-    const supabase = createClient();
-    const { data: queued } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("kind", "reclip")
-      .eq("status", "queued")
-      .contains("options", { match_id: match.id })
-      .limit(1);
-    if (queued && queued.length > 0) return;
-    await supabase
-      .from("jobs")
-      .insert({ user_id: userId, kind: "reclip", options: { match_id: match.id } });
-  }, [match.id, userId]);
-
-  const scheduleReclip = useCallback(() => {
-    if (reclipTimer.current) window.clearTimeout(reclipTimer.current);
-    reclipTimer.current = window.setTimeout(() => {
-      reclipTimer.current = null;
-      void enqueueReclip();
-    }, 4000);
-  }, [enqueueReclip]);
+  // Re-cuts are requested by the database, not here. A trigger on points
+  // (points_request_reclip) queues one 'reclip' job per match whenever a
+  // row ends up edited and not deleted, with a short queue delay so a
+  // burst of edits becomes one job. The old client timer was lost on
+  // every reload within four seconds of an edit, leaving cards on
+  // "Updating clip" until some later edit happened to queue a job.
 
   const addSplitPoint = useCallback((newPoint: Point) => {
     setPoints((ps) =>
@@ -2238,7 +2223,6 @@ export function MatchView({
       // The clip has to be cut from the raw: this footage is either missing
       // from the cut video entirely or shared with a neighbour that just
       // gave it up.
-      scheduleReclip();
       if (winner) void setWinner(created, winner);
       return true;
     },
@@ -2246,47 +2230,84 @@ export function MatchView({
       addSplitPoint,
       updatePoint,
       visiblePoints,
-      scheduleReclip,
       setWinner,
     ]
   );
 
   // The Adjust save — ONE timing write for both surfaces (the pad's Modify
-  // and the point view's). Tight flags dissolve when their edge moved
-  // (adjustPatch), unless the undo path pins them back explicitly. A DB
-  // trigger marks the point edited on any t0/t1 change; the optimistic
-  // mirror sets it too so the "Updating clip" state shows immediately.
+  // and the point view's), through adjust_point: it dissolves the tight
+  // flag on a moved edge (unless the undo path pins the flags back),
+  // re-anchors cut_t0 so the point's place in the cut video moves with its
+  // start, and clears the observed endings when the end moved (the undo
+  // path passes them back). The optimistic mirror applies the same rules
+  // so the pad is right before the row returns; the returned row is the
+  // truth and overwrites it.
   const adjustPointTiming = useCallback(
     async (
       point: Point,
       t0New: number,
       t1New: number,
-      tight?: { tight_start: boolean; tight_end: boolean }
+      restore?: AdjustRestore
     ): Promise<boolean> => {
-      const patch: Partial<Point> = tight
-        ? { t0: t0New, t1: t1New, ...tight }
+      const patch: Partial<Point> = restore
+        ? {
+            t0: t0New,
+            t1: t1New,
+            tight_start: restore.tight_start,
+            tight_end: restore.tight_end,
+          }
         : adjustPatch(point, t0New, t1New);
+      const tightStartNew = patch.tight_start ?? point.tight_start;
+      const endMoved = t1New !== Number(point.t1);
       const prev: Partial<Point> = {
         t0: point.t0,
         t1: point.t1,
+        cut_t0: point.cut_t0,
         tight_start: point.tight_start,
         tight_end: point.tight_end,
         edited: point.edited,
+        scored_at_cut_s: point.scored_at_cut_s ?? null,
+        rally_end_cut_s: point.rally_end_cut_s ?? null,
       };
-      updatePoint(point.id, { ...patch, edited: true });
+      updatePoint(point.id, {
+        ...patch,
+        cut_t0: reanchorCutT0(point, t0New, tightStartNew, pad),
+        edited: true,
+        ...(endMoved
+          ? {
+              scored_at_cut_s: restore?.scored_at_cut_s ?? null,
+              rally_end_cut_s: restore?.rally_end_cut_s ?? null,
+            }
+          : {}),
+      });
       const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update(patch)
-        .eq("id", point.id);
-      if (error) {
+      const { data, error } = await supabase.rpc("adjust_point", {
+        p_id: point.id,
+        p_t0: t0New,
+        p_t1: t1New,
+        p_tight_start: restore?.tight_start ?? null,
+        p_tight_end: restore?.tight_end ?? null,
+        p_scored_at_cut_s: restore?.scored_at_cut_s ?? null,
+        p_rally_end_cut_s: restore?.rally_end_cut_s ?? null,
+      });
+      if (error || !data) {
         updatePoint(point.id, prev);
         return false;
       }
-      scheduleReclip();
+      const row = data as Point;
+      updatePoint(point.id, {
+        t0: row.t0,
+        t1: row.t1,
+        cut_t0: row.cut_t0,
+        tight_start: row.tight_start,
+        tight_end: row.tight_end,
+        edited: row.edited,
+        scored_at_cut_s: row.scored_at_cut_s ?? null,
+        rally_end_cut_s: row.rally_end_cut_s ?? null,
+      });
       return true;
     },
-    [updatePoint, scheduleReclip]
+    [updatePoint, pad]
   );
 
   // Cmd/Ctrl+Z presses the snackbar's Undo while it's on screen. The
@@ -2335,7 +2356,6 @@ export function MatchView({
           addSplitPoint(child);
         },
       });
-      if (created.length > 0) scheduleReclip();
       if (!ok && unsplits.length === 0) return false;
       const segPoints = [point, ...created];
       for (let i = 0; i < segPoints.length && i < segments.length; i++) {
@@ -2379,7 +2399,6 @@ export function MatchView({
           void setWinner(rootNow, origWinner);
           if (rootNow.is_let !== origSkipped)
             void setSkipped({ ...rootNow, confirmed_winner: origWinner }, origSkipped);
-          scheduleReclip();
         })();
       };
       if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
@@ -2396,7 +2415,6 @@ export function MatchView({
       pad,
       updatePoint,
       addSplitPoint,
-      scheduleReclip,
       setWinner,
       setSkipped,
       dismissSnackbar,
@@ -2419,12 +2437,11 @@ export function MatchView({
           .filter((p) => !drop.has(p.id))
           .map((p) => (p.id === point.id ? { ...p, ...plan.survivorPatch } : p))
       );
-      scheduleReclip();
       if (winner === "skip") void setSkipped(plan.survivor, true);
       else void setWinner(plan.survivor, winner);
       return true;
     },
-    [visiblePoints, scheduleReclip, setWinner, setSkipped]
+    [visiblePoints, setWinner, setSkipped]
   );
 
   // While clips are regenerating, poll so 'Updating clip' resolves into the
@@ -2988,7 +3005,6 @@ export function MatchView({
               onSplit={(parent, patch, child) => {
                 updatePoint(parent.id, patch);
                 addSplitPoint(child);
-                scheduleReclip();
               }}
               onUnsplit={(parentId, patch, childId) => {
                 setPoints((ps) =>
@@ -2996,7 +3012,6 @@ export function MatchView({
                     .filter((p) => p.id !== childId)
                     .map((p) => (p.id === parentId ? { ...p, ...patch } : p))
                 );
-                scheduleReclip();
               }}
               onMerge={(survivorId, patch, removedIds) => {
                 const drop = new Set(removedIds);
@@ -3005,7 +3020,6 @@ export function MatchView({
                     .filter((p) => !drop.has(p.id))
                     .map((p) => (p.id === survivorId ? { ...p, ...patch } : p))
                 );
-                scheduleReclip();
               }}
               onAdjustTiming={adjustPointTiming}
               onOpenPoint={(id) => {

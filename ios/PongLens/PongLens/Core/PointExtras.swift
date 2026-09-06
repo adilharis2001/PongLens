@@ -237,7 +237,6 @@ extension MatchDetailModel {
                 return false
             }
         }
-        await enqueueReclip(point.matchId)
         return true
     }
 
@@ -264,7 +263,6 @@ extension MatchDetailModel {
             }
             let mergedIds = Set(nexts.map(\.id))
             points.removeAll { mergedIds.contains($0.id) }
-            await enqueueReclip(point.matchId)
             return true
         } catch {
             return false
@@ -325,7 +323,6 @@ extension MatchDetailModel {
             // The clip has to come from the raw: this footage is either
             // missing from the cut entirely or shared with a neighbour that
             // just gave it up.
-            await enqueueReclip(matchId)
             if let winner {
                 _ = await setOutcome(
                     created, winner == .user ? .user : .opponent)
@@ -336,40 +333,52 @@ extension MatchDetailModel {
         }
     }
 
-    /// The Adjust save: new t0/t1, a manually re-timed split edge dissolving
-    /// its tight flag so the reclip pads it with full context again.
-    func runAdjust(_ point: MatchPoint, t0New: Double, t1New: Double) async -> Bool {
-        // NOT `edited`. The client has no UPDATE grant on that column (the
-        // grants are column-scoped) and Postgres refuses the whole statement
-        // when one column in it is out of bounds — so sending it turned
-        // every Adjust into a silent 403 that saved nothing at all. The
-        // `points_mark_edited` trigger sets it on any t0/t1 change anyway,
-        // which is why the web never sent it either.
-        var fields: [String: AnyJSON] = [
-            "t0": .double(t0New), "t1": .double(t1New),
-        ]
-        var dropTightStart = false
-        var dropTightEnd = false
-        if point.tightStart, t0New != point.t0 {
-            fields["tight_start"] = .bool(false)
-            dropTightStart = true
-        }
-        if point.tightEnd, t1New != point.t1 {
-            fields["tight_end"] = .bool(false)
-            dropTightEnd = true
-        }
+    /// The Adjust save, through adjust_point: it dissolves the tight flag
+    /// on a moved edge, re-anchors cut_t0 so the point's place in the cut
+    /// video moves with its start, and clears the observed endings when the
+    /// end moved. The optimistic mirror applies the same rules (the pad is
+    /// right before the row returns); the returned row is the truth. The
+    /// re-cut is requested by a database trigger, never from here.
+    func runAdjust(_ point: MatchPoint, pad: ClipPad, t0New: Double, t1New: Double) async -> Bool {
         guard let i = points.firstIndex(where: { $0.id == point.id }) else { return false }
         let before = points[i]
+        let tightStartNew = point.tightStart && t0New != point.t0 ? false : point.tightStart
+        let tightEndNew = point.tightEnd && t1New != point.t1 ? false : point.tightEnd
         points[i].t0 = t0New
         points[i].t1 = t1New
         points[i].edited = true
-        if dropTightStart { points[i].tightStart = false }
-        if dropTightEnd { points[i].tightEnd = false }
+        points[i].tightStart = tightStartNew
+        points[i].tightEnd = tightEndNew
+        points[i].cutT0 = reanchorCutT0(
+            cutT0: point.cutT0, t0: point.t0, tightStart: point.tightStart,
+            tightEnd: point.tightEnd, t0New: t0New, tightStartNew: tightStartNew,
+            pad: pad)
+        if t1New != point.t1 {
+            points[i].scoredAtCutS = nil
+            points[i].rallyEndCutS = nil
+        }
+        struct Params: Encodable {
+            let p_id: String
+            let p_t0: Double
+            let p_t1: Double
+        }
         do {
-            try await supa.from("points").update(fields)
-                .eq("id", value: point.id.uuidString.lowercased())
+            let row: MatchPoint = try await supa
+                .rpc("adjust_point", params: Params(
+                    p_id: point.id.uuidString.lowercased(),
+                    p_t0: t0New, p_t1: t1New))
                 .execute()
-            await enqueueReclip(point.matchId)
+                .value
+            if let j = points.firstIndex(where: { $0.id == point.id }) {
+                points[j].t0 = row.t0
+                points[j].t1 = row.t1
+                points[j].cutT0 = row.cutT0
+                points[j].tightStart = row.tightStart
+                points[j].tightEnd = row.tightEnd
+                points[j].edited = row.edited
+                points[j].scoredAtCutS = row.scoredAtCutS
+                points[j].rallyEndCutS = row.rallyEndCutS
+            }
             return true
         } catch {
             points[i] = before
@@ -377,33 +386,10 @@ extension MatchDetailModel {
         }
     }
 
-    /// One 'reclip' job per match: skip when one is already queued.
-    func enqueueReclip(_ matchId: UUID) async {
-        guard let uid = try? await supa.auth.session.user.id else { return }
-        struct JobId: Decodable { let id: UUID }
-        let queued: [JobId]? = try? await supa
-            .from("jobs")
-            .select("id")
-            .eq("kind", value: "reclip")
-            .eq("status", value: "queued")
-            .eq("options->>match_id", value: matchId.uuidString.lowercased())
-            .limit(1)
-            .execute()
-            .value
-        if let queued, !queued.isEmpty { return }
-        struct Insert: Encodable {
-            let user_id: String
-            let kind: String
-            let options: [String: String]
-        }
-        _ = try? await supa.from("jobs")
-            .insert(Insert(
-                user_id: uid.uuidString.lowercased(),
-                kind: "reclip",
-                options: ["match_id": matchId.uuidString.lowercased()]
-            ))
-            .execute()
-    }
+    // Re-cuts are requested by a database trigger (points_request_reclip)
+    // whenever a row ends up edited and not deleted — never from here. The
+    // client insert this replaced was silent on failure and, on a
+    // mid-sequence split error, was never reached at all.
 
     /// Bulk "delete everything before this point" — warm-up rallies.
     func deleteBefore(_ point: MatchPoint) async {

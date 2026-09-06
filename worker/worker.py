@@ -5331,29 +5331,42 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
         update_job(conn, job_id, progress=30)
         key_prefix = f"points/{owner_id}/{match_id}"
         done = 0
+        failed: list[str] = []
         for pid, idx, t0, t1, tight_start, tight_end in targets:
             p_pre = min(pre, TIGHT_PAD) if tight_start else pre
             p_post = min(post, TIGHT_PAD) if tight_end else post
             c0 = max(0.0, float(t0) - p_pre)
             span = (float(t1) + p_post) - c0
             out = os.path.join(workdir, f"clip_{idx}.mp4")
-            subprocess.run(
-                ["ffmpeg", "-y", "-v", "error", "-ss", f"{c0:.2f}",
-                 "-i", local_input, "-t", f"{span:.2f}",
-                 "-vf", "scale=720:-2",
-                 "-c:v", "libx264", "-preset", "medium", "-crf", "23",
-                 "-c:a", "aac", "-b:a", "96k",
-                 "-movflags", "+faststart", out],
-                check=True, timeout=1800,
-            )
-            # fresh key per cut so stale CDN/browser caches never win
-            key = f"{key_prefix}/{int(idx):02d}-{uuid.uuid4().hex[:8]}.mp4"
-            r2().upload_file(out, R2_MEDIA_BUCKET, key,
-                             ExtraArgs={"ContentType": "video/mp4"})
-            ledger_append(conn, str(owner_id), "clip", os.path.getsize(out),
-                          f"r2://{R2_MEDIA_BUCKET}/{key}", match_id)
+            started = time.monotonic()
+            # One clip failing must not abandon the rest of the match: a
+            # loop that raised on clip k left every point after it flagged
+            # forever, with no bell (jobs_notify_failed ignores reclips).
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-y", "-v", "error", "-ss", f"{c0:.2f}",
+                     "-i", local_input, "-t", f"{span:.2f}",
+                     "-vf", "scale=720:-2",
+                     "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+                     "-c:a", "aac", "-b:a", "96k",
+                     "-movflags", "+faststart", out],
+                    check=True, timeout=1800,
+                )
+                # fresh key per cut so stale CDN/browser caches never win
+                key = f"{key_prefix}/{int(idx):02d}-{uuid.uuid4().hex[:8]}.mp4"
+                r2().upload_file(out, R2_MEDIA_BUCKET, key,
+                                 ExtraArgs={"ContentType": "video/mp4"})
+                ledger_append(conn, str(owner_id), "clip",
+                              os.path.getsize(out),
+                              f"r2://{R2_MEDIA_BUCKET}/{key}", match_id)
+            except Exception as e:  # noqa: BLE001 — logged, next clip
+                failed.append(str(pid))
+                log.warning("  reclip: point %s (idx %s) failed: %s",
+                            pid, idx, e)
+                continue
             # claim the edit only if t0/t1 didn't change while we were
-            # cutting; if they did, a follow-up reclip will redo this point
+            # cutting; if they did, the trigger has already queued a
+            # follow-up job that redoes this point
             with conn.cursor() as cur:
                 cur.execute(
                     "update public.points set clip_path = %s, edited = false "
@@ -5361,10 +5374,34 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
                     (f"r2://{R2_MEDIA_BUCKET}/{key}", pid, t0, t1),
                 )
             done += 1
+            log.info("  reclip: point idx %s cut in %.1fs (%.1fs of video)",
+                     idx, time.monotonic() - started, span)
             update_job(conn, job_id,
                        progress=30 + int(60 * done / len(targets)))
-        log.info("  reclip: regenerated %d clip(s) for match %s",
-                 done, match_id)
+        log.info("  reclip: regenerated %d clip(s) for match %s (%d failed)",
+                 done, match_id, len(failed))
+        # Anything still flagged that this run did not fail on was edited
+        # while we were cutting (the claim above refused it): ask for
+        # another pass through the same door the apps use. A point that
+        # failed here is left for the retry the queue already gives a
+        # failed job, not re-requested in a loop.
+        with conn.cursor() as cur:
+            cur.execute(
+                "select count(*) from public.points "
+                "where match_id = %s and edited and not deleted "
+                "and t0 is not null and t1 is not null "
+                "and not (id::text = any(%s))",
+                (match_id, failed),
+            )
+            (pending,) = cur.fetchone()
+        if pending:
+            log.info("  reclip: %d point(s) changed mid-run; requesting "
+                     "another pass", pending)
+            with conn.cursor() as cur:
+                cur.execute("select public.request_reclip(%s)", (match_id,))
+        if failed and not done:
+            raise RuntimeError(
+                f"reclip: every clip failed ({len(failed)}) for {match_id}")
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
