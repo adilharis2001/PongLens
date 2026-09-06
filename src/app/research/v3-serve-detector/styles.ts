@@ -12,6 +12,9 @@ export const CSS = `
 /* Not sticky. Frozen, the chips and filters ate most of the window and left
    a few rows of table to scroll inside. */
 .v3 #topbar { background:#0b0d10; }
+.v3 #stick { position:sticky; top:0; z-index:6; background:#0b0d10;
+             box-shadow:0 8px 20px -10px #000; }
+.v3.novideo #stick { box-shadow:none; }
 .v3 header { padding:12px 16px 10px; border-bottom:1px solid #222831; }
 .v3 h1 { margin:0 0 9px; font-size:16px; font-weight:600; }
 .v3 #summary { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
