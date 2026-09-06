@@ -4074,19 +4074,33 @@ def insert_points(
             cur.execute(
                 "insert into public.points (id, match_id, idx, t0, t1, "
                 "clip_path, server, placement, suggestion, cut_t0, "
-                "rally_end_cut_s) "
-                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "rally_end_cut_s, highlight_evidence) "
+                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (point_id, match_id, p["idx"], p["t0"], p["t1"],
                  f"{prefix}/{p['clip']}", p.get("server"),
                  json.dumps(p["placement"]) if p.get("placement") else None,
                  json.dumps(p["suggestion"]) if p.get("suggestion")
                  else None,
-                 p.get("cut_t0"), p.get("rally_end_cut_s")),
+                 p.get("cut_t0"), p.get("rally_end_cut_s"),
+                 json.dumps(p["highlight_evidence"])
+                 if p.get("highlight_evidence") else None),
             )
             inserted[int(p["idx"])] = {
                 "id": point_id,
+                "idx": int(p["idx"]),
                 "t0": float(p["t0"]),
                 "t1": float(p["t1"]),
+                "cut_t0": (float(p["cut_t0"])
+                           if p.get("cut_t0") is not None else None),
+                "rally_end_cut_s": (
+                    float(p["rally_end_cut_s"])
+                    if p.get("rally_end_cut_s") is not None else None
+                ),
+                "clip_path": f"{prefix}/{p['clip']}",
+                "deleted": False,
+                "edited": False,
+                "is_let": False,
+                "highlight_evidence": p.get("highlight_evidence"),
             }
     return inserted
 

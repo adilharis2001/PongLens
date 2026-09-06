@@ -179,7 +179,7 @@ git commit -m "feat: select only evidenced highlight rallies"
 - Produces: `insert_points()` writes `points.highlight_evidence` and returns
   `cut_t0`, `rally_end_cut_s`, `clip_path`, and evidence for manifest building.
 
-- [ ] **Step 1: Write failing evidence tests**
+- [x] **Step 1: Write failing evidence tests**
 
 Build small source-clock fixtures showing that only the longest crossing cluster
 within `CROSS_GAP_S` counts, bounces are limited to the calibrated table and
@@ -197,13 +197,13 @@ assert evidence["status"] == "ready"
 Add unavailable fixtures for v1, missing table, missing candidates, missing
 crossing chain, and failed shot counting.
 
-- [ ] **Step 2: Run the focused evidence tests and observe failures**
+- [x] **Step 2: Run the focused evidence tests and observe failures**
 
 Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py -q`
 
 Expected: assertions fail because match JSON and inserts contain no highlight evidence.
 
-- [ ] **Step 3: Measure v1 evidence in source time**
+- [x] **Step 3: Measure v1 evidence in source time**
 
 Add a focused helper that receives card bounds, `v2_E`, and the `fit_play`
 result. Persist `classify_play(...)["n_hits"]` even when `winner_side` is null.
@@ -211,7 +211,7 @@ Derive the longest ordered crossing chain inside the card, count `bt_table`
 events inside it, constrain `end_evidence_s` to the point, and write stable
 unavailable reason strings when any required measurement is absent.
 
-- [ ] **Step 4: Pass evidence through match JSON and point insertion**
+- [x] **Step 4: Pass evidence through match JSON and point insertion**
 
 Add `highlight_evidence` to the point dictionary and to `insert_points()`:
 
@@ -223,13 +223,13 @@ Add `highlight_evidence` to the point dictionary and to `insert_points()`:
 Return enough stored point data from `insert_points()` for the selector without
 re-querying or mixing source and cut clocks.
 
-- [ ] **Step 5: Run evidence and existing points tests**
+- [x] **Step 5: Run evidence and existing points tests**
 
-Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2_rally_end.py -q`
 
 Expected: all listed tests pass.
 
-- [ ] **Step 6: Commit the evidence unit**
+- [x] **Step 6: Commit the evidence unit**
 
 ```bash
 git add worker/points_pipeline.py worker/worker.py worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py
@@ -478,7 +478,7 @@ git commit -m "feat: play one continuous highlight on iOS"
 
 - [ ] **Step 1: Run complete affected worker tests**
 
-Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlights.py worker/tests/test_highlight_evidence.py worker/tests/test_auto_highlight_render.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2.py worker/tests/test_worker.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlights.py worker/tests/test_highlight_evidence.py worker/tests/test_auto_highlight_render.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2_rally_end.py worker/tests/test_worker.py -q`
 
 Expected: zero failures.
 
