@@ -70,4 +70,5 @@ test("web presentation has one row and no tape-seek implementation", () => {
   assert.doesNotMatch(player, /highlightSpans|tapeMove\(tape/);
   assert.match(player, /highlightAsset\.url/);
   assert.match(player, /target\.output_start_s/);
+  assert.match(player, /if \(highlightAssetRef\.current\) return null;/);
 });

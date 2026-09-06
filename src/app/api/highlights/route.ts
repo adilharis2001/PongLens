@@ -59,7 +59,7 @@ async function selectedPointsAreFresh(
   const { data: rows, error } = await supabase
     .from("points")
     .select(
-      "id,cut_t0,rally_end_cut_s,deleted,edited,highlight_evidence",
+      "id,cut_t0,rally_end_cut_s,deleted,edited,is_let,highlight_evidence",
     )
     .eq("match_id", matchId)
     .in("id", ids);
@@ -75,6 +75,7 @@ async function selectedPointsAreFresh(
       row &&
         !row.deleted &&
         !row.edited &&
+        !row.is_let &&
         evidence?.v === 1 &&
         evidence.status === "ready" &&
         typeof row.cut_t0 === "number" &&

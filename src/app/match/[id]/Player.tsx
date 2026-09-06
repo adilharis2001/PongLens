@@ -1853,6 +1853,7 @@ export const Player = forwardRef<
    * disagree about whose rally is at t.
    */
   const detourPointOf = useCallback((t: number): Point | null => {
+    if (highlightAssetRef.current) return null;
     const set = ownClipSetRef.current;
     if (set.size === 0) return null;
     const id = playingPointId(pointsRef.current, t);

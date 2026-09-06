@@ -78,8 +78,10 @@ Copy the live scope constraint from migration 137 and add `highlights`. Insert
 `automatic_highlights = off` using the current `app_config` schema without
 adding it to the anonymous allow-list. Install a `before update` trigger that
 sets `new.highlight_evidence = null` when `t0`, `t1`, `cut_t0`, `clip_path`,
-`deleted`, or `edited` changes. A split child receives the column default and
-therefore starts with null evidence.
+`deleted`, `edited`, or `is_let` changes. A split child receives the column
+default and therefore starts with null evidence. The production-line follow-up
+migration adds `is_let` after the initial migration was applied with the switch
+still off.
 
 - [x] **Step 4: Run migration tests**
 

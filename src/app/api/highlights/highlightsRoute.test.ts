@@ -31,6 +31,7 @@ test("ready assets are prefix pinned and signed inline", () => {
 test("stale or absent artifacts enqueue only the server-authoritative scope", () => {
   assert.match(route, /p_scope: "highlights"/);
   assert.match(route, /p_manifest: emptyManifest/);
+  assert.match(route, /!row\.is_let/);
   assert.doesNotMatch(route, /n_hits\s*>?=/);
   assert.doesNotMatch(route, /connected_crossings\s*>?=/);
 });

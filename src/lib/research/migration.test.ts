@@ -69,6 +69,13 @@ const qualityFirstHighlights = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
+const qualityFirstHighlightLets = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20260906041000_quality_first_highlight_lets.sql",
+    import.meta.url,
+  ),
+  "utf8",
+).toLowerCase();
 
 test("research migration enables RLS on every exposed research table", () => {
   for (const table of [
@@ -256,5 +263,13 @@ test("quality-first highlights keep evidence private and fail closed", () => {
   assert.doesNotMatch(
     qualityFirstHighlights,
     /app_config_public_keys[\s\S]*automatic_highlights/,
+  );
+});
+
+test("marking a rally skipped invalidates its highlight evidence", () => {
+  assert.match(qualityFirstHighlightLets, /new\.is_let is distinct from old\.is_let/);
+  assert.match(
+    qualityFirstHighlightLets,
+    /before update of t0, t1, cut_t0, clip_path, deleted, edited, is_let/,
   );
 });
