@@ -200,17 +200,17 @@ export function InsertPoint({
     // 795.11s at readyState 1 and was back at 0 by readyState 4. So re-assert
     // through the loading states and stop at the first seek that holds, which
     // also keeps this off the handles once the owner starts dragging.
-    let landed = false;
+    let armed = true;
     const land = () => {
-      if (landed || v.readyState < 1) return;
-      const target = videoTimeFor(win.t0);
-      if (Math.abs(v.currentTime - target) < 0.5) {
-        if (v.readyState >= 3) landed = true;
-        return;
-      }
-      v.currentTime = target;
+      if (!armed || v.readyState < 1) return;
+      v.currentTime = videoTimeFor(win.t0);
+      // Once the file is buffered a seek sticks, so that is the last one to
+      // issue. Staying armed past it would fight playback: `canplay` fires
+      // again on every re-buffer, and each of those yanked the picture back
+      // to the start of the gap a second after it began moving.
+      if (v.readyState >= 3) armed = false;
     };
-    const events = ["loadedmetadata", "loadeddata", "canplay", "canplaythrough"];
+    const events = ["loadedmetadata", "loadeddata", "canplay"];
     events.forEach((e) => v.addEventListener(e, land));
     land();
     void v.play().catch(() => undefined);
