@@ -3,6 +3,12 @@ import type { EmailMessage } from "../email/message.ts";
 import { renderEmail } from "../email/render.ts";
 import { EMAIL_FROM, EMAIL_REPLY_TO } from "../email/send.ts";
 
+export function betaApiKey(env: Record<string, string | undefined>): string {
+  // Scheduled-message management needs ongoing full access. Never borrow the
+  // ordinary sending-only key when this dedicated server secret is missing.
+  return env.RESEND_BETA_API_KEY?.trim() ?? "";
+}
+
 export function betaProviderPayload(input: {
   to: string;
   message: EmailMessage;

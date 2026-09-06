@@ -54,3 +54,31 @@ No production database changes, deployment or real email sends have been perform
 The user authorized production deployment. Latest main changes were merged into this isolated branch; the real build and all 20 package test scripts passed again. Production migration prerequisites and the normal migration role's auth-table trigger permission were verified read-only. Historical request audit: two requests, both already invited, no unstamped pending invitations.
 
 Deployment is blocked before any production write: the configured Resend key is sending-only and rejects message-management requests. The other full-access credential available locally does not belong to an account with the PongLens domain and was not used for this project. The Resend sign-in page is open in the in-app browser; the correct account needs authentication before its key permissions and webhook configuration can be completed. The production TestFlight URL value also fails the expected URL check and must be restored to the user-supplied Apple join URL during release configuration. No migrations, git push, production deploy or real mail were performed. The temporary production environment download was removed.
+
+## Dedicated beta credential (release in progress)
+
+Adil authorized a dedicated, ongoing full-access Resend key after being told
+that sending-only cannot retrieve, reschedule or cancel provider messages.
+`RESEND_BETA_API_KEY` is used only by the beta outbox, including its two admin
+notices. Ordinary transactional and Supabase auth mail keep their existing
+credentials. There is deliberately no fallback to `RESEND_API_KEY`.
+
+The key is named **PongLens Beta Invitations**, stored in the local login
+Keychain as `ponglens-resend-beta-key` and in Vercel's Production environment
+as a sensitive server-only value. Its permission remains account-wide; the
+application's choice to use it only for beta does not narrow Resend's scope.
+The original `RESEND_API_KEY` may return to sending-only once the new release
+has been verified. Do not downgrade the dedicated beta key.
+
+Correction to the earlier preflight: the downloaded TestFlight value was
+Vercel's literal `[SENSITIVE]` placeholder, not evidence of an invalid value
+in production. Sensitive variables cannot be verified with `vercel env pull`.
+The supplied Apple join URL was set again explicitly during this release.
+Local builds must use the existing real local configuration, not placeholders.
+
+The dedicated-credential tests failed before implementation and passed after
+it. All 20 package test scripts passed after merging current main. The
+production webhook retains its endpoint and signing secret; subscriptions
+now include scheduled, sent, delivered and failed in addition to the existing
+bounced and complained events. Database migrations and deployment are still
+pending at this checkpoint.

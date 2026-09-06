@@ -3,7 +3,7 @@ import type {
   BetaPreparedJob,
   ScheduledDeliveryDependencies,
 } from "./scheduledDelivery.ts";
-import { betaProviderPayload, createBetaProvider } from "./provider.ts";
+import { betaApiKey, betaProviderPayload, createBetaProvider } from "./provider.ts";
 import { betaAdminNoticeEmail, betaInvitationEmail } from "../email/catalog.ts";
 import { parseTestFlightUrl } from "./model.ts";
 import {
@@ -30,6 +30,7 @@ export async function betaEmailDependencies(): Promise<BetaEmailDependencies> {
     import("../costs/meter"),
   ]);
   const db = createAdminClient();
+  const apiKey = betaApiKey(process.env);
   async function rpc<T>(
     name: string,
     params: Record<string, unknown>,
@@ -72,7 +73,7 @@ export async function betaEmailDependencies(): Promise<BetaEmailDependencies> {
       skipIfSuppressed(recipient, "ios_beta_delivery"),
     async payload(job) {
       // Configuration failure before prepare does not start an idempotency clock.
-      if (!process.env.RESEND_API_KEY)
+      if (!apiKey)
         throw new Error("Beta provider not configured");
       const { data: request, error } = await db
         .from("ios_beta_requests")
@@ -131,7 +132,7 @@ export async function betaEmailDependencies(): Promise<BetaEmailDependencies> {
       });
     },
     provider: createBetaProvider({
-      apiKey: process.env.RESEND_API_KEY ?? "",
+      apiKey,
       fetch,
       async record(id, payload) {
         const parsed = JSON.parse(payload);
