@@ -153,15 +153,14 @@ struct CoachStudentScreen: View {
                 }
                 .buttonStyle(PLSecondaryButtonStyle())
 
-                // Who, whether they are on PongLens, and the page's actions
-                // together. New entry is the only primary; Invite stands
-                // beside it while there is nobody at the other end yet,
-                // and goes when there is. The old screen put the primary
-                // above a large "Connect" card, two calls to action with
-                // no relationship (Adil, 2026-09-05). Both fill the width
-                // and stack, the way every action button on a phone does
-                // here; the label is sized first so the hit area grows
-                // with the visible button (baseline 2026-09-05).
+                // Who, whether they are on PongLens, and the one action:
+                // New entry. The invite is not a button here; for a student
+                // who is not on PongLens yet it is the card directly
+                // beneath, so a second control would be a duplicate
+                // (Adil, 2026-09-05). Full width, the way every action
+                // button on a phone is here; the label is sized first so
+                // the hit area grows with the visible button (baseline
+                // 2026-09-05).
                 VStack(alignment: .leading, spacing: 4) {
                     Text(student.displayName)
                         .font(.plPageTitle)
@@ -172,31 +171,19 @@ struct CoachStudentScreen: View {
                         .foregroundStyle(PL.text500)
                 }
 
-                VStack(spacing: 10) {
-                    Button {
-                        router.newEntryStudent = student
-                        router.newEntryOpen = true
-                    } label: {
-                        Label("New entry", systemImage: "square.and.pencil")
-                            .frame(maxWidth: .infinity, minHeight: 28)
-                    }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                    if !student.linked {
-                        Button {
-                            inviteOpen = true
-                        } label: {
-                            Text("Invite \(student.displayName)")
-                                .frame(maxWidth: .infinity, minHeight: 28)
-                        }
-                        .buttonStyle(PLSecondaryButtonStyle())
-                    }
+                Button {
+                    router.newEntryStudent = student
+                    router.newEntryOpen = true
+                } label: {
+                    Label("New entry", systemImage: "square.and.pencil")
+                        .frame(maxWidth: .infinity, minHeight: 28)
                 }
+                .buttonStyle(PLPrimaryButtonStyle())
 
                 // The invite, open from the start while there is nobody at
                 // the other end: what the link does, what goes with it, and
                 // the row that gets it. A panel a coach has to ask for is not
-                // a nudge (Adil, 2026-09-05). The header's Invite button
-                // opens the same sheet as the row here.
+                // a nudge (Adil, 2026-09-05).
                 if !student.linked {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Invite \(student.displayName)")

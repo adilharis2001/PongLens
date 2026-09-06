@@ -153,8 +153,8 @@ export function StudentView({
   // Open from the start while there is nobody at the other end: the
   // invite is the thing a coach should be nudged towards for a student who
   // is not on PongLens yet, and a panel they have to ask for is not a
-  // nudge (Adil, 2026-09-05). The header button and the Matches row bring
-  // it into view; nothing collapses it.
+  // nudge (Adil, 2026-09-05). The Matches row brings it into view;
+  // nothing collapses it.
   const [inviteOpen, setInviteOpen] = useState(!initialStudent.player_id);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [inviteFailed, setInviteFailed] = useState(false);
@@ -643,14 +643,12 @@ export function StudentView({
         ← Students
       </Link>
 
-      {/* Who, whether they are on PongLens, and the page's actions in one
-          place. New entry is the only primary; Invite stands beside it
-          while there is nobody at the other end yet, and goes when there
-          is. The old page put a glowing button above a large "Connect"
-          card: two calls to action with no relationship, and the card
-          pushed everything about the student below the fold (Adil,
-          2026-09-05). Full width and stacked on a phone, content width on
-          a laptop, per the approved baseline. */}
+      {/* Who, whether they are on PongLens, and the one action: New entry.
+          The invite is not a button here; for a student who is not on
+          PongLens yet it is the open panel directly beneath, so a second
+          control for it would be a duplicate (Adil, 2026-09-05). Full
+          width on a phone, content width on a laptop, per the approved
+          baseline. */}
       <div className="mt-4 sm:flex sm:items-end sm:justify-between sm:gap-6">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
@@ -682,15 +680,6 @@ export function StudentView({
             </svg>
             New entry
           </button>
-          {!student.player_id && (
-            <button
-              type="button"
-              onClick={() => showInvite()}
-              className={`${pill} flex min-h-11 w-full items-center justify-center sm:min-h-0 sm:w-auto`}
-            >
-              Invite {student.display_name}
-            </button>
-          )}
         </div>
       </div>
 
