@@ -23,8 +23,10 @@ type Preview = {
  * only then opens the dialog, so the confirmation names real numbers instead
  * of a generic warning nobody reads.
  *
- * Rendered as one block so the card's divide-y draws a single rule above
- * it, error line included.
+ * Drawn like every other row in the group, in the ordinary text colour, as
+ * the iOS row is; the confirmation is where the weight of the action is
+ * carried (Adil, 2026-09-05). Rendered as one block so the card's divide-y
+ * draws a single rule above it, error line included.
  */
 export function DeleteAccountSection() {
   const router = useRouter();
@@ -95,7 +97,7 @@ export function DeleteAccountSection() {
           type="button"
           onClick={begin}
           disabled={busy}
-          className="flex w-full items-center justify-between px-5 py-4 text-left text-sm font-medium text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+          className="flex w-full items-center justify-between px-5 py-4 text-left text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2 disabled:opacity-50"
         >
           {busy && !open ? "Checking…" : "Delete account"}
           <svg
