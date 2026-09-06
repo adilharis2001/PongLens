@@ -65,8 +65,11 @@ def test_postgres_numeric_timestamps_qualify():
 
 
 def test_five_alternating_landings_qualify_without_crossings_or_hits():
-    assert qualifies(point("p", hits=None, crossings=0, alternating_landings=5,
-                           bounces=5))
+    p = point("p", hits=None, crossings=0, alternating_landings=5, bounces=5)
+    assert qualifies(p)
+    manifest_point = build_manifest([p])["points"][0]
+    assert manifest_point["n_hits"] == 0
+    assert manifest_point["connected_crossings"] == 0
 
 
 def test_five_hits_need_independent_trajectory_support():
