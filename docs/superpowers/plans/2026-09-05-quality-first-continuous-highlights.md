@@ -248,20 +248,20 @@ git commit -m "feat: record trustworthy rally evidence"
 - Produces: `render_auto_highlights(manifest: dict, cut_local: str, workdir: str) -> tuple[str, dict]`.
 - Produces: `prepare_auto_highlights(conn, user_id, match_id, points, cut_local, enabled) -> str` returning `ready`, `empty`, `failed`, or `off`.
 
-- [ ] **Step 1: Write failing synthetic renderer tests**
+- [x] **Step 1: Write failing synthetic renderer tests**
 
 Generate short color/test-source inputs with mixed frame rates and missing
 audio. Assert one MP4, H.264/yuv420p, at most one-second GOP, AAC stereo,
 fast-start placement, positive monotonic timestamps, correct frame mapping, and
 manifest duration after 0.3-second overlaps.
 
-- [ ] **Step 2: Run focused renderer tests and observe missing functions**
+- [x] **Step 2: Run focused renderer tests and observe missing functions**
 
 Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_auto_highlight_render.py -q`
 
 Expected: failures because the automatic renderer is absent.
 
-- [ ] **Step 3: Implement a separate automatic renderer**
+- [x] **Step 3: Implement a separate automatic renderer**
 
 Normalize every cut segment to one even resolution and a 24–60 FPS source rate.
 Create silent stereo audio for any audio-less segment. Use existing
@@ -270,7 +270,7 @@ AAC 48 kHz stereo, `+faststart`, and no cards, watermark, score, or outro.
 Probe the final file and write measured `output_start_s`/`output_end_s` values
 back into the returned manifest.
 
-- [ ] **Step 4: Implement fail-soft storage orchestration**
+- [x] **Step 4: Implement fail-soft storage orchestration**
 
 Read the private switch once per match. Upsert `(match_id, 'highlights')` as
 `empty`, `rendering`, `ready`, or `failed`; use
@@ -280,13 +280,13 @@ Call the stage after point IDs are inserted and before `finish_match(...,
 'ready')`. Wrap the entire stage so it can record `failed` but cannot fail the
 match or add customer minutes.
 
-- [ ] **Step 5: Run renderer and worker orchestration tests**
+- [x] **Step 5: Run renderer and worker orchestration tests**
 
 Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_auto_highlight_render.py worker/tests/test_worker.py -q`
 
 Expected: all listed tests pass, including empty and forced-render-failure cases.
 
-- [ ] **Step 6: Commit the render unit**
+- [x] **Step 6: Commit the render unit**
 
 ```bash
 git add worker/worker.py worker/tests/test_auto_highlight_render.py worker/tests/test_worker.py

@@ -4611,6 +4611,7 @@ def run_points_stage(
     played_at: str | None = None,
     *,
     attempt_key: str = "manual",
+    cut_local_path: str | None = None,
 ):
     """Break the original video into points. Failure here never fails the
     job (the cut already shipped): the match row is marked failed.
@@ -4824,6 +4825,23 @@ def run_points_stage(
             mapped_points=mapped,
             calibration=match_json.get("calibration"),
         )
+
+        # The cut and every detector receipt are still local here. Rendering
+        # now avoids another R2 download and means a newly-ready match never
+        # exposes a half-prepared highlight. This stage is deliberately
+        # fail-soft inside prepare_auto_highlights.
+        if cut_local_path:
+            with COST_METER.timed_stage(
+                    "automatic_highlight_encoding", attempt_key):
+                prepare_auto_highlights(
+                    conn,
+                    user_id,
+                    match_id,
+                    list(inserted_points.values()),
+                    cut_local_path,
+                    workdir,
+                    enabled=(get_config(conn, "automatic_highlights") == "on"),
+                )
 
         finish_match(
             conn,
@@ -5810,6 +5828,238 @@ def _run_ffmpeg_encoded(args_before_codec: list[str], vt_args: list[str],
                     "falling back to libx264"
                     if codec_name == "h264_videotoolbox" else "giving up")
     raise RuntimeError(f"ffmpeg encode failed: {(proc.stderr or '')[-400:]}")
+
+
+def render_auto_highlights(manifest: dict, cut_local: str,
+                           workdir: str) -> tuple[str, dict]:
+    """Render qualified cut-clock segments as one continuous stored asset."""
+    from highlights import XFADE_S
+
+    points = manifest.get("points") if isinstance(manifest, dict) else None
+    if not isinstance(points, list) or not points:
+        raise ValueError("automatic highlights have no points")
+    if not os.path.isfile(cut_local):
+        raise FileNotFoundError(cut_local)
+
+    fmt = _ffprobe_streams(cut_local)
+    video = next((s for s in fmt.get("streams", [])
+                  if s.get("codec_type") == "video"), None)
+    if video is None:
+        raise RuntimeError("automatic highlights source has no video")
+    tw, th = int(video["width"]), int(video["height"])
+    tw += tw % 2
+    th += th % 2
+    rate = video.get("avg_frame_rate") or video.get("r_frame_rate") or "30/1"
+    try:
+        num, den = rate.split("/")
+        fps = float(num) / float(den)
+    except (AttributeError, ValueError, ZeroDivisionError):
+        fps = 30.0
+    fps = min(60.0, max(24.0, fps if math.isfinite(fps) else 30.0))
+    gop = max(1, round(fps))
+    has_audio = any(s.get("codec_type") == "audio"
+                    for s in fmt.get("streams", []))
+
+    bitrate = int(9_000_000 * (tw * th) / (1920 * 1080) * (fps / 30.0))
+    bitrate = max(2_000_000, min(bitrate, 24_000_000))
+    vt = ["-c:v", "h264_videotoolbox", "-b:v", str(bitrate),
+          "-allow_sw", "1", "-pix_fmt", "yuv420p", "-g", str(gop)]
+    x264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "19",
+            "-pix_fmt", "yuv420p", "-g", str(gop),
+            "-keyint_min", str(gop), "-sc_threshold", "0"]
+    for codec_args in (vt, x264):
+        codec_args += ["-force_key_frames", "expr:gte(t,n_forced*1)"]
+    audio_args = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+                  "-ac", "2"]
+
+    segments = []
+    for index, point in enumerate(points):
+        start = float(point["cut_start_s"])
+        end = float(point["cut_end_s"])
+        duration = end - start
+        if start < 0 or duration < 0.5:
+            raise ValueError(
+                f"automatic highlight point {point.get('point_id')} has "
+                "invalid cut bounds"
+            )
+        segment = os.path.join(workdir, f"auto_highlight_{index:03d}.mp4")
+        inputs = ["-ss", f"{start:.3f}", "-t", f"{duration:.3f}",
+                  "-i", cut_local]
+        if has_audio:
+            audio_in = "0:a"
+        else:
+            inputs += ["-f", "lavfi", "-t", f"{duration:.3f}",
+                       "-i", "anullsrc=r=48000:cl=stereo"]
+            audio_in = "1:a"
+        filters = (
+            f"[0:v]scale={tw}:{th}:force_original_aspect_ratio=decrease,"
+            f"pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
+            f"fps={fps:.5f},format=yuv420p,setpts=PTS-STARTPTS[v];"
+            f"[{audio_in}]aresample=48000,"
+            "aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            "asetpts=PTS-STARTPTS[a]"
+        )
+        _run_ffmpeg_encoded(
+            [*inputs, "-filter_complex", filters,
+             "-map", "[v]", "-map", "[a]", "-shortest"],
+            vt, x264,
+            [*audio_args, "-movflags", "+faststart", segment],
+        )
+        segments.append(segment)
+
+    durations = [float(_ffprobe_streams(path)["format"]["duration"])
+                 for path in segments]
+    out_path = os.path.join(workdir, "automatic-highlights.mp4")
+    if len(segments) == 1:
+        shutil.copyfile(segments[0], out_path)
+    else:
+        inputs = []
+        for segment in segments:
+            inputs += ["-i", segment]
+        chains = []
+        video_in = "0:v"
+        audio_in = "0:a"
+        offset = 0.0
+        for index in range(1, len(segments)):
+            offset += durations[index - 1] - XFADE_S
+            video_out = (f"v{index}" if index < len(segments) - 1
+                         else "vout")
+            audio_out = (f"a{index}" if index < len(segments) - 1
+                         else "aout")
+            chains.append(
+                f"[{video_in}][{index}:v]xfade=transition=fade:"
+                f"duration={XFADE_S}:offset={offset:.4f}[{video_out}]"
+            )
+            chains.append(
+                f"[{audio_in}][{index}:a]acrossfade=d={XFADE_S}"
+                f"[{audio_out}]"
+            )
+            video_in, audio_in = video_out, audio_out
+        _run_ffmpeg_encoded(
+            [*inputs, "-filter_complex", ";".join(chains),
+             "-map", "[vout]", "-map", "[aout]"],
+            vt, x264,
+            [*audio_args, "-movflags", "+faststart", out_path],
+        )
+
+    rendered = copy.deepcopy(manifest)
+    cursor = 0.0
+    for index, (point, duration) in enumerate(
+            zip(rendered["points"], durations)):
+        if index:
+            cursor -= XFADE_S
+        point["output_start_s"] = round(cursor, 3)
+        cursor += duration
+        point["output_end_s"] = round(cursor, 3)
+    actual_duration = float(_ffprobe_streams(out_path)["format"]["duration"])
+    rendered["duration_s"] = round(actual_duration, 3)
+    if rendered["points"]:
+        rendered["points"][-1]["output_end_s"] = round(actual_duration, 3)
+    log.info("  automatic highlights: %d rallies, %.1fs, %dx%d %.2ffps",
+             len(points), actual_duration, tw, th, fps)
+    return out_path, rendered
+
+
+def _write_auto_highlight_state(conn, match_id: str, status: str,
+                                manifest: dict, *, r2_key=None,
+                                duration_s=None, size_bytes=None,
+                                error=None):
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into public.match_reels "
+            "(match_id, scope, status, show_score, manifest, r2_key, "
+            "duration_s, size_bytes, error) "
+            "values (%s, %s, %s, false, %s, %s, %s, %s, %s) "
+            "on conflict (match_id, scope) do update set "
+            "status = excluded.status, show_score = false, "
+            "manifest = excluded.manifest, r2_key = excluded.r2_key, "
+            "duration_s = excluded.duration_s, "
+            "size_bytes = excluded.size_bytes, error = excluded.error",
+            (match_id, "highlights", status, json.dumps(manifest), r2_key,
+             duration_s, size_bytes, error),
+        )
+
+
+def _delete_auto_highlight_object(conn, key: str | None):
+    if not key:
+        return
+    try:
+        r2().delete_object(Bucket=R2_MEDIA_BUCKET, Key=key)
+        ledger_negate_keys(conn, [f"r2://{R2_MEDIA_BUCKET}/{key}"])
+    except Exception as exc:  # retention remains the final safety net
+        log.warning("  automatic highlight old revision cleanup failed: %s",
+                    exc)
+
+
+def prepare_auto_highlights(conn, user_id: str, match_id: str,
+                            points: list[dict], cut_local: str, workdir: str,
+                            *, enabled: bool) -> str:
+    """Select, render, and store highlights without ever failing the match."""
+    if not enabled:
+        return "off"
+
+    from highlights import build_manifest
+
+    old_key = None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select r2_key from public.match_reels "
+                "where match_id = %s and scope = 'highlights'",
+                (match_id,),
+            )
+            row = cur.fetchone()
+            old_key = row[0] if row else None
+
+        manifest = build_manifest(points)
+        if not manifest["points"]:
+            _write_auto_highlight_state(
+                conn, match_id, "empty", manifest, r2_key=None
+            )
+            _delete_auto_highlight_object(conn, old_key)
+            log.info("  automatic highlights: no qualifying rallies")
+            return "empty"
+
+        _write_auto_highlight_state(conn, match_id, "rendering", manifest)
+        output, rendered_manifest = render_auto_highlights(
+            manifest, cut_local, workdir
+        )
+        revision = rendered_manifest["points_revision"][:16]
+        key = f"reels/{match_id}-highlights-{revision}.mp4"
+        size = os.path.getsize(output)
+        r2().upload_file(
+            output, R2_MEDIA_BUCKET, key,
+            ExtraArgs={"ContentType": "video/mp4"},
+        )
+        uri = f"r2://{R2_MEDIA_BUCKET}/{key}"
+        ledger_append(conn, user_id, "reel", size, uri, match_id)
+        _write_auto_highlight_state(
+            conn, match_id, "ready", rendered_manifest,
+            r2_key=key,
+            duration_s=round(float(rendered_manifest["duration_s"]), 2),
+            size_bytes=size,
+        )
+        if old_key and old_key != key:
+            _delete_auto_highlight_object(conn, old_key)
+        return "ready"
+    except Exception as exc:  # fail-soft by product contract
+        log.exception("  automatic highlights failed for match %s", match_id)
+        try:
+            failed_manifest = locals().get("manifest") or {
+                "v": 1,
+                "rule": "quality-first-v1",
+                "max_seconds": 150.0,
+                "points_revision": "",
+                "duration_s": 0.0,
+                "points": [],
+            }
+            _write_auto_highlight_state(
+                conn, match_id, "failed", failed_manifest,
+                error=str(exc)[:500],
+            )
+        except Exception:
+            log.exception("  failed to record automatic highlight failure")
+        return "failed"
 
 
 def render_reel(manifest: dict, show_score: bool, workdir: str,
@@ -7319,7 +7569,8 @@ def process_job(conn, msg) -> None:
                 conn, job_id, user_id, local_input,
                 blurball_out, workdir, options, result_path,
                 played_at=played_at,
-                attempt_key=attempt_key)
+                attempt_key=attempt_key,
+                cut_local_path=result)
 
         update_job(conn, job_id, status="done", result_path=result_path,
                    progress=100)
