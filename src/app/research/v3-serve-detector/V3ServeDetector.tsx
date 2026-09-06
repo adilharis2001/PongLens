@@ -950,19 +950,6 @@ export function V3ServeDetector({
             </span>
           </div>
         </header>
-        <div id="videowrap">
-          <div id="clip">
-            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-            <video id="vid" preload="metadata" playsInline />
-            <canvas id="ov" />
-            <div id="holdhint" />
-          </div>
-        </div>
-        <div id="transport">
-          <button id="playbtn">Play</button>
-          <input id="scrub" type="range" min="0" max="1" step="0.033" defaultValue="0" />
-          <span id="clock">0:00.0</span>
-        </div>
         <div id="ovbar">
           <label><input type="checkbox" id="ovOn" defaultChecked /> Overlay</label>
           <label><input type="checkbox" id="ovTable" defaultChecked /> Table and net</label>
@@ -977,6 +964,29 @@ export function V3ServeDetector({
           <span className="key"><i className="sw" style={{ background: "#ffb08a" }} />bounce off it</span>
           <span className="key"><i className="sw" style={{ background: "#7ad4ff" }} />ball on the table</span>
           <span className="key"><i className="sw" style={{ background: "#8b97a7" }} />ball off it</span>
+        </div>
+      </div>
+
+      {/* The video, its scrub bar, the play-mode buttons and the what's-playing
+          line stay put while the table scrolls underneath, so a row can be
+          clicked without scrolling back up. The chips, filters and overlay
+          toggles are NOT in here: frozen, they ate most of the window. Hiding
+          the video collapses the strip to nothing. Sticky only holds inside
+          its parent, so this is a sibling of the table, not a child of the
+          header block. */}
+      <div id="stick">
+        <div id="videowrap">
+          <div id="clip">
+            {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+            <video id="vid" preload="metadata" playsInline />
+            <canvas id="ov" />
+            <div id="holdhint" />
+          </div>
+        </div>
+        <div id="transport">
+          <button id="playbtn">Play</button>
+          <input id="scrub" type="range" min="0" max="1" step="0.033" defaultValue="0" />
+          <span id="clock">0:00.0</span>
         </div>
         <div id="playbar">
           <span className="lab">Play</span>
