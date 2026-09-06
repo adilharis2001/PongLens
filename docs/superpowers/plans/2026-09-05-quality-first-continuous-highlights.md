@@ -551,14 +551,20 @@ git commit -m "docs: record highlight release verification"
 - Release verification passed: 47 affected worker tests, 21 API/schema tests,
   124 match/web behavior tests, the real `npm run build`, 649/649 Swift
   checks, and a complete iPhone 17 Pro simulator build.
-- iOS version 1.0 build 127 archived and uploaded successfully to App Store
-  Connect. Apple reported that the uploaded package is processing.
+- The local iOS archive identifies version 1.0 build 127. App Store Connect
+  reported that build 134 already existed during export, so Xcode automatically
+  assigned the uploaded package build 135. Apple processed build 135 as
+  `VALID`; it is `IN_BETA_TESTING` for the internal Team group.
+- Build 135 is attached to the public External testers group with automatic
+  notification enabled. TestFlight Beta App Review approved it, and Apple
+  reports `IN_BETA_TESTING` for both internal and external groups.
 - `automatic_highlights` is enabled only for the product owner's account.
   It is not globally enabled. Cloud dispatch remains unchanged because this
   repository has no matching deployed Modal implementation.
 - The required five-match, two-venue canary review is still outstanding.
   No global rollout decision has been made. Existing matches need a full
   reprocess because legacy point rows do not contain the new evidence.
-- Not manually verified yet: a real canary render, every selected rally and
-  transition in five matches, physical-device iOS playback, desktop browser
-  playback, or 393×660 browser playback.
+- The live public web surface was visually checked at 393×660 and 1280×850.
+  Not manually verified yet: a real canary render, every selected rally and
+  transition in five matches, physical-device iOS playback, or authenticated
+  responsive highlight playback.
