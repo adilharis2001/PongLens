@@ -109,6 +109,20 @@ local research directories, and the deliberate local worker state.
 The pre-merge tree is recorded byte for byte on branch `prod-live-2026-09-06`
 and as `/private/tmp/claude-501/worker-live-backup-2026-09-06.tgz`.
 
+Restarted at 17:48 PT on `a7155b2c` (the merge plus the two liveness commits
+that landed on `main` meanwhile), with the queue empty. The first re-cut it
+ran tells the whole story: the old worker's last re-cut at 17:43 downloaded
+the entire original and took 21 s for one clip; the new one cut the same
+point in 2.7 s by range from the original, noticed a second edit had landed
+mid-run and requested another pass, then cut it again in 1.4 s from the cut
+video.
+
+The fast lane is live: `PongLensWorkerFast.app` built from the same runner
+command as the main one, `com.adil.ponglens-worker-fast` loaded, and
+`reclip_lane` set to `fast` once its log showed it reading `jobs_fast`. Two
+more re-cuts then ran on the fast process alone, 2.9 s and 1.6 s, done within
+twelve seconds of the edit, with the main worker's log untouched.
+
 `test_raw_retention` (7), `test_reclip_sources` (6) and
 `test_journal_media_retention` (1) pass on the merged tree. The full worker
 suite runs 783 tests with 2 failures and 11 errors — exactly the same set that
@@ -137,16 +151,9 @@ Upload log: `/tmp/ponglens-clip-edits-140-export.log`.
 
 ## Not verified
 
-- **The worker restart.** The production Mac has been running a single
-  `placement_generate` job for hours behind a queue of seventeen, at a fraction
-  of its normal speed because another session's research processes were holding
-  the machine at load 80. The merge is committed, tested and ready on
-  `prod-merge-140`; moving the checkout onto it and restarting waits for a
-  moment when no job has status `processing`. Until then the worker keeps
-  serving re-cuts with the old, slower code path, which still produces correct
-  clips.
-- **The fast lane and `device_reclip`.** Both wait on the worker restart, so
-  `reclip_lane` is still `main` and `device_reclip` still `off`.
+- **`device_reclip` is still `off`.** Turning it on needs a handset running
+  build 140 to edit a point on, and then a check that the phone-made file plays
+  in desktop Chrome. Nothing here was run on a physical device.
 - **Adding a rally on a continuous seam.** Not reachable in this account's
   data. The cutter trims the gap between rallies to about a second, so a seam
   wide enough to be offered a "+" (four seconds) is always one the cut removed
@@ -161,3 +168,19 @@ Upload log: `/tmp/ponglens-clip-edits-140-export.log`.
 - Starred still plays clip files and shows "Updating clip" on a stale one;
   public and coach surfaces still play a stale clip of an edited point with no
   filter. Both are listed in the design's "not done" section.
+
+## After the release
+
+Adil's first pass with the new Adjust found the one thing the design got
+wrong on purpose: saving a Split or a Join lands the pad on the next point
+and plays it, but saving an Adjust closed the sheet and left the pad paused
+inside the old window, so the change only showed on a replay. Fixed on all
+four surfaces in `fb1fab2a` — the pad lands on the point's new start and
+plays; the point view replays the window whether the start or the end
+moved. Verified live at 393×660 on both web surfaces; the iOS half ships
+with the next build.
+
+Two test rallies added and removed on the Chris match during verification
+remain as removed rows. Score the Match treats a removed card's span as dead
+footage, so they cost a one-second skip before points 7 and 73 until they
+are deleted outright.
