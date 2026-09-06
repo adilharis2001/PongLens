@@ -527,7 +527,7 @@ class Evidence:
         bnc = bounces(track, scale)
         self.cross = np.asarray(crossings(track, H, fps), float)
 
-        bt, bt_table = [], []
+        bt, bt_table, bt_table_landings = [], [], []
         for f, x, y in bnc:
             p = project(H, x, y)
             if not p or not in_corridor(*p):
@@ -536,9 +536,13 @@ class Evidence:
             # the playing surface, not the floor beside it: a rally ends on
             # the table and retrieval bounces on the floor
             if (-0.15 <= p[0] <= W_M + 0.15 and -0.15 <= p[1] <= L_M + 0.15):
-                bt_table.append(f / fps)
+                landing_t = f / fps
+                bt_table.append(landing_t)
+                side = "far" if p[1] < L_M / 2.0 else "near"
+                bt_table_landings.append((landing_t, side))
         self.bt = np.asarray(bt, float)
         self.bt_table = np.asarray(bt_table, float)
+        self.bt_table_landings = bt_table_landings
 
         motifs = serve_motifs(track, bnc, H, fps, scale, self.cross)
         # No gate test on a calibrated match: serve_motifs already proved

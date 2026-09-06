@@ -8,14 +8,14 @@ func runAutomaticHighlightsChecks() {
       "url":"https://media.example/highlights.mp4",
       "durationS":16.4,
       "manifest":{
-        "v":1,
-        "rule":"quality-first-v1",
+        "v":2,
+        "rule":"quality-first-v2",
         "max_seconds":150,
         "points_revision":"abc",
         "duration_s":16.4,
         "points":[
-          {"point_id":"00000000-0000-0000-0000-000000000001","cut_start_s":2.0,"cut_end_s":10.0,"output_start_s":0.0,"output_end_s":8.0,"n_hits":7,"connected_crossings":6,"table_bounces":3},
-          {"point_id":"00000000-0000-0000-0000-000000000002","cut_start_s":20.0,"cut_end_s":29.0,"output_start_s":7.7,"output_end_s":16.7,"n_hits":6,"connected_crossings":5,"table_bounces":3}
+          {"point_id":"00000000-0000-0000-0000-000000000001","cut_start_s":2.0,"cut_end_s":10.0,"output_start_s":0.0,"output_end_s":8.0,"n_hits":7,"connected_crossings":6,"table_bounces":3,"alternating_table_landings":5},
+          {"point_id":"00000000-0000-0000-0000-000000000002","cut_start_s":20.0,"cut_end_s":29.0,"output_start_s":7.7,"output_end_s":16.7,"n_hits":6,"connected_crossings":5,"table_bounces":3,"alternating_table_landings":4}
         ]
       }
     }

@@ -12,8 +12,8 @@ const asset: HighlightAsset = {
   url: "https://media.example/highlights.mp4",
   durationS: 12.7,
   manifest: {
-    v: 1,
-    rule: "quality-first-v1",
+    v: 2,
+    rule: "quality-first-v2",
     max_seconds: 150,
     points_revision: "abc",
     duration_s: 12.7,
@@ -27,6 +27,7 @@ const asset: HighlightAsset = {
         n_hits: 8,
         connected_crossings: 7,
         table_bounces: 4,
+        alternating_table_landings: 5,
       },
       {
         point_id: "p2",
@@ -37,6 +38,7 @@ const asset: HighlightAsset = {
         n_hits: 6,
         connected_crossings: 5,
         table_bounces: 3,
+        alternating_table_landings: 4,
       },
     ],
   },

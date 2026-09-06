@@ -11,13 +11,15 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from decimal import Decimal
 from typing import Any
 
 
-RULE = "quality-first-v1"
-EVIDENCE_VERSION = 1
-MIN_HITS = 5
-MIN_CONNECTED_CROSSINGS = 4
+RULE = "quality-first-v2"
+EVIDENCE_VERSION = 2
+MIN_EXCHANGES = 5
+MIN_HIT_SUPPORT_CROSSINGS = 2
+MIN_HIT_SUPPORT_LANDINGS = 3
 MIN_TABLE_BOUNCES = 2
 AUTO_MAX_S = 150.0
 END_TAIL_S = 0.75
@@ -26,7 +28,7 @@ MIN_SEGMENT_S = 0.5
 
 
 def _number(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
         return None
     number = float(value)
     return number if math.isfinite(number) else None
@@ -42,6 +44,19 @@ def _integer(value: Any) -> int | None:
 def _segment_bounds(point: dict) -> tuple[float, float] | None:
     start = _number(point.get("cut_t0"))
     observed_end = _number(point.get("rally_end_cut_s"))
+    if observed_end is None and start is not None:
+        source_start = _number(point.get("t0"))
+        evidence = point.get("highlight_evidence")
+        source_end = (
+            _number(evidence.get("observed_end_s"))
+            if isinstance(evidence, dict) else None
+        )
+        if source_start is not None and source_end is not None:
+            # No dead-space cut occurs inside a point card, so an evidence
+            # end maps to the cut clock by the card's stored offset. This is
+            # what lets end-on legacy cards recover without rewriting their
+            # manually reviewed point bounds.
+            observed_end = start + source_end - source_start
     if start is None or observed_end is None:
         return None
     end = observed_end + END_TAIL_S
@@ -51,7 +66,7 @@ def _segment_bounds(point: dict) -> tuple[float, float] | None:
 
 
 def qualifies(point: dict) -> bool:
-    """Return true only when every v1 rally receipt is present and strong."""
+    """Return true when a v2 receipt proves sustained back-and-forth play."""
     if not isinstance(point, dict):
         return False
     if point.get("deleted") or point.get("edited") or point.get("is_let"):
@@ -69,15 +84,25 @@ def qualifies(point: dict) -> bool:
 
     hits = _integer(evidence.get("n_hits"))
     crossings = _integer(evidence.get("connected_crossings"))
+    alternating = _integer(evidence.get("alternating_table_landings"))
     bounces = _integer(evidence.get("table_bounces"))
     observed_end = _number(evidence.get("observed_end_s"))
-    if hits is None or crossings is None or bounces is None or observed_end is None:
-        return False
-    if hits < MIN_HITS or crossings < MIN_CONNECTED_CROSSINGS:
+    if bounces is None or observed_end is None:
         return False
     if bounces < MIN_TABLE_BOUNCES:
         return False
-    return t0 <= observed_end <= t1
+    if not t0 <= observed_end <= t1:
+        return False
+
+    crossing_path = crossings is not None and crossings >= MIN_EXCHANGES
+    landing_path = alternating is not None and alternating >= MIN_EXCHANGES
+    hit_support = (
+        (crossings is not None and crossings >= MIN_HIT_SUPPORT_CROSSINGS)
+        or (alternating is not None
+            and alternating >= MIN_HIT_SUPPORT_LANDINGS)
+    )
+    hit_path = hits is not None and hits >= MIN_EXCHANGES and hit_support
+    return crossing_path or landing_path or hit_path
 
 
 def _duration(point: dict) -> float:
@@ -87,13 +112,19 @@ def _duration(point: dict) -> float:
 
 def _rank(point: dict) -> tuple[float, float, float, float]:
     evidence = point["highlight_evidence"]
-    hits = int(evidence["n_hits"])
-    crossings = int(evidence["connected_crossings"])
+    hits = _integer(evidence.get("n_hits")) or 0
+    crossings = _integer(evidence.get("connected_crossings")) or 0
+    alternating = _integer(evidence.get("alternating_table_landings")) or 0
+    supported_hits = hits if (
+        crossings >= MIN_HIT_SUPPORT_CROSSINGS
+        or alternating >= MIN_HIT_SUPPORT_LANDINGS
+    ) else 0
+    exchanges = max(crossings, alternating, supported_hits)
     observed_duration = float(evidence["observed_end_s"]) - float(point["t0"])
     return (
-        float(min(hits, crossings + 1)),
-        float(crossings),
+        float(exchanges),
         observed_duration,
+        float(max(crossings, alternating)),
         -float(point["idx"]),
     )
 
@@ -111,13 +142,19 @@ def select_highlights(points: list[dict], max_seconds: float) -> list[dict]:
         if duration + cost <= budget + 1e-9:
             selected.append(point)
             duration += cost
-    return sorted(selected, key=lambda p: (int(p["idx"]), str(p["id"])))
+    return sorted(
+        selected,
+        key=lambda p: (float(p["t0"]), int(p["idx"]), str(p["id"])),
+    )
 
 
 def points_revision(points: list[dict]) -> str:
     """Hash only fields that can change the rendered automatic artifact."""
     rows = []
-    for point in sorted(points, key=lambda p: (int(p["idx"]), str(p["id"]))):
+    for point in sorted(
+        points,
+        key=lambda p: (float(p["t0"]), int(p["idx"]), str(p["id"])),
+    ):
         evidence = point.get("highlight_evidence") or {}
         rows.append({
             "point_id": str(point["id"]),
@@ -136,7 +173,11 @@ def points_revision(points: list[dict]) -> str:
                 "n_hits": evidence.get("n_hits"),
                 "connected_crossings": evidence.get("connected_crossings"),
                 "table_bounces": evidence.get("table_bounces"),
+                "alternating_table_landings": evidence.get(
+                    "alternating_table_landings"
+                ),
                 "observed_end_s": evidence.get("observed_end_s"),
+                "end_source": evidence.get("end_source"),
             },
         })
     canonical = json.dumps(rows, sort_keys=True, separators=(",", ":"),
@@ -162,16 +203,24 @@ def build_manifest(points: list[dict], max_seconds: float = AUTO_MAX_S) -> dict:
             "cut_end_s": round(cut_end, 3),
             "output_start_s": round(output_start, 3),
             "output_end_s": round(output_end, 3),
-            "n_hits": int(evidence["n_hits"]),
-            "connected_crossings": int(evidence["connected_crossings"]),
+            "n_hits": _integer(evidence.get("n_hits")),
+            "connected_crossings": _integer(
+                evidence.get("connected_crossings")
+            ),
             "table_bounces": int(evidence["table_bounces"]),
+            "alternating_table_landings": _integer(
+                evidence.get("alternating_table_landings")
+            ),
         })
         output_cursor = output_end
     return {
-        "v": 1,
+        "v": 2,
         "rule": RULE,
         "max_seconds": float(max_seconds),
-        "points_revision": points_revision(selected),
+        # The receipt set, not only today's winners. A later evidence-only
+        # recovery that promotes a previously weak rally must make the
+        # artifact stale even when every already-selected point is unchanged.
+        "points_revision": points_revision(points),
         "duration_s": round(output_cursor, 3),
         "points": manifest_points,
     }
