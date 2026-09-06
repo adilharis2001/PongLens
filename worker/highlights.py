@@ -203,10 +203,13 @@ def build_manifest(points: list[dict], max_seconds: float = AUTO_MAX_S) -> dict:
             "cut_end_s": round(cut_end, 3),
             "output_start_s": round(output_start, 3),
             "output_end_s": round(output_end, 3),
-            "n_hits": _integer(evidence.get("n_hits")),
+            # Keep these legacy manifest fields numeric for build 135.
+            # Evidence may omit either one, but the released iOS decoder
+            # predates the corroborated-OR rule and expects Int values.
+            "n_hits": _integer(evidence.get("n_hits")) or 0,
             "connected_crossings": _integer(
                 evidence.get("connected_crossings")
-            ),
+            ) or 0,
             "table_bounces": int(evidence["table_bounces"]),
             "alternating_table_landings": _integer(
                 evidence.get("alternating_table_landings")
