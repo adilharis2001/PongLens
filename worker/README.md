@@ -331,10 +331,15 @@ queue (`--lane fast`); the main process keeps everything else and all the
 housekeeping (retention sweep, digests, cost alerts), which must run in
 exactly one process.
 
-Build its runner the same way as the main one, with the lane flag:
+Build its runner as an exact copy of the main one's script with the lane
+flag added. Read the main script first (`osadecompile
+~/Applications/PongLensWorker.app`) rather than trusting this page: it
+must use the worker's own `venv` from inside `worker/`, because the
+system `python3` has none of the dependencies and a runner built on it
+crash-loops every 30 seconds with `No module named 'psycopg2'`.
 
 ```bash
-osacompile -e 'do shell script "export HOME=/Users/adil; export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin; /usr/bin/python3 /Users/adil/Desktop/Projects/PongLens/worker/worker.py --lane fast >>/Users/adil/Desktop/Projects/PongLens/worker/stdout-fast.log 2>>/Users/adil/Desktop/Projects/PongLens/worker/stderr-fast.log"' -o ~/Applications/PongLensWorkerFast.app
+osacompile -e 'do shell script "export HOME=/Users/adil; export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin; cd /Users/adil/Desktop/Projects/PongLens/worker; ./venv/bin/python worker.py --lane fast >>/Users/adil/Desktop/Projects/PongLens/worker/worker-fast.log 2>&1"' -o ~/Applications/PongLensWorkerFast.app
 cp /Users/adil/Desktop/Projects/PongLens/worker/com.adil.ponglens-worker-fast.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.adil.ponglens-worker-fast.plist
 ```
