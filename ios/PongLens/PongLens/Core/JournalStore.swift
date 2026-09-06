@@ -189,8 +189,39 @@ struct CoachSharedEntry: Codable, Identifiable, Hashable {
     let matchId: UUID?
     let sharedAt: String
     let updatedAt: String
+    /// The recap behind the entry, when the coach shared a lesson video.
+    /// Absent from a server that predates the column; the link in the text
+    /// is the fallback then (see `recapId`).
+    let lessonVideoId: UUID?
 
     var id: UUID { entryId }
+
+    /// The lesson video this entry stands for, if any. The column is the
+    /// answer; the link the older publish wrote into the text is the
+    /// fallback. Twin of recapIdOf on web.
+    var recapId: UUID? {
+        if let lessonVideoId { return lessonVideoId }
+        return CoachSharedEntry.recapId(in: transcript)
+    }
+
+    /// The takeaways to show: for a recap, without the link takeaway the
+    /// older app versions need. Twin of entryThemes on web.
+    var visibleThemes: [LessonTakeaways.Theme] {
+        let themes = takeaways?.themes ?? []
+        guard recapId != nil else { return themes }
+        return themes.filter { theme in
+            !(theme.name == "Lesson video" && theme.points.allSatisfy { CoachSharedEntry.recapId(in: $0) != nil })
+        }
+    }
+
+    static func recapId(in text: String) -> UUID? {
+        let pattern = #"https?://(?:www\.)?ponglens\.com/lesson-video/([0-9a-fA-F-]{36})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let range = Range(match.range(at: 1), in: text)
+        else { return nil }
+        return UUID(uuidString: String(text[range]))
+    }
 
     enum CodingKeys: String, CodingKey {
         case transcript, takeaways
@@ -203,6 +234,7 @@ struct CoachSharedEntry: Codable, Identifiable, Hashable {
         case matchId = "match_id"
         case sharedAt = "shared_at"
         case updatedAt = "updated_at"
+        case lessonVideoId = "lesson_video_id"
     }
 }
 

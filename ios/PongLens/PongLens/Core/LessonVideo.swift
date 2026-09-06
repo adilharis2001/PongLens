@@ -14,17 +14,30 @@ struct LessonVideo: Codable, Identifiable {
     let edit: LessonVideoEdit?
     let created_at: String
     let revision: Int?
+    /// Can the linked student see it today. From the API only; absent
+    /// from list rows on older servers, which is why it is optional.
+    let shared: Bool?
 
     var isProcessing: Bool { status == "queued" || status == "processing" }
     var needsRefresh: Bool { status == "uploading" || isProcessing }
     var title: String { edit?.title ?? original_name }
+    /// Whether the owner can press the share button now. Review is the
+    /// first time; ready-but-unshared is the coach taking an entry back and
+    /// changing their mind. Twin of lessonCanShare on web.
+    func canShare(isOwner: Bool) -> Bool {
+        guard isOwner else { return false }
+        if status == "review" { return true }
+        return status == "ready" && student_id != nil && shared == false
+    }
     var statusLabel: String {
         switch status {
         case "uploading": "Uploading"
         case "queued": "Waiting to process"
         case "processing": "Preparing your recap"
         case "review": "Ready to review"
-        case "ready": student_id == nil ? "Saved" : "Shared"
+        // A ready row is not the same as a shared one: the coach can take the
+        // entry back from the student page. Twin of lessonStatusLabel on web.
+        case "ready": student_id == nil ? "Saved" : ((shared ?? true) ? "Shared" : "Ready to share")
         case "failed": "Needs attention"
         default: "Preparing"
         }
@@ -142,6 +155,9 @@ nonisolated struct LessonVideoCreateRequest: Encodable {
 /// Only first-party recap URLs enter the authenticated native player.
 nonisolated struct LessonVideoLink: Identifiable {
     let id: UUID
+    /// A recap the app already knows by id, from a journal entry's column
+    /// or a notification, rather than from a link in the text.
+    init(id: UUID) { self.id = id }
     init?(url: URL) {
         guard url.scheme?.lowercased() == "https",
               ["ponglens.com", "www.ponglens.com"].contains(url.host?.lowercased() ?? "") else { return nil }

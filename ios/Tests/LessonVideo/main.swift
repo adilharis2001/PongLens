@@ -86,3 +86,28 @@ let expandedRoundTrip = try JSONDecoder().decode(LessonVideoEdit.self, from: JSO
 check(expandedRoundTrip.chapters.count == 12, "Expanded recap retains all chapters on iOS")
 check(expandedRoundTrip.chapters[11].summary_end_s == 720, "Expanded recap retains final playback timing")
 print("Lesson video: twelve-chapter decoding passed")
+
+
+// One status word, and shared is not the same as ready (twin of presentation.test.ts).
+func video(_ status: String, student: Bool, shared: Bool?) -> LessonVideo {
+    var json = """
+    {"id":"c75c8a89-16ee-41a1-b8f2-d3b441f0f82f","owner_id":"c75c8a89-16ee-41a1-b8f2-d3b441f0f82f","student_id":\(student ? "\"c75c8a89-16ee-41a1-b8f2-d3b441f0f82f\"" : "null"),"lesson_id":null,"original_name":"IMG_0001.MOV","file_size":10,"duration_s":10,"status":"\(status)","stage":null,"error":null,"edit":null,"created_at":"2026-09-06T00:00:00Z","revision":1
+    """
+    if let shared { json += ",\"shared\":\(shared)" }
+    json += "}"
+    return try! JSONDecoder().decode(LessonVideo.self, from: Data(json.utf8))
+}
+check(video("review", student: true, shared: nil).statusLabel == "Ready to review", "review label")
+check(video("ready", student: true, shared: true).statusLabel == "Shared", "shared label")
+check(video("ready", student: true, shared: false).statusLabel == "Ready to share", "taken back reads as ready to share")
+check(video("ready", student: true, shared: nil).statusLabel == "Shared", "an older server that does not say is read as shared, as before")
+check(video("ready", student: false, shared: nil).statusLabel == "Saved", "private lesson label")
+check(video("failed", student: true, shared: nil).statusLabel == "Needs attention", "failed label")
+check(video("review", student: true, shared: nil).canShare(isOwner: true), "review can be shared")
+check(video("ready", student: true, shared: false).canShare(isOwner: true), "taken back can be shared again")
+check(!video("ready", student: true, shared: true).canShare(isOwner: true), "already shared")
+check(!video("ready", student: true, shared: nil).canShare(isOwner: true), "unknown is not offered twice")
+check(!video("ready", student: false, shared: false).canShare(isOwner: true), "nothing to share a private lesson with")
+check(!video("review", student: true, shared: nil).canShare(isOwner: false), "never for the student")
+check(LessonVideoLink(id: UUID(uuidString: "c75c8a89-16ee-41a1-b8f2-d3b441f0f82f")!).id.uuidString.lowercased() == "c75c8a89-16ee-41a1-b8f2-d3b441f0f82f", "a link from an id")
+print("lesson video checks passed")

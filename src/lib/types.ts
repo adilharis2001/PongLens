@@ -623,7 +623,14 @@ export type NotificationKind =
   | "sponsored_claimed"
   // Featured-sample consent handshake (078).
   | "sample_requested"
-  | "sample_responded";
+  | "sample_responded"
+  // Coach workspace (156): a coach shared an entry or a lesson recap with
+  // the student; a student joined a coach's roster; a student's match is
+  // ready for the coach. Allowed by the DB since 156, missing here until
+  // 2026-09-06, so the bell drew them with the generic tick.
+  | "coach_entry"
+  | "student_joined"
+  | "student_match_ready";
 
 // Named AppNotification so it never shadows the DOM's Notification global.
 // Copy is denormalised server-side (see migration 031) — the bell renders
