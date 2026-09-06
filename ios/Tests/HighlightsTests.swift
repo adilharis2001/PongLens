@@ -2,6 +2,29 @@ import Foundation
 
 func runAutomaticHighlightsChecks() {
     print("\n— automatic highlight manifest —")
+    check(
+        automaticHighlightActions(includePlay: true, sharingEnabled: true)
+            == [.play, .instagramStory, .instagramReel, .saveVideo],
+        "the Highlights sheet puts playback and every share choice together"
+    )
+    check(
+        automaticHighlightActions(includePlay: false, sharingEnabled: true)
+            == [.instagramStory, .instagramReel, .saveVideo],
+        "the player share sheet reuses the share choices without a second play row"
+    )
+    check(
+        automaticHighlightActions(includePlay: true, sharingEnabled: false)
+            == [.play, .saveVideo],
+        "the sharing switch hides Instagram but keeps playback and saving"
+    )
+    check(
+        automaticHighlightsSheetHeight(hasActions: true) == 570,
+        "the ready Highlights sheet makes room for playback and sharing"
+    )
+    check(
+        automaticHighlightsSheetHeight(hasActions: false) == 250,
+        "non-ready Highlights states stay compact"
+    )
     let json = """
     {
       "status":"ready",

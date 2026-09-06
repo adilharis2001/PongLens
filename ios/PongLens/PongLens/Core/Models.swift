@@ -10,6 +10,30 @@ struct CountRow: Codable, Hashable {
     let count: Int
 }
 
+enum AutomaticHighlightAction: Hashable {
+    case play
+    case instagramStory
+    case instagramReel
+    case saveVideo
+}
+
+func automaticHighlightActions(
+    includePlay: Bool, sharingEnabled: Bool
+) -> [AutomaticHighlightAction] {
+    var actions: [AutomaticHighlightAction] = []
+    if includePlay { actions.append(.play) }
+    if sharingEnabled {
+        actions.append(.instagramStory)
+        actions.append(.instagramReel)
+    }
+    actions.append(.saveVideo)
+    return actions
+}
+
+func automaticHighlightsSheetHeight(hasActions: Bool) -> Double {
+    hasActions ? 570 : 250
+}
+
 /// The worker-authored automatic highlight. Clients render this contract;
 /// they never reinterpret the underlying ball evidence or choose rallies.
 struct AutomaticHighlightsResponse: Codable, Hashable {

@@ -113,7 +113,6 @@ struct ToolsSection: View {
         }
         .sheet(isPresented: $highlightsOpen) {
             HighlightsSheet(match: match, model: model)
-                .presentationDetents([.height(HighlightsSheet.detentHeight)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }

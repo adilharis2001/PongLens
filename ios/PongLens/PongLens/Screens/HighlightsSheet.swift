@@ -6,37 +6,39 @@ struct HighlightsSheet: View {
     let match: MatchRow
     let model: MatchDetailModel
 
-    static var detentHeight: CGFloat { 250 }
-
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var response: AutomaticHighlightsResponse?
     @State private var playing = false
 
     var body: some View {
-        PLChooserSheet(title: "Highlights") {
-            switch response?.status {
-            case "ready":
-                if response?.url != nil, response?.manifest != nil {
-                    PLChooserRow(
-                        icon: "play.fill",
-                        title: "Play highlights",
-                        detail: response?.summary ?? ""
-                    ) {
-                        playing = true
+        ScrollView(.vertical, showsIndicators: false) {
+            PLChooserSheet(title: "Highlights") {
+                switch response?.status {
+                case "ready":
+                    if hasActions {
+                        AutomaticHighlightActions(
+                            match: match,
+                            includePlay: true,
+                            playDetail: response?.summary ?? "",
+                            onPlay: { playing = true }
+                        )
+                    } else {
+                        stateText("Highlights unavailable")
                     }
-                } else {
+                case "empty", "unavailable":
+                    stateText("No highlight rallies")
+                case "failed":
                     stateText("Highlights unavailable")
-                }
-            case "empty", "unavailable":
-                stateText("No highlight rallies")
-            case "failed":
-                stateText("Highlights unavailable")
-            default:
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small).tint(PL.text300)
-                    stateText("Preparing highlights")
+                default:
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small).tint(PL.text300)
+                        stateText("Preparing highlights")
+                    }
                 }
             }
         }
+        .scrollBounceBehavior(.basedOnSize)
+        .presentationDetents(detents)
         .task(id: match.id) { await loadUntilSettled() }
         .fullScreenCover(isPresented: $playing) {
             if let response, let url = response.url, let manifest = response.manifest {
@@ -45,6 +47,16 @@ struct HighlightsSheet: View {
                 )
             }
         }
+    }
+
+    private var hasActions: Bool {
+        response?.status == "ready" && response?.url != nil && response?.manifest != nil
+    }
+
+    private var detents: Set<PresentationDetent> {
+        if hasActions && verticalSizeClass == .compact { return [.large] }
+        let height = automaticHighlightsSheetHeight(hasActions: hasActions)
+        return [.height(CGFloat(height))]
     }
 
     private func stateText(_ value: String) -> some View {
@@ -109,6 +121,26 @@ struct HighlightsShareSheet: View {
 
     static var detentHeight: CGFloat { 470 }
 
+    var body: some View {
+        PLChooserSheet(title: "Share this highlight") {
+            AutomaticHighlightActions(
+                match: match,
+                includePlay: false,
+                playDetail: "",
+                onPlay: {}
+            )
+        }
+    }
+}
+
+/// One implementation of the automatic-highlight actions, used both before
+/// playback and by the player's Share shortcut so the two sheets cannot drift.
+private struct AutomaticHighlightActions: View {
+    let match: MatchRow
+    let includePlay: Bool
+    let playDetail: String
+    let onPlay: () -> Void
+
     @Environment(\.dismiss) private var dismiss
     @State private var model = StoryShareModel()
     @State private var shareItem: URL?
@@ -119,27 +151,44 @@ struct HighlightsShareSheet: View {
     @AppStorage("shareShowLogo") private var showLogo = true
 
     var body: some View {
-        PLChooserSheet(title: "Share this highlight") {
-            if sharingOn {
-                shareRow(
-                    action: "story",
-                    title: "Instagram Story",
-                    detail: "Your best qualifying rally inside 20 seconds. Opens Instagram ready to post.",
-                    destination: .story
-                )
-                shareRow(
-                    action: "reel",
-                    title: "Instagram Reel",
-                    detail: "Your best qualifying rallies inside a minute. Opens Instagram ready to post.",
-                    destination: .reel
-                )
+        Group {
+            ForEach(
+                automaticHighlightActions(
+                    includePlay: includePlay, sharingEnabled: sharingOn
+                ),
+                id: \.self
+            ) { action in
+                switch action {
+                case .play:
+                    PLChooserRow(
+                        icon: "play.fill",
+                        title: "Play highlights",
+                        detail: playDetail,
+                        action: onPlay
+                    )
+                case .instagramStory:
+                    shareRow(
+                        action: "story",
+                        title: "Instagram Story",
+                        detail: "Your best qualifying rally inside 20 seconds. Opens Instagram ready to post.",
+                        destination: .story
+                    )
+                case .instagramReel:
+                    shareRow(
+                        action: "reel",
+                        title: "Instagram Reel",
+                        detail: "Your best qualifying rallies inside a minute. Opens Instagram ready to post.",
+                        destination: .reel
+                    )
+                case .saveVideo:
+                    shareRow(
+                        action: "save",
+                        title: "Save the video",
+                        detail: "The full highlight as one video, to save or send anywhere.",
+                        destination: nil
+                    )
+                }
             }
-            shareRow(
-                action: "save",
-                title: "Save the video",
-                detail: "The full highlight as one video, to save or send anywhere.",
-                destination: nil
-            )
 
             Toggle("Include names", isOn: $showNames)
                 .font(.plBody).foregroundStyle(PL.text200)
