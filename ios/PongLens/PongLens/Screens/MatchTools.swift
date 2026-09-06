@@ -25,6 +25,7 @@ struct ToolsSection: View {
     @State private var detailsOpen = false
     @State private var sideOpen = false
     @State private var placementOpen = false
+    @State private var automaticHighlights: AutomaticHighlightsResponse?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -158,16 +159,28 @@ struct ToolsSection: View {
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
+        .task(id: match.id) { await loadAutomaticHighlights() }
     }
 
-    /// The trailing summary is the reel cut — the flagship of the three.
     private var highlightsTrailing: String {
-        let picks = Highlights.pick(
-            model.visible,
-            pad: clipPad(strictness: nil, stored: match.clipPads),
-            budgetS: Highlights.reelBudgetS,
-            ends: app.endOptions)
-        return Highlights.summary(picks) ?? "No rallies yet"
+        automaticHighlights?.summary ?? "Preparing highlights"
+    }
+
+    private func loadAutomaticHighlights() async {
+        while !Task.isCancelled {
+            do {
+                automaticHighlights = try await API.get(
+                    "api/highlights",
+                    query: ["matchId": match.id.uuidString.lowercased()]
+                )
+            } catch {
+                automaticHighlights = AutomaticHighlightsResponse(
+                    status: "failed", url: nil, durationS: nil, manifest: nil
+                )
+            }
+            guard automaticHighlights?.status == "rendering" else { return }
+            try? await Task.sleep(for: .milliseconds(1800))
+        }
     }
 
     private var starredCount: Int {

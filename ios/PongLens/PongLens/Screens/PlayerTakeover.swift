@@ -28,8 +28,6 @@ enum PlayerMode {
 ///     first half second, so the playhead would jump on the first tick of
 ///     playback and keep jumping. It would read as a corrupt file.
 ///  3. `startAt` is ignored. Every caller mints it from a `cutT0`.
-///  4. `highlightPicks` is refused. It is its own array of points with its
-///     own boundary observer and three more seek paths.
 enum PlayerSource {
     case cut, original
 }
@@ -122,14 +120,9 @@ struct PlayerTakeover: View {
     /// Coach workspace hook: when set, the watch overlay offers adding the
     /// point on screen to a pattern. Players never see it.
     var onTagPoint: ((MatchPoint) -> Void)?
-    /// Highlights mode (2026-08-25): play ONLY these rallies, in order,
-    /// jumping the footage between them. The viewing chrome stays — play,
-    /// the scrubber, zoom, rotate, the flanks, and the SCORE BUG, whose
-    /// numbers walk the whole match so it reads the true score entering
-    /// the rally on screen. The working chrome (gestures help, speed,
-    /// grid, star, notes) stands down; a Share pill takes the top-left
-    /// corner. nil = the normal player.
-    var highlightPicks: [MatchPoint]? = nil
+    /// Dedicated one-item highlight mode. Its times are output-video times,
+    /// not cut-video times, and no automatic boundary seeks are installed.
+    var highlightManifest: AutomaticHighlightManifest? = nil
     /// The Share pill's tap; the host presents the share sheet.
     var onShareHighlight: (() -> Void)?
 
@@ -151,9 +144,6 @@ struct PlayerTakeover: View {
     @State var scrubT: Double = 0
     @State var flash: String?
     @State var observer: Any?
-    /// Boundary observer at each highlight pick's end (highlights mode
-    /// only) — the frame-accurate half of the tape's jump.
-    @State var tapeObserver: Any?
     /// AVPlayer refuses the file. Until this existed the takeover showed a
     /// black rectangle and said nothing: nothing observed the item's
     /// status, and the load path's own catch is a comment reading
@@ -306,29 +296,14 @@ struct PlayerTakeover: View {
     @State var annotateFrame: UIImage?
     @State var pendingImage: (path: String, preview: UIImage)?
 
-    // The FULL visible list, always — the score walk, the serve rotation
-    // and the chip strip must read the real match even on the highlights
-    // tape (a walk over only the picks would print a fiction). Which
-    // rallies PLAY is highlightSpans' business, in tick().
-    /// Empty on the original: every one of these carries a `cutT0`, which
-    /// is a second in the OTHER file.
-    var points: [MatchPoint] { source == .original ? [] : model.visible }
-    /// Highlights are a list of cut positions, so they cannot describe the
-    /// original. Refused here rather than at the call site so no future
-    /// caller can combine the two by accident.
-    var isHighlights: Bool { source == .cut && highlightPicks != nil }
-
-    /// The picks' spans on the cut timeline. Everything outside them is
-    /// dead footage in highlights mode, the same shape as deadSpans.
-    var highlightSpans: [TimeSpan]? {
-        guard source == .cut, let picks = highlightPicks else { return nil }
-        return picks.compactMap { p in
-            guard let c = p.cutT0,
-                  let end = effectiveEnd(p, pad, app.endOptions)
-            else { return nil }
-            return TimeSpan(start: max(0, c), end: end)
-        }
+    /// Empty only on the original, whose clock has no point mapping.
+    var points: [MatchPoint] {
+        if case .original = source { return [] }
+        return model.visible
     }
+    var isHighlights: Bool { highlightManifest != nil }
+    var isCut: Bool { source == .cut && !isHighlights }
+    var isOriginal: Bool { source == .original }
 
     /// The single answer for "which rally is on screen": the auto-pause pin
     /// first, then the hold-aware resolver.
@@ -339,6 +314,9 @@ struct PlayerTakeover: View {
     /// a fifth of a second stale — long enough, on tight cuts, to answer a
     /// rally the screen was never about.
     func target(at t: Double) -> MatchPoint? {
+        if let id = highlightManifest?.pointId(at: t) {
+            return points.first { $0.id == id }
+        }
         if let endPausedId, let pinned = points.first(where: { $0.id == endPausedId }) {
             return pinned
         }
@@ -379,10 +357,18 @@ struct PlayerTakeover: View {
     /// A chevron on a side with nothing on it is a button that does
     /// nothing, so it is absent rather than dead — the same rule the web
     /// player follows.
-    var cutPoints: [MatchPoint] { points.filter { $0.cutT0 != nil } }
+    var cutPoints: [MatchPoint] {
+        guard let manifest = highlightManifest else {
+            return points.filter { $0.cutT0 != nil }
+        }
+        let byId = Dictionary(uniqueKeysWithValues: points.map { ($0.id, $0) })
+        return manifest.points.compactMap { byId[$0.pointId] }
+    }
 
     var playingCutIndex: Int {
-        guard let id = playingPointId(points, at: currentT) else { return -1 }
+        let id = highlightManifest?.pointId(at: currentT)
+            ?? playingPointId(points, at: currentT)
+        guard let id else { return -1 }
         return cutPoints.firstIndex { $0.id == id } ?? -1
     }
 
@@ -411,7 +397,7 @@ struct PlayerTakeover: View {
     /// on every tick, and 20 of the 71 matches this can open have a
     /// deleted rally inside the first half second.
     var deadSpans: [TimeSpan] {
-        guard source == .cut else { return [] }
+        guard isCut else { return [] }
         return deletedSpans(all: model.points, visible: points, pad: pad)
     }
 
@@ -424,7 +410,7 @@ struct PlayerTakeover: View {
     /// stops at its own padded end, so playback still runs the file out
     /// naturally instead of trapping a pause at the tape's edge.
     var tapSpans: [TimeSpan] {
-        guard app.tapEndPlayback else { return [] }
+        guard isCut, app.tapEndPlayback else { return [] }
         let cut = points.filter { $0.cutT0 != nil }
         var out: [TimeSpan] = []
         for (i, p) in cut.enumerated() {
@@ -512,48 +498,7 @@ struct PlayerTakeover: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            let landscape = geo.size.width > geo.size.height
-            Group {
-                if mode == .score, phase == .play, landscape {
-                    landscapeScoreLayout(geo)
-                        // Sideways there is no pad surface to cover, so the
-                        // panel takes the screen and splits its two halves
-                        // across the width rather than stacking them.
-                        .overlay { analysisLayer(landscape: true) }
-                } else {
-                    VStack(spacing: 0) {
-                        videoArea(geo)
-                        if mode == .score, phase == .play {
-                            scorePad
-                                .overlay { analysisLayer(landscape: false) }
-                        }
-                    }
-                }
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
-            .background(Color.black.ignoresSafeArea())
-            // The Why overlay sits above the pad and below the summary: the
-            // rally being explained has to stay on screen, and the pad
-            // underneath has no job until the answer moves us on.
-            .overlay { whyOverlay }
-            .overlay(alignment: .bottom) {
-                if let toast {
-                    Text(toast)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text300)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 7)
-                        .background(PL.ink.opacity(0.85), in: Capsule())
-                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
-                        .padding(.bottom, 96)
-                        .transition(.opacity)
-                }
-            }
-            .overlay {
-                if phase == .summary { summaryOverlay }
-            }
-        }
+        playerCanvas
         .statusBarHidden()
         .task { await start() }
         // A split or an Adjust leaves clips regenerating. The poll takes the
@@ -575,7 +520,6 @@ struct PlayerTakeover: View {
         .onChange(of: runningScore.games.count) { _, _ in watchGameBoundary() }
         .onDisappear {
             if let observer { player.removeTimeObserver(observer) }
-            if let tapeObserver { player.removeTimeObserver(tapeObserver) }
             for token in clipEndObservers {
                 NotificationCenter.default.removeObserver(token)
             }
@@ -679,6 +623,46 @@ struct PlayerTakeover: View {
         }
     }
 
+    private var playerCanvas: some View {
+        GeometryReader { geo in
+            let landscape = geo.size.width > geo.size.height
+            Group {
+                if mode == .score, phase == .play, landscape {
+                    landscapeScoreLayout(geo)
+                        .overlay { analysisLayer(landscape: true) }
+                } else {
+                    VStack(spacing: 0) {
+                        videoArea(geo)
+                        if mode == .score, phase == .play {
+                            scorePad.overlay { analysisLayer(landscape: false) }
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+            .background(Color.black.ignoresSafeArea())
+            .overlay { whyOverlay }
+            .overlay(alignment: .bottom) { toastOverlay }
+            .overlay {
+                if phase == .summary { summaryOverlay }
+            }
+        }
+    }
+
+    @ViewBuilder var toastOverlay: some View {
+        if let toast {
+            Text(toast)
+                .font(.plCaption)
+                .foregroundStyle(PL.text300)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 7)
+                .background(PL.ink.opacity(0.85), in: Capsule())
+                .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                .padding(.bottom, 96)
+                .transition(.opacity)
+        }
+    }
+
     /// A note without leaving the player: the point on screen is the
     /// subject, and a drawing made a moment ago rides along.
     @ViewBuilder
@@ -765,12 +749,12 @@ struct PlayerTakeover: View {
             // nothing reads as the app having frozen.
             if loadFailed {
                 VStack(spacing: 10) {
-                    Text(source == .original
+                    Text(isOriginal
                          ? "This video couldn't be loaded."
                          : "This video couldn't be played.")
                         .font(.plBody)
                         .foregroundStyle(PL.text300)
-                    Text(source == .original
+                    Text(isOriginal
                          ? "The original may no longer be available. The full video still plays."
                          : "Check your connection and open it again.")
                         .font(.plCaption)
@@ -2962,13 +2946,15 @@ struct PlayerTakeover: View {
     }
 
     func replayTarget() {
-        guard let target = displayTarget, let cutT0 = target.cutT0 else { return }
+        guard let target = displayTarget else { return }
+        let targetTime = highlightManifest?.outputStart(for: target.id) ?? target.cutT0
+        guard let targetTime else { return }
         // Explicitly re-arm: a short rally can be closer to its end than the
         // re-arm dip, and the replay MUST stop at that end again.
         endPauseBlockedId = nil
         endPausedId = nil
         playTail = nil
-        seek(to: cutT0)
+        seek(to: targetTime)
         play()
     }
 
@@ -3111,7 +3097,7 @@ struct PlayerTakeover: View {
         // a second in the wrong file. Both call sites open the original in
         // watch mode; this catches a future one that forgets.
         assert(
-            source == .cut || mode == .watch,
+            isCut || mode == .watch,
             "the original has no cut clock to score against"
         )
         try? AVAudioSession.sharedInstance().setCategory(.playback)
@@ -3142,23 +3128,6 @@ struct PlayerTakeover: View {
         ) { time in
             Task { @MainActor in tick(time.seconds) }
         }
-        // Frame-accurate tape jumps: the periodic tick is 0.2s coarse,
-        // which showed a beat of the next unpicked serve before every
-        // jump. A boundary observer fires exactly when playback passes a
-        // pick's end; tapeMove then names the one hop to make. The tick
-        // above stays as the safety net.
-        if let spans = highlightSpans, !spans.isEmpty {
-            tapeObserver = player.addBoundaryTimeObserver(
-                forTimes: spans.map {
-                    NSValue(time: CMTime(seconds: $0.end,
-                                         preferredTimescale: 600))
-                },
-                queue: .main
-            ) {
-                Task { @MainActor in tapeBoundaryFired() }
-            }
-        }
-
         firstServer = match.firstServer.flatMap(Winner.init(rawValue:))
         prevGamesCount = runningScore.games.count
         if mode == .score {
@@ -3194,7 +3163,7 @@ struct PlayerTakeover: View {
                 showToast(resume)
                 pendingResumeToast = nil
             }
-        } else if let startAt, source == .cut {
+        } else if let startAt, isCut {
             // Cut seconds, every caller of them: a rally's cutT0, a
             // highlight pick's, a resume point. None of them means
             // anything in the original's clock, so the original always
@@ -3203,7 +3172,7 @@ struct PlayerTakeover: View {
                 startAt, spans: deadSpans, firstPointStart: firstPointStart,
                 alwaysToFirst: false
             ))
-        } else if mode == .watch, source == .cut {
+        } else if mode == .watch, isCut {
             // Poster → open with no explicit target: never start inside
             // dead footage. With the leading points deleted (a warm-up),
             // the match opens at the first visible point instead — the
@@ -3272,32 +3241,16 @@ struct PlayerTakeover: View {
         lastTick = t
         if prev == nil { runStartT = t }
 
+        // Automatic highlights are already one continuous output timeline.
+        // No cut-video detours, dead spans, or score pauses apply to it.
+        if isHighlights { return }
+
         // A detour owns the playhead: one card, its own boundary, nothing
         // else — the span skips below are all built on cut positions this
         // clip does not contain.
         if detourId != nil {
             detourTick(t, prev: prev)
             return
-        }
-
-        // THE TAPE OWNS PLAYBACK while highlights are up (2026-08-25).
-        // One authority, one hop: outside a pick, straight to the next
-        // pick's start — never via the deleted-span or let skips below,
-        // whose partial jumps crossed a gap in two or three visible
-        // hops, each showing a beat of an unpicked serve. The boundary
-        // observer (tapeBoundaryFired) does the frame-accurate work;
-        // this is the safety net for resumed playback and scrub landings.
-        if let spans = highlightSpans {
-            switch tapeMove(spans, at: t) {
-            case .stay:
-                break
-            case .jump(let to):
-                seek(to: to)
-            case .end:
-                player.pause()
-                chromeVisible = true
-            }
-            return // nothing below applies while the tape is up
         }
 
         // An insert card's footage is not in this file: playing into its
@@ -3308,7 +3261,6 @@ struct PlayerTakeover: View {
             enterDetour(dp, at: t, andPlay: true)
             return
         }
-
         // Deleted footage is dead in both modes: jump out of it rather than
         // play frames the owner removed. Only during playback — landing
         // inside a span on purpose (a scrub) stays put.
@@ -3535,9 +3487,9 @@ struct PlayerTakeover: View {
     /// own clip and the clip is ready. Ownership is the WYSIWYG resolver's
     /// call — the SAME rule the chip uses — so the surface and the label
     /// can never disagree about whose rally is at t. Never while the
-    /// highlights tape is up: the tape owns playback outright.
+    /// continuous highlights file is up: that file owns playback outright.
     func detourPoint(at t: Double) -> MatchPoint? {
-        guard highlightSpans == nil, !ownClips.isEmpty else { return nil }
+        guard !isHighlights, !ownClips.isEmpty else { return nil }
         guard let id = playingPointId(points, at: t), ownClips.contains(id),
               clipItems[id] != nil else { return nil }
         return points.first { $0.id == id }
@@ -3675,7 +3627,7 @@ struct PlayerTakeover: View {
     /// detour existed. Bracketing runs over model.points, the PHYSICAL
     /// timeline: deleted cards still occupy cut footage.
     func loadOwnClips() async {
-        guard source == .cut else { return }
+        guard isCut else { return }
         let flagged = ownClipIds(
             model.points, pad: pad,
             cutDuration: duration > 0 ? duration : nil
@@ -3709,27 +3661,12 @@ struct PlayerTakeover: View {
         }
     }
 
-    /// The tape's boundary observer fired: playback just passed a pick's
-    /// end. tapeMove names the one hop to make — its 0.01s end epsilon is
-    /// what lets a callback fired exactly AT the end read as outside the
-    /// span, so the jump happens now rather than a tick later.
-    func tapeBoundaryFired() {
-        guard let spans = highlightSpans, isPlaying, !scrubbing else { return }
-        switch tapeMove(spans, at: player.currentTime().seconds) {
-        case .stay:
-            break
-        case .jump(let to):
-            seek(to: to)
-        case .end:
-            player.pause()
-            chromeVisible = true
-        }
-    }
-
     func step(_ direction: Int) {
-        let withStarts = points.filter { $0.cutT0 != nil }
+        let withStarts = cutPoints
         guard !withStarts.isEmpty else { return }
-        let currentId = detourId ?? playingPointId(points, at: currentT)
+        let currentId = highlightManifest?.pointId(at: currentT)
+            ?? detourId
+            ?? playingPointId(points, at: currentT)
         var index: Int
         if let currentId, let i = withStarts.firstIndex(where: { $0.id == currentId }) {
             index = i + direction
@@ -3738,9 +3675,10 @@ struct PlayerTakeover: View {
         }
         index = max(0, min(withStarts.count - 1, index))
         let target = withStarts[index]
-        guard let cutT0 = target.cutT0 else { return }
+        let targetTime = highlightManifest?.outputStart(for: target.id) ?? target.cutT0
+        guard let targetTime else { return }
         endPausedId = nil
-        seek(to: cutT0)
+        seek(to: targetTime)
         play()
         if let n = points.firstIndex(of: target) {
             showFlash(direction > 0 ? "Next · point \(n + 1)" : "Back · point \(n + 1)")

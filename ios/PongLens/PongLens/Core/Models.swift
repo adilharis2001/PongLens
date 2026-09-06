@@ -10,6 +10,83 @@ struct CountRow: Codable, Hashable {
     let count: Int
 }
 
+/// The worker-authored automatic highlight. Clients render this contract;
+/// they never reinterpret the underlying ball evidence or choose rallies.
+struct AutomaticHighlightsResponse: Codable, Hashable {
+    let status: String
+    let url: URL?
+    let durationS: Double?
+    let manifest: AutomaticHighlightManifest?
+
+    var summary: String {
+        switch status {
+        case "ready":
+            guard let manifest, !manifest.points.isEmpty else {
+                return "Highlights unavailable"
+            }
+            let n = manifest.points.count
+            let seconds = Int((durationS ?? manifest.durationS).rounded())
+            return "\(n) \(n == 1 ? "rally" : "rallies") · "
+                + String(format: "%d:%02d", seconds / 60, seconds % 60)
+        case "rendering": return "Preparing highlights"
+        case "empty", "unavailable": return "No highlight rallies"
+        default: return "Highlights unavailable"
+        }
+    }
+}
+
+struct AutomaticHighlightManifest: Codable, Hashable {
+    let v: Int
+    let rule: String
+    let maxSeconds: Double
+    let pointsRevision: String
+    let durationS: Double
+    let points: [AutomaticHighlightPoint]
+
+    enum CodingKeys: String, CodingKey {
+        case v, rule, points
+        case maxSeconds = "max_seconds"
+        case pointsRevision = "points_revision"
+        case durationS = "duration_s"
+    }
+
+    /// During the 0.3-second dissolve the incoming rally owns the overlap.
+    func pointId(at seconds: Double) -> UUID? {
+        var answer: UUID?
+        for point in points {
+            if seconds < point.outputStartS { break }
+            if seconds <= point.outputEndS + 0.01 { answer = point.pointId }
+        }
+        return answer
+    }
+
+    func outputStart(for pointId: UUID) -> Double? {
+        points.first { $0.pointId == pointId }?.outputStartS
+    }
+}
+
+struct AutomaticHighlightPoint: Codable, Hashable {
+    let pointId: UUID
+    let cutStartS: Double
+    let cutEndS: Double
+    let outputStartS: Double
+    let outputEndS: Double
+    let nHits: Int
+    let connectedCrossings: Int
+    let tableBounces: Int
+
+    enum CodingKeys: String, CodingKey {
+        case pointId = "point_id"
+        case cutStartS = "cut_start_s"
+        case cutEndS = "cut_end_s"
+        case outputStartS = "output_start_s"
+        case outputEndS = "output_end_s"
+        case nHits = "n_hits"
+        case connectedCrossings = "connected_crossings"
+        case tableBounces = "table_bounces"
+    }
+}
+
 /// The slice of matches.match_structure (051) the app reads.
 ///
 /// Mirrors src/lib/types.ts MatchStructureEvidence, cut down to what a

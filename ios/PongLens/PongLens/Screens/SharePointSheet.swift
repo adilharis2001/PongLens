@@ -493,10 +493,8 @@ final class StoryShareModel {
         }
     }
 
-    /// One of the automatic cuts — highlight 'story' | 'reel' | 'long'.
-    /// The PICKER runs on the server with the same rule the phone
-    /// previews (Core/Highlights.swift, parity-tested); the phone only
-    /// names the budget. Renders on the worker like every stitched cut.
+    /// A vertical derivative of the canonical automatic highlight. The
+    /// server fits only rallies already qualified by the worker.
     func prepareAuto(match: MatchRow, kind: String,
                      showNames: Bool, showScore: Bool,
                      showLogo: Bool = true) async -> URL? {

@@ -18,7 +18,6 @@ swiftc -O -o "$OUT" \
   "$CORE/Playhead.swift" \
   "$CORE/InsertGeometry.swift" \
   "$CORE/ScoreLogic.swift" \
-  "$CORE/Highlights.swift" \
   "$CORE/CameraGuideGate.swift" \
   "$CORE/SideChanges.swift" \
   "$CORE/SpokenScore.swift" \
@@ -26,6 +25,6 @@ swiftc -O -o "$OUT" \
   "$CORE/Linkify.swift" \
   "$CORE/AllowanceLimit.swift" \
   ScoreLogicTests.swift ServePlacementTests.swift StarredTests.swift \
-  HighlightsTests.swift CameraGuideGateTests.swift \
+  HighlightsTests.swift PlayerTakeoverTests.swift CameraGuideGateTests.swift \
   RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift SpokenScoreTests.swift ScoreCaptureTests.swift LinkifyTests.swift AllowanceRecoveryTests.swift main.swift
 "$OUT"
