@@ -148,17 +148,24 @@ test("the processing card carries live worker state", () => {
       running: 1,
       oldest_wait_s: 10396,
       reporting: true,
+      moving: true,
+      ever_reported: true,
     }),
     { text: "Working · 15 waiting, oldest 2h 53m", attention: true }
   );
+  // A worker that has never reported is a worker this card cannot see.
+  // It used to read "Not reporting" in the accent colour, beside a Mac
+  // Studio that was processing a job at the time.
   assert.deepEqual(
     hubDetail("processing", COUNTS, null, null, {
       queued: 0,
       running: 0,
       oldest_wait_s: 0,
       reporting: false,
+      moving: false,
+      ever_reported: false,
     }),
-    { text: "Not reporting", attention: true }
+    { text: "Status unknown", attention: false }
   );
   assert.equal(hubDetail("processing", COUNTS, null, null, null), null);
 });

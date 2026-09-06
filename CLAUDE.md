@@ -122,13 +122,41 @@ sentences on that kind's very first job. Do not "tidy" that into an
 `unknown` bucket — the ugliness is the notification, and it is the only
 part of this rule that works without anybody remembering it.
 
-**And the worker must keep reporting.** `jobs.progress` is written at a
-handful of milestones and `jobs.updated_at` only moves when a column
-does, so a healthy job can read 20% with a frozen timestamp for three
-hours — identical to a worker that died at the first milestone. The pulse
-thread (`start_pulse_monitor`) is what separates those two, and it is
-best-effort by design: it must never be able to fail a job. Monitoring
+**And the worker must keep reporting.** `jobs.progress` is written by the
+worker at whatever milestones its kind happens to have, so how much
+`jobs.updated_at` tells you depends entirely on the kind: a dead space cut
+advances it about every twenty seconds, and placement writes 5, then 20,
+then 100, so a healthy placement job reads 20% with a frozen timestamp for
+three hours — identical to a worker that died at the first milestone. The
+pulse thread (`start_pulse_monitor`) is what separates those two, and it
+is best-effort by design: it must never be able to fail a job. Monitoring
 that can take down the pipeline is worse than no monitoring.
+
+**Never report a fault you have not got evidence for.** This page's first
+day cost it its credibility: the Mac Studio was cutting dead space at 56
+frames a second, and because it was running code from before the pulse
+existed, the page said "Not reporting" in amber and the owner read it as
+an outage. Three rules came out of that, and they hold for any status
+surface, not just this one:
+
+- **Silence from something that has never spoken is not evidence.** A
+  worker with no pulse row has never once reported, so it cannot have
+  stopped. That is `unconfirmed` — grey, "Status unknown" — and it is a
+  gap in the page, not a fault in the machine. Only a worker that HAS
+  reported and then gone quiet is `silent`, and only that one is amber.
+  The excuse expires on its own: once anything on the machine beats,
+  `pulseProven` turns silence from the other lanes back into a real
+  absence.
+- **The job rows are a second, independent proof of life, and they are
+  asymmetric.** A job whose progress advanced, or that a worker just
+  finished, proves something is running it, because nothing else writes
+  those rows. A job standing still proves nothing at all. Read it one way
+  only. Include finished jobs, or the reading goes false in the seconds
+  between one job ending and the next starting, which is the moment the
+  worker is most obviously working.
+- **Amber is a budget.** Reserve it for the two states that are actually
+  wrong. A status page that cries wolf gets ignored, and then it does not
+  matter how correct the real alarm is.
 
 ---
 

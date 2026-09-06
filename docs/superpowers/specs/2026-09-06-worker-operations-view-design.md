@@ -15,6 +15,12 @@ because production said so:
    running code from before the pulse existed — and the page names that
    rather than picking one. It is also the honest state of the Mac worker
    until its next restart, since the daemon loads its checkout at startup.
+
+   **Superseded the same day.** Naming the ambiguity was not enough: shown
+   in amber beside a Mac Studio that was cutting dead space at 56 frames a
+   second, "Not reporting" read as an outage, and Adil reasonably took it
+   for one. Replaced by two states and a second source of evidence — see
+   the revision below.
 2. **The pulse carries the machine's load average and core count.** Adil's
    own question on the day was why a job was stuck, and his guess was
    right: three research scripts from another session held 1700% CPU at
@@ -338,3 +344,50 @@ busy case can be observed rather than staged.
   with a similar name.
 - **The fast lane stays off.** This page will make the case for turning it
   on plain, and that is a decision for Adil once he can see the cost.
+
+---
+
+## Revision, 2026-09-06 evening: saying "healthy" when it is healthy
+
+Migration `20260906195000_processing_counts_liveness`.
+
+The page was correct and still misled its only reader, which is the same
+thing as being wrong. `Not reporting`, in the accent colour, described a
+worker that was working perfectly. Two changes, and the second is the one
+that matters.
+
+**Silence is only evidence if the thing has spoken before.** `Not
+reporting` split in two. A worker with a pulse row that has gone quiet
+while holding a job is `silent` — "Not responding", amber, a real alarm. A
+worker with no row at all has never reported and therefore cannot have
+stopped; it is `unconfirmed` — "Status unknown", grey, a gap in the page
+rather than a fault in the machine. The excuse is not permanent: once
+anything on the machine beats, `pulseProven` is true and silence from the
+other lanes becomes a real absence again, so the fast lane still shows as
+an outage the moment it is routed work with nothing draining it.
+
+**The job rows are a second, independent proof of life.** A job whose
+progress advanced, or one a worker has just finished or failed, proves
+something is running — nothing else writes those rows. Measured on the
+day: `deadspace_cut` advances `progress` every twenty seconds or so, while
+`placement_generate` writes 5, 20, 100 and stands still for hours. So the
+signal is strictly one-directional. Movement proves life. Stillness proves
+nothing, and must never be read as proof of death.
+
+That is enough to say "Working" today, before the worker has ever been
+restarted: the page reads the kind and the person from the job row, shows
+the percentage, and states plainly where the claim came from — "Confirmed
+by the job's own progress rather than by the worker." An inference is
+never allowed to read as a report.
+
+Consequences elsewhere:
+
+- The in-flight callout now fires only on jobs that are unclaimed **and**
+  standing still. Before, it warned about every job a non-reporting worker
+  was busily processing.
+- Finished jobs count as movement. Restricted to jobs in flight, the hub
+  card flicked into an alarm for the few seconds between one job ending
+  and the next starting — the exact moment the worker was most obviously
+  working.
+- Amber is now spent only on `silent` and `not-running`. `off` and
+  `unconfirmed` are grey.

@@ -264,12 +264,23 @@ its own daemon thread on its own connection (`start_pulse_monitor`). The
 admin page at **https://www.ponglens.com/admin/processing** is the only
 reader.
 
-**Why it exists.** The job row cannot answer "is the worker alive".
-`jobs.progress` is written at a handful of milestones — `placement_generate`
-writes 5, then 20, then 100 — and `jobs.updated_at` only moves when a
-column does. So a placement job that is running perfectly reads 20% with a
-timestamp three hours old, and a worker that crashed at the first milestone
-looks exactly the same. Only the process itself can tell those apart.
+**Why it exists.** The job row cannot always answer "is the worker alive".
+How much it tells you depends on the kind: a `deadspace_cut` advances
+`jobs.progress` about every twenty seconds, but `placement_generate` writes
+5, then 20, then 100, and `jobs.updated_at` only moves when a column does.
+So a placement job that is running perfectly reads 20% with a timestamp
+three hours old, and a worker that crashed at the first milestone looks
+exactly the same. Only the process itself can tell those apart.
+
+**Until a worker is restarted onto code that beats, it does not appear
+here, and the page says so honestly.** A worker with no row has never
+reported, which is not the same as having stopped, so the page reads
+"Status unknown" in grey rather than raising an alarm. It falls back to the
+job rows for evidence: a job advancing its progress, or one just finished,
+proves a worker is running even though this table is empty. That fallback
+is one-directional — movement proves life, stillness proves nothing — and
+the page must never be changed to read it the other way. The full rule is
+in `CLAUDE.md`, "Never report a fault you have not got evidence for".
 
 **What a beat carries:** the lane, the pid, the commit the daemon loaded,
 when the process started, the job and its kind, the stage, the counter

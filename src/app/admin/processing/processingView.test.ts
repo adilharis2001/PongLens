@@ -14,11 +14,29 @@ import {
   sourceName,
   stageLabel,
   throughputSummary,
+  stalledRunning,
   waitingRows,
   workerState,
+  type ProcessingCounts,
   type ProcessingOverview,
+  type RunningJob,
   type WorkerPulse,
 } from "./processingView.ts";
+
+/** A job in flight. `updated_at` is what says whether it is moving. */
+function job(over: Partial<RunningJob> = {}): RunningJob {
+  return {
+    id: "job-1",
+    kind: "deadspace_cut",
+    created_at: ago(3600),
+    updated_at: ago(5),
+    progress: 32,
+    original_name: null,
+    match_id: null,
+    player: "Anton Berman",
+    ...over,
+  };
+}
 
 const NOW = new Date("2026-09-06T19:00:00Z");
 const ago = (s: number) => new Date(NOW.getTime() - s * 1000).toISOString();
@@ -69,7 +87,7 @@ test("a beating worker with a job is working, without one is idle", () => {
   assert.equal(workerState(pulse(), { now: NOW }), "idle");
 });
 
-test("silence past the beat window is not running", () => {
+test("silence past the beat window, from a worker that HAS spoken, is not running", () => {
   const stale = pulse({ beat_at: ago(BEAT_STALE_S + 1) });
   assert.equal(workerState(stale, { now: NOW }), "not-running");
   assert.equal(
@@ -78,27 +96,44 @@ test("silence past the beat window is not running", () => {
   );
 });
 
-// The failure this page exists to show. A worker that has never checked
-// in has no row at all, and "no row" must read as an outage, not as a
-// blank space.
-test("a worker that has never spoken is not running", () => {
-  assert.equal(workerState(null, { now: NOW }), "not-running");
-});
-
-// Silence WITH a job in flight is genuinely ambiguous — dead mid-job, or
-// running code from before the pulse existed — and gets its own state
-// rather than being guessed either way.
-test("silence while a job is in flight is not-reporting, not not-running", () => {
+// The distinction the first version of this page got wrong. A worker that
+// has never sent a beat cannot have "stopped", so its silence says
+// nothing about its health and must not be reported as though it did.
+test("a worker that has never spoken is unconfirmed, not an outage", () => {
+  assert.equal(workerState(null, { now: NOW }), "unconfirmed");
   assert.equal(
     workerState(null, { now: NOW, jobInFlight: true }),
-    "not-reporting",
+    "unconfirmed",
   );
+});
+
+// Whereas a worker that WAS beating and went quiet holding a job is the
+// real alarm, and keeps it.
+test("a worker that reported and went quiet mid-job is silent", () => {
   assert.equal(
     workerState(pulse({ beat_at: ago(600), job_id: "j" }), {
       now: NOW,
       jobInFlight: true,
     }),
-    "not-reporting",
+    "silent",
+  );
+});
+
+// Proof of life that does not need the worker's cooperation: if the job it
+// is holding is advancing its own progress, something is running it.
+test("a moving job proves a non-reporting worker is working", () => {
+  assert.equal(
+    workerState(null, { now: NOW, jobInFlight: true, jobMoving: true }),
+    "working",
+  );
+  // And it outranks the alarm, for the same reason.
+  assert.equal(
+    workerState(pulse({ beat_at: ago(600), job_id: "j" }), {
+      now: NOW,
+      jobInFlight: true,
+      jobMoving: true,
+    }),
+    "working",
   );
 });
 
@@ -124,18 +159,33 @@ test("every expected process gets a row, spoken for or not", () => {
     "lesson:cloud",
     "modal:main",
   ]);
-  assert.equal(rows[0].state, "not-running");
+  // Nothing on the Mac has ever reported in this fixture, so the page is
+  // blind rather than looking at an outage, and says the honest thing.
+  assert.equal(rows[0].state, "unconfirmed");
 });
 
 test("the unrouted fast lane is off, and the main lane never is", () => {
   const rows = buildWorkerRows(overview({ reclip_lane: "main" }), NOW);
   assert.equal(rows.find((r) => r.key === "mac:fast")?.state, "off");
-  assert.equal(rows.find((r) => r.key === "mac:main")?.state, "not-running");
+  assert.notEqual(rows.find((r) => r.key === "mac:main")?.state, "off");
 });
 
+// Once the machine is demonstrably reporting, silence from a lane that
+// work is being ROUTED to is a real outage: jobs are going into a queue
+// nobody is draining. The main lane beating is what removes the excuse.
 test("a routed fast lane with nothing draining it is an outage, not off", () => {
-  const rows = buildWorkerRows(overview({ reclip_lane: "fast" }), NOW);
+  const rows = buildWorkerRows(
+    overview({ reclip_lane: "fast", workers: [pulse({ worker_id: "mac:main" })] }),
+    NOW,
+  );
   assert.equal(rows.find((r) => r.key === "mac:fast")?.state, "not-running");
+});
+
+// ...but before anything has ever reported, the page cannot tell, and
+// must not claim an outage it has no evidence for.
+test("a routed fast lane on a silent machine is unconfirmed, not an outage", () => {
+  const rows = buildWorkerRows(overview({ reclip_lane: "fast" }), NOW);
+  assert.equal(rows.find((r) => r.key === "mac:fast")?.state, "unconfirmed");
 });
 
 // A new lane has to appear on its own first beat, without this file being
@@ -331,36 +381,162 @@ test("machine load is only mentioned when it explains something", () => {
 
 /* ------------------------------------------------------------------- hub */
 
-test("the hub card says working, waiting, or silent", () => {
+const counts = (over: Partial<ProcessingCounts> = {}): ProcessingCounts => ({
+  queued: 0,
+  running: 0,
+  oldest_wait_s: 0,
+  reporting: true,
+  moving: false,
+  ever_reported: true,
+  ...over,
+});
+
+test("the hub card says working, waiting, or idle", () => {
   assert.deepEqual(
-    processingHubDetail({ queued: 3, running: 1, oldest_wait_s: 60, reporting: true }),
+    processingHubDetail(counts({ queued: 3, running: 1, oldest_wait_s: 60 })),
     { text: "Working · 3 waiting", attention: false },
   );
+  assert.deepEqual(processingHubDetail(counts()), {
+    text: "Idle",
+    attention: false,
+  });
   assert.deepEqual(
-    processingHubDetail({ queued: 0, running: 0, oldest_wait_s: 0, reporting: true }),
-    { text: "Idle", attention: false },
-  );
-  assert.deepEqual(
-    processingHubDetail({
-      queued: 15,
-      running: 1,
-      oldest_wait_s: 10396,
-      reporting: true,
-    }),
+    processingHubDetail(counts({ queued: 15, running: 1, oldest_wait_s: 10396 })),
     { text: "Working · 15 waiting, oldest 2h 53m", attention: true },
   );
 });
 
-// Silence is the one the hub has to shout about, because it is the only
-// state that might mean nobody's uploads are being processed at all.
-test("a silent worker raises attention on the hub", () => {
+// The false alarm that started all of this. Nothing beating, but a job
+// visibly advancing: that is a working platform, and the card said the
+// platform was down.
+test("a moving job reads as Working on the hub even with nothing reporting", () => {
   assert.deepEqual(
-    processingHubDetail({ queued: 15, running: 1, oldest_wait_s: 9, reporting: false }),
-    { text: "Not reporting · 1 job in flight", attention: true },
+    processingHubDetail(
+      counts({ queued: 14, running: 1, reporting: false, moving: true, ever_reported: false }),
+    ),
+    { text: "Working · 14 waiting", attention: false },
+  );
+});
+
+// A worker that HAS reported before and has gone quiet is the real alarm.
+test("a worker that stopped responding raises attention on the hub", () => {
+  assert.deepEqual(
+    processingHubDetail(counts({ queued: 15, running: 1, reporting: false })),
+    { text: "Not responding · 1 in flight · 15 waiting", attention: true },
+  );
+});
+
+// One that has never reported gets a different sentence, and no alarm at
+// all when there is nothing waiting on it.
+test("a worker that never reported reads as unknown, not as down", () => {
+  assert.deepEqual(
+    processingHubDetail(counts({ reporting: false, ever_reported: false })),
+    { text: "Status unknown", attention: false },
   );
   assert.deepEqual(
-    processingHubDetail({ queued: 0, running: 0, oldest_wait_s: 0, reporting: false }),
-    { text: "Not reporting", attention: true },
+    processingHubDetail(counts({ queued: 15, running: 1, reporting: false, ever_reported: false })),
+    { text: "Status unknown · 1 in flight · 15 waiting", attention: true },
   );
   assert.equal(processingHubDetail(null), null);
+});
+
+/* ------------------------------------------------- working without a beat */
+
+// The state of the world on 2026-09-06: the Mac Studio was cutting dead
+// space at 56 frames a second while sending no heartbeat at all, because
+// it was running code from before heartbeats existed. The page said "Not
+// reporting" in amber and the owner read it as an outage.
+test("a non-reporting worker with a moving job reads as working", () => {
+  const rows = buildWorkerRows(
+    overview({ running: [job()] }),
+    NOW,
+  );
+  const main = rows.find((r) => r.key === "mac:main");
+  assert.equal(main?.state, "working");
+  assert.match(main?.detail ?? "", /Match processing/);
+  assert.match(main?.detail ?? "", /Anton Berman/);
+  // And it says where that came from, so an inference never reads as a
+  // report from the worker itself.
+  assert.match(main?.caveat ?? "", /the job's own progress/);
+  assert.equal(main?.pct, 32);
+});
+
+// The same worker with a job that has stopped moving: back to the honest
+// "cannot tell", because a still job proves nothing either way.
+test("a still job leaves a never-reporting worker unconfirmed", () => {
+  const rows = buildWorkerRows(
+    overview({ running: [job({ updated_at: ago(3600) })] }),
+    NOW,
+  );
+  const main = rows.find((r) => r.key === "mac:main");
+  assert.equal(main?.state, "unconfirmed");
+  assert.match(main?.caveat ?? "", /restarted/);
+});
+
+test("the stalled callout ignores jobs that are moving", () => {
+  // Moving: nothing to warn about, however long it has been running.
+  assert.equal(stalledRunning(overview({ running: [job()] }), NOW).length, 0);
+  // Standing still with nothing reporting: this is the one worth a look.
+  assert.equal(
+    stalledRunning(
+      overview({ running: [job({ updated_at: ago(3600) })] }),
+      NOW,
+    ).length,
+    1,
+  );
+});
+
+// Between one job ending and the next being claimed there is nothing in
+// flight to point at, and the row would sit at "cannot tell" every time
+// the worker got something done. A job finishing IS a worker writing to
+// the database, so the row says so.
+test("a recent completion is offered as evidence on an unconfirmed row", () => {
+  const rows = buildWorkerRows(
+    overview({
+      recent: [
+        {
+          id: "f1",
+          kind: "content_check",
+          status: "done",
+          created_at: ago(300),
+          updated_at: ago(40),
+          error: null,
+          user_message: null,
+          original_name: null,
+          match_id: null,
+          player: null,
+        },
+      ],
+    }),
+    NOW,
+  );
+  const main = rows.find((r) => r.key === "mac:main");
+  assert.equal(main?.state, "unconfirmed");
+  assert.match(main?.caveat ?? "", /finished a job 40s ago, so a worker is running/);
+});
+
+// A cancellation is written by the app, not by a worker, so it proves
+// nothing about whether one is alive.
+test("a cancellation is not evidence that a worker is running", () => {
+  const rows = buildWorkerRows(
+    overview({
+      recent: [
+        {
+          id: "f1",
+          kind: "reclip",
+          status: "cancelled",
+          created_at: ago(300),
+          updated_at: ago(10),
+          error: null,
+          user_message: null,
+          original_name: null,
+          match_id: null,
+          player: null,
+        },
+      ],
+    }),
+    NOW,
+  );
+  const main = rows.find((r) => r.key === "mac:main");
+  assert.doesNotMatch(main?.caveat ?? "", /so a worker is running/);
 });

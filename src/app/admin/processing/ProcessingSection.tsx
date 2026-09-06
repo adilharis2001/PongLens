@@ -14,7 +14,7 @@ import {
   secondsBetween,
   sourceName,
   throughputSummary,
-  unclaimedRunning,
+  stalledRunning,
   waitingRows,
   type ProcessingOverview,
   type WorkerRow,
@@ -28,20 +28,32 @@ const REFRESH_MS = 10_000;
 const STATE_LABEL: Record<WorkerState, string> = {
   working: "Working",
   idle: "Idle",
-  "not-reporting": "Not reporting",
+  silent: "Not responding",
+  // Deliberately not "Not reporting": that read as a fault to the one
+  // person this page is for, next to a Mac Studio that was working
+  // perfectly. This says what is true — the page cannot see it — and
+  // leaves the alarm to the state that has earned it.
+  unconfirmed: "Status unknown",
   "not-running": "Not running",
   off: "Off",
 };
 
 /**
- * Off is grey and Not running is amber, deliberately. A lane switched off
- * is a decision; a lane that should be running and is not is an outage,
- * and the two must never look the same at a glance.
+ * Amber is reserved for the two states that are actually wrong: a worker
+ * that was reporting and stopped, and one that should be running and is
+ * not. Everything else is grey.
+ *
+ * Off is grey because a lane switched off is a decision. Status unknown is
+ * grey for the same kind of reason: the page cannot see the worker, which
+ * is a gap in the page, not a fault in the machine. Colouring it amber
+ * made a healthy Mac Studio look broken, which is worse than saying
+ * nothing at all — a status page that cries wolf stops being read.
  */
 const STATE_DOT: Record<WorkerState, string> = {
   working: "bg-cyan-glow",
   idle: "bg-zinc-500",
-  "not-reporting": "bg-amber-400",
+  silent: "bg-amber-400",
+  unconfirmed: "bg-zinc-500",
   "not-running": "bg-amber-400",
   off: "bg-zinc-700",
 };
@@ -49,7 +61,8 @@ const STATE_DOT: Record<WorkerState, string> = {
 const STATE_TEXT: Record<WorkerState, string> = {
   working: "text-cyan-glow",
   idle: "text-zinc-400",
-  "not-reporting": "text-amber-300",
+  silent: "text-amber-300",
+  unconfirmed: "text-zinc-400",
   "not-running": "text-amber-300",
   off: "text-zinc-600",
 };
@@ -90,6 +103,10 @@ function WorkerCard({ row }: { row: WorkerRow }) {
       </div>
 
       <p className="mt-1.5 pl-4 text-sm text-zinc-300">{row.detail}</p>
+
+      {row.caveat && (
+        <p className="mt-1 pl-4 text-sm text-zinc-500">{row.caveat}</p>
+      )}
 
       {row.pct !== null && (
         <div className="mt-2 ml-4 h-1 overflow-hidden rounded-full bg-surface-2">
@@ -185,7 +202,7 @@ export function ProcessingSection() {
   const now = new Date();
   const workers = buildWorkerRows(doc, now);
   const waiting = waitingRows(doc, now);
-  const orphaned = unclaimedRunning(doc, now);
+  const stalled = stalledRunning(doc, now);
 
   return (
     <>
@@ -204,21 +221,23 @@ export function ProcessingSection() {
         ))}
       </ul>
 
-      {orphaned.length > 0 && (
+      {stalled.length > 0 && (
         <div className="mt-3 overflow-hidden rounded-2xl border border-amber-400/25 bg-surface">
           <div className="px-4 py-4 sm:px-5">
             <p className="text-sm font-semibold text-amber-300">
-              {orphaned.length === 1
-                ? "One job is marked in flight with nothing reporting behind it."
-                : `${orphaned.length} jobs are marked in flight with nothing reporting behind them.`}
+              {stalled.length === 1
+                ? "One job is marked in flight and has not moved."
+                : `${stalled.length} jobs are marked in flight and have not moved.`}
             </p>
             <p className="mt-1 text-sm text-zinc-400">
-              The percentage below is written at a few milestones and then
-              stands still, so it cannot tell you whether this is running or
-              stopped. Only a worker reporting itself can.
+              Nothing is reporting behind them and their progress has stood
+              still for a few minutes. On some kinds of job that is normal:
+              placement writes its percentage three times and can sit at 20%
+              for hours while it works. So this is worth a look, not an
+              answer.
             </p>
             <ul className="mt-3 space-y-2">
-              {orphaned.map((job) => (
+              {stalled.map((job) => (
                 <li key={job.id} className="text-sm text-zinc-300">
                   <Kind kind={job.kind} />
                   {job.player && (
