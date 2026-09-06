@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Supabase
 
 /// Cutting a point's clip file on the phone (spec 2026-09-06, step 5).
 ///
