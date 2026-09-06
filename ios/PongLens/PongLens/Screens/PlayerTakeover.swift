@@ -271,6 +271,16 @@ struct PlayerTakeover: View {
     @State var draftThem = ""
 
     @State var chipPill: UUID?
+
+    /// The chip the strip is asked to keep centred. Driven by the target,
+
+    /// never read back: a declarative scroll position is applied once the
+
+    /// strip has a layout and re-applied when its content changes, which
+
+    /// is exactly what the old scrollTo-after-a-delay could not promise.
+
+    @State private var stripScrollId: UUID?
     @State var removedArmed: UUID?
     /// The seam the "Add a missing rally" sheet is open on.
     @State var insertSeam: InsertSeamPair?
@@ -2179,8 +2189,7 @@ struct PlayerTakeover: View {
             enabled: app.gameEndDetection,
             scoredType: tracksServe
         )
-        return ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
+        return ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(Array(points.enumerated()), id: \.element.id) { i, p in
                         if p.cutT0 != nil {
@@ -2227,33 +2236,30 @@ struct PlayerTakeover: View {
                 }
                 .padding(.vertical, 5)
                 .padding(.horizontal, 2)
+                .scrollTargetLayout()
             }
-            .onChange(of: targetId) { _, id in
-                guard let id else { return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-                    proxy.scrollTo(id, anchor: .center)
-                }
+            // Centring, third attempt, and the reason the first two did not
+            // hold: ScrollViewReader.scrollTo is a one-shot request that is
+            // silently dropped if the chip has no layout yet — and at open
+            // the strip sits inside a full-screen cover that is still
+            // animating in, so a 0.2 s delay was a guess that lost on a
+            // slow device, a long match, or a run of removed dots pushing
+            // the chip off screen (the screenshot: nine dots, chip 1 out of
+            // view). Nothing retried, so a miss was permanent.
+            //
+            // scrollPosition is a declared position, not a request: the
+            // scroll view lands on it once it has a layout and keeps it
+            // there through content changes — a restore, an insert, a
+            // divider appearing. Set from the target, never read back, so a
+            // manual scroll is left alone until the target moves, which is
+            // the web pad's contract too.
+            .scrollPosition(id: $stripScrollId, anchor: .center)
+            .onAppear { stripScrollId = targetId }
+            .onChange(of: targetId) { _, id in stripScrollId = id }
+            .onChange(of: points.count) { _, _ in stripScrollId = targetId }
+            .onChange(of: removed.values.reduce(0) { $0 + $1.count }) { _, _ in
+                stripScrollId = targetId
             }
-            // ALSO on appear. onChange alone never fires for the target the
-            // strip opens with, so Keep score always opened scrolled to the
-            // left. That was invisible while a deleted point left a 10pt
-            // dot behind; at 36pt a run of deletions at the front of a match
-            // pushes the current chip clean off screen, which is how it
-            // surfaced. Same for the count changing under it — inserting a
-            // card or restoring a point moves everything along.
-            .onAppear {
-                guard let id = targetId else { return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    proxy.scrollTo(id, anchor: .center)
-                }
-            }
-            .onChange(of: points.count) { _, _ in
-                guard let id = targetId else { return }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    proxy.scrollTo(id, anchor: .center)
-                }
-            }
-        }
     }
 
     /// Deleted points, keyed by the visible chip they sat BEFORE (nil for
