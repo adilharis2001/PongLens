@@ -227,7 +227,6 @@ export const playerGuides: Guide[] = [
           { src: "/learn/restore-rally-d.jpg", alt: "The Add a missing rally sheet on a genuine gap in the source video", kind: "d" },
           { src: "/learn/restore-rally-m.jpg", alt: "Missing-rally restoration controls on a phone", kind: "m", phoneTwin: true },
         ],
-        tip: "A corrected clip can briefly show an updating state while PongLens prepares it.",
       },
     ],
   },

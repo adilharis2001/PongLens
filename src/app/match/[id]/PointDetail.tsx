@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BetaPill } from "@/components/BetaPill";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point, Tag } from "@/lib/types";
 import { Annotator } from "./Annotator";
 import { clipPad } from "./clipEdit";
+import { paddedEnd } from "./playhead";
 import { ClipPlayer } from "./ClipPlayer";
 import { ModifyClip } from "./ModifyClip";
 import { gameBoundaryAction, type GameEndOverride } from "./gameScore";
@@ -261,37 +262,73 @@ export function PointDetail({
 
   const pad = clipPad(strictness, clipPads);
   const hasTiming = point.t0 !== null && point.t1 !== null;
-  // A reclip is in flight for this point: the clip on screen no longer
-  // matches t0/t1, so stacking further timing edits on it would be editing
-  // blind. The Modify modal's Adjust locks (its own copy explains why)
-  // until the worker clears `edited`; MatchView's pending-clips poll
-  // refreshes the flag every ~8s, so the lock releases on its own.
-  const clipLocked = point.edited;
+
+  // Source rule (spec 2026-09-06, step 1): a point whose clip file is
+  // stale (`edited`) or missing plays from the CUT video, windowed to its
+  // own padded span, so the picture is right the moment the timing is
+  // saved and nothing on this screen waits for the worker. Decided when
+  // the point opens (this component is keyed by point id), flipped to the
+  // cut the moment an edit is made here, and the fresh file swaps back in
+  // on the next open — never under a playing rally.
+  const canWindow = point.cut_t0 !== null;
+  const [playFromCut, setPlayFromCut] = useState(
+    () => canWindow && (point.edited || !point.clip_path)
+  );
+  useEffect(() => {
+    if (point.edited && canWindow) setPlayFromCut(true);
+  }, [point.edited, canWindow]);
+  const cutWindow = useMemo(() => {
+    if (point.cut_t0 === null) return null;
+    const start = Number(point.cut_t0);
+    return { start, end: paddedEnd(point, pad) ?? start + 10 };
+  }, [point, pad]);
+
+  // The cut video's link, shared by the windowed player above and the
+  // Modify modal (which plays the cut because a point's context extends
+  // past its own clip file). Fetched once, on first need.
+  const [cutUrl, setCutUrl] = useState<string | null>(null);
+  const cutUrlPending = useRef(false);
+  const ensureCutUrl = useCallback(async () => {
+    if (cutUrlPending.current) return;
+    cutUrlPending.current = true;
+    try {
+      const res = await fetch("/api/media-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId, preview: true }),
+      });
+      const data = res.ok ? await res.json() : null;
+      if (data?.url) setCutUrl(data.url);
+    } catch {
+      // The player and the modal show their own Loading state until a retry.
+    } finally {
+      cutUrlPending.current = false;
+    }
+  }, [matchId]);
+  useEffect(() => {
+    if (playFromCut && !cutUrl) void ensureCutUrl();
+  }, [playFromCut, cutUrl, ensureCutUrl]);
+  // The six-hour cut link failing mid-session: one fresh link, then a
+  // real error.
+  const cutReminted = useRef(false);
+  const onCutMediaError = useCallback(() => {
+    if (cutReminted.current) {
+      setVideoError("Couldn't load the clip. Try again.");
+      return;
+    }
+    cutReminted.current = true;
+    setCutUrl(null);
+    void ensureCutUrl();
+  }, [ensureCutUrl]);
 
   // The Modify modal — the SAME component the Keep-score pad opens, so
-  // split/join/adjust behave identically from either surface. It plays the
-  // CUT video (a point's context extends past its own clip file), fetched
-  // lazily on first open and kept for the sheet's lifetime.
+  // split/join/adjust behave identically from either surface.
   const [modifyOpen, setModifyOpen] = useState(false);
   const [modifyBusy, setModifyBusy] = useState(false);
-  const [cutUrl, setCutUrl] = useState<string | null>(null);
   const openModify = useCallback(() => {
     setModifyOpen(true);
-    if (cutUrl) return;
-    void (async () => {
-      try {
-        const res = await fetch("/api/media-url", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ matchId, preview: true }),
-        });
-        const data = res.ok ? await res.json() : null;
-        if (data?.url) setCutUrl(data.url);
-      } catch {
-        // The modal shows its own Loading state until a retry.
-      }
-    })();
-  }, [cutUrl, matchId]);
+    if (!cutUrl) void ensureCutUrl();
+  }, [cutUrl, ensureCutUrl]);
 
   // Inline confirm for "Delete all before" (no browser confirm()). Keyed
   // mount (key={point.id}) resets it whenever the point changes.
@@ -533,7 +570,23 @@ export function PointDetail({
         data-peek="clip"
         className="relative overflow-hidden rounded-xl border border-edge bg-ink"
       >
-        {videoUrl ? (
+        {playFromCut && cutWindow ? (
+          cutUrl ? (
+            <ClipPlayer
+              src={cutUrl}
+              range={cutWindow}
+              videoElRef={clipVideoRef}
+              startPaused={startPaused}
+              onMediaError={onCutMediaError}
+            />
+          ) : videoError ? (
+            <p className="p-6 text-center text-sm text-red-300">{videoError}</p>
+          ) : (
+            <div className="flex aspect-video items-center justify-center">
+              <p className="text-sm text-zinc-500">Loading clip…</p>
+            </div>
+          )
+        ) : videoUrl ? (
           <ClipPlayer
             src={videoUrl}
             videoElRef={clipVideoRef}
@@ -556,7 +609,7 @@ export function PointDetail({
             <p className="text-sm text-zinc-500">Loading clip…</p>
           </div>
         )}
-        {videoUrl && point.edited && (
+        {!playFromCut && videoUrl && point.edited && (
           <span className="pointer-events-none absolute right-2 top-2 animate-pulse rounded-full border border-cyan-glow/40 bg-ink/80 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-cyan-glow">
             Updating clip
           </span>
@@ -966,7 +1019,6 @@ export function PointDetail({
                   setModifyOpen(false);
                 });
               }}
-              adjustLocked={clipLocked}
             />
           </div>,
           document.body

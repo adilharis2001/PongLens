@@ -187,8 +187,7 @@
             "Join neighboring clips when one rally was cut into separate pieces.",
             "Remove warm-up, dead space, or footage that is not a point.",
             "Open the original match and put back a missed rally when the cut left it out."
-          ],
-          "tip": "A corrected clip can briefly show an updating state while PongLens prepares it."
+          ]
         }
       ]
     },

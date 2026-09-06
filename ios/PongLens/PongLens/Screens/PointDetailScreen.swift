@@ -21,6 +21,14 @@ struct PointDetailScreen: View {
     /// Keyed by point AND file path: a re-cut writes a fresh key, so the
     /// old link must not keep serving the old footage once the badge drops.
     @State private var clipURLs: [String: URL] = [:]
+    /// The whole cut video, signed once per screen, for a point whose clip
+    /// file is stale or missing (see usesCut).
+    @State private var cutURL: URL?
+    /// Points shown from the cut video this session. A point joins when
+    /// it is opened with a stale or missing file, or the moment it is
+    /// edited here; it leaves only when it is opened again later, so the
+    /// worker's file never swaps in under a playing rally.
+    @State private var cutSource: Set<UUID> = []
     @State private var player = AVPlayer()
     @State private var shareSheetOpen = false
     @State private var tagPickerOpen = false
@@ -129,17 +137,18 @@ struct PointDetailScreen: View {
                         VStack(alignment: .leading, spacing: 16) {
                             ClipPlayerView(
                                 player: player,
-                                url: clipURLs[clipKey(point)],
+                                url: usesCut(point) ? cutURL : clipURLs[clipKey(point)],
                                 starred: point.starred,
                                 tagged: !tagsStore.tags(for: point.id).isEmpty,
-                                updating: point.edited,
+                                updating: !usesCut(point) && point.edited,
                                 hasPrev: index > 0,
                                 hasNext: index < points.count - 1,
                                 canEdit: isOwner,
                                 onStar: { Task { await model.toggleStar(point) } },
                                 onTag: { tagPickerOpen = true },
                                 onPrev: { index = max(0, index - 1) },
-                                onNext: { index = min(points.count - 1, index + 1) }
+                                onNext: { index = min(points.count - 1, index + 1) },
+                                window: usesCut(point) ? cutWindow(point) : nil
                             )
                             actionBar(point)
                             // Scored types only: a practice point has no
@@ -169,6 +178,7 @@ struct PointDetailScreen: View {
             confirmingBefore = false
             addingReason = false
             clearPendingImage()
+            if let point { await chooseSource(point) }
             await loadClip()
             // A timing edit made from this screen used to leave the badge
             // and the Adjust lock up until the match was reopened: only the
@@ -185,6 +195,14 @@ struct PointDetailScreen: View {
         // learns the path, so the fresh footage plays without a reopen.
         .onChange(of: point?.clipPath) { _, _ in
             Task { await loadClip() }
+        }
+        // An edit made from this screen: play the new window from the cut
+        // video straight away rather than the file it just made stale.
+        .onChange(of: point?.edited) { _, edited in
+            if edited == true, let point, point.cutT0 != nil {
+                cutSource.insert(point.id)
+                Task { await loadCutURL() }
+            }
         }
         .sheet(isPresented: $shareSheetOpen) {
             if let point {
@@ -884,7 +902,7 @@ struct PointDetailScreen: View {
                             .buttonStyle(.plain)
                     }
                 }
-            } else if clipURLs[clipKey(point)] != nil {
+            } else if (usesCut(point) ? cutURL : clipURLs[clipKey(point)]) != nil {
                 Button {
                     captureFrame()
                 } label: {
@@ -958,6 +976,43 @@ struct PointDetailScreen: View {
 
     private func clipKey(_ point: MatchPoint) -> String {
         point.id.uuidString + "|" + (point.clipPath ?? "")
+    }
+
+    /// Source rule (spec 2026-09-06, step 1): a point whose clip file is
+    /// stale (`edited`) or missing plays from the cut video, windowed to
+    /// its own padded span; a current file plays as before.
+    private func usesCut(_ point: MatchPoint) -> Bool {
+        cutSource.contains(point.id) && point.cutT0 != nil
+    }
+
+    private func cutWindow(_ point: MatchPoint) -> (start: Double, end: Double)? {
+        guard let cutT0 = point.cutT0 else { return nil }
+        return (cutT0, paddedEnd(point, pad) ?? cutT0 + 10)
+    }
+
+    private func chooseSource(_ point: MatchPoint) async {
+        if point.edited || point.clipPath == nil, point.cutT0 != nil {
+            cutSource.insert(point.id)
+            await loadCutURL()
+        } else {
+            cutSource.remove(point.id)
+        }
+    }
+
+    private func loadCutURL() async {
+        guard cutURL == nil else { return }
+        struct Req: Encodable {
+            let matchId: String
+            let preview: Bool
+        }
+        struct Res: Decodable { let url: String? }
+        let res: Res? = try? await API.post(
+            "api/media-url",
+            Req(matchId: match.id.uuidString.lowercased(), preview: true)
+        )
+        if let url = res?.url.flatMap(URL.init) {
+            cutURL = url
+        }
     }
 
     private func loadClip() async {
@@ -1102,6 +1157,11 @@ struct ClipPlayerView: View {
     /// The clip finished. A sequence viewer advances here; the point sheet
     /// passes nothing and the clip simply rests on its last frame.
     var onEnded: (() -> Void)?
+    /// Play only this stretch of the file, in seconds. The point sheet
+    /// hands the whole cut video here with the point's own window when its
+    /// clip file is stale or missing: the picture is right the moment the
+    /// timing is saved, and the file catches up in the background.
+    var window: (start: Double, end: Double)? = nil
 
     @State private var progress: Double = 0
     @State private var muted = false
@@ -1168,6 +1228,15 @@ struct ClipPlayerView: View {
                     queue: .main
                 ) { time in
                     Task { @MainActor in
+                        if let window {
+                            let length = max(0.01, window.end - window.start)
+                            progress = min(1, max(0, (time.seconds - window.start) / length))
+                            if time.seconds >= window.end, player.rate > 0 {
+                                player.pause()
+                                onEnded?()
+                            }
+                            return
+                        }
                         let duration = player.currentItem?.duration.seconds ?? 0
                         if duration.isFinite, duration > 0 {
                             progress = min(1, max(0, time.seconds / duration))
@@ -1177,6 +1246,11 @@ struct ClipPlayerView: View {
             }
             player.replaceCurrentItem(with: AVPlayerItem(url: url))
             player.isMuted = muted
+            if let window {
+                await player.seek(
+                    to: CMTime(seconds: window.start, preferredTimescale: 600),
+                    toleranceBefore: .zero, toleranceAfter: .zero)
+            }
             player.play()
         }
         .onReceive(
@@ -1235,7 +1309,10 @@ struct ClipPlayerView: View {
                         icon: "arrow.counterclockwise", size: 13,
                         tint: PL.text100
                     ) {
-                        player.seek(to: .zero)
+                        let start = window.map {
+                            CMTime(seconds: $0.start, preferredTimescale: 600)
+                        } ?? .zero
+                        player.seek(to: start, toleranceBefore: .zero, toleranceAfter: .zero)
                         player.play()
                     }
                     .accessibilityLabel("Replay this point")

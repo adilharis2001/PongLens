@@ -2508,15 +2508,11 @@ struct PlayerTakeover: View {
                 } else {
                     Circle().strokeBorder(tint.opacity(0.85), lineWidth: 2)
                 }
-                if p.edited {
-                    // A timing edit leaves this chip's clip stale while the
-                    // worker recuts it. The spinner is that state made
-                    // visible — without it a split or an Adjust looks like
-                    // nothing happened. It replaces the countdown for the
-                    // duration: the footage it would be counting down is the
-                    // stale cut. Clears itself through the pending-clip poll.
-                    RecutRing().padding(1)
-                } else if isCurrent, progress > 0 {
+                // No spinner for an edited point: the pad plays the cut
+                // video, whose window is right the moment the timing is
+                // saved (adjust_point re-anchors cut_t0). The clip FILE
+                // catches up in the background; nothing here waits for it.
+                if isCurrent, progress > 0 {
                     // The arc is the time LEFT in the point, shrinking as
                     // it plays — the web ticker's direction.
                     Circle()
@@ -2536,7 +2532,7 @@ struct PlayerTakeover: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
-            "Go to point \(number)\(p.edited ? ", updating clip" : "")"
+            "Go to point \(number)"
         )
     }
 

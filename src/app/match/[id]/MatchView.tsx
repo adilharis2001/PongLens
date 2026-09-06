@@ -3784,11 +3784,6 @@ export function MatchView({
                               )}
                             </span>
                           )}
-                          {point.edited && (
-                            <span className="animate-pulse text-cyan-glow/80">
-                              Updating clip
-                            </span>
-                          )}
                         </div>
                       </div>
                       {/* one-tap outcome: You/Them build the score without
