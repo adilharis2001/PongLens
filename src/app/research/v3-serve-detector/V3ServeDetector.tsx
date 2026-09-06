@@ -328,7 +328,13 @@ export function V3ServeDetector({
                 (m0.runs[m0.dwell === "near" ? "far" : "near"]
                   ? " against " + m0.runs[m0.dwell === "near" ? "far" : "near"]
                   : "") + "</span>"
-              : '<br><span class="how">from the first bounce we could see</span>';
+              // The third reading: the ball was in one player's hands and
+              // never in the other's. Weaker than the one above, and it only
+              // speaks when the other end has nothing at all to show.
+              : m0.asym
+                ? '<br><span class="how">seen only in their hands &middot; ' +
+                  m0.runs[m0.asym] + " frames against none at the other end</span>"
+                : '<br><span class="how">from the first bounce we could see</span>';
           }
           // A card the rotation's own shape corrected. Said out loud rather
           // than applied silently: the reading and the correction disagree,
