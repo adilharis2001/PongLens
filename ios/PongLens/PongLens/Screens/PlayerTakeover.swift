@@ -2254,12 +2254,32 @@ struct PlayerTakeover: View {
             // manual scroll is left alone until the target moves, which is
             // the web pad's contract too.
             .scrollPosition(id: $stripScrollId, anchor: .center)
-            .onAppear { stripScrollId = targetId }
-            .onChange(of: targetId) { _, id in stripScrollId = id }
-            .onChange(of: points.count) { _, _ in stripScrollId = targetId }
+            .onAppear { centreStrip(on: targetId) }
+            .onChange(of: targetId) { _, id in centreStrip(on: id) }
+            .onChange(of: points.count) { _, _ in centreStrip(on: targetId) }
             .onChange(of: removed.values.reduce(0) { $0 + $1.count }) { _, _ in
-                stripScrollId = targetId
+                centreStrip(on: targetId)
             }
+            // A game divider appearing or going (Game ended) widens or
+            // narrows the strip with the same point current.
+            .onChange(of: full.boundaryAfter.count) { _, _ in centreStrip(on: targetId) }
+    }
+
+    /// Put `id` back in the middle of the strip, whether or not it is
+    /// already the declared position.
+    ///
+    /// A declared scroll position only takes effect when it CHANGES. After a
+    /// Delete, an Undo or a restore the current point is the same point
+    /// while every chip and dot around it has moved, so re-declaring the
+    /// same id was a no-op and the strip stayed where the reflow left it —
+    /// scoring re-centred (the point changes) and deleting did not (it does
+    /// not). Clearing first and setting on the next turn of the run loop
+    /// makes the second assignment a change, and lands it after the reflow
+    /// rather than on the layout that is about to be replaced.
+    func centreStrip(on id: UUID?) {
+        guard let id else { return }
+        stripScrollId = nil
+        DispatchQueue.main.async { stripScrollId = id }
     }
 
     /// Deleted points, keyed by the visible chip they sat BEFORE (nil for
