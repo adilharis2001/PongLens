@@ -385,7 +385,7 @@ export function FeedbackBoard({
 
   if (items === null) {
     return (
-      <div className="mt-10">
+      <div>
         <BoardHeader
           sort={sort}
           setSort={setSort}
@@ -410,7 +410,7 @@ export function FeedbackBoard({
   );
 
   return (
-    <div className="mt-10">
+    <div>
       <BoardHeader
         sort={sort}
         setSort={setSort}

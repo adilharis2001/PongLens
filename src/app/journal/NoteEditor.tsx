@@ -381,8 +381,9 @@ export function NoteEditor({
   const save = async () => {
     if (!lesson || saving) return;
     // Only a lesson has a coach, and this overlay cannot change an
-    // entry's kind, so practice entries never carry one through.
-    const isLesson = lesson.kind === "lesson";
+    // Any note of the player's own may name a coach now; only a
+    // coach-written entry (kind 'coach') has none of its own.
+    const isLesson = lesson.kind !== "coach";
     const refId = isLesson ? coachRefId : null;
     const share = isLesson && shareWithCoach && refId !== null;
     const coachRow = coaches.find((c) => c.id === refId) ?? null;
@@ -553,7 +554,7 @@ export function NoteEditor({
                 the focused field has to be able to reach the middle of
                 it. */}
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
-              {lesson.kind === "lesson" && (
+              {lesson.kind !== "coach" && (
                 <div className="mb-4">
                   {/* The picker, not a text field (164). Correcting an
                       entry is where a journal full of spellings gets
@@ -763,11 +764,9 @@ export function NoteEditor({
                     onChange={(e) => setWords(e.target.value)}
                     rows={6}
                     placeholder={
-                      lesson.kind === "lesson"
-                        ? "What your coach gave you"
-                        : lesson.kind === "coach"
-                          ? "What you worked on, what to fix, what comes next"
-                          : "What you worked on"
+                      lesson.kind === "coach"
+                        ? "What you worked on, what to fix, what comes next"
+                        : "What you worked on"
                     }
                     className={`mt-2 ${FIELD} leading-relaxed`}
                   />

@@ -33,11 +33,19 @@ struct CoachSharedEntryCard: View {
                 if entry.imagePath != nil {
                     EntryPhotoThumb(lessonId: entry.lessonId)
                 }
-                Text(title)
-                    .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.plRowTitle)
+                        .foregroundStyle(PL.text100)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    if entry.recapId != nil {
+                        // Says what it is before it is opened: a video, not a note.
+                        Label("Lesson recap", systemImage: "play.rectangle")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text400)
+                    }
+                }
                 Spacer(minLength: 0)
             }
         }
@@ -46,8 +54,63 @@ struct CoachSharedEntryCard: View {
     }
 }
 
+/// The recap behind a shared entry, as a thing to press: the poster, how
+/// long it is, and one button that opens it. The poster is a signed link,
+/// so it is fetched when the sheet opens; a missing poster still leaves a
+/// working button, the same as the lesson screen.
+struct LessonRecapPreview: View {
+    let id: UUID
+    let open: () -> Void
+
+    @State private var detail: LessonVideoDetail?
+    @State private var failed = false
+
+    private var meta: String {
+        if let edit = detail?.video.edit {
+            let minutes = Int((edit.chapters.reduce(0) { $0 + max(0, $1.end_s - $1.start_s) } / 60).rounded())
+            return "\(edit.chapters.count) chapters · \(minutes) min"
+        }
+        return failed ? "Not available right now" : "Loading…"
+    }
+
+    var body: some View {
+        Button(action: open) {
+            VStack(spacing: 0) {
+                ZStack {
+                    PL.surface2
+                    AsyncImage(url: detail?.posterUrl.flatMap(URL.init(string:))) { phase in
+                        if let image = phase.image { image.resizable().scaledToFill() }
+                    }
+                    Image(systemName: "play.fill").font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.white).frame(width: 52, height: 52)
+                        .background(.black.opacity(0.6), in: Circle())
+                }
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .clipped()
+                HStack {
+                    Text("Watch the recap").font(.plRowTitle).foregroundStyle(PL.text100)
+                    Spacer()
+                    Text(meta).font(.plCaption).foregroundStyle(PL.text500)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+            }
+            .background(PL.ink)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(PL.edge, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Watch the lesson recap")
+        .task(id: id) {
+            do { detail = try await API.get("api/lesson-video", query: ["id": id.uuidString.lowercased()]) }
+            catch { failed = true }
+        }
+    }
+}
+
 struct CoachSharedEntrySheet: View {
     let entry: CoachSharedEntry
+    @State private var lessonVideoLink: LessonVideoLink?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -106,8 +169,16 @@ struct CoachSharedEntrySheet: View {
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
 
-                    if let takeaways = entry.takeaways, !(takeaways.themes ?? []).isEmpty {
-                        ForEach(takeaways.themes ?? [], id: \.name) { theme in
+                    if let recapId = entry.recapId {
+                        // The recap is the body. The entry's own text is only a
+                        // link to it, written for app versions that cannot show
+                        // more, so it stays out of the way here.
+                        LessonRecapPreview(id: recapId) { lessonVideoLink = LessonVideoLink(id: recapId) }
+                    }
+
+                    let themes = entry.visibleThemes
+                    if !themes.isEmpty {
+                        ForEach(themes, id: \.name) { theme in
                             VStack(alignment: .leading, spacing: 7) {
                                 Text(theme.name.uppercased())
                                     .font(.plSection)
@@ -124,19 +195,21 @@ struct CoachSharedEntrySheet: View {
                                 }
                             }
                         }
-                        DisclosureGroup {
-                            EntryText(
-                                text: entry.transcript, color: PL.text300, lineSpacing: 4
-                            )
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, 8)
-                        } label: {
-                            Text("Transcript")
-                                .font(.plRowTitle)
-                                .foregroundStyle(PL.text400)
+                        if entry.recapId == nil {
+                            DisclosureGroup {
+                                EntryText(
+                                    text: entry.transcript, color: PL.text300, lineSpacing: 4
+                                )
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, 8)
+                            } label: {
+                                Text("Transcript")
+                                    .font(.plRowTitle)
+                                    .foregroundStyle(PL.text400)
+                            }
+                            .tint(PL.text400)
                         }
-                        .tint(PL.text400)
-                    } else {
+                    } else if entry.recapId == nil {
                         EntryText(text: entry.transcript, lineSpacing: 4)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -164,6 +237,22 @@ struct CoachSharedEntrySheet: View {
                     .padding(.top, 8)
                 }
                 .padding(24)
+            }
+        }
+        // Present from this sheet, not behind it at the app root.
+        .environment(\.openURL, OpenURLAction { url in
+            guard let link = LessonVideoLink(url: url) else { return .systemAction }
+            lessonVideoLink = link
+            return .handled
+        })
+        .sheet(item: $lessonVideoLink) { link in
+            NavigationStack {
+                LessonVideoDetailScreen(id: link.id)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") { lessonVideoLink = nil }
+                        }
+                    }
             }
         }
         .presentationDetents([.large, .medium])

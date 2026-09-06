@@ -4,15 +4,15 @@ import { redirect } from "next/navigation";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { createClient } from "@/lib/supabase/server";
-import { CoachStart } from "../CoachStart";
+import { CoachModeStart } from "./CoachModeStart";
 
 export const metadata: Metadata = {
-  title: "Set up your coach page",
+  title: "Set up coach mode",
   robots: { index: false, follow: false },
 };
 
 /**
- * Where "Set up your page" on /coaches lands. Public site chrome on
+ * Where "Set up coach mode" on /coaches lands. Public site chrome on
  * purpose — the visitor may not be in the app yet.
  */
 export default async function CoachStartPage() {
@@ -22,23 +22,11 @@ export default async function CoachStartPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login?next=/coaching/start");
 
-  const { data: profile } = await supabase
-    .from("coach_profiles")
-    .select("user_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if (profile) redirect("/coaching");
-
-  const defaultName =
-    (user.user_metadata?.full_name as string | undefined) ??
-    (user.user_metadata?.name as string | undefined) ??
-    "";
-
   return (
     <div className="flex min-h-dvh flex-col bg-arena">
       <SiteHeader />
       <main className="mx-auto w-full max-w-lg flex-1 px-5 pb-24 pt-10 sm:px-6 md:pt-16">
-        <CoachStart defaultName={defaultName} />
+        <CoachModeStart userId={user.id} />
       </main>
       <SiteFooter />
     </div>

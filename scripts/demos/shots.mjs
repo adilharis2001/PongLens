@@ -50,11 +50,6 @@ const OUT = path.join(
   "showcase"
 );
 
-if (!SERVICE_KEY) {
-  console.error("SERVICE_KEY env var required");
-  process.exit(1);
-}
-
 async function magicLink(email = DEMO_EMAIL) {
   const res = await fetch(`${SUPABASE}/auth/v1/admin/generate_link`, {
     method: "POST",
@@ -143,6 +138,21 @@ const openOffering = (page, title) =>
       .find((b) => b.textContent.trim().startsWith(t))
       ?.click();
   }, title);
+
+/** Open a real student row without baking a database row id into the shot. */
+async function openCoachStudent(page, name) {
+  await page.goto(`${BASE}/coaching/students`);
+  await page.waitForSelector('a[href^="/coaching/students/"]', {
+    timeout: 15000,
+  });
+  const row = name
+    ? page.locator('a[href^="/coaching/students/"]', { hasText: name }).first()
+    : page.locator('a[href^="/coaching/students/"]').first();
+  const href = await row.getAttribute("href");
+  if (!href) throw new Error(`student row missing${name ? `: ${name}` : ""}`);
+  await page.goto(`${BASE}${href}`);
+  await page.waitForSelector("text=Journal", { timeout: 15000 });
+}
 
 // Each shot: { viewport: 'm' | 'd', as?: 'student' | 'coach', run(page) } —
 // run() leaves the page looking like the screenshot. `as` picks which demo
@@ -535,6 +545,17 @@ const shots = {
       await sleep(1200);
     },
   },
+  "coach-payout-d": {
+    viewport: "d",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/orders`);
+      await page.waitForSelector("text=earned", { timeout: 15000 });
+      await page.waitForSelector("text=Payouts", { timeout: 15000 });
+      await scrollToText(page, "Payouts", "center");
+      await sleep(1800);
+    },
+  },
 
   // …the hub itself on a phone: what is owed, what is earned, what is paid
   "coach-hub-m": {
@@ -550,7 +571,7 @@ const shots = {
     viewport: "d",
     as: "coach",
     run: async (page) => {
-      await page.goto(`${BASE}/coaching`);
+      await page.goto(`${BASE}/coaching/orders`);
       await page.waitForSelector("text=Your move", { timeout: 15000 });
       await sleep(1800);
     },
@@ -559,6 +580,15 @@ const shots = {
   // …a new order, which is an accept or decline with their brief in full
   "coach-order-m": {
     viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/orders/${ORDER_NEW}`);
+      await page.waitForSelector("text=Accept and start", { timeout: 15000 });
+      await sleep(1500);
+    },
+  },
+  "coach-order-d": {
+    viewport: "d",
     as: "coach",
     run: async (page) => {
       await page.goto(`${BASE}/coaching/orders/${ORDER_NEW}`);
@@ -698,6 +728,138 @@ const shots = {
       await sleep(1800);
     },
   },
+
+  // 10 — the roster-first coaching workspace. Student ids are discovered
+  // from the rendered roster so these remain valid when demo rows change.
+  "coach-students-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/students`);
+      await page.waitForSelector("text=John Miller", { timeout: 15000 });
+      await sleep(1500);
+    },
+  },
+  "coach-students-d": {
+    viewport: "d",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/students`);
+      await page.waitForSelector("text=John Miller", { timeout: 15000 });
+      await sleep(1500);
+    },
+  },
+  "coach-student-t": {
+    viewport: "t",
+    as: "coach",
+    run: async (page) => {
+      await openCoachStudent(page, "John Miller");
+      await page.waitForSelector("text=Matches", { timeout: 15000 });
+      await sleep(1600);
+    },
+  },
+  "coach-add-student-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await page.goto(`${BASE}/coaching/students?add=1`);
+      await page.waitForSelector('input[placeholder="Their name"]', {
+        timeout: 15000,
+      });
+      await sleep(1200);
+    },
+  },
+  "coach-invite-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await openCoachStudent(page, "Maya Chen");
+      await page.getByRole("button", { name: "Invite Maya Chen" }).click();
+      await page.waitForSelector("text=They choose whether you see", {
+        timeout: 15000,
+      });
+      await page.locator("p.font-mono").evaluate((line) => {
+        line.textContent = line.textContent?.replace(
+          "http://localhost:3000",
+          "https://ponglens.com"
+        );
+      });
+      await sleep(1200);
+    },
+  },
+  "coach-entry-compose-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await openCoachStudent(page, "John Miller");
+      await page.getByRole("button", { name: "New entry" }).click();
+      await page.waitForSelector('textarea[aria-label="Entry text"]', {
+        timeout: 15000,
+      });
+      await sleep(1200);
+    },
+  },
+  "coach-entry-compose-d": {
+    viewport: "d",
+    as: "coach",
+    run: async (page) => {
+      await openCoachStudent(page, "John Miller");
+      await page.getByRole("button", { name: "New entry" }).click();
+      await page.waitForSelector('textarea[aria-label="Entry text"]', {
+        timeout: 15000,
+      });
+      await sleep(1200);
+    },
+  },
+  "coach-entry-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await openCoachStudent(page, "John Miller");
+      await page.getByRole("button", { name: /Backhand block and first change/ }).click();
+      await page.waitForSelector("text=Transcript", { timeout: 15000 });
+      await scrollToText(page, "Journal", "start");
+      await sleep(1200);
+    },
+  },
+  "coach-entry-shared-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await openCoachStudent(page, "John Miller");
+      await page.getByRole("button", { name: /Backhand block and first change/ }).click();
+      await page.waitForSelector("text=Shared with John Miller", {
+        timeout: 15000,
+      });
+      await scrollToText(page, "Journal", "start");
+      await page.evaluate(() => window.scrollBy(0, -96));
+      await sleep(1200);
+    },
+  },
+  "coach-entry-shared-d": {
+    viewport: "d",
+    as: "coach",
+    run: async (page) => {
+      await openCoachStudent(page, "John Miller");
+      await page.getByRole("button", { name: /Backhand block and first change/ }).click();
+      await page.waitForSelector("text=Shared with John Miller", {
+        timeout: 15000,
+      });
+      await scrollToText(page, "Journal", "start");
+      await page.evaluate(() => window.scrollBy(0, -96));
+      await sleep(1200);
+    },
+  },
+  "coach-shared-match-m": {
+    viewport: "m",
+    as: "coach",
+    run: async (page) => {
+      await openCoachStudent(page, "John Miller");
+      await page.waitForSelector("text=Matches", { timeout: 15000 });
+      await scrollToText(page, "Matches", "start");
+      await sleep(1200);
+    },
+  },
 };
 
 const VIEWPORTS = {
@@ -709,6 +871,14 @@ const VIEWPORTS = {
 };
 
 const wanted = process.argv.slice(2);
+if (wanted.includes("--list")) {
+  console.log(Object.keys(shots).sort().join("\n"));
+  process.exit(0);
+}
+if (!SERVICE_KEY) {
+  console.error("SERVICE_KEY env var required");
+  process.exit(1);
+}
 const names = wanted.length ? wanted : Object.keys(shots);
 mkdirSync(OUT, { recursive: true });
 

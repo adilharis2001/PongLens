@@ -276,6 +276,33 @@ cp /Users/adil/Desktop/Projects/PongLens/worker/com.adil.ponglens-worker.plist ~
 launchctl load ~/Library/LaunchAgents/com.adil.ponglens-worker.plist
 ```
 
+## Fast lane (second process)
+
+Re-cuts and vertical share renders are the jobs a person is holding the
+phone through. They used to share one queue with forty-minute uploads,
+first in first out. A second worker process reads only the `jobs_fast`
+queue (`--lane fast`); the main process keeps everything else and all the
+housekeeping (retention sweep, digests, cost alerts), which must run in
+exactly one process.
+
+Build its runner the same way as the main one, with the lane flag:
+
+```bash
+osacompile -e 'do shell script "export HOME=/Users/adil; export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin; /usr/bin/python3 /Users/adil/Desktop/Projects/PongLens/worker/worker.py --lane fast >>/Users/adil/Desktop/Projects/PongLens/worker/stdout-fast.log 2>>/Users/adil/Desktop/Projects/PongLens/worker/stderr-fast.log"' -o ~/Applications/PongLensWorkerFast.app
+cp /Users/adil/Desktop/Projects/PongLens/worker/com.adil.ponglens-worker-fast.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.adil.ponglens-worker-fast.plist
+```
+
+Grant `PongLensWorkerFast.app` Full Disk Access like the main runner. Its
+log is `worker-fast.log`. Then, and only then, flip the routing:
+
+```sql
+update public.app_config set value = 'fast' where key = 'reclip_lane';
+```
+
+Setting it back to `'main'` is the rollback; anything already sitting in
+`jobs_fast` is drained by the fast process, so stop that one last.
+
 Because the plist has `KeepAlive`, the worker starts immediately, restarts
 if it crashes, and comes back after reboots (once you log in).
 
@@ -324,7 +351,8 @@ reported individually and do not create partial database updates.
 When initial match processing cannot produce any reliable placement maps,
 the match still finishes successfully with
 `placement_status = 'retry_available'`. Its owner can queue exactly one
-`placement_retry` job during the raw video's 30-day retention window.
+`placement_retry` job while the original video exists, which for every
+live match is always (originals are kept for the life of the match).
 The retry regenerates only placement calibration and reconstruction; it
 does not regenerate clips, points, scores, notes, or other match metadata.
 
@@ -380,15 +408,23 @@ Binary storage is Cloudflare R2; Supabase keeps auth/Postgres/queue only.
   (`uploads` / `results` buckets) — do not delete that code until the last
   legacy rows have aged out.
 
-A daily sweep in the worker enforces retention:
+A daily sweep in the worker enforces retention. **Nothing a live match
+references is ever deleted**: the original upload and the cut video stay
+for the life of the match (policy since the commerce flip in 2026-08; the
+Privacy Policy and Terms promise it). The timed tiers below are for
+orphans and for media with its own promised lifetime:
 
 | Tier | Location | Retention |
 | --- | --- | --- |
-| Raw uploads | `ponglens-raw` | 30 days |
-| Cut videos | `ponglens-media/results/` | 30 days |
+| Raw uploads referenced by a match | `ponglens-raw` | life of the match (never swept) |
+| Cut videos referenced by a match | `ponglens-media/results/` | life of the match (never swept) |
+| Unreferenced raws and cuts (deleted or rejected matches, abandoned uploads) | same | 30 days |
 | Point clips + match.json | `ponglens-media/points/` | while account active (not swept) |
-| Voice audio | `ponglens-media` (future phase) | 90 days |
+| Voice audio | `ponglens-media/voice/` | 90 days |
+| Share renders (`v:*` reels) | `ponglens-media` | 7 days |
 | Legacy Supabase `uploads` | Supabase Storage | 30 days |
 
-The future tiers are documented here so the sweep in `retention_sweep()`
-gets extended (not replaced) when point clips and voice notes ship.
+A legacy match (processed before commerce) has no `matches.raw_path`; the
+sweep protects its raw through the match's source job instead, and
+`backfill_raw_path.py` fills the column where the file survived. Only
+legacy matches whose raw was swept before 2026-08 have lost theirs.

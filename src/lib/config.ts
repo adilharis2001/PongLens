@@ -78,6 +78,17 @@ export const getCommerceEnabled = cache(async (): Promise<boolean> => {
   return (await getConfigValue("commerce_enabled")) === "true";
 });
 
+/** Purchase availability is separate from metering and must be read fresh. */
+export const getPurchasesEnabled = cache(async (): Promise<boolean> => {
+  try {
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+    const { data, error } = await supabase.from("app_config").select("value")
+      .eq("key", "purchases_enabled").maybeSingle();
+    return !error && data?.value === "true";
+  } catch { return false; }
+});
+
 /**
  * Sponsored reviews, where a coach covers a review for their own student
  * (096), turned off by Adil on 2026-09-04 for being hard to understand.

@@ -95,8 +95,9 @@ Status pill: "Processing" | "Processing failed" | "Not processed".
   Selecting Deleted resets other filters, shows removed list.
 - Game checkpoint chips ("Game 1"…) scroll-jump.
 - Cards: number badge, ServerChipMenu, winner text ("I won"/"They won" or names),
-  duration "{x.x}s" or "View point", note glyph+count, tag glyph+count,
-  "Updating clip" (pulsing) when edited.
+  duration "{x.x}s" or "View point", note glyph+count, tag glyph+count.
+  (No "Updating clip" label since 2026-09-06: an edited point plays from the
+  cut video and nothing on this screen waits for its file.)
 - Owner controls: You / Them / Skip (tap-again toggles off), Tag, Star, Trash.
   Non-owners: Tag + read-only star.
 - Game divider: "Game {n} ends {you}-{them} · game {n+1} begins" + ↑/↓ nudges +
@@ -119,8 +120,13 @@ Sections: clip (ClipPlayer + tag/star overlays + prev/next chevrons), action bar
 (incl. Remove; "Remove the {n} points before this / warm-up" + inline confirm),
 PointScorecard (owner), "Where the ball landed" + BetaPill, "Notes"
 ("No notes on this point yet.").
-Clip fallbacks: "Updating clip…" / "Clip unavailable — the original video has
-expired, but your timing edits are saved." / "Loading clip…"
+Source rule (2026-09-06): a point whose clip file is stale (edited) or
+missing plays from the cut video, windowed to its padded span, decided when
+the point opens and flipped the moment an edit is made there; the fresh
+file swaps in on the next open. Clip fallbacks, for the file path only:
+"UPDATING CLIP" badge on a stale file / "Clip unavailable. The original video
+for this match is no longer stored, but your timing edits are saved." /
+"Loading clip…"
 Closing a sheet opened from the score pad reopens the pad on that point.
 
 ## 1.3 Playback model (playhead.ts) — carry over VERBATIM
@@ -205,7 +211,8 @@ Pad contents:
    points up to target, not match total.
 2. Chip strip: chip per point with cut_t0. Cyan you / magenta them / amber skipped /
    dashed grey unscored. Current chip scale 1.1 + white glow + static ring or
-   countdown ring (clip progress). Spinner while edited. Chip tap: seek + play +
+   countdown ring (clip progress); no spinner for an edited point (2026-09-06).
+   Chip tap: seek + play +
    "Go to point →" grows out (3s). Removed points = small red hollow dots; tap arms,
    "Restore", auto-disarm 3s. Game boundaries: hairline + bordered {you}-{them}
    pill; tap opens game-break sheet. Auto-centre via offsetLeft math, 120ms defer.
@@ -263,8 +270,11 @@ Undo stack (session): tap (prev winner+skip), delete (+cutT0), override, split
 
 Modify modal: Split 2–3 (markers cut→source linear map → sequential split_point
 down the tail → per-segment outcomes), Join next 1–2 (merge_points, destructive,
-confirm), Adjust t0/t1 (+ reclip; locked while edited). Flashes: "Split into {n}" /
-"Split" / "Joined" / "Timing saved · updating clip". Failures: "Couldn't place the
+confirm), Adjust t0/t1 through adjust_point (re-anchors cut_t0; never locked;
+the preview follows a handle across contiguous cut footage). Re-cuts are
+requested by a database trigger, never by the app; with device_reclip on the
+phone cuts and uploads the file itself. Flashes: "Split into {n}" /
+"Split" / "Joined {n} points" / "Timing saved". Failures: "Couldn't place the
 split. Try again." / "Couldn't finish the split. Undo to revert." / "Couldn't join.
 Try again." / "Couldn't save the timing. Try again."
 

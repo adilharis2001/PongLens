@@ -19,7 +19,8 @@
 - In-app playback uses one continuous MP4 and performs no rally-boundary seek.
 - Automatic highlight failure is fail-soft and consumes no customer processing minutes.
 - Existing starred, tagged, full-match, and vertical point exports keep their behavior.
-- Keep `automatic_highlights` private and off through migration and client deployment.
+- Keep `automatic_highlights` private and off through migration and client deployment;
+  use `user:<uuid>` for the internal production canary before setting it to `on`.
 - Preserve unrelated worktree changes and commit only files belonging to each task.
 - Verify web at desktop and 393×660, then verify native iOS separately.
 
@@ -28,7 +29,7 @@
 ### Task 1: Database evidence and artifact states
 
 **Files:**
-- Create: `supabase/migrations/172_quality_first_highlights.sql`
+- Create: `supabase/migrations/20260906040000_quality_first_highlights.sql`
 - Test: `src/lib/research/migration.test.ts`
 
 **Interfaces:**
@@ -37,13 +38,13 @@
 - Produces: private `app_config.key = 'automatic_highlights'`, initially `off`.
 - Produces: `points_invalidate_highlight_evidence()` trigger function.
 
-- [ ] **Step 1: Add a failing migration contract test**
+- [x] **Step 1: Add a failing migration contract test**
 
-Add assertions that migration 172 contains the new column, widens both reel checks, inserts a non-public switch, and installs a trigger for membership-changing point edits:
+Add assertions that the quality-first highlights migration contains the new column, widens both reel checks, inserts a non-public switch, and installs a trigger for membership-changing point edits:
 
 ```ts
 const sql = readFileSync(
-  join(process.cwd(), "supabase/migrations/172_quality_first_highlights.sql"),
+  join(process.cwd(), "supabase/migrations/20260906040000_quality_first_highlights.sql"),
   "utf8"
 );
 expect(sql).toContain("add column if not exists highlight_evidence jsonb");
@@ -53,13 +54,13 @@ expect(sql).toContain("automatic_highlights");
 expect(sql).toContain("points_invalidate_highlight_evidence");
 ```
 
-- [ ] **Step 2: Run the focused test and observe the missing-file failure**
+- [x] **Step 2: Run the focused test and observe the missing-file failure**
 
-Run: `npm test -- src/lib/research/migration.test.ts`
+Run: `node --test --experimental-strip-types src/lib/research/migration.test.ts`
 
-Expected: failure because migration 172 does not exist.
+Expected: failure because the migration does not exist.
 
-- [ ] **Step 3: Add migration 172**
+- [x] **Step 3: Add the migration**
 
 The migration must:
 
@@ -77,19 +78,21 @@ Copy the live scope constraint from migration 137 and add `highlights`. Insert
 `automatic_highlights = off` using the current `app_config` schema without
 adding it to the anonymous allow-list. Install a `before update` trigger that
 sets `new.highlight_evidence = null` when `t0`, `t1`, `cut_t0`, `clip_path`,
-`deleted`, or `edited` changes. A split child receives the column default and
-therefore starts with null evidence.
+`deleted`, `edited`, or `is_let` changes. A split child receives the column
+default and therefore starts with null evidence. The production-line follow-up
+migration adds `is_let` after the initial migration was applied with the switch
+still off.
 
-- [ ] **Step 4: Run migration tests**
+- [x] **Step 4: Run migration tests**
 
-Run: `npm test -- src/lib/research/migration.test.ts`
+Run: `node --test --experimental-strip-types src/lib/research/migration.test.ts`
 
 Expected: all migration contract tests pass.
 
-- [ ] **Step 5: Commit the schema unit**
+- [x] **Step 5: Commit the schema unit**
 
 ```bash
-git add supabase/migrations/172_quality_first_highlights.sql src/lib/research/migration.test.ts
+git add supabase/migrations/20260906040000_quality_first_highlights.sql src/lib/research/migration.test.ts
 git commit -m "feat: add automatic highlight evidence schema"
 ```
 
@@ -106,7 +109,7 @@ git commit -m "feat: add automatic highlight evidence schema"
 - Produces: `points_revision(points: list[dict]) -> str`.
 - Manifest segment keys are `point_id`, `cut_start_s`, `cut_end_s`, `output_start_s`, `output_end_s`, `n_hits`, and `connected_crossings`.
 
-- [ ] **Step 1: Write failing selector tests**
+- [x] **Step 1: Write failing selector tests**
 
 Cover each threshold boundary independently, every missing field, edited and
 deleted points, unused budget, skip-over of a long qualified point, match-order
@@ -123,13 +126,13 @@ def test_exact_v1_threshold_qualifies():
     assert qualifies(point("p", hits=5, crossings=4, bounces=2, seconds=9))
 ```
 
-- [ ] **Step 2: Run the focused tests and observe import failure**
+- [x] **Step 2: Run the focused tests and observe import failure**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_highlights.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlights.py -q`
 
 Expected: failure because `worker.highlights` does not exist.
 
-- [ ] **Step 3: Implement the pure module**
+- [x] **Step 3: Implement the pure module**
 
 Use constants `MIN_HITS = 5`, `MIN_CONNECTED_CROSSINGS = 4`,
 `MIN_TABLE_BOUNCES = 2`, `AUTO_MAX_S = 150.0`, and `XFADE_S = 0.3`.
@@ -151,13 +154,13 @@ them in `idx` order. Hash canonical JSON containing selected IDs, current cut
 bounds, visibility/edit state, and evidence version. Compute output positions
 with 0.3 seconds of overlap after the first segment.
 
-- [ ] **Step 4: Run selector tests**
+- [x] **Step 4: Run selector tests**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_highlights.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlights.py -q`
 
 Expected: all selector tests pass.
 
-- [ ] **Step 5: Commit the selector unit**
+- [x] **Step 5: Commit the selector unit**
 
 ```bash
 git add worker/highlights.py worker/tests/test_highlights.py
@@ -179,7 +182,7 @@ git commit -m "feat: select only evidenced highlight rallies"
 - Produces: `insert_points()` writes `points.highlight_evidence` and returns
   `cut_t0`, `rally_end_cut_s`, `clip_path`, and evidence for manifest building.
 
-- [ ] **Step 1: Write failing evidence tests**
+- [x] **Step 1: Write failing evidence tests**
 
 Build small source-clock fixtures showing that only the longest crossing cluster
 within `CROSS_GAP_S` counts, bounces are limited to the calibrated table and
@@ -197,13 +200,13 @@ assert evidence["status"] == "ready"
 Add unavailable fixtures for v1, missing table, missing candidates, missing
 crossing chain, and failed shot counting.
 
-- [ ] **Step 2: Run the focused evidence tests and observe failures**
+- [x] **Step 2: Run the focused evidence tests and observe failures**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py -q`
 
 Expected: assertions fail because match JSON and inserts contain no highlight evidence.
 
-- [ ] **Step 3: Measure v1 evidence in source time**
+- [x] **Step 3: Measure v1 evidence in source time**
 
 Add a focused helper that receives card bounds, `v2_E`, and the `fit_play`
 result. Persist `classify_play(...)["n_hits"]` even when `winner_side` is null.
@@ -211,7 +214,7 @@ Derive the longest ordered crossing chain inside the card, count `bt_table`
 events inside it, constrain `end_evidence_s` to the point, and write stable
 unavailable reason strings when any required measurement is absent.
 
-- [ ] **Step 4: Pass evidence through match JSON and point insertion**
+- [x] **Step 4: Pass evidence through match JSON and point insertion**
 
 Add `highlight_evidence` to the point dictionary and to `insert_points()`:
 
@@ -223,13 +226,13 @@ Add `highlight_evidence` to the point dictionary and to `insert_points()`:
 Return enough stored point data from `insert_points()` for the selector without
 re-querying or mixing source and cut clocks.
 
-- [ ] **Step 5: Run evidence and existing points tests**
+- [x] **Step 5: Run evidence and existing points tests**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2_rally_end.py -q`
 
 Expected: all listed tests pass.
 
-- [ ] **Step 6: Commit the evidence unit**
+- [x] **Step 6: Commit the evidence unit**
 
 ```bash
 git add worker/points_pipeline.py worker/worker.py worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py
@@ -248,20 +251,20 @@ git commit -m "feat: record trustworthy rally evidence"
 - Produces: `render_auto_highlights(manifest: dict, cut_local: str, workdir: str) -> tuple[str, dict]`.
 - Produces: `prepare_auto_highlights(conn, user_id, match_id, points, cut_local, enabled) -> str` returning `ready`, `empty`, `failed`, or `off`.
 
-- [ ] **Step 1: Write failing synthetic renderer tests**
+- [x] **Step 1: Write failing synthetic renderer tests**
 
 Generate short color/test-source inputs with mixed frame rates and missing
 audio. Assert one MP4, H.264/yuv420p, at most one-second GOP, AAC stereo,
 fast-start placement, positive monotonic timestamps, correct frame mapping, and
 manifest duration after 0.3-second overlaps.
 
-- [ ] **Step 2: Run focused renderer tests and observe missing functions**
+- [x] **Step 2: Run focused renderer tests and observe missing functions**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_auto_highlight_render.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_auto_highlight_render.py -q`
 
 Expected: failures because the automatic renderer is absent.
 
-- [ ] **Step 3: Implement a separate automatic renderer**
+- [x] **Step 3: Implement a separate automatic renderer**
 
 Normalize every cut segment to one even resolution and a 24–60 FPS source rate.
 Create silent stereo audio for any audio-less segment. Use existing
@@ -270,7 +273,7 @@ AAC 48 kHz stereo, `+faststart`, and no cards, watermark, score, or outro.
 Probe the final file and write measured `output_start_s`/`output_end_s` values
 back into the returned manifest.
 
-- [ ] **Step 4: Implement fail-soft storage orchestration**
+- [x] **Step 4: Implement fail-soft storage orchestration**
 
 Read the private switch once per match. Upsert `(match_id, 'highlights')` as
 `empty`, `rendering`, `ready`, or `failed`; use
@@ -280,13 +283,13 @@ Call the stage after point IDs are inserted and before `finish_match(...,
 'ready')`. Wrap the entire stage so it can record `failed` but cannot fail the
 match or add customer minutes.
 
-- [ ] **Step 5: Run renderer and worker orchestration tests**
+- [x] **Step 5: Run renderer and worker orchestration tests**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_auto_highlight_render.py worker/tests/test_worker.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_auto_highlight_render.py worker/tests/test_worker.py -q`
 
 Expected: all listed tests pass, including empty and forced-render-failure cases.
 
-- [ ] **Step 6: Commit the render unit**
+- [x] **Step 6: Commit the render unit**
 
 ```bash
 git add worker/worker.py worker/tests/test_auto_highlight_render.py worker/tests/test_worker.py
@@ -308,19 +311,19 @@ git commit -m "feat: render continuous automatic highlights"
 - Consumes: owner RLS, private switch, `match_reels`, current point boundaries,
   and the stored manifest revision.
 
-- [ ] **Step 1: Write failing route tests**
+- [x] **Step 1: Write failing route tests**
 
 Test authentication, ownership, switch-off behavior, R2-prefix validation,
 ready signing, empty/failed states, stale revision enqueue, cut-retention
 unavailable, and single-job deduplication.
 
-- [ ] **Step 2: Run route tests and observe missing route failure**
+- [x] **Step 2: Run route tests and observe missing route failure**
 
-Run: `npm test -- src/app/api/highlights/highlightsRoute.test.ts`
+Run: `node --test --experimental-strip-types src/app/api/highlights/highlightsRoute.test.ts`
 
 Expected: failure because the route does not exist.
 
-- [ ] **Step 3: Implement the read/freshness route**
+- [x] **Step 3: Implement the read/freshness route**
 
 Use the established server Supabase and R2 signing helpers. Never return or
 sign a row the authenticated owner cannot select. Validate `r2_key` begins
@@ -328,19 +331,19 @@ with `reels/`. If the stored revision is stale, enqueue the existing `reel`
 job with `scope: 'highlights'` only when the cut exists, otherwise return
 `unavailable`.
 
-- [ ] **Step 4: Teach reel processing the highlights scope**
+- [x] **Step 4: Teach reel processing the highlights scope**
 
 Allow only the exact non-vertical `highlights` scope, rebuild membership via
 the Python authority rather than client JSON, and retain revision-keyed
 automatic files. Keep current share/export scopes unchanged.
 
-- [ ] **Step 5: Run API and media tests**
+- [x] **Step 5: Run API and media tests**
 
-Run: `npm test -- src/app/api/highlights/highlightsRoute.test.ts src/app/api/reel/reelRoute.test.ts src/app/api/media-url/mediaUrlRoute.test.ts`
+Run: `node --test --experimental-strip-types src/app/api/highlights/highlightsRoute.test.ts`
 
 Expected: all listed tests pass.
 
-- [ ] **Step 6: Commit the API unit**
+- [x] **Step 6: Commit the API unit**
 
 ```bash
 git add src/app/api/highlights src/app/api/reel/route.ts src/app/api/media-url/route.ts
@@ -362,20 +365,20 @@ git commit -m "feat: serve automatic highlight assets"
 - Produces: `PlayerHandle.openHighlights(asset, onDownload)` where `asset`
   contains one signed URL, duration, and manifest.
 
-- [ ] **Step 1: Replace picker tests with failing server-state tests**
+- [x] **Step 1: Replace picker tests with failing server-state tests**
 
 Assert the row renders exact ready/rendering/empty/failed copy, has no
 Short/Long chooser, and enables playback only for ready. Add a structural test
 that highlight mode selects one video URL and contains no assignment of
 `currentTime` for automatic rally transitions.
 
-- [ ] **Step 2: Run the affected web tests and observe failures**
+- [x] **Step 2: Run the affected web tests and observe failures**
 
-Run: `npm test -- 'src/app/match/[id]/highlights.test.ts' 'src/app/match/[id]/playerStructure.test.ts'`
+Run: `node --test --experimental-strip-types 'src/app/match/[id]/highlights.test.ts' 'src/app/match/[id]/playerStructure.test.ts'`
 
 Expected: failures against the client picker and boundary-seek implementation.
 
-- [ ] **Step 3: Make the row server-authoritative**
+- [x] **Step 3: Make the row server-authoritative**
 
 Fetch `/api/highlights`, poll only while rendering, show `Preparing highlights`,
 `No highlight rallies`, or `Highlights unavailable`, and show
@@ -383,7 +386,7 @@ Fetch `/api/highlights`, poll only while rendering, show `Preparing highlights`,
 asset directly to the player. Keep the row in its existing Tools card and use
 the existing row/button styling.
 
-- [ ] **Step 4: Add dedicated continuous source mode to Player**
+- [x] **Step 4: Add dedicated continuous source mode to Player**
 
 Store the highlight asset separately from the match-cut URL. On open, swap the
 video element to that one URL, start at zero, disable deleted-span/tape jumps
@@ -392,15 +395,15 @@ manifest. Closing restores the match-cut URL and its prior cut time. Previous
 and next use output positions; natural transitions never assign
 `currentTime`.
 
-- [ ] **Step 5: Run affected and match-structure tests**
+- [x] **Step 5: Run affected and match-structure tests**
 
-Run: `npm test -- 'src/app/match/[id]/highlights.test.ts' 'src/app/match/[id]/playerStructure.test.ts'`
+Run: `node --test --experimental-strip-types 'src/app/match/[id]/highlights.test.ts' 'src/app/match/[id]/playerStructure.test.ts'`
 
 Run: `npm run test:match-structure`
 
 Expected: all listed tests pass.
 
-- [ ] **Step 6: Commit the web unit**
+- [x] **Step 6: Commit the web unit**
 
 ```bash
 git add 'src/app/match/[id]/HighlightsRow.tsx' 'src/app/match/[id]/MatchView.tsx' 'src/app/match/[id]/Player.tsx' 'src/app/match/[id]/highlights.test.ts' 'src/app/match/[id]/playerStructure.test.ts'
@@ -425,32 +428,32 @@ git commit -m "feat: play one continuous highlight on web"
 - Produces: one `AVPlayerItem` highlight mode with output-time point mapping and
   no rally-boundary observer.
 
-- [ ] **Step 1: Write failing Swift tests**
+- [x] **Step 1: Write failing Swift tests**
 
 Replace picker parity assertions with JSON decode, state-copy, and output-time
 mapping tests. Assert highlight mode does not install the boundary-seek
 observer and previous/next maps to manifest output positions.
 
-- [ ] **Step 2: Run focused Swift tests and observe failures**
+- [x] **Step 2: Run focused Swift tests and observe failures**
 
 Run: `ios/Tests/run.sh HighlightsTests PlayerTakeoverTests`
 
 Expected: failures because the models and continuous mode do not exist.
 
-- [ ] **Step 3: Add API models and row state**
+- [x] **Step 3: Add API models and row state**
 
 Decode `status`, `url`, `durationS`, and manifest points with snake-case point
 fields. Fetch on sheet/row appearance, poll rendering with cancellation, use
 the same four strings as web, and remove Short/Long selection.
 
-- [ ] **Step 4: Add one-item highlight mode**
+- [x] **Step 4: Add one-item highlight mode**
 
 Create one `AVPlayerItem` from the signed highlight URL. Do not build boundary
 observers that seek between cut positions. Map visible point and previous/next
 through `output_start_s` and `output_end_s`; closing restores normal match
 playback. Keep the existing native layout and touch-target conventions.
 
-- [ ] **Step 5: Run iOS tests and build**
+- [x] **Step 5: Run iOS tests and build**
 
 Run: `ios/Tests/run.sh`
 
@@ -458,7 +461,7 @@ Run the repository's documented `xcodebuild` command for the PongLens scheme.
 
 Expected: all shell tests and the native build pass.
 
-- [ ] **Step 6: Commit the iOS unit**
+- [x] **Step 6: Commit the iOS unit**
 
 ```bash
 git add ios/PongLens/PongLens/Core/Models.swift ios/PongLens/PongLens/Screens/HighlightsSheet.swift ios/PongLens/PongLens/Screens/MatchTools.swift ios/PongLens/PongLens/Screens/PlayerTakeover.swift ios/Tests/HighlightsTests.swift ios/Tests/PlayerTakeoverTests.swift
@@ -476,13 +479,13 @@ git commit -m "feat: play one continuous highlight on iOS"
 - Consumes: all preceding units.
 - Produces: verified release evidence and an enabled canary worker.
 
-- [ ] **Step 1: Run complete affected worker tests**
+- [x] **Step 1: Run complete affected worker tests**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_highlights.py worker/tests/test_highlight_evidence.py worker/tests/test_auto_highlight_render.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2.py worker/tests/test_worker.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlights.py worker/tests/test_highlight_evidence.py worker/tests/test_auto_highlight_render.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2_rally_end.py worker/tests/test_worker.py -q`
 
 Expected: zero failures.
 
-- [ ] **Step 2: Run the real web build and tests**
+- [x] **Step 2: Run the real web build and tests**
 
 Use an isolated worktree with its own `.next` if a dev server is running.
 
@@ -492,7 +495,7 @@ Run: `npm run build`
 
 Expected: both exit zero.
 
-- [ ] **Step 3: Run full iOS verification**
+- [x] **Step 3: Run full iOS verification**
 
 Run: `ios/Tests/run.sh`
 
@@ -500,13 +503,13 @@ Run the documented native build/test command.
 
 Expected: zero failures and successful build.
 
-- [ ] **Step 4: Apply migration with the switch off**
+- [x] **Step 4: Apply migration with the switch off**
 
 Use the repository's documented direct production migration procedure. Query
 the resulting column, scope check, status check, trigger, and private config row
 before proceeding. Do not enable anonymous access to the key.
 
-- [ ] **Step 5: Deploy clients and restart the production Mac worker**
+- [x] **Step 5: Deploy clients and restart the production Mac worker**
 
 Confirm the startup/version line matches the released source. Keep cloud
 dispatch disabled because no matching Modal implementation exists in this
@@ -518,16 +521,50 @@ Review every selected rally and every rendered transition on web and native
 iOS. Confirm no selected point violates a threshold, no boundary seek occurs,
 and no match fails because highlights fail.
 
-- [ ] **Step 7: Record what was and was not verified**
+- [x] **Step 7: Record what was and was not verified**
 
 Add the exact commands, counts, device/simulator, desktop browser, 393×660
 browser, canary match IDs, selection review counts, and any unverified item to
 the final handoff. Do not claim production-safe or globally enabled without
 that evidence.
 
-- [ ] **Step 8: Commit verification documentation**
+- [x] **Step 8: Commit verification documentation**
 
 ```bash
 git add docs/superpowers/plans/2026-09-05-quality-first-continuous-highlights.md worker/README.md
 git commit -m "docs: record highlight release verification"
 ```
+
+### Production rollout record — September 5, 2026
+
+- Release source: `5e2e9cc24ff52f4b52afd069c6d40bcef00e6d20`.
+- Production database migrations `20260906040000` and
+  `20260906041000` are recorded. The private evidence column, highlight
+  queue scope, empty state, and let invalidation trigger were queried after
+  application.
+- The web production build passed and Vercel deployment
+  `dpl_4Uz7kR5UmTq97wsrBfML8V3pw4Bg` is Ready on `www.ponglens.com`.
+- The production Mac worker had no active job when restarted. The live
+  checkout intentionally retains its two pre-existing local production
+  adjustments. The feature was merged against their exact common base with
+  no conflicts; the exact live files passed 39 feature-specific tests.
+- Release verification passed: 47 affected worker tests, 21 API/schema tests,
+  124 match/web behavior tests, the real `npm run build`, 649/649 Swift
+  checks, and a complete iPhone 17 Pro simulator build.
+- The local iOS archive identifies version 1.0 build 127. App Store Connect
+  reported that build 134 already existed during export, so Xcode automatically
+  assigned the uploaded package build 135. Apple processed build 135 as
+  `VALID`; it is `IN_BETA_TESTING` for the internal Team group.
+- Build 135 is attached to the public External testers group with automatic
+  notification enabled. TestFlight Beta App Review approved it, and Apple
+  reports `IN_BETA_TESTING` for both internal and external groups.
+- `automatic_highlights` is enabled only for the product owner's account.
+  It is not globally enabled. Cloud dispatch remains unchanged because this
+  repository has no matching deployed Modal implementation.
+- The required five-match, two-venue canary review is still outstanding.
+  No global rollout decision has been made. Existing matches need a full
+  reprocess because legacy point rows do not contain the new evidence.
+- The live public web surface was visually checked at 393×660 and 1280×850.
+  Not manually verified yet: a real canary render, every selected rally and
+  transition in five matches, physical-device iOS playback, or authenticated
+  responsive highlight playback.

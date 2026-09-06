@@ -61,14 +61,20 @@ final class PurchaseStore {
         let config: [ConfigRow]? = try? await supa
             .from("app_config")
             .select("key,value")
-            .in("key", values: ["iap_enabled", "minute_packs", "storage_packs"])
+            .in("key", values: ["iap_enabled", "purchases_enabled", "commerce_enabled", "minute_packs", "storage_packs"])
             .execute().value
 
         var on = false
+        var purchasesOn = false
+        var commerceOn = false
         var minutes: [BuyablePack] = []
         var storage: [BuyablePack] = []
         for row in config ?? [] {
             switch row.key {
+            case "purchases_enabled":
+                purchasesOn = row.value == "true"
+            case "commerce_enabled":
+                commerceOn = row.value == "true"
             case "iap_enabled":
                 on = (row.value ?? "").trimmingCharacters(in: .whitespaces) == "on"
             case "minute_packs":
@@ -78,7 +84,9 @@ final class PurchaseStore {
             default: break
             }
         }
+        on = on && purchasesOn && commerceOn
         enabled = on
+        if !on { products = [:] }
         minutePacks = minutes
         storagePacks = storage
 
@@ -127,7 +135,7 @@ final class PurchaseStore {
     // MARK: - Buying
 
     func buy(_ pack: BuyablePack) async {
-        guard busyKey == nil, let product = products[pack.productId] else { return }
+        guard enabled, busyKey == nil, let product = products[pack.productId] else { return }
         busyKey = pack.key
         errorMessage = nil
         defer { busyKey = nil }

@@ -28,6 +28,7 @@ enum MainTab: String, CaseIterable, Identifiable {
 }
 
 struct MainTabView: View {
+    @Environment(\.openURL) private var openURL
     @Environment(Router.self) private var router
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
@@ -39,30 +40,35 @@ struct MainTabView: View {
     @State private var path = NavigationPath()
     @State private var bellOpen = false
     @State private var newMatchChoice: NewMatchChoice?
-    /// The chosen door, held while the camera guide is up in front of it,
-    /// and consumed when the guide closes.
+    /// The chosen door, held while the recording brief is up in front of
+    /// it, and consumed when the brief closes.
     @State private var pendingChoice: NewMatchChoice?
-    /// The guide's own presentation. `sheet(item:)` rather than a Bool:
+    /// The brief's own presentation. `sheet(item:)` rather than a Bool:
     /// the sheet has to know which door raised it, and reading that from
     /// a second piece of state resolved a beat too early — every showing
-    /// came out in the upload wording, including the two raised by
+    /// came out in the upload wording, including the ones raised by
     /// Record. Carried by the item, it cannot disagree.
-    @State private var cameraGuideDoor: CameraGuideDoor?
+    @State private var briefDoor: BriefDoor?
     @State private var keyboardVisible = false
 
-    struct CameraGuideDoor: Identifiable {
+    struct BriefDoor: Identifiable {
         let id = UUID()
-        let context: CameraPlacementSheet.Context
+        let context: RecordingBriefSheet.Context
     }
 
     /// A coaching side exists: the flag, a marketplace page, or someone's
     /// accepted coach. The top-bar switch shows only then.
-    private var coachEligible: Bool {
-        coaching.isCoach || coaching.coachesAnyone || app.metadataFlag("is_coach")
+    private var canSwitchWorkspace: Bool {
+        LearnAudienceAccess.canSwitch(
+            isCoach: coaching.isCoach,
+            coachesAnyone: coaching.coachesAnyone,
+            metadataCoach: app.metadataFlag("is_coach"),
+            playerSetupPending: app.playerSetupPending
+        )
     }
 
     /// Everything the chooser used to do inline, now also reachable from
-    /// the far side of the camera guide.
+    /// the far side of the recording brief.
     private func beginNewMatch(_ choice: NewMatchChoice) {
         switch choice {
         case .record(let kind):
@@ -112,7 +118,7 @@ struct MainTabView: View {
                     // player who set up coaching from Account. A coach who
                     // merely switched here still has the playing questions
                     // pending, and their way back stays in Account.
-                    switchTo: coachEligible && !app.playerSetupPending ? "Coaching" : nil,
+                    switchTo: canSwitchWorkspace ? "Coaching" : nil,
                     onSwitch: { app.setWorkspace(.coach) },
                     onBell: { bellOpen = true },
                     onAvatar: { path.append("account") }
@@ -155,45 +161,7 @@ struct MainTabView: View {
             .navigationDestination(for: MatchPointRoute.self) { route in
                 MatchDetailScreen(match: route.match, openPointId: route.pointId)
             }
-            .navigationDestination(for: String.self) { route in
-                switch route {
-                case "account": AccountScreen()
-                case "stats": StatsScreen()
-                case "stats-tactics": StatsScreen(initialTab: "Tactics")
-                case "starred": StarredScreen()
-                case "learn": LearnScreen()
-                case "learn-videos": TutorialVideosScreen()
-                case "feedback": FeedbackScreen()
-                // Marketplace screens: only the Coaching tab pushes these,
-                // and the tab is gated on the same flag — this is a second
-                // fence around the same boundary, not a separate decision.
-                case "coach-orders": if AppConfig.coachMarketplace { CoachOrdersScreen() }
-                case "coach-offerings": if AppConfig.coachMarketplace { CoachOfferingsScreen() }
-                case "coach-profile": if AppConfig.coachMarketplace { CoachProfileScreen() }
-                case "coach-sponsored": if AppConfig.coachMarketplace { CoachSponsoredScreen() }
-                default:
-                    // "guide:<slug>" opens one Learn guide directly. It is
-                    // resolved HERE rather than pushing a GuideData, because
-                    // the destination for that type is declared inside
-                    // LearnScreen — reachable only once Learn is already on
-                    // the stack, which is exactly not the case when the
-                    // first-steps checklist links to a guide from Home.
-                    // "feedback:<matchId>" opens the feedback board with
-                    // that match pre-selected — the match pages' "Report
-                    // an issue" rows, so the report arrives with context.
-                    if route.hasPrefix("feedback:"),
-                       let id = UUID(uuidString: String(route.dropFirst(9))) {
-                        FeedbackScreen(matchId: id)
-                    } else if route.hasPrefix("guide:"),
-                       let guide = GuideLibrary.shared.guides.first(
-                           where: { $0.slug == String(route.dropFirst(6)) }
-                       ) {
-                        GuideDetailScreen(guide: guide)
-                    } else {
-                        EmptyView()
-                    }
-                }
-            }
+            .appRoutes()
             .navigationDestination(for: CoachOrderRoute.self) { route in
                 if AppConfig.coachMarketplace {
                     CoachOrderScreen(orderId: route.id)
@@ -213,21 +181,22 @@ struct MainTabView: View {
         .sheet(isPresented: $router.newMatchOpen, onDismiss: {
             guard let choice = newMatchChoice else { return }
             newMatchChoice = nil
-            // For the first two occasions an account walks through any of
-            // these three doors, the camera guide stands in front of it.
-            // Where the camera goes is the single biggest thing deciding
-            // whether the pipeline finds any points, and this is the last
-            // moment the advice can still change the footage.
+            // The first time an account walks through any of these three
+            // doors, the recording brief stands in front of it, and stays
+            // until its last page is finished. Where the camera goes is
+            // the single biggest thing deciding whether the pipeline finds
+            // any points, and this is the last moment the advice can still
+            // change the footage.
             //
             // It has to open HERE, before the errand starts, because the
             // recorder rotates the phone before it presents and this is a
             // tall portrait form. Portrait first, hand over on dismissal.
-            if CameraGuideFirstRun.shouldAutoShow(
+            if RecordingBriefFirstRun.shouldShow(
                 app: app,
                 hasAnyMatch: library.loaded ? !library.matches.isEmpty : nil
             ) {
                 pendingChoice = choice
-                cameraGuideDoor = CameraGuideDoor(
+                briefDoor = BriefDoor(
                     context: { if case .record = choice { .recording } else { .upload } }()
                 )
             } else {
@@ -246,22 +215,29 @@ struct MainTabView: View {
             .presentationDragIndicator(.visible)
         }
         // Raised only by the gate above. The manual "How to record"
-        // triggers on Home and Upload keep their own sheets and never
-        // count against the two automatic showings.
-        .sheet(item: $cameraGuideDoor, onDismiss: {
-            // Closing it must never cancel the errand — by the button, by
-            // the drag, or by tapping outside. A tap that opens a sheet
-            // and then leaves you exactly where you started reads as a
-            // broken button, which is the easiest way there is to spoil a
-            // first run.
+        // triggers on Home and Upload keep the placement sheet and never
+        // count.
+        .sheet(item: $briefDoor, onDismiss: {
+            // The only way the brief closes is its last button, and that
+            // must never cancel the errand. A tap that opens a sheet and
+            // then leaves you exactly where you started reads as a broken
+            // button, which is the easiest way there is to spoil a first
+            // run.
             if let choice = pendingChoice {
                 pendingChoice = nil
                 beginNewMatch(choice)
             }
         }) { door in
-            CameraPlacementSheet(context: door.context)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+            RecordingBriefSheet(context: door.context) {
+                // Finished. Count it, then hand over through onDismiss.
+                RecordingBriefFirstRun.markDone(app: app)
+                briefDoor = nil
+            }
+            .presentationDetents([.large])
+            // No drag and no handle: a handle invites a swipe that would
+            // do nothing, and the brief has no way out except through.
+            .presentationDragIndicator(.hidden)
+            .interactiveDismissDisabled()
         }
         .onReceive(NotificationCenter.default.publisher(for: .plUploadRegistered)) { _ in
             // A finished upload just registered its match row; pull the
@@ -287,11 +263,27 @@ struct MainTabView: View {
                     }
                 },
                 onOpenHref: { href in
+                    if href.hasPrefix("/admin/"), let url = URL(string: "https://www.ponglens.com" + href) {
+                        bellOpen = false
+                        openURL(url)
+                    }
+                    if href.hasPrefix("/account") {
+                        bellOpen = false
+                        path.append("account")
+                    }
                     // "shared a lesson note" lands on the journal, where the
                     // From your coach section sits at the top.
                     if href.hasPrefix("/journal") {
                         bellOpen = false
                         router.tab = .journal
+                    }
+                    // "shared a lesson recap" opens the recap. The root view
+                    // intercepts first-party recap links and presents the
+                    // native player, so this is the same door the journal uses.
+                    if href.hasPrefix("/lesson-video/"), let url = URL(string: "https://www.ponglens.com" + href),
+                       LessonVideoLink(url: url) != nil {
+                        bellOpen = false
+                        openURL(url)
                     }
                 }
             )

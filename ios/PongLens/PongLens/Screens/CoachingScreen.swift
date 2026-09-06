@@ -181,12 +181,15 @@ struct CoachingScreen: View {
         }
     }
 
-    // MARK: - From your coaches
+    // MARK: - From Coaches
 
     @ViewBuilder
     private var fromYourCoaches: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeading("From your coaches")
+            // One label for this everywhere: the journal tab, Home, and
+            // the web's two. It read three different ways across four
+            // screens (Adil, 2026-09-05).
+            SectionHeading("From Coaches")
             if coachNotes.isEmpty {
                 Text("Coach notes on your matches land here.")
                     .font(.plBody)

@@ -11,8 +11,9 @@ import { MinutesSection } from "./MinutesSection";
 import { SignOutRow } from "./SignOutRow";
 import { DeleteAccountSection } from "./DeleteAccountSection";
 import {
-  ADMIN_EMAIL,
+  isAdminEmail,
   getCommerceEnabled,
+  getPurchasesEnabled,
   getMinutePacks,
   getStoragePacks,
   getSupportEmail,
@@ -74,13 +75,14 @@ export default async function AccountPage() {
     redirect("/login");
   }
 
-  const isAdmin = user.email === ADMIN_EMAIL;
+  const isAdmin = isAdminEmail(user.email);
   // The RPC re-checks the role server-side; this only decides whether the
   // row is drawn. /testing has its own gate either way.
   const { data: qa } = await supabase.rpc("is_qa");
   const isQa = qa === true;
   const supportEmail = await getSupportEmail();
   const commerceEnabled = await getCommerceEnabled();
+  const purchasesEnabled = commerceEnabled && await getPurchasesEnabled();
   const { workspace } = await rememberedWorkspace();
   const coachSide = workspace === "coach";
   // The Profile type row's label: the coach flag, or any coach data — a
@@ -109,7 +111,7 @@ export default async function AccountPage() {
         .limit(1)
         .maybeSingle(),
     ]).then((rows) => rows.some((r) => Boolean(r.data))));
-  const [minutePacks, storagePacks] = commerceEnabled
+  const [minutePacks, storagePacks] = purchasesEnabled
     ? await Promise.all([getMinutePacks(), getStoragePacks()])
     : [[], []];
   const { data: recollectPreference } = await supabase
@@ -193,13 +195,13 @@ export default async function AccountPage() {
       {commerceEnabled && !coachSide && (
         <div id="minutes" className="mt-8 scroll-mt-20">
           <SectionLabel>Processing minutes</SectionLabel>
-          <MinutesSection packs={minutePacks} />
+          <MinutesSection packs={minutePacks} purchasesEnabled={purchasesEnabled} />
         </div>
       )}
       {!coachSide && (
         <div id="storage" className="mt-8 scroll-mt-20">
           <SectionLabel>Storage</SectionLabel>
-          <StorageSection packs={commerceEnabled ? storagePacks : []} />
+          <StorageSection packs={storagePacks} purchasesEnabled={purchasesEnabled} />
         </div>
       )}
 
@@ -220,7 +222,8 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 7 — support block, just above legal */}
+      {/* 7 — support block, just above legal. Closing the account is its
+          last row, where the iOS app keeps it (Adil, 2026-09-05). */}
       <div className="mt-8">
         <SectionLabel>Support</SectionLabel>
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
@@ -247,6 +250,7 @@ export default async function AccountPage() {
               />
             </svg>
           </a>
+          <DeleteAccountSection />
         </div>
       </div>
 
@@ -259,13 +263,9 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 9 — the exits, alone at the very bottom. Closing the account sits
-          under signing out, quieter than it but reachable without asking
-          anyone: Apple requires it in the app, and it is the right thing
-          regardless. */}
-      <div className="mt-10 flex flex-col gap-3">
+      {/* 9 — the exit, alone at the very bottom. */}
+      <div className="mt-10">
         <SignOutRow />
-        <DeleteAccountSection />
       </div>
     </AppShell>
   );

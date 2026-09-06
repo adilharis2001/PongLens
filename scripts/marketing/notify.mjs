@@ -20,10 +20,12 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { renderEmail } from "../../src/lib/email/render.ts";
 
 const SUPABASE = "https://pdycinmyfnritemrsfjf.supabase.co";
 const APP_URL = "https://www.ponglens.com";
-const FROM = "PongLens <noreply@ponglens.com>";
+const FROM = "PongLens <support@ponglens.com>";
+const REPLY_TO = "support@ponglens.com";
 
 const args = process.argv.slice(2);
 const flag = (name, fallback = null) => {
@@ -122,7 +124,7 @@ ${esc(c.country || "?")}${c.entity_type === "club" ? " · club" : ""}
 </tr>`;
 }
 
-export function digestHtml({ found, stats, status, terms, runs, error }) {
+function legacyDigestHtml({ found, stats, status, terms, runs, error }) {
   const sorted = sortFound(found);
   const shown = sorted.slice(0, ROW_LIMIT);
   const rest = sorted.length - shown.length;
@@ -179,6 +181,69 @@ Apify and the model cost $${cost.toFixed(2)} this run. Nothing was sent to anyon
 </body></html>`;
 }
 
+export function digestMessage({ found, stats, status, terms, runs, error }) {
+  const sorted = sortFound(found);
+  const cost = runs.reduce((total, run) => total + Number(run.cost_usd ?? 0), 0);
+  const succeeded = status === "succeeded";
+  const summary = succeeded
+    ? `${found.length === 0 ? "No new coaches" : `${found.length} new coach${found.length === 1 ? "" : "es"}`} from the "${terms}" search.`
+    : "The coach search did not finish.";
+  const blocks = [{ type: "paragraph", text: summary }];
+  if (!succeeded && error) {
+    blocks.push({ type: "diagnostic", text: String(error).slice(0, 1000) });
+  }
+  if (sorted.length) {
+    blocks.push({
+      type: "items",
+      heading: "New coaches",
+      items: sorted.slice(0, ROW_LIMIT).map((coach) => ({
+        title: `@${coach.handle}`,
+        description: coach.full_name || undefined,
+        meta: [
+          coach.country || "Country unknown",
+          coach.entity_type === "club" ? "Club" : "Coach",
+          `${nf(coach.followers ?? 0)} followers`,
+          reachable(coach) ? "Can be paid" : "Stripe unavailable",
+        ].join(" · "),
+      })),
+    });
+  }
+  blocks.push({
+    type: "details",
+    rows: [
+      { label: "Waiting for a first message", value: String(stats.waiting) },
+      { label: "Can be paid", value: String(stats.reachable) },
+      { label: "Warming", value: String(stats.warming) },
+      { label: "Contacted", value: String(stats.contacted) },
+      { label: "Replied or further", value: String(stats.replied) },
+      { label: "Country unknown", value: String(stats.unplaced) },
+      { label: "On the list", value: String(stats.total) },
+      { label: "Run cost", value: `$${cost.toFixed(2)}` },
+    ],
+  });
+  return renderEmail({
+    templateId: "ops.coach-outreach",
+    templateVersion: 1,
+    category: "ops",
+    audience: "admin",
+    subject: digestSubject(found, status),
+    preheader: summary,
+    eyebrow: "Coach outreach",
+    heading: succeeded ? "Coach search finished" : "Coach search failed",
+    blocks,
+    action: {
+      label: "Open the outreach list",
+      url: `${APP_URL}/marketing/coach-outreach`,
+    },
+    reason: "This internal email reports the latest coach-search run. No outreach was sent automatically.",
+    support: false,
+  });
+}
+
+export function digestHtml(args) {
+  return digestMessage(args).html;
+}
+
 async function rest(path) {
   const key = keychain("ponglens-service-role");
   const res = await fetch(`${SUPABASE}/rest/v1/${path}`, {
@@ -218,7 +283,7 @@ async function main() {
   }
 
   const failed = runs.find((r) => r.status === "failed");
-  const html = digestHtml({
+  const message = digestMessage({
     found,
     stats: digestStats(all),
     status: failed ? "failed" : status,
@@ -236,11 +301,17 @@ async function main() {
     body: JSON.stringify({
       from: FROM,
       to,
+      reply_to: REPLY_TO,
       // Ops mail to the operator, so it deliberately does not consult
       // email_suppressions the way customer mail does. A bounce here should
       // stop the digests, not silently keep the searches running unseen.
-      subject: digestSubject(found, failed ? "failed" : status),
-      html,
+      subject: message.subject,
+      html: message.html,
+      text: message.text,
+      headers: {
+        "X-PongLens-Template-Id": message.templateId,
+        "X-PongLens-Template-Version": String(message.templateVersion),
+      },
     }),
   });
   if (!res.ok) {

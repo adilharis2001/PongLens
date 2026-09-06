@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const migration = readFileSync(
@@ -34,9 +34,44 @@ const winnerConstrainedEnding = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
+const audioImpactUrl = new URL(
+  "../../../supabase/migrations/152_audio_impact_research.sql",
+  import.meta.url,
+);
+const audioImpact = existsSync(audioImpactUrl)
+  ? readFileSync(audioImpactUrl, "utf8").toLowerCase()
+  : "";
+const audioImpactFootClassesUrl = new URL(
+  "../../../supabase/migrations/153_audio_impact_foot_classes.sql",
+  import.meta.url,
+);
+const audioImpactFootClasses = existsSync(audioImpactFootClassesUrl)
+  ? readFileSync(audioImpactFootClassesUrl, "utf8").toLowerCase()
+  : "";
+const audioImpactCombinedContactUrl = new URL(
+  "../../../supabase/migrations/155_audio_impact_combined_contact.sql",
+  import.meta.url,
+);
+const audioImpactCombinedContact = existsSync(audioImpactCombinedContactUrl)
+  ? readFileSync(audioImpactCombinedContactUrl, "utf8").toLowerCase()
+  : "";
 const serveFollowupExport = readFileSync(
   new URL(
     "../../../supabase/migrations/059_serve_followup_export.sql",
+    import.meta.url,
+  ),
+  "utf8",
+).toLowerCase();
+const qualityFirstHighlights = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20260906040000_quality_first_highlights.sql",
+    import.meta.url,
+  ),
+  "utf8",
+).toLowerCase();
+const qualityFirstHighlightLets = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20260906041000_quality_first_highlight_lets.sql",
     import.meta.url,
   ),
   "utf8",
@@ -122,6 +157,72 @@ test("winner ending migration narrowly adds the fourth permanent media namespace
   assert.doesNotMatch(winnerConstrainedEnding, /research\/\.\*/);
 });
 
+test("audio impact migration narrowly adds the fifth permanent media namespace", () => {
+  assert.match(
+    audioImpact,
+    /fused-labeling\|placement-calibration\|serve-detection\|winner-constrained-endings\|audio-impacts/,
+  );
+  assert.match(audioImpact, /v\[0-9\]\+\/sources/);
+  assert.match(audioImpact, /\[0-9a-f\]\{8\}-\[0-9a-f\]\{4\}/);
+  assert.doesNotMatch(audioImpact, /research\/\.\*/);
+  assert.doesNotMatch(audioImpact, /grant\s+all/);
+  assert.doesNotMatch(audioImpact, /disable row level security/);
+});
+
+test("audio impact migration seals rounds and validates human labels server-side", () => {
+  assert.match(audioImpact, /create table if not exists public\.audio_impact_research_state/);
+  assert.match(audioImpact, /development_a/);
+  assert.match(audioImpact, /sealed_labeling/);
+  assert.match(audioImpact, /sealed_report_sha256/);
+  assert.match(audioImpact, /create or replace function public\.validate_audio_impact_assignment/);
+  for (const kind of [
+    "paddle", "table", "floor", "shoe", "net", "background", "other", "no_impact", "unsure",
+  ]) {
+    assert.match(audioImpact, new RegExp(`'${kind}'`));
+  }
+  assert.match(audioImpact, /create trigger validate_audio_impact_assignment_trigger/);
+  assert.match(audioImpact, /media_unavailable/);
+  assert.match(audioImpact, /round c is sealed/);
+  assert.match(audioImpact, /frozen development bindings are immutable/i);
+  assert.match(audioImpact, /all 30 sealed assignments must be complete/i);
+  assert.match(audioImpact, /frozen audio-impact assignments are read-only/i);
+});
+
+test("audio impact foot taxonomy migration keeps shoe, squeak, and stomp distinct", () => {
+  assert.match(
+    audioImpactFootClasses,
+    /create or replace function public\.validate_audio_impact_assignment\(\)/,
+  );
+  for (const kind of ["shoe", "shoe_squeak", "stomp"]) {
+    assert.match(audioImpactFootClasses, new RegExp(`'${kind}'`));
+  }
+  assert.match(audioImpactFootClasses, /round c is sealed/);
+  assert.match(
+    audioImpactFootClasses,
+    /frozen audio-impact assignments are read-only/,
+  );
+  assert.match(audioImpactFootClasses, /media unavailable assignments cannot be labeled/);
+});
+
+test("audio impact combined-contact migration is additive and keeps lifecycle guards", () => {
+  assert.match(
+    audioImpactCombinedContact,
+    /create or replace function public\.validate_audio_impact_assignment\(\)/,
+  );
+  assert.match(audioImpactCombinedContact, /'paddle_table'/);
+  assert.match(audioImpactCombinedContact, /round c is sealed/);
+  assert.match(
+    audioImpactCombinedContact,
+    /frozen audio-impact assignments are read-only/,
+  );
+  assert.match(
+    audioImpactCombinedContact,
+    /media unavailable assignments cannot be labeled/,
+  );
+  assert.doesNotMatch(audioImpactCombinedContact, /delete\s+from\s+public\.research_assignments/);
+  assert.doesNotMatch(audioImpactCombinedContact, /update\s+public\.research_assignments/);
+});
+
 test("serve follow-up export includes evidence while retaining the admin gate", () => {
   assert.match(serveFollowupExport, /'proposal', s\.proposal/);
   assert.match(serveFollowupExport, /'prefill', s\.prefill/);
@@ -140,5 +241,35 @@ test("serve follow-up export includes evidence while retaining the admin gate", 
   assert.match(
     serveFollowupExport,
     /grant execute on function public\.research_export_batch\(uuid\)[\s\S]*to authenticated/,
+  );
+});
+
+test("quality-first highlights keep evidence private and fail closed", () => {
+  assert.match(
+    qualityFirstHighlights,
+    /add column if not exists highlight_evidence jsonb/,
+  );
+  assert.match(qualityFirstHighlights, /'highlights'::text/);
+  assert.match(qualityFirstHighlights, /'empty'::text/);
+  assert.match(qualityFirstHighlights, /automatic_highlights/);
+  assert.match(
+    qualityFirstHighlights,
+    /create or replace function public\.points_invalidate_highlight_evidence\(\)/,
+  );
+  assert.match(
+    qualityFirstHighlights,
+    /before update of t0, t1, cut_t0, clip_path, deleted, edited/,
+  );
+  assert.doesNotMatch(
+    qualityFirstHighlights,
+    /app_config_public_keys[\s\S]*automatic_highlights/,
+  );
+});
+
+test("marking a rally skipped invalidates its highlight evidence", () => {
+  assert.match(qualityFirstHighlightLets, /new\.is_let is distinct from old\.is_let/);
+  assert.match(
+    qualityFirstHighlightLets,
+    /before update of t0, t1, cut_t0, clip_path, deleted, edited, is_let/,
   );
 });

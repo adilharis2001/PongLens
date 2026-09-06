@@ -117,9 +117,11 @@ function writeHintState(next: { shows: number; used: boolean }) {
  */
 export function ClipPlayer({
   src,
+  poster,
   videoElRef,
   mode = "clip",
   startPaused = false,
+  range,
   onTime,
   onLoadedMetadata,
   onMediaError,
@@ -138,6 +140,8 @@ export function ClipPlayer({
   quietChrome = false,
 }: {
   src: string;
+  /** Optional saved preview for media that has not decoded its first frame. */
+  poster?: string;
   /** Exposes the <video> element so the point view can capture the
    *  on-screen frame for annotation (Player.captureFrame rationale). */
   videoElRef?: React.MutableRefObject<HTMLVideoElement | null>;
@@ -263,8 +267,20 @@ export function ClipPlayer({
    *  because a page opened, not because anyone chose it. Every later clip
    *  change in the same mount autoplays as usual. */
   startPaused?: boolean;
+  /**
+   * Play only this stretch of the file, in seconds. The point view hands
+   * the whole cut video here with the point's own window when its clip
+   * file is stale or missing: the picture is right the moment the timing
+   * is saved, and the file catches up in the background. Autoplay, the
+   * play-twice loop, the hairline and tap-to-seek all measure the window
+   * rather than the file. Memoise it: a fresh object each render would
+   * restart the clip.
+   */
+  range?: { start: number; end: number };
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const winStart = range?.start;
+  const winEnd = range?.end;
   const wrapRef = useRef<HTMLDivElement | null>(null);
   // Consumed by the first src effect and never set again, so only the
   // clip that was on screen at mount is held back.
@@ -589,6 +605,8 @@ export function ClipPlayer({
       const d = v.duration;
       if (Number.isFinite(d) && d > 0) {
         setDuration(d);
+        // A windowed file opens on the window, not on frame zero.
+        if (winStart !== undefined) v.currentTime = winStart;
         onLoadedMetadataRef.current?.(v);
       }
     };
@@ -611,7 +629,7 @@ export function ClipPlayer({
     }
     tryPlay();
     return () => v.removeEventListener("loadedmetadata", readDuration);
-  }, [src, applyTransform, mode, tryPlay]);
+  }, [src, applyTransform, mode, tryPlay, winStart]);
 
   // React's touch listeners are passive, so scroll prevention during an
   // active pinch (or a pan while zoomed) needs a native non-passive hook —
@@ -721,10 +739,41 @@ export function ClipPlayer({
       const v = videoRef.current;
       if (!v || !Number.isFinite(v.duration)) return;
       const frac = localFrac(clientX, clientY, rect);
-      v.currentTime = frac * v.duration;
+      v.currentTime =
+        winStart !== undefined && winEnd !== undefined
+          ? winStart + frac * (winEnd - winStart)
+          : frac * v.duration;
       setProgress(frac * 100);
     },
-    [localFrac]
+    [localFrac, winStart, winEnd]
+  );
+
+  /** The clip reached its end — the file's, or the window's. A host that
+   *  handles the end owns it completely, including the "play a rally
+   *  twice" loop, which would make a sequence viewer watch every clip
+   *  through before advancing. A cut rests. A clip plays twice, then
+   *  rests at its start. */
+  const finishPlay = useCallback(
+    (v: HTMLVideoElement) => {
+      if (onEndedRef.current) {
+        setPaused(true);
+        onEndedRef.current();
+        return;
+      }
+      if (mode === "cut") {
+        setPaused(true);
+        return;
+      }
+      playsRef.current += 1;
+      v.currentTime = winStart ?? 0;
+      if (playsRef.current < 2) {
+        void v.play().catch(() => setPaused(true));
+      } else {
+        setPaused(true);
+        setProgress(0);
+      }
+    },
+    [mode, winStart]
   );
 
   const seek = useCallback(
@@ -1031,6 +1080,7 @@ export function ClipPlayer({
       onPointerCancel={(e) => endPointer(e, true)}
     >
       <video
+        poster={poster}
         ref={(el) => {
           videoRef.current = el;
           if (videoElRef) videoElRef.current = el;
@@ -1112,34 +1162,21 @@ export function ClipPlayer({
         onPause={() => setPaused(true)}
         onTimeUpdate={(e) => {
           const v = e.currentTarget;
-          if (Number.isFinite(v.duration) && v.duration > 0) {
+          if (winStart !== undefined && winEnd !== undefined) {
+            const len = Math.max(0.01, winEnd - winStart);
+            setProgress(
+              Math.min(100, Math.max(0, ((v.currentTime - winStart) / len) * 100))
+            );
+            if (!v.paused && v.currentTime >= winEnd) {
+              v.pause();
+              finishPlay(v);
+            }
+          } else if (Number.isFinite(v.duration) && v.duration > 0) {
             setProgress((v.currentTime / v.duration) * 100);
           }
           onTime?.(v);
         }}
-        onEnded={(e) => {
-          const v = e.currentTarget;
-          // A host that handles the end owns it completely — including the
-          // "play a rally twice" loop below, which would make a sequence
-          // viewer watch every clip through before advancing.
-          if (onEndedRef.current) {
-            setPaused(true);
-            onEndedRef.current();
-            return;
-          }
-          if (mode === "cut") {
-            setPaused(true);
-            return;
-          }
-          playsRef.current += 1;
-          v.currentTime = 0;
-          if (playsRef.current < 2) {
-            void v.play().catch(() => setPaused(true));
-          } else {
-            setPaused(true);
-            setProgress(0);
-          }
-        }}
+        onEnded={(e) => finishPlay(e.currentTarget)}
         className={`w-full select-none bg-black [-webkit-touch-callout:none] ${
           // A height cap is meaningless once the player owns the screen —
           // in either landscape flavour the picture takes the whole box.

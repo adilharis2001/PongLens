@@ -2,7 +2,6 @@ import React from "react";
 import {
   AbsoluteFill,
   Audio,
-  Img,
   OffthreadVideo,
   Sequence,
   interpolate,
@@ -14,6 +13,7 @@ import {
 import cues from "./cues.json";
 import insertData from "./inserts.json";
 import voice from "./voice.json";
+import { Lens } from "./Bookend";
 import { CYAN, EDGE, INK } from "./theme";
 
 /**
@@ -120,29 +120,8 @@ export const TOTAL_FRAMES = INTRO_FRAMES + BODY_FRAMES + OUTRO_FRAMES;
  * where anyone will actually watch this.
  */
 
-/** The lens ring, drawn rather than fetched so the render has no assets. */
-const Logo: React.FC<{ size: number }> = ({ size }) => (
-  <svg width={size} height={size} viewBox="0 0 48 48" fill="none">
-    <circle cx="24" cy="24" r="20" stroke={CYAN} strokeWidth="3.5" />
-    <circle cx="24" cy="24" r="20" stroke="rgba(255,255,255,.12)" strokeWidth="1" />
-  </svg>
-);
-
-/**
- * How far the wordmark sits under the lens ring, before the 1.15x landscape
- * scale.
- *
- * It was 30, which is a normal lockup gap and the wrong number here. The
- * first frame of this video is also the poster on the landing page, and the
- * landing page draws a play button over the ring — so whatever space is
- * left between the ring and the wordmark is the only clearance that button
- * has. At 30 the button's edge sat on the "L" of PongLens.
- *
- * This is the poster's job showing through into the video's brand card. The
- * card is airier for it, which is no loss; a lockup with room in it does not
- * look like a mistake, and a play button touching a wordmark does.
- */
-const LOCKUP_GAP = 150;
+/** Compact vertical lockup; the idle page no longer needs room inside it. */
+const LOCKUP_GAP = 40;
 
 /** A held card at each end, so the video opens and closes on the brand. */
 const Bookend: React.FC<{ mode: "intro" | "outro" }> = ({ mode }) => {
@@ -166,7 +145,7 @@ const Bookend: React.FC<{ mode: "intro" | "outro" }> = ({ mode }) => {
           transform: `translateY(${(1 - rise) * 18}px)`,
         }}
       >
-        <Logo size={130 * scale} />
+        <Lens size={130 * scale} />
         <div
           style={{
             fontFamily: "Helvetica, Arial, sans-serif",

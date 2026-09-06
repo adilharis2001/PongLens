@@ -108,7 +108,7 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
     "aria-hidden": true,
   } as const;
 
-  if (kind === "note") {
+  if (kind === "note" || kind === "coach_entry") {
     return (
       <svg {...common}>
         <path
@@ -119,7 +119,7 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
       </svg>
     );
   }
-  if (kind === "coach_joined") {
+  if (kind === "coach_joined" || kind === "student_joined") {
     return (
       <svg {...common}>
         <circle cx="12" cy="8" r="3.5" />

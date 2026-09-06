@@ -13,7 +13,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  */
 
 export const QUOTA_ERRORS = {
-  storage: "Storage is full. Delete a video or add space in Account.",
+  storage: "Storage is full. Delete a video or manage your allowance in Account.",
+  unavailable: "Could not check your storage allowance. Please try again.",
   queue: "Your queue is full. Wait for a match to finish.",
   daily: "Daily upload limit reached. Try again tomorrow.",
 } as const;
@@ -38,8 +39,7 @@ export interface StorageState {
 
 /**
  * Returns a user-facing error message when the upload must be rejected,
- * or null when it may proceed. Fails open on RPC errors (a broken quota
- * lookup must not take uploads down) — the error is logged by the caller.
+ * or null when it may proceed. A failed lookup cannot authorize extra usage.
  */
 export async function checkUploadAllowed(
   supabase: SupabaseClient,
@@ -65,13 +65,14 @@ export async function checkUploadAllowed(
 ): Promise<string | null> {
   const { data, error } = await supabase.rpc("my_storage_state").single();
   if (error || !data) {
-    console.error("quota check failed (allowing upload):", error);
-    return null;
+    console.error("quota check failed:", error);
+    return QUOTA_ERRORS.unavailable;
   }
   const s = data as StorageState;
   if (
     !opts?.skipStorage &&
-    s.used_bytes + Math.max(0, incomingBytes) > s.storage_limit_bytes
+    (s.used_bytes >= s.storage_limit_bytes ||
+      s.used_bytes + Math.max(0, incomingBytes) > s.storage_limit_bytes)
   ) {
     return QUOTA_ERRORS.storage;
   }

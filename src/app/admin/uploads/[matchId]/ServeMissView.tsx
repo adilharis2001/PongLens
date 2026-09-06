@@ -1,16 +1,29 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { netSegmentFromQuad } from "../../../research/serve-accuracy/netDeath";
 import { NORMAL_SPEED_IDX, SPEEDS, SpeedMenu } from "../../../match/[id]/SpeedMenu";
 import { CardTimeline } from "./CardTimeline";
 import {
+  BOUNCE_LABELS,
+  LABEL_TONE,
   TABLE_L_M,
   TABLE_W_M,
+  bounceLabelCopy,
+  labelFor,
+  courtTrajectory,
+  inferredBounceMarkerTitle,
+  inferredBounceMarkers,
   reasonShort,
   reasonTone,
+  tablePathSegments,
+  tableTrailAt,
+  type BounceLabel,
+  type MissBounce,
   type MissCard,
   type ServeMissData,
+  type TableTrackPoint,
+  type TableTrackSegment,
 } from "../serveMiss";
 
 /**
@@ -32,17 +45,86 @@ import {
  *  on and off the playing surface, and a serve bounce can be either. */
 export const SERVE_BOUNCE = "#e879f9";
 
+const METRES_TO_PX = 65.5;
+const SIDE_MARGIN_M = 0.45;
+const END_MARGIN_M = 0.7;
+const COURT_VIEW_W = (TABLE_W_M + SIDE_MARGIN_M * 2) * METRES_TO_PX;
+const COURT_VIEW_H = (TABLE_L_M + END_MARGIN_M * 2) * METRES_TO_PX;
+const COURT_X = SIDE_MARGIN_M * METRES_TO_PX;
+const COURT_Y = END_MARGIN_M * METRES_TO_PX;
+const COURT_W = TABLE_W_M * METRES_TO_PX;
+const COURT_H = TABLE_L_M * METRES_TO_PX;
+
+function courtXY(u: number, v: number) {
+  return {
+    x: (u + SIDE_MARGIN_M) * METRES_TO_PX,
+    y: (TABLE_L_M + END_MARGIN_M - v) * METRES_TO_PX,
+  };
+}
+
+/** Two SVG nodes no matter how many full-rate observations a card carries. */
+const CompleteCourtPath = memo(function CompleteCourtPath({
+  points,
+  segments,
+}: {
+  points: TableTrackPoint[];
+  segments: TableTrackSegment[];
+}) {
+  const lineData = segments
+    .map(({ from, to }) => {
+      const a = courtXY(from.u, from.v);
+      const b = courtXY(to.u, to.v);
+      return `M${a.x},${a.y}L${b.x},${b.y}`;
+    })
+    .join("");
+  // A near-zero stroked segment with a round cap reads as a dot, while all
+  // raw observations remain consolidated into one DOM node.
+  const dotData = points
+    .map((point) => {
+      const p = courtXY(point.u, point.v);
+      return `M${p.x},${p.y}l0.01,0`;
+    })
+    .join("");
+  return (
+    <g pointerEvents="none" aria-label="Complete best estimate path">
+      <path
+        d={lineData}
+        fill="none"
+        stroke="#facc15"
+        strokeWidth="0.8"
+        strokeLinecap="round"
+        opacity="0.22"
+      />
+      <path
+        d={dotData}
+        fill="none"
+        stroke="#facc15"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        opacity="0.3"
+      />
+    </g>
+  );
+});
+
 export function ServeMissView({
   data,
   card,
   cutOffset,
   videoUrl,
+  labels,
+  onLabel,
 }: {
   data: ServeMissData;
   card: MissCard;
   /** Seconds to add to a source time to reach the cut video. */
   cutOffset: number;
   videoUrl: string | null;
+  /** The admin's event corrections for this match, keyed by labelKey(t).
+   *  Absent (an older caller) and the whole labeling surface stays off. */
+  labels?: ReadonlyMap<string, BounceLabel>;
+  /** Files one correction; null withdraws it. Storage is the caller's. */
+  onLabel?: (bounce: MissBounce, label: BounceLabel | null) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -54,9 +136,30 @@ export function ServeMissView({
   // The presentation time of the frame ACTUALLY on screen. See the draw
   // loop for why currentTime is not good enough below about half speed.
   const frameTime = useRef<number | null>(null);
+  // The bounce picked for relabeling, by its source time. Selecting seeks
+  // the video to it, so the frame being judged is on screen while judging.
+  const [selectedT, setSelectedT] = useState<number | null>(null);
 
   const cutT0 = card.t0 + cutOffset;
   const cutT1 = card.t1 + cutOffset;
+
+  const selectBounce = useCallback(
+    (sourceSeconds: number) => {
+      setSelectedT(sourceSeconds);
+      const v = videoRef.current;
+      if (v) {
+        v.pause();
+        v.currentTime = sourceSeconds + cutOffset;
+      }
+    },
+    [cutOffset]
+  );
+
+  // A new card must not inherit the last card's selection: the times would
+  // point at a bounce this card does not have.
+  useEffect(() => {
+    setSelectedT(null);
+  }, [card.t0]);
 
   // Park the poster inside the card rather than at the top of the match.
   useEffect(() => {
@@ -223,15 +326,22 @@ export function ServeMissView({
         if (age < -0.34 || age > 0.34) continue;
         const fade = 1 - Math.abs(age) / 0.34;
         const isServe = servePair.some((st) => Math.abs(st - b.t) < 0.02);
-        ctx.globalAlpha = 0.25 + 0.75 * fade;
+        const label = labelFor(labels, b.t);
+        ctx.globalAlpha =
+          (0.25 + 0.75 * fade) * (label === "not_ball" ? 0.5 : 1);
         ctx.beginPath();
         ctx.arc(b.x * w, b.y * h, 5 + 8 * (1 - fade), 0, Math.PI * 2);
-        ctx.strokeStyle = isServe
-          ? SERVE_BOUNCE
-          : b.onSurface
-            ? "#50ff78"
-            : "#ff5050";
-        ctx.lineWidth = isServe ? 3.5 : 2.5;
+        // The human's colour outranks the machine's: a serve bounce
+        // relabeled as a paddle contact is a wrong serve, and keeping it
+        // magenta would go on asserting the thing being corrected.
+        ctx.strokeStyle = label
+          ? LABEL_TONE[label]
+          : isServe
+            ? SERVE_BOUNCE
+            : b.onSurface
+              ? "#50ff78"
+              : "#ff5050";
+        ctx.lineWidth = isServe || label ? 3.5 : 2.5;
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
@@ -243,9 +353,10 @@ export function ServeMissView({
         vfcHost.cancelVideoFrameCallback(vfc);
       }
     };
-  }, [data, card, cutOffset, cutT0]);
+  }, [data, card, cutOffset, cutT0, labels]);
 
   const why = card.why;
+  const inferred = useMemo(() => inferredBounceMarkers(card), [card]);
 
   return (
     <div className="mt-3 rounded-2xl border border-edge bg-surface-2/40 p-3">
@@ -333,13 +444,32 @@ export function ServeMissView({
           const v = videoRef.current;
           if (v) v.currentTime = sourceSeconds + cutOffset;
         }}
+        labels={labels}
+        selectedT={selectedT}
+        onSelectBounce={onLabel ? selectBounce : undefined}
       />
+
+      {onLabel && (
+        <LabelBar
+          card={card}
+          labels={labels}
+          selectedT={selectedT}
+          onLabel={onLabel}
+          onClose={() => setSelectedT(null)}
+        />
+      )}
 
       </div>
 
       <div className="flex min-w-0 flex-row gap-3 lg:flex-1">
         <div className="w-24 shrink-0 sm:w-32 lg:w-40">
-          <Court card={card} t={t} />
+          <Court
+            card={card}
+            t={t}
+            labels={labels}
+            selectedT={selectedT}
+            onSelect={onLabel ? selectBounce : undefined}
+          />
         </div>
         <div className="min-w-0 flex-1">
           {typeof card.serve_s === "number" ? (
@@ -387,6 +517,28 @@ export function ServeMissView({
               )}
             </ul>
           )}
+          {inferred.length > 0 && (
+            <div className="mt-4 border-t border-edge pt-3">
+              <p className="text-sm font-medium text-zinc-300">
+                Inferred bounce evidence
+              </p>
+              <ul className="mt-2 space-y-2">
+                {inferred.slice(0, 8).map((marker) => (
+                  <li key={marker.id} className="text-xs text-zinc-400">
+                    <p className="text-zinc-300">
+                      {inferredBounceMarkerTitle(marker, card.t0)}
+                    </p>
+                    <p className="mt-0.5 text-zinc-500">{marker.missDetail}</p>
+                  </li>
+                ))}
+                {inferred.length > 8 && (
+                  <li className="text-xs text-zinc-600">
+                    and {inferred.length - 8} more diagnostic candidates
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
       </div>
@@ -394,18 +546,126 @@ export function ServeMissView({
   );
 }
 
-/** Where the bounces landed, looking down on the table. */
-function Court({ card, t }: { card: MissCard; t: number }) {
-  const VIEW_W = 150;
-  const VIEW_H = 260;
-  const TX = 25;
-  const TY = 15;
-  const TW = 100;
-  const TH = 230;
-  const xy = (u: number, v: number) => ({
-    x: TX + (TW * u) / TABLE_W_M,
-    y: TY + TH * (1 - v / TABLE_L_M),
-  });
+/** The reconstructed best-estimate path and bounces, looking down. */
+/**
+ * The relabeling control for one selected bounce.
+ *
+ * The detector's own call is shown as CONTEXT and never pre-selected — the
+ * fused labeling page's rule, kept for the same reason: a pre-ticked answer
+ * teaches the labeler to confirm rather than to look. Only a label the
+ * human actually filed lights a chip.
+ *
+ * No save button. A tap files it, exactly as the note box and the themes
+ * work everywhere else on this page.
+ */
+function LabelBar({
+  card,
+  labels,
+  selectedT,
+  onLabel,
+  onClose,
+}: {
+  card: MissCard;
+  labels?: ReadonlyMap<string, BounceLabel>;
+  selectedT: number | null;
+  onLabel: (bounce: MissBounce, label: BounceLabel | null) => void;
+  onClose: () => void;
+}) {
+  if (selectedT === null) {
+    return (
+      <p className="mt-1 text-[11px] text-zinc-600">
+        Tap a bounce dot to say what it really was.
+      </p>
+    );
+  }
+  const bounce = card.bounces.find(
+    (b) => Math.abs(b.t - selectedT) < 0.001
+  );
+  if (!bounce) return null;
+  const current = labelFor(labels, bounce.t);
+
+  return (
+    <div className="mt-2 rounded-xl border border-edge bg-surface-2/50 p-3">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <p className="text-xs text-zinc-300 tabular-nums">
+          Event at {(bounce.t - card.t0).toFixed(2)}s
+        </p>
+        <p className="text-xs text-zinc-500">
+          detector: bounce, {bounce.onSurface ? "on" : "off"} the playing
+          surface
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-auto rounded-full border border-edge px-2.5 py-0.5 text-xs text-zinc-400 transition-colors hover:text-white"
+        >
+          Done
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {BOUNCE_LABELS.map(({ value, copy }) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => onLabel(bounce, value === current ? null : value)}
+            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+              value === current
+                ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
+                : "border-edge text-zinc-300 hover:border-cyan-glow/40"
+            }`}
+          >
+            <i
+              className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle"
+              style={{ background: LABEL_TONE[value] }}
+            />
+            {copy}
+          </button>
+        ))}
+        {current && (
+          <button
+            type="button"
+            onClick={() => onLabel(bounce, null)}
+            className="rounded-full border border-edge px-3 py-1 text-xs text-zinc-500 transition-colors hover:text-white"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      <p className="mt-1.5 text-[11px] text-zinc-600">
+        {current
+          ? `Saved: ${bounceLabelCopy(current).toLowerCase()}. Tap again to withdraw it.`
+          : "Saved the moment you tap. This builds training data; the pipeline's own reading is unchanged."}
+      </p>
+    </div>
+  );
+}
+
+function Court({
+  card,
+  t,
+  labels,
+  selectedT,
+  onSelect,
+}: {
+  card: MissCard;
+  t: number;
+  labels?: ReadonlyMap<string, BounceLabel>;
+  selectedT?: number | null;
+  onSelect?: (sourceSeconds: number) => void;
+}) {
+  const VIEW_W = COURT_VIEW_W;
+  const VIEW_H = COURT_VIEW_H;
+  const TX = COURT_X;
+  const TY = COURT_Y;
+  const TW = COURT_W;
+  const TH = COURT_H;
+  const xy = courtXY;
+  const projectedTrack = useMemo(() => courtTrajectory(card), [card]);
+  const pathSegments = useMemo(
+    () => tablePathSegments(projectedTrack),
+    [projectedTrack]
+  );
+  const trail = tableTrailAt(projectedTrack, t);
   const placed = card.bounces.filter((b) => b.u !== null && b.v !== null);
   return (
     <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="w-full">
@@ -428,28 +688,92 @@ function Court({ card, t }: { card: MissCard; t: number }) {
         strokeWidth="1.75"
         strokeDasharray="4 2"
       />
+      {/* Keep the complete estimate visible at rest. The brighter layer
+          below follows the playhead and marks the current ball. */}
+      <CompleteCourtPath points={projectedTrack} segments={pathSegments} />
+      <g pointerEvents="none" aria-label="Recent best estimate trail">
+        {trail.map((point, index) => {
+          const position = xy(point.u, point.v);
+          const previous = index > 0 ? trail[index - 1] : null;
+          const previousPosition = previous
+            ? xy(previous.u, previous.v)
+            : null;
+          const alpha = 0.15 + 0.85 * point.opacity;
+          return (
+            <g key={`${point.t}-${index}`}>
+              {point.connectsFromPrevious && previousPosition && (
+                <line
+                  x1={previousPosition.x}
+                  y1={previousPosition.y}
+                  x2={position.x}
+                  y2={position.y}
+                  stroke="#facc15"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  opacity={alpha}
+                />
+              )}
+              <circle
+                cx={position.x}
+                cy={position.y}
+                r={index === trail.length - 1 ? 2.8 : 1.65}
+                fill="#facc15"
+                opacity={alpha}
+              />
+            </g>
+          );
+        })}
+      </g>
       {placed.map((b, i) => {
         const p = xy(b.u as number, b.v as number);
         const live = Math.abs(t - b.t) < 0.34;
         const isServe = (card.serve_bounces ?? []).some(
           (st) => Math.abs(st - b.t) < 0.02
         );
+        const label = labelFor(labels, b.t);
+        const selected =
+          selectedT != null && Math.abs(selectedT - b.t) < 0.001;
         return (
-          <g key={`${b.t}-${i}`}>
+          <g
+            key={`${b.t}-${i}`}
+            className={onSelect ? "cursor-pointer" : undefined}
+            onClick={onSelect ? () => onSelect(b.t) : undefined}
+          >
             <title>
               {`${(b.t - card.t0).toFixed(2)}s into the card · `
                 + `${b.u?.toFixed(2)}, ${b.v?.toFixed(2)} m · `
                 + `${b.onSurface ? "on the surface" : "off the surface"}`
-                + (isServe ? " · the serve" : "")}
+                + (isServe ? " · the serve" : "")
+                + (label ? ` · you said: ${bounceLabelCopy(label)}` : "")}
             </title>
+            {selected && (
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r="8"
+                fill="none"
+                stroke="#f8fafc"
+                strokeWidth="1"
+              />
+            )}
+            {/* Hit area: a 3.5px dot is no tap target. */}
+            <circle cx={p.x} cy={p.y} r="9" fill="transparent" />
             <circle
               cx={p.x}
               cy={p.y}
               r={live ? 6 : 3.5}
               fill={
-                isServe ? SERVE_BOUNCE : b.onSurface ? "#50ff78" : "#ff5050"
+                label
+                  ? LABEL_TONE[label]
+                  : isServe
+                    ? SERVE_BOUNCE
+                    : b.onSurface
+                      ? "#50ff78"
+                      : "#ff5050"
               }
-              fillOpacity={live ? 0.95 : isServe ? 0.75 : 0.4}
+              fillOpacity={
+                label === "not_ball" ? 0.35 : live ? 0.95 : isServe || label ? 0.75 : 0.4
+              }
               stroke="#0c1222"
               strokeWidth="0.75"
             />
@@ -470,6 +794,15 @@ function Court({ card, t }: { card: MissCard; t: number }) {
       </text>
       <text x={TX} y={TY - 5} fontSize="7" fill="#71717a">
         far end
+      </text>
+      <text
+        x={TX + TW}
+        y={TY - 5}
+        textAnchor="end"
+        fontSize="7"
+        fill="#facc15"
+      >
+        Best estimate path
       </text>
     </svg>
   );

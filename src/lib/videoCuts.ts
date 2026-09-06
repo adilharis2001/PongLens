@@ -20,25 +20,12 @@ export interface Cut {
    *  can a crawler. Not `default` — turning both on at once would show the
    *  same sentence twice. */
   captions?: string;
-  /**
-   * Where to put the play button on the poster.
-   *
-   * The poster is the video's title card: the lens ring above the wordmark,
-   * the pair centred as a column. So the ring does NOT sit at the middle of
-   * the frame, it sits above it by half the height of the wordmark and its
-   * gap — and the button has to land on the ring, not on the frame's centre,
-   * or it reads as a sticker somebody dropped on top.
-   *
-   * `rise` is that offset as a share of the box height; `size` is the button
-   * diameter as a share of the box width. Both are proportions because the
-   * box is fluid, and both differ per cut because the composition scales the
-   * lockup 1.15x in landscape.
-   */
-  play?: { rise: string; size: string };
+  /** Play-button diameter as a share of the fluid video width. */
+  play?: { size: string };
 }
 
 /** A safe middle for any cut that has not measured its own. */
-export const PLAY_DEFAULT = { rise: "4%", size: "13%" } as const;
+export const PLAY_DEFAULT = { size: "13%" } as const;
 
 export const CUTS: Record<"desktop" | "mobile", Cut> = {
   desktop: {
@@ -51,10 +38,7 @@ export const CUTS: Record<"desktop" | "mobile", Cut> = {
     // already accounts for the other limit.
     width: "min(100%, calc(82dvh * 16 / 9))",
     captions: "/demo/walkthrough.vtt",
-    // The ring is 150px on a 1920x1080 canvas. LOCKUP_GAP in Landing.tsx
-    // pushes the wordmark 172px below it, which moves the ring 12.8% of the
-    // height above the middle and leaves the disc 132px of clearance.
-    play: { rise: "12.8%", size: "12%" },
+    play: { size: "12%" },
   },
   mobile: {
     src: "/demo/walkthrough-mobile.mp4",
@@ -68,11 +52,9 @@ export const CUTS: Record<"desktop" | "mobile", Cut> = {
     width: "min(100%, calc(98dvh * 9 / 16))",
     // The same track serves both cuts: one script, one set of timings.
     captions: "/demo/walkthrough.vtt",
-    // 130px ring on 1080x1920, 6.2% above the middle once the lockup gap is
-    // accounted for. A bigger share of the width than the desktop cut,
-    // because a phone is held further from the eye and because this is the
-    // cut nobody noticed.
-    play: { rise: "6.2%", size: "20%" },
+    // A bigger share of the width than the desktop cut because a phone is
+    // held further from the eye and because this is the cut nobody noticed.
+    play: { size: "20%" },
   },
 };
 
@@ -107,9 +89,9 @@ export const INTRO_CUTS: Record<"desktop" | "mobile", Cut> = {
 
 /**
  * The coach walkthrough, same treatment. Both pages render THIS component
- * rather than a copy of it: the play control's position, the missing
- * border, the poster-as-title-card and the centre-on-play all took several
- * passes to get right, and a second copy is a second thing to get wrong.
+ * rather than a copy of it: the centred idle control, the seamless black
+ * cover and the centre-on-play all took several passes to get right, and a
+ * second copy is a second thing to get wrong.
  */
 export const COACH_CUTS: Record<"desktop" | "mobile", Cut> = {
   desktop: {

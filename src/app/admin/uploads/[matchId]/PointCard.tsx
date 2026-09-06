@@ -15,7 +15,14 @@ import {
   pointFlags,
   type UploadPointRow,
 } from "../uploadView";
-import { reasonShort, reasonTone, type MissCard, type ServeMissData } from "../serveMiss";
+import {
+  reasonShort,
+  reasonTone,
+  type BounceLabel,
+  type MissBounce,
+  type MissCard,
+  type ServeMissData,
+} from "../serveMiss";
 import type { CardReading } from "../pointReadings";
 import { CardFacts } from "./CardFacts";
 import { CardReview, type Theme } from "./CardReview";
@@ -50,6 +57,8 @@ export function PointCard({
   onPlay,
   miss,
   missData,
+  eventLabels,
+  onEventLabel,
   reading,
   cutOffset,
   videoUrl,
@@ -84,6 +93,9 @@ export function PointCard({
    *  and on every match with no diagnosis written for it. */
   miss?: MissCard | null;
   missData?: ServeMissData | null;
+  /** The admin's event corrections and how to file one (154). */
+  eventLabels?: ReadonlyMap<string, BounceLabel>;
+  onEventLabel?: (bounce: MissBounce, label: BounceLabel | null) => void;
   /** Every rule's answer for this card. Null on a match with no placement,
    *  or one processed before any of it was recorded. */
   reading?: CardReading | null;
@@ -260,6 +272,8 @@ export function PointCard({
                   card={miss}
                   cutOffset={cutOffset ?? 0}
                   videoUrl={videoUrl ?? null}
+                  labels={eventLabels}
+                  onLabel={onEventLabel}
                 />
               )}
               {review && vocabulary && onNoteChange && onThemeToggle &&

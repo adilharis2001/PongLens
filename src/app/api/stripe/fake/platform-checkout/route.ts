@@ -52,10 +52,15 @@ async function purchaseForTestBuyer(purchaseId: string, sessionId: string) {
   if (!user) return null;
   const { data: purchase } = await supabase
     .from("platform_purchases")
-    .select("id, user_id, status, billing_mode, stripe_checkout_session_id")
+    .select("id, user_id, kind, status, billing_mode, stripe_checkout_session_id")
     .eq("id", purchaseId)
     .maybeSingle();
   if (!purchase || purchase.user_id !== user.id) return null;
+  if (purchase.kind === "minute_pack" || purchase.kind === "storage") {
+    const { data: flag } = await supabase.from("app_config").select("value")
+      .eq("key", "purchases_enabled").maybeSingle();
+    if (flag?.value !== "true") return null;
+  }
   if (purchase.stripe_checkout_session_id !== sessionId) return null;
   if (!paymentsFake() && purchase.billing_mode !== "test") return null;
   return purchase;

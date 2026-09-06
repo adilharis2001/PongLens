@@ -4,9 +4,12 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   CAMERA_GUIDE_MAX_SHOWINGS,
+  RECORDING_BRIEF_DONE,
   cameraGuideGate,
   cameraGuideStorageKey,
   readSeenCount,
+  recordingBriefGate,
+  recordingBriefStorageKey,
 } from "./cameraGuideGate.ts";
 
 /**
@@ -35,6 +38,13 @@ const TABLE = JSON.parse(
     shownThisSession: boolean;
     show: boolean;
     persist: number | null;
+  }[];
+  brief: {
+    name: string;
+    seen: number | null;
+    hasAnyMatch: boolean;
+    show: boolean;
+    seed: number | null;
   }[];
 };
 
@@ -108,4 +118,37 @@ test("the device key is per account", () => {
   // without the user id caps the wrong person.
   assert.notEqual(cameraGuideStorageKey("a"), cameraGuideStorageKey("b"));
   assert.match(cameraGuideStorageKey("abc"), /abc$/);
+});
+
+test("the recording brief agrees with the shared table", () => {
+  assert.ok(TABLE.brief.length > 0, "the fixture is not empty");
+  for (const c of TABLE.brief) {
+    const got = recordingBriefGate({ seen: c.seen, hasAnyMatch: c.hasAnyMatch });
+    assert.deepEqual(got, { show: c.show, seed: c.seed }, c.name);
+  }
+});
+
+test("the brief opens once, and only finishing it spends the once", () => {
+  // Open it, quit halfway, come back: still owed. Finish it: never again.
+  let seen: number | null = null;
+  let opened = 0;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const d = recordingBriefGate({ seen, hasAnyMatch: false });
+    if (d.show) opened++;
+    // Nothing is written for a walk that was abandoned.
+    assert.equal(d.seed, null);
+  }
+  assert.equal(opened, 3, "an abandoned walk comes back every time");
+
+  seen = RECORDING_BRIEF_DONE; // the last page's button
+  for (let launch = 0; launch < 4; launch++) {
+    const d = recordingBriefGate({ seen, hasAnyMatch: launch > 0 });
+    assert.equal(d.show, false, "finished is finished");
+    assert.equal(d.seed, null);
+  }
+});
+
+test("the brief's device key is per account and is not the sheet's", () => {
+  assert.notEqual(recordingBriefStorageKey("a"), recordingBriefStorageKey("b"));
+  assert.notEqual(recordingBriefStorageKey("a"), cameraGuideStorageKey("a"));
 });

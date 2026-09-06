@@ -57,3 +57,32 @@ export function effectivePad(
     post: tightEnd ? Math.min(pad.post, TIGHT_PAD) : pad.post,
   };
 }
+
+/**
+ * Where a point's padded clip starts in the cut video AFTER its start
+ * edge moves: the old anchor shifted by the change in the padded start.
+ *
+ * cut_t0 is the padded clip start on the cut video's clock (the anchoring
+ * fact in playhead.ts). Adjust used to move t0 and leave cut_t0 alone, so
+ * every cut-clock consumer placed the serve wrong by exactly the amount the
+ * start moved, forever. The database's adjust_point applies this same
+ * arithmetic and its row is the truth; this is the optimistic mirror so the
+ * scoring pad is right the instant the save lands. Mirrored in
+ * Playhead.swift reanchorCutT0 — keep the two identical.
+ */
+export function reanchorCutT0(
+  point: { cut_t0: number | null; t0: number | null; tight_start: boolean; tight_end: boolean },
+  t0New: number,
+  tightStartNew: boolean,
+  pad: { pre: number; post: number }
+): number | null {
+  if (point.cut_t0 === null || point.t0 === null) return point.cut_t0;
+  const effOld = effectivePad(pad, point.tight_start, point.tight_end).pre;
+  const effNew = effectivePad(pad, tightStartNew, point.tight_end).pre;
+  const anchorOld = Math.max(0, Number(point.t0) - effOld);
+  const anchorNew = Math.max(0, t0New - effNew);
+  return Math.max(
+    0,
+    Math.round((Number(point.cut_t0) + anchorNew - anchorOld) * 100) / 100
+  );
+}

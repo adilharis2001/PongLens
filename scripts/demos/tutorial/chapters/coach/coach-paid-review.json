@@ -1,0 +1,19 @@
+{
+  "chapter": "coach-paid-review",
+  "title": "Paid match reviews",
+  "subtitle": "Chapter 9 of 9",
+  "platforms": ["web"],
+  "voice": "sage",
+  "speed": 1.3,
+  "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
+  "lines": [
+    { "id": "l1", "text": "Paid match reviews are optional and are managed on the web.", "beat": "reviews" },
+    { "id": "l2", "text": "Build your coach page and create an offering with your own scope, price and turnaround.", "beat": "offering" },
+    { "id": "l3", "text": "The player sends a match, their questions and the information you asked for.", "beat": "order-request" },
+    { "id": "l4", "text": "Nothing starts until you accept the order.", "beat": "accept" },
+    { "id": "l5", "text": "Review the match point by point and connect findings to the rallies that demonstrate them.", "beat": "findings" },
+    { "id": "l6", "text": "Add the written sections and attachments included in your offering.", "beat": "deliverables" },
+    { "id": "l7", "text": "Deliver the finished review through PongLens and answer any included follow-up.", "beat": "deliver" },
+    { "id": "l8", "text": "Payment and payout status remain with the order.", "beat": "payment" }
+  ]
+}

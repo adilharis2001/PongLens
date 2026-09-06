@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { EntryImage } from "@/components/entryPhoto";
 import { LinkedText } from "@/components/LinkedText";
+import { entryThemes, recapIdOf } from "@/lib/lessonVideo/entries";
+import { RecapPreview } from "./RecapPreview";
 
 /**
  * Entries a coach shared with this player. Live documents: the RPC reads
@@ -30,6 +32,8 @@ export interface SharedEntry {
   match_id: string | null;
   shared_at: string;
   updated_at: string;
+  /** The recap behind the entry, when the coach shared a lesson video. */
+  lesson_video_id?: string | null;
 }
 
 function entryTitle(entry: SharedEntry): string {
@@ -52,13 +56,17 @@ function day(iso: string): string {
 
 /**
  * One shared entry as a feed card. The journal renders these among its
- * own entries under All and under the From your coach tab (Adil,
+ * own entries under All and under the From Coaches tab (Adil,
  * 2026-09-02) — they used to sit in a section of their own above the
  * tabs, which read as a second journal.
  */
 export function SharedEntryCard({ entry }: { entry: SharedEntry }) {
   const [expanded, setExpanded] = useState(false);
-  const themes = entry.takeaways?.themes ?? [];
+  // A lesson video shared with this player. The entry's own text is only
+  // a link to it, written for app versions that cannot show more; here
+  // the recap itself is the body, and that text stays out of the way.
+  const recapId = recapIdOf(entry);
+  const themes = entryThemes(entry.takeaways?.themes, !!recapId);
   return (
     <div className="rounded-2xl border border-edge bg-surface p-4">
       <button
@@ -80,6 +88,15 @@ export function SharedEntryCard({ entry }: { entry: SharedEntry }) {
             <span className="mt-1 block text-sm font-medium text-zinc-100">
               {entryTitle(entry)}
             </span>
+            {recapId && (
+              <span className="mt-1 flex items-center gap-1.5 text-xs text-zinc-400">
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-cyan-glow" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m10 9.5 5 2.5-5 2.5v-5Z" />
+                </svg>
+                Lesson recap
+              </span>
+            )}
           </span>
         </span>
         <span className="shrink-0 text-xs text-zinc-500">
@@ -88,7 +105,8 @@ export function SharedEntryCard({ entry }: { entry: SharedEntry }) {
       </button>
       {expanded && (
         <div className="mt-3 space-y-4">
-          {themes.length > 0 ? (
+          {recapId && <RecapPreview id={recapId} />}
+          {recapId && themes.length === 0 ? null : themes.length > 0 ? (
             <>
               {themes.map((theme) => (
                 <div key={theme.name}>
@@ -107,14 +125,16 @@ export function SharedEntryCard({ entry }: { entry: SharedEntry }) {
                   </ul>
                 </div>
               ))}
-              <details className="text-sm text-zinc-400">
-                <summary className="cursor-pointer select-none">
-                  Transcript
-                </summary>
-                <p className="mt-2 whitespace-pre-wrap leading-relaxed text-zinc-300">
-                  <LinkedText text={entry.transcript} />
-                </p>
-              </details>
+              {!recapId && (
+                <details className="text-sm text-zinc-400">
+                  <summary className="cursor-pointer select-none">
+                    Transcript
+                  </summary>
+                  <p className="mt-2 whitespace-pre-wrap leading-relaxed text-zinc-300">
+                    <LinkedText text={entry.transcript} />
+                  </p>
+                </details>
+              )}
             </>
           ) : (
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">

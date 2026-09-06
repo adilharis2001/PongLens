@@ -83,6 +83,15 @@ export async function POST(req: Request) {
       cancelUrl: `${origin}${next}`,
     });
     await stampPurchaseSession(purchase.purchase_id, checkout.sessionId);
+    // Cover a switch change while the gateway was opening the checkout.
+    if (kind === "minute_pack" || kind === "storage") {
+      const { data: flag } = await supabase.from("app_config").select("value")
+        .eq("key", "purchases_enabled").maybeSingle();
+      if (flag?.value !== "true") {
+        await gateway.expirePlatformCheckout(checkout.sessionId);
+        return NextResponse.json({ code: "purchases_disabled" }, { status: 409 });
+      }
+    }
     return NextResponse.json({ url: checkout.url });
   } catch (e) {
     console.error("platform checkout failed:", e);

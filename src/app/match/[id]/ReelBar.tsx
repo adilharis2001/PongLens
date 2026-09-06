@@ -18,9 +18,10 @@ import type { Point } from "@/lib/types";
  *                A muted teaching row at zero stars, like before.
  *   Tags         one row per tag with tagged clip-bearing points (036):
  *                that collection rendered like starred (scope 'tag:<id>').
- *   Raw match    the original upload — ONLY while the 30-day raw retention
- *                still holds it (probed via /api/media-url { raw }); the row
- *                hides itself entirely when the upload is gone.
+ *   Raw match    the original upload, kept for the life of the match
+ *                (probed via /api/media-url { raw } because a legacy match
+ *                may have lost its raw before commerce); the row hides
+ *                itself entirely when the upload is gone.
  *
  * Rendered artifacts (full-with-score, starred) go through the existing
  * render pipeline: the manifest + score truth live in /api/reel, the Mac
@@ -295,8 +296,8 @@ export function ReelRow({
     return () => window.clearInterval(timer);
   }, [open, anyRendering, load]);
 
-  // Probe raw availability when the sheet opens (the object may have aged
-  // out of the 30-day retention).
+  // Probe raw availability when the sheet opens (a legacy match may have
+  // lost its raw before commerce; live matches keep theirs for good).
   useEffect(() => {
     if (!open) return;
     let alive = true;
@@ -643,7 +644,7 @@ export function ReelRow({
                   );
                 })}
 
-              {/* Raw upload — only while the 30-day retention still holds it. */}
+              {/* Raw upload — hidden only for a legacy match whose raw is gone. */}
               {rawAvailable && (
                 <ExportRow
                   title="Raw match"

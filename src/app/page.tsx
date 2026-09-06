@@ -8,6 +8,7 @@ import { CoachShare } from "@/components/anim/CoachShare";
 import { PointClips } from "@/components/anim/PointClips";
 import { ScorecardLive } from "@/components/anim/ScorecardLive";
 import { JournalFeed } from "@/components/anim/JournalFeed";
+import { IosBetaSignup } from "@/components/marketing/IosBetaSignup";
 import { LandingVideo } from "@/components/marketing/LandingVideo";
 import {
   WalkthroughBand,
@@ -139,7 +140,7 @@ const faqs = [
   },
   {
     q: "What happens to my videos? Are they private?",
-    a: "Your videos stay private. They're kept in private storage that only your account (and anyone you share with) can access. Original uploads are deleted 30 days after upload. Cut videos are deleted after 30 days, and your point clips stay while your account is active. Nothing is sold or shared with advertisers.",
+    a: "Your videos stay private. They're kept in private storage that only your account (and anyone you share with) can access. Your original upload and cut video stay in your library until you delete them, and your point clips stay while your account is active. Nothing is sold or shared with advertisers.",
   },
   {
     q: "What video formats can I upload?",
@@ -147,7 +148,7 @@ const faqs = [
   },
   {
     q: "Does it work on my phone?",
-    a: "Yes. PongLens runs in the browser, so you can record on your phone and upload from it directly. No app to install.",
+    a: "Yes. PongLens runs in the browser, so you can record on your phone and upload directly. The iPhone app is also available in beta through TestFlight.",
   },
   {
     q: "How does the AI work?",
@@ -183,7 +184,7 @@ const jsonLd = (supportEmail: string) => ({
       name: "PongLens",
       url: "https://www.ponglens.com",
       applicationCategory: "SportsApplication",
-      operatingSystem: "Web",
+      operatingSystem: "Web, iOS",
       description:
         "A performance hub for competitive table tennis. Upload a match video and PongLens removes the dead time, cuts the match into individual points, and gives you a place to add notes and share with your coach.",
       featureList: [
@@ -271,7 +272,7 @@ export default async function Home() {
                 "linear-gradient(to top, rgba(10,10,18,.5) 0%, rgba(10,10,18,.1) 30%, rgba(10,10,18,0) 55%)",
             }}
           />
-          <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-24 pt-16 text-center sm:pt-24 lg:text-left">
+          <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-44 pt-16 text-center sm:pb-24 sm:pt-24 lg:text-left">
             <div className="mx-auto max-w-3xl lg:mx-0">
               <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
                 A performance hub for{" "}
@@ -280,24 +281,18 @@ export default async function Home() {
                 </span>
               </h1>
               <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
-                Upload a match video. PongLens removes the dead time
-                between points, so every point comes back as its own clip.
-                Score them as you watch, and your stats, your notes and
-                your coach all live on the same match.
+                Upload a match video. PongLens removes the time between
+                points, then gives you every point as a clip to score, review
+                and share with your coach.
               </p>
-              <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
+              <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4 lg:justify-start">
                 <Link
                   href="/login"
-                  className="glow-cta rounded-full bg-cyan-glow px-8 py-3.5 text-base font-semibold text-ink sm:text-lg"
+                  className="glow-cta flex h-14 w-full max-w-80 items-center justify-center rounded-full bg-cyan-glow px-6 text-base font-semibold text-ink sm:w-auto sm:max-w-none sm:px-8 sm:text-lg"
                 >
-                  Analyze your first match
+                  Upload your first match
                 </Link>
-                <Link
-                  href="#walkthrough"
-                  className="rounded-full px-5 py-3.5 text-base font-medium text-zinc-300 transition-colors hover:text-white sm:text-lg"
-                >
-                  See it work ↓
-                </Link>
+                <IosBetaSignup placement="hero" />
               </div>
             </div>
           </div>
@@ -336,8 +331,7 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* THE WALKTHROUGH — the whole product, moving and narrated.
-            The hero's "See it work" link lands here. */}
+        {/* THE WALKTHROUGH — the whole product, moving and narrated. */}
         <section
           id="walkthrough"
           className="relative scroll-mt-20 overflow-hidden py-14 sm:py-28"
@@ -439,10 +433,10 @@ export default async function Home() {
               href="/login"
               className="glow-cta rounded-full bg-cyan-glow px-8 py-3 text-base font-semibold text-ink"
             >
-              Analyze your first match
+              Upload your first match
             </Link>
 
-            {/* Where it runs: the web today, the phones next. */}
+            {/* Where it runs: the web today, plus the self-serve iPhone beta. */}
             <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
               <span className="flex items-center gap-2 rounded-full border border-cyan-glow/30 bg-surface/60 px-4 py-2">
                 <svg
@@ -459,18 +453,7 @@ export default async function Home() {
                 <span className="text-sm font-medium text-zinc-100">Web</span>
                 <span className="text-xs text-zinc-500">available now</span>
               </span>
-              <span className="flex items-center gap-2 rounded-full border border-edge bg-surface/60 px-4 py-2">
-                <svg
-                  aria-hidden
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  className="h-4 w-4 text-zinc-300"
-                >
-                  <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.08zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z" />
-                </svg>
-                <span className="text-sm font-medium text-zinc-300">iOS</span>
-                <span className="text-xs text-zinc-500">coming soon</span>
-              </span>
+              <IosBetaSignup placement="platform" />
               <span className="flex items-center gap-2 rounded-full border border-edge bg-surface/60 px-4 py-2">
                 <svg
                   aria-hidden
@@ -486,6 +469,7 @@ export default async function Home() {
             </div>
           </div>
         </section>
+
       </main>
       <SiteFooter />
     </>

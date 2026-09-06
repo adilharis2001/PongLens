@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { entryTitle, studentSummary } from "@/lib/coach/entryView";
 import { createClient } from "@/lib/supabase/client";
 import { EntryImage } from "@/components/entryPhoto";
+import { FirstStudentCard } from "./FirstStudentCard";
 
 /**
  * The coaching workspace's home card on /coaching (157): the roster at a
@@ -35,6 +36,7 @@ interface LessonRow {
 }
 
 export function StudentsCard() {
+  const [coachId, setCoachId] = useState<string | null>(null);
   const [students, setStudents] = useState<StudentRow[] | null>(null);
   const [entries, setEntries] = useState<EntryRow[]>([]);
   const [lessons, setLessons] = useState<Record<string, LessonRow>>({});
@@ -48,6 +50,7 @@ export function StudentsCard() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+      if (user) setCoachId(user.id);
       if (!user) return;
       const [studentsRes, entriesRes, lessonsRes, matchesRes] =
         await Promise.all([
@@ -69,7 +72,10 @@ export function StudentsCard() {
             .eq("kind", "coach")
             .order("created_at", { ascending: false })
             .limit(20),
-          supabase.from("matches").select("id, user_id").neq("user_id", user.id),
+          supabase
+            .from("matches")
+            .select("id, user_id")
+            .neq("user_id", user.id),
         ]);
       if (!alive) return;
       setStudents((studentsRes.data as StudentRow[]) ?? []);
@@ -121,21 +127,24 @@ export function StudentsCard() {
   return (
     <div className="mt-6 space-y-6">
       <div>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Students
-          </h2>
-          <Link
-            href="/coaching/students"
-            className="text-sm text-cyan-glow underline-offset-2 hover:underline"
-          >
-            {students.length === 0 ? "Add a student" : "All students"}
-          </Link>
-        </div>
-        {students.length === 0 ? (
-          <div className="rounded-2xl border border-edge bg-surface p-5">
-            <p className="text-sm text-zinc-400">No students yet.</p>
+        {/* The heading and its link are for a roster that exists. With no
+            students the card says everything, and a bare "Students /
+            Add a student" above it is two doors to one room. */}
+        {students.length > 0 && (
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Students
+            </h2>
+            <Link
+              href="/coaching/students"
+              className="text-sm text-cyan-glow underline-offset-2 hover:underline"
+            >
+              All students
+            </Link>
           </div>
+        )}
+        {students.length === 0 ? (
+          coachId && <FirstStudentCard coachId={coachId} />
         ) : (
           <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
             {students.slice(0, 5).map((s) => (
@@ -184,8 +193,17 @@ export function StudentsCard() {
                         {nameOf(e.student_id)}
                       </span>
                       {e.shared_at && (
-                        <span className="text-[11px] font-medium text-cyan-glow">
-                          Shared
+                        // Grey and a different word while there is
+                        // nobody to read it (2026-09-04). The student
+                        // page says the same thing the same way.
+                        <span
+                          className={
+                            linkedOf(e.student_id)
+                              ? "text-[11px] font-medium text-cyan-glow"
+                              : "text-[11px] font-medium text-zinc-400"
+                          }
+                        >
+                          {linkedOf(e.student_id) ? "Shared" : "Waiting"}
                         </span>
                       )}
                     </span>
@@ -201,13 +219,24 @@ export function StudentsCard() {
                       </span>
                     </span>
                   </Link>
-                  {linkedOf(e.student_id) && !e.shared_at && (
+                  {/* No longer waits for the student to have an
+                      account: a coach filling a folder for somebody not
+                      on PongLens yet could hand them none of it.
+                      Marking it early is safe — every reader of a
+                      shared entry keys on the student's account id, so
+                      a mark with nobody behind it matches nobody.
+
+                      And at the size of the badge above rather than a
+                      full cyan bar, which is what the student page and
+                      the phone both went to this morning; two screens
+                      one tap apart were disagreeing. */}
+                  {!e.shared_at && (
                     <div className="mt-3">
                       <button
                         type="button"
                         onClick={() => void share(e)}
                         disabled={sharingId === e.id}
-                        className="glow-cta rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink disabled:opacity-60"
+                        className="rounded-full border border-cyan-glow/60 bg-cyan-glow/10 px-3 py-1 text-xs font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/20 disabled:opacity-60"
                       >
                         {sharingId === e.id
                           ? "Sharing…"

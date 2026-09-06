@@ -47,8 +47,11 @@ struct CoachHomeScreen: View {
                     loadFailedState
                 } else if workspace.loaded && workspace.activeStudents.isEmpty {
                     firstStudentCard
+                    CoachLessonVideosSection()
                 } else if workspace.loaded {
                     studentsGroup
+
+                    CoachLessonVideosSection()
 
                     if !studentMatches.isEmpty {
                         CoachGroup("From your students") {
@@ -74,7 +77,8 @@ struct CoachHomeScreen: View {
                                         entry: entry,
                                         lesson: workspace.lesson(for: entry),
                                         studentName: student?.displayName,
-                                        shareWith: student?.linked == true ? student?.displayName : nil,
+                                        shareWith: student?.displayName,
+                                        studentLinked: student?.linked == true,
                                         sharing: sharingId == entry.id,
                                         onShare: {
                                             sharingId = entry.id

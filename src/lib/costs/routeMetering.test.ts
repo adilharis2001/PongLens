@@ -73,12 +73,12 @@ test("Stripe fees are metered where Stripe reports them", () => {
   assert.match(money, /stripeConnectAccountFeeEvent/);
 });
 
-test("review lifecycle emails are metered", () => {
+test("review lifecycle emails delegate to the shared metered sender with their operation", () => {
   const source = readFileSync(
     new URL("../email/reviewEmails.ts", import.meta.url),
     "utf8",
   );
-  assert.match(source, /resendEmailEvent/);
+  assert.match(source, /await sendTransactionalEmail\(\{/);
   assert.match(source, /operation: `review_email_\$\{kind\}`/);
 });
 

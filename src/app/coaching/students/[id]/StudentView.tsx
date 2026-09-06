@@ -1,10 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { SectionLabel } from "../../CoachHub";
+import { LessonVideosSection } from "../../LessonVideosSection";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { entryTitle as entryTitleOf, matchLabel } from "@/lib/coach/entryView";
+import {
+  completeCreatedEntryMatch,
+  recoverConfirmedEntryMatchRollback,
+  updateExistingEntryMatch,
+} from "@/lib/coach/entryMatch";
 import { DictateMic, useDictation } from "@/components/dictation";
 import {
   AddPhotoButton,
@@ -13,6 +20,7 @@ import {
   useEntryPhoto,
 } from "@/components/entryPhoto";
 import { LinkedText } from "@/components/LinkedText";
+import { entryThemes, recapHref, recapIdOf } from "@/lib/lessonVideo/entries";
 import { NoteEditor } from "@/app/journal/NoteEditor";
 import type { Lesson, Point } from "@/lib/types";
 import { possessive } from "@/lib/coaches/playerCoaches";
@@ -50,6 +58,8 @@ interface LessonRow {
   status: string;
   match_id: string | null;
   image_path: string | null;
+  /** Set when the entry is a shared lesson video. */
+  lesson_video_id?: string | null;
   created_at: string;
 }
 
@@ -129,18 +139,26 @@ export function StudentView({
   const [matchPoints, setMatchPoints] = useState<PointLite[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [linkingId, setLinkingId] = useState<string | null>(null);
   /** The entry being corrected, in the shape the journal's editor takes. */
   const [editing, setEditing] = useState<Lesson | null>(null);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const [draftMatchId, setDraftMatchId] = useState<string | null>(null);
   const [improve, setImprove] = useState(true);
   const [saving, setSaving] = useState(false);
   const [composerError, setComposerError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mergeBusy, setMergeBusy] = useState(false);
-  const [inviteOpen, setInviteOpen] = useState(false);
+  // Open from the start while there is nobody at the other end: the
+  // invite is the thing a coach should be nudged towards for a student who
+  // is not on PongLens yet, and a panel they have to ask for is not a
+  // nudge (Adil, 2026-09-05). The Matches row brings it into view;
+  // nothing collapses it.
+  const [inviteOpen, setInviteOpen] = useState(!initialStudent.player_id);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [inviteFailed, setInviteFailed] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -160,7 +178,7 @@ export function StudentView({
       supabase
         .from("lessons")
         .select(
-          "id, transcript, takeaways, status, match_id, image_path, created_at",
+          "id, transcript, takeaways, status, match_id, image_path, created_at, lesson_video_id",
         )
         .eq("kind", "coach"),
       supabase
@@ -241,6 +259,7 @@ export function StudentView({
     dictation.cancel();
     discardPhoto();
     setComposerError(null);
+    setDraftMatchId(null);
     setComposerOpen(false);
   };
 
@@ -282,12 +301,16 @@ export function StudentView({
       const data = res.ok ? await res.json() : null;
       if (!data?.id) throw new Error("no id");
       const supabase = createClient();
-      const { error } = await supabase.from("coach_entries").insert({
-        coach_id: userId,
-        student_id: student.id,
-        lesson_id: data.id,
-      });
-      if (error) {
+      const { data: coachEntry, error } = await supabase
+        .from("coach_entries")
+        .insert({
+          coach_id: userId,
+          student_id: student.id,
+          lesson_id: data.id,
+        })
+        .select("id")
+        .single();
+      if (error || !coachEntry) {
         // Never leak a lesson into nobody's journal.
         await fetch("/api/journal-entry", {
           method: "DELETE",
@@ -296,7 +319,42 @@ export function StudentView({
         });
         throw error;
       }
+      if (draftMatchId) {
+        const matchResult = await completeCreatedEntryMatch(
+          fetch,
+          {
+            entryId: coachEntry.id,
+            lessonId: data.id,
+            matchId: draftMatchId,
+          },
+          async () => {
+            // The delete failed or its result is unknown. Retire this draft
+            // before reloading the real journal so it cannot create a second
+            // copy of an entry that may already exist.
+            setDraft("");
+            setDraftMatchId(null);
+            setImprove(true);
+            releasePhoto();
+            setComposerOpen(false);
+            await load();
+            flash("Couldn't confirm the match link. The journal was refreshed.");
+          },
+        );
+        if (matchResult === "rolled_back") {
+          recoverConfirmedEntryMatchRollback(
+            { hasUploadedPhoto: Boolean(photo?.path) },
+            { clearPhoto: releasePhoto, setError: setComposerError },
+          );
+          setSaving(false);
+          return;
+        }
+        if (matchResult === "reconciled") {
+          setSaving(false);
+          return;
+        }
+      }
       setDraft("");
+      setDraftMatchId(null);
       setImprove(true);
       // The entry owns the photo now, so let go of it without deleting.
       releasePhoto();
@@ -326,6 +384,30 @@ export function StudentView({
     created_at: lesson.created_at,
   });
 
+  /** Mark every entry in this folder, in one statement (2026-09-04).
+   *
+   *  The head start, for a student who has not joined. Not a picker: the
+   *  entries are listed further down this same page, so a second
+   *  multi-select over the same three or four things would be the
+   *  redundant one. This says what is waiting and offers the whole
+   *  folder; changing one is a tap away below.
+   *
+   *  One update over the ids rather than a loop, so a half-shared folder
+   *  cannot happen. Same shape as the journal's moveEntries. */
+  const shareAllWaiting = async () => {
+    const ids = entries.filter((e) => !e.shared_at).map((e) => e.id);
+    if (ids.length === 0) return;
+    setBulkBusy(true);
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("coach_entries")
+      .update({ shared_at: new Date().toISOString() })
+      .in("id", ids);
+    if (error) flash("Couldn't share them. Try again.");
+    await load();
+    setBulkBusy(false);
+  };
+
   const setShared = async (entry: EntryRow, shared: boolean) => {
     setSharingId(entry.id);
     const supabase = createClient();
@@ -336,6 +418,25 @@ export function StudentView({
     if (error) flash("Couldn't change sharing. Try again.");
     await load();
     setSharingId(null);
+  };
+
+  const setEntryMatch = async (entry: EntryRow, matchId: string | null) => {
+    await updateExistingEntryMatch(
+      fetch,
+      { entryId: entry.id, matchId },
+      {
+        setBusy: setLinkingId,
+        onSaved(value) {
+          setLessons((all) => ({
+            ...all,
+            [entry.lesson_id]: { ...all[entry.lesson_id], match_id: value },
+          }));
+        },
+        onFailed() {
+          flash("Couldn't link the match. Try again.");
+        },
+      },
+    );
   };
 
   const deleteEntry = async (entry: EntryRow) => {
@@ -452,6 +553,22 @@ export function StudentView({
     };
   }, [inviteOpen, inviteUrl, inviteLink]);
 
+  /** Bring the invite panel into view. It is open from the start and
+   *  nothing closes it, so the element is there to scroll to at once;
+   *  the deferred branch only matters if that ever changes. */
+  const showInvite = () => {
+    const scrollTo = () =>
+      document
+        .getElementById("invite-panel")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (inviteOpen && document.getElementById("invite-panel")) {
+      scrollTo();
+      return;
+    }
+    setInviteOpen(true);
+    setTimeout(() => scrollTo() ?? window.scrollTo({ top: 0, behavior: "smooth" }), 0);
+  };
+
   const copyInvite = async () => {
     const url = inviteUrl ?? (await inviteLink());
     if (!url) {
@@ -529,38 +646,47 @@ export function StudentView({
         ← Students
       </Link>
 
-      <div className="mt-4">
-        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
-          {student.display_name}
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          {student.player_id ? "On PongLens" : "Not on PongLens yet"}
-        </p>
+      {/* Who, whether they are on PongLens, and the one action: New entry.
+          The invite is not a button here; for a student who is not on
+          PongLens yet it is the open panel directly beneath, so a second
+          control for it would be a duplicate (Adil, 2026-09-05). Full
+          width on a phone, content width on a laptop, per the approved
+          baseline. */}
+      <div className="mt-4 sm:flex sm:items-end sm:justify-between sm:gap-6">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+            {student.display_name}
+          </h1>
+          <p className="mt-1 text-sm text-zinc-500">
+            {student.player_id ? "On PongLens" : "Not on PongLens yet"}
+          </p>
+        </div>
+        <div className="mt-4 flex flex-col gap-2 sm:mt-0 sm:shrink-0 sm:flex-row sm:items-center">
+          <button
+            type="button"
+            onClick={() => (composerOpen ? closeComposer() : setComposerOpen(true))}
+            className="glow-cta flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-cyan-glow px-5 text-sm font-semibold text-ink sm:min-h-0 sm:w-auto sm:py-2"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"
+              />
+            </svg>
+            New entry
+          </button>
+        </div>
       </div>
 
       {notice && <p className="mt-3 text-sm text-cyan-glow">{notice}</p>}
-
-      <button
-        type="button"
-        onClick={() => (composerOpen ? closeComposer() : setComposerOpen(true))}
-        className="glow-cta mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink sm:w-auto sm:py-2"
-      >
-        <svg
-          viewBox="0 0 24 24"
-          className="h-4 w-4"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          aria-hidden="true"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"
-          />
-        </svg>
-        New entry
-      </button>
 
       {composerOpen && (
         <div className="mt-4 rounded-2xl border border-edge bg-surface p-4">
@@ -593,6 +719,29 @@ export function StudentView({
             />
           </div>
           {photo && <PhotoPreview photo={photo} onRemove={discardPhoto} />}
+
+          {student.player_id && matches.length > 0 && (
+            <label className="mt-3 block">
+              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Match
+              </span>
+              <select
+                aria-label="Link a match"
+                value={draftMatchId ?? ""}
+                onChange={(event) =>
+                  setDraftMatchId(event.target.value || null)
+                }
+                className="mt-2 w-full rounded-xl border border-edge bg-ink/40 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-cyan-glow/60"
+              >
+                <option value="">No match linked</option>
+                {matches.map((match) => (
+                  <option key={match.id} value={match.id}>
+                    {matchLabel(match)} · {day(match.played_at)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <div className="mt-3">
             <label className="flex cursor-pointer items-start gap-2 text-sm text-zinc-300">
@@ -641,120 +790,148 @@ export function StudentView({
         </div>
       )}
 
-      {!student.player_id && (
-        <div className="mt-5 rounded-2xl border border-edge bg-surface p-4 sm:p-5">
+      {/* The invite, opened from the header. Everything the old
+          "Connect" card said is still here, said once, in the one place a
+          coach is actually deciding whether to send the link. */}
+      {!student.player_id && inviteOpen && (
+        <div
+          id="invite-panel"
+          className="mt-4 scroll-mt-24 rounded-2xl border border-edge bg-surface p-4 sm:p-5"
+        >
           <p className="text-base font-semibold text-zinc-100">
-            Connect {student.display_name}
+            Invite {student.display_name}
           </p>
           <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-            An invite links them to their PongLens account. You&apos;ll see the
-            matches they upload, and the entries you share reach their journal.
+            Opening this link and signing in connects {student.display_name}{" "}
+            to this row. You&apos;ll see the matches they upload, and the
+            entries you share reach their journal. They choose whether you
+            see all their matches or only the ones they share.
           </p>
-          <div className="mt-4 overflow-hidden rounded-xl border border-edge bg-ink/40">
+        {inviteUrl ? (
+          <p className="mt-3 break-all rounded-lg bg-ink/60 px-3 py-2 font-mono text-xs text-zinc-300">
+            {inviteUrl}
+          </p>
+        ) : inviteFailed ? (
+          <p className="mt-3 text-sm text-amber-200">
+            Couldn&apos;t get the link. Close this and try again.
+          </p>
+        ) : (
+          <p className="mt-3 text-sm text-zinc-500">
+            Getting the link…
+          </p>
+        )}
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <button
+            type="button"
+            onClick={() => void copyInvite()}
+            disabled={!inviteUrl}
+            className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-60 sm:w-auto sm:py-2"
+          >
+            Copy link
+          </button>
+          {typeof navigator !== "undefined" && "share" in navigator && (
             <button
               type="button"
-              onClick={() => setInviteOpen((v) => !v)}
-              aria-expanded={inviteOpen}
-              className="flex w-full items-center gap-3 px-4 py-3.5 text-left text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2"
+              onClick={() => void sendInvite()}
+              disabled={!inviteUrl}
+              className={`${pill} w-full py-2.5 text-center disabled:opacity-60 sm:w-auto sm:py-1.5`}
             >
-              <svg
-                viewBox="0 0 24 24"
-                className="h-4 w-4 shrink-0 text-zinc-400"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"
-                />
-              </svg>
-              <span className="flex-1">Invite {student.display_name}</span>
-              <svg
-                viewBox="0 0 24 24"
-                className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${inviteOpen ? "rotate-90" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="m9 6 6 6-6 6"
-                />
-              </svg>
+              Send the link
             </button>
-            {inviteOpen && (
-              <div className="border-t border-edge/60 px-4 py-4">
-                <p className="text-sm leading-relaxed text-zinc-400">
-                  Opening this link and signing in connects{" "}
-                  {student.display_name} to this row. They choose whether you
-                  see all their matches or only the ones they share.
-                </p>
-                {inviteUrl ? (
-                  <p className="mt-3 break-all rounded-lg bg-ink/60 px-3 py-2 font-mono text-xs text-zinc-300">
-                    {inviteUrl}
+          )}
+          <button
+            type="button"
+            onClick={() => void resetInvite()}
+            disabled={!inviteUrl}
+            className="w-full rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-60 sm:w-auto sm:py-1.5"
+          >
+            Reset link
+          </button>
+        </div>
+          {/* What the link will hand over, above the buttons that send
+              it: the one thing a coach is weighing at this point. Moved
+              here from the old Connect card, unchanged. */}
+          {entries.length > 0 &&
+            (() => {
+              const marked = entries.filter((e) => e.shared_at).length;
+              const rest = entries.length - marked;
+              return (
+                <div className="mt-4 border-t border-edge/60 pt-4">
+                  <p className="text-sm text-zinc-300">
+                    {marked === 0
+                      ? `None of your ${entries.length} ${entries.length === 1 ? "entry" : "entries"} are shared yet.`
+                      : rest === 0
+                        ? `${student.display_name} gets ${entries.length === 1 ? "your entry" : `all ${entries.length} entries`} when they join.`
+                        : `${student.display_name} gets ${marked} of ${entries.length} entries when they join.`}
                   </p>
-                ) : inviteFailed ? (
-                  <p className="mt-3 text-sm text-amber-200">
-                    Couldn&apos;t get the link. Close this and try again.
-                  </p>
-                ) : (
-                  <p className="mt-3 text-sm text-zinc-500">
-                    Getting the link…
-                  </p>
-                )}
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => void copyInvite()}
-                    disabled={!inviteUrl}
-                    className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-60 sm:w-auto sm:py-2"
-                  >
-                    Copy link
-                  </button>
-                  {typeof navigator !== "undefined" && "share" in navigator && (
+                  {rest > 0 && (
                     <button
                       type="button"
-                      onClick={() => void sendInvite()}
-                      disabled={!inviteUrl}
-                      className={`${pill} w-full py-2.5 text-center disabled:opacity-60 sm:w-auto sm:py-1.5`}
+                      onClick={() => void shareAllWaiting()}
+                      disabled={bulkBusy}
+                      className="mt-2 rounded-full border border-cyan-glow/60 bg-cyan-glow/10 px-4 py-1.5 text-sm font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/20 disabled:opacity-60"
                     >
-                      Send the link
+                      {bulkBusy
+                        ? "Sharing…"
+                        : marked === 0
+                          ? `Share all ${rest} when they join`
+                          : `Share the other ${rest}`}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => void resetInvite()}
-                    disabled={!inviteUrl}
-                    className="w-full rounded-full border border-edge px-4 py-2.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-60 sm:w-auto sm:py-1.5"
-                  >
-                    Reset link
-                  </button>
                 </div>
-              </div>
-            )}
-          </div>
+              );
+            })()}
         </div>
       )}
 
-      <h3 className="mt-8 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-        Journal
-      </h3>
+
+      {/* Every section from here down is built the same way: a small
+          label, then one card. Where a section is empty it says so inside
+          the card and, if there is something to do about it, offers that
+          as a row, the way Lesson videos always has. Bare grey text under
+          one heading and a chevron row under the next was the
+          inconsistency (Adil, 2026-09-05). */}
+      <section className="mt-8">
+        <SectionLabel>Journal</SectionLabel>
       {entries.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-400">No entries yet.</p>
+        <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+          <p className="px-5 py-4 text-sm text-zinc-400">No entries yet.</p>
+          {/* The composer opens under the header, which on a phone is a
+              screen above this row; go to it, as the Matches row goes to
+              the invite panel. */}
+          <ActionRow
+            label="New entry"
+            onClick={() => {
+              setComposerOpen(true);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+          />
+        </div>
       ) : (
-        <div className="mt-3 space-y-3">
+        <div className="space-y-3">
           {entries.map((entry) => {
             const lesson = lessons[entry.lesson_id];
             const expanded = open === entry.id;
-            const themes = lesson?.takeaways?.themes ?? [];
+            // A shared lesson video: the entry's text is only a link to it, written
+            // for the app versions that cannot show more. Here it opens as a recap.
+            const recapId = lesson ? recapIdOf(lesson) : null;
+            const themes = entryThemes(lesson?.takeaways?.themes, !!recapId);
             // The share sits on the card, not inside it: a coach writing
             // in a student's folder assumes the student can read it.
-            const canShare = Boolean(student.player_id) && !entry.shared_at;
+            //
+            // It no longer waits for the student to have an account. A
+            // coach can fill a folder for somebody who is not on PongLens
+            // yet and, before this, could hand them none of it: the
+            // control did not exist, and nothing caught up on accept, so
+            // the day they joined they found an empty "From your coach"
+            // (Adil, 2026-09-04). Marking it early is safe by the
+            // database's own rules — every reader of a shared entry keys
+            // on cs.player_id = auth.uid(), so a mark with no account
+            // behind it matches nobody, and accept_student_invite binds
+            // the account onto this same row, which is what makes it
+            // appear with no backfill.
+            const canShare = !entry.shared_at;
+            const waiting = Boolean(entry.shared_at) && !student.player_id;
             return (
               <div
                 key={entry.id}
@@ -779,14 +956,30 @@ export function StudentView({
                         className="h-11 w-11 shrink-0 rounded-lg border border-edge object-cover"
                       />
                     )}
-                    <span className="min-w-0 text-sm font-medium text-zinc-100">
-                      {entryTitle(lesson)}
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-zinc-100">
+                        {entryTitle(lesson)}
+                      </span>
+                      {recapId && (
+                        <span className="mt-0.5 block text-xs text-zinc-500">
+                          Lesson recap
+                        </span>
+                      )}
                     </span>
                   </button>
                   <span className="flex shrink-0 items-center gap-2">
                     {entry.shared_at ? (
-                      <span className="rounded-full bg-cyan-glow/10 px-2 py-0.5 text-[11px] font-medium text-cyan-glow">
-                        Shared
+                      // "Shared" over an entry nobody can read yet would
+                      // be a lie the coach could act on. Grey, and a
+                      // different word, until there is somebody there.
+                      <span
+                        className={
+                          waiting
+                            ? "rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-zinc-400"
+                            : "rounded-full bg-cyan-glow/10 px-2 py-0.5 text-[11px] font-medium text-cyan-glow"
+                        }
+                      >
+                        {waiting ? "Waiting" : "Shared"}
                       </span>
                     ) : (
                       canShare && (
@@ -810,6 +1003,15 @@ export function StudentView({
                 </div>
                 {expanded && (
                   <div className="mt-3 space-y-4">
+                    {recapId && (
+                      <Link
+                        href={recapHref(recapId)}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-edge bg-ink px-4 py-3 text-sm transition-colors hover:border-cyan-glow/50"
+                      >
+                        <span className="font-medium text-zinc-100">Open the recap</span>
+                        <span className="text-xs text-zinc-500">Edit, watch, or delete it there</span>
+                      </Link>
+                    )}
                     {themes.length > 0 ? (
                       <>
                         {themes.map((theme) => (
@@ -832,26 +1034,56 @@ export function StudentView({
                             </ul>
                           </div>
                         ))}
-                        <details className="text-sm text-zinc-400">
-                          <summary className="cursor-pointer select-none">
-                            Transcript
-                          </summary>
-                          <p className="mt-2 whitespace-pre-wrap leading-relaxed text-zinc-300">
-                            <LinkedText text={lesson?.transcript ?? ""} />
-                          </p>
-                        </details>
+                        {!recapId && (
+                          <details className="text-sm text-zinc-400">
+                            <summary className="cursor-pointer select-none">
+                              Transcript
+                            </summary>
+                            <p className="mt-2 whitespace-pre-wrap leading-relaxed text-zinc-300">
+                              <LinkedText text={lesson?.transcript ?? ""} />
+                            </p>
+                          </details>
+                        )}
                       </>
-                    ) : (
+                    ) : recapId ? null : (
                       <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
                         <LinkedText text={lesson?.transcript ?? ""} />
                       </p>
                     )}
                     {lesson?.image_path && <EntryImage lessonId={lesson.id} />}
+                    {lesson && student.player_id && matches.length > 0 && (
+                      <label className="block border-t border-edge/60 pt-3">
+                        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                          Match
+                        </span>
+                        <select
+                          aria-label={`Linked match for ${entryTitle(lesson)}`}
+                          value={lesson.match_id ?? ""}
+                          disabled={linkingId === entry.id}
+                          onChange={(event) =>
+                            void setEntryMatch(
+                              entry,
+                              event.target.value || null,
+                            )
+                          }
+                          className="mt-2 w-full rounded-xl border border-edge bg-ink/40 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-cyan-glow/60 disabled:opacity-60"
+                        >
+                          <option value="">No match linked</option>
+                          {matches.map((match) => (
+                            <option key={match.id} value={match.id}>
+                              {matchLabel(match)} · {day(match.played_at)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                   </div>
                 )}
                 {expanded && (
                   <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-edge/60 pt-3">
-                    {student.player_id && entry.shared_at && (
+                    {/* Anchored on the mark, not on the account: a
+                        Waiting mark has to be takeable back too. */}
+                    {entry.shared_at && (
                       <button
                         type="button"
                         onClick={() => void setShared(entry, false)}
@@ -861,7 +1093,7 @@ export function StudentView({
                         {sharingId === entry.id ? "Stopping…" : "Stop sharing"}
                       </button>
                     )}
-                    {lesson && (
+                    {lesson && !recapId && (
                       <button
                         type="button"
                         onClick={() => setEditing(asLesson(lesson))}
@@ -888,8 +1120,9 @@ export function StudentView({
                 )}
                 {expanded && entry.shared_at && (
                   <p className="mt-3 text-xs text-zinc-500">
-                    Shared with {student.display_name}. Edits show on their
-                    side.
+                    {student.player_id
+                      ? `Shared with ${student.display_name}. Edits show on their side.`
+                      : `Waiting for ${student.display_name} to join. They get it the day they do.`}
                   </p>
                 )}
               </div>
@@ -898,19 +1131,21 @@ export function StudentView({
         </div>
       )}
 
+      </section>
+
       {/* Their journal, the half they chose to show you (164). Read-only
           and clearly theirs: the entries above are yours, written about
           them, and the two must never look like one pile. */}
       {student.player_id && fromStudent.length > 0 && (
-        <>
-          <h3 className="mt-8 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        <section className="mt-8">
+          <SectionLabel>
             {/* Their journal, named as such. "From <name>" read like a
                 message addressed to the coach, something to act on,
                 rather than a window onto what the student keeps for
                 themselves (Adil, 2026-09-04). */}
             {possessive(student.display_name)} journal
-          </h3>
-          <div className="mt-3 space-y-2">
+          </SectionLabel>
+          <div className="space-y-2">
             {fromStudent.map((entry) => {
               const isOpen = openShared === entry.lesson_id;
               return (
@@ -995,16 +1230,30 @@ export function StudentView({
               );
             })}
           </div>
-        </>
+        </section>
       )}
 
-      {student.player_id && (
-        <>
-          <h3 className="mt-8 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Matches
-          </h3>
-          {matches.length === 0 ? (
-            <p className="mt-3 text-sm text-zinc-400">Nothing shared yet.</p>
+      {/* Always here, connected or not. The section used to exist only
+          once the student had an account, so a coach looking at a new
+          student had no way to know matches would ever appear (Adil,
+          2026-09-05). Unconnected, it says what it is waiting for and
+          offers the one thing that gets it there. */}
+      <section className="mt-8">
+          <SectionLabel>Matches</SectionLabel>
+          {!student.player_id ? (
+            <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+              <p className="px-5 py-4 text-sm text-zinc-400">
+                Their matches show here once they&apos;re connected.
+              </p>
+              <ActionRow
+                label={`Invite ${student.display_name}`}
+                onClick={() => showInvite()}
+              />
+            </div>
+          ) : matches.length === 0 ? (
+            <div className="overflow-hidden rounded-2xl border border-edge bg-surface">
+              <p className="px-5 py-4 text-sm text-zinc-400">Nothing shared yet.</p>
+            </div>
           ) : (
             /* Cards, not a list of names (Adil, 2026-09-04). A coach
                opening a new student should be able to SEE what they have
@@ -1013,7 +1262,7 @@ export function StudentView({
                to find out. The thumb comes from /api/thumb/<id>, whose URL
                never changes and whose access is has_match_access, so it
                works for a coach without signing anything. */
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2">
               {matches.map((match) => {
                 const score = scoreChips.get(match.id);
                 return (
@@ -1074,14 +1323,14 @@ export function StudentView({
               })}
             </div>
           )}
-        </>
-      )}
+      </section>
 
-      <h3 className="mt-8 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-        Manage
-      </h3>
-      <div className="mt-3 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-        <ManageRow
+      <LessonVideosSection studentId={student.id} />
+
+      <section className="mt-8">
+        <SectionLabel>Manage</SectionLabel>
+      <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+        <ActionRow
           label="Rename"
           onClick={() => {
             setRenameDraft(student.display_name);
@@ -1090,7 +1339,7 @@ export function StudentView({
           }}
         />
         {student.player_id && offlineStudents.length > 0 && (
-          <ManageRow
+          <ActionRow
             label="Same as an existing student"
             onClick={() => {
               setRenameOpen(false);
@@ -1098,12 +1347,14 @@ export function StudentView({
             }}
           />
         )}
-        <ManageRow
+        <ActionRow
           label="Remove from students"
           danger
           onClick={() => void removeStudent()}
         />
       </div>
+
+      </section>
 
       {renameOpen && (
         <div className="mt-4 rounded-2xl border border-edge bg-surface p-4">
@@ -1196,8 +1447,9 @@ export function StudentView({
   );
 }
 
-/** One row of the Manage group: label, chevron, the Account page's grammar. */
-function ManageRow({
+/** One action row: label, chevron, the Account page's grammar. Manage,
+ *  an empty Journal and an unconnected Matches all use it. */
+function ActionRow({
   label,
   danger = false,
   onClick,

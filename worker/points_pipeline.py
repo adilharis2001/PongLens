@@ -254,8 +254,8 @@ CLIP_PADS = {
 # 'plays' mode assembles the cut from the play windows instead. Segments
 # are built from the PRE-VETO play list on purpose: a window the in-gate
 # or micro veto drops is not emitted as a point, but its footage stays in
-# the video, so a wrongly vetoed rally is still watchable (and the raw
-# source only lives 30 days). Everything that never looked like play at
+# the video, so a wrongly vetoed rally is still watchable without a trip
+# back to the original. Everything that never looked like play at
 # the user's table is what disappears.
 #
 # INVARIANT: every clip window must exist inside the cut. Per-point clips

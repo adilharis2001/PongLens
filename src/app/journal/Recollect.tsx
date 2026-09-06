@@ -10,7 +10,9 @@ import type {
 import type { FocusPoint } from "./WorkingOn";
 
 function sourceLabel(source: RecollectSource) {
-  const kind = source.kind === "practice" ? "Practice" : "Lesson";
+  // One word for both: the entry's kind is no longer something the
+  // player chose, and this source carries no coach to name instead.
+  const kind = "Note";
   // No year: this label sits in a truncating row beside two buttons, and a
   // date cut off mid-year ("Aug 9, 20…") reads as broken.
   const date = new Date(source.createdAt).toLocaleDateString("en-US", {

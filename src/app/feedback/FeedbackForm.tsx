@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { FeedbackBoard } from "./FeedbackBoard";
 
 /**
  * Feedback 2.0 composer + board (SPEC: Feedback system).
@@ -219,15 +218,21 @@ function MicButton({
 
 export function FeedbackForm({
   userId,
-  isAdmin,
   isQa = false,
   initialMatchId,
+  onPosted,
 }: {
   userId: string;
-  isAdmin: boolean;
   /** QA role (092): shows the severity picker and captures environment. */
   isQa?: boolean;
   initialMatchId: string | null;
+  /**
+   * Something was written that the board should show. The board is a
+   * sibling now rather than a child — on a laptop the two sit side by
+   * side — so the refresh it used to get from this component's own state
+   * comes from the parent that owns both.
+   */
+  onPosted?: () => void;
 }) {
   const [body, setBody] = useState("");
   const [severity, setSeverity] = useState<"" | "blocker" | "major" | "minor">(
@@ -237,8 +242,6 @@ export function FeedbackForm({
   const [matches, setMatches] = useState<MatchOption[]>([]);
   const [phase, setPhase] = useState<"compose" | "sending" | "sent">("compose");
   const [sendError, setSendError] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
-
   // screenshot attachments (private to admin + author)
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -415,7 +418,7 @@ export function FeedbackForm({
     attachments.forEach((a) => URL.revokeObjectURL(a.previewUrl));
     setAttachments([]);
     setAttachError(null);
-    setRefreshKey((k) => k + 1);
+    onPosted?.();
 
     // Background polish; the item is already saved.
     try {
@@ -435,8 +438,8 @@ export function FeedbackForm({
     } catch {
       setAssist({ questions: [], similar: null, visibility: "board" });
     }
-    setRefreshKey((k) => k + 1);
-  }, [body, matchId, userId, attachments, isQa, severity]);
+    onPosted?.();
+  }, [body, matchId, userId, attachments, isQa, severity, onPosted]);
 
   const mergeIntoSimilar = useCallback(async () => {
     if (!assist?.similar || !itemId) return;
@@ -444,8 +447,8 @@ export function FeedbackForm({
     await supabase.rpc("feedback_toggle_vote", { p_item: assist.similar.id });
     await supabase.rpc("feedback_decline_duplicate", { p_item: itemId });
     setSimilarState("merged");
-    setRefreshKey((k) => k + 1);
-  }, [assist, itemId]);
+    onPosted?.();
+  }, [assist, itemId, onPosted]);
 
   const submitAnswer = useCallback(async () => {
     const q = assist?.questions[qIndex];
@@ -459,8 +462,8 @@ export function FeedbackForm({
       p_question: q,
       p_answer: a,
     });
-    setRefreshKey((k) => k + 1);
-  }, [assist, qIndex, answer, itemId]);
+    onPosted?.();
+  }, [assist, qIndex, answer, itemId, onPosted]);
 
   const reset = useCallback(() => {
     setBody("");
@@ -766,13 +769,6 @@ export function FeedbackForm({
           </div>
         </div>
       )}
-
-      <FeedbackBoard
-        isAdmin={isAdmin}
-        isQa={isQa}
-        userId={userId}
-        refreshKey={refreshKey}
-      />
     </div>
   );
 }

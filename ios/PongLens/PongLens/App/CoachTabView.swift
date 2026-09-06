@@ -25,7 +25,7 @@ enum CoachTab: String, CaseIterable, Identifiable {
 /// whom if that is already decided. Carried by the cover so the composer
 /// cannot disagree with the tap that raised it.
 struct CoachComposerRequest: Identifiable {
-    enum Mode { case write, record }
+    enum Mode { case write, record, video }
     let id = UUID()
     let mode: Mode
     let student: CoachStudentRow?
@@ -55,6 +55,7 @@ final class CoachRouter {
     var devOpenFirstStudent = false
     var devOpenFirstEntry = false
     var devComposeWrite = false
+    var devComposeRecord = false
     var devInvite = false
     #endif
 
@@ -68,6 +69,7 @@ final class CoachRouter {
         devOpenFirstStudent = args.contains("--dev-open-first-student")
         devOpenFirstEntry = args.contains("--dev-open-first-entry")
         devComposeWrite = args.contains("--dev-coach-compose")
+        devComposeRecord = args.contains("--dev-coach-record")
         devInvite = args.contains("--dev-coach-invite")
         #endif
     }
@@ -78,6 +80,7 @@ final class CoachRouter {
 /// roster. Matches shared by students open the same match screens the
 /// player side uses — access was never the tab's job.
 struct CoachTabView: View {
+    @Environment(\.openURL) private var openURL
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
     @Environment(ScoresStore.self) private var scores
@@ -132,12 +135,7 @@ struct CoachTabView: View {
             .navigationDestination(for: MatchRow.self) { match in
                 MatchDetailScreen(match: match)
             }
-            .navigationDestination(for: String.self) { route in
-                switch route {
-                case "account": AccountScreen()
-                default: EmptyView()
-                }
-            }
+            .appRoutes()
         }
         .environment(router)
         .sheet(isPresented: $router.newEntryOpen) {
@@ -152,9 +150,7 @@ struct CoachTabView: View {
                     if mode == .write { router.composeWrite = request } else { router.composeRecord = request }
                 }
             }
-            // The same three rows as the journal's New entry chooser, so
-            // the same height. At 300 the rows overflowed, the sheet
-            // centred them, and the title rode up into the grabber.
+            // Three entry choices, including the imported video recap.
             .presentationDetents([.height(348)])
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
@@ -163,7 +159,9 @@ struct CoachTabView: View {
             CoachEntryComposer(request: request)
                 .presentationDetents([.large])
         }
-        .fullScreenCover(item: $router.composeRecord) { request in
+        .fullScreenCover(item: $router.composeRecord, onDismiss: {
+            Task { await workspace.load(userId: app.userId) }
+        }) { request in
             CoachEntryComposer(request: request)
         }
         .sheet(isPresented: $devInviteOpen) {
@@ -179,6 +177,14 @@ struct CoachTabView: View {
                     }
                 },
                 onOpenHref: { href in
+                    if href.hasPrefix("/admin/"), let url = URL(string: "https://www.ponglens.com" + href) {
+                        bellOpen = false
+                        openURL(url)
+                    }
+                    if href.hasPrefix("/account") {
+                        bellOpen = false
+                        path.append("account")
+                    }
                     // A student joining lands on the roster.
                     if href.hasPrefix("/coaching/students") {
                         bellOpen = false
@@ -212,6 +218,23 @@ struct CoachTabView: View {
                 router.devComposeWrite = false
                 router.composeWrite = CoachComposerRequest(
                     mode: .write, student: workspace.activeStudents.first
+                )
+            }
+            if router.devComposeRecord {
+                router.devComposeRecord = false
+                let student = workspace.activeStudents.first ?? CoachStudentRow(
+                    id: UUID(),
+                    coachId: app.userId ?? UUID(),
+                    playerId: nil,
+                    displayName: "John Miller",
+                    createdAt: ISO8601DateFormatter().string(from: Date()),
+                    archivedAt: nil
+                )
+                if workspace.activeStudents.isEmpty {
+                    workspace.students = [student]
+                }
+                router.composeRecord = CoachComposerRequest(
+                    mode: .record, student: student
                 )
             }
             if router.devInvite {
@@ -271,35 +294,64 @@ struct CoachTabBar: View {
 
 // MARK: - New entry chooser
 
-/// How a new entry starts. Writing and recording are the two ways words
-/// arrive; video is named so nobody hunts for it, and marked for later.
+struct CoachNewEntryChoice: Identifiable {
+    enum Kind: Hashable {
+        case write
+        case audio
+        case video
+    }
+
+    let kind: Kind
+    let icon: String
+    let title: String
+    let detail: String
+
+    var id: Kind { kind }
+
+    var mode: CoachComposerRequest.Mode {
+        switch kind {
+        case .write: .write
+        case .audio: .record
+        case .video: .video
+        }
+    }
+
+    static let available = [
+        CoachNewEntryChoice(
+            kind: .write,
+            icon: "text.bubble",
+            title: "Write a lesson note",
+            detail: "Type or paste it. Add a photo or a link."
+        ),
+        CoachNewEntryChoice(
+            kind: .audio,
+            icon: "waveform",
+            title: "Audio record a lesson",
+            detail: "Put your phone near the net. Your notes are prepared automatically."
+        ),
+        CoachNewEntryChoice(
+            kind: .video,
+            icon: "video",
+            title: "Import a lesson video",
+            detail: "Import a lesson you filmed. You get a short recap with chapters, ready to share."
+        ),
+    ]
+}
+
+/// Writing, audio recording, or an imported lesson video.
 struct CoachNewEntrySheet: View {
     let student: CoachStudentRow?
     let onChoose: (CoachComposerRequest.Mode) -> Void
 
     var body: some View {
         PLChooserSheet(title: student.map { "New entry for \($0.displayName)" } ?? "New entry") {
-            // The written row is the counterpart to the recorded one, and
-            // says so: "Lesson" named the subject rather than the action,
-            // and the thing it makes is no longer only a write-up anyway.
-            // The player's journal keeps its own "Lesson" row, which means
-            // a lesson somebody gave THEM.
-            PLChooserRow(
-                icon: "text.bubble",
-                title: "Write a lesson note",
-                detail: "Type or paste it. Add a photo or a link."
-            ) { onChoose(.write) }
-            PLChooserRow(
-                icon: "waveform",
-                title: "Audio record a lesson",
-                detail: "Put your phone near the net. Your notes are prepared automatically."
-            ) { onChoose(.record) }
-            PLChooserRow(
-                icon: "video",
-                title: "Video record a lesson",
-                detail: "Coming soon.",
-                pending: true
-            )
+            ForEach(CoachNewEntryChoice.available) { choice in
+                PLChooserRow(
+                    icon: choice.icon,
+                    title: choice.title,
+                    detail: choice.detail
+                ) { onChoose(choice.mode) }
+            }
         }
     }
 }

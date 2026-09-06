@@ -110,10 +110,22 @@ YouTubeImport: "Import from YouTube", "Paste a YouTube link", "Checking…", tog
 "Process right away"/"Break it into points"/"Placement maps"/"Cut strictness".
 "We're fetching it". Errors: "That doesn't look like a YouTube video link." /
 "Couldn't queue the import. Try again." / "We couldn't process this video."
-CameraGuide sheet: "Where to place the camera" — "Diagonally behind you, raised a
-little" · "The whole table in frame, so the ball lands clearly on both sides" ·
-"Neither player blocking the table" + callout "Hold your phone landscape
-(sideways). Vertical video still works, but accuracy drops." + "Got it".
+CameraGuide sheet (manual, behind "How to record"): "Where to place the camera" —
+top-down diagram · "To the side of the table, level with your half, raised to about
+head height." · "On the side you do not serve from…" · "The whole table in frame…" ·
+"Neither player standing between the camera and the table, on either half." · "On a
+tripod or something that does not move, for the whole match." · "Other tables out of
+the frame where you can." + callout "Hold your phone landscape (sideways). Vertical
+video still works, but accuracy drops." + "Real setups that worked" (3 photos,
+collapsed) + pinned "Got it".
+Recording brief (automatic, once per account, first time /upload is opened with no
+matches; iOS raises the same brief from all three New match doors): five pages,
+Back + progress capsules + "n of 5", picture + title + body, pinned "Next" and on
+the last page "Continue" (web) / "Start recording" / "Choose a video" (iOS). No
+close, no backdrop tap, no Escape, no swipe-down. Pages: "Put the camera to the
+side" · "Keep the whole table in frame" · "Use a tripod" · "Don't film from behind
+a player" · "Processing is in beta". Counted as seen only on the last button
+(user_metadata.recording_brief_seen + a device copy).
 
 ## /journal
 See behavioral-spec.md §2. H1 "Journal", FAB "New".

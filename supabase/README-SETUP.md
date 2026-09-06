@@ -77,6 +77,11 @@ ponglens.com. Steps are ordered; do them top to bottom.
 
 ### 3c. Passwordless email + Resend SMTP
 
+The checked-in SMTP templates below remain the production rollback path. The
+unified replacement lives at `supabase/functions/send-email`. Do not enable
+that Auth Hook until its complete preview catalog has been reviewed and both
+the web link and iPhone one-time code have been tested end to end.
+
 1. In Resend, verify `ponglens.com`, then create a sending-only API key named
    `PongLens Supabase Auth`.
 2. In **Supabase -> Authentication -> Emails -> SMTP Settings**, enable custom
@@ -99,6 +104,26 @@ ponglens.com. Steps are ordered; do them top to bottom.
 The Resend SMTP key belongs only in Supabase's SMTP **Password** field. It is
 not a Vercel environment variable and must not be added to `.env.local`,
 GitHub, or the source code.
+
+#### Switching to the unified Send Email Hook
+
+1. Create a Resend sending-only API key scoped to authentication mail.
+2. In **Supabase -> Authentication -> Hooks -> Send Email**, generate the
+   Standard Webhooks signing secret. Do not enable the hook yet.
+3. Set `RESEND_API_KEY` and `SEND_EMAIL_HOOK_SECRET` as Edge Function secrets.
+4. Deploy `send-email` with JWT verification disabled. The function verifies
+   the signed Standard Webhooks payload itself before reading any user data.
+5. Confirm the only enabled email actions are passwordless `signup` and
+   `magiclink`. The function deliberately rejects recovery, invite, email
+   change, reauthentication, and unknown actions until their product flows and
+   copy are explicitly approved.
+6. Enable the hook, request one new-account email and one returning sign-in
+   email, and verify the web button and iPhone code. If either fails, disable
+   the hook so Supabase immediately returns to the SMTP templates above.
+
+The hook bypasses the product suppression table because users must be able to
+authenticate. A provider failure returns a non-success response to Supabase;
+it never reports a message as sent when Resend rejected it.
 
 ## 4. Environment variables
 

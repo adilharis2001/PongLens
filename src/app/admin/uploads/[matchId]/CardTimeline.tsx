@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { MissCard } from "../serveMiss";
+import {
+  LABEL_TONE,
+  bounceLabelCopy,
+  inferredBounceMarkerTitle,
+  inferredBounceMarkers,
+  labelFor,
+  type BounceLabel,
+  type MissCard,
+} from "../serveMiss";
 
 /**
  * One card's four sensors, side by side on one clock.
@@ -53,17 +61,30 @@ const TONE = {
   serve: "#facc15",
   /** The two bounces the serve rule accepted, told apart from the rest. */
   serveBounce: "#e879f9",
+  inferredHigh: "#38bdf8",
+  inferredMedium: "#7dd3fc",
+  inferredDiagnostic: "#64748b",
 };
 
 export function CardTimeline({
   card,
   t,
   onSeek,
+  labels,
+  selectedT = null,
+  onSelectBounce,
 }: {
   card: MissCard;
   /** The playhead, in source seconds. */
   t: number;
   onSeek: (sourceSeconds: number) => void;
+  /** The admin's corrections, keyed by labelKey(t). A labeled dot draws in
+   *  its human colour rather than the detector's. */
+  labels?: ReadonlyMap<string, BounceLabel>;
+  /** The bounce currently picked for labeling, in source seconds. */
+  selectedT?: number | null;
+  /** Called with a bounce's source time when its dot is tapped. */
+  onSelectBounce?: (sourceSeconds: number) => void;
 }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
@@ -93,6 +114,7 @@ export function CardTimeline({
   const body = useMemo(() => {
     const px = (time: number) =>
       PLOT_X + ((time - card.t0) / span) * plotW;
+    const inferred = inferredBounceMarkers(card);
 
     let wavePath = "";
     if (audio && audio.wave.length) {
@@ -201,27 +223,126 @@ export function CardTimeline({
           const isServe = (card.serve_bounces ?? []).some(
             (st) => Math.abs(st - b.t) < 0.02
           );
+          // The human's call outranks every machine colour: a serve bounce
+          // relabeled as a paddle contact is a WRONG serve, and painting it
+          // serve-magenta would keep asserting the thing being corrected.
+          const label = labelFor(labels, b.t);
+          const selected =
+            selectedT !== null && Math.abs(selectedT - b.t) < 0.001;
           return (
-            <circle
+            <g
               key={`b${i}`}
-              cx={px(b.t)}
-              cy={BOUNCE_Y}
-              r={isServe ? 5 : 4}
-              fill={
-                isServe
-                  ? TONE.serveBounce
-                  : b.onSurface
-                    ? TONE.onSurface
-                    : TONE.offSurface
+              className={onSelectBounce ? "cursor-pointer" : undefined}
+              // stopPropagation, or the SVG's own pointerdown seeks and
+              // captures the pointer before the tap means anything.
+              onPointerDown={
+                onSelectBounce
+                  ? (e) => {
+                      e.stopPropagation();
+                      onSelectBounce(b.t);
+                    }
+                  : undefined
               }
-              fillOpacity="0.95"
             >
-              <title>
-                {`${(b.t - card.t0).toFixed(2)}s · ${
-                  b.onSurface ? "on the playing surface" : "off the surface"
-                }${isServe ? " · the serve" : ""}`}
-              </title>
-            </circle>
+              {selected && (
+                <circle
+                  cx={px(b.t)}
+                  cy={BOUNCE_Y}
+                  r="8"
+                  fill="none"
+                  stroke="#f8fafc"
+                  strokeWidth="1.5"
+                />
+              )}
+              {/* A generous invisible hit area: a 4px dot is a hard tap. */}
+              <circle
+                cx={px(b.t)}
+                cy={BOUNCE_Y}
+                r="11"
+                fill="transparent"
+              />
+              <circle
+                cx={px(b.t)}
+                cy={BOUNCE_Y}
+                r={isServe || label ? 5 : 4}
+                fill={
+                  label
+                    ? LABEL_TONE[label]
+                    : isServe
+                      ? TONE.serveBounce
+                      : b.onSurface
+                        ? TONE.onSurface
+                        : TONE.offSurface
+                }
+                fillOpacity={label === "not_ball" ? 0.6 : 0.95}
+              >
+                <title>
+                  {`${(b.t - card.t0).toFixed(2)}s · ${
+                    b.onSurface ? "on the playing surface" : "off the surface"
+                  }${isServe ? " · the serve" : ""}${
+                    label ? ` · you said: ${bounceLabelCopy(label)}` : ""
+                  }`}
+                </title>
+              </circle>
+              {label === "not_ball" && (
+                <>
+                  {/* A cross through it: dimming alone is invisible at 4px. */}
+                  <line
+                    x1={px(b.t) - 4}
+                    x2={px(b.t) + 4}
+                    y1={BOUNCE_Y - 4}
+                    y2={BOUNCE_Y + 4}
+                    stroke="#a1a1aa"
+                    strokeWidth="1.25"
+                  />
+                  <line
+                    x1={px(b.t) - 4}
+                    x2={px(b.t) + 4}
+                    y1={BOUNCE_Y + 4}
+                    y2={BOUNCE_Y - 4}
+                    stroke="#a1a1aa"
+                    strokeWidth="1.25"
+                  />
+                </>
+              )}
+            </g>
+          );
+        })}
+        {inferred.map((marker) => {
+          const centerX = px(marker.t);
+          const markerY = BOUNCE_Y - 12;
+          const tone =
+            marker.preferred !== "latent_bounce"
+              ? TONE.inferredDiagnostic
+              : marker.tier === "high"
+              ? TONE.inferredHigh
+              : marker.tier === "medium"
+                ? TONE.inferredMedium
+                : TONE.inferredDiagnostic;
+          return (
+            <g key={`ib-${marker.id}`}>
+              <title>{inferredBounceMarkerTitle(marker, card.t0)}</title>
+              <line
+                x1={px(marker.interval[0])}
+                x2={px(marker.interval[1])}
+                y1={markerY}
+                y2={markerY}
+                stroke={tone}
+                strokeWidth="2"
+                strokeOpacity={marker.tier === "diagnostic" ? 0.45 : 0.8}
+              />
+              <path
+                d={`M ${centerX} ${markerY - 4} L ${centerX + 4} ${markerY} L ${centerX} ${markerY + 4} L ${centerX - 4} ${markerY} Z`}
+                fill={
+                  marker.preferred === "latent_bounce" && marker.tier === "high"
+                    ? tone
+                    : "#0c1222"
+                }
+                stroke={tone}
+                strokeWidth="1.5"
+                strokeOpacity={marker.tier === "diagnostic" ? 0.6 : 1}
+              />
+            </g>
           );
         })}
 
@@ -273,7 +394,7 @@ export function CardTimeline({
         </text>
       </>
     );
-  }, [card, audio, seen, span, plotW]);
+  }, [card, audio, seen, span, plotW, labels, selectedT, onSelectBounce]);
 
   const seek = (clientX: number) => {
     const box = boxRef.current?.getBoundingClientRect();
@@ -342,9 +463,30 @@ export function CardTimeline({
           off the surface
         </span>
         <span>
+          <i className="mr-1 inline-block h-2 w-2 rotate-45 align-middle border border-sky-400 bg-sky-400" />
+          latent bounce preferred
+        </span>
+        <span>
+          <i className="mr-1 inline-block h-2 w-2 rotate-45 align-middle border border-slate-500" />
+          continuous or unclear
+        </span>
+        <span>
           <i className="mr-1 inline-block h-2.5 w-0.5 align-middle bg-slate-500" />
           net crossing
         </span>
+        {/* Only the corrections this card actually carries — four more
+            permanent entries would drown the six that are always true. */}
+        {[...new Set(card.bounces
+          .map((b) => labelFor(labels, b.t))
+          .filter((l): l is BounceLabel => l !== null))].map((l) => (
+          <span key={l}>
+            <i
+              className="mr-1 inline-block h-2 w-2 align-middle rounded-full"
+              style={{ background: LABEL_TONE[l] }}
+            />
+            you said: {bounceLabelCopy(l).toLowerCase()}
+          </span>
+        ))}
       </div>
     </div>
   );

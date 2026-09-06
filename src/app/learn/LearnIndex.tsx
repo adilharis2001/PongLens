@@ -3,12 +3,15 @@
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import {
-  GROUPS,
   guideSearchText,
   guideSnippet,
-  guides,
+  visibleGroups,
+  visibleGuides,
   type Guide,
+  type LearnAudience,
+  type LearnPlatform,
 } from "./guides";
+import { LearnAudienceSwitch } from "./LearnAudienceSwitch";
 
 /**
  * The Learn hub's index: a search box over every guide's full text, and
@@ -19,10 +22,18 @@ import {
  * list shows the sentence that matched so the hit explains itself.
  */
 
-function GuideCard({ guide, snippet }: { guide: Guide; snippet?: string | null }) {
+function GuideCard({
+  guide,
+  href,
+  snippet,
+}: {
+  guide: Guide;
+  href: string;
+  snippet?: string | null;
+}) {
   return (
     <Link
-      href={`/learn/${guide.slug}`}
+      href={href}
       className="block rounded-2xl border border-edge bg-surface p-4 transition-colors hover:border-cyan-glow/40 hover:bg-surface-2"
     >
       <h3 className="text-sm font-semibold text-zinc-100">{guide.title}</h3>
@@ -34,24 +45,44 @@ function GuideCard({ guide, snippet }: { guide: Guide; snippet?: string | null }
 }
 
 export function LearnIndex({
+  audience,
+  platform,
+  activeWorkspace,
+  canSwitch,
   /** Rendered directly under the search box, above the guides. */
   afterSearch,
 }: {
+  audience: LearnAudience;
+  platform: LearnPlatform;
+  activeWorkspace: LearnAudience;
+  canSwitch: boolean;
   afterSearch?: ReactNode;
-} = {}) {
+}) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
+  const availableGuides = useMemo(
+    () => visibleGuides(audience, platform),
+    [audience, platform],
+  );
+  const groups = useMemo(
+    () => visibleGroups(audience, platform),
+    [audience, platform],
+  );
+  const guideHref = (slug: string) =>
+    audience === activeWorkspace
+      ? `/learn/${slug}`
+      : `/learn/${slug}?audience=${audience}`;
 
   const results = useMemo(() => {
     if (!q) return null;
     // Title hits first, then everything else — the title is the strongest
     // signal of "this is the guide I meant".
-    const titleHits = guides.filter((g) => g.title.toLowerCase().includes(q));
-    const bodyHits = guides.filter(
+    const titleHits = availableGuides.filter((g) => g.title.toLowerCase().includes(q));
+    const bodyHits = availableGuides.filter(
       (g) => !titleHits.includes(g) && guideSearchText(g).includes(q)
     );
     return [...titleHits, ...bodyHits];
-  }, [q]);
+  }, [availableGuides, q]);
 
   return (
     <div>
@@ -77,6 +108,12 @@ export function LearnIndex({
         />
       </div>
 
+      <LearnAudienceSwitch
+        audience={audience}
+        activeWorkspace={activeWorkspace}
+        canSwitch={canSwitch}
+      />
+
       {afterSearch}
 
       {results !== null ? (
@@ -91,14 +128,19 @@ export function LearnIndex({
         ) : (
           <div className="mt-6 space-y-3">
             {results.map((g) => (
-              <GuideCard key={g.slug} guide={g} snippet={guideSnippet(g, q)} />
+              <GuideCard
+                key={g.slug}
+                guide={g}
+                href={guideHref(g.slug)}
+                snippet={guideSnippet(g, q)}
+              />
             ))}
           </div>
         )
       ) : (
         <div className="mt-8 space-y-8">
-          {GROUPS.map((group) => {
-            const inGroup = guides.filter((g) => g.group === group);
+          {groups.map((group) => {
+            const inGroup = availableGuides.filter((g) => g.group === group);
             if (inGroup.length === 0) return null;
             return (
               <section key={group}>
@@ -107,7 +149,7 @@ export function LearnIndex({
                 </h2>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   {inGroup.map((g) => (
-                    <GuideCard key={g.slug} guide={g} />
+                    <GuideCard key={g.slug} guide={g} href={guideHref(g.slug)} />
                   ))}
                 </div>
               </section>

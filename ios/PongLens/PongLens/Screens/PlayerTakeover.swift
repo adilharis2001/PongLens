@@ -28,8 +28,6 @@ enum PlayerMode {
 ///     first half second, so the playhead would jump on the first tick of
 ///     playback and keep jumping. It would read as a corrupt file.
 ///  3. `startAt` is ignored. Every caller mints it from a `cutT0`.
-///  4. `highlightPicks` is refused. It is its own array of points with its
-///     own boundary observer and three more seek paths.
 enum PlayerSource {
     case cut, original
 }
@@ -122,14 +120,9 @@ struct PlayerTakeover: View {
     /// Coach workspace hook: when set, the watch overlay offers adding the
     /// point on screen to a pattern. Players never see it.
     var onTagPoint: ((MatchPoint) -> Void)?
-    /// Highlights mode (2026-08-25): play ONLY these rallies, in order,
-    /// jumping the footage between them. The viewing chrome stays — play,
-    /// the scrubber, zoom, rotate, the flanks, and the SCORE BUG, whose
-    /// numbers walk the whole match so it reads the true score entering
-    /// the rally on screen. The working chrome (gestures help, speed,
-    /// grid, star, notes) stands down; a Share pill takes the top-left
-    /// corner. nil = the normal player.
-    var highlightPicks: [MatchPoint]? = nil
+    /// Dedicated one-item highlight mode. Its times are output-video times,
+    /// not cut-video times, and no automatic boundary seeks are installed.
+    var highlightManifest: AutomaticHighlightManifest? = nil
     /// The Share pill's tap; the host presents the share sheet.
     var onShareHighlight: (() -> Void)?
 
@@ -151,9 +144,6 @@ struct PlayerTakeover: View {
     @State var scrubT: Double = 0
     @State var flash: String?
     @State var observer: Any?
-    /// Boundary observer at each highlight pick's end (highlights mode
-    /// only) — the frame-accurate half of the tape's jump.
-    @State var tapeObserver: Any?
     /// AVPlayer refuses the file. Until this existed the takeover showed a
     /// black rectangle and said nothing: nothing observed the item's
     /// status, and the load path's own catch is a comment reading
@@ -162,6 +152,9 @@ struct PlayerTakeover: View {
     /// sweep outlived.
     @State var itemStatus: NSKeyValueObservation?
     @State var loadFailed = false
+    /// The cut link lives six hours. One fresh link is minted when the
+    /// item fails; a second failure is a real one and says so.
+    @State var remintedCut = false
 
     /// The network fell behind. Named on screen, because without it a
     /// choppy connection reads as the app freezing — the picture stops and
@@ -176,6 +169,36 @@ struct PlayerTakeover: View {
     @State var phase: ScorePhase = .play
     @State var endPausedId: UUID?
     @State var endPauseBlockedId: UUID?
+
+    // MARK: - Detour (an insert card's own clip)
+    //
+    // THE CUT VIDEO IS NEVER RE-ASSEMBLED, so an inserted rally's footage
+    // is not in it: the card has a cutT0 (the strip needs one) but playing
+    // from it shows whatever the seam kept and the rally is silently
+    // skipped (Terry 2, card 45). For exactly those cards the player takes
+    // a DETOUR: the card's own clip is swapped in as the player's item,
+    // then playback hands back to the cut.
+    //
+    // The whole machine stays on the cut clock. A clip opens on the same
+    // frame a cut seek to cutT0 lands on (the anchoring fact in
+    // Playhead.swift), so clip time c IS virtual cut time cutT0 + c —
+    // `currentT` stays virtual and the strip, the boundary maths and the
+    // scoring stamps work unchanged. The one thing the virtual clock
+    // breaks is the WYSIWYG resolver PAST the next card's start (the
+    // virtual span overlaps it — that overlap is why the cut has no room),
+    // so while the detour is up the target pins to its card, the live twin
+    // of the paused-at-end pin.
+    @State var detourId: UUID?
+    @State var detourBase: Double = 0
+    /// Visible cards the cut cannot show, per ownClipIds + a real clip.
+    @State var ownClips: Set<UUID> = []
+    /// Their preloaded items, so the swap starts with frames in hand.
+    @State var clipItems: [UUID: AVPlayerItem] = [:]
+    /// The clip_path each item was minted for (see loadOwnClips).
+    @State var clipItemPaths: [UUID: String?] = [:]
+    /// The cut's own item, kept to swap back on exit.
+    @State var cutItem: AVPlayerItem?
+    @State var clipEndObservers: [NSObjectProtocol] = []
     /// Media time where the current CONTINUOUS playback run began — the
     /// first tick after a play or a seek. A rally's boundary only stops the
     /// video when the run started before that rally's deciding shot, and
@@ -278,29 +301,14 @@ struct PlayerTakeover: View {
     @State var annotateFrame: UIImage?
     @State var pendingImage: (path: String, preview: UIImage)?
 
-    // The FULL visible list, always — the score walk, the serve rotation
-    // and the chip strip must read the real match even on the highlights
-    // tape (a walk over only the picks would print a fiction). Which
-    // rallies PLAY is highlightSpans' business, in tick().
-    /// Empty on the original: every one of these carries a `cutT0`, which
-    /// is a second in the OTHER file.
-    var points: [MatchPoint] { source == .original ? [] : model.visible }
-    /// Highlights are a list of cut positions, so they cannot describe the
-    /// original. Refused here rather than at the call site so no future
-    /// caller can combine the two by accident.
-    var isHighlights: Bool { source == .cut && highlightPicks != nil }
-
-    /// The picks' spans on the cut timeline. Everything outside them is
-    /// dead footage in highlights mode, the same shape as deadSpans.
-    var highlightSpans: [TimeSpan]? {
-        guard source == .cut, let picks = highlightPicks else { return nil }
-        return picks.compactMap { p in
-            guard let c = p.cutT0,
-                  let end = effectiveEnd(p, pad, app.endOptions)
-            else { return nil }
-            return TimeSpan(start: max(0, c), end: end)
-        }
+    /// Empty only on the original, whose clock has no point mapping.
+    var points: [MatchPoint] {
+        if case .original = source { return [] }
+        return model.visible
     }
+    var isHighlights: Bool { highlightManifest != nil }
+    var isCut: Bool { source == .cut && !isHighlights }
+    var isOriginal: Bool { source == .original }
 
     /// The single answer for "which rally is on screen": the auto-pause pin
     /// first, then the hold-aware resolver.
@@ -311,12 +319,21 @@ struct PlayerTakeover: View {
     /// a fifth of a second stale — long enough, on tight cuts, to answer a
     /// rally the screen was never about.
     func target(at t: Double) -> MatchPoint? {
+        if let id = highlightManifest?.pointId(at: t) {
+            return points.first { $0.id == id }
+        }
         if let endPausedId, let pinned = points.first(where: { $0.id == endPausedId }) {
             return pinned
         }
         if phase == .review, reviewQueue.indices.contains(reviewIndex),
            let reviewing = points.first(where: { $0.id == reviewQueue[reviewIndex] }) {
             return reviewing
+        }
+        // Detour pin, the live twin of the paused-at-end pin: mid-clip the
+        // resolver may already say the next card (the virtual span overlaps
+        // its start), but the surface is showing THIS card's rally.
+        if let detourId, let pinned = points.first(where: { $0.id == detourId }) {
+            return pinned
         }
         return targetAt(
             points, at: t, pad: pad, ends: app.endOptions,
@@ -325,11 +342,14 @@ struct PlayerTakeover: View {
         )
     }
 
-    /// The player's own clock when it has one, the last tick otherwise.
+    /// The player's own clock when it has one, the last tick otherwise —
+    /// in VIRTUAL cut seconds: during a detour the item is the card's own
+    /// clip, whose raw clock starts at the card's cutT0.
     var liveT: Double {
         guard player.currentItem?.status == .readyToPlay else { return currentT }
         let t = player.currentTime().seconds
-        return t.isFinite ? t : currentT
+        guard t.isFinite else { return currentT }
+        return detourId != nil ? detourBase + t : t
     }
 
     /// THE point a winner, skip, delete or star tap answers. Resolved at tap
@@ -342,10 +362,18 @@ struct PlayerTakeover: View {
     /// A chevron on a side with nothing on it is a button that does
     /// nothing, so it is absent rather than dead — the same rule the web
     /// player follows.
-    var cutPoints: [MatchPoint] { points.filter { $0.cutT0 != nil } }
+    var cutPoints: [MatchPoint] {
+        guard let manifest = highlightManifest else {
+            return points.filter { $0.cutT0 != nil }
+        }
+        let byId = Dictionary(uniqueKeysWithValues: points.map { ($0.id, $0) })
+        return manifest.points.compactMap { byId[$0.pointId] }
+    }
 
     var playingCutIndex: Int {
-        guard let id = playingPointId(points, at: currentT) else { return -1 }
+        let id = highlightManifest?.pointId(at: currentT)
+            ?? playingPointId(points, at: currentT)
+        guard let id else { return -1 }
         return cutPoints.firstIndex { $0.id == id } ?? -1
     }
 
@@ -374,7 +402,7 @@ struct PlayerTakeover: View {
     /// on every tick, and 20 of the 71 matches this can open have a
     /// deleted rally inside the first half second.
     var deadSpans: [TimeSpan] {
-        guard source == .cut else { return [] }
+        guard isCut else { return [] }
         return deletedSpans(all: model.points, visible: points, pad: pad)
     }
 
@@ -387,7 +415,7 @@ struct PlayerTakeover: View {
     /// stops at its own padded end, so playback still runs the file out
     /// naturally instead of trapping a pause at the tape's edge.
     var tapSpans: [TimeSpan] {
-        guard app.tapEndPlayback else { return [] }
+        guard isCut, app.tapEndPlayback else { return [] }
         let cut = points.filter { $0.cutT0 != nil }
         var out: [TimeSpan] = []
         for (i, p) in cut.enumerated() {
@@ -475,54 +503,21 @@ struct PlayerTakeover: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            let landscape = geo.size.width > geo.size.height
-            Group {
-                if mode == .score, phase == .play, landscape {
-                    landscapeScoreLayout(geo)
-                        // Sideways there is no pad surface to cover, so the
-                        // panel takes the screen and splits its two halves
-                        // across the width rather than stacking them.
-                        .overlay { analysisLayer(landscape: true) }
-                } else {
-                    VStack(spacing: 0) {
-                        videoArea(geo)
-                        if mode == .score, phase == .play {
-                            scorePad
-                                .overlay { analysisLayer(landscape: false) }
-                        }
-                    }
-                }
-            }
-            .frame(maxHeight: .infinity, alignment: .top)
-            .background(Color.black.ignoresSafeArea())
-            // The Why overlay sits above the pad and below the summary: the
-            // rally being explained has to stay on screen, and the pad
-            // underneath has no job until the answer moves us on.
-            .overlay { whyOverlay }
-            .overlay(alignment: .bottom) {
-                if let toast {
-                    Text(toast)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text300)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 7)
-                        .background(PL.ink.opacity(0.85), in: Capsule())
-                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
-                        .padding(.bottom, 96)
-                        .transition(.opacity)
-                }
-            }
-            .overlay {
-                if phase == .summary { summaryOverlay }
-            }
-        }
+        playerCanvas
         .statusBarHidden()
         .task { await start() }
         // A split or an Adjust leaves clips regenerating. The poll takes the
         // spinners back down without anyone reopening the match.
         .onChange(of: model.hasPendingClips) { _, pending in
             if pending { model.startClipPoll(match.id) }
+        }
+        // A card added or re-cut during the session: recompute which cards
+        // need their own file and fetch it, instead of only at start.
+        .onChange(of: model.points.map(\.clipPath)) { _, _ in
+            Task { await loadOwnClips() }
+        }
+        .onChange(of: model.points.count) { _, _ in
+            Task { await loadOwnClips() }
         }
         .onChange(of: isPlaying) { _, playing in
             if playing {
@@ -538,7 +533,9 @@ struct PlayerTakeover: View {
         .onChange(of: runningScore.games.count) { _, _ in watchGameBoundary() }
         .onDisappear {
             if let observer { player.removeTimeObserver(observer) }
-            if let tapeObserver { player.removeTimeObserver(tapeObserver) }
+            for token in clipEndObservers {
+                NotificationCenter.default.removeObserver(token)
+            }
             itemStatus?.invalidate()
             player.pause()
             releaseForcedLandscape()
@@ -564,7 +561,9 @@ struct PlayerTakeover: View {
         .sheet(item: $insertSeam) { pair in
             InsertSheet(
                 match: match, model: model,
-                prev: pair.prev, next: pair.next, pad: pad,
+                prev: pair.prev, next: pair.next,
+                prevNumber: pair.prevNumber, nextNumber: pair.nextNumber,
+                pad: pad,
                 onFinished: { showFlash($0) }
             )
         }
@@ -634,6 +633,46 @@ struct PlayerTakeover: View {
                     }
                 )
             }
+        }
+    }
+
+    private var playerCanvas: some View {
+        GeometryReader { geo in
+            let landscape = geo.size.width > geo.size.height
+            Group {
+                if mode == .score, phase == .play, landscape {
+                    landscapeScoreLayout(geo)
+                        .overlay { analysisLayer(landscape: true) }
+                } else {
+                    VStack(spacing: 0) {
+                        videoArea(geo)
+                        if mode == .score, phase == .play {
+                            scorePad.overlay { analysisLayer(landscape: false) }
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+            .background(Color.black.ignoresSafeArea())
+            .overlay { whyOverlay }
+            .overlay(alignment: .bottom) { toastOverlay }
+            .overlay {
+                if phase == .summary { summaryOverlay }
+            }
+        }
+    }
+
+    @ViewBuilder var toastOverlay: some View {
+        if let toast {
+            Text(toast)
+                .font(.plCaption)
+                .foregroundStyle(PL.text300)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 7)
+                .background(PL.ink.opacity(0.85), in: Capsule())
+                .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                .padding(.bottom, 96)
+                .transition(.opacity)
         }
     }
 
@@ -723,12 +762,12 @@ struct PlayerTakeover: View {
             // nothing reads as the app having frozen.
             if loadFailed {
                 VStack(spacing: 10) {
-                    Text(source == .original
+                    Text(isOriginal
                          ? "This video couldn't be loaded."
                          : "This video couldn't be played.")
                         .font(.plBody)
                         .foregroundStyle(PL.text300)
-                    Text(source == .original
+                    Text(isOriginal
                          ? "The original may no longer be available. The full video still plays."
                          : "Check your connection and open it again.")
                         .font(.plCaption)
@@ -751,9 +790,16 @@ struct PlayerTakeover: View {
                 VStack {
                     Spacer()
                     Text(String(
-                        format: "t=%.2f dur=%.1f rate=%.2f pin=%@ stall=%@",
+                        format: "t=%.2f dur=%.1f rate=%.2f pin=%@ stall=%@ det=%d/%d%@ item=%@",
                         currentT, duration, player.rate,
-                        endPausedId == nil ? "-" : "P", stalled ? "Y" : "N"
+                        endPausedId == nil ? "-" : "P", stalled ? "Y" : "N",
+                        ownClips.count, clipItems.count,
+                        detourId == nil ? "-" : "*",
+                        {
+                            let d = player.currentItem?.duration.seconds
+                            return (d?.isFinite ?? false)
+                                ? String(format: "%.1f", d!) : "?"
+                        }()
                     ))
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.yellow)
@@ -1488,7 +1534,7 @@ struct PlayerTakeover: View {
                     dismiss()
                     onKeepScore(at)
                 } label: {
-                    Text("Score Keeper")
+                    Text("Score the Match")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(PL.cyan)
                         .lineLimit(1)
@@ -2076,11 +2122,28 @@ struct PlayerTakeover: View {
     }
 
     func serveLine(_ info: ServeInfo?) -> String {
-        switch info?.server {
+        let who: String? = switch info?.server {
         case .user: "You serve"
         case .opponent: "\(match.opponentName ?? "They") serve\(match.opponentName == nil ? "" : "s")"
-        case nil: ""
+        case nil: nil
         }
+        // Say WHICH rally you are on, in words. The lit chip alone was not
+        // reading as "you are here": colour on that strip already means who
+        // won, and position is easy to lose in a long match — especially one
+        // with deletions, where the numbers no longer match the strip's
+        // own order. A number here is unambiguous wherever the strip is
+        // scrolled to.
+        guard let n = currentPointNumber else { return who ?? "" }
+        guard let who else { return "Point \(n)" }
+        return "Point \(n) · \(who)"
+    }
+
+    /// Where the playhead is, numbered as the strip numbers it.
+    var currentPointNumber: Int? {
+        guard let id = displayTarget?.id,
+              let i = points.firstIndex(where: { $0.id == id })
+        else { return nil }
+        return i + 1
     }
 
     /// The point ticker: numbered rings colored by winner, the current one
@@ -2088,7 +2151,25 @@ struct PlayerTakeover: View {
     func chipStrip(targetId: UUID?) -> some View {
         let full = fullScore
         let removed = removedDots
-        let offers = insertOffers
+        // Only the two seams touching the rally you are ON. An offer keyed
+        // by chip X is drawn BEFORE X, so "the one after the current card"
+        // is keyed by the card that follows it. Scattered down the whole
+        // strip the dashes read as decoration; against the current card
+        // they read as "something is missing right here", which is the only
+        // moment the question is live.
+        let clipped = points.filter { $0.cutT0 != nil }
+        let here: Set<UUID> = {
+            guard let targetId,
+                  let i = clipped.firstIndex(where: { $0.id == targetId })
+            else { return [] }
+            var out: Set<UUID> = [targetId]
+            if i + 1 < clipped.count { out.insert(clipped[i + 1].id) }
+            return out
+        }()
+        let offers = insertOffers.filter { here.contains($0.key) }
+        // The end of the match belongs to the last card, so it only shows
+        // while you are standing on it.
+        let tail = clipped.last?.id == targetId ? insertTail : nil
         // Once for the strip, not once per chip: the rule walks every
         // visible rally, and it is read inside a ForEach body.
         let markers = SideChanges.byPoint(
@@ -2140,6 +2221,9 @@ struct PlayerTakeover: View {
                     ForEach(removed[nil] ?? [], id: \.self) { id in
                         removedDot(id)
                     }
+                    if let tail {
+                        insertDot(tail)
+                    }
                 }
                 .padding(.vertical, 5)
                 .padding(.horizontal, 2)
@@ -2147,6 +2231,25 @@ struct PlayerTakeover: View {
             .onChange(of: targetId) { _, id in
                 guard let id else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            // ALSO on appear. onChange alone never fires for the target the
+            // strip opens with, so Keep score always opened scrolled to the
+            // left. That was invisible while a deleted point left a 10pt
+            // dot behind; at 36pt a run of deletions at the front of a match
+            // pushes the current chip clean off screen, which is how it
+            // surfaced. Same for the count changing under it — inserting a
+            // card or restoring a point moves everything along.
+            .onAppear {
+                guard let id = targetId else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    proxy.scrollTo(id, anchor: .center)
+                }
+            }
+            .onChange(of: points.count) { _, _ in
+                guard let id = targetId else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     proxy.scrollTo(id, anchor: .center)
                 }
             }
@@ -2180,20 +2283,57 @@ struct PlayerTakeover: View {
         var out: [UUID: InsertSeamPair] = [:]
         let withClips = points.filter { $0.cutT0 != nil }
         guard withClips.count > 1 else { return out }
+        // Numbers come from the position in the FULL visible list, so they
+        // match the chips on the strip rather than counting only clipped ones.
+        var numberOf: [UUID: Int] = [:]
+        for (i, p) in points.enumerated() { numberOf[p.id] = i + 1 }
+        // A rally missing BEFORE the first card has no pair either.
+        if let first = withClips.first,
+           gapWorthOffering(nil, first.insertNeighbour, pad: pad) != nil {
+            out[first.id] = InsertSeamPair(
+                id: first.id, prev: nil, next: first,
+                prevNumber: nil, nextNumber: numberOf[first.id] ?? 1)
+        }
         for i in 1..<withClips.count {
             let a = withClips[i - 1]
             let b = withClips[i]
             if gapWorthOffering(a.insertNeighbour, b.insertNeighbour, pad: pad) != nil {
-                out[b.id] = InsertSeamPair(id: b.id, prev: a, next: b)
+                out[b.id] = InsertSeamPair(
+                    id: b.id, prev: a, next: b,
+                    prevNumber: numberOf[a.id] ?? i,
+                    nextNumber: numberOf[b.id] ?? i + 1)
             }
         }
         return out
     }
 
+    /// The offer that sits after the LAST card — the end of the match, which
+    /// had no offer at all until 2026-08-31 because the loop pairs each card
+    /// with the one before it and never looked past the last chip.
+    var insertTail: InsertSeamPair? {
+        guard app.userId == match.userId else { return nil }
+        let withClips = points.filter { $0.cutT0 != nil }
+        guard let last = withClips.last,
+              gapWorthOffering(last.insertNeighbour, nil, pad: pad) != nil
+        else { return nil }
+        let n = points.firstIndex(where: { $0.id == last.id }).map { $0 + 1 }
+        return InsertSeamPair(
+            id: last.id, prev: last, next: nil,
+            prevNumber: n, nextNumber: nil)
+    }
+
     /// Dashed and quiet: it marks a hole in the strip rather than competing
     /// with the chips, and only appears where there is one.
     func insertDot(_ seamPair: InsertSeamPair) -> some View {
-        let skipped = Int(((seamPair.next.t0 ?? 0) - (seamPair.prev.t1 ?? 0)).rounded())
+        let label: String = {
+            guard let p = seamPair.prev, let n = seamPair.next else {
+                return seamPair.prev == nil
+                    ? "Add a rally before the first one."
+                    : "Add a rally after the last one."
+            }
+            let skipped = Int((((n.t0 ?? 0) - (p.t1 ?? 0))).rounded())
+            return "The video skips \(skipped) seconds here. Add a missing rally."
+        }()
         return Button {
             // player.pause(), NOT a bare pause(): Swift resolves a bare
             // pause() to the POSIX pause(2) system call from Darwin, which
@@ -2214,8 +2354,7 @@ struct PlayerTakeover: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(
-            "The video skips \(skipped) seconds here. Add a missing rally.")
+        .accessibilityLabel(label)
     }
 
     /// Tap once to arm, again to restore — a bare dot is too easy to hit by
@@ -2369,15 +2508,11 @@ struct PlayerTakeover: View {
                 } else {
                     Circle().strokeBorder(tint.opacity(0.85), lineWidth: 2)
                 }
-                if p.edited {
-                    // A timing edit leaves this chip's clip stale while the
-                    // worker recuts it. The spinner is that state made
-                    // visible — without it a split or an Adjust looks like
-                    // nothing happened. It replaces the countdown for the
-                    // duration: the footage it would be counting down is the
-                    // stale cut. Clears itself through the pending-clip poll.
-                    RecutRing().padding(1)
-                } else if isCurrent, progress > 0 {
+                // No spinner for an edited point: the pad plays the cut
+                // video, whose window is right the moment the timing is
+                // saved (adjust_point re-anchors cut_t0). The clip FILE
+                // catches up in the background; nothing here waits for it.
+                if isCurrent, progress > 0 {
                     // The arc is the time LEFT in the point, shrinking as
                     // it plays — the web ticker's direction.
                     Circle()
@@ -2397,7 +2532,7 @@ struct PlayerTakeover: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(
-            "Go to point \(number)\(p.edited ? ", updating clip" : "")"
+            "Go to point \(number)"
         )
     }
 
@@ -2820,13 +2955,15 @@ struct PlayerTakeover: View {
     }
 
     func replayTarget() {
-        guard let target = displayTarget, let cutT0 = target.cutT0 else { return }
+        guard let target = displayTarget else { return }
+        let targetTime = highlightManifest?.outputStart(for: target.id) ?? target.cutT0
+        guard let targetTime else { return }
         // Explicitly re-arm: a short rally can be closer to its end than the
         // re-arm dip, and the replay MUST stop at that end again.
         endPauseBlockedId = nil
         endPausedId = nil
         playTail = nil
-        seek(to: cutT0)
+        seek(to: targetTime)
         play()
     }
 
@@ -2969,50 +3106,22 @@ struct PlayerTakeover: View {
         // a second in the wrong file. Both call sites open the original in
         // watch mode; this catches a future one that forgets.
         assert(
-            source == .cut || mode == .watch,
+            isCut || mode == .watch,
             "the original has no cut clock to score against"
         )
         try? AVAudioSession.sharedInstance().setCategory(.playback)
         try? AVAudioSession.sharedInstance().setActive(true)
 
-        let item = AVPlayerItem(url: videoURL)
-        player.replaceCurrentItem(with: item)
-        itemStatus = item.observe(\.status, options: [.new]) { item, _ in
-            Task { @MainActor in
-                if item.status == .failed { loadFailed = true }
-            }
-        }
-        NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem, queue: .main
-        ) { _ in
-            Task { @MainActor in
-                if mode == .score { phase = .summary }
-            }
-        }
+        attachCutItem(AVPlayerItem(url: videoURL))
+        // Which cards the cut cannot show, and their clips — fetched now
+        // so a detour never starts with an empty player.
+        Task { await loadOwnClips() }
         observer = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.2, preferredTimescale: 600),
             queue: .main
         ) { time in
             Task { @MainActor in tick(time.seconds) }
         }
-        // Frame-accurate tape jumps: the periodic tick is 0.2s coarse,
-        // which showed a beat of the next unpicked serve before every
-        // jump. A boundary observer fires exactly when playback passes a
-        // pick's end; tapeMove then names the one hop to make. The tick
-        // above stays as the safety net.
-        if let spans = highlightSpans, !spans.isEmpty {
-            tapeObserver = player.addBoundaryTimeObserver(
-                forTimes: spans.map {
-                    NSValue(time: CMTime(seconds: $0.end,
-                                         preferredTimescale: 600))
-                },
-                queue: .main
-            ) {
-                Task { @MainActor in tapeBoundaryFired() }
-            }
-        }
-
         firstServer = match.firstServer.flatMap(Winner.init(rawValue:))
         prevGamesCount = runningScore.games.count
         if mode == .score {
@@ -3048,7 +3157,7 @@ struct PlayerTakeover: View {
                 showToast(resume)
                 pendingResumeToast = nil
             }
-        } else if let startAt, source == .cut {
+        } else if let startAt, isCut {
             // Cut seconds, every caller of them: a rally's cutT0, a
             // highlight pick's, a resume point. None of them means
             // anything in the original's clock, so the original always
@@ -3057,7 +3166,7 @@ struct PlayerTakeover: View {
                 startAt, spans: deadSpans, firstPointStart: firstPointStart,
                 alwaysToFirst: false
             ))
-        } else if mode == .watch, source == .cut {
+        } else if mode == .watch, isCut {
             // Poster → open with no explicit target: never start inside
             // dead footage. With the leading points deleted (a warm-up),
             // the match opens at the first visible point instead — the
@@ -3077,19 +3186,30 @@ struct PlayerTakeover: View {
         play()
     }
 
-    func tick(_ t: Double) {
+    func tick(_ raw: Double) {
+        // During a detour the item is the card's own clip: translate its
+        // raw clock onto the virtual cut clock everything downstream reads.
+        let t = detourId != nil ? detourBase + raw : raw
         let prev = lastTick
         currentT = t
         isPlaying = player.rate > 0
-        loaded = (player.currentItem?.loadedTimeRanges ?? []).compactMap {
+        // The buffered bar reads the CUT's ranges; a clip's would paint at
+        // the wrong offset, so a detour just leaves the bar alone.
+        loaded = detourId != nil ? [] : (player.currentItem?.loadedTimeRanges ?? []).compactMap {
             let r = $0.timeRangeValue
             let start = r.start.seconds
             let end = r.end.seconds
             guard start.isFinite, end.isFinite, end > start else { return nil }
             return TimeSpan(start: start, end: end)
         }
-        if duration == 0, let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 {
+        // Never while a detour holds the player: its item is the CLIP, and
+        // a clip's length must not become the scrubber's whole timeline.
+        if duration == 0, detourId == nil,
+           let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 {
             duration = d
+            // The one-sided room rules (a card at the match's edge) need
+            // the file's real length, so ask again now that it is known.
+            Task { await loadOwnClips() }
         }
 
         // Stalled: the rate says playing and the clock is not moving. AVPlayer
@@ -3115,26 +3235,26 @@ struct PlayerTakeover: View {
         lastTick = t
         if prev == nil { runStartT = t }
 
-        // THE TAPE OWNS PLAYBACK while highlights are up (2026-08-25).
-        // One authority, one hop: outside a pick, straight to the next
-        // pick's start — never via the deleted-span or let skips below,
-        // whose partial jumps crossed a gap in two or three visible
-        // hops, each showing a beat of an unpicked serve. The boundary
-        // observer (tapeBoundaryFired) does the frame-accurate work;
-        // this is the safety net for resumed playback and scrub landings.
-        if let spans = highlightSpans {
-            switch tapeMove(spans, at: t) {
-            case .stay:
-                break
-            case .jump(let to):
-                seek(to: to)
-            case .end:
-                player.pause()
-                chromeVisible = true
-            }
-            return // nothing below applies while the tape is up
+        // Automatic highlights are already one continuous output timeline.
+        // No cut-video detours, dead spans, or score pauses apply to it.
+        if isHighlights { return }
+
+        // A detour owns the playhead: one card, its own boundary, nothing
+        // else — the span skips below are all built on cut positions this
+        // clip does not contain.
+        if detourId != nil {
+            detourTick(t, prev: prev)
+            return
         }
 
+        // An insert card's footage is not in this file: playing into its
+        // span swaps the item to its own clip (the detour). The WYSIWYG
+        // owner decides — the moment the chip flips to the card is the
+        // moment its clip takes over.
+        if let dp = detourPoint(at: t) {
+            enterDetour(dp, at: t, andPlay: true)
+            return
+        }
         // Deleted footage is dead in both modes: jump out of it rather than
         // play frames the owner removed. Only during playback — landing
         // inside a span on purpose (a scrub) stays put.
@@ -3207,6 +3327,12 @@ struct PlayerTakeover: View {
         // corrected and playing straight past the evidence is no use.
         let guarded = Date().timeIntervalSince(lastPlayAt) < 0.5
         for p in points {
+            // An ownClip card's boundary belongs to its DETOUR surface
+            // alone: on the cut clock its stop lands inside a NEIGHBOUR's
+            // footage (that overhang is the definition of needing a
+            // detour), so firing it here paused the cut mid-way through
+            // the next rally, labelled with the one that already played.
+            guard !ownClips.contains(p.id) else { continue }
             guard let stop = stopAt(p), stop > prev, stop <= t else { continue }
             // Crossing a DIFFERENT rally's boundary retires the consumed
             // one — its end can stop the video again on a later replay.
@@ -3333,34 +3459,265 @@ struct PlayerTakeover: View {
 
     func seek(to seconds: Double) {
         lastTick = nil
+        let sec = max(0, seconds)
+        // Whose footage lives at this position? Every navigation lands
+        // here — chip, chevron, advance, replay, scrub release — so this
+        // one branch is what routes an insert card into its own clip.
+        if let dp = detourPoint(at: sec) {
+            enterDetour(dp, at: sec, andPlay: false)
+            return
+        }
+        if detourId != nil { exitDetour() }
         player.seek(
-            to: CMTime(seconds: max(0, seconds), preferredTimescale: 600),
+            to: CMTime(seconds: sec, preferredTimescale: 600),
             toleranceBefore: .zero, toleranceAfter: .zero
         )
-        currentT = max(0, seconds)
+        currentT = sec
     }
 
-    /// The tape's boundary observer fired: playback just passed a pick's
-    /// end. tapeMove names the one hop to make — its 0.01s end epsilon is
-    /// what lets a callback fired exactly AT the end read as outside the
-    /// span, so the jump happens now rather than a tick later.
-    func tapeBoundaryFired() {
-        guard let spans = highlightSpans, isPlaying, !scrubbing else { return }
-        switch tapeMove(spans, at: player.currentTime().seconds) {
-        case .stay:
-            break
-        case .jump(let to):
-            seek(to: to)
-        case .end:
+    // MARK: - Detour mechanics (see the state block for the why)
+
+    /// The card virtual time t belongs to, when that card must play its
+    /// own clip and the clip is ready. Ownership is the WYSIWYG resolver's
+    /// call — the SAME rule the chip uses — so the surface and the label
+    /// can never disagree about whose rally is at t. Never while the
+    /// continuous highlights file is up: that file owns playback outright.
+    func detourPoint(at t: Double) -> MatchPoint? {
+        guard !isHighlights, !ownClips.isEmpty else { return nil }
+        guard let id = playingPointId(points, at: t), ownClips.contains(id),
+              clipItems[id] != nil else { return nil }
+        return points.first { $0.id == id }
+    }
+
+    /// Swap the card's own clip in as the player's item, at virtual time
+    /// t. Item-swap on the ONE player keeps every pause/play/rate call
+    /// site and the periodic observer working untouched.
+    func enterDetour(_ p: MatchPoint, at t: Double, andPlay: Bool) {
+        guard let item = clipItems[p.id], let base = p.cutT0 else { return }
+        let wasPlaying = player.rate > 0
+        if cutItem == nil { cutItem = player.currentItem }
+        detourId = p.id
+        detourBase = base
+        lastTick = nil
+        if player.currentItem !== item {
+            player.replaceCurrentItem(with: item)
+        }
+        player.seek(
+            to: CMTime(seconds: max(0, t - base), preferredTimescale: 600),
+            toleranceBefore: .zero, toleranceAfter: .zero
+        )
+        currentT = t
+        // A seek must not change the play state; a handoff mid-run must
+        // keep running.
+        if andPlay || wasPlaying { play() }
+    }
+
+    /// Hand the player its cut item back. Position and play state are the
+    /// caller's to set — every exit is followed by a seek, a play, or both.
+    func exitDetour() {
+        guard detourId != nil else { return }
+        detourId = nil
+        lastTick = nil
+        if let cutItem, player.currentItem !== cutItem {
+            player.replaceCurrentItem(with: cutItem)
+        }
+    }
+
+    /// The detour's own tick: one card, so the crossing loop collapses to
+    /// a single boundary — and pauseEnd takes NO next-start clamp here on
+    /// purpose. The next card's cutT0 lands INSIDE this card's virtual
+    /// span (that overlap is why the detour exists), and clamping to it
+    /// would stop the rally early: the very bug this machinery removes.
+    func detourTick(_ t: Double, prev: Double?) {
+        guard let id = detourId,
+              let p = points.first(where: { $0.id == id }) else { return }
+        if mode == .score, phase == .review {
+            if let end = effectiveEnd(p, pad, app.endOptions), t >= end {
+                player.pause()
+                showChrome(autoHide: false)
+            }
+            return
+        }
+        guard mode == .score, phase == .play else {
+            // Watching through: past the card's effective end is ball
+            // retrieval the cut never shows for any other card either.
+            if let prev, let end = effectiveEnd(p, pad, app.endOptions),
+               end > prev, end <= t {
+                detourDone()
+            }
+            return
+        }
+        // An answered card's played-out tail advances exactly as the cut
+        // surface's would have.
+        if let tail = playTail, t >= tail.end {
+            playTail = nil
+            splitNudge = nil
+            if let tp = points.first(where: { $0.id == tail.id }) { jumpAfter(tp) }
+            return
+        }
+        var stop = isUnscored(p)
+            ? pauseEnd(p, pad, nextStart: nil)
+            : effectiveEnd(p, pad, app.endOptions)
+        // The clip is cut to the SAME pads the stop lands on, so boundary
+        // and file end can coincide to the frame — and then the answer
+        // pause races DidPlayToEnd and loses half the time. Pull the stop
+        // a beat inside the file so the pause always wins; the remaining
+        // sliver plays out on resume and ends the detour normally.
+        if let s = stop, let fd = player.currentItem?.duration.seconds,
+           fd.isFinite, fd > 0 {
+            stop = min(s, detourBase + fd - 0.15)
+        }
+        // Re-arm on a replay, same rule as the main loop.
+        if endPauseBlockedId == id, stop == nil || t < stop! - 1.5 {
+            endPauseBlockedId = nil
+        }
+        let guarded = Date().timeIntervalSince(lastPlayAt) < 0.5
+        if let prev, t > prev, t - prev < 1, let stop, stop > prev, stop <= t,
+           endPauseBlockedId != id, !guarded {
+            endPauseBlockedId = id
+            endPausedId = id
             player.pause()
-            chromeVisible = true
+            showChrome(autoHide: false)
+            if !firstHintShown, GestureHints.eligible(.score) {
+                firstHintShown = true
+                showHint(.score)
+            }
+        }
+    }
+
+    /// The detour is over — the clip ran out, or watch mode crossed the
+    /// card's effective end. Hand back to the cut at the next card's
+    /// padded start, playing; with nothing after it the card was the
+    /// match's last word, and score mode closes to the summary exactly as
+    /// the cut's own end would.
+    func detourDone() {
+        guard let id = detourId,
+              let p = points.first(where: { $0.id == id }) else { return }
+        let next = p.cutT0.flatMap { t0 in
+            points.first { $0.id != id && $0.cutT0 != nil && $0.cutT0! > t0 }
+        }
+        exitDetour()
+        if let nt = next?.cutT0 {
+            // The card's boundary stays CONSUMED across the hand-back —
+            // uniquely for a detour card it overhangs FORWARD past the
+            // next card's start (the virtual overlap), so re-arming it
+            // here made the cut pause a second time on the rally that
+            // just finished, two seconds into its neighbour. The next
+            // card's own boundary re-arms itself: crossing a different
+            // rally's stop retires this id.
+            endPauseBlockedId = id
+            seek(to: nt)
+            play()
+        } else if mode == .score, phase == .play {
+            phase = .summary
+        } else {
+            player.pause()
+        }
+    }
+
+    /// Which cards need a detour, and their clips, fetched up front so the
+    /// swap never waits on a round trip. A failed fetch leaves the card on
+    /// the cut — exactly what every one of these cards did before the
+    /// detour existed. Bracketing runs over model.points, the PHYSICAL
+    /// timeline: deleted cards still occupy cut footage.
+    /// The cut as the player's item, with its watchers: a failed load
+    /// mints one fresh link and resumes (the six-hour signature is the
+    /// usual reason), the end of the file closes a scoring session.
+    func attachCutItem(_ item: AVPlayerItem, resumeAt: Double? = nil,
+                       resumePlaying: Bool = false) {
+        player.replaceCurrentItem(with: item)
+        cutItem = item
+        itemStatus = item.observe(\.status, options: [.new]) { item, _ in
+            Task { @MainActor in
+                guard item.status == .failed else { return }
+                if remintedCut {
+                    loadFailed = true
+                    return
+                }
+                remintedCut = true
+                await remintCut()
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item, queue: .main
+        ) { _ in
+            Task { @MainActor in
+                if mode == .score { phase = .summary }
+            }
+        }
+        if let resumeAt {
+            player.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600),
+                        toleranceBefore: .zero, toleranceAfter: .zero)
+            if resumePlaying { player.play() }
+        }
+    }
+
+    /// A fresh six-hour link for the cut, swapped in where the player was.
+    func remintCut() async {
+        let t = player.currentTime().seconds
+        let playing = player.rate > 0
+        struct Req: Encodable {
+            let matchId: String
+            let preview: Bool
+        }
+        struct Res: Decodable { let url: String? }
+        let res: Res? = try? await API.post(
+            "api/media-url",
+            Req(matchId: match.id.uuidString.lowercased(), preview: true))
+        guard let url = res?.url.flatMap(URL.init) else {
+            loadFailed = true
+            return
+        }
+        attachCutItem(AVPlayerItem(url: url),
+                      resumeAt: t.isFinite ? t : nil, resumePlaying: playing)
+    }
+
+    func loadOwnClips() async {
+        guard isCut else { return }
+        let flagged = ownClipIds(
+            model.points, pad: pad,
+            cutDuration: duration > 0 ? duration : nil
+        )
+        let eligible = Set(points.filter(\.hasClip).map(\.id))
+        ownClips = flagged.intersection(eligible)
+        // A card whose file changed (a re-cut writes a fresh key) gets a
+        // fresh item; the old one would keep playing the old footage.
+        for id in ownClips where clipItems[id] == nil
+            || clipItemPaths[id] != points.first(where: { $0.id == id })?.clipPath {
+            struct Req: Encodable {
+                let matchId: String
+                let pointId: String
+            }
+            struct Res: Decodable { let url: String? }
+            let res: Res? = try? await API.post(
+                "api/media-url",
+                Req(
+                    matchId: match.id.uuidString.lowercased(),
+                    pointId: id.uuidString.lowercased()
+                )
+            )
+            guard let url = res?.url.flatMap(URL.init) else { continue }
+            let item = AVPlayerItem(url: url)
+            clipItems[id] = item
+            clipItemPaths[id] = points.first(where: { $0.id == id })?.clipPath
+            // The clip running out is the natural end of a detour.
+            let token = NotificationCenter.default.addObserver(
+                forName: .AVPlayerItemDidPlayToEndTime,
+                object: item, queue: .main
+            ) { _ in
+                Task { @MainActor in detourDone() }
+            }
+            clipEndObservers.append(token)
         }
     }
 
     func step(_ direction: Int) {
-        let withStarts = points.filter { $0.cutT0 != nil }
+        let withStarts = cutPoints
         guard !withStarts.isEmpty else { return }
-        let currentId = playingPointId(points, at: currentT)
+        let currentId = highlightManifest?.pointId(at: currentT)
+            ?? detourId
+            ?? playingPointId(points, at: currentT)
         var index: Int
         if let currentId, let i = withStarts.firstIndex(where: { $0.id == currentId }) {
             index = i + direction
@@ -3369,9 +3726,10 @@ struct PlayerTakeover: View {
         }
         index = max(0, min(withStarts.count - 1, index))
         let target = withStarts[index]
-        guard let cutT0 = target.cutT0 else { return }
+        let targetTime = highlightManifest?.outputStart(for: target.id) ?? target.cutT0
+        guard let targetTime else { return }
         endPausedId = nil
-        seek(to: cutT0)
+        seek(to: targetTime)
         play()
         if let n = points.firstIndex(of: target) {
             showFlash(direction > 0 ? "Next · point \(n + 1)" : "Back · point \(n + 1)")

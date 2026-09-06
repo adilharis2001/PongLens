@@ -8,6 +8,29 @@ export interface ResearchPage {
 
 export const RESEARCH_PAGES = [
   {
+    title: "V3 serve detector",
+    category: "Card assembly",
+    description:
+      "The rebuilt card assembler, card by card against your scorekeeper. Every point you kept, whether it got exactly one card, who served, and where each card starts and stops.",
+    href: "/research/v3-serve-detector",
+    accent: "magenta",
+  },
+  {
+    title: "Active ball",
+    category: "Model evaluation",
+    description: "Mark the active ball in short frame sequences and review the locally trained detector.",
+    href: "/research/active-ball",
+    accent: "cyan",
+  },
+  {
+    title: "Audio impacts",
+    category: "Data labeling",
+    description:
+      "Label paddle, table, floor, shoe, net, background-court, and unrelated sounds from recent matches across quiet and noisy venues.",
+    href: "/research/audio-impacts",
+    accent: "cyan",
+  },
+  {
     title: "Serve spin",
     category: "Data labeling",
     description:
@@ -151,6 +174,14 @@ export const RESEARCH_PAGES = [
       "Frames the detector has never been tuned on, one outline each, for the only test that settles whether it works.",
     href: "/research/table-calibration/holdout",
     accent: "cyan",
+  },
+  {
+    title: "Theme analysis",
+    category: "Model evaluation",
+    description:
+      "Every card noted under a theme while reviewing uploads, gathered across matches with the footage, so a remark made eleven separate times can be watched as one thing.",
+    href: "/research/themes",
+    accent: "magenta",
   },
 ] as const satisfies readonly ResearchPage[];
 

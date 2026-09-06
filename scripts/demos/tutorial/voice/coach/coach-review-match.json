@@ -1,0 +1,72 @@
+{
+  "chapter": "coach-review-match",
+  "title": "Review their matches",
+  "subtitle": "Chapter 7 of 9",
+  "model": "gpt-4o-mini-tts",
+  "delivery": {
+    "provider": "openai",
+    "voice": "sage",
+    "speed": 1.3,
+    "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences."
+  },
+  "lead": 0.6,
+  "gap": 0.5,
+  "total": 36.7,
+  "wpm": 150,
+  "lines": [
+    {
+      "id": "l1",
+      "beat": "shared-matches",
+      "label": "",
+      "text": "Matches a student shares appear beside their lesson entries.",
+      "file": "audio/coach/coach-review-match/l1.mp3",
+      "start": 0.6,
+      "dur": 4.416
+    },
+    {
+      "id": "l2",
+      "beat": "open-match",
+      "label": "",
+      "text": "Open one to watch the cut video or the original upload.",
+      "file": "audio/coach/coach-review-match/l2.mp3",
+      "start": 8.016,
+      "dur": 3.936
+    },
+    {
+      "id": "l3",
+      "beat": "point-by-point",
+      "label": "",
+      "text": "Move through the match point by point and follow the score the student recorded.",
+      "file": "audio/coach/coach-review-match/l3.mp3",
+      "start": 12.452,
+      "dur": 4.728
+    },
+    {
+      "id": "l4",
+      "beat": "analysis-maps",
+      "label": "",
+      "text": "You can also read their match analysis and placement maps.",
+      "file": "audio/coach/coach-review-match/l4.mp3",
+      "start": 20.68,
+      "dur": 4.152
+    },
+    {
+      "id": "l5",
+      "beat": "read-only",
+      "label": "",
+      "text": "The match remains theirs. You cannot change their score, clips or details.",
+      "file": "audio/coach/coach-review-match/l5.mp3",
+      "start": 25.332,
+      "dur": 5.424
+    },
+    {
+      "id": "l6",
+      "beat": "access-update",
+      "label": "",
+      "text": "If they change your match access, the list updates to match their choice.",
+      "file": "audio/coach/coach-review-match/l6.mp3",
+      "start": 31.256,
+      "dur": 4.944
+    }
+  ]
+}

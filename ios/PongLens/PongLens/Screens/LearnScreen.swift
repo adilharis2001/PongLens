@@ -1,60 +1,35 @@
 import AVFoundation
 import SwiftUI
 
-// The Learn hub renders the same guide data the web ships (bundled as
-// guides.json, extracted from src/app/learn/guides.ts — regenerate after
-// content edits there).
-
-struct GuideSectionData: Codable, Hashable {
-    let heading: String?
-    let steps: [String]?
-    let paragraphs: [String]?
-    let bullets: [String]?
-    let tip: String?
-}
-
-struct GuideData: Codable, Hashable, Identifiable {
-    let slug: String
-    let title: String
-    let summary: String
-    let group: String
-    let sections: [GuideSectionData]
-    let related: [String]?
-
-    var id: String { slug }
-}
-
-struct GuidesFile: Codable {
-    let groups: [String]
-    let guides: [GuideData]
-}
-
-enum GuideLibrary {
-    static let shared: GuidesFile = {
-        guard let url = Bundle.main.url(forResource: "guides", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let file = try? JSONDecoder().decode(GuidesFile.self, from: data) else {
-            return GuidesFile(groups: [], guides: [])
-        }
-        return file
-    }()
-}
-
 struct LearnScreen: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var app
+    @Environment(CoachingStore.self) private var coaching
     @State private var query = ""
+    @State private var selectedAudience: LearnAudience?
 
-    private var results: [GuideData] {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return GuideLibrary.shared.guides }
-        return GuideLibrary.shared.guides.filter { guide in
-            guide.title.lowercased().contains(q)
-                || guide.summary.lowercased().contains(q)
-                || guide.sections.contains { section in
-                    (section.paragraphs ?? []).contains { $0.lowercased().contains(q) }
-                        || (section.steps ?? []).contains { $0.lowercased().contains(q) }
-                }
-        }
+    private let catalog = LearnCatalogStore.bundled
+
+    private var activeAudience: LearnAudience {
+        LearnAudience(workspace: app.workspace)
+    }
+
+    private var canSwitchAudience: Bool {
+        LearnAudienceAccess.canSwitch(
+            isCoach: coaching.isCoach,
+            coachesAnyone: coaching.coachesAnyone,
+            metadataCoach: app.metadataFlag("is_coach"),
+            playerSetupPending: app.playerSetupPending
+        )
+    }
+
+    private var audience: LearnAudience {
+        guard canSwitchAudience else { return activeAudience }
+        return selectedAudience ?? activeAudience
+    }
+
+    private var results: [LearnGuide] {
+        catalog.search(query, audience: audience)
     }
 
     var body: some View {
@@ -78,6 +53,13 @@ struct LearnScreen: View {
                         .tracking(-0.6)
                         .foregroundStyle(PL.textBody)
 
+                    if canSwitchAudience {
+                        LearnAudienceControl(
+                            audience: audience,
+                            onSelect: { selectedAudience = $0 }
+                        )
+                    }
+
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 14))
@@ -96,7 +78,7 @@ struct LearnScreen: View {
                     )
 
                     if query.isEmpty {
-                        NavigationLink(value: "learn-videos") {
+                        NavigationLink(value: LearnVideosRoute(audience)) {
                             HStack(spacing: 12) {
                                 Circle()
                                     .fill(PL.cyan.opacity(0.1))
@@ -136,7 +118,7 @@ struct LearnScreen: View {
                         }
                         .plCard(padding: 18)
                     } else {
-                        ForEach(GuideLibrary.shared.groups, id: \.self) { group in
+                        ForEach(catalog.groups(for: audience), id: \.self) { group in
                             let inGroup = results.filter { $0.group == group }
                             if !inGroup.isEmpty {
                                 VStack(alignment: .leading, spacing: 10) {
@@ -184,15 +166,43 @@ struct LearnScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .plKeyboardDismiss()
-        .navigationDestination(for: GuideData.self) { guide in
-            GuideDetailScreen(guide: guide)
+    }
+}
+
+private struct LearnAudienceControl: View {
+    let audience: LearnAudience
+    let onSelect: (LearnAudience) -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            audienceButton(.player, label: "Playing")
+            audienceButton(.coach, label: "Coaching")
         }
+        .padding(4)
+        .background(PL.ink.opacity(0.35), in: Capsule())
+        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Learn audience")
+    }
+
+    private func audienceButton(_ value: LearnAudience, label: String) -> some View {
+        let selected = value == audience
+        return Button(label) { onSelect(value) }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(selected ? PL.text100 : PL.text500)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 7)
+            .background(selected ? PL.surface2 : .clear, in: Capsule())
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
 struct GuideDetailScreen: View {
-    let guide: GuideData
+    let guide: LearnGuide
     @Environment(\.dismiss) private var dismiss
+
+    private let catalog = LearnCatalogStore.bundled
 
     var body: some View {
         ZStack {
@@ -286,24 +296,23 @@ struct GuideDetailScreen: View {
                         }
                     }
 
-                    if let related = guide.related, !related.isEmpty {
+                    let related = catalog.related(for: guide, audience: guide.audience)
+                    if !related.isEmpty {
                         SectionHeading("Keep going")
-                        ForEach(related, id: \.self) { slug in
-                            if let next = GuideLibrary.shared.guides.first(where: { $0.slug == slug }) {
-                                NavigationLink(value: next) {
-                                    HStack {
-                                        Text(next.title)
-                                            .font(.plRowTitle)
-                                            .foregroundStyle(PL.text100)
-                                        Spacer()
-                                        Image(systemName: "chevron.right")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundStyle(PL.text600)
-                                    }
-                                    .plInnerRow()
+                        ForEach(related) { next in
+                            NavigationLink(value: next) {
+                                HStack {
+                                    Text(next.title)
+                                        .font(.plRowTitle)
+                                        .foregroundStyle(PL.text100)
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(PL.text600)
                                 }
-                                .buttonStyle(.plain)
+                                .plInnerRow()
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -317,36 +326,60 @@ struct GuideDetailScreen: View {
 
 // MARK: - Tutorial videos
 
+@MainActor
+func resetTutorialPlayerForChapterLoad(_ player: AVPlayer) {
+    player.pause()
+    player.replaceCurrentItem(with: nil)
+}
+
+@MainActor
+@discardableResult
+func finishTutorialPlayerLoadIfCurrent(
+    request: TutorialChapterLoadRequest,
+    state: inout TutorialChapterLoadState,
+    player: AVPlayer,
+    url: URL,
+    installObserver: () -> Void,
+    startPlayback: () -> Void
+) -> Bool {
+    guard state.succeed(request) else { return false }
+    player.replaceCurrentItem(with: AVPlayerItem(url: url))
+    installObserver()
+    startPlayback()
+    return true
+}
+
 /// Tutorial videos, watched like videos: a chapter picker to start, then a
 /// big player with real transport — scrubbing, times, previous and next
 /// chapter — sound on regardless of the silent switch, and full screen the
 /// moment the phone turns sideways.
 struct TutorialVideosScreen: View {
+    let audience: LearnAudience
+
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
     @State private var urls: [String: URL] = [:]
-    @State private var currentIndex: Int?
+    @State private var chapterLoad = TutorialChapterLoadState()
     @State private var player = AVPlayer()
     @State private var isPlaying = false
     @State private var currentT: Double = 0
     @State private var duration: Double = 0
     @State private var scrubbing = false
     @State private var scrubT: Double = 0
-    @State private var loading = false
     @State private var observer: Any?
+    @State private var loadTask: Task<Void, Never>?
     @State private var chaptersOpen = false
+    @State private var progressGate = TutorialProgressGate()
 
-    private let chapters: [(slug: String, title: String)] = [
-        ("home", "Start here"),
-        ("upload", "Upload a match"),
-        ("viewer", "Watch it back"),
-        ("point", "Score a point"),
-        ("keepscore", "Score Keeper"),
-        ("analysis", "Read your match"),
-        ("export", "Export and share"),
-        ("coach", "You and your coach"),
-        ("journal", "The journal"),
-    ]
+    private let catalog = LearnCatalogStore.bundled
+
+    private var chapters: [NumberedLearnChapter] {
+        catalog.numberedChapters(for: audience)
+    }
+
+    private var currentIndex: Int? {
+        chapterLoad.selectedIndex
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -360,7 +393,7 @@ struct TutorialVideosScreen: View {
                     // transport.
                     ZStack {
                         Color.black.ignoresSafeArea()
-                        PlayerLayerView(player: player)
+                        playbackSurface
                             .ignoresSafeArea()
                         VStack {
                             HStack {
@@ -368,7 +401,9 @@ struct TutorialVideosScreen: View {
                                 closeChip
                             }
                             Spacer()
-                            transport
+                            if chapterLoad.isReady {
+                                transport
+                            }
                         }
                         .padding(14)
                     }
@@ -377,7 +412,6 @@ struct TutorialVideosScreen: View {
                         HStack {
                             Button {
                                 stopPlayback()
-                                currentIndex = nil
                             } label: {
                                 HStack(spacing: 6) {
                                     Image(systemName: "chevron.left")
@@ -388,7 +422,7 @@ struct TutorialVideosScreen: View {
                             .buttonStyle(PLSecondaryButtonStyle())
                             Spacer()
                             if let currentIndex {
-                                Text(chapters[currentIndex].title)
+                                Text(chapters[currentIndex].chapter.title)
                                     .font(.system(size: 15, weight: .semibold))
                                     .foregroundStyle(PL.text100)
                             }
@@ -400,22 +434,14 @@ struct TutorialVideosScreen: View {
                         // The chapters are portrait, mobile-first footage —
                         // the video owns the screen and the layer letterboxes
                         // whatever aspect arrives.
-                        ZStack {
-                            Color.black
-                            if loading {
-                                ProgressView().tint(PL.cyan)
-                            } else {
-                                PlayerLayerView(player: player)
-                            }
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onTapGesture { togglePlay() }
-                        }
+                        playbackSurface
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                        transport
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
+                        if chapterLoad.isReady {
+                            transport
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                        }
                     }
                     .sheet(isPresented: $chaptersOpen) {
                         chaptersSheet
@@ -442,6 +468,7 @@ struct TutorialVideosScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Button {
+                    stopPlayback()
                     dismiss()
                 } label: {
                     HStack(spacing: 6) {
@@ -458,21 +485,27 @@ struct TutorialVideosScreen: View {
                     .foregroundStyle(PL.textBody)
 
                 VStack(spacing: 10) {
-                    ForEach(Array(chapters.enumerated()), id: \.element.slug) { i, chapter in
+                    ForEach(Array(chapters.enumerated()), id: \.element.id) { i, numbered in
                         Button {
-                            Task { await play(index: i) }
+                            startPlayback(index: i)
                         } label: {
                             HStack(spacing: 14) {
-                                Text("\(i + 1)")
+                                Text("\(numbered.number)")
                                     .font(.system(size: 14, weight: .bold))
                                     .monospacedDigit()
                                     .foregroundStyle(PL.cyan)
                                     .frame(width: 32, height: 32)
                                     .background(PL.cyan.opacity(0.1), in: Circle())
                                     .overlay(Circle().strokeBorder(PL.cyan.opacity(0.35), lineWidth: 1))
-                                Text(chapter.title)
-                                    .font(.plRowTitle)
-                                    .foregroundStyle(PL.text100)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(numbered.chapter.title)
+                                        .font(.plRowTitle)
+                                        .foregroundStyle(PL.text100)
+                                    Text(numbered.chapter.blurb)
+                                        .font(.plCaption)
+                                        .foregroundStyle(PL.text500)
+                                        .lineLimit(2)
+                                }
                                 Spacer()
                                 Image(systemName: "play.fill")
                                     .font(.system(size: 13))
@@ -496,6 +529,43 @@ struct TutorialVideosScreen: View {
     }
 
     // MARK: - Playback chrome
+
+    @ViewBuilder
+    private var playbackSurface: some View {
+        ZStack {
+            Color.black
+            if chapterLoad.isLoading {
+                ProgressView().tint(PL.cyan)
+            } else if let failedIndex = chapterLoad.failedIndex,
+                      chapters.indices.contains(failedIndex) {
+                VStack(spacing: 14) {
+                    Text("We couldn’t load “\(chapters[failedIndex].chapter.title)”.")
+                        .font(.plBody)
+                        .foregroundStyle(PL.text200)
+                        .multilineTextAlignment(.center)
+                    Button("Try again") {
+                        startPlayback(index: failedIndex)
+                    }
+                    .buttonStyle(PLSecondaryButtonStyle())
+                }
+                .padding(20)
+                .frame(maxWidth: 280)
+                .background(
+                    PL.ink.opacity(0.82),
+                    in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                        .strokeBorder(PL.edge, lineWidth: 1)
+                )
+            } else if chapterLoad.isReady {
+                PlayerLayerView(player: player)
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { togglePlay() }
+            }
+        }
+    }
 
     private var closeChip: some View {
         Button {
@@ -543,7 +613,7 @@ struct TutorialVideosScreen: View {
                 Spacer()
                 Button {
                     if let i = currentIndex, i > 0 {
-                        Task { await play(index: i - 1) }
+                        startPlayback(index: i - 1)
                     }
                 } label: {
                     Image(systemName: "backward.end.fill")
@@ -563,7 +633,7 @@ struct TutorialVideosScreen: View {
                 .buttonStyle(.plain)
                 Button {
                     if let i = currentIndex, i < chapters.count - 1 {
-                        Task { await play(index: i + 1) }
+                        startPlayback(index: i + 1)
                     }
                 } label: {
                     Image(systemName: "forward.end.fill")
@@ -595,18 +665,18 @@ struct TutorialVideosScreen: View {
     private var chaptersSheet: some View {
         ScrollView {
             VStack(spacing: 6) {
-                ForEach(Array(chapters.enumerated()), id: \.element.slug) { i, chapter in
+                ForEach(Array(chapters.enumerated()), id: \.element.id) { i, numbered in
                     Button {
                         chaptersOpen = false
-                        Task { await play(index: i) }
+                        startPlayback(index: i)
                     } label: {
                         HStack(spacing: 12) {
-                            Text("\(i + 1)")
+                            Text("\(numbered.number)")
                                 .font(.plMicro)
                                 .monospacedDigit()
                                 .foregroundStyle(currentIndex == i ? PL.cyan : PL.text500)
                                 .frame(width: 24)
-                            Text(chapter.title)
+                            Text(numbered.chapter.title)
                                 .font(.plBody)
                                 .foregroundStyle(currentIndex == i ? PL.cyan : PL.text300)
                             Spacer()
@@ -635,48 +705,80 @@ struct TutorialVideosScreen: View {
 
     // MARK: - Playback
 
-    private func play(index: Int) async {
-        let slug = chapters[index].slug
-        currentIndex = index
-        loading = urls[slug] == nil
-        if urls[slug] == nil {
-            struct Req: Encodable { let slug: String }
-            struct Res: Decodable { let urls: [String: String] }
-            let res: Res? = try? await API.post("api/tutorial-url", Req(slug: slug))
-            if let raw = res?.urls[slug], let url = URL(string: raw) {
-                urls[slug] = url
-            }
+    private func startPlayback(index: Int) {
+        guard chapters.indices.contains(index) else { return }
+        loadTask?.cancel()
+        loadTask = nil
+        let request = chapterLoad.begin(index: index)
+        resetTutorialPlayerForChapterLoad(player)
+        resetPlaybackMeasurements()
+        let slug = chapters[index].chapter.slug
+
+        if let url = urls[slug] {
+            finishPlaybackLoad(request: request, url: url)
+            return
         }
-        loading = false
-        guard let url = urls[slug] else { return }
-        duration = 0
-        currentT = 0
-        player.replaceCurrentItem(with: AVPlayerItem(url: url))
-        if observer == nil {
-            observer = player.addPeriodicTimeObserver(
-                forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
-            ) { time in
-                Task { @MainActor in
-                    currentT = time.seconds
-                    isPlaying = player.rate > 0
-                    if duration == 0, let d = player.currentItem?.duration.seconds,
-                       d.isFinite, d > 0 {
-                        duration = d
-                    }
-                    // Chapter finished: roll into the next one.
-                    if duration > 0, time.seconds >= duration - 0.1, player.rate > 0,
-                       let i = currentIndex, i < chapters.count - 1 {
-                        Task { await play(index: i + 1) }
+
+        loadTask = Task {
+            struct Res: Decodable { let urls: [String: String] }
+            let response: Res? = try? await API.post(
+                "api/tutorial-url",
+                TutorialURLRequest(course: audience, slug: slug)
+            )
+            guard !Task.isCancelled else { return }
+            guard let raw = response?.urls[slug], let url = URL(string: raw) else {
+                chapterLoad.fail(request)
+                return
+            }
+            urls[slug] = url
+            finishPlaybackLoad(request: request, url: url)
+        }
+    }
+
+    private func finishPlaybackLoad(request: TutorialChapterLoadRequest, url: URL) {
+        finishTutorialPlayerLoadIfCurrent(
+            request: request,
+            state: &chapterLoad,
+            player: player,
+            url: url,
+            installObserver: {
+                guard observer == nil else { return }
+                observer = player.addPeriodicTimeObserver(
+                    forInterval: CMTime(seconds: 0.25, preferredTimescale: 600), queue: .main
+                ) { time in
+                    Task { @MainActor in
+                        currentT = time.seconds
+                        isPlaying = player.rate > 0
+                        if progressGate.shouldWrite(
+                            currentSeconds: time.seconds,
+                            isPlaying: isPlaying,
+                            alreadyRecorded: !audience.needsProgressWrite(in: [
+                                audience.progressKey: app.metadataFlag(audience.progressKey),
+                            ])
+                        ) {
+                            Task { await app.setMetadataFlag(audience.progressKey, true) }
+                        }
+                        if duration == 0, let d = player.currentItem?.duration.seconds,
+                           d.isFinite, d > 0 {
+                            duration = d
+                        }
+                        // Chapter finished: roll into the next one.
+                        if duration > 0, time.seconds >= duration - 0.1, player.rate > 0,
+                           let i = currentIndex, i < chapters.count - 1 {
+                            startPlayback(index: i + 1)
+                        }
                     }
                 }
+            },
+            startPlayback: {
+                player.play()
+                isPlaying = true
             }
-        }
-        player.play()
-        isPlaying = true
-        await app.setMetadataFlag("tutorial_started", true)
+        )
     }
 
     private func togglePlay() {
+        guard chapterLoad.isReady, player.currentItem != nil else { return }
         if player.rate > 0 {
             player.pause()
             isPlaying = false
@@ -687,10 +789,21 @@ struct TutorialVideosScreen: View {
     }
 
     private func stopPlayback() {
-        player.pause()
+        loadTask?.cancel()
+        loadTask = nil
+        chapterLoad.cancel()
+        resetTutorialPlayerForChapterLoad(player)
         if let observer { player.removeTimeObserver(observer) }
         observer = nil
+        resetPlaybackMeasurements()
+    }
+
+    private func resetPlaybackMeasurements() {
         isPlaying = false
+        currentT = 0
+        duration = 0
+        scrubbing = false
+        scrubT = 0
     }
 
     private func timeString(_ seconds: Double) -> String {

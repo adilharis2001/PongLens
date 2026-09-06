@@ -25,18 +25,19 @@ struct ToolsSection: View {
     @State private var detailsOpen = false
     @State private var sideOpen = false
     @State private var placementOpen = false
+    @State private var automaticHighlights: AutomaticHighlightsResponse?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeading("Tools")
             VStack(spacing: 0) {
-                // Score Keeper's whole job is assigning a winner to each
+                // Score the Match's whole job is assigning a winner to each
                 // point to build a score. Drills have no score, so the row
                 // is not a disabled control, it is absent. Watching,
                 // tagging, starring and noting all stay: they are the
                 // reason to film a practice session at all.
                 if MatchTitle.tracksServe(match.matchType) {
-                    toolRow("Score Keeper", trailing: gamesTrailing) { onOpenPlayer() }
+                    toolRow("Score the Match", trailing: gamesTrailing) { onOpenPlayer() }
                     divider
                 }
                 toolRow("Highlights", trailing: .text(highlightsTrailing)) {
@@ -158,16 +159,28 @@ struct ToolsSection: View {
             .presentationDetents([.medium])
             .presentationDragIndicator(.visible)
         }
+        .task(id: match.id) { await loadAutomaticHighlights() }
     }
 
-    /// The trailing summary is the reel cut — the flagship of the three.
     private var highlightsTrailing: String {
-        let picks = Highlights.pick(
-            model.visible,
-            pad: clipPad(strictness: nil, stored: match.clipPads),
-            budgetS: Highlights.reelBudgetS,
-            ends: app.endOptions)
-        return Highlights.summary(picks) ?? "No rallies yet"
+        automaticHighlights?.summary ?? "Preparing highlights"
+    }
+
+    private func loadAutomaticHighlights() async {
+        while !Task.isCancelled {
+            do {
+                automaticHighlights = try await API.get(
+                    "api/highlights",
+                    query: ["matchId": match.id.uuidString.lowercased()]
+                )
+            } catch {
+                automaticHighlights = AutomaticHighlightsResponse(
+                    status: "failed", url: nil, durationS: nil, manifest: nil
+                )
+            }
+            guard automaticHighlights?.status == "rendering" else { return }
+            try? await Task.sleep(for: .milliseconds(1800))
+        }
     }
 
     private var starredCount: Int {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Point } from "@/lib/types";
 import { effectivePad } from "./clipEdit";
 import { paddedEnd, type ClipPad } from "./playhead";
+import { seamBetween } from "./insertGeometry";
 
 /**
  * The Modify modal — ALL clip surgery, shared by the Keep-score pad and the
@@ -89,7 +90,6 @@ export function ModifyClip({
   onSplit,
   onJoin,
   onAdjust,
-  adjustLocked = false,
   initialCut = null,
   rotated = false,
 }: {
@@ -106,9 +106,6 @@ export function ModifyClip({
   /** Save adjusted timing (source-video seconds). The host owns the write
    *  and the reclip; the modal closes on the host's signal (busy → close). */
   onAdjust: (t0New: number, t1New: number) => void;
-  /** A reclip is already in flight for this point: timing edits on top of
-   *  a clip that no longer matches t0/t1 would be editing blind. */
-  adjustLocked?: boolean;
   /** Pre-place the 2-part split marker here (cut-video seconds) — used by
    *  the pad's "two points in there?" nudge, which suggests a cut but
    *  leaves the decision to this sheet. Clamped into the rally band. */
@@ -133,6 +130,32 @@ export function ModifyClip({
   const geo = useMemo(() => geometryOf(point, pad), [point, pad]);
   const splittable =
     !!geo && geo.markerHi - geo.markerLo > MIN_GAP_S; // room for one interior cut
+
+  // How far the cut video runs CONTIGUOUS with this point's own span, on
+  // each side. insertGeometry's seam rule answers it (55% of seams are
+  // continuous, and the neighbour's own kept footage is real on every
+  // seam): where it does, the Adjust preview follows a handle into that
+  // footage instead of freezing at the clip's edge; where the cutter
+  // removed time, the picture holds at the span's edge and the caption
+  // says so.
+  const playableBounds = useMemo(() => {
+    if (!geo) return { lo: 0, hi: 0 };
+    const i = points.findIndex((p) => p.id === point.id);
+    const prev = i > 0 ? points[i - 1] : null;
+    const next = i >= 0 && i + 1 < points.length ? points[i + 1] : null;
+    const before = prev ? seamBetween(prev, point, pad) : null;
+    const after = next ? seamBetween(point, next, pad) : null;
+    return {
+      lo:
+        before?.continuous && before.prev
+          ? Math.min(geo.spanStart, before.prev.rallyStart)
+          : geo.spanStart,
+      hi:
+        after?.continuous && after.next
+          ? Math.max(geo.spanEnd, after.next.rallyEnd)
+          : geo.spanEnd,
+    };
+  }, [geo, points, point, pad]);
 
   // ------------------------------- SPLIT state -------------------------------
   const [parts, setParts] = useState(2); // 2 or 3
@@ -216,8 +239,11 @@ export function ModifyClip({
     : 0;
   const dragLoCut = adjLoCut - adjustReach;
   const dragHiCut = adjHiCut + adjustReach;
+  // A draft edge past the footage the match video holds here: the file
+  // will carry it (the re-cut reads the original), the preview cannot.
   const beyondClip =
-    cutOf(adjT0) < adjLoCut - 0.05 || cutOf(adjT1) > adjHiCut + 0.05;
+    cutOf(adjT0) < playableBounds.lo - 0.05 ||
+    cutOf(adjT1) > playableBounds.hi + 0.05;
 
   // The span the video covers: the point's clip for SPLIT, extended through
   // the last joined point for JOIN.
@@ -230,6 +256,23 @@ export function ModifyClip({
     }
     return { start: geo.spanStart, end: geo.spanEnd };
   }, [geo, tab, joinCount, nextPoints, pad]);
+
+  // What PLAYS on the adjust tab: the draft point with its pads, clamped
+  // to the footage the match video holds, so pressing play after a drag
+  // shows exactly what the point will keep. Split and Join play the span.
+  const playSpan = useMemo(() => {
+    if (!videoSpan || !geo || tab !== "adjust") return videoSpan;
+    const eff = effectivePad(
+      pad,
+      point.tight_start && adjT0 === Number(point.t0),
+      point.tight_end && adjT1 === Number(point.t1)
+    );
+    const clamp = (t: number) =>
+      Math.min(playableBounds.hi, Math.max(playableBounds.lo, t));
+    const start = clamp(cutOf(adjT0) - eff.pre);
+    const end = clamp(cutOf(adjT1) + eff.post);
+    return end > start ? { start, end } : videoSpan;
+  }, [videoSpan, geo, tab, pad, point, adjT0, adjT1, cutOf, playableBounds]);
 
   // The coordinate space of the scrub track. Split and Join measure the
   // footage they are about; Adjust measures the room it can reach, and
@@ -263,25 +306,27 @@ export function ModifyClip({
 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
-    if (!v || !videoSpan) return;
+    if (!v || !playSpan) return;
     if (v.paused) {
-      if (v.currentTime >= videoSpan.end - 0.05) v.currentTime = videoSpan.start;
+      if (v.currentTime >= playSpan.end - 0.05 || v.currentTime < playSpan.start) {
+        v.currentTime = playSpan.start;
+      }
       void v.play().catch(() => undefined);
     } else {
       v.pause();
     }
-  }, [videoSpan]);
+  }, [playSpan]);
 
   const onTime = useCallback(
     (v: HTMLVideoElement) => {
       setPlayheadT(v.currentTime);
-      if (videoSpan && !v.paused && v.currentTime >= videoSpan.end) {
+      if (playSpan && !v.paused && v.currentTime >= playSpan.end) {
         v.pause();
-        v.currentTime = videoSpan.end;
-        setPlayheadT(videoSpan.end);
+        v.currentTime = playSpan.end;
+        setPlayheadT(playSpan.end);
       }
     },
-    [videoSpan]
+    [playSpan]
   );
 
   // ----------------------------- scrub timeline -----------------------------
@@ -314,10 +359,18 @@ export function ModifyClip({
     [trackSpan]
   );
 
-  /** A cut time the video can actually show: inside the clip's own span. */
+  /** A cut time the video can actually show. On Adjust that is every
+   *  second the match video holds contiguous with this point (a handle
+   *  dragged into the neighbour's footage shows that footage); on Split
+   *  and Join it is the span itself. */
   const playable = useCallback(
-    (t: number) => (videoSpan ? Math.min(videoSpan.end, Math.max(videoSpan.start, t)) : t),
-    [videoSpan]
+    (t: number) => {
+      if (tab === "adjust" && geo) {
+        return Math.min(playableBounds.hi, Math.max(playableBounds.lo, t));
+      }
+      return videoSpan ? Math.min(videoSpan.end, Math.max(videoSpan.start, t)) : t;
+    },
+    [tab, geo, playableBounds, videoSpan]
   );
 
   // Drag a split marker (SPLIT tab only), clamped inside the rally band and
@@ -612,17 +665,17 @@ export function ModifyClip({
               }`}
             >
               {/* On adjust the track reaches past the clip, so the stretch
-                  the clip actually covers is drawn lighter — without it the
-                  margins read as more of the same footage rather than as
-                  somewhere the picture cannot go yet. */}
+                  the match video holds here is drawn lighter — without it
+                  the margins read as more of the same footage rather than
+                  as somewhere the picture cannot go. */}
               {geo && tab === "adjust" && (
                 <span
                   className="absolute inset-y-0 bg-white/16"
                   style={{
-                    left: `${timeToPct(geo.spanStart)}%`,
+                    left: `${timeToPct(playableBounds.lo)}%`,
                     width: `${Math.max(
                       0,
-                      timeToPct(geo.spanEnd) - timeToPct(geo.spanStart)
+                      timeToPct(playableBounds.hi) - timeToPct(playableBounds.lo)
                     )}%`,
                   }}
                 />
@@ -747,7 +800,6 @@ export function ModifyClip({
                           key={step}
                           type="button"
                           onClick={() => nudgeEdge(edge, step)}
-                          disabled={adjustLocked}
                           className="rounded-full border border-edge bg-ink/40 px-3.5 py-1.5 text-xs font-semibold tabular-nums text-zinc-200 transition-colors hover:border-cyan-glow/40 disabled:opacity-40"
                         >
                           {step < 0 ? "−1s" : "+1s"}
@@ -764,15 +816,9 @@ export function ModifyClip({
               </p>
               <p className="py-1 text-center text-[11px] text-zinc-500">
                 {beyondClip
-                  ? "The band now runs past this clip's own footage. That part arrives when the clip updates."
-                  : "The lighter stretch is what this clip holds. Drag or step an edge past it to take in more of the match."}
+                  ? "That stretch was cut from the match video. The clip will still include it."
+                  : "The lighter stretch is the footage the match video holds here. Drag or step an edge to take in more of the point."}
               </p>
-              {adjustLocked && (
-                <p className="py-1 text-center text-[11px] text-amber-300/80">
-                  This clip is still updating from an earlier change — try
-                  again in a moment.
-                </p>
-              )}
             </>
           ) : tab === "split" ? (
             <>
@@ -945,7 +991,7 @@ export function ModifyClip({
             <button
               type="button"
               onClick={() => adjDirty && !busy && onAdjust(adjT0, adjT1)}
-              disabled={!adjDirty || busy || adjustLocked}
+              disabled={!adjDirty || busy}
               className="glow-cta w-full rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-40"
             >
               {busy ? "Saving…" : "Save timing"}

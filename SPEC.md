@@ -91,9 +91,12 @@ Mobile-first vertical layout:
 - Supabase keeps: auth, Postgres (matches/points/notes/links/feedback), queue, RLS.
 - R2 keeps all binary: raw uploads, cut videos, point clips, voice audio.
   Zero egress fees; ~$0.015/GB-mo. Buckets: `ponglens-raw`, `ponglens-media`.
-- Retention: raw 7 days → delete; cut video 30 days → delete; point clips +
+- Retention (policy since the commerce flip, 2026-08): the original upload
+  and the cut video are kept for the life of the match; point clips +
   match.json + transcripts: keep while account active; voice audio 90 days.
-  (Worker cron enforces; policy text updated to match.)
+  The worker's daily sweep deletes only ORPHANS (raws and cuts no match row
+  references) after 30 days. The earlier "raw 7 days, cut 30 days" plan is
+  history; the Privacy Policy and Terms promise the current rule.
 - Upload path: browser → R2 presigned multipart URL (via server route) → worker pulls
   from R2, pushes results to R2; dashboard streams via presigned GETs.
 - NEEDED FROM ADIL: Cloudflare account (free), create R2 + API token (Object Read &
@@ -109,7 +112,8 @@ Mobile-first vertical layout:
 - Terms: add coach-sharing consent (sharing grants named users access until revoked),
   voice recordings + transcripts are user content, feedback may be used to improve
   accuracy, subprocessors list (Supabase, Cloudflare R2, Vercel, Resend, STT vendor).
-- Privacy: new retention table (7/30/90/account-lifetime tiers), R2 named, voice data
+- Privacy: retention table (originals and cuts for the life of the match; voice 90
+  days; clips and match data for the account's life), R2 named, voice data
   section, coach-access section, deletion on request covers all tiers.
 
 ## 9. Rollout order

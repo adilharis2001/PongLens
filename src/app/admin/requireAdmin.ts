@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { ADMIN_EMAIL } from "@/lib/config";
+import { isAdminEmail } from "@/lib/config";
 
 /**
  * Every admin page runs this first. The email check matches is_admin()
@@ -14,7 +14,7 @@ export async function requireAdmin() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  if (user.email !== ADMIN_EMAIL) redirect("/dashboard");
+  if (!isAdminEmail(user.email)) redirect("/dashboard");
 
   const avatarUrl =
     (user.user_metadata?.avatar_url as string | undefined) ??

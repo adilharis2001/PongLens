@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.adil.ponglens-worker-fast</string>
+    <!--
+      The fast lane (spec 2026-09-06, step 3): a second worker process
+      that reads only the 'jobs_fast' queue — re-cuts and share renders,
+      the jobs a person is waiting on — so they never queue behind a
+      forty-minute upload in the main lane. Same code, `--lane fast`.
+
+      Runs its own AppleScript wrapper app, NOT bash directly — launchd-
+      spawned bash cannot touch ~/Desktop due to macOS TCC. Build it with
+      osacompile (see worker/README.md, "Fast lane") and grant it Full
+      Disk Access, exactly like the main runner.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/adil/Applications/PongLensWorkerFast.app/Contents/MacOS/applet</string>
+    </array>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>Nice</key>
+    <integer>0</integer>
+    <key>StandardOutPath</key>
+    <string>/Users/adil/Desktop/Projects/PongLens/worker/launchd-fast-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/adil/Desktop/Projects/PongLens/worker/launchd-fast-stderr.log</string>
+</dict>
+</plist>

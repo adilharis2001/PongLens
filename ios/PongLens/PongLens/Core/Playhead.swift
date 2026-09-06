@@ -48,6 +48,25 @@ func effectivePad(_ pad: ClipPad, tightStart: Bool, tightEnd: Bool) -> ClipPad {
     )
 }
 
+/// Where a point's padded clip starts in the cut video AFTER its start
+/// edge moves: the old anchor shifted by the change in the padded start.
+/// Adjust used to move t0 and leave cut_t0 alone, so every cut-clock rule
+/// placed the serve wrong by exactly the amount the start moved. The
+/// database's adjust_point applies this same arithmetic and its row is the
+/// truth; this is the optimistic mirror. Port of clipEdit.ts reanchorCutT0
+/// — keep the two identical.
+func reanchorCutT0(
+    cutT0: Double?, t0: Double?, tightStart: Bool, tightEnd: Bool,
+    t0New: Double, tightStartNew: Bool, pad: ClipPad
+) -> Double? {
+    guard let cutT0, let t0 else { return cutT0 }
+    let effOld = effectivePad(pad, tightStart: tightStart, tightEnd: tightEnd).pre
+    let effNew = effectivePad(pad, tightStart: tightStartNew, tightEnd: tightEnd).pre
+    let anchorOld = max(0, t0 - effOld)
+    let anchorNew = max(0, t0New - effNew)
+    return max(0, ((cutT0 + anchorNew - anchorOld) * 100).rounded() / 100)
+}
+
 /// Seconds into the cut video where the rally actually ends (the deciding
 /// shot): cut_t0 + effective pre + (t1 - t0).
 func rallyEnd(_ p: MatchPoint, _ pad: ClipPad) -> Double? {

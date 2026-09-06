@@ -1,0 +1,17 @@
+{
+  "chapter": "coach-lesson-entry",
+  "title": "Write a lesson entry",
+  "subtitle": "Chapter 4 of 9",
+  "voice": "sage",
+  "speed": 1.3,
+  "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
+  "lines": [
+    { "id": "l1", "text": "Open a student and start a new lesson entry.", "beat": "new-entry" },
+    { "id": "l2", "text": "Type, paste, or dictate what you worked on.", "beat": "entry-text" },
+    { "id": "l3", "text": "Add a photo or include a useful link in the text.", "beat": "attachments" },
+    { "id": "l4", "text": "Improve with AI can prepare rough notes as clear points for you to review.", "beat": "improve" },
+    { "id": "l5", "text": "You can edit the original words or correct the prepared notes directly.", "beat": "edit" },
+    { "id": "l6", "text": "Link the entry to one of the student's matches when the lesson refers to it.", "beat": "link-match" },
+    { "id": "l7", "text": "The entry stays private until you decide to share it.", "beat": "private" }
+  ]
+}

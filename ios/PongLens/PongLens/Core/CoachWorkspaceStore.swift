@@ -402,6 +402,34 @@ final class CoachWorkspaceStore {
     /// Now the update returns the stored row and it is matched by id.
     /// An id is what identifies a row; the rest of its fields are just
     /// its contents, and they are allowed to change under us.
+    /// Mark every unshared entry in one folder, in a single statement
+    /// (2026-09-04). The head start for a student who has not joined:
+    /// one update over the ids rather than a loop, so a half-shared
+    /// folder cannot happen. The web twin is shareAllWaiting() in
+    /// StudentView.tsx.
+    func shareAll(studentId: UUID) async -> Bool {
+        let ids = entries
+            .filter { $0.studentId == studentId && $0.sharedAt == nil }
+            .map { $0.id.uuidString.lowercased() }
+        guard !ids.isEmpty else { return true }
+        let stamp = AnyJSON.string(ISO8601DateFormatter().string(from: Date()))
+        let saved: [CoachEntryRow]
+        do {
+            saved = try await supa
+                .from("coach_entries")
+                .update(["shared_at": stamp])
+                .in("id", values: ids)
+                .select("id,coach_id,student_id,lesson_id,shared_at,created_at,updated_at")
+                .execute().value
+        } catch { return false }
+        for row in saved {
+            if let i = entries.firstIndex(where: { $0.id == row.id }) {
+                entries[i] = row
+            }
+        }
+        return true
+    }
+
     func setShared(_ entry: CoachEntryRow, shared: Bool) async -> Bool {
         let stamp = shared ? AnyJSON.string(ISO8601DateFormatter().string(from: Date()))
                            : AnyJSON.null

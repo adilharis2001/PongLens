@@ -1,0 +1,17 @@
+{
+  "chapter": "journal",
+  "title": "The Journal",
+  "subtitle": "Chapter 9 of 9",
+  "voice": "sage",
+  "speed": 1.3,
+  "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
+  "lines": [
+    { "id": "l1", "text": "Your Journal brings together match notes, practice entries, lessons and entries shared by your coach.", "beat": "one" },
+    { "id": "l2", "text": "Write, dictate, add a photo, or scan pages from a paper notebook.", "beat": "capture-options" },
+    { "id": "l3", "text": "Improve with AI can turn rough notes into clear points, and you can edit those points directly afterwards.", "beat": "improve" },
+    { "id": "l4", "text": "Search finds the words you saved, while Ask your journal answers from your own notes and match record.", "beat": "search-ask" },
+    { "id": "l5", "text": "Tags connect related entries and rallies across different matches.", "beat": "tags" },
+    { "id": "l6", "text": "Working on keeps your current cues visible until you tick them off.", "beat": "cues" },
+    { "id": "l7", "text": "Recollect brings older advice back when it is useful again.", "beat": "recollect" }
+  ]
+}

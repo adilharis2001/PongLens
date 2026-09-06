@@ -117,7 +117,7 @@ Clients read the stored decision. They do not own thresholds.
 
 ## Per-point evidence contract
 
-Migration 172 will add a nullable `points.highlight_evidence jsonb` column.
+The quality-first migration adds a nullable `points.highlight_evidence jsonb` column.
 New v2 points write a versioned object. A representative value is:
 
 ```json
@@ -301,7 +301,7 @@ before recording the new object.
 ## Database state
 
 The existing `match_reels` table remains the stored-artifact authority.
-Migration 172 adds the non-vertical scope `highlights`. It also replaces the
+The quality-first migration adds the non-vertical scope `highlights`. It also replaces the
 existing `match_reels_status_check` constraint so the terminal status `empty`
 is accepted alongside `queued`, `rendering`, `ready`, and `failed`.
 
@@ -317,8 +317,9 @@ For `(match_id, scope = 'highlights')`:
 The row is written directly by the trusted worker. The owner-facing
 `enqueue_reel` RPC is not used for initial automatic generation.
 
-Migration 172 also inserts a private `app_config` key,
-`automatic_highlights`, initially `off`. It is not added to the anonymous
+The quality-first migration also inserts a private `app_config` key,
+`automatic_highlights`, initially `off`. The switch accepts `on` for the
+global rollout or `user:<uuid>` for a single-account production canary. It is not added to the anonymous
 allow-list. The worker reads it once per match. Thresholds remain versioned
 source code, not mutable production settings; a threshold change is a pipeline
 release and receives a new rule version.
@@ -351,10 +352,10 @@ its highlight row is `empty` because its evidence is unavailable.
 
 ## Edits and regeneration
 
-Manual boundary edits, splits, joins, or deletion invalidate the edited
-point's `highlight_evidence`. Database write paths that perform those changes
-must set the affected evidence to null. Unedited qualifying points remain
-eligible.
+Manual boundary edits, splits, joins, deletion, or marking a rally skipped/let
+invalidate the edited point's `highlight_evidence`. Database write paths that
+perform those changes must set the affected evidence to null. Unedited
+qualifying points remain eligible.
 
 When Highlights is opened, the server compares the stored manifest revision
 with a revision derived from current points:
@@ -549,7 +550,7 @@ The release is acceptable only when all of these are true:
 
 ## Rollout
 
-1. Ship migration 172 with `automatic_highlights = off`.
+1. Ship the quality-first highlights migration with `automatic_highlights = off`.
 2. Release the worker evidence, selection, rendering, storage, and retry paths.
 3. Process the existing private fixture corpus and review every selected rally
    plus a sample of rejected long rallies.

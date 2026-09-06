@@ -24,5 +24,15 @@
     { "name": "already seeded, so there is nothing left to write", "seen": 2, "hasAnyMatch": true, "shownThisSession": false, "show": false, "persist": null },
     { "name": "a count past the cap still stops", "seen": 7, "hasAnyMatch": false, "shownThisSession": false, "show": false, "persist": null },
     { "name": "a written zero is not absence, so no back-fill fires", "seen": 0, "hasAnyMatch": true, "shownThisSession": false, "show": true, "persist": 1 }
+  ],
+
+  "_brief": "The recording brief: the same rule with a budget of one and no per-launch clause. `show` opens it at page one; `seed` is written at once and is only ever the back-fill. Completion writes 1 and is the caller's job, so an abandoned walk returns.",
+  "brief": [
+    { "name": "brand new account, first door it walks through", "seen": null, "hasAnyMatch": false, "show": true, "seed": null },
+    { "name": "finished once, and that is the whole budget", "seen": 1, "hasAnyMatch": false, "show": false, "seed": null },
+    { "name": "offline completion held by the device copy alone", "seen": 1, "hasAnyMatch": true, "show": false, "seed": null },
+    { "name": "an account that already has footage is seeded, not interrupted", "seen": null, "hasAnyMatch": true, "show": false, "seed": 1 },
+    { "name": "a written zero is not absence, so no back-fill fires", "seen": 0, "hasAnyMatch": true, "show": true, "seed": null },
+    { "name": "a count past the cap still stops", "seen": 4, "hasAnyMatch": false, "show": false, "seed": null }
   ]
 }
