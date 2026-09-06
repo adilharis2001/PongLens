@@ -1,6 +1,6 @@
 # Beta intake verification
 
-Local implementation and independent review are complete. This is not a production release record.
+Local implementation and independent review are complete. The production release and live checks are recorded at the end of this document.
 
 ## Completed checks
 
@@ -82,3 +82,17 @@ production webhook retains its endpoint and signing secret; subscriptions
 now include scheduled, sent, delivered and failed in addition to the existing
 bounced and complained events. Database migrations and deployment are still
 pending at this checkpoint.
+
+## Production release completed (2026-09-06 UTC)
+
+- Product revision `b4926ec1340462bbc3419e22c2c9feaba4fc9e06` merged and pushed to main. Both the Git-triggered and CLI production builds succeeded; CLI deployment `dpl_FW6d52egJ6AtbLRXuxX422bPE96k` was Ready and aliased to `https://www.ponglens.com`.
+- Local full build passed with 151 pages. All 20 package test scripts passed; the final focused beta, admin, email and actual PostgreSQL run passed 116 tests with no failures or skips. Existing lint/module warnings remain. The first build attempt using Vercel's sensitive placeholders was stopped and is not counted as passing.
+- Applied only migrations `20260905220500` and `20260905221000`, with migration history recorded. Both pre-existing invitations remain sent. Anonymous and ordinary authenticated clients cannot read the private beta tables.
+- Live public signup used `delivered+beta-deployment-20260905@resend.dev`, Resend's official test mailbox. It returned 200; role, interests and declined feedback consent appeared in production Outreach. The invitation was scheduled exactly 23 hours after first signup. A repeat submission retained the same request, deadline and provider message ID.
+- Both independent admin notices were confirmed delivered to Adil and Anton. The actual production admin **Send invite now** action changed the existing invitation to Sending; Resend then delivered that same message and the webhook updated the database to Delivered. The rendered email contained the approved TestFlight link.
+- Dedicated-key create, retrieve, update and cancellation were verified live. A separate scheduled test message was canceled and confirmed canceled. No actual applicant received a test email.
+- Existing webhook URL and signing secret were preserved. Signed probe returned 200; actual scheduled/delivered events reached production. Unauthenticated send/reconcile requests returned 403. Public form and admin screens were inspected in the browser.
+- The original `RESEND_API_KEY` is unchanged by this release and can return to sending-only. **PongLens Beta Invitations** must retain full access. Supabase auth and other ordinary mail credentials were not replaced.
+- Not claimed: waiting through an entire 23-hour interval, testing Anton's own browser session, or rerunning native iOS UI tests. This release changes web beta intake, not the native app.
+
+The clearly labelled deployment-test request is retained as an audit record with feedback contact declined. Do not contact it or resend it. Earlier no-deploy/blocker paragraphs above describe historical checkpoints, not current status.
