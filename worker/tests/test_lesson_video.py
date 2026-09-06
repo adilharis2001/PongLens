@@ -246,6 +246,13 @@ class LessonVideoTests(unittest.TestCase):
   self.assertIn('candidate-1 and candidate-3 leave only 30 source seconds',runtime.merge_prompts[2])
   self.assertIn('keep the stronger candidate',runtime.merge_prompts[1])
   self.assertEqual([(chapter['start_s'],chapter['end_s']) for chapter in result['chapters']][:2],[(0,30),(75,105)])
+ def test_boundary_adjacent_required_sections_become_advisory_when_spacing_makes_coverage_impossible(self):
+  outline={'title':'Lesson','themes':[{'name':f'Theme {i}','points':['Keep this supported instruction.']} for i in range(1,9)]}
+  def response(chapters):return {'title':'Lesson','themes':[{'name':'Theme','points':['Keep this supported instruction.']}],'chapters':chapters}
+  ending=response([{'title':f'End {i}','cues':['Keep this supported instruction.'],'start_s':480,'end_s':600} for i in range(6)])
+  starting=response([{'title':f'Start {i}','cues':['Keep this supported instruction.'],'start_s':0,'end_s':120} for i in range(6)])
+  result,runtime=merge_edit(selected(['candidate-1']),sections=2,duration=5400,outline=outline,window=[ending,starting])
+  self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,1)
  def test_sparse_long_lesson_can_select_fewer_chapters(self):
   result,runtime=merge_edit(selected(['candidate-1']),candidate_chapters(2,30),duration=5400)
   self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,1)

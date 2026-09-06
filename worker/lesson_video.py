@@ -235,10 +235,7 @@ def contextualize_edit(rt,row,edit,transcript,duration,directory):
    result['chapters'].append(normalized);break
  return normalize_edit(result,duration)
 
-def feasible_twelve_chapters(candidate_by_id,required_section_ids,spacing_seconds=0):
- """Prove a 12-clip, nonreplayed worker-owned set before making it mandatory."""
- if len(candidate_by_id)<12 or len(required_section_ids)>12:return False
- section_bits={section_id:1<<index for index,section_id in enumerate(required_section_ids)}
+def compatible_intervals(candidate_by_id,spacing_seconds):
  intervals=sorted(candidate_by_id.values(),key=lambda candidate:candidate['chapter']['end_s'])
  previous=[]
  for index,candidate in enumerate(intervals):
@@ -246,6 +243,29 @@ def feasible_twelve_chapters(candidate_by_id,required_section_ids,spacing_second
   allowed_end=start-spacing_seconds if spacing_seconds else start+.1
   while prior>=0 and intervals[prior]['chapter']['end_s']>allowed_end:prior-=1
   previous.append(prior)
+ return intervals,previous
+
+def feasible_section_coverage(candidate_by_id,required_section_ids,spacing_seconds=0):
+ """Prove all required sections fit the active worker-owned clip constraints."""
+ if len(required_section_ids)>MAX_CHAPTERS:return False
+ section_bits={section_id:1<<index for index,section_id in enumerate(required_section_ids)}
+ intervals,previous=compatible_intervals(candidate_by_id,spacing_seconds)
+ states=[{0:0.0}]
+ for index,candidate in enumerate(intervals):
+  current=dict(states[-1]);chapter=candidate['chapter'];clip_duration=chapter['end_s']-chapter['start_s'];bit=section_bits.get(candidate['section_id'],0)
+  for mask,total in states[previous[index]+1].items():
+   if total+clip_duration>MAX_RECAP_SECONDS+.1:continue
+   mask|=bit;best=current.get(mask)
+   if best is None or total+clip_duration<best:current[mask]=total+clip_duration
+  states.append(current)
+ required_mask=(1<<len(required_section_ids))-1
+ return required_mask in states[-1]
+
+def feasible_twelve_chapters(candidate_by_id,required_section_ids,spacing_seconds=0):
+ """Prove a 12-clip, nonreplayed worker-owned set before making it mandatory."""
+ if len(candidate_by_id)<12 or len(required_section_ids)>12:return False
+ section_bits={section_id:1<<index for index,section_id in enumerate(required_section_ids)}
+ intervals,previous=compatible_intervals(candidate_by_id,spacing_seconds)
  states=[{(0,0):0.0}]
  for index,candidate in enumerate(intervals):
   current=dict(states[-1]);chapter=candidate['chapter'];clip_duration=chapter['end_s']-chapter['start_s'];bit=section_bits.get(candidate['section_id'],0)
@@ -264,11 +284,12 @@ def selection_requirements(candidate_by_id,duration,outline):
   chapter=candidate['chapter'];sections.setdefault(candidate['section_id'],[]).append(chapter['end_s']-chapter['start_s'])
  required_sections=list(sections)
  requirements={}
- if duration>=RICH_RECAP_MIN_SECONDS and len(required_sections)<=MAX_CHAPTERS and sum(min(lengths) for lengths in sections.values())<=MAX_RECAP_SECONDS:
-  requirements['required_section_ids']=required_sections
  rich_themes=[theme for theme in outline.get('themes',[]) if isinstance(theme,dict) and any(str(point).strip() for point in theme.get('points',[]) if isinstance(point,str))]
  rich_long=duration>=RICH_RECAP_MIN_SECONDS and len(candidate_by_id)>=12 and len(rich_themes)>=8
- if rich_long:requirements['minimum_spacing_seconds']=RICH_RECAP_SPACING_SECONDS
+ spacing_seconds=RICH_RECAP_SPACING_SECONDS if rich_long else 0
+ if duration>=RICH_RECAP_MIN_SECONDS and len(required_sections)<=MAX_CHAPTERS and sum(min(lengths) for lengths in sections.values())<=MAX_RECAP_SECONDS and feasible_section_coverage(candidate_by_id,required_sections,spacing_seconds):
+  requirements['required_section_ids']=required_sections
+ if rich_long:requirements['minimum_spacing_seconds']=spacing_seconds
  if rich_long and feasible_twelve_chapters(candidate_by_id,requirements.get('required_section_ids',[]),RICH_RECAP_SPACING_SECONDS):
   requirements['minimum_chapters']=12
  return requirements
