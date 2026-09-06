@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { LessonVideo } from "@/lib/lessonVideo/model";
+import { lessonStatusLabel } from "@/lib/lessonVideo/presentation";
 
 /** The same section/card rows used by the coaching roster and orders. */
 export function LessonVideosSection({ studentId }: { studentId?: string }) {
@@ -34,12 +35,16 @@ export function LessonVideosSection({ studentId }: { studentId?: string }) {
           <Link key={video.id} href={`/lesson-video/${video.id}`} className={row}>
             <span className="min-w-0">
               <span className="block">{video.edit?.title ?? video.original_name}</span>
-              <span className="mt-0.5 block text-xs font-normal text-zinc-500">{video.status === "review" ? "Ready to review" : video.status === "ready" ? "Ready" : video.status === "failed" ? "Needs attention" : video.stage ?? "Preparing recap"}</span>
+              <span className="mt-0.5 block text-xs font-normal text-zinc-500">{lessonStatusLabel(video, !!video.shared)}</span>
             </span>{chevron}
           </Link>
         ))}
         {videos.length === 0 && (!loaded || error) && <p className="px-5 py-4 text-sm text-zinc-400">{!loaded ? "Loading…" : error ? "Could not load lesson videos." : "No lesson videos yet."}</p>}
-        <Link href={`/coaching/videos${query}`} className={row}><span>{videos.length > 0 ? "All lesson videos" : "Import a lesson video"}</span>{chevron}</Link>
+        {/* One verb, always. The row used to read "All lesson videos" once
+            a video existed, which hid the one thing a coach comes here to
+            do next; the page it opens leads with the import and lists the
+            videos beneath it, with the student already chosen. */}
+        <Link href={`/coaching/videos${query}`} className={row}><span>Import lesson video</span>{chevron}</Link>
       </div>
     </section>
   );

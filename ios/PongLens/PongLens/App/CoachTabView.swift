@@ -333,7 +333,7 @@ struct CoachNewEntryChoice: Identifiable {
             kind: .video,
             icon: "video",
             title: "Import a lesson video",
-            detail: "Record with Camera, then import and review the recap."
+            detail: "Import a lesson you filmed. You get a short recap with chapters, ready to share."
         ),
     ]
 }

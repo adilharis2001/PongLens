@@ -49,7 +49,9 @@ struct CoachLessonVideosSection: View {
                 }
             }
             if !videos.isEmpty || loading || failed { CoachRowDivider() }
-            CoachNavRow(label: videos.isEmpty ? "Import a lesson video" : "All lesson videos", symbol: "video.badge.plus") {
+            // One verb, always, the same as the web row: the screen it opens
+            // leads with the import and lists the videos beneath it.
+            CoachNavRow(label: "Import lesson video", symbol: "video.badge.plus") {
                 router.composeRecord = CoachComposerRequest(mode: .video, student: student)
             }
         }

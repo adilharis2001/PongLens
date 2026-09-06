@@ -20,6 +20,7 @@ import {
   useEntryPhoto,
 } from "@/components/entryPhoto";
 import { LinkedText } from "@/components/LinkedText";
+import { entryThemes, recapHref, recapIdOf } from "@/lib/lessonVideo/entries";
 import { NoteEditor } from "@/app/journal/NoteEditor";
 import type { Lesson, Point } from "@/lib/types";
 import { possessive } from "@/lib/coaches/playerCoaches";
@@ -57,6 +58,8 @@ interface LessonRow {
   status: string;
   match_id: string | null;
   image_path: string | null;
+  /** Set when the entry is a shared lesson video. */
+  lesson_video_id?: string | null;
   created_at: string;
 }
 
@@ -175,7 +178,7 @@ export function StudentView({
       supabase
         .from("lessons")
         .select(
-          "id, transcript, takeaways, status, match_id, image_path, created_at",
+          "id, transcript, takeaways, status, match_id, image_path, created_at, lesson_video_id",
         )
         .eq("kind", "coach"),
       supabase
@@ -909,7 +912,10 @@ export function StudentView({
           {entries.map((entry) => {
             const lesson = lessons[entry.lesson_id];
             const expanded = open === entry.id;
-            const themes = lesson?.takeaways?.themes ?? [];
+            // A shared lesson video: the entry's text is only a link to it, written
+            // for the app versions that cannot show more. Here it opens as a recap.
+            const recapId = lesson ? recapIdOf(lesson) : null;
+            const themes = entryThemes(lesson?.takeaways?.themes, !!recapId);
             // The share sits on the card, not inside it: a coach writing
             // in a student's folder assumes the student can read it.
             //
@@ -950,8 +956,15 @@ export function StudentView({
                         className="h-11 w-11 shrink-0 rounded-lg border border-edge object-cover"
                       />
                     )}
-                    <span className="min-w-0 text-sm font-medium text-zinc-100">
-                      {entryTitle(lesson)}
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-zinc-100">
+                        {entryTitle(lesson)}
+                      </span>
+                      {recapId && (
+                        <span className="mt-0.5 block text-xs text-zinc-500">
+                          Lesson recap
+                        </span>
+                      )}
                     </span>
                   </button>
                   <span className="flex shrink-0 items-center gap-2">
@@ -990,6 +1003,15 @@ export function StudentView({
                 </div>
                 {expanded && (
                   <div className="mt-3 space-y-4">
+                    {recapId && (
+                      <Link
+                        href={recapHref(recapId)}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-edge bg-ink px-4 py-3 text-sm transition-colors hover:border-cyan-glow/50"
+                      >
+                        <span className="font-medium text-zinc-100">Open the recap</span>
+                        <span className="text-xs text-zinc-500">Edit, watch, or delete it there</span>
+                      </Link>
+                    )}
                     {themes.length > 0 ? (
                       <>
                         {themes.map((theme) => (
@@ -1012,16 +1034,18 @@ export function StudentView({
                             </ul>
                           </div>
                         ))}
-                        <details className="text-sm text-zinc-400">
-                          <summary className="cursor-pointer select-none">
-                            Transcript
-                          </summary>
-                          <p className="mt-2 whitespace-pre-wrap leading-relaxed text-zinc-300">
-                            <LinkedText text={lesson?.transcript ?? ""} />
-                          </p>
-                        </details>
+                        {!recapId && (
+                          <details className="text-sm text-zinc-400">
+                            <summary className="cursor-pointer select-none">
+                              Transcript
+                            </summary>
+                            <p className="mt-2 whitespace-pre-wrap leading-relaxed text-zinc-300">
+                              <LinkedText text={lesson?.transcript ?? ""} />
+                            </p>
+                          </details>
+                        )}
                       </>
-                    ) : (
+                    ) : recapId ? null : (
                       <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
                         <LinkedText text={lesson?.transcript ?? ""} />
                       </p>
@@ -1069,7 +1093,7 @@ export function StudentView({
                         {sharingId === entry.id ? "Stopping…" : "Stop sharing"}
                       </button>
                     )}
-                    {lesson && (
+                    {lesson && !recapId && (
                       <button
                         type="button"
                         onClick={() => setEditing(asLesson(lesson))}

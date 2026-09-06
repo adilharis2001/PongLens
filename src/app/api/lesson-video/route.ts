@@ -16,6 +16,12 @@ async function shared(db:ReturnType<typeof createAdminClient>,row:Record<string,
  const {data:student}=await db.from('coach_students').select('id').in('id',entries.map(e=>e.student_id)).eq('player_id',uid).is('archived_at',null).limit(1);
  return !!student?.length;
 }
+/** The owner's question: is the entry for this recap shared right now. */
+async function entryShared(db:ReturnType<typeof createAdminClient>,row:Record<string,unknown>){
+ if(!row.lesson_id||row.status!=='ready'||!row.student_id)return false;
+ const {data}=await db.from('coach_entries').select('id').eq('lesson_id',row.lesson_id).not('shared_at','is',null).limit(1);
+ return !!data?.length;
+}
 export async function GET(req:Request){
  const {user,db}=await context();if(!user||!db)return failure('Not signed in',401);
  const url=new URL(req.url),id=url.searchParams.get('id'),studentId=url.searchParams.get('studentId');
@@ -34,12 +40,19 @@ export async function GET(req:Request){
     const posterKey=row.playback_key.replace(/\.mp4$/,'.jpg');
     try{if(await headObject(MEDIA_BUCKET,posterKey)!==null)posterUrl=await presignGet(MEDIA_BUCKET,posterKey,{expiresSeconds:14400});}catch{ /* A missing preview must not prevent playback. */ }
    }
-   return NextResponse.json({video:publicVideo(row,owner),isOwner:owner,sourceUrl,summaryUrl,playbackUrl,posterUrl},{headers:{'Cache-Control':'private, no-store'}});
+   // Whether the student can see it today. A ready row is not the same
+   // thing: the coach can take the entry back from the student page.
+   const sharedNow=owner?await entryShared(db,row):true;
+   return NextResponse.json({video:publicVideo(row,owner),isOwner:owner,shared:sharedNow,sourceUrl,summaryUrl,playbackUrl,posterUrl},{headers:{'Cache-Control':'private, no-store'}});
   }
   let q=db.from('lesson_videos').select('id,owner_id,student_id,lesson_id,original_name,file_size,duration_s,status,stage,error,edit,revision,created_at,updated_at').eq('owner_id',user.id).order('created_at',{ascending:false}).limit(100);
   if(studentId){if(!UUID.test(studentId))return failure('Invalid student');q=q.eq('student_id',studentId);}
   const {data,error}=await q;if(error)throw error;
-  return NextResponse.json({videos:data??[]},{headers:{'Cache-Control':'private, no-store'}});
+  const videos=data??[];
+  const lessonIds=videos.map(v=>v.lesson_id).filter((x):x is string=>!!x);
+  const sharedIds=new Set<string>();
+  if(lessonIds.length){const {data:entries}=await db.from('coach_entries').select('lesson_id').in('lesson_id',lessonIds).not('shared_at','is',null);entries?.forEach(e=>{if(e.lesson_id)sharedIds.add(e.lesson_id);});}
+  return NextResponse.json({videos:videos.map(v=>({...v,shared:v.status==='ready'&&!!v.lesson_id&&sharedIds.has(v.lesson_id)}))},{headers:{'Cache-Control':'private, no-store'}});
  }catch(e){console.error('lesson-video read failed',e);return failure('Could not load lesson videos. Try again.',500);}
 }
 export async function POST(req:Request){

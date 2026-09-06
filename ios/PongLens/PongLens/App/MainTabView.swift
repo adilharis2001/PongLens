@@ -277,6 +277,14 @@ struct MainTabView: View {
                         bellOpen = false
                         router.tab = .journal
                     }
+                    // "shared a lesson recap" opens the recap. The root view
+                    // intercepts first-party recap links and presents the
+                    // native player, so this is the same door the journal uses.
+                    if href.hasPrefix("/lesson-video/"), let url = URL(string: "https://www.ponglens.com" + href),
+                       LessonVideoLink(url: url) != nil {
+                        bellOpen = false
+                        openURL(url)
+                    }
                 }
             )
             .presentationDetents([.medium, .large])

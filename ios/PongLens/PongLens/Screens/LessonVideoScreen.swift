@@ -355,7 +355,7 @@ struct LessonVideoDetailScreen: View {
                             .buttonStyle(PLSecondaryButtonStyle())
                         }
                     }
-                    if detail.isOwner && detail.video.status == "review" {
+                    if detail.video.canShare(isOwner: detail.isOwner) {
                         Button { perform("share") } label: {
                             Text(detail.video.student_id == nil ? "Save recap" : "Share with student")
                                 .frame(maxWidth: .infinity)
@@ -634,9 +634,14 @@ private struct LessonVideoTakeover: View {
                         muted.toggle()
                         player.isMuted = muted
                     } label: {
+                        // Drawn small, hit large. A 44pt disc over the picture
+                        // read as a control the size of the play button; the
+                        // speaker is a secondary toggle and looks like one at
+                        // 30pt, while the tap target stays the full 44pt.
                         Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                            .font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
-                            .frame(width: 44, height: 44).background(.black.opacity(0.5), in: Circle())
+                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                            .frame(width: 30, height: 30).background(.black.opacity(0.55), in: Circle())
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
                     }
                     .accessibilityLabel(muted ? "Turn on lesson audio" : "Mute lesson audio")
                 }.padding(8)
