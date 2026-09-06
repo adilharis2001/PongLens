@@ -74,3 +74,15 @@ check(LessonVideoChapterSelection.index(at: 200, chapters: chapters, original: t
 check(LessonVideoChapterSelection.index(at: 400, chapters: chapters, original: true) == 1, "Original seek selects its chapter")
 check(LessonVideoChapterSelection.index(at: .nan, chapters: chapters, original: false) == nil, "Unknown playback time cannot change the selected cue")
 print("Lesson video: active chapter playback boundaries passed")
+var expandedChapters: [LessonVideoEdit.Chapter] = []
+for i in 0..<12 {
+    let start = Double(i) * 100.0
+    let summaryStart = Double(i) * 60.0
+    let item = LessonVideoEdit.Chapter(title: "Chapter \(i + 1)", cues: ["When the ball changes, adjust."], start_s: start, end_s: start + 60.0, summary_start_s: summaryStart, summary_end_s: summaryStart + 60.0)
+    expandedChapters.append(item)
+}
+let expandedEdit = LessonVideoEdit(title: "Expanded lesson", chapters: expandedChapters, themes: [], warning: nil)
+let expandedRoundTrip = try JSONDecoder().decode(LessonVideoEdit.self, from: JSONEncoder().encode(expandedEdit))
+check(expandedRoundTrip.chapters.count == 12, "Expanded recap retains all chapters on iOS")
+check(expandedRoundTrip.chapters[11].summary_end_s == 720, "Expanded recap retains final playback timing")
+print("Lesson video: twelve-chapter decoding passed")

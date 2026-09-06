@@ -103,7 +103,7 @@ export async function POST(req:Request){
   if(action==='edit'){
    if(!(['review','ready'].includes(row.status)||(row.status==='failed'&&row.edit&&row.stage!=='Deleting')))return failure('Wait for the recap before editing it.',409);
    if(body.expectedRevision!==row.revision)return failure('The lesson changed. Reload before editing.',409);
-   const edit=validateEdit(body.edit,row.duration_s);if(!edit)return failure('Check the chapter text and clip times. Recaps can be up to seven minutes.');
+   const edit=validateEdit(body.edit,row.duration_s);if(!edit)return failure('Check the chapter text and clip times. Recaps can have up to 16 chapters and be up to 15 minutes.');
    // CAS prevents a late editor from overwriting a newly queued/rendered version.
    const {data:changed,error}=await db.from('lesson_videos').update({edit,status:'queued',stage:'Updating recap',summary_key:null,playback_key:null,revision:row.revision+1,updated_at:new Date().toISOString()}).eq('id',id).eq('revision',row.revision).eq('status',row.status).select('id').maybeSingle();
    if(error)throw error;if(!changed)return failure('The lesson changed. Reload before editing.',409);

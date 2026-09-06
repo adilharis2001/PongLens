@@ -13,14 +13,14 @@ function clean(value:unknown,max:number):string {return typeof value==='string'?
 export function validateEdit(input:unknown,duration:number):LessonEdit|null {
  if(!input||typeof input!=='object')return null;
  const e=input as Record<string,unknown>; const title=clean(e.title,100);
- if(!title||!Array.isArray(e.chapters)||!e.chapters.length||e.chapters.length>10)return null;
+ if(!title||!Array.isArray(e.chapters)||!e.chapters.length||e.chapters.length>16)return null;
  const chapters:LessonChapter[]=[];let total=0;
  for(const raw of e.chapters){
   if(!raw||typeof raw!=='object')return null;
   const c=raw as Record<string,unknown>; const start=Number(c.start_s),end=Number(c.end_s);
   const name=clean(c.title,80); const cues=Array.isArray(c.cues)?c.cues.map(x=>clean(x,220)).filter(Boolean).slice(0,4):[];
   if(!name||!cues.length||!Number.isFinite(start)||!Number.isFinite(end)||start<0||end>duration+.05||end<=start||end-start>120)return null;
-  total+=end-start;if(total>420.1)return null;
+  total+=end-start;if(total>900.1)return null;
   chapters.push({title:name,cues,start_s:start,end_s:end});
  }
  const themes=Array.isArray(e.themes)?e.themes.slice(0,16).map(t=>({name:clean(t?.name,80),points:Array.isArray(t?.points)?t.points.map((p:unknown)=>clean(p,400)).filter(Boolean).slice(0,16):[]})).filter(t=>t.name&&t.points.length):[];
