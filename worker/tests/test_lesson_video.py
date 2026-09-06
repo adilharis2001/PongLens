@@ -23,10 +23,10 @@ class EditRuntime:
   return self.merge[min(self.merge_calls-1,len(self.merge)-1)] if isinstance(self.merge,list) else self.merge
 
 
-def merge_edit(merge,chapters=None):
+def merge_edit(merge,chapters=None,sections=1):
  runtime=EditRuntime(merge,chapters)
  with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit):
-  result=create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
+  result=create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]} for _ in range(sections)],600)
  return result,runtime
 
 def candidate_chapters(count,duration=30):
@@ -74,16 +74,25 @@ class LessonVideoTests(unittest.TestCase):
     with self.subTest(chapter_ids=chapter_ids),self.assertRaisesRegex(ValueError,'Retry to continue'):
      merge_edit({'title':'Lesson','chapters':[{'candidate_id':candidate_id,'title':'Topic','cues':['Recover after each shot.']} for candidate_id in chapter_ids], 'themes':[]})
  def test_merge_repairs_more_than_sixteen_chapters_without_truncating(self):
-  result,runtime=merge_edit([selected([f'candidate-{i}' for i in range(1,18)]),selected(['candidate-1'])],candidate_chapters(17))
-  self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,2)
+  result,runtime=merge_edit([selected([f'candidate-{i}' for i in range(1,19)]),selected([f'candidate-{i}' for i in range(1,18)]),selected(['candidate-1'])],candidate_chapters(18))
+  self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,3)
   repair=[json.loads(item['text']) for item in runtime.merge_contents[1] if item.get('type')=='text'][-1]
   self.assertEqual(repair['selection_requirements']['maximum_chapters'],16)
-  self.assertIn('17 chapters',repair['selection_validation_error'])
+  self.assertIn('18 chapters',repair['selection_validation_error'])
+  self.assertIn('10 to 14',runtime.merge_prompts[1])
+  self.assertIn('17 chapters',runtime.merge_prompts[2])
   self.assertIn('complete_outline',runtime.merge_contents[1][0]['text'])
   self.assertIn('candidate-6',str(runtime.merge_contents[1]))
+ def test_merge_stops_after_three_invalid_selections(self):
+  invalid=selected([f'candidate-{i}' for i in range(1,18)])
+  runtime=EditRuntime([invalid,invalid,invalid])
+  with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit),self.assertRaisesRegex(ValueError,'Retry to continue'):
+   create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
+  self.assertEqual(runtime.merge_calls,3)
  def test_merge_repairs_worker_owned_duration_over_nine_hundred_seconds(self):
-  result,runtime=merge_edit([selected([f'candidate-{i}' for i in range(1,11)]),selected(['candidate-1'])],candidate_chapters(10,100))
+  result,runtime=merge_edit([selected([f'candidate-{i}' for i in range(1,11)]),selected(['candidate-1'])],candidate_chapters(10,100),sections=2)
   self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,2)
+  self.assertIn('1000.0 seconds, 100.0 seconds over',runtime.merge_prompts[1])
  def test_merge_repairs_unknown_id_and_bounded_timestamp_failures(self):
   result,runtime=merge_edit([selected(['candidate-99']),selected(['candidate-1'])])
   self.assertEqual(result['chapters'][0]['start_s'],100);self.assertEqual(runtime.merge_calls,2)
@@ -91,7 +100,7 @@ class LessonVideoTests(unittest.TestCase):
   runtime=EditRuntime([bad,bad])
   with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit),self.assertRaisesRegex(ValueError,'Retry to continue'):
    create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
-  self.assertEqual(runtime.merge_calls,2)
+  self.assertEqual(runtime.merge_calls,3)
  def test_merge_repairs_and_bounds_malformed_chapter_schema(self):
   malformed={'title':'Lesson','chapters':[{'candidate_id':'candidate-1'}], 'themes':[]}
   result,runtime=merge_edit([malformed,selected(['candidate-1'])])
@@ -108,8 +117,8 @@ class LessonVideoTests(unittest.TestCase):
    {'candidate_id':'candidate-1','title':'Topic','cues':['One','Two','Three','Four']},
    {'candidate_id':'candidate-1','title':'Topic','cues':['x'*221]},
   ]:
-   runtime=EditRuntime([{'title':'Lesson','chapters':[bad_chapter],'themes':[]}] * 2)
+   runtime=EditRuntime([{'title':'Lesson','chapters':[bad_chapter],'themes':[]}] * 3)
    with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit),self.assertRaisesRegex(ValueError,'Retry to continue'):
     create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
-   self.assertEqual(runtime.merge_calls,2)
+   self.assertEqual(runtime.merge_calls,3)
 if __name__=='__main__': unittest.main()

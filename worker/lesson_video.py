@@ -15,7 +15,7 @@ except ModuleNotFoundError:
 MAX_SECONDS=10800
 MAX_RECAP_SECONDS=900
 MAX_CHAPTERS=16
-MAX_MERGE_ATTEMPTS=2
+MAX_MERGE_ATTEMPTS=3
 BUCKET='ponglens-media'
 MODEL='gpt-5.6-luna'
 KEYTERMS=['table tennis','topspin','backspin','underspin','sidespin','no-spin','anti-spin','long pips','short pips','twiddle','penhold','shakehand','forehand','backhand','counterloop','banana flick','chiquita','chop block','dead serve','half-long','third ball','footwork','bat angle','crosscourt','down the line','multiball']
@@ -219,7 +219,7 @@ def selected_candidates(raw,candidate_by_id):
  """Accept only an opaque, bounded candidate selection from the merge model.
 
  The model is never allowed to name a source range.  Keeping this validation
- before contextualization means a format miss can get one corrective pass
+ before contextualization means a format miss can get bounded corrective passes
  without spending per-chapter calls, and a persistent miss remains a clear
  retry rather than a silently shortened recap.
  """
@@ -227,7 +227,7 @@ def selected_candidates(raw,candidate_by_id):
  chapters=raw.get('chapters')
  if not isinstance(chapters,list):raise ValueError('The selection needs a chapters list.')
  if not chapters:raise ValueError('The selection needs at least one candidate.')
- if len(chapters)>MAX_CHAPTERS:raise ValueError(f'The selection has {len(chapters)} chapters; the maximum is {MAX_CHAPTERS}.')
+ if len(chapters)>MAX_CHAPTERS:raise ValueError(f'The selection returned {len(chapters)} chapters. For a teaching-rich lesson, return 10 to 14 coherent chapters; the hard maximum is {MAX_CHAPTERS}. Merge the closest overlapping topics and preserve the complete outline in themes.')
  selected=[];seen=set();total=0.0
  for index,chapter in enumerate(chapters,1):
   if not isinstance(chapter,dict):raise ValueError(f'Chapter {index} must be an object with a candidate ID.')
@@ -246,7 +246,7 @@ def selected_candidates(raw,candidate_by_id):
   total+=candidate['end_s']-candidate['start_s']
   selected.append({key:value for key,value in chapter.items() if key!='candidate_id'}|{
    'start_s':candidate['start_s'],'end_s':candidate['end_s']})
- if total>MAX_RECAP_SECONDS+.1:raise ValueError(f'The selected worker-owned ranges total {round(total,3)} seconds; the maximum is {MAX_RECAP_SECONDS}.')
+ if total>MAX_RECAP_SECONDS+.1:raise ValueError(f'The selected worker-owned ranges total {round(total,3)} seconds, {round(total-MAX_RECAP_SECONDS,3)} seconds over the hard {MAX_RECAP_SECONDS}-second maximum. Combine the closest overlapping topics and preserve the complete outline in themes.')
  return selected
 
 def create_edit(rt,row,source,directory,transcript,duration):
@@ -286,8 +286,8 @@ def create_edit(rt,row,source,directory,transcript,duration):
  rt.stage(row,'Arranging the lesson recap')
  validation_error=None
  for merge_attempt in range(MAX_MERGE_ATTEMPTS):
-  repair=[] if validation_error is None else [{'type':'text','text':json.dumps({'selection_validation_error':validation_error,'selection_requirements':{'maximum_chapters':MAX_CHAPTERS,'maximum_total_worker_owned_seconds':MAX_RECAP_SECONDS,'allowed_chapter_fields':['candidate_id','title','cues'],'title_rule':'title must be a nonempty string of at most 80 characters','cue_rule':'cues must be an array of one to three nonempty strings, each at most 220 characters','candidate_id_rule':'Each supplied candidate_id may be selected at most once. Do not provide times, durations, or range fields.'}},ensure_ascii=False)}]
-  prompt=MERGE_PROMPT if validation_error is None else MERGE_PROMPT+'\nYour previous selection was invalid: '+validation_error+' Return a coherent corrected selection using only supplied candidate IDs, with at most 16 chapters and 900 worker-owned seconds. Do not omit the complete outline from themes.'
+  repair=[] if validation_error is None else [{'type':'text','text':json.dumps({'selection_validation_error':validation_error,'selection_requirements':{'maximum_chapters':MAX_CHAPTERS,'teaching_rich_chapter_target':'When correcting an over-limit teaching-rich selection, return 10 to 14 coherent chapters by merging the closest overlapping topics. Preserve every topic in themes.','maximum_total_worker_owned_seconds':MAX_RECAP_SECONDS,'duration_repair_rule':'When correcting an over-limit duration, state no more than 900 worker-owned seconds by combining closest overlapping topics while preserving the complete outline in themes.','allowed_chapter_fields':['candidate_id','title','cues'],'title_rule':'title must be a nonempty string of at most 80 characters','cue_rule':'cues must be an array of one to three nonempty strings, each at most 220 characters','candidate_id_rule':'Each supplied candidate_id may be selected at most once. Do not provide times, durations, or range fields.'}},ensure_ascii=False)}]
+  prompt=MERGE_PROMPT if validation_error is None else MERGE_PROMPT+'\nYour previous selection was invalid: '+validation_error+' Correct it using only supplied candidate IDs. If it was over the chapter limit, return 10 to 14 coherent chapters by merging the closest overlapping topics; preserve every topic in themes. If it was over duration, return at most 900 worker-owned seconds by combining the closest overlapping topics. The hard limits remain 16 chapters and 900 seconds. Do not omit the complete outline from themes.'
   raw=rt.model(prompt,content+repair)
   try:
    selected=selected_candidates(raw,candidate_by_id)
@@ -295,7 +295,7 @@ def create_edit(rt,row,source,directory,transcript,duration):
   except ValueError as error:
    validation_error=str(error)
  else:
-  raise ValueError('The recap selection could not be completed after a correction pass. Your original and completed work are kept. Retry to continue.')
+  raise ValueError('The recap selection could not be completed after correction passes. Your original and completed work are kept. Retry to continue.')
  # Clip selection must not discard the fuller written teaching outline.
  raw['themes']=outline.get('themes') or raw.get('themes',[])
  if outline.get('warning'):raw['warning']=' '.join(filter(None,[raw.get('warning'),outline['warning']]))
