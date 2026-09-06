@@ -153,6 +153,15 @@ struct CoachStudentScreen: View {
                 }
                 .buttonStyle(PLSecondaryButtonStyle())
 
+                // Who, whether they are on PongLens, and the page's actions
+                // together. New entry is the only primary; Invite stands
+                // beside it while there is nobody at the other end yet,
+                // and goes when there is. The old screen put the primary
+                // above a large "Connect" card, two calls to action with
+                // no relationship (Adil, 2026-09-05). Both fill the width
+                // and stack, the way every action button on a phone does
+                // here; the label is sized first so the hit area grows
+                // with the visible button (baseline 2026-09-05).
                 VStack(alignment: .leading, spacing: 4) {
                     Text(student.displayName)
                         .font(.plPageTitle)
@@ -163,57 +172,52 @@ struct CoachStudentScreen: View {
                         .foregroundStyle(PL.text500)
                 }
 
-                Button {
-                    router.newEntryStudent = student
-                    router.newEntryOpen = true
-                } label: {
-                    Label("New entry", systemImage: "square.and.pencil")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(PLPrimaryButtonStyle())
-
-                if !student.linked {
-                    // The invite, framed the way the player's "Bring your
-                    // coach" is: what it does, then the one row that does it.
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Connect \(student.displayName)")
-                            .font(.plCardTitle)
-                            .foregroundStyle(PL.text100)
-                        Text("An invite links them to their PongLens account. You'll see the matches they upload, and the entries you share reach their journal.")
-                            .font(.plBody)
-                            .foregroundStyle(PL.text400)
-                            .lineSpacing(3)
-                        // What is already lined up for them, above the
-                        // list rather than instead of it (2026-09-04). A
-                        // coach reading this panel is deciding whether to
-                        // send the link; what the link hands over is the
-                        // thing they want to know. Not a picker — the
-                        // entries are listed a few rows below, where any
-                        // one of them can be changed.
-                        headStart(student)
-                        VStack(spacing: 0) {
-                            CoachNavRow(label: "Invite \(student.displayName)", symbol: "link") {
-                                inviteOpen = true
-                            }
-                        }
-                        .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                                .strokeBorder(PL.edge, lineWidth: 1)
-                        )
+                VStack(spacing: 10) {
+                    Button {
+                        router.newEntryStudent = student
+                        router.newEntryOpen = true
+                    } label: {
+                        Label("New entry", systemImage: "square.and.pencil")
+                            .frame(maxWidth: .infinity, minHeight: 28)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .plCard(padding: 16)
+                    .buttonStyle(PLPrimaryButtonStyle())
+                    if !student.linked {
+                        Button {
+                            inviteOpen = true
+                        } label: {
+                            Text("Invite \(student.displayName)")
+                                .frame(maxWidth: .infinity, minHeight: 28)
+                        }
+                        .buttonStyle(PLSecondaryButtonStyle())
+                    }
                 }
 
-                CoachLessonVideosSection(student: student)
-
+                // Every section from here down is built the same way: a
+                // heading, then one card. Where a section is empty it says
+                // so inside the card and, if there is something to do
+                // about it, offers that as a row, the way Lesson videos
+                // always has (Adil, 2026-09-05).
                 let entries = workspace.entries(for: student.id)
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionHeading("Journal")
-                    if entries.isEmpty {
-                        CoachEmptyLine(text: "No entries yet.")
-                    } else {
+                if entries.isEmpty {
+                    CoachGroup("Journal") {
+                        CoachGroupLine(text: "No entries yet.")
+                        CoachRowDivider()
+                        CoachNavRow(label: "New entry", symbol: "square.and.pencil") {
+                            router.newEntryStudent = student
+                            router.newEntryOpen = true
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        SectionHeading("Journal")
+                        // What the invite will hand over, and the one button
+                        // that shares the rest (2026-09-04). It used to sit in
+                        // the Connect card; with that card gone it belongs
+                        // above the entries it is counting, while there is
+                        // nobody at the other end to receive them yet.
+                        if !student.linked {
+                            headStart(student)
+                        }
                         ForEach(entries) { entry in
                             NavigationLink(value: entry) {
                                 CoachEntryCard(
@@ -248,12 +252,27 @@ struct CoachStudentScreen: View {
                     }
                 }
 
-                if student.linked {
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionHeading("Matches")
-                        if matches.isEmpty {
-                            CoachEmptyLine(text: "Nothing shared yet.")
-                        } else {
+                // Always here, connected or not. It used to exist only once
+                // the student had an account, so a coach looking at a new
+                // student had no way to know matches would ever appear
+                // (Adil, 2026-09-05). Unconnected, it says what it is
+                // waiting for and offers the one thing that gets it there.
+                Group {
+                    if !student.linked {
+                        CoachGroup("Matches") {
+                            CoachGroupLine(text: "Their matches show here once they're connected.")
+                            CoachRowDivider()
+                            CoachNavRow(label: "Invite \(student.displayName)", symbol: "link") {
+                                inviteOpen = true
+                            }
+                        }
+                    } else if matches.isEmpty {
+                        CoachGroup("Matches") {
+                            CoachGroupLine(text: "Nothing shared yet.")
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 10) {
+                            SectionHeading("Matches")
                             // Cards, not a list of names (Adil,
                             // 2026-09-04). A coach opening a new student
                             // should SEE what they have been doing rather
@@ -272,12 +291,14 @@ struct CoachStudentScreen: View {
                             }
                         }
                     }
-                    .task(id: matches.map(\.id)) {
-                        let ready = matches.filter { $0.status == .ready }.map(\.id)
-                        guard !ready.isEmpty else { return }
-                        scores = await CoachMatchScores.load(matchIds: ready)
-                    }
                 }
+                .task(id: matches.map(\.id)) {
+                    let ready = matches.filter { $0.status == .ready }.map(\.id)
+                    guard !ready.isEmpty else { return }
+                    scores = await CoachMatchScores.load(matchIds: ready)
+                }
+
+                CoachLessonVideosSection(student: student)
 
                 CoachGroup("Manage") {
                     CoachNavRow(label: "Rename") {
@@ -299,6 +320,20 @@ struct CoachStudentScreen: View {
             .padding(20)
             .padding(.bottom, 60)
         }
+    }
+}
+
+/// One line inside a group card, where a section says "nothing yet" or
+/// what it is waiting for. The same words CoachEmptyLine draws as a card
+/// of its own, drawn as a row so it can sit above an action in one card.
+private struct CoachGroupLine: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.plBody)
+            .foregroundStyle(PL.text400)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
     }
 }
 
