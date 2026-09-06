@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MEDIA_BUCKET, presignGet } from "@/lib/r2";
 import { automaticHighlightsEnabled } from "./access";
+import { highlightManifestIsFresh } from "./endPolicy";
 
 export const runtime = "nodejs";
 
@@ -60,39 +61,28 @@ async function selectedPointsAreFresh(
   const { data: rows, error } = await supabase
     .from("points")
     .select(
-      "id,t0,cut_t0,rally_end_cut_s,deleted,edited,is_let,highlight_evidence",
+      "id,idx,t0,t1,cut_t0,scored_at_cut_s,rally_end_cut_s,clip_path,deleted,edited,is_let,highlight_evidence",
     )
-    .eq("match_id", matchId)
-    .in("id", ids);
-  if (error || !rows || rows.length !== ids.length) return false;
-  const byId = new Map(rows.map((row) => [row.id, row]));
-  return manifest.points.every((point) => {
-    const row = byId.get(point.point_id);
-    const evidence = row?.highlight_evidence as
-      | { v?: number; status?: string; observed_end_s?: number }
-      | null
-      | undefined;
-    const rallyEndCutS =
-      typeof row?.rally_end_cut_s === "number"
-        ? row.rally_end_cut_s
-        : typeof row?.cut_t0 === "number" &&
-            typeof row?.t0 === "number" &&
-            typeof evidence?.observed_end_s === "number"
-          ? row.cut_t0 + evidence.observed_end_s - row.t0
-          : null;
-    return Boolean(
-      row &&
-        !row.deleted &&
-        !row.edited &&
-        !row.is_let &&
-        evidence?.v === 2 &&
-        evidence.status === "ready" &&
-        typeof row.cut_t0 === "number" &&
-        typeof rallyEndCutS === "number" &&
-        Math.abs(row.cut_t0 - point.cut_start_s) < 0.011 &&
-        Math.abs(rallyEndCutS + 0.75 - point.cut_end_s) < 0.011,
-    );
-  });
+    .eq("match_id", matchId);
+  if (error || !rows) return false;
+  return highlightManifestIsFresh(
+    rows.map((row) => ({
+      ...row,
+      highlight_evidence: row.highlight_evidence as
+        | {
+            v?: number | null;
+            status?: string | null;
+            n_hits?: number | null;
+            connected_crossings?: number | null;
+            alternating_table_landings?: number | null;
+            table_bounces?: number | null;
+            observed_end_s?: number | null;
+            end_source?: string | null;
+          }
+        | null,
+    })),
+    manifest,
+  );
 }
 
 export async function GET(req: Request) {

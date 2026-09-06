@@ -6967,13 +6967,15 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         from highlights import build_manifest
         with conn.cursor() as cur:
             cur.execute(
-                "select id, idx, t0, t1, cut_t0, rally_end_cut_s, "
+                "select id, idx, t0, t1, cut_t0, scored_at_cut_s, "
+                "rally_end_cut_s, "
                 "clip_path, deleted, edited, is_let, highlight_evidence "
                 "from public.points where match_id = %s order by idx, id",
                 (match_id,),
             )
             stored_points = [
                 dict(zip(("id", "idx", "t0", "t1", "cut_t0",
+                          "scored_at_cut_s",
                           "rally_end_cut_s", "clip_path", "deleted",
                           "edited", "is_let", "highlight_evidence"), values))
                 for values in cur.fetchall()

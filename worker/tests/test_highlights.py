@@ -144,8 +144,28 @@ def test_evidence_end_maps_to_cut_clock_without_rewriting_point_bounds():
     manifest_point = build_manifest([p])["points"][0]
     expected = p["cut_t0"] + (
         p["highlight_evidence"]["observed_end_s"] - p["t0"]
-    ) + 0.75
+    ) + 0.25
     assert manifest_point["cut_end_s"] == expected
+
+
+def test_scoring_tap_is_the_authoritative_highlight_end():
+    p = point("scored")
+    p["scored_at_cut_s"] = 15.4
+    manifest_point = build_manifest([p])["points"][0]
+    assert manifest_point["cut_end_s"] == 15.6
+
+
+def test_detector_end_gets_quarter_second_when_no_scoring_tap_exists():
+    p = point("unscored")
+    p["scored_at_cut_s"] = None
+    manifest_point = build_manifest([p])["points"][0]
+    assert manifest_point["cut_end_s"] == 17.25
+
+
+def test_scoring_tap_before_the_point_fails_closed():
+    p = point("stale-tap")
+    p["scored_at_cut_s"] = p["cut_t0"] - 0.01
+    assert not qualifies(p)
 
 
 def test_observed_end_must_be_inside_source_point():
@@ -206,11 +226,11 @@ def test_manifest_output_positions_include_crossfade_overlap():
     manifest = build_manifest([first, second], 60)
     a, b = manifest["points"]
     assert a["cut_start_s"] == 10.0
-    assert a["cut_end_s"] == 17.75
+    assert a["cut_end_s"] == 17.25
     assert a["output_start_s"] == 0.0
-    assert a["output_end_s"] == 7.75
-    assert b["output_start_s"] == pytest.approx(7.75 - XFADE_S)
-    assert b["output_end_s"] == pytest.approx(7.75 - XFADE_S + 6.75)
+    assert a["output_end_s"] == 7.25
+    assert b["output_start_s"] == pytest.approx(7.25 - XFADE_S)
+    assert b["output_end_s"] == pytest.approx(7.25 - XFADE_S + 6.25)
     assert manifest["duration_s"] == pytest.approx(b["output_end_s"])
 
 
@@ -233,6 +253,21 @@ def test_revision_changes_with_alternating_landing_measurement():
     first = points_revision(points)
     points[0]["highlight_evidence"]["alternating_table_landings"] += 1
     assert points_revision(points) != first
+
+
+def test_revision_changes_when_a_scoring_tap_is_added():
+    points = [point("a")]
+    first = points_revision(points)
+    points[0]["scored_at_cut_s"] = 16.2
+    assert points_revision(points) != first
+
+
+def test_revision_has_a_cross_language_canonical_form():
+    p = point("a")
+    p["scored_at_cut_s"] = 16.2
+    assert points_revision([p]) == (
+        "b2fd791b181c72732060945086001cd8b2208a993b42edf7719fae5c6ddc4548"
+    )
 
 
 def test_same_inputs_make_same_manifest():
