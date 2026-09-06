@@ -17,6 +17,8 @@ MAX_RECAP_SECONDS=900
 MAX_CHAPTERS=16
 MAX_MERGE_ATTEMPTS=3
 MAX_WINDOW_ATTEMPTS=3
+RICH_RECAP_MIN_SECONDS=75*60
+RICH_RECAP_SPACING_SECONDS=45
 BUCKET='ponglens-media'
 MODEL='gpt-5.6-luna'
 KEYTERMS=['table tennis','topspin','backspin','underspin','sidespin','no-spin','anti-spin','long pips','short pips','twiddle','penhold','shakehand','forehand','backhand','counterloop','banana flick','chiquita','chop block','dead serve','half-long','third ball','footwork','bat angle','crosscourt','down the line','multiball']
@@ -233,7 +235,7 @@ def contextualize_edit(rt,row,edit,transcript,duration,directory):
    result['chapters'].append(normalized);break
  return normalize_edit(result,duration)
 
-def feasible_twelve_chapters(candidate_by_id,required_section_ids):
+def feasible_twelve_chapters(candidate_by_id,required_section_ids,spacing_seconds=0):
  """Prove a 12-clip, nonreplayed worker-owned set before making it mandatory."""
  if len(candidate_by_id)<12 or len(required_section_ids)>12:return False
  section_bits={section_id:1<<index for index,section_id in enumerate(required_section_ids)}
@@ -241,7 +243,8 @@ def feasible_twelve_chapters(candidate_by_id,required_section_ids):
  previous=[]
  for index,candidate in enumerate(intervals):
   start=candidate['chapter']['start_s'];prior=index-1
-  while prior>=0 and intervals[prior]['chapter']['end_s']>start+.1:prior-=1
+  allowed_end=start-spacing_seconds if spacing_seconds else start+.1
+  while prior>=0 and intervals[prior]['chapter']['end_s']>allowed_end:prior-=1
   previous.append(prior)
  states=[{(0,0):0.0}]
  for index,candidate in enumerate(intervals):
@@ -261,10 +264,12 @@ def selection_requirements(candidate_by_id,duration,outline):
   chapter=candidate['chapter'];sections.setdefault(candidate['section_id'],[]).append(chapter['end_s']-chapter['start_s'])
  required_sections=list(sections)
  requirements={}
- if duration>=75*60 and len(required_sections)<=MAX_CHAPTERS and sum(min(lengths) for lengths in sections.values())<=MAX_RECAP_SECONDS:
+ if duration>=RICH_RECAP_MIN_SECONDS and len(required_sections)<=MAX_CHAPTERS and sum(min(lengths) for lengths in sections.values())<=MAX_RECAP_SECONDS:
   requirements['required_section_ids']=required_sections
  rich_themes=[theme for theme in outline.get('themes',[]) if isinstance(theme,dict) and any(str(point).strip() for point in theme.get('points',[]) if isinstance(point,str))]
- if duration>=75*60 and len(rich_themes)>=8 and feasible_twelve_chapters(candidate_by_id,requirements.get('required_section_ids',[])):
+ rich_long=duration>=RICH_RECAP_MIN_SECONDS and len(candidate_by_id)>=12 and len(rich_themes)>=8
+ if rich_long:requirements['minimum_spacing_seconds']=RICH_RECAP_SPACING_SECONDS
+ if rich_long and feasible_twelve_chapters(candidate_by_id,requirements.get('required_section_ids',[]),RICH_RECAP_SPACING_SECONDS):
   requirements['minimum_chapters']=12
  return requirements
 
@@ -330,6 +335,12 @@ def selected_candidates(raw,candidate_by_id,requirements=None):
   for other_id,other in selected_sources[index+1:]:
    overlap=min(chapter['end_s'],other['end_s'])-max(chapter['start_s'],other['start_s'])
    if overlap>.1:errors.append(f'Selected candidate IDs {candidate_id} and {other_id} overlap by {round(overlap,3)} source seconds. Choose distinct footage/topics without replaying the shared source.')
+ spacing=requirements.get('minimum_spacing_seconds',0)
+ if spacing:
+  ordered=sorted(selected_sources,key=lambda item:item[1]['start_s'])
+  for (candidate_id,chapter),(other_id,other) in zip(ordered,ordered[1:]):
+   gap=other['start_s']-chapter['end_s']
+   if gap<spacing:errors.append(f'Selected candidate IDs {candidate_id} and {other_id} leave only {gap:g} source seconds between clips; rich long recaps require at least {spacing:g} seconds of unselected source time. Keep the stronger candidate and cover another outline topic.')
  if len(selected)<requirements.get('minimum_chapters',0):errors.append(f"This rich long lesson requires at least {requirements['minimum_chapters']} selected chapters; the selection returned {len(selected)}.")
  missing=[section_id for section_id in requirements.get('required_section_ids',[]) if section_id not in selected_sections]
  if missing:errors.append('The selection is missing required candidate-bearing section IDs: '+', '.join(missing)+'. Select at least one candidate from each.')
@@ -378,8 +389,8 @@ def create_edit(rt,row,source,directory,transcript,duration):
  rt.stage(row,'Arranging the lesson recap')
  validation_error=None
  for merge_attempt in range(MAX_MERGE_ATTEMPTS):
-  repair=[] if validation_error is None else [{'type':'text','text':json.dumps({'selection_validation_error':validation_error,'selection_requirements':{'maximum_chapters':MAX_CHAPTERS,'teaching_rich_chapter_target':'When correcting an over-limit teaching-rich selection, return 10 to 14 coherent chapters by merging the closest overlapping topics. Preserve every topic in themes.','maximum_total_worker_owned_seconds':MAX_RECAP_SECONDS,'duration_repair_rule':'Sum the supplied read-only duration_seconds values. When correcting an over-limit duration, select no more than 900 worker-owned seconds by combining closest overlapping topics while preserving the complete outline in themes.','overlap_repair_rule':'When named candidate IDs overlap, replace one with distinct footage and a distinct teaching topic. Do not replay shared source footage.','allowed_chapter_fields':['candidate_id','title','cues'],'title_rule':'title must be a nonempty string of at most 80 characters','cue_rule':'cues must be an array of one to three nonempty strings, each at most 220 characters','candidate_id_rule':'Each supplied candidate_id may be selected at most once. Do not return section_id, duration_seconds, times, durations, or range fields.',**requirements}},ensure_ascii=False)}]
-  prompt=MERGE_PROMPT if validation_error is None else MERGE_PROMPT+'\nYour previous selection was invalid: '+validation_error+' Correct it using only supplied candidate IDs. If it was over the chapter limit, return 10 to 14 coherent chapters by merging the closest overlapping topics; preserve every topic in themes. If it was over duration, sum the supplied duration_seconds values and return at most 900 worker-owned seconds by combining the closest overlapping topics. If named candidates overlap, replace one with distinct footage/topics so the recap does not replay shared source. The hard limits remain 16 chapters and 900 seconds. Do not omit the complete outline from themes.'
+  repair=[] if validation_error is None else [{'type':'text','text':json.dumps({'selection_validation_error':validation_error,'selection_requirements':{'maximum_chapters':MAX_CHAPTERS,'teaching_rich_chapter_target':'When correcting an over-limit teaching-rich selection, return 10 to 14 coherent chapters by merging the closest overlapping topics. Preserve every topic in themes.','maximum_total_worker_owned_seconds':MAX_RECAP_SECONDS,'duration_repair_rule':'Sum the supplied read-only duration_seconds values. When correcting an over-limit duration, select no more than 900 worker-owned seconds by combining closest overlapping topics while preserving the complete outline in themes.','overlap_repair_rule':'When named candidate IDs overlap, replace one with distinct footage and a distinct teaching topic. Do not replay shared source footage.','spacing_repair_rule':'When named candidate IDs are too close, keep the stronger candidate and replace the other with a later distinct outline topic.','allowed_chapter_fields':['candidate_id','title','cues'],'title_rule':'title must be a nonempty string of at most 80 characters','cue_rule':'cues must be an array of one to three nonempty strings, each at most 220 characters','candidate_id_rule':'Each supplied candidate_id may be selected at most once. Do not return section_id, duration_seconds, times, durations, or range fields.',**requirements}},ensure_ascii=False)}]
+  prompt=MERGE_PROMPT if validation_error is None else MERGE_PROMPT+'\nYour previous selection was invalid: '+validation_error+' Correct it using only supplied candidate IDs. If it was over the chapter limit, return 10 to 14 coherent chapters by merging the closest overlapping topics; preserve every topic in themes. If it was over duration, sum the supplied duration_seconds values and return at most 900 worker-owned seconds by combining the closest overlapping topics. If named candidates overlap, replace one with distinct footage/topics so the recap does not replay shared source. If named candidates are too close, keep the stronger candidate and replace the other with a later distinct outline topic. The hard limits remain 16 chapters and 900 seconds. Do not omit the complete outline from themes.'
   raw=rt.model(prompt,content+repair)
   try:
    selected=selected_candidates(raw,candidate_by_id,requirements)

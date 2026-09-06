@@ -190,9 +190,13 @@ class LessonVideoTests(unittest.TestCase):
   self.assertEqual(runtime.window_calls,3);self.assertEqual(runtime.merge_calls,0)
  def test_rich_long_lessons_repair_to_cover_candidate_sections_and_twelve_chapters(self):
   outline={'title':'Lesson','themes':[{'name':f'Theme {i}','points':['Keep this supported instruction.']} for i in range(1,9)]}
+  spaced=[
+   {'title':'A','cues':['Recover after each shot.'],'start_s':0,'end_s':30},
+   {'title':'B','cues':['Recover after each shot.'],'start_s':75,'end_s':105},
+  ]
   initial=selected(['candidate-1','candidate-3','candidate-5','candidate-7','candidate-9','candidate-10','candidate-11','candidate-12','candidate-13','candidate-14'])
   repaired=selected(['candidate-1','candidate-3','candidate-5','candidate-7','candidate-9','candidate-11','candidate-13','candidate-15','candidate-17','candidate-2','candidate-4','candidate-6'])
-  result,runtime=merge_edit([initial,repaired],candidate_chapters(2,30),sections=9,duration=5400,outline=outline)
+  result,runtime=merge_edit([initial,repaired],spaced,sections=9,duration=5400,outline=outline)
   self.assertEqual(len(result['chapters']),12);self.assertEqual(runtime.merge_calls,2)
   repair=[json.loads(item['text']) for item in runtime.merge_contents[1] if item.get('type')=='text'][-1]
   self.assertEqual(repair['selection_requirements']['minimum_chapters'],12)
@@ -203,8 +207,45 @@ class LessonVideoTests(unittest.TestCase):
   self.assertNotIn('start_s',str(candidates));self.assertNotIn('end_s',str(candidates))
  def test_infeasible_rich_twelve_chapter_floor_does_not_reject_eleven(self):
   outline={'title':'Lesson','themes':[{'name':f'Theme {i}','points':['Keep this supported instruction.']} for i in range(1,9)]}
-  result,runtime=merge_edit(selected([f'candidate-{i}' for i in range(1,12)]),candidate_chapters(6,80),sections=2,duration=5400,outline=outline)
+  def response(chapters):return {'title':'Lesson','themes':[{'name':'Theme','points':['Keep this supported instruction.']}],'chapters':chapters}
+  first=response([
+   {'title':'A','cues':['Keep this supported instruction.'],'start_s':0,'end_s':60},
+   {'title':'B','cues':['Keep this supported instruction.'],'start_s':60,'end_s':120},
+   {'title':'C','cues':['Keep this supported instruction.'],'start_s':165,'end_s':225},
+   {'title':'D','cues':['Keep this supported instruction.'],'start_s':270,'end_s':330},
+  ])
+  spaced=response([
+   {'title':'E','cues':['Keep this supported instruction.'],'start_s':0,'end_s':60},
+   {'title':'F','cues':['Keep this supported instruction.'],'start_s':105,'end_s':165},
+   {'title':'G','cues':['Keep this supported instruction.'],'start_s':210,'end_s':270},
+   {'title':'H','cues':['Keep this supported instruction.'],'start_s':315,'end_s':375},
+  ])
+  result,runtime=merge_edit(selected(['candidate-1','candidate-3','candidate-4',* [f'candidate-{i}' for i in range(5,13)]]),sections=3,duration=5400,outline=outline,window=[first,spaced,spaced])
   self.assertEqual(len(result['chapters']),11);self.assertEqual(runtime.merge_calls,1)
+ def test_rich_long_recaps_repair_nearby_clips_to_later_distinct_footage(self):
+  outline={'title':'Lesson','themes':[{'name':f'Theme {i}','points':['Keep this supported instruction.']} for i in range(1,9)]}
+  def response(chapters):return {'title':'Lesson','themes':[{'name':'Theme','points':['Keep this supported instruction.']}],'chapters':chapters}
+  first=response([
+   {'title':'Third ball','cues':['Keep this supported instruction.'],'start_s':0,'end_s':30},
+   {'title':'Third ball repeat','cues':['Keep this supported instruction.'],'start_s':30,'end_s':60},
+   {'title':'Near third ball','cues':['Keep this supported instruction.'],'start_s':60,'end_s':90},
+   {'title':'Match-like set','cues':['Keep this supported instruction.'],'start_s':75,'end_s':105},
+  ])
+  spaced=response([
+   {'title':'Later topic','cues':['Keep this supported instruction.'],'start_s':0,'end_s':30},
+   {'title':'Later topic two','cues':['Keep this supported instruction.'],'start_s':75,'end_s':105},
+   {'title':'Later topic three','cues':['Keep this supported instruction.'],'start_s':150,'end_s':180},
+   {'title':'Later topic four','cues':['Keep this supported instruction.'],'start_s':225,'end_s':255},
+  ])
+  first_selection=selected(['candidate-1','candidate-2','candidate-5','candidate-9'])
+  second_selection=selected(['candidate-1','candidate-3','candidate-5','candidate-9'])
+  repaired=selected(['candidate-1','candidate-4','candidate-5','candidate-9'])
+  result,runtime=merge_edit([first_selection,second_selection,repaired],sections=3,duration=5400,outline=outline,window=[first,first,first,spaced,spaced])
+  self.assertEqual(runtime.merge_calls,3);self.assertEqual(len(result['chapters']),4)
+  self.assertIn('candidate-1 and candidate-2 leave only 0 source seconds',runtime.merge_prompts[1])
+  self.assertIn('candidate-1 and candidate-3 leave only 30 source seconds',runtime.merge_prompts[2])
+  self.assertIn('keep the stronger candidate',runtime.merge_prompts[1])
+  self.assertEqual([(chapter['start_s'],chapter['end_s']) for chapter in result['chapters']][:2],[(0,30),(75,105)])
  def test_sparse_long_lesson_can_select_fewer_chapters(self):
   result,runtime=merge_edit(selected(['candidate-1']),candidate_chapters(2,30),duration=5400)
   self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,1)
