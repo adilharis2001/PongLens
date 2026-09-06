@@ -10,7 +10,7 @@ which has numpy + opencv; see worker/README.md):
   points  Full point pipeline on the ORIGINAL video:
           activity spans -> play splitting (analyze_plays/split_plays port)
           -> table calibration: keypoint detector over sixteen frames,
-             then Sol, then Luna, then refuse (keypoint_calibrate)
+             then Luna, then Sol, then refuse (keypoint_calibrate)
           -> per-point: clip (720px, audio), placement bounces (optional),
              winner/how SUGGESTION (umpire_v3 walker port, suggestions
              only — no strokes3d, so the serve anchor falls back to the
@@ -2548,20 +2548,13 @@ def cmd_points(args):
     # 2. table calibration ladder: keypoints, then vision, then nothing.
     #
     # Ordered by measured accuracy against 62 hand-marked matches, not by
-    # cost — which for the free rung agree, the keypoint detector being both
-    # the cheapest and the most accurate, and for the two paid rungs do not:
+    # cost — though they happen to agree, the free detector being the most
+    # accurate one:
     #
     #   keypoint detector   0.27% median corner error,  0 gross,  free
-    #   Sol (3 trials)      10.6px median corner error,           25x Luna
-    #   Luna (5 trials)     57.0px median corner error,           paid
+    #   Luna (5 trials)     2.40%,                      8 of 52,  paid
+    #   Sol (3 trials)      0.00% on the 7 it saw,               25x Luna
     #   pink rim (removed)  3.50%,                     20 of 50,  free
-    #
-    # Sol and Luna were the other way round until 2026-08-26, on figures
-    # taken over the 7 matches Sol had been called for rather than all 62.
-    # VISION_MODEL's note carries that measurement and the cost decision;
-    # read it there rather than trusting the two lines above in isolation.
-    # Luna is not retired — vision_calibrate still runs it, as the cheap
-    # second opinion when Sol produces no acceptable quad.
     #
     # The pink-rim calibrator that used to run first is gone from this
     # ladder; calibrate()'s docstring records why. What replaced it is not a
