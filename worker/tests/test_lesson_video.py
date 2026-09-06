@@ -6,16 +6,16 @@ from worker.lesson_video import create_edit, normalize_edit, chunk_ranges, relea
 
 
 class EditRuntime:
- def __init__(self,merge,chapters=None): self.merge=merge;self.merge_content=None;self.merge_contents=[];self.merge_prompts=[];self.merge_calls=0;self.chapters=chapters
+ def __init__(self,merge,chapters=None,outline=None): self.merge=merge;self.merge_content=None;self.merge_contents=[];self.merge_prompts=[];self.merge_calls=0;self.chapters=chapters;self.outline=outline
  def stage(self,*args): pass
  def model(self,prompt,content):
   if 'Extract the teaching' in prompt:
    return {'title':'Lesson','themes':[{'name':'Footwork','points':['Recover after each shot.']}], 'chapters':self.chapters or [
     {'title':'First','cues':['Recover after each shot.'],'start_s':100,'end_s':140},
     {'title':'Second','cues':['Move back into position.'],'start_s':200,'end_s':250},
-   ]}
+  ]}
   if 'Build the complete teaching outline' in prompt:
-   return {'title':'Lesson','themes':[{'name':'Footwork','points':['Recover after each shot.']}]}
+   return self.outline if self.outline is not None else {'title':'Lesson','themes':[{'name':'Footwork','points':['Recover after each shot.']}]}
   self.merge_content=content
   self.merge_contents.append(content)
   self.merge_prompts.append(prompt)
@@ -23,10 +23,10 @@ class EditRuntime:
   return self.merge[min(self.merge_calls-1,len(self.merge)-1)] if isinstance(self.merge,list) else self.merge
 
 
-def merge_edit(merge,chapters=None,sections=1):
- runtime=EditRuntime(merge,chapters)
+def merge_edit(merge,chapters=None,sections=1,duration=600,outline=None):
+ runtime=EditRuntime(merge,chapters,outline)
  with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit):
-  result=create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]} for _ in range(sections)],600)
+  result=create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]} for _ in range(sections)],duration)
  return result,runtime
 
 def candidate_chapters(count,duration=30):
@@ -64,11 +64,11 @@ class LessonVideoTests(unittest.TestCase):
  def test_merge_receives_timestamp_free_candidate_teaching_metadata(self):
   _,runtime=merge_edit({'title':'Lesson','chapters':[{'candidate_id':'candidate-1','title':'Recover','cues':['Recover after each shot.']}], 'themes':[]})
   candidates=[json.loads(item['text']) for item in runtime.merge_content if item.get('type')=='text' and 'candidate_id' in item['text']]
-  self.assertEqual(candidates[0],{'candidate_id':'candidate-1','section_title':'Lesson','title':'First','cues':['Recover after each shot.'],'duration_seconds':40})
+  self.assertEqual(candidates[0],{'candidate_id':'candidate-1','section_id':'section-1','section_title':'Lesson','title':'First','cues':['Recover after each shot.'],'duration_seconds':40})
   self.assertTrue(all(set(key for key in candidate if key.endswith('_s') or key=='duration_seconds')=={'duration_seconds'} for candidate in candidates))
   self.assertNotIn('start_s',str(candidates));self.assertNotIn('end_s',str(candidates))
  def test_merge_refuses_model_authored_timestamps(self):
-  for extra in [{'start_s':0,'end_s':40},{'duration_seconds':40}]:
+  for extra in [{'start_s':0,'end_s':40},{'duration_seconds':40},{'section_id':'section-1'}]:
    with self.subTest(extra=extra),self.assertRaisesRegex(ValueError,'Retry to continue'):
     merge_edit({'title':'Lesson','chapters':[{'candidate_id':'candidate-1','title':'First','cues':['Recover after each shot.'],**extra}], 'themes':[]})
  def test_merge_refuses_unknown_or_duplicate_candidate_ids(self):
@@ -110,6 +110,26 @@ class LessonVideoTests(unittest.TestCase):
   metadata=[json.loads(item['text']) for item in runtime.merge_contents[1] if item.get('type')=='text' and 'candidate_id' in item['text']]
   self.assertEqual([candidate['duration_seconds'] for candidate in metadata[:6]],[120,115,110,100,95,90])
   self.assertIn('sum the supplied duration_seconds',runtime.merge_prompts[1])
+ def test_rich_long_lessons_repair_to_cover_candidate_sections_and_twelve_chapters(self):
+  outline={'title':'Lesson','themes':[{'name':f'Theme {i}','points':['Keep this supported instruction.']} for i in range(1,9)]}
+  initial=selected(['candidate-1','candidate-3','candidate-5','candidate-7','candidate-9','candidate-10','candidate-11','candidate-12','candidate-13','candidate-14'])
+  repaired=selected(['candidate-1','candidate-3','candidate-5','candidate-7','candidate-9','candidate-11','candidate-13','candidate-15','candidate-17','candidate-2','candidate-4','candidate-6'])
+  result,runtime=merge_edit([initial,repaired],candidate_chapters(2,30),sections=9,duration=5400,outline=outline)
+  self.assertEqual(len(result['chapters']),12);self.assertEqual(runtime.merge_calls,2)
+  repair=[json.loads(item['text']) for item in runtime.merge_contents[1] if item.get('type')=='text'][-1]
+  self.assertEqual(repair['selection_requirements']['minimum_chapters'],12)
+  self.assertEqual(repair['selection_requirements']['required_section_ids'],[f'section-{i}' for i in range(1,10)])
+  self.assertIn('section-8, section-9',repair['selection_validation_error'])
+  candidates=[json.loads(item['text']) for item in runtime.merge_contents[0] if item.get('type')=='text' and 'candidate_id' in item['text']]
+  self.assertEqual(candidates[0]['section_id'],'section-1')
+  self.assertNotIn('start_s',str(candidates));self.assertNotIn('end_s',str(candidates))
+ def test_sparse_long_lesson_can_select_fewer_chapters(self):
+  result,runtime=merge_edit(selected(['candidate-1']),candidate_chapters(2,30),duration=5400)
+  self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,1)
+ def test_impossible_section_coverage_does_not_deadlock(self):
+  outline={'title':'Lesson','themes':[{'name':f'Theme {i}','points':['Keep this supported instruction.']} for i in range(1,9)]}
+  result,runtime=merge_edit(selected(['candidate-1']),candidate_chapters(1,120),sections=9,duration=5400,outline=outline)
+  self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,1)
  def test_merge_repairs_unknown_id_and_bounded_timestamp_failures(self):
   result,runtime=merge_edit([selected(['candidate-99']),selected(['candidate-1'])])
   self.assertEqual(result['chapters'][0]['start_s'],100);self.assertEqual(runtime.merge_calls,2)
