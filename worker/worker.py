@@ -328,7 +328,22 @@ ENTRY_ORPHAN_GRACE_DAYS = 2         # staged Journal images under entry/
                                     # (transcripts live in Postgres forever)
 
 WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_PATH = os.path.join(WORKER_DIR, "worker.log")
+# Which queue this process serves (spec 2026-09-06, step 3). The main lane
+# is the one process that has always run: uploads, imports, placement,
+# highlights, and the housekeeping (retention sweep, digests, cost
+# alerts). The fast lane is a second process on the same machine that
+# reads only 'jobs_fast' — re-cuts and share renders, the jobs a person
+# is holding the phone through — so a five-second re-cut never queues
+# behind a forty-minute upload. Routing is enqueue_job's, switched by
+# app_config.reclip_lane; a lane with no process reading it is a queue
+# nobody drains, so the switch flips only after the second process runs.
+#   python3 worker.py --lane fast       or       WORKER_LANE=fast
+LANE = "fast" if "--lane" in sys.argv and \
+    sys.argv[sys.argv.index("--lane") + 1:][:1] == ["fast"] \
+    else os.environ.get("WORKER_LANE", "main")
+QUEUE_NAME = "jobs_fast" if LANE == "fast" else "jobs"
+LOG_PATH = os.path.join(
+    WORKER_DIR, "worker-fast.log" if LANE == "fast" else "worker.log")
 
 # Under launchd the wrapper already appends stdout to worker.log, so a
 # stdout handler there would double every line. The stream handler is for
@@ -542,18 +557,19 @@ def connect():
 
 
 def read_message(conn):
-    """Read one message from the pgmq 'jobs' queue, or None."""
+    """Read one message from this lane's pgmq queue, or None."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            "select msg_id, read_ct, message from pgmq.read('jobs', %s, %s)",
-            (VISIBILITY_S, 1),
+            "select msg_id, read_ct, message from pgmq.read(%s, %s, %s)",
+            (QUEUE_NAME, VISIBILITY_S, 1),
         )
         return cur.fetchone()
 
 
 def archive_message(conn, msg_id: int):
     with conn.cursor() as cur:
-        cur.execute("select pgmq.archive('jobs', %s::bigint)", (msg_id,))
+        cur.execute("select pgmq.archive(%s, %s::bigint)",
+                    (QUEUE_NAME, msg_id))
 
 
 def update_job(conn, job_id: str, **fields):
@@ -5503,14 +5519,20 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
             # loop that raised on clip k left every point after it flagged
             # forever, with no bell (jobs_notify_failed ignores reclips).
             try:
-                subprocess.run(
-                    ["ffmpeg", "-y", "-v", "error", "-ss", f"{seek:.2f}",
-                     "-i", src, "-t", f"{span:.2f}",
-                     "-vf", "scale=720:-2",
-                     "-c:v", "libx264", "-preset", "medium", "-crf", "23",
-                     "-c:a", "aac", "-b:a", "96k",
+                # The Mac's video hardware, like the reels and stories use,
+                # with the software encoder as the fallback (step 4). The
+                # bitrate matches what crf 23 produced at 720 wide; the
+                # output stays H.264 8-bit + AAC with the index in front,
+                # so every reader is unaffected.
+                encoder = _run_ffmpeg_encoded(
+                    ["-ss", f"{seek:.2f}", "-i", src, "-t", f"{span:.2f}",
+                     "-vf", "scale=720:-2"],
+                    ["-c:v", "h264_videotoolbox", "-b:v", "2500k",
+                     "-allow_sw", "1", "-pix_fmt", "yuv420p"],
+                    ["-c:v", "libx264", "-preset", "medium", "-crf", "23",
+                     "-pix_fmt", "yuv420p"],
+                    ["-c:a", "aac", "-b:a", "96k",
                      "-movflags", "+faststart", out],
-                    check=True, timeout=1800,
                 )
                 # fresh key per cut so stale CDN/browser caches never win
                 key = f"{key_prefix}/{int(idx):02d}-{uuid.uuid4().hex[:8]}.mp4"
@@ -5547,8 +5569,8 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
                 except Exception as e:                          # noqa: BLE001
                     log.warning("  reclip: old clip not removed (%s)", e)
             done += 1
-            log.info("  reclip: point idx %s cut from %s in %.1fs "
-                     "(%.1fs of video)", idx, src_kind,
+            log.info("  reclip: point idx %s cut from %s with %s in %.1fs "
+                     "(%.1fs of video)", idx, src_kind, encoder,
                      time.monotonic() - started, span)
             update_job(conn, job_id,
                        progress=30 + int(60 * done / len(targets)))
@@ -8355,25 +8377,34 @@ def _ytdlp_version() -> str:
 
 
 def main():
-    log.info("PongLens worker starting (supabase=%s, code=%s, "
-             "yt-dlp=%s at %s)",
-             SUPABASE_URL, _code_version(), _ytdlp_version(), YTDLP)
+    log.info("PongLens worker starting (lane=%s queue=%s supabase=%s, "
+             "code=%s, yt-dlp=%s at %s)",
+             LANE, QUEUE_NAME, SUPABASE_URL, _code_version(),
+             _ytdlp_version(), YTDLP)
     conn = connect()
-    start_cost_alert_monitor()
+    # Housekeeping belongs to the main lane alone: the digests' last-sent
+    # markers in app_config are not atomic across processes, the sweep
+    # need not run twice a day, and one cost monitor is one too many.
+    housekeeping = LANE == "main"
+    if housekeeping:
+        start_cost_alert_monitor()
     last_cleanup = 0.0
     last_digest_check = 0.0
 
     while True:
         try:
-            if time.time() - last_cleanup > CLEANUP_EVERY_S or last_cleanup == 0:
+            if housekeeping and (
+                    time.time() - last_cleanup > CLEANUP_EVERY_S
+                    or last_cleanup == 0):
                 try:
                     retention_sweep(conn)
                 except Exception as e:  # cleanup must never kill the loop
                     log.warning("cleanup failed: %s", e)
                 last_cleanup = time.time()
 
-            if time.time() - last_digest_check > DIGEST_CHECK_EVERY_S \
-                    or last_digest_check == 0:
+            if housekeeping and (
+                    time.time() - last_digest_check > DIGEST_CHECK_EVERY_S
+                    or last_digest_check == 0):
                 maybe_send_feedback_digest(conn)     # never raises
                 maybe_send_qa_closed_digest(conn)    # never raises
                 last_digest_check = time.time()

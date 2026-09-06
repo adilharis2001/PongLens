@@ -257,6 +257,33 @@ cp /Users/adil/Desktop/Projects/PongLens/worker/com.adil.ponglens-worker.plist ~
 launchctl load ~/Library/LaunchAgents/com.adil.ponglens-worker.plist
 ```
 
+## Fast lane (second process)
+
+Re-cuts and vertical share renders are the jobs a person is holding the
+phone through. They used to share one queue with forty-minute uploads,
+first in first out. A second worker process reads only the `jobs_fast`
+queue (`--lane fast`); the main process keeps everything else and all the
+housekeeping (retention sweep, digests, cost alerts), which must run in
+exactly one process.
+
+Build its runner the same way as the main one, with the lane flag:
+
+```bash
+osacompile -e 'do shell script "export HOME=/Users/adil; export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin; /usr/bin/python3 /Users/adil/Desktop/Projects/PongLens/worker/worker.py --lane fast >>/Users/adil/Desktop/Projects/PongLens/worker/stdout-fast.log 2>>/Users/adil/Desktop/Projects/PongLens/worker/stderr-fast.log"' -o ~/Applications/PongLensWorkerFast.app
+cp /Users/adil/Desktop/Projects/PongLens/worker/com.adil.ponglens-worker-fast.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.adil.ponglens-worker-fast.plist
+```
+
+Grant `PongLensWorkerFast.app` Full Disk Access like the main runner. Its
+log is `worker-fast.log`. Then, and only then, flip the routing:
+
+```sql
+update public.app_config set value = 'fast' where key = 'reclip_lane';
+```
+
+Setting it back to `'main'` is the rollback; anything already sitting in
+`jobs_fast` is drained by the fast process, so stop that one last.
+
 Because the plist has `KeepAlive`, the worker starts immediately, restarts
 if it crashes, and comes back after reboots (once you log in).
 
