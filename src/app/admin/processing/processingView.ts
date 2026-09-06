@@ -135,6 +135,7 @@ export interface CloudControl {
 }
 
 export interface LessonWorkers {
+  cloud_enabled?: boolean;
   mac_beat_at?: string | null;
   mac_started_at?: string | null;
   mac_worker_id?: string | null;
@@ -558,6 +559,7 @@ export function buildWorkerRows(
     beat: string | null | undefined,
     started: string | null | undefined,
     detail: string,
+    off = false,
   ): WorkerRow => {
     const state = workerState(
       beat ? { beat_at: beat, job_id: null } : null,
@@ -568,6 +570,7 @@ export function buildWorkerRows(
         // that table is what proves reporting works for them. If either
         // one has ever beaten, the other's silence means something.
         pulseProven: !!(lesson.mac_beat_at || lesson.cloud_beat_at),
+        off,
       },
     );
     return {
@@ -577,7 +580,7 @@ export function buildWorkerRows(
       // which video it has. "Idle" would be a claim this signal cannot
       // make, so a live one reads as Running.
       state,
-      detail: state === "idle" ? detail : STATE_DETAIL[state],
+      detail: state === "idle" || state === "off" ? detail : STATE_DETAIL[state],
       caveat: null,
       note: null,
       pct: null,
@@ -604,9 +607,10 @@ export function buildWorkerRows(
       "Cloud · lesson recaps",
       lesson.cloud_beat_at,
       null,
-      lesson.cloud_reporting_today
-        ? `Reporting every minute. ${lesson.cloud_reporting_today} containers have checked in today.`
-        : "Reporting every minute.",
+      lesson.cloud_enabled
+        ? "Waiting for the Mac fallback rule."
+        : "Not switched on.",
+      !lesson.cloud_enabled,
     ),
   );
 
