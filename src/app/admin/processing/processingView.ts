@@ -352,7 +352,7 @@ export function loadNote(
   if (!cpus || cpus <= 0) return `Machine load ${load.toFixed(1)}`;
   const label = `Machine load ${load.toFixed(1)} across ${cpus} cores`;
   if (load < cpus * 1.5) return null;
-  return `${label} — something else on the Mac is competing for the processor`;
+  return `${label}. Something else on the Mac is competing for the processor.`;
 }
 
 function pulseDetail(p: WorkerPulse, now: Date): string {

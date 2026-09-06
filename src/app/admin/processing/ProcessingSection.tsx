@@ -407,11 +407,12 @@ export function ProcessingSection() {
       </div>
 
       <p className="mt-6 text-xs text-zinc-600">
-        Workers report themselves every fifteen seconds. A job&apos;s
-        percentage is written at a handful of milestones, so it can stand
-        still for hours on a job that is running perfectly — the worker
-        rows above, not the percentage, are what says whether anything is
-        alive.
+        Workers report themselves every fifteen seconds once they have been
+        restarted onto code that does. Until then this page works out what
+        it can from the jobs themselves: one that is advancing, or that has
+        just finished, means a worker is running. A percentage standing
+        still means nothing either way, because some kinds of job only
+        write it two or three times.
       </p>
     </>
   );
