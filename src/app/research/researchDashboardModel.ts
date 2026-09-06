@@ -16,6 +16,14 @@ export const RESEARCH_PAGES = [
     accent: "magenta",
   },
   {
+    title: "V3 across matches",
+    category: "Card assembly",
+    description:
+      "The same detector on every exported match at once: how many points would need adding, splitting, joining or deleting afterwards, and which cards those are.",
+    href: "/research/v3-serve-detector/across",
+    accent: "magenta",
+  },
+  {
     title: "Active ball",
     category: "Model evaluation",
     description: "Mark the active ball in short frame sequences and review the locally trained detector.",

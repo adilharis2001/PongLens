@@ -884,7 +884,12 @@ export function V3ServeDetector({
       });
     }
 
-    loadMatch(matches[0]);
+    // ?m=<matchId> opens that match; the across-matches page links here.
+    const wanted = new URLSearchParams(window.location.search).get("m");
+    const initial = matches.find((x) => x.matchId === wanted) ?? matches[0];
+    for (const o of Array.from(el.querySelectorAll("#matchbar button")))
+      o.setAttribute("aria-pressed", String((o as HTMLElement).dataset.m === initial.matchId));
+    loadMatch(initial);
 
     return () => {
       dead = true;

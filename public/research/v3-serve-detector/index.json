@@ -12,11 +12,17 @@
   ],
   "rawOffsetS": -0.033,
   "offsetErr": 1.107,
-  "cards": 101,
+  "cards": 107,
   "points": 105,
-  "ok": 98,
-  "srvAgree": 83,
-  "srvDisagree": 16
+  "ok": 103,
+  "srvAgree": 87,
+  "srvDisagree": 17,
+  "missed": 0,
+  "fused": 1,
+  "extra": 1,
+  "onDeleted": 2,
+  "nowhere": 0,
+  "short": 5
  },
  {
   "match": "89b35ee0",
@@ -31,11 +37,17 @@
   ],
   "rawOffsetS": 242.133,
   "offsetErr": 1.897,
-  "cards": 93,
+  "cards": 109,
   "points": 93,
-  "ok": 93,
-  "srvAgree": 92,
-  "srvDisagree": 1
+  "ok": 89,
+  "srvAgree": 90,
+  "srvDisagree": 3,
+  "missed": 0,
+  "fused": 0,
+  "extra": 4,
+  "onDeleted": 11,
+  "nowhere": 1,
+  "short": 2
  },
  {
   "match": "d15aad4d",
@@ -50,10 +62,16 @@
   ],
   "rawOffsetS": 0.0,
   "offsetErr": 1.305,
-  "cards": 111,
+  "cards": 124,
   "points": 95,
-  "ok": 87,
-  "srvAgree": 75,
-  "srvDisagree": 12
+  "ok": 92,
+  "srvAgree": 81,
+  "srvDisagree": 13,
+  "missed": 1,
+  "fused": 0,
+  "extra": 2,
+  "onDeleted": 27,
+  "nowhere": 1,
+  "short": 8
  }
 ]
