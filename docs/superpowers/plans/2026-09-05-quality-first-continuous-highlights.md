@@ -106,7 +106,7 @@ git commit -m "feat: add automatic highlight evidence schema"
 - Produces: `points_revision(points: list[dict]) -> str`.
 - Manifest segment keys are `point_id`, `cut_start_s`, `cut_end_s`, `output_start_s`, `output_end_s`, `n_hits`, and `connected_crossings`.
 
-- [ ] **Step 1: Write failing selector tests**
+- [x] **Step 1: Write failing selector tests**
 
 Cover each threshold boundary independently, every missing field, edited and
 deleted points, unused budget, skip-over of a long qualified point, match-order
@@ -123,13 +123,13 @@ def test_exact_v1_threshold_qualifies():
     assert qualifies(point("p", hits=5, crossings=4, bounces=2, seconds=9))
 ```
 
-- [ ] **Step 2: Run the focused tests and observe import failure**
+- [x] **Step 2: Run the focused tests and observe import failure**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_highlights.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlights.py -q`
 
 Expected: failure because `worker.highlights` does not exist.
 
-- [ ] **Step 3: Implement the pure module**
+- [x] **Step 3: Implement the pure module**
 
 Use constants `MIN_HITS = 5`, `MIN_CONNECTED_CROSSINGS = 4`,
 `MIN_TABLE_BOUNCES = 2`, `AUTO_MAX_S = 150.0`, and `XFADE_S = 0.3`.
@@ -151,13 +151,13 @@ them in `idx` order. Hash canonical JSON containing selected IDs, current cut
 bounds, visibility/edit state, and evidence version. Compute output positions
 with 0.3 seconds of overlap after the first segment.
 
-- [ ] **Step 4: Run selector tests**
+- [x] **Step 4: Run selector tests**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_highlights.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlights.py -q`
 
 Expected: all selector tests pass.
 
-- [ ] **Step 5: Commit the selector unit**
+- [x] **Step 5: Commit the selector unit**
 
 ```bash
 git add worker/highlights.py worker/tests/test_highlights.py
@@ -199,7 +199,7 @@ crossing chain, and failed shot counting.
 
 - [ ] **Step 2: Run the focused evidence tests and observe failures**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py -q`
 
 Expected: assertions fail because match JSON and inserts contain no highlight evidence.
 
@@ -225,7 +225,7 @@ re-querying or mixing source and cut clocks.
 
 - [ ] **Step 5: Run evidence and existing points tests**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlight_evidence.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2.py -q`
 
 Expected: all listed tests pass.
 
@@ -257,7 +257,7 @@ manifest duration after 0.3-second overlaps.
 
 - [ ] **Step 2: Run focused renderer tests and observe missing functions**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_auto_highlight_render.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_auto_highlight_render.py -q`
 
 Expected: failures because the automatic renderer is absent.
 
@@ -282,7 +282,7 @@ match or add customer minutes.
 
 - [ ] **Step 5: Run renderer and worker orchestration tests**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_auto_highlight_render.py worker/tests/test_worker.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_auto_highlight_render.py worker/tests/test_worker.py -q`
 
 Expected: all listed tests pass, including empty and forced-render-failure cases.
 
@@ -478,7 +478,7 @@ git commit -m "feat: play one continuous highlight on iOS"
 
 - [ ] **Step 1: Run complete affected worker tests**
 
-Run: `worker/.venv/bin/python -m pytest worker/tests/test_highlights.py worker/tests/test_highlight_evidence.py worker/tests/test_auto_highlight_render.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2.py worker/tests/test_worker.py -q`
+Run: `/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python -m pytest worker/tests/test_highlights.py worker/tests/test_highlight_evidence.py worker/tests/test_auto_highlight_render.py worker/tests/test_points_pipeline.py worker/tests/test_points_v2.py worker/tests/test_worker.py -q`
 
 Expected: zero failures.
 
