@@ -21,10 +21,12 @@ try {
  await db.query('insert into auth.users values($1)',[owner]);
  await db.query("insert into lesson_videos(id,owner_id,original_name,file_size,duration_s,source_key,status,upload_id) values($1,$2,'test.mov',10,5400,'test-original','queued','multipart')",[video,owner]);
  await db.exec("insert into lesson_video_release(release_id,enabled) values('test-release',true)");
+ await db.query("update lesson_videos set created_at=now()-interval '30 days',updated_at=now() where id=$1",[video]);
  assert.equal((await db.query("select * from claim_lesson_video('test-release','cloud-worker',true)")).rows.length,0,'cloud claims remain gated');
  await db.query("select record_lesson_video_worker_heartbeat('test-release','mac-worker',false)");
  const health=(await db.query('select * from admin_lesson_video_health()')).rows[0];
  assert.equal(health.mac_worker_active,true);assert.equal(health.queued_count,1);assert.equal('transcript' in health,false);
+ assert.ok(health.oldest_queue_age_seconds<60,'queue age starts when the lesson was last queued');
  await db.query("select record_lesson_video_worker_heartbeat('test-release','mac-worker-2',false)");
  assert.equal((await db.query('select * from admin_lesson_video_health()')).rows[0].queued_count,1,'multiple Mac heartbeats do not multiply the queue');
  const healthGrants=await db.query("select has_function_privilege('anon','admin_lesson_video_health()','execute') as anon_health,has_function_privilege('authenticated','admin_lesson_video_health()','execute') as admin_health,has_function_privilege('authenticated','record_lesson_video_worker_heartbeat(text,text,boolean)','execute') as user_heartbeat,has_function_privilege('service_role','record_lesson_video_worker_heartbeat(text,text,boolean)','execute') as service_heartbeat");

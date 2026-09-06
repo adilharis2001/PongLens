@@ -15,6 +15,7 @@ except ModuleNotFoundError:
 MAX_SECONDS=10800
 MAX_RECAP_SECONDS=900
 MAX_CHAPTERS=16
+MAX_MERGE_ATTEMPTS=2
 BUCKET='ponglens-media'
 MODEL='gpt-5.6-luna'
 KEYTERMS=['table tennis','topspin','backspin','underspin','sidespin','no-spin','anti-spin','long pips','short pips','twiddle','penhold','shakehand','forehand','backhand','counterloop','banana flick','chiquita','chop block','dead serve','half-long','third ball','footwork','bat angle','crosscourt','down the line','multiball']
@@ -214,6 +215,35 @@ def contextualize_edit(rt,row,edit,transcript,duration,directory):
    result['chapters'].append(normalized);break
  return normalize_edit(result,duration)
 
+def selected_candidates(raw,candidate_by_id):
+ """Accept only an opaque, bounded candidate selection from the merge model.
+
+ The model is never allowed to name a source range.  Keeping this validation
+ before contextualization means a format miss can get one corrective pass
+ without spending per-chapter calls, and a persistent miss remains a clear
+ retry rather than a silently shortened recap.
+ """
+ if not isinstance(raw,dict):raise ValueError('The selection was not a JSON object.')
+ chapters=raw.get('chapters')
+ if not isinstance(chapters,list):raise ValueError('The selection needs a chapters list.')
+ if not chapters:raise ValueError('The selection needs at least one candidate.')
+ if len(chapters)>MAX_CHAPTERS:raise ValueError(f'The selection has {len(chapters)} chapters; the maximum is {MAX_CHAPTERS}.')
+ selected=[];seen=set();total=0.0
+ for index,chapter in enumerate(chapters,1):
+  if not isinstance(chapter,dict):raise ValueError(f'Chapter {index} must be an object with a candidate ID.')
+  extras=set(chapter)-{'candidate_id','title','cues'}
+  if extras:raise ValueError(f"Chapter {index} contains prohibited timing or selection fields: {', '.join(sorted(extras))}.")
+  candidate_id=chapter.get('candidate_id')
+  if not isinstance(candidate_id,str) or candidate_id not in candidate_by_id:raise ValueError(f'Chapter {index} names an unknown candidate ID.')
+  if candidate_id in seen:raise ValueError(f'Chapter {index} repeats candidate ID {candidate_id}.')
+  seen.add(candidate_id)
+  candidate=candidate_by_id[candidate_id]
+  total+=candidate['end_s']-candidate['start_s']
+  selected.append({key:value for key,value in chapter.items() if key!='candidate_id'}|{
+   'start_s':candidate['start_s'],'end_s':candidate['end_s']})
+ if total>MAX_RECAP_SECONDS+.1:raise ValueError(f'The selected worker-owned ranges total {round(total,3)} seconds; the maximum is {MAX_RECAP_SECONDS}.')
+ return selected
+
 def create_edit(rt,row,source,directory,transcript,duration):
  windows=[]
  for i,chunk in enumerate(transcript):
@@ -244,23 +274,26 @@ def create_edit(rt,row,source,directory,transcript,duration):
   candidate_id=f'candidate-{i+1}'
   candidate_by_id[candidate_id]=c
   content.append({'type':'text','text':json.dumps({'candidate_id':candidate_id,'section_title':candidate['section_title'],'title':c['title'],'cues':c['cues']},ensure_ascii=False)})
-  try:content.append({'type':'image_url','image_url':{'url':frame(source,(c['start_s']+c['end_s'])/2,directory,i),'detail':'low'}})
-  except RuntimeError:raise ValueError('The footage could not be inspected. Your original is kept; retry to check the video again.')
+  try:
+   content.append({'type':'image_url','image_url':{'url':frame(source,(c['start_s']+c['end_s'])/2,directory,i),'detail':'low'}})
+  except RuntimeError:
+   raise ValueError('The footage could not be inspected. Your original is kept; retry to check the video again.')
  rt.stage(row,'Arranging the lesson recap')
- raw=rt.model(MERGE_PROMPT,content)
+ validation_error=None
+ for merge_attempt in range(MAX_MERGE_ATTEMPTS):
+  repair=[] if validation_error is None else [{'type':'text','text':json.dumps({'selection_validation_error':validation_error,'selection_requirements':{'maximum_chapters':MAX_CHAPTERS,'maximum_total_worker_owned_seconds':MAX_RECAP_SECONDS,'allowed_chapter_fields':['candidate_id','title','cues'],'candidate_id_rule':'Each supplied candidate_id may be selected at most once. Do not provide times, durations, or range fields.'}},ensure_ascii=False)}]
+  prompt=MERGE_PROMPT if validation_error is None else MERGE_PROMPT+'\nYour previous selection was invalid: '+validation_error+' Return a coherent corrected selection using only supplied candidate IDs, with at most 16 chapters and 900 worker-owned seconds. Do not omit the complete outline from themes.'
+  raw=rt.model(prompt,content+repair)
+  try:
+   selected=selected_candidates(raw,candidate_by_id)
+   break
+  except ValueError as error:
+   validation_error=str(error)
+ else:
+  raise ValueError('The recap selection could not be completed after a correction pass. Your original and completed work are kept. Retry to continue.')
  # Clip selection must not discard the fuller written teaching outline.
  raw['themes']=outline.get('themes') or raw.get('themes',[])
  if outline.get('warning'):raw['warning']=' '.join(filter(None,[raw.get('warning'),outline['warning']]))
- selected=[];seen=set()
- for chapter in raw.get('chapters',[]):
-  if not isinstance(chapter,dict) or set(chapter)&{'start_s','end_s','summary_start_s','summary_end_s'}:
-   raise ValueError('The selected footage needs another pass. Retry to rebuild the recap with a valid candidate ID.')
-  candidate_id=chapter.get('candidate_id')
-  if not isinstance(candidate_id,str) or candidate_id not in candidate_by_id or candidate_id in seen:
-   raise ValueError('The selected footage needs another pass. Retry to rebuild the recap with a valid candidate ID.')
-  seen.add(candidate_id)
-  selected.append({key:value for key,value in chapter.items() if key!='candidate_id'}|{
-   'start_s':candidate_by_id[candidate_id]['start_s'],'end_s':candidate_by_id[candidate_id]['end_s']})
  raw['chapters']=selected
  return contextualize_edit(rt,row,normalize_edit(raw,duration),transcript,duration,directory)
 

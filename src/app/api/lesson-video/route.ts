@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { MEDIA_BUCKET,createMultipartUpload,presignUploadPart,listParts,completeMultipartUpload,headObject,presignGet,abortMultipartUpload,deleteObjects,listObjects } from '@/lib/r2';
 import { PART_SIZE,validateImport,validateEdit,canReadVideo,publicVideo } from '@/lib/lessonVideo/model';
+import { queueLessonRender } from '@/lib/lessonVideo/queueing';
 export const runtime='nodejs';
 export const maxDuration=60;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -97,7 +98,7 @@ export async function POST(req:Request){
   if(action==='retry'){
    if(row.stage==='Deleting')return failure('This lesson is being deleted.',409);
    if(row.status!=='failed')return failure('This lesson is not waiting for a retry.',409);
-   const {error}=await db.from('lesson_videos').update({status:'queued',stage:'Waiting to process',error:null,lease_token:null,lease_until:null,lease_reclaim_count:0,updated_at:new Date().toISOString()}).eq('id',id).eq('status','failed').eq('revision',row.revision).or('stage.is.null,stage.neq.Deleting');if(error)throw error;
+   const {error}=await db.from('lesson_videos').update(queueLessonRender('Waiting to process',new Date().toISOString())).eq('id',id).eq('status','failed').eq('revision',row.revision).or('stage.is.null,stage.neq.Deleting');if(error)throw error;
    return NextResponse.json({ok:true});
   }
   if(action==='edit'){
@@ -105,7 +106,7 @@ export async function POST(req:Request){
    if(body.expectedRevision!==row.revision)return failure('The lesson changed. Reload before editing.',409);
    const edit=validateEdit(body.edit,row.duration_s);if(!edit)return failure('Check the chapter text and clip times. Recaps can have up to 16 chapters and be up to 15 minutes.');
    // CAS prevents a late editor from overwriting a newly queued/rendered version.
-   const {data:changed,error}=await db.from('lesson_videos').update({edit,status:'queued',stage:'Updating recap',summary_key:null,playback_key:null,revision:row.revision+1,updated_at:new Date().toISOString()}).eq('id',id).eq('revision',row.revision).eq('status',row.status).select('id').maybeSingle();
+   const {data:changed,error}=await db.from('lesson_videos').update({...queueLessonRender('Updating recap',new Date().toISOString()),edit,summary_key:null,playback_key:null,revision:row.revision+1}).eq('id',id).eq('revision',row.revision).eq('status',row.status).select('id').maybeSingle();
    if(error)throw error;if(!changed)return failure('The lesson changed. Reload before editing.',409);
    if(row.lesson_id)await db.from('coach_entries').update({shared_at:null}).eq('lesson_id',row.lesson_id).eq('coach_id',user.id);
    return NextResponse.json({ok:true});

@@ -42,7 +42,7 @@ begin
   from lesson_video_worker_heartbeats where release_id=r.release_id and not is_cloud
  ) h
  cross join lateral (
-  select count(*)::bigint as count,min(created_at) as oldest
+  select count(*)::bigint as count,min(updated_at) as oldest
   from lesson_videos where status='queued' and stage is distinct from 'Deleting'
  ) q;
 end $$;
