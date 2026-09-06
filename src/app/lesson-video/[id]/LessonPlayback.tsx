@@ -3,6 +3,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {ClipPlayer} from '@/app/match/[id]/ClipPlayer';
 import type {LessonEdit} from '@/lib/lessonVideo/model';
+import {lessonChapterStart} from '@/lib/lessonVideo/presentation';
 
 interface Props {
  src:string;
@@ -28,6 +29,7 @@ export function LessonPlayback({src,poster,edit,initialTime,onClose,onRetry}:Pro
  const scrollTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const [failed,setFailed]=useState(false);
  const [retrying,setRetrying]=useState(false);
+ const [indexOpen,setIndexOpen]=useState(false);
  const savedPosition=useRef(initialTime);
  const previousSource=useRef(src);
  // Capture before React replaces the media source and its clock resets.
@@ -56,8 +58,8 @@ export function LessonPlayback({src,poster,edit,initialTime,onClose,onRetry}:Pro
   observer.observe(el);return()=>observer.disconnect();
  },[]);
  function choose(index:number){
-  if(index<0||index>=edit.chapters.length)return;
-  const time=edit.chapters[index].summary_start_s??edit.chapters.slice(0,index).reduce((sum,c)=>sum+c.end_s-c.start_s,0);
+  const time=lessonChapterStart(edit.chapters,index);if(time===null)return;
+  setIndexOpen(false);
   chapterRef.current=index;setChapter(index);savedPosition.current=time;
   if(player.current&&player.current.readyState>=1){player.current.currentTime=time;transport.current?.play();}
   else pending.current={time,playing:true};
@@ -82,7 +84,7 @@ export function LessonPlayback({src,poster,edit,initialTime,onClose,onRetry}:Pro
   pending.current??={time:savedPosition.current,playing:true};
   try{await onRetry();setFailed(false);}catch{setFailed(true);}finally{setRetrying(false);}
  }
- return <dialog ref={dialog} aria-label="Lesson playback" onCancel={event=>{event.preventDefault();close();}} className="lesson-playback m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-ink p-0 text-zinc-100 backdrop:bg-black">
+ return <dialog ref={dialog} aria-label="Lesson playback" onCancel={event=>{event.preventDefault();if(indexOpen)setIndexOpen(false);else close();}} className="lesson-playback relative m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-ink p-0 text-zinc-100 backdrop:bg-black">
   <div className="flex h-full min-h-0 flex-col" style={{paddingTop:'env(safe-area-inset-top)',paddingBottom:'env(safe-area-inset-bottom)'}}>
    <header className="flex shrink-0 items-center justify-between gap-3 px-3 py-2 sm:px-5">
     <button autoFocus className={control} aria-label="Close playback" onClick={close}><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
@@ -101,7 +103,7 @@ export function LessonPlayback({src,poster,edit,initialTime,onClose,onRetry}:Pro
     <section aria-label="Chapter reminders" className="flex min-h-0 min-w-0 flex-1 flex-col">
      <div className="flex shrink-0 items-center justify-between px-3 pt-3 sm:px-5">
       <button className={control} aria-label="Previous chapter" disabled={chapter===0} onClick={()=>choose(chapter-1)}>‹</button>
-      <p className="text-xs font-semibold uppercase tracking-widest text-cyan-glow">Chapter {chapter+1} of {edit.chapters.length}</p>
+      <button className="min-h-11 px-3 text-xs font-semibold uppercase tracking-widest text-cyan-glow underline decoration-cyan-glow/60 underline-offset-4 focus-visible:outline focus-visible:outline-cyan-glow" aria-label="Open chapter index" onClick={()=>{transport.current?.pause();setIndexOpen(true);}}>Chapter {chapter+1} of {edit.chapters.length}</button>
       <button className={control} aria-label="Next chapter" disabled={chapter===edit.chapters.length-1} onClick={()=>choose(chapter+1)}>›</button>
      </div>
      <div ref={pages} onScroll={onScroll} className="flex min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -111,9 +113,19 @@ export function LessonPlayback({src,poster,edit,initialTime,onClose,onRetry}:Pro
       </article>)}
      </div>
      <nav aria-label="Chapters" className="flex shrink-0 justify-center pb-3 pt-1">{edit.chapters.map((_,index)=><button key={index} aria-label={`Go to chapter ${index+1}`} aria-current={chapter===index?'step':undefined} className="flex h-9 w-8 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-cyan-glow" onClick={()=>choose(index)}><span className={'h-1.5 rounded-full transition-all '+(chapter===index?'w-5 bg-cyan-glow':'w-1.5 bg-zinc-600')}/></button>)}</nav>
-    </section>
+   </section>
    </div>
   </div>
+  {indexOpen&&<div className="absolute inset-0 z-50 flex items-end bg-black/70 p-3 backdrop-blur-sm sm:items-center sm:justify-center" role="presentation" onMouseDown={event=>{if(event.currentTarget===event.target)setIndexOpen(false);}}>
+   <section role="dialog" aria-modal="true" aria-label="Chapter index" className="max-h-[82dvh] w-full overflow-hidden rounded-2xl border border-edge bg-surface shadow-2xl sm:max-w-xl">
+    <header className="flex items-center justify-between border-b border-edge px-5 py-4"><h2 className="text-lg font-semibold">Chapters</h2><button autoFocus className={control} aria-label="Close chapter index" onClick={()=>setIndexOpen(false)}>×</button></header>
+    <div className="max-h-[calc(82dvh-77px)] overflow-y-auto p-2">{edit.chapters.map((item,index)=><button key={index} aria-current={chapter===index?'true':undefined} className="flex min-h-14 w-full items-center gap-4 rounded-xl px-3 py-3 text-left hover:bg-surface-2 focus-visible:outline focus-visible:outline-cyan-glow" onClick={()=>choose(index)}>
+     <span className={'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold '+(chapter===index?'bg-cyan-glow text-ink':'bg-surface-2 text-zinc-400')}>{index+1}</span>
+     <span className="min-w-0 flex-1 text-sm font-medium leading-snug text-zinc-100">{item.title}</span>
+     {chapter===index&&<span aria-label="Current chapter" className="text-cyan-glow">✓</span>}
+    </button>)}</div>
+   </section>
+  </div>}
   <style jsx>{`
    @media (min-width: 900px), (orientation: landscape) and (max-height: 600px) {
     .lesson-playback-content { flex-direction: row; }

@@ -28,6 +28,22 @@ final class LearnCatalogTests: XCTestCase {
         XCTAssertFalse(source.contains("Text(\"First chapter\")"))
     }
 
+    func testLessonVideoTakeoverHasChapterIndexAndAudioControls() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("PongLens/Screens/LessonVideoScreen.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Open chapter index"))
+        XCTAssertTrue(source.contains("LessonVideoChapterIndex"))
+        XCTAssertTrue(source.contains("AVAudioSession.sharedInstance()"))
+        XCTAssertTrue(source.contains("setCategory(.playback"))
+        XCTAssertTrue(source.contains("player.isMuted = muted"))
+        XCTAssertTrue(source.contains("Mute lesson audio"))
+        XCTAssertTrue(source.contains("Turn on lesson audio"))
+    }
+
     private func loadStore() throws -> LearnCatalogStore {
         let resourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

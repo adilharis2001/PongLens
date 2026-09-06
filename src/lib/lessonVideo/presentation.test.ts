@@ -38,3 +38,11 @@ test('lesson detail offers the complete read-only recap and returns students to 
  assert.match(source,/const back=detail\?\.isOwner[^\n]+:\s*['"]\/journal['"]/);
  assert.doesNotMatch(source,/First chapter/);
 });
+
+test('lesson playback exposes an underlined chapter index that uses shared seek rules',async()=>{
+ const source=await readFile(new URL('../../app/lesson-video/[id]/LessonPlayback.tsx',import.meta.url),'utf8');
+ assert.match(source,/Open chapter index/);
+ assert.match(source,/underline/);
+ assert.match(source,/lessonChapterStart\(edit\.chapters,index\)/);
+ assert.match(source,/aria-current=\{chapter===index\?'true':undefined\}/);
+});

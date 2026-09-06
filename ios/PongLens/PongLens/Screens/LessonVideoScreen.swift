@@ -545,6 +545,8 @@ private struct LessonVideoTakeover: View {
     @State private var forcedLandscape = false
     @State private var chromeVisible = true
     @State private var chromeGeneration = UUID()
+    @State private var indexOpen = false
+    @State private var muted = false
     private let tick = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -580,6 +582,11 @@ private struct LessonVideoTakeover: View {
         .preferredColorScheme(.dark)
         .onAppear {
             visible = true
+            let session = AVAudioSession.sharedInstance()
+            try? session.setCategory(.playback, mode: .moviePlayback)
+            try? session.setActive(true)
+            muted = false
+            player.isMuted = muted
             synchronize()
             if duration > 0 && currentTime >= duration - 0.1 { seek(to: 0, resume: true) }
             else { player.play() }
@@ -602,6 +609,14 @@ private struct LessonVideoTakeover: View {
             }
         }
         .onReceive(tick) { _ in synchronize() }
+        .sheet(isPresented: $indexOpen) {
+            LessonVideoChapterIndex(chapters: chapters, selected: selected) { index in
+                indexOpen = false
+                selectChapter(index)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
     }
 
     private var video: some View {
@@ -613,6 +628,18 @@ private struct LessonVideoTakeover: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityAction { revealControls() }
             VStack {
+                HStack {
+                    Spacer()
+                    Button {
+                        muted.toggle()
+                        player.isMuted = muted
+                    } label: {
+                        Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                            .font(.system(size: 18, weight: .semibold)).foregroundStyle(.white)
+                            .frame(width: 44, height: 44).background(.black.opacity(0.5), in: Circle())
+                    }
+                    .accessibilityLabel(muted ? "Turn on lesson audio" : "Mute lesson audio")
+                }.padding(8)
                 Spacer()
                 HStack {
                     Button {
@@ -664,7 +691,16 @@ private struct LessonVideoTakeover: View {
                         Image(systemName: "chevron.left").frame(width: 44, height: 44)
                     }.disabled(selected == 0).accessibilityLabel("Previous chapter")
                     Spacer()
-                    Text("Chapter \(selected + 1) of \(chapters.count)").font(.plButton).foregroundStyle(PL.cyan)
+                    Button {
+                        player.pause()
+                        indexOpen = true
+                    } label: {
+                        Text("Chapter \(selected + 1) of \(chapters.count)")
+                            .font(.plButton).foregroundStyle(PL.cyan).underline()
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open chapter index")
                     Spacer()
                     Button { selectChapter(min(chapters.count - 1, selected + 1)) } label: {
                         Image(systemName: "chevron.right").frame(width: 44, height: 44)
@@ -693,10 +729,11 @@ private struct LessonVideoTakeover: View {
     }
 
     private func selectChapter(_ index: Int) {
-        guard chapters.indices.contains(index), index != selected else { return }
+        guard chapters.indices.contains(index) else { return }
         selected = index
-        let chapter = chapters[index]
-        if let start = original ? chapter.start_s : chapter.summary_start_s { seek(to: start, resume: true) }
+        if let start = LessonVideoChapterSelection.start(at: index, chapters: chapters, original: original) {
+            seek(to: start, resume: true)
+        }
     }
     private func seek(to seconds: Double, resume: Bool) {
         guard seconds.isFinite else { return }
@@ -745,6 +782,45 @@ private struct LessonVideoTakeover: View {
     private func requestOrientation(_ orientations: UIInterfaceOrientationMask) {
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return }
         scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations))
+    }
+}
+
+private struct LessonVideoChapterIndex: View {
+    let chapters: [LessonVideoEdit.Chapter]
+    let selected: Int
+    let onSelect: (Int) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
+                        Button { onSelect(index) } label: {
+                            HStack(spacing: 14) {
+                                Text("\(index + 1)")
+                                    .font(.plButton)
+                                    .foregroundStyle(index == selected ? PL.ink : PL.text400)
+                                    .frame(width: 34, height: 34)
+                                    .background(index == selected ? PL.cyan : PL.surface2, in: Circle())
+                                Text(chapter.title).font(.plBody.weight(.medium)).foregroundStyle(PL.text100)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                if index == selected {
+                                    Image(systemName: "checkmark").foregroundStyle(PL.cyan)
+                                        .accessibilityLabel("Current chapter")
+                                }
+                            }
+                            .padding(.horizontal, 16).padding(.vertical, 12).contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if index < chapters.count - 1 { Divider().overlay(PL.edge).padding(.leading, 64) }
+                    }
+                }.padding(.vertical, 8)
+            }
+            .background { ArenaBackground() }
+            .navigationTitle("Chapters")
+            .navigationBarTitleDisplayMode(.inline)
+            .preferredColorScheme(.dark)
+        }
     }
 }
 
