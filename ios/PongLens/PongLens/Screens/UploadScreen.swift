@@ -577,8 +577,14 @@ private struct VideoPicker: UIViewControllerRepresentable {
 // MARK: - Camera placement guidance
 
 /// "Where to place the camera" — the web's sheet: the top-down diagram,
-/// the three checks that make footage processable, and the landscape note.
+/// the checks that make footage processable, and the landscape note.
 /// Dressed on the shared sheet scaffold, the same chrome as match details.
+///
+/// This is the manual sheet, behind "How to record" on Home and Upload. It
+/// used to open on its own for a new account; the recording brief
+/// (RecordingBriefSheet) does that job now, and the two say the same
+/// things — a rule added here is added there, and to the Learn guide, on
+/// both platforms.
 struct CameraPlacementSheet: View {
     /// Which door raised it. Only the closing note changes: "Record a
     /// match and the camera screen draws the table" is nonsense read one
@@ -611,6 +617,8 @@ struct CameraPlacementSheet: View {
                     checkRow("On the side you do not serve from. A right-hander serving pendulum stands near their backhand corner, so the camera goes on the forehand side.")
                     checkRow("The whole table in frame, with the ball clearly visible where it lands on both halves.")
                     checkRow("Neither player standing between the camera and the table, on either half.")
+                    checkRow("On a tripod or something that does not move, for the whole match.")
+                    checkRow("Other tables out of the frame where you can.")
                 }
 
                 Section {
@@ -653,11 +661,10 @@ struct CameraPlacementSheet: View {
             // — so the closing note sat permanently behind the button,
             // unreachable at any scroll position. Reserved explicitly.
             .contentMargins(.bottom, 76, for: .scrollContent)
-            // Pinned, not the last row of the form. The sheet opens
-            // unasked for the first two occasions an account meets it
-            // (CameraGuideGate), and a way out that has to be scrolled
-            // down to — past the diagram, four rules, a landscape note
-            // and three photographs — reads as a trap rather than an exit.
+            // Pinned, not the last row of the form. A way out that has to
+            // be scrolled down to — past the diagram, six rules, a
+            // landscape note and three photographs — reads as a trap
+            // rather than an exit.
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 0) {
                     Divider().overlay(PL.edge)

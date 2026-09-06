@@ -35,6 +35,7 @@ export const playerGuides: Guide[] = [
         paragraphs: [
           "Open How to record before your first match. Put the camera to the side of the table, around head height, with the full table and both players in view. Record sideways when you can.",
           "Choose the side you do not serve from so neither player blocks the camera as the point begins.",
+          "Put the phone on a tripod or something that does not move, and keep other tables out of the frame where you can.",
         ],
       },
       {

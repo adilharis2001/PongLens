@@ -40,20 +40,20 @@ struct MainTabView: View {
     @State private var path = NavigationPath()
     @State private var bellOpen = false
     @State private var newMatchChoice: NewMatchChoice?
-    /// The chosen door, held while the camera guide is up in front of it,
-    /// and consumed when the guide closes.
+    /// The chosen door, held while the recording brief is up in front of
+    /// it, and consumed when the brief closes.
     @State private var pendingChoice: NewMatchChoice?
-    /// The guide's own presentation. `sheet(item:)` rather than a Bool:
+    /// The brief's own presentation. `sheet(item:)` rather than a Bool:
     /// the sheet has to know which door raised it, and reading that from
     /// a second piece of state resolved a beat too early — every showing
-    /// came out in the upload wording, including the two raised by
+    /// came out in the upload wording, including the ones raised by
     /// Record. Carried by the item, it cannot disagree.
-    @State private var cameraGuideDoor: CameraGuideDoor?
+    @State private var briefDoor: BriefDoor?
     @State private var keyboardVisible = false
 
-    struct CameraGuideDoor: Identifiable {
+    struct BriefDoor: Identifiable {
         let id = UUID()
-        let context: CameraPlacementSheet.Context
+        let context: RecordingBriefSheet.Context
     }
 
     /// A coaching side exists: the flag, a marketplace page, or someone's
@@ -68,7 +68,7 @@ struct MainTabView: View {
     }
 
     /// Everything the chooser used to do inline, now also reachable from
-    /// the far side of the camera guide.
+    /// the far side of the recording brief.
     private func beginNewMatch(_ choice: NewMatchChoice) {
         switch choice {
         case .record(let kind):
@@ -181,21 +181,22 @@ struct MainTabView: View {
         .sheet(isPresented: $router.newMatchOpen, onDismiss: {
             guard let choice = newMatchChoice else { return }
             newMatchChoice = nil
-            // For the first two occasions an account walks through any of
-            // these three doors, the camera guide stands in front of it.
-            // Where the camera goes is the single biggest thing deciding
-            // whether the pipeline finds any points, and this is the last
-            // moment the advice can still change the footage.
+            // The first time an account walks through any of these three
+            // doors, the recording brief stands in front of it, and stays
+            // until its last page is finished. Where the camera goes is
+            // the single biggest thing deciding whether the pipeline finds
+            // any points, and this is the last moment the advice can still
+            // change the footage.
             //
             // It has to open HERE, before the errand starts, because the
             // recorder rotates the phone before it presents and this is a
             // tall portrait form. Portrait first, hand over on dismissal.
-            if CameraGuideFirstRun.shouldAutoShow(
+            if RecordingBriefFirstRun.shouldShow(
                 app: app,
                 hasAnyMatch: library.loaded ? !library.matches.isEmpty : nil
             ) {
                 pendingChoice = choice
-                cameraGuideDoor = CameraGuideDoor(
+                briefDoor = BriefDoor(
                     context: { if case .record = choice { .recording } else { .upload } }()
                 )
             } else {
@@ -214,22 +215,29 @@ struct MainTabView: View {
             .presentationDragIndicator(.visible)
         }
         // Raised only by the gate above. The manual "How to record"
-        // triggers on Home and Upload keep their own sheets and never
-        // count against the two automatic showings.
-        .sheet(item: $cameraGuideDoor, onDismiss: {
-            // Closing it must never cancel the errand — by the button, by
-            // the drag, or by tapping outside. A tap that opens a sheet
-            // and then leaves you exactly where you started reads as a
-            // broken button, which is the easiest way there is to spoil a
-            // first run.
+        // triggers on Home and Upload keep the placement sheet and never
+        // count.
+        .sheet(item: $briefDoor, onDismiss: {
+            // The only way the brief closes is its last button, and that
+            // must never cancel the errand. A tap that opens a sheet and
+            // then leaves you exactly where you started reads as a broken
+            // button, which is the easiest way there is to spoil a first
+            // run.
             if let choice = pendingChoice {
                 pendingChoice = nil
                 beginNewMatch(choice)
             }
         }) { door in
-            CameraPlacementSheet(context: door.context)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+            RecordingBriefSheet(context: door.context) {
+                // Finished. Count it, then hand over through onDismiss.
+                RecordingBriefFirstRun.markDone(app: app)
+                briefDoor = nil
+            }
+            .presentationDetents([.large])
+            // No drag and no handle: a handle invites a swipe that would
+            // do nothing, and the brief has no way out except through.
+            .presentationDragIndicator(.hidden)
+            .interactiveDismissDisabled()
         }
         .onReceive(NotificationCenter.default.publisher(for: .plUploadRegistered)) { _ in
             // A finished upload just registered its match row; pull the

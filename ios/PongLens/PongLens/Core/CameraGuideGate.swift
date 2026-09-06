@@ -1,13 +1,14 @@
 import Foundation
 
-/// How often a first-run account is shown "Where to place the camera"
-/// without asking for it.
+/// How often a first-run account is shown camera advice without asking
+/// for it.
 ///
-/// Where the camera goes decides whether the pipeline finds any points at
-/// all, so the sheet now opens on its own at the three doors out of the
-/// New match chooser. Twice, then never again — long enough to be read,
-/// short enough that it never becomes the thing you swipe away on the way
-/// to somewhere else.
+/// Two things ride on this rule. The "Where to place the camera" sheet was
+/// the first: it opened on its own, twice, at the three doors out of the
+/// New match chooser. The recording brief (`RecordingBriefGate`, below)
+/// replaced that automatic showing in September: five pages, once, with no
+/// way out except through them. The sheet itself is still there behind
+/// every "How to record" link, and a manual open never counts.
 ///
 /// Twin of `src/lib/cameraGuideGate.ts`. Both are checked against the same
 /// table of cases in `ios/Tests/fixtures/camera-guide-gate.json`, rather
@@ -75,12 +76,13 @@ enum CameraGuideGate {
     ///   - seen: `readSeenCount`, nil when never recorded
     ///   - hasAnyMatch: does the account already have footage in it
     ///   - shownThisSession: has one already opened this launch
-    static func gate(seen: Int?, hasAnyMatch: Bool, shownThisSession: Bool) -> Decision {
+    ///   - max: how many automatic showings an account gets
+    static func gate(seen: Int?, hasAnyMatch: Bool, shownThisSession: Bool, max: Int = maxShowings) -> Decision {
         var effective = seen
         var seed: Int?
 
         // Back-fill. Nobody has a counter on the day this ships, so
-        // without this every existing account gets interrupted twice —
+        // without this every existing account gets interrupted —
         // including accounts with forty matches that plainly know where
         // the camera goes.
         //
@@ -89,8 +91,8 @@ enum CameraGuideGate {
         // second showing, so "already has footage" can only be asked once,
         // before the counter exists.
         if seen == nil, hasAnyMatch {
-            effective = maxShowings
-            seed = maxShowings
+            effective = max
+            seed = max
         }
 
         // At most one automatic showing per launch. Without it, tapping
@@ -99,9 +101,54 @@ enum CameraGuideGate {
         if shownThisSession { return Decision(show: false, persist: seed) }
 
         let count = effective ?? 0
-        if count < maxShowings {
+        if count < max {
             return Decision(show: true, persist: count + 1)
         }
         return Decision(show: false, persist: seed)
+    }
+}
+
+// MARK: - The recording brief
+
+/// The same rule with a budget of one and no per-launch clause.
+///
+/// Twin of the `recordingBrief*` half of `src/lib/cameraGuideGate.ts`, and
+/// checked against the `brief` table in the same fixture.
+enum RecordingBriefGate {
+    /// Once. Five pages twice would be a chore, and stepping through them
+    /// is what makes them land, so one walk is the whole budget.
+    static let maxShowings = 1
+
+    /// Beside `camera_guide_seen`. The old key is left exactly as it was.
+    static let metadataKey = "recording_brief_seen"
+
+    /// What both copies hold once the last page's button has been tapped.
+    static let done = 1
+
+    static func storageKey(userId: String) -> String {
+        "pl-recording-brief-seen:\(userId)"
+    }
+
+    struct Decision: Equatable {
+        /// Open the brief now, at page one.
+        let show: Bool
+        /// Write this to both copies right now, or nil. Only ever the
+        /// back-fill: the brief counts itself as seen when it is FINISHED,
+        /// not when it opens, so that quitting halfway brings it back from
+        /// page one next time. That write is `done` and belongs to the
+        /// caller's completion handler, never to this decision.
+        let seed: Int?
+    }
+
+    static func gate(seen: Int?, hasAnyMatch: Bool) -> Decision {
+        // No per-launch clause: with a budget of one there is nothing left
+        // to space out, and an abandoned walk is meant to return.
+        let d = CameraGuideGate.gate(
+            seen: seen, hasAnyMatch: hasAnyMatch, shownThisSession: false, max: maxShowings
+        )
+        // When the answer is "show", persist is the completion value, which
+        // is not written until the walk is finished. Only a no-show carries
+        // a seed.
+        return Decision(show: d.show, seed: d.show ? nil : d.persist)
     }
 }

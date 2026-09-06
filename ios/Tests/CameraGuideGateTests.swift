@@ -87,4 +87,39 @@ func runCameraGuideGateChecks() {
         CameraGuideGate.storageKey(userId: "a") != CameraGuideGate.storageKey(userId: "b"),
         "the device key is per account"
     )
+
+    // --- the recording brief, against the same table --------------------
+    let briefCases = root["brief"] as? [[String: Any]] ?? []
+    check(!briefCases.isEmpty, "the brief table is not empty")
+    for c in briefCases {
+        let name = c["name"] as? String ?? "?"
+        let expected = RecordingBriefGate.Decision(
+            show: c["show"] as? Bool ?? false,
+            seed: CameraGuideGate.coerce(c["seed"])
+        )
+        let got = RecordingBriefGate.gate(
+            seen: CameraGuideGate.coerce(c["seen"]),
+            hasAnyMatch: c["hasAnyMatch"] as? Bool ?? false
+        )
+        check(got == expected, "brief: \(name) — expected \(expected), got \(got)")
+    }
+
+    // Open it, quit halfway, come back: still owed. Finish it: never again.
+    var briefSeen: Int?
+    var opened = 0
+    for _ in 0..<3 {
+        let d = RecordingBriefGate.gate(seen: briefSeen, hasAnyMatch: false)
+        if d.show { opened += 1 }
+        check(d.seed == nil, "nothing is written for a walk that was abandoned")
+    }
+    check(opened == 3, "an abandoned walk comes back every time (got \(opened))")
+    briefSeen = RecordingBriefGate.done
+    for launch in 0..<4 {
+        let d = RecordingBriefGate.gate(seen: briefSeen, hasAnyMatch: launch > 0)
+        check(!d.show && d.seed == nil, "finished is finished")
+    }
+    check(
+        RecordingBriefGate.storageKey(userId: "a") != CameraGuideGate.storageKey(userId: "a"),
+        "the brief's device key is not the sheet's"
+    )
 }
