@@ -1,0 +1,162 @@
+{
+  "planned": 178,
+  "completed": 178,
+  "estimated_usd": 1.29442725,
+  "completed_metrics": {
+    "samples": 178,
+    "valid_predictions": 177,
+    "invalid_or_missing": 1,
+    "state_agreement": 131,
+    "visible_reference": 109,
+    "visible_missed": 22,
+    "false_visible": 7,
+    "within_10px": 58,
+    "within_20px": 67,
+    "within_40px": 75,
+    "confusion": {
+      "hidden -> absent": 15,
+      "hidden -> hidden": 7,
+      "absent -> absent": 37,
+      "visible -> visible": 87,
+      "visible -> absent": 13,
+      "visible -> hidden": 8,
+      "absent -> hidden": 3,
+      "absent -> visible": 5,
+      "hidden -> visible": 2
+    },
+    "median_error_when_both_visible_px": 7.494147268327366
+  },
+  "by_venue": {
+    "LYTTC": {
+      "samples": 70,
+      "valid_predictions": 69,
+      "invalid_or_missing": 1,
+      "state_agreement": 55,
+      "visible_reference": 46,
+      "visible_missed": 11,
+      "false_visible": 0,
+      "within_10px": 24,
+      "within_20px": 26,
+      "within_40px": 31,
+      "confusion": {
+        "hidden -> absent": 4,
+        "hidden -> hidden": 1,
+        "absent -> absent": 19,
+        "visible -> visible": 35,
+        "visible -> absent": 6,
+        "visible -> hidden": 4
+      },
+      "median_error_when_both_visible_px": 7.781141377547427
+    },
+    "PingPod": {
+      "samples": 54,
+      "valid_predictions": 54,
+      "invalid_or_missing": 0,
+      "state_agreement": 48,
+      "visible_reference": 46,
+      "visible_missed": 4,
+      "false_visible": 0,
+      "within_10px": 29,
+      "within_20px": 35,
+      "within_40px": 38,
+      "confusion": {
+        "absent -> absent": 3,
+        "visible -> visible": 42,
+        "visible -> hidden": 2,
+        "absent -> hidden": 1,
+        "hidden -> hidden": 3,
+        "visible -> absent": 2,
+        "hidden -> absent": 1
+      },
+      "median_error_when_both_visible_px": 6.730557205685846
+    },
+    "Westchester TTC": {
+      "samples": 54,
+      "valid_predictions": 54,
+      "invalid_or_missing": 0,
+      "state_agreement": 28,
+      "visible_reference": 17,
+      "visible_missed": 7,
+      "false_visible": 7,
+      "within_10px": 5,
+      "within_20px": 6,
+      "within_40px": 6,
+      "confusion": {
+        "absent -> visible": 5,
+        "absent -> absent": 15,
+        "visible -> visible": 10,
+        "visible -> absent": 5,
+        "hidden -> absent": 10,
+        "hidden -> hidden": 3,
+        "hidden -> visible": 2,
+        "absent -> hidden": 2,
+        "visible -> hidden": 2
+      },
+      "median_error_when_both_visible_px": 9.454754241067892
+    }
+  },
+  "previously_evaluated_subset": {
+    "samples": 12,
+    "valid_predictions": 12,
+    "invalid_or_missing": 0,
+    "state_agreement": 10,
+    "visible_reference": 2,
+    "visible_missed": 0,
+    "false_visible": 0,
+    "within_10px": 1,
+    "within_20px": 1,
+    "within_40px": 1,
+    "confusion": {
+      "hidden -> absent": 2,
+      "hidden -> hidden": 1,
+      "absent -> absent": 7,
+      "visible -> visible": 2
+    },
+    "median_error_when_both_visible_px": 49.67263570535637
+  },
+  "prior_on_same_subset": {
+    "samples": 12,
+    "valid_predictions": 12,
+    "invalid_or_missing": 0,
+    "state_agreement": 9,
+    "visible_reference": 2,
+    "visible_missed": 0,
+    "false_visible": 2,
+    "within_10px": 1,
+    "within_20px": 1,
+    "within_40px": 1,
+    "confusion": {
+      "hidden -> visible": 1,
+      "hidden -> absent": 1,
+      "hidden -> hidden": 1,
+      "absent -> absent": 6,
+      "absent -> visible": 1,
+      "visible -> visible": 2
+    },
+    "median_error_when_both_visible_px": 62.03811598168126
+  },
+  "not_previously_evaluated_subset": {
+    "samples": 166,
+    "valid_predictions": 165,
+    "invalid_or_missing": 1,
+    "state_agreement": 121,
+    "visible_reference": 107,
+    "visible_missed": 22,
+    "false_visible": 7,
+    "within_10px": 57,
+    "within_20px": 66,
+    "within_40px": 74,
+    "confusion": {
+      "visible -> visible": 85,
+      "visible -> absent": 13,
+      "visible -> hidden": 8,
+      "absent -> absent": 30,
+      "absent -> hidden": 3,
+      "absent -> visible": 5,
+      "hidden -> absent": 13,
+      "hidden -> hidden": 6,
+      "hidden -> visible": 2
+    },
+    "median_error_when_both_visible_px": 7.494147268327366
+  }
+}

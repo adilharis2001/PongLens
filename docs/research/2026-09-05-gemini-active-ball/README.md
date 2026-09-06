@@ -43,7 +43,7 @@ Sources: https://ai.google.dev/gemini-api/docs/pricing , https://ai.google.dev/g
 
 Adil enabled billing and requested a prompt adjustment after spotting a white court-line fragment mistaken for the ball. Prompt 2 explicitly checks background-relative motion and line continuity, including short line fragments exposed by moving players. It distinguishes occluder motion from ball motion, without automatically rejecting motion blur, a ball overlapping a line, or small displacement between adjacent frames.
 
-`gemini-active-ball-v2.py` preserves the original runner and appends those instructions. Its separate format pilot (`gemini-run2`) was stopped at 29 responses after two answers were truncated at the shared 2,048-token reasoning/output cap. The final run uses `gemini-active-ball-v3.py`: exactly the same Prompt 2 with an 8,192-token allowance, otherwise unchanged model, media and generation settings. Paid request pacing is explicitly supplied with `--interval 0`; the original runner keeps its 13-second default for reproducibility. Four disjoint shards share a $4.50 estimated-cost guard, leaving room for the pilots inside the previously stated $5 estimate ceiling.
+`gemini-active-ball-v2.py` preserves the original runner and appends those instructions. Its separate format pilot (`gemini-run2`) was stopped at 47 responses after two answers were truncated at the shared 2,048-token reasoning/output cap. The final run uses `gemini-active-ball-v3.py`: exactly the same Prompt 2 with an 8,192-token allowance, otherwise unchanged model, media and generation settings. Paid request pacing is explicitly supplied with `--interval 0`; the original runner keeps its 13-second default for reproducibility. Four disjoint shards share a $4.50 estimated-cost guard, leaving room for the pilots inside the previously stated $5 estimate ceiling.
 
 All 178 frozen references are rerun in `/Users/adil/ponglens-data/active-ball/gemini-run3`, published under `gemini-3.8-flash-20260905-v3`. The page identifies the instructions as Prompt 2. Original responses and pilot responses remain separate. Unusable answers remain scored failures; the runner can resume past them without retrying or replacing them.
 
@@ -56,3 +56,20 @@ python scripts/research/gemini-active-ball-v3.py /Users/adil/ponglens-data/activ
 python scripts/research/publish-active-ball-evaluation.py /Users/adil/ponglens-data/active-ball/gemini-run3 --run-id gemini-3.8-flash-20260905-v3
 python scripts/research/summarize-active-ball-evaluation.py /Users/adil/ponglens-data/active-ball/gemini-run3 --prior-run /Users/adil/ponglens-data/active-ball/gemini-run1
 ```
+
+### Completed Prompt 2 results
+
+All 178 attempted; 177 usable structured answers. One answer returned x=1300 despite the requested 0..1000 scale and is retained as an unanswered failure, without clamping or guessing a different coordinate convention.
+
+- Visible-ball localization: 58/109 within 10 source pixels, 67/109 within 20 pixels (61.5%), 75/109 within 40 pixels.
+- State agreement: 131/178 (73.6%).
+- False visible detections: 7/69 human hidden/absent frames, all at Westchester.
+- 22/109 visible reference balls were missed or unanswered; another 20 were called visible but placed more than 20 pixels away.
+- Per venue, within 20px: LYTTC 26/46, PingPod 35/46, Westchester TTC 6/17.
+- Previously inspected 12: false visible detections fell from 2 to 0, while state agreement moved from 9/12 to 10/12. Two hidden frames are now called absent, so eliminating the dot is not a fully correct interpretation. This small inspected subset cannot establish a general gain.
+- Other 166: 66/107 visible balls within 20px; 121/166 state agreement; seven false detections. They remain related footage, not a new independent holdout.
+- Estimated list-price equivalent: $1.2944 for the complete final run; $1.6224 including the original 12 and 47-response format pilot. These are token-based estimates, not invoice totals.
+
+Full aggregate output is in `prompt2-summary.json`. Raw responses and the frozen protocol remain in the local run directory. All runs preserve the same benchmark SHA-256 `62822f24273929e661ce2bdaf158d12a04cd71c0144cb1abe24824c02b35791d`.
+
+Verification: full `npm run build` passed after incorporating current main. All 28 active-ball Python tests and six TypeScript ball/comparison tests passed; a synthetic incomplete-run check verified invalid-answer denominators and false detections. Authenticated desktop (1440×1000) and mobile (393×660) browser checks passed for read-only comparison, next disagreement, no horizontal overflow and separate label editing. Publication asserts every existing immutable result and verifies human labels/revisions are unchanged within the transaction. No production worker or iOS change.
