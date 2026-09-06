@@ -3,6 +3,19 @@ import XCTest
 @testable import PongLens
 
 final class LearnCatalogTests: XCTestCase {
+    func testLessonVideoChapterStartUsesTimelineAndFallback() {
+        let chapters = [
+            LessonVideoEdit.Chapter(title: "One", cues: ["First"], start_s: 10, end_s: 40, summary_start_s: 0, summary_end_s: 30),
+            LessonVideoEdit.Chapter(title: "Two", cues: ["Second"], start_s: 80, end_s: 100, summary_start_s: nil, summary_end_s: nil),
+            LessonVideoEdit.Chapter(title: "Three", cues: ["Third"], start_s: 150, end_s: 180, summary_start_s: 52, summary_end_s: 82),
+        ]
+
+        XCTAssertEqual(LessonVideoChapterSelection.start(at: 2, chapters: chapters, original: false), 52)
+        XCTAssertEqual(LessonVideoChapterSelection.start(at: 1, chapters: chapters, original: false), 30)
+        XCTAssertEqual(LessonVideoChapterSelection.start(at: 2, chapters: chapters, original: true), 150)
+        XCTAssertNil(LessonVideoChapterSelection.start(at: 3, chapters: chapters, original: false))
+    }
+
     private func loadStore() throws -> LearnCatalogStore {
         let resourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

@@ -160,6 +160,16 @@ nonisolated struct LessonVideoScope {
 
 /// The cue panel follows the timeline currently shown by the player.
 enum LessonVideoChapterSelection {
+    static func start(at index: Int, chapters: [LessonVideoEdit.Chapter], original: Bool) -> Double? {
+        guard chapters.indices.contains(index) else { return nil }
+        let chapter = chapters[index]
+        if original { return chapter.start_s }
+        if let start = chapter.summary_start_s, start.isFinite { return start }
+        return chapters[..<index].reduce(0) { total, previous in
+            total + max(0, previous.end_s - previous.start_s)
+        }
+    }
+
     static func index(at seconds: Double, chapters: [LessonVideoEdit.Chapter], original: Bool) -> Int? {
         guard seconds.isFinite, !chapters.isEmpty else { return nil }
         return chapters.lastIndex(where: { chapter in
