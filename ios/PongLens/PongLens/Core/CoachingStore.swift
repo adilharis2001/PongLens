@@ -59,6 +59,11 @@ final class CoachingStore {
     /// name since 164 shipped; the phone said nothing, which is also why
     /// an invited coach never reached the journal's picker there.
     var invitedNames: [UUID: String] = [:]
+    /// The same rows behind invitedNames, kept whole (2026-09-04). The
+    /// "what they can see" list needs the player_coaches id to find the
+    /// entries attributed to a coach, and a name-only dictionary threw it
+    /// away. One call already fetches them.
+    var playerCoaches: [PlayerCoach] = []
 
     /// What a waiting invite is called when nobody named it. Never a
     /// person's name and never something that reads like one: it sits
@@ -115,8 +120,9 @@ final class CoachingStore {
         UserDefaults.standard.set(showTab, forKey: Self.tabCacheKey(userId))
         let named: [PlayerCoach]? = try? await supa
             .rpc("player_coaches_list").execute().value
+        playerCoaches = named ?? []
         invitedNames = Dictionary(
-            (named ?? []).compactMap { row in
+            playerCoaches.compactMap { row in
                 row.inviteId.map { ($0, row.displayName) }
             },
             uniquingKeysWith: { first, _ in first }
@@ -242,5 +248,125 @@ func studentOrderStatusLabel(_ status: String?) -> String {
     case "declined": "Declined"
     case "cancelled": "Cancelled"
     default: status ?? ""
+    }
+}
+
+// MARK: - What one coach can see
+
+/// Everything one coach has of yours, in one list (Adil, 2026-09-04).
+///
+/// Two different things wear the same sentence here, deliberately, because
+/// from the player's side they are one question — what does this person
+/// have?
+///
+///   - a match already shared, which is a coach_links row;
+///   - a match QUEUED against an invite nobody has opened yet (166),
+///     which becomes a link only on accept.
+///
+/// Journal entries come in both states too, and the unshared ones are
+/// shown rather than hidden: an entry can be attributed to a coach without
+/// being readable by them, and that is exactly why a coach cannot see a
+/// journal the player believes they sent. Hiding it would leave the list
+/// saying "nothing" while the journal shows their name.
+struct CoachShare: Identifiable, Hashable {
+    enum Kind: Hashable { case match, queuedMatch, entry, unsharedEntry }
+    let id: String
+    let kind: Kind
+    let title: String
+    /// coach_links.id for a shared match; nil for a queued one.
+    let linkId: UUID?
+    let matchId: UUID?
+}
+
+extension CoachingStore {
+    private struct QueuedMatch: Decodable {
+        let matchId: UUID
+        enum CodingKeys: String, CodingKey { case matchId = "match_id" }
+    }
+
+    private struct AttributedEntry: Decodable {
+        let id: UUID
+        let transcript: String
+        let takeaways: LessonTakeaways?
+        let sharedWithCoachAt: String?
+        enum CodingKeys: String, CodingKey {
+            case id, transcript, takeaways
+            case sharedWithCoachAt = "shared_with_coach_at"
+        }
+    }
+
+    /// The matches an invite is carrying, and every entry attributed to a
+    /// coach. Matches already linked are passed in by the caller, which
+    /// already holds them.
+    func sharedWith(coachRefId: UUID?, inviteId: UUID?) async -> [CoachShare] {
+        var out: [CoachShare] = []
+
+        if let inviteId {
+            let queued: [QueuedMatch]? = try? await supa
+                .from("coach_invite_matches")
+                .select("match_id")
+                .eq("invite_id", value: inviteId.uuidString.lowercased())
+                .execute().value
+            for row in queued ?? [] {
+                out.append(CoachShare(
+                    id: "q:\(row.matchId.uuidString)", kind: .queuedMatch,
+                    title: "", linkId: nil, matchId: row.matchId
+                ))
+            }
+        }
+
+        if let coachRefId {
+            let rows: [AttributedEntry]? = try? await supa
+                .from("lessons")
+                .select("id,transcript,takeaways,shared_with_coach_at")
+                .eq("coach_ref_id", value: coachRefId.uuidString.lowercased())
+                .order("created_at", ascending: false)
+                .execute().value
+            for row in rows ?? [] {
+                let words = row.transcript
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let note = row.takeaways?.title?.trimmingCharacters(in: .whitespaces)
+                let title = (note?.isEmpty == false ? note! : nil)
+                    ?? (words.isEmpty
+                        ? "Entry"
+                        : (words.count > 64 ? String(words.prefix(64)) + "…" : words))
+                out.append(CoachShare(
+                    id: row.id.uuidString,
+                    kind: row.sharedWithCoachAt == nil ? .unsharedEntry : .entry,
+                    title: title, linkId: nil, matchId: nil
+                ))
+            }
+        }
+        return out
+    }
+
+    /// Take a queued match back off an invite that has not been accepted.
+    func unqueueMatch(inviteId: UUID, matchId: UUID) async -> Bool {
+        do {
+            try await supa.from("coach_invite_matches").delete()
+                .eq("invite_id", value: inviteId.uuidString.lowercased())
+                .eq("match_id", value: matchId.uuidString.lowercased())
+                .execute()
+            return true
+        } catch { return false }
+    }
+
+    /// Grant or withdraw one entry. The grant moves; the attribution does
+    /// not, so the entry still says who taught it either way.
+    func setEntryShared(_ entryId: UUID, shared: Bool) async -> Bool {
+        // AnyJSON.null, never an Encodable struct with an optional: the
+        // synthesised encoder uses encodeIfPresent, so a nil would OMIT
+        // the column and the unshare would silently do nothing.
+        let at: AnyJSON = shared
+            ? .string(ISO8601DateFormatter().string(from: Date()))
+            : .null
+        do {
+            try await supa.from("lessons")
+                .update(["shared_with_coach_at": at])
+                .eq("id", value: entryId.uuidString.lowercased())
+                .execute()
+            return true
+        } catch { return false }
     }
 }

@@ -1,0 +1,932 @@
+[
+ {
+  "idx": 2,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 4,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.957,
+  "ball": "near",
+  "frames": 29,
+  "windows": 1
+ },
+ {
+  "idx": 6,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.939,
+  "ball": "far",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 7,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "near",
+  "frames": 28,
+  "windows": 1
+ },
+ {
+  "idx": 8,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.9,
+  "ball": "far",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 9,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "far",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 10,
+  "arm": "unanchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.945,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 11,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.947,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 12,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.88,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 13,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.957,
+  "ball": "far",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 14,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.888,
+  "ball": "far",
+  "frames": 29,
+  "windows": 1
+ },
+ {
+  "idx": 16,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.898,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 18,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 20,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.937,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 21,
+  "arm": "unanchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.898,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 22,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "far",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 23,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.913,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 24,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 26,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.876,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 27,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.898,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 28,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.947,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 29,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.938,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 31,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.957,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 32,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 33,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.947,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 34,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 36,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.939,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 38,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.86,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 39,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 41,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.898,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 43,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 44,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 45,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.9,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 46,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.898,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 47,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "far",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 48,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": null,
+  "frames": 29,
+  "windows": 1
+ },
+ {
+  "idx": 50,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.876,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 52,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": null,
+  "conf": 0.0,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 54,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 55,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.898,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 57,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.866,
+  "ball": "far",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 58,
+  "arm": "unanchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.888,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 59,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 60,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 62,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.948,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 64,
+  "arm": "unanchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.947,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 65,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.898,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 66,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 67,
+  "arm": "unanchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.916,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 68,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "far",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 70,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": null,
+  "conf": 0.0,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 71,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": null,
+  "conf": 0.0,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 72,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 74,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 76,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.91,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 77,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 78,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.947,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 79,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.947,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 81,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.868,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 83,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.947,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 84,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 85,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 86,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": null,
+  "conf": 0.0,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 88,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.936,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 89,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.937,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 90,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.865,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 92,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.848,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 93,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.926,
+  "ball": "far",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 94,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 95,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 96,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.888,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 97,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 98,
+  "arm": "unanchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 99,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 100,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.947,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 101,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.91,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 102,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 104,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 105,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.947,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 107,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.947,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 109,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.949,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 110,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 111,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.84,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 112,
+  "arm": "unanchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.947,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ },
+ {
+  "idx": 114,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.938,
+  "ball": "near",
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 116,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 117,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "near",
+  "conf": 0.85,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 118,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": null,
+  "conf": 0.0,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 120,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.949,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 122,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "near",
+  "conf": 0.957,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 123,
+  "arm": "anchored",
+  "truth": "near",
+  "pose": "far",
+  "conf": 0.84,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 125,
+  "arm": "anchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.886,
+  "ball": null,
+  "frames": 31,
+  "windows": 1
+ },
+ {
+  "idx": 129,
+  "arm": "unanchored",
+  "truth": "far",
+  "pose": "far",
+  "conf": 0.947,
+  "ball": null,
+  "frames": 68,
+  "windows": 17
+ }
+]

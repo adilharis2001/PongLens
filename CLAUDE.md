@@ -169,6 +169,33 @@ explaining what the section would contain.
 
 ## Design and layout
 
+### Approved application baseline (2026-09-05)
+
+Adil approved the flattened inline allowance-request flow as the existing
+PongLens theme, not a new design direction. Reuse the app's colors, fonts,
+input treatments and button styles. Keep messages and forms left-aligned
+inside their existing card; do not add nested bordered panels around each
+part. Use one cyan primary action and outlined secondary actions.
+
+On mobile web and iOS, form/action buttons must fill the available content
+width, stack with spacing and provide at least a 44px/44pt touch target.
+Desktop actions may remain content-width. Chips, segmented controls and
+icon controls retain their established compact patterns. On iOS, size the
+button's label before applying the existing PL button style, so the visible
+button and its hit area both expand.
+
+The reference components are `AllowanceRequest` / `AllowanceRecovery` on
+web and `AllowanceRequestRow` / `AllowanceRecoveryView` on iOS. Compare the
+real rendered screen, not just matching color classes. Check desktop,
+393×660 mobile web, and native iOS separately. Preserve selected files,
+links and drafts when a user encounters a limit.
+
+The **Copy** rules above still apply. For beta allowances, the approved
+wording is “PongLens is in beta. You can request more storage for free.”
+(or “processing minutes”). Do not describe purchases as “paused”; they
+were never enabled. Prefer direct action labels such as “Request more
+storage” and “Send request”, with a calm confirmation afterward.
+
 **Compute the ceiling before laying anything out.** Aspect ratio times
 available space, first, out loud. A 9:16 video needs 699px of height to be
 full-width on a 393px phone. Discovering that after three rounds of
@@ -271,10 +298,25 @@ at this level:
 - **A wrong table is worse than no table.** Every detector in the ladder
   refuses rather than guesses, and a match with no calibration still
   processes — points, clips and scoring never needed the table.
-- **The ladder is keypoints, then Luna, then Sol, then refuse**, ordered by
+- **The ladder is keypoints, then Sol, then Luna, then refuse**, ordered by
   measured accuracy against 62 hand-marked matches. `keypoint_calibrate` in
-  `points_pipeline.py` is the entry point. About one match in ten falls
-  through to the paid step.
+  `points_pipeline.py` is the entry point.
+- **The two paid rungs swapped on 2026-08-26, and Luna was not retired.**
+  Luna led while its 2.4% median corner error was being compared against
+  Sol's reading over the 7 matches Sol had actually been called for. Run
+  over all 62, Sol is 10.6px against Luna's 57.0px, and Luna's tail is the
+  real gap — 22 frames over 80px off against Sol's 2. So Sol leads and Luna
+  is now the cheap second opinion when Sol produces no acceptable quad. It
+  still runs. The one place they are indistinguishable is PingPod (3.8px
+  against 4.0px), which is most likely how Luna came to be first, the early
+  corpus being PingPod-heavy — a caution about reading any venue-thin
+  result as a general one.
+- **How often the paid rungs are reached is no longer known.** The pooling
+  study accepted 90% of matches, which is where "one in ten falls through"
+  came from; `VISION_MODEL`'s note warns the decline rate may be nearer
+  half. Nothing has measured it since, and the calibration source lives in
+  `match.json` in R2 rather than in Postgres, so it cannot be counted with
+  a query. That rate, not the choice of model, is what sets the bill.
 - **Colour is not a table detector.** The retired pink-rim calibrator scored
   0.5% at LYTTC and 7.6% at PingPod, because PingPod's signage and barriers
   are magenta too. The defect was never "pink doesn't generalise" — it is
@@ -432,6 +474,91 @@ Lester 2. Roughly 1,100 scored points between them.
   - landing off the table 5%, bounces not consecutive 3%, no serve shot 2%.
   Both families lose the dot silently; the clip is unaffected, which is why
   none of this was noticed for months.
+- **"No landing" does not mean the ball was never seen come down.** All 77
+  of the scored points refused for `no_landing` on the seven-match corpus
+  have a landing event with real pixel coordinates; it projects OFF the
+  table, a median of 1.2 m sideways on a table 1.525 m wide, and only 14 of
+  77 within half a metre of the box. Forty-three of them cluster two table
+  widths to one side in a single venue, which is the ball track being
+  captured by the next table along at LYTTC. The bounce detector is not the
+  problem and neither is the projection's tolerance.
+- **Audio confirmation of bounces is measured dead** (2026-08-28).
+  `placement_reconstruction` has always taken an `audio_impacts` argument
+  and always been passed `[]`. Supplying a real list makes the maps worse:
+  62% to 59%, 8 serves gained and 23 lost on 527 scored points. Isolated,
+  the `audio_supported_short_bounce` branch — the one written to rescue a
+  missed bounce — moves ZERO serves, and across nine settings not one
+  gained serve came from `no_landing`. The full record is
+  `docs/research/2026-08-28-audio-bounce-confirmation/`.
+- **A sound cannot say which table it came from**, which is why the above
+  fails: a neighbouring table's bounce is confirmed exactly as readily as
+  ours. Audio's one measured strength here is the reverse — a landing that
+  projects off the table is silent 42% of the time against 10% for one
+  that draws — and that is a veto, which removes rather than adds.
+- **Between points the room is nearly as loud as during them.** Measured
+  against Adil's own serve and winner taps in `point_boundaries`: with
+  nobody at this table playing, the detector still fires 2.1–4.0 impacts
+  a second against 3.1–4.9 while the ball is in play. A ratio of 1.2 to
+  1.6 is the whole explanation, and it does not improve with a better
+  detector. Any future audio idea should be checked against this number
+  first — it costs one query and no video.
+- **Use a 10 kHz high-pass, not 1.5–8 kHz**, if audio is ever revisited.
+  The published pipeline's band is 87% accurate against production's own
+  visual bounces where ours was 72%, at matched impact density, and the
+  gap is widest on the hardest matches. It halved the damage and changed
+  no verdict, which is the useful thing to know about it.
+- **Eight of ten recent uploads are mono at source**, so microphone-array
+  or stereo localisation cannot be applied to what we already hold; on the
+  two stereo files the channel delay is noise. The literature's only
+  reported fix for adjacent courts is a directional microphone, which is a
+  change to how matches are filmed.
+- **A knock CAN be told from the room, and it is worth about +1 point of
+  serve coverage** (2026-08-29, `docs/research/2026-08-29-audio-quiet-venue/`).
+  Train a small model on two piles that need no hand labelling: peaks
+  vision confirmed during a rally against peaks between two point cards.
+  Leave-one-match-out it reaches 0.82–0.88 AUC in a PingPod booth,
+  0.71–0.80 at LYTTC and chance at Westchester. Handing placement only the
+  ball-like impacts moves 527 scored points from 328 to 335 drawing, 8
+  gained and 1 lost — but the same impacts slid 7.31 s still gain 2, so
+  about five of the seven are really the audio. Venue is the axis that
+  matters: audio agrees with vision 91%/51% at PingPod, 80%/44% at LYTTC,
+  ~50%/28% at Westchester.
+- **Trimming the pad INSIDE a clip is dead, at 0.42 AUC** — below chance,
+  meaning the pad sounds MORE ball-like than the rally. The reason closes
+  the idea rather than inviting a better detector: the seconds either side
+  of a point are full of ball-on-table sounds, the server bouncing the ball
+  and the loose ball afterwards, and a microphone cannot tell those from a
+  rally bounce. Any dead-space idea resting on audio has to answer this.
+  Measured on seconds inside a card only; earlier versions of the same
+  measurement scored well by taking credit for the long breaks the
+  assembler already drops.
+- **Bat versus table does not survive the recording distance.** Sony AI
+  gets 0.97 F1 separating racket/table/floor with a directional microphone
+  at 0.5–2 m; from a phone across the room the same distinction measures
+  0.56 over 13 matches, against labels the pipeline already owns (it calls
+  an event a bounce or a contact from the ball's trajectory, so sound is
+  not grading itself). Do not propose porting that classifier.
+- **Which HALF of the table a bounce was on is not in the sound**, 0.55–0.60
+  AUC over 4,300 bounces, and the direction reverses between matches. How
+  hard the ball was hit is a bigger effect than how far away it was.
+- **The loose ball after a point is the most attractive dead end here.** It
+  decays geometrically — 0.36, 0.31, 0.27, 0.23, each about 0.86 of the
+  last, exactly a ball's coefficient of restitution — and it is plainly
+  audible. It still fails: runs that look geometric happen constantly by
+  coincidence at three knocks a second, and the decay ratios of trains
+  landing on a real point end match a time-shifted control to three
+  decimals (0.840 vs 0.840).
+- **Cut-clock audio cannot be used for event work.** When the raw upload has
+  been swept, the cut can be downloaded instead — but event times against
+  cut audio scatter ±0.45 s point to point and no constant fixes it.
+  Measured by sliding events against the audio and looking for the offset
+  with most agreement; source-clock matches align to ~10 ms. And the
+  conversion between the clocks must subtract `clip_pads.pre`, exactly as
+  the `point_boundaries` view does — leaving it out shifts every tap by a
+  second or so, which is larger than most things being measured. Read the
+  pad off the match; 1.2 is only the fallback the view uses when a match
+  has none, and it is wrong more often than it is right. See
+  **Reconstructing production's cards** below.
 - **Two attempts to recover the missing first bounce are dead.** Relaxing the
   bounce detector's frame-gap and apex rules: 7 of 18 moved serves landed
   closer to the hand marks, 10 further away. And searching placement's own
@@ -440,6 +567,283 @@ Lester 2. Roughly 1,100 scored points between them.
   bounce is not in any record we hold. Do not re-propose a look-back.
 - **Only 8 of the 16 carry placement data.** The rest cannot be measured this
   way, Kumar most annoyingly — it has 47 serve taps and no placement.
+
+---
+
+## Reconstructing production's cards
+
+Every experiment on this project is scored against what Adil actually sees
+in the scorekeeper. Reading it back wrong does not error — it produces a
+plausible number that is measuring something else. Each rule below cost a
+round of exactly that.
+
+The companion section above, **Ground truth**, covers what his scoring
+tells you. This one covers how to get it out.
+
+### The cards themselves
+
+- **They live in the `points` TABLE, never in `match.json`.** match.json is
+  what the assembler produced, once, at processing time. Adil edits cards
+  in the scorekeeper afterwards — Modify → split, join, adjust — and those
+  edits exist only in the table, so match.json cannot know about them. The
+  Yu Yu Lin match (`89b35ee0`) carries one card he split by hand; the proof
+  is in the next rule.
+- **A hand-split card takes a fresh `idx` at the END of the numbering.** On
+  that match `idx` 129 sits SEVENTH in time, at t0 = 44.93, so every card
+  after it carries an idx one LOWER than its position in time — the eighth
+  card is idx 7. Order by `(t0, idx)` and never by idx alone. The `edited`
+  column does not mark the split either: it is false on all 129 rows.
+- **The app's card numbers are neither `idx` nor yours.** The scorekeeper
+  numbers only the cards he KEPT, so each deleted row shifts everything
+  after it. Walk the time-ordered rows and increment only on `not deleted`.
+  A page saying "card 3" without saying whose is comparing two different
+  objects, which is exactly what the first version of the comparison page
+  did.
+- **A deleted card is a mark he left, not an absence.** "Production made a
+  card here and he threw it away" is a different finding from "production
+  made nothing here". Report them apart.
+- **Match your cards to his by overlap, and let the MOST overlap win.** Two
+  rules that look right and are not. *Any overlap with a deleted card wins*:
+  on `89b35ee0` a card sat 3.45s on a real point and 2.98s on a deleted one
+  and was scored as junk. *Whichever card holds the winner press wins*: he
+  presses in the dead time, which is exactly where one card ends and the
+  next begins, so the press lands in the wrong one.
+
+### Which rows are actually evidence, and which columns lie
+
+- **Kept is not scored.** 10,839 kept points across 158 matches, and only
+  **4,073 carry a `confirmed_winner`**; 95 of the 158 matches have any
+  scoring at all. A card he kept but never scored proves a card existed and
+  nothing about who won it. `scored = confirmed_winner is not null`, always.
+  Narrow again for winner presses: 2,709 of those kept points have one.
+- **A let is a kept, unscored point that still happened** — 152 of them.
+  Filter lets out of WINNER work if you must, but never out of the list you
+  hand `computeServing`: the rotation does not advance on a let, and dropping
+  them re-anchors every server after it.
+- **Never read `points.server`.** It is set on 102 rows out of 12,044 and was
+  never a working independent read of who served. `server_override` (219
+  rows) is Adil's own correction, it is the only server column that means
+  anything, and `computeServing` already consumes it.
+- **`warmup` marks 6 kept rows.** Rare enough to forget and real enough to
+  skew a small per-point statistic. Exclude it.
+- **`t0`/`t1` are SOURCE seconds; the taps are CUT seconds; `cut_t0` is the
+  bridge between them.** That is the whole reason the conversion exists. A
+  row with `cut_t0` null cannot be put on the source clock by any means.
+
+### Getting the video to look at
+
+- **`/api/admin/media-url`, not `/api/media-url`.** The admin route signs a
+  URL for any match through `admin_match_cut_path` / `admin_match_raw_path`;
+  the public one only works for a match the caller owns, which is why
+  cross-match research pages need the admin route.
+- **Ask for the RAW for almost everything.** Card `t0`/`t1`, the ball track,
+  the bounces and the table corners are all on the source clock and the
+  source's frames, so the raw is the video every measurement lines up with.
+  The cut is what the player shows; the only things native to it are the two
+  taps and `cut_t0`. Mixing the clocks is the same class of error as mixing
+  pixel spaces, and just as quiet.
+
+### His two taps, and the clock they are on
+
+Both are his own marks, both on `points`, both in CUT seconds:
+
+| column | what it is | coverage |
+| --- | --- | --- |
+| `scored_at_cut_s` | the winner press | 57 matches, 2,709 kept points |
+| `serve_start_at_cut_s` | serve start, the admin-only B key | 14 matches, 451 kept points |
+
+Convert to source seconds exactly as the `point_boundaries` view does:
+
+    source_s = t0 - (matches.clip_pads->>'pre') - cut_t0 + <the cut_s value>
+
+- **`clip_pads.pre` is per match, and the 1.2 fallback is usually wrong.**
+  `89b35ee0` carries `{"pre": 0.3, "post": 0.4}`; using 1.2 there moves
+  every tap 0.9s, larger than most defects being hunted. 43 matches have no
+  `clip_pads` at all.
+- **Omitting the pad term is the easier mistake, and it is silent.** Drop it
+  and every tap lands late by exactly the pad, so every card reads shorter
+  against the press than it is. It happened during the card study: 92 taps,
+  all 0.30s late, and the "stops before your winner press" count came out
+  16 with a 3.8s worst case against a true 14 and 3.5s. Nothing errors and
+  no number looks absurd. Check one tap by hand against `point_boundaries`'
+  own arithmetic before trusting a file of them.
+- **`cut_t0` is the CLIP's start, not the card's**, which is what makes the
+  pad term necessary. On the first card of `89b35ee0`, `cut_t0` 10.17 is
+  exactly `t0` 10.47 minus the 0.3 pad.
+- **`point_boundaries` (117) requires BOTH taps, so it covers 14 matches
+  and 433 points.** A match with winner presses and no serve marks returns
+  nothing from it — `89b35ee0` has 92 of its 93 kept points tapped for the
+  winner and not one serve mark, and the view is empty for it. That is not
+  "no marks"; do the conversion above yourself.
+- **A tap can sit on a DELETED card**, and one does on `89b35ee0`: he scored
+  the point, then threw the card away. Filter by `deleted` when counting
+  taps, or the totals will not reconcile with the cards.
+- **Neither tap is a stopwatch.** Serve-start marks are unbiased but only
+  90% accurate to 0.71s, so nothing under a second can be resolved with
+  them. Give the winner press a couple of seconds of slack before calling
+  a card wrong; inside that, the card and the press are the same event.
+- A card that ends BEFORE the winner press is the one failure worth
+  counting on its own: it cannot contain the moment the point was decided.
+  Ask it only of points covered by exactly one card, or a point split in
+  two scores its first half short by construction.
+
+### Turning "user" into "near"
+
+- **`computeServing` answers in the uploader's frame, the video is in the
+  camera's.** `matches.user_side` joins them, and only for GAME 1.
+- **Players change ends every game, and again in the deciding game when one
+  side reaches 5.** Applying `user_side` to a whole match reads 44% on
+  `89b35ee0` — worse than a coin, because it is right for game 1 and wrong
+  for game 2. With the swap it reads 82%. Game numbers and the 5-point
+  mark come from `scoreMatch` in `src/lib/research/scoreGaps.ts`.
+- **Do not fit the phase to flatter a result.** Check it: on `89b35ee0`,
+  `user_side = "near"` gives 13/14 in game 1 and the opposite phase gives
+  1/14, so which end he started on is settled by the data.
+- 51 matches have no `user_side` and 72 no `first_server`. Neither can be
+  guessed, and a match missing them cannot be used for server work.
+
+### What production actually builds a card from
+
+The rules above are what a card is scored AGAINST. This is what it is made
+of, and every constant named here lives in `worker/points_v2.py`.
+
+- **The ball track is a chain over CANDIDATES, not the detector's pick.**
+  The detections jsonl carries four candidates a frame in `c`; `load_multi`
+  reads them and `build_track` walks a constant-velocity chain through them,
+  reseeding after `RESEED_GAP` 8 frames with no plausible successor. The
+  detector's single pick is a global argmax that time-shares with the
+  neighbouring table's ball. `load_multi` returns None on a file with no
+  `c` at all and the caller falls back to v1 — no candidates, no v2.
+- **A bounce is a local image-y maximum of a MOVING ball** (`bounces`), not
+  a table contact. It fires on the floor, on a bat, on the next table along.
+  Only after projecting it can you say where it was.
+- **A serve is a PAIR of bounces** (`serve_motifs`), and all six rules must
+  hold: both on the playing surface, opposite sides of the net, within
+  `PAIR_MAX_S` 1.6s, the ball leaves the table between them
+  (`APEX_MIN_PX` — a ball rolled back to the server bounces on both halves
+  and is otherwise perfect), no backward travel in between, and no rally
+  already running. Contact is the first bounce minus `CONTACT_LOOKBACK_S`
+  0.81s, which is physical rather than tuned.
+- **The pair rule is exactly what a near-end serve breaks.** The server's own
+  body sits between the camera and their own half, so the first bounce is
+  never seen, the pair cannot form, and nothing downstream has a serve to
+  open a card on. Pass `reject` to `serve_motifs` and it records which gate
+  turned each pair down, so a miss can be explained without re-deriving the
+  rule somewhere else and getting a different answer.
+- **A card's head is `HEAD_LEAD` 1.6s before contact.** Its end comes from
+  `rally_end_ev`: walk net crossings forward from contact while no gap
+  exceeds `CROSS_GAP_S` 3.0s, take the last table bounce inside that, and
+  pad it by `TAIL_AFTER_BOUNCE` 2.6s.
+- **Every card carries TWO ends and they mean different things.** `t1` is
+  padded so a winner tap lands inside it; `end_evidence_s` is the last
+  moment the rally was actually observed. The test for whether the next
+  serve is a new point runs against the EVIDENCE end — a serve after the
+  last observed event starts a new point whatever the padding says.
+- **`CLUSTER_S` 2.5s throws away a second serve near a first, keeping the
+  earlier.** So one false detection does not merely add a card, it can
+  suppress the real serve behind it. That is worth checking first whenever a
+  card opens on the wrong thing.
+
+### Constants that only mean something on one camera
+
+Every threshold in `points_v2.py` is written in raw pixels or in whole
+frames, and neither unit survives a change of camera. Nothing errors when
+it stops applying; the rule simply starts answering a different question.
+
+- **A pixel threshold is a statement about how big the table looked.** On
+  `89b35ee0` the table's end line is 221px across at 1920 wide, so
+  `MAX_JUMP_PX` 220 is "about one table width per frame" and `APEX_MIN_PX`
+  8 is "about 4cm". Film the same match from twice the distance and both
+  mean something else. Before reusing any of them on new footage, divide
+  by that match's own table width and check the sentence still reads true.
+- **The table's WIDTH is the right unit, measured as the mean of the two
+  end lines.** Both are exactly 1.525m, so the mean absorbs most of the
+  perspective: on `89b35ee0` the near line is 241px, the far 200px, and
+  the mean, 221px, is the table's width halfway down, which is where a
+  serve happens. The sides are the wrong choice twice over, being longer
+  and more foreshortened.
+- **`bounces` already carries the fix and no caller uses it.** Its `scale`
+  argument multiplies `BOUNCE_REVERSAL_PX` and `BOUNCE_MOTION_PX`, and
+  every call site in the repo passes 1.0. Measured: scale a whole match by
+  two and the finder reports 2,240 bounces where it reported 1,874; pass
+  the zoom in as `scale` and it reports 1,874 again, exactly. The right
+  value is the ratio of this match's table width to the one the constants
+  were set on.
+- **Frame counts halve in meaning at 60fps, and PongLens takes 60fps
+  uploads.** `RESEED_GAP` 8, `DWELL` 2, and the "no step over 3 frames"
+  inside `bounces` are all durations written as counts. Write the duration
+  and convert once, against the match's own frame rate.
+- **`bounces` looks at five samples, which is a frame-rate dependency in
+  the SHAPE of the test rather than in a constant.** At 60fps those five
+  samples cover half the time, so it is asking about a different stretch of
+  trajectory. No scale argument reaches that; the window's half-width has
+  to move with the frame rate as well.
+- **There is no honest way to simulate a FASTER camera.** Interpolating
+  30fps up to 60fps invents straight segments the sensor never saw and
+  changes what a local low point means — the first version of that test
+  reported 242 detections against a true 193, all of it artefact. Test
+  downwards instead: throwing every other frame away is exactly what a
+  slower camera would have handed us.
+- **Frame-counted constants have a floor.** Below about 15fps the bounce
+  finder's hole tolerance rounds to fewer frames than the sampling
+  interval and it returns nothing at all. Not a real case today, but it is
+  what "generalise the constant" runs into at the bottom.
+
+### Reading the ball track without fooling yourself
+
+- **Ball detections and table corners are in SOURCE pixels.** When inference
+  runs on a table crop, `shift_detections` adds the crop origin back, so
+  everything downstream reads a file it cannot tell from a full-frame one.
+  Anything you compute on a cropped REVIEW video instead — person boxes, an
+  overlay canvas — is in crop pixels and must have that origin subtracted
+  before it can be compared against the ball. Getting it backwards is
+  silent: the quad simply leaves the picture and every test answers "no".
+- **Table coordinates are metres, and only a BOUNCE's are meaningful.**
+  `project()` returns (u, v): v = 0 is the near end line, v = 2.74 the far,
+  u = 0 the near player's left sideline, the net at v = 1.37. A ball above
+  the table plane projects FURTHER from the camera, so a toss reads v = 16
+  and a ball flying out past the end reads v = 20. Never read a position
+  mid-flight as a place on the table.
+- **"No crossings" does not mean "no rally".** `crossings()` needs the ball
+  tracked for `DWELL` 2 consecutive frames clear of a 0.20m band either side
+  of the net, so a fragmented track yields none at all — the Yu Yu Lin match
+  has ONE crossing in a fifteen-second point. The rally chain then never
+  starts and the card ends on its first bounce plus padding. This is the
+  commonest reason a card stops before the winner press.
+- **The tracker latches onto stationary decoys**: a wall-mounted TV, a
+  screen, signage. A "ball" moving under about 4px a frame for a third of a
+  second is not a ball. Check a trail's CONTINUITY before trusting any
+  position in it, and check for HOLES rather than for speed — a 249px
+  teleport across a 3-frame gap reads as 83px per frame and passes every
+  sane speed limit.
+- **`choose_players`' own near/far labels can swap mid-rally.** Derive each
+  person's end from their distance to the table's end lines instead. On a
+  camera where the players separate left-to-right and the frame clips both
+  at the bottom, their box heights come within 3px and the labels flip for
+  over a second.
+
+### The whole pull, in order
+
+1. `points` for the match, every row including deleted, ordered by
+   `(t0, idx)`; plus `matches.user_side`, `first_server`, `clip_pads`.
+2. App card numbers by walking that order, incrementing on `not deleted`.
+3. Winner presses via the formula above, keyed by point id.
+4. `computeServing` over the KEPT points (id, idx, t0, t1, is_let,
+   confirmed_winner, game_end_override, game_winner_override,
+   server_override) with `first_server`.
+5. `scoreMatch` over the same list for game numbers and the deciding-game
+   5-point mark, then flip near/far per game.
+
+And for the evidence side, if you are re-deriving cards rather than reading
+them back:
+
+6. The match's detections jsonl (candidates required) and its table corners
+   from `match.json` in R2, both in source pixels.
+7. `build_track` → `bounces` → `project`, then `serve_motifs` for serves and
+   `crossings` for rally extent.
+8. Before believing any of it, confirm which pixel space every artifact is
+   in, and that the ball track is actually continuous where you are reading
+   it.
 
 ---
 

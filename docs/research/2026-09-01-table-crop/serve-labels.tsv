@@ -1,0 +1,106 @@
+match	kind	time_s	verdict
+Kyle	gained	35.26	warmup
+Kyle	gained	355.09	real
+Kyle	gained	453.76	real
+Kyle	gained	784.09	real
+Kyle	gained	902.26	real
+Kyle	lost	63.49	warmup
+Kyle	lost	727.96	real
+Kyle	lost	812.56	real
+Young	gained	35.76	warmup
+Young	gained	168.86	warmup
+Young	gained	622.09	toss
+Young	gained	949.56	real
+Young	gained	1398.52	real
+Young	lost	146.19	warmup
+Young	lost	180.32	warmup
+Young	lost	204.39	warmup
+Young	lost	1106.32	midrally
+Young	lost	1252.59	real
+Yu Yu Lin	gained	105.06	warmup
+Yu Yu Lin	gained	807.69	real
+Yu Yu Lin	gained	1239.52	midrally
+Yu Yu Lin	gained	1445.56	real
+Yu Yu Lin	gained	1700.06	real
+Yu Yu Lin	lost	281.42	real
+Yu Yu Lin	lost	605.62	real
+Yu Yu Lin	lost	821.49	real
+Yu Yu Lin	lost	1048.82	real
+Yu Yu Lin	lost	1747.12	no
+Terry	gained	79.39	warmup
+Terry	gained	99.59	warmup
+Terry	gained	117.22	warmup
+Terry	gained	497.69	real
+Terry	gained	509.89	real
+Terry	lost	104.42	warmup
+Terry	lost	119.69	warmup
+Terry	lost	126.66	warmup
+Terry	lost	463.76	real
+Terry	lost	601.12	real
+Koko	gained	81.19	warmup
+Koko	gained	295.12	real
+Koko	gained	505.69	real
+Koko	gained	649.49	real
+Koko	gained	697.29	real
+Koko	lost	332.32	real
+Koko	lost	447.06	real
+Koko	lost	476.02	real
+Koko	lost	611.66	real
+Koko	lost	719.16	real
+Anton m1	gained	118.39	real
+Anton m1	gained	381.86	real
+Anton m1	gained	607.99	real
+Anton m1	gained	944.22	real
+Anton m1	gained	1154.22	real
+Anton m1	lost	267.79	real
+Anton m1	lost	543.96	real
+Anton m1	lost	836.59	real
+Anton m1	lost	909.09	real
+Anton m1	lost	1164.52	toss
+Anton m2	gained	16.32	real
+Anton m2	gained	224.42	midrally
+Anton m2	gained	410.49	real
+Anton m2	gained	533.22	real
+Anton m2	gained	926.62	no
+Anton m2	lost	61.06	real
+Anton m2	lost	176.02	midrally
+Anton m2	lost	251.92	real
+Anton m2	lost	709.96	real
+Anton m2	lost	892.82	real
+Anton m3	gained	75.16	real
+Anton m3	gained	234.12	real
+Anton m3	gained	322.29	real
+Anton m3	gained	477.46	real
+Anton m3	gained	708.09	real
+Anton m3	lost	88.29	real
+Anton m3	lost	128.69	real
+Anton m3	lost	452.69	real
+Anton m3	lost	601.59	real
+Anton m4	gained	80.49	real
+Anton m4	gained	160.99	real
+Anton m4	gained	194.26	real
+Anton m4	gained	704.32	real
+Anton m4	gained	768.89	real
+Anton m4	lost	382.76	real
+Anton m4	lost	386.36	midrally
+Anton m4	lost	467.12	real
+Anton m4	lost	473.66	real
+Anton m4	lost	518.29	real
+Anton m5	gained	28.06	real
+Anton m5	gained	249.52	real
+Anton m5	gained	690.52	real
+Anton m5	gained	871.52	real
+Anton m5	gained	990.59	real
+Anton m5	lost	84.46	real
+Anton m5	lost	353.69	no
+Anton m5	lost	562.99	real
+Anton m5	lost	939.09	midrally
+Anton m5	lost	1015.89	real
+Anton m6	gained	37.89	midrally
+Anton m6	gained	59.26	midrally
+Anton m6	gained	225.82	real
+Anton m6	gained	262.26	no
+Anton m6	gained	292.56	real
+Anton m6	lost	84.69	real
+Anton m6	lost	223.46	real
+Anton m6	lost	255.99	real

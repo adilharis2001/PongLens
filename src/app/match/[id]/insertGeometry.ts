@@ -212,42 +212,20 @@ export function cutT0For(seam: Seam, w: Window, pad: ClipPad): number {
 /**
  * Whether this seam is worth offering a "+" on.
  *
- * FOUR seconds, which is low on purpose. The first cut of this was eight,
- * reasoned from the length of a rally plus the pauses either side — and it
- * was blind to the case that actually hurts: a missed serve is re-served
- * within a couple of seconds, so the gap that swallowed one is short. There
- * is no signal that says a point was eaten (the serve detector fires on
- * about a third of serves, and we have no independent read of who served),
- * so the choice is only ever where to put an arbitrary line.
- *
- * The cost is real and was accepted with the numbers in hand: measured over
- * 9,433 seams, eight seconds offers on ~13 of a 73-card match and four on
- * ~33 — closer to one between every other pair. Adil's call, over a
- * two-tier version that would have kept a quiet affordance everywhere and a
- * loud one on the long gaps: a second visual language on this strip costs
- * more than the buttons do.
+ * A rally plus the pauses either side of it is around ten seconds, and
+ * ordinary between-point time is under four. Measured over 9,433 seams,
+ * 19% clear eight seconds — roughly one offer per five cards, which reads
+ * as "the video skipped here" rather than as a row of buttons.
  */
-export const GAP_WORTH_OFFERING_S = 4;
+export const GAP_WORTH_OFFERING_S = 8;
 
 export function gapWorthOffering(
   prevPoint: Neighbour,
   nextPoint: Neighbour,
   pad: ClipPad
 ): Seam | null {
+  if (!prevPoint || !nextPoint) return null;
   const seam = seamBetween(prevPoint, nextPoint, pad);
-  if (!seam) return null;
-  // A seam with only ONE neighbour is the start or the end of the match, and
-  // it always offers. A rally missing after the last card was unreachable
-  // until 2026-08-31 — the offer was only ever drawn BETWEEN two cards, so
-  // the loop that pairs each card with the one before it had nothing to pair
-  // at either end. Kyle (cropped) ended with 17.6s of footage and a missed
-  // final serve in it, and no way to say so.
-  //
-  // Whether that trailing footage exists at all is not knowable here (the
-  // points' clock is the TRIMMED one, and the match row carries the raw
-  // duration), so these two always appear and the sheet clamps the handles
-  // to the file's real length once it loads. One extra offer per match end
-  // is a cheaper mistake than an unreachable rally.
-  if (!seam.prev || !seam.next) return seam;
+  if (!seam || !seam.prev || !seam.next) return null;
   return seam.gapTo - seam.gapFrom >= GAP_WORTH_OFFERING_S ? seam : null;
 }

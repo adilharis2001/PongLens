@@ -1010,6 +1010,11 @@ def get_config(conn, key: str) -> str | None:
     return row[0] if row else None
 
 
+def automatic_highlights_enabled(value: str | None, user_id: str) -> bool:
+    """Allow a global rollout or a single-user production canary."""
+    return value == "on" or value == f"user:{user_id}"
+
+
 def set_config(conn, key: str, value: str):
     with conn.cursor() as cur:
         cur.execute(
@@ -3947,9 +3952,7 @@ def publish_card_diagnosis(outdir: str, key_prefix: str,
     if not os.path.exists(dump):
         return 0
     import points_v2
-    from publish_card_diagnosis import (blurball_confidence,
-                                        trim_for_transport,
-                                        write_point_tracks)
+    from publish_card_diagnosis import trim_for_transport, write_point_tracks
     from research_serve_misses import build as build_card_diagnosis
 
     # The serve rule reads two of its constants from app_config per job, so
@@ -3969,19 +3972,8 @@ def publish_card_diagnosis(outdir: str, key_prefix: str,
     with open(dump) as fh:
         blob = json.load(fh)
     blob.setdefault("match_id", key_prefix.rsplit("/", 1)[-1])
-    confidence_path = (
-        blurball_out if blurball_out and os.path.exists(blurball_out) else None
-    )
-    confidence = (blurball_confidence(confidence_path)
-                  if confidence_path else None)
     try:
-        page = trim_for_transport(build_card_diagnosis(
-            blob,
-            include_all=True,
-            observation_confidence=confidence,
-            confidence_provenance=("measured" if confidence is not None
-                                   else "missing"),
-        ))
+        page = trim_for_transport(build_card_diagnosis(blob, include_all=True))
     except ValueError as e:
         # No table quad; there is nothing to project bounces against.
         log.info("  card diagnosis skipped: %s", e)
@@ -3994,10 +3986,10 @@ def publish_card_diagnosis(outdir: str, key_prefix: str,
     r2().upload_file(dest, R2_MEDIA_BUCKET, f"{key_prefix}/serves.json",
                      ExtraArgs={"ContentType": "application/json"})
 
-    # The undecimated track, for the winner rules and the admin trail. The
-    # browser receives only time/x/y after the server strips confidence;
-    # all winner-rule work stays on the server. Built from the same dump,
-    # so the two artifacts cannot describe different cards.
+    # The undecimated track, for the winner rules. Read on the server and
+    # never sent to a browser, which is why it can be full rate where
+    # serves.json cannot. Built from the same dump, so the two cannot
+    # describe different cards.
     # BlurBall's own detections, confidence and all. Without them the two
     # rules that read the track cannot be trusted and the reader ignores it.
     tracks = write_point_tracks(
@@ -4026,19 +4018,33 @@ def insert_points(
             cur.execute(
                 "insert into public.points (id, match_id, idx, t0, t1, "
                 "clip_path, server, placement, suggestion, cut_t0, "
-                "rally_end_cut_s) "
-                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "rally_end_cut_s, highlight_evidence) "
+                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (point_id, match_id, p["idx"], p["t0"], p["t1"],
                  f"{prefix}/{p['clip']}", p.get("server"),
                  json.dumps(p["placement"]) if p.get("placement") else None,
                  json.dumps(p["suggestion"]) if p.get("suggestion")
                  else None,
-                 p.get("cut_t0"), p.get("rally_end_cut_s")),
+                 p.get("cut_t0"), p.get("rally_end_cut_s"),
+                 json.dumps(p["highlight_evidence"])
+                 if p.get("highlight_evidence") else None),
             )
             inserted[int(p["idx"])] = {
                 "id": point_id,
+                "idx": int(p["idx"]),
                 "t0": float(p["t0"]),
                 "t1": float(p["t1"]),
+                "cut_t0": (float(p["cut_t0"])
+                           if p.get("cut_t0") is not None else None),
+                "rally_end_cut_s": (
+                    float(p["rally_end_cut_s"])
+                    if p.get("rally_end_cut_s") is not None else None
+                ),
+                "clip_path": f"{prefix}/{p['clip']}",
+                "deleted": False,
+                "edited": False,
+                "is_let": False,
+                "highlight_evidence": p.get("highlight_evidence"),
             }
     return inserted
 
@@ -4549,6 +4555,7 @@ def run_points_stage(
     played_at: str | None = None,
     *,
     attempt_key: str = "manual",
+    cut_local_path: str | None = None,
 ):
     """Break the original video into points. Failure here never fails the
     job (the cut already shipped): the match row is marked failed.
@@ -4762,6 +4769,25 @@ def run_points_stage(
             mapped_points=mapped,
             calibration=match_json.get("calibration"),
         )
+
+        # The cut and every detector receipt are still local here. Rendering
+        # now avoids another R2 download and means a newly-ready match never
+        # exposes a half-prepared highlight. This stage is deliberately
+        # fail-soft inside prepare_auto_highlights.
+        if cut_local_path:
+            with COST_METER.timed_stage(
+                    "automatic_highlight_encoding", attempt_key):
+                prepare_auto_highlights(
+                    conn,
+                    user_id,
+                    match_id,
+                    list(inserted_points.values()),
+                    cut_local_path,
+                    workdir,
+                    enabled=automatic_highlights_enabled(
+                        get_config(conn, "automatic_highlights"), user_id
+                    ),
+                )
 
         finish_match(
             conn,
@@ -5750,6 +5776,238 @@ def _run_ffmpeg_encoded(args_before_codec: list[str], vt_args: list[str],
     raise RuntimeError(f"ffmpeg encode failed: {(proc.stderr or '')[-400:]}")
 
 
+def render_auto_highlights(manifest: dict, cut_local: str,
+                           workdir: str) -> tuple[str, dict]:
+    """Render qualified cut-clock segments as one continuous stored asset."""
+    from highlights import XFADE_S
+
+    points = manifest.get("points") if isinstance(manifest, dict) else None
+    if not isinstance(points, list) or not points:
+        raise ValueError("automatic highlights have no points")
+    if not os.path.isfile(cut_local):
+        raise FileNotFoundError(cut_local)
+
+    fmt = _ffprobe_streams(cut_local)
+    video = next((s for s in fmt.get("streams", [])
+                  if s.get("codec_type") == "video"), None)
+    if video is None:
+        raise RuntimeError("automatic highlights source has no video")
+    tw, th = int(video["width"]), int(video["height"])
+    tw += tw % 2
+    th += th % 2
+    rate = video.get("avg_frame_rate") or video.get("r_frame_rate") or "30/1"
+    try:
+        num, den = rate.split("/")
+        fps = float(num) / float(den)
+    except (AttributeError, ValueError, ZeroDivisionError):
+        fps = 30.0
+    fps = min(60.0, max(24.0, fps if math.isfinite(fps) else 30.0))
+    gop = max(1, round(fps))
+    has_audio = any(s.get("codec_type") == "audio"
+                    for s in fmt.get("streams", []))
+
+    bitrate = int(9_000_000 * (tw * th) / (1920 * 1080) * (fps / 30.0))
+    bitrate = max(2_000_000, min(bitrate, 24_000_000))
+    vt = ["-c:v", "h264_videotoolbox", "-b:v", str(bitrate),
+          "-allow_sw", "1", "-pix_fmt", "yuv420p", "-g", str(gop)]
+    x264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "19",
+            "-pix_fmt", "yuv420p", "-g", str(gop),
+            "-keyint_min", str(gop), "-sc_threshold", "0"]
+    for codec_args in (vt, x264):
+        codec_args += ["-force_key_frames", "expr:gte(t,n_forced*1)"]
+    audio_args = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+                  "-ac", "2"]
+
+    segments = []
+    for index, point in enumerate(points):
+        start = float(point["cut_start_s"])
+        end = float(point["cut_end_s"])
+        duration = end - start
+        if start < 0 or duration < 0.5:
+            raise ValueError(
+                f"automatic highlight point {point.get('point_id')} has "
+                "invalid cut bounds"
+            )
+        segment = os.path.join(workdir, f"auto_highlight_{index:03d}.mp4")
+        inputs = ["-ss", f"{start:.3f}", "-t", f"{duration:.3f}",
+                  "-i", cut_local]
+        if has_audio:
+            audio_in = "0:a"
+        else:
+            inputs += ["-f", "lavfi", "-t", f"{duration:.3f}",
+                       "-i", "anullsrc=r=48000:cl=stereo"]
+            audio_in = "1:a"
+        filters = (
+            f"[0:v]scale={tw}:{th}:force_original_aspect_ratio=decrease,"
+            f"pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
+            f"fps={fps:.5f},format=yuv420p,setpts=PTS-STARTPTS[v];"
+            f"[{audio_in}]aresample=48000,"
+            "aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            "asetpts=PTS-STARTPTS[a]"
+        )
+        _run_ffmpeg_encoded(
+            [*inputs, "-filter_complex", filters,
+             "-map", "[v]", "-map", "[a]", "-shortest"],
+            vt, x264,
+            [*audio_args, "-movflags", "+faststart", segment],
+        )
+        segments.append(segment)
+
+    durations = [float(_ffprobe_streams(path)["format"]["duration"])
+                 for path in segments]
+    out_path = os.path.join(workdir, "automatic-highlights.mp4")
+    if len(segments) == 1:
+        shutil.copyfile(segments[0], out_path)
+    else:
+        inputs = []
+        for segment in segments:
+            inputs += ["-i", segment]
+        chains = []
+        video_in = "0:v"
+        audio_in = "0:a"
+        offset = 0.0
+        for index in range(1, len(segments)):
+            offset += durations[index - 1] - XFADE_S
+            video_out = (f"v{index}" if index < len(segments) - 1
+                         else "vout")
+            audio_out = (f"a{index}" if index < len(segments) - 1
+                         else "aout")
+            chains.append(
+                f"[{video_in}][{index}:v]xfade=transition=fade:"
+                f"duration={XFADE_S}:offset={offset:.4f}[{video_out}]"
+            )
+            chains.append(
+                f"[{audio_in}][{index}:a]acrossfade=d={XFADE_S}"
+                f"[{audio_out}]"
+            )
+            video_in, audio_in = video_out, audio_out
+        _run_ffmpeg_encoded(
+            [*inputs, "-filter_complex", ";".join(chains),
+             "-map", "[vout]", "-map", "[aout]"],
+            vt, x264,
+            [*audio_args, "-movflags", "+faststart", out_path],
+        )
+
+    rendered = copy.deepcopy(manifest)
+    cursor = 0.0
+    for index, (point, duration) in enumerate(
+            zip(rendered["points"], durations)):
+        if index:
+            cursor -= XFADE_S
+        point["output_start_s"] = round(cursor, 3)
+        cursor += duration
+        point["output_end_s"] = round(cursor, 3)
+    actual_duration = float(_ffprobe_streams(out_path)["format"]["duration"])
+    rendered["duration_s"] = round(actual_duration, 3)
+    if rendered["points"]:
+        rendered["points"][-1]["output_end_s"] = round(actual_duration, 3)
+    log.info("  automatic highlights: %d rallies, %.1fs, %dx%d %.2ffps",
+             len(points), actual_duration, tw, th, fps)
+    return out_path, rendered
+
+
+def _write_auto_highlight_state(conn, match_id: str, status: str,
+                                manifest: dict, *, r2_key=None,
+                                duration_s=None, size_bytes=None,
+                                error=None):
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into public.match_reels "
+            "(match_id, scope, status, show_score, manifest, r2_key, "
+            "duration_s, size_bytes, error) "
+            "values (%s, %s, %s, false, %s, %s, %s, %s, %s) "
+            "on conflict (match_id, scope) do update set "
+            "status = excluded.status, show_score = false, "
+            "manifest = excluded.manifest, r2_key = excluded.r2_key, "
+            "duration_s = excluded.duration_s, "
+            "size_bytes = excluded.size_bytes, error = excluded.error",
+            (match_id, "highlights", status, json.dumps(manifest), r2_key,
+             duration_s, size_bytes, error),
+        )
+
+
+def _delete_auto_highlight_object(conn, key: str | None):
+    if not key:
+        return
+    try:
+        r2().delete_object(Bucket=R2_MEDIA_BUCKET, Key=key)
+        ledger_negate_keys(conn, [f"r2://{R2_MEDIA_BUCKET}/{key}"])
+    except Exception as exc:  # retention remains the final safety net
+        log.warning("  automatic highlight old revision cleanup failed: %s",
+                    exc)
+
+
+def prepare_auto_highlights(conn, user_id: str, match_id: str,
+                            points: list[dict], cut_local: str, workdir: str,
+                            *, enabled: bool) -> str:
+    """Select, render, and store highlights without ever failing the match."""
+    if not enabled:
+        return "off"
+
+    from highlights import build_manifest
+
+    old_key = None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select r2_key from public.match_reels "
+                "where match_id = %s and scope = 'highlights'",
+                (match_id,),
+            )
+            row = cur.fetchone()
+            old_key = row[0] if row else None
+
+        manifest = build_manifest(points)
+        if not manifest["points"]:
+            _write_auto_highlight_state(
+                conn, match_id, "empty", manifest, r2_key=None
+            )
+            _delete_auto_highlight_object(conn, old_key)
+            log.info("  automatic highlights: no qualifying rallies")
+            return "empty"
+
+        _write_auto_highlight_state(conn, match_id, "rendering", manifest)
+        output, rendered_manifest = render_auto_highlights(
+            manifest, cut_local, workdir
+        )
+        revision = rendered_manifest["points_revision"][:16]
+        key = f"reels/{match_id}-highlights-{revision}.mp4"
+        size = os.path.getsize(output)
+        r2().upload_file(
+            output, R2_MEDIA_BUCKET, key,
+            ExtraArgs={"ContentType": "video/mp4"},
+        )
+        uri = f"r2://{R2_MEDIA_BUCKET}/{key}"
+        ledger_append(conn, user_id, "reel", size, uri, match_id)
+        _write_auto_highlight_state(
+            conn, match_id, "ready", rendered_manifest,
+            r2_key=key,
+            duration_s=round(float(rendered_manifest["duration_s"]), 2),
+            size_bytes=size,
+        )
+        if old_key and old_key != key:
+            _delete_auto_highlight_object(conn, old_key)
+        return "ready"
+    except Exception as exc:  # fail-soft by product contract
+        log.exception("  automatic highlights failed for match %s", match_id)
+        try:
+            failed_manifest = locals().get("manifest") or {
+                "v": 1,
+                "rule": "quality-first-v1",
+                "max_seconds": 150.0,
+                "points_revision": "",
+                "duration_s": 0.0,
+                "points": [],
+            }
+            _write_auto_highlight_state(
+                conn, match_id, "failed", failed_manifest,
+                error=str(exc)[:500],
+            )
+        except Exception:
+            log.exception("  failed to record automatic highlight failure")
+        return "failed"
+
+
 def render_reel(manifest: dict, show_score: bool, workdir: str,
                 cut_local: str | None = None) -> str:
     """Render the reel mp4 from the manifest. Returns the output path.
@@ -6374,7 +6632,7 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     # manifest; only the canvas differs.
     scope = options.get("scope") or "starred"
     _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-    if (scope not in ("starred", "full", "v:starred",
+    if (scope not in ("starred", "full", "highlights", "v:starred",
                       "v:hl:story", "v:hl:reel", "v:hl:long")
             and not re.fullmatch(rf"tag:{_UUID}", scope)
             and not re.fullmatch(rf"v:point:{_UUID}", scope)):
@@ -6383,7 +6641,8 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
 
     with conn.cursor() as cur:
         cur.execute(
-            "select m.user_id, r.show_score, r.manifest, m.story_crop "
+            "select m.user_id, r.show_score, r.manifest, m.story_crop, "
+            "r.r2_key "
             "from public.match_reels r "
             "join public.matches m on m.id = r.match_id "
             "where r.match_id = %s and r.scope = %s",
@@ -6392,27 +6651,53 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         row = cur.fetchone()
     if not row:
         raise RuntimeError(f"reel: no match_reels row for {match_id}/{scope}")
-    owner_id, show_score, manifest, story_crop = row
+    owner_id, show_score, manifest, story_crop, old_key = row
     # options.match_id is client-influenced: never render a match the job's
     # creator doesn't own.
     if str(owner_id) != str(user_id):
         raise RuntimeError("reel: job user does not own the match")
-    if not isinstance(manifest, dict) or not manifest.get("points"):
+    automatic = scope == "highlights"
+    if automatic:
+        from highlights import build_manifest
+        with conn.cursor() as cur:
+            cur.execute(
+                "select id, idx, t0, t1, cut_t0, rally_end_cut_s, "
+                "clip_path, deleted, edited, is_let, highlight_evidence "
+                "from public.points where match_id = %s order by idx, id",
+                (match_id,),
+            )
+            stored_points = [
+                dict(zip(("id", "idx", "t0", "t1", "cut_t0",
+                          "rally_end_cut_s", "clip_path", "deleted",
+                          "edited", "is_let", "highlight_evidence"), values))
+                for values in cur.fetchall()
+            ]
+        manifest = build_manifest(stored_points)
+        if not manifest["points"]:
+            _write_auto_highlight_state(conn, match_id, "empty", manifest)
+            _delete_auto_highlight_object(conn, old_key)
+            return
+    elif not isinstance(manifest, dict) or not manifest.get("points"):
         raise RuntimeError("reel: empty manifest")
 
     with conn.cursor() as cur:
         cur.execute(
-            "update public.match_reels set status = 'rendering' "
+            "update public.match_reels set status = 'rendering', "
+            "manifest = %s, error = null "
             "where match_id = %s and scope = %s",
-            (match_id, scope),
+            (json.dumps(manifest), match_id, scope),
         )
     update_job(conn, job_id, progress=15)
 
     workdir = tempfile.mkdtemp(prefix=f"ponglens-reel-{str(job_id)[:8]}-")
     try:
         t0 = time.time()
-        cut_local = None
-        if any(isinstance(p, dict) and p.get("seg_start") is not None
+        cut_local = _fetch_cut_video(conn, match_id, workdir) \
+            if automatic else None
+        if automatic and cut_local is None:
+            raise RuntimeError("automatic highlights cut is unavailable")
+        if not automatic and any(
+               isinstance(p, dict) and p.get("seg_start") is not None
                for p in manifest["points"]):
             # A share is rendered while its owner waits, and a vertical
             # render reads seconds out of the cut, not the whole thing —
@@ -6422,7 +6707,11 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
                          else _fetch_cut_video(conn, match_id, workdir))
             if vertical and cut_local is None:
                 cut_local = _fetch_cut_video(conn, match_id, workdir)
-        if vertical:
+        if automatic:
+            out, manifest = render_auto_highlights(
+                manifest, cut_local, workdir
+            )
+        elif vertical:
             out = render_story(manifest, bool(show_score), workdir,
                                cut_local, story_crop)
         else:
@@ -6434,7 +6723,9 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         # alongside it (tag:<uuid> -> -tag-<uuid>). Vertical share renders
         # get a v- prefix, which is also what the retention sweep matches
         # on — they are regenerable in seconds and must not accumulate.
-        key = (f"reels/{match_id}.mp4" if scope == "starred"
+        key = (f"reels/{match_id}-highlights-"
+               f"{manifest['points_revision'][:16]}.mp4" if automatic
+               else f"reels/{match_id}.mp4" if scope == "starred"
                else f"reels/{match_id}-full.mp4" if scope == "full"
                else f"reels/v-{match_id}-{scope.replace(':', '-')}.mp4"
                if vertical
@@ -6453,9 +6744,13 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
             cur.execute(
                 "update public.match_reels set status = 'ready', "
                 "r2_key = %s, duration_s = %s, size_bytes = %s, "
-                "error = null where match_id = %s and scope = %s",
-                (key, round(duration, 2), size, match_id, scope),
+                "manifest = %s, error = null "
+                "where match_id = %s and scope = %s",
+                (key, round(duration, 2), size, json.dumps(manifest),
+                 match_id, scope),
             )
+        if automatic and old_key and old_key != key:
+            _delete_auto_highlight_object(conn, old_key)
         log.info("  reel ready: %s (scope=%s, %.1fs video, %d KB, rendered "
                  "in %.0fs)",
                  r2_uri, scope, duration, size // 1024, time.time() - t0)
@@ -6463,7 +6758,7 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         # waiting for it, and an "export is ready" message arriving after
         # they have already posted to Instagram is noise. The bell is
         # suppressed for the same reason, in match_reels_notify (135).
-        if not vertical:
+        if not vertical and not automatic:
             notify_reel_done(conn, str(owner_id), match_id)
     except Exception as e:
         try:
@@ -7284,7 +7579,8 @@ def process_job(conn, msg) -> None:
                 conn, job_id, user_id, local_input,
                 blurball_out, workdir, options, result_path,
                 played_at=played_at,
-                attempt_key=attempt_key)
+                attempt_key=attempt_key,
+                cut_local_path=result)
 
         update_job(conn, job_id, status="done", result_path=result_path,
                    progress=100)

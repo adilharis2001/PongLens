@@ -9,6 +9,14 @@ and the pink-rim one is out of the upload path — see §13 for what changed and
 where it lives. Sections 1-10 describe the measurement as it was taken;
 §11's open questions have moved to §13.
 
+**Superseded on one point, 2026-08-26.** Everything here that orders the two
+paid models puts Luna ahead of Sol, on figures taken over the 7 matches Sol
+had been called for. Run over all 62 hand-marked frames the order reverses —
+Sol 10.6px median corner error against Luna's 57.0px — and production now
+falls through keypoints to Sol, then to Luna, then to no calibration. The
+measurement and the cost decision are recorded at `VISION_MODEL` in
+`worker/points_pipeline.py`. Read the ladder order below as history.
+
 Start here, then the four sibling documents for the detail of each phase.
 
 ---

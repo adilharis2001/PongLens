@@ -1,0 +1,97 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Is the green flash the serve?</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#0b0d10; color:#e7ecf2; font:15px/1.5
+         -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  .wrap { max-width:1080px; margin:0 auto; padding:18px 20px 40px; }
+  h1 { margin:0 0 4px; font-size:20px; font-weight:600; letter-spacing:-.01em; }
+  .ask { color:#b6c2d0; font-size:14px; margin-bottom:14px; }
+  .ask b { color:#7ee08a; }
+  .top { display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+         margin-bottom:10px; }
+  .count { font-size:13px; color:#8fa0b2; }
+  .queue { display:flex; gap:6px; }
+  .queue button.on { background:#2a3a2e; border-color:#3d6b46; color:#a8e8b4; }
+  .stage { position:relative; background:#000; border-radius:10px;
+           overflow:hidden; border:1px solid #1e242c; }
+  .stage video { width:100%; display:block; }
+  .stage canvas { position:absolute; inset:0; pointer-events:none; }
+  .meta { display:flex; gap:8px 14px; flex-wrap:wrap; align-items:center;
+          padding:11px 2px; font-size:13px; }
+  .id { font-family:ui-monospace,Menlo,monospace; color:#8fa0b2; }
+  .tag { padding:2px 9px; border-radius:999px; font-size:12px;
+         border:1px solid #2a323c; }
+  .ok { color:#7ee08a; border-color:#2c5c37; }
+  .bad { color:#ff9b8a; border-color:#6b3229; }
+  .off { color:#8b98a8; }
+  .em { color:#7ee08a; border-color:#2c5c37; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; margin:4px 0 16px; }
+  button { background:#1a2129; color:#dbe4ee; border:1px solid #2a323c;
+           border-radius:999px; padding:7px 14px; font-size:13px; cursor:pointer; }
+  button:hover { background:#232c37; }
+  .verdict { display:flex; gap:10px; margin-top:6px; }
+  .verdict button { flex:1; padding:13px; font-size:14px; font-weight:500; }
+  .v-yes { border-color:#2c5c37; color:#a8e8b4; }
+  .v-no { border-color:#6b3229; color:#ffb3a5; }
+  .v-idk { color:#a8b4c2; }
+  .verdict button.chosen { background:#243040; border-color:#4a5f7a; }
+  .done { margin-top:18px; padding:14px; border:1px solid #1e242c;
+          border-radius:10px; background:#12161b; font-size:13px; }
+  .done b { color:#7ee08a; }
+  textarea { width:100%; height:120px; margin-top:8px; background:#0b0d10;
+             color:#b6c2d0; border:1px solid #2a323c; border-radius:8px;
+             padding:8px; font:12px ui-monospace,Menlo,monospace; }
+  kbd { background:#1a2129; border:1px solid #2a323c; border-radius:4px;
+        padding:1px 5px; font-size:11px; font-family:ui-monospace,Menlo,monospace; }
+  .legend { font-size:12px; color:#8fa0b2; margin-bottom:14px; }
+  .legend i { display:inline-block; width:10px; height:10px; border-radius:2px;
+              margin:0 4px 0 12px; vertical-align:-1px; }
+  .legend i:first-child { margin-left:0; }
+</style>
+<div class="wrap">
+  <h1>Is the green flash the serve?</h1>
+  <div class="ask">On these cards the shipped serve rule found <b>nothing</b>.
+    The new check says the ball appeared over the table at the moment marked
+    <b>BALL EMERGES</b>. Watch, then say whether that moment is the serve.</div>
+  <div class="legend">
+    <i style="background:#7ee08a"></i>ball emerges (the claim)
+    <i style="background:#ff5ea8"></i>ball trail
+    <i style="background:#5adcff"></i>table
+    <i style="background:#50f050"></i>near player
+    <i style="background:#f0b43c"></i>far player
+  </div>
+  <div class="top">
+    <span class="count" id="count"></span>
+    <span class="queue">
+      <button data-q="unanchored" class="on">no serve found (20)</button>
+      <button data-q="anchored">has a serve (73)</button>
+      <button data-q="all">all 93</button>
+    </span>
+  </div>
+  <div class="stage">
+    <video id="v" playsinline muted preload="auto"></video>
+    <canvas id="cv"></canvas>
+  </div>
+  <div class="meta" id="meta"></div>
+  <div class="bar">
+    <button data-a="play">Play <kbd>space</kbd></button>
+    <button data-a="emg">Jump to the flash</button>
+    <button data-a="start">Back to clip start</button>
+    <button data-a="back">&minus;1 frame <kbd>,</kbd></button>
+    <button data-a="fwd">+1 frame <kbd>.</kbd></button>
+    <button data-a="ov">Overlay off</button>
+    <button data-a="prev">&larr; Previous</button>
+    <button data-a="next">Next &rarr;</button>
+  </div>
+  <div class="verdict">
+    <button class="v-yes" data-v="serve">Yes — that's the serve <kbd>1</kbd></button>
+    <button class="v-no" data-v="not">No — wrong moment <kbd>2</kbd></button>
+    <button class="v-idk" data-v="unsure">Can't tell <kbd>3</kbd></button>
+  </div>
+  <div class="done" id="done"></div>
+</div>
+<script src="data.js"></script>
+<script src="app.js"></script>

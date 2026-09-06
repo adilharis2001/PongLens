@@ -1,0 +1,42 @@
+39 scorable cases
+
+POOLED
+  July (v1 boxes)        decided  17/ 39 (coverage  43.6%)   correct  16/ 17 (precision  94.1%)
+  v2 person boxes        decided  30/ 39 (coverage  76.9%)   correct  26/ 30 (precision  86.7%)
+
+VISIBLE  (n=9)
+  July                   decided   4/  9 (coverage  44.4%)   correct   4/  4 (precision 100.0%)
+  v2                     decided   6/  9 (coverage  66.7%)   correct   5/  6 (precision  83.3%)
+
+OCCLUDED  (n=22)
+  July                   decided  12/ 22 (coverage  54.5%)   correct  11/ 12 (precision  91.7%)
+  v2                     decided  17/ 22 (coverage  77.3%)   correct  16/ 17 (precision  94.1%)
+
+PRIOR_WRONG_SERVER  (n=8)
+  July                   decided   1/  8 (coverage  12.5%)   correct   1/  1 (precision 100.0%)
+  v2                     decided   7/  8 (coverage  87.5%)   correct   5/  7 (precision  71.4%)
+
+CASES WHERE THE VERDICT MOVED
+  0d4b7de4 prior_wrong_server truth=far   July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 20 frames posed, 0 with no box)
+  0d7de100 occluded           truth=far   July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 20 frames posed, 0 with no box)
+  1c9be70f occluded           truth=near  July high_confide RIGHT -> v2 withheld     -       (service_motion_absent_or_ambiguous; 20 frames posed, 0 with no box)
+  2c5ca1fa prior_wrong_server truth=near  July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 20 frames posed, 0 with no box)
+  354f8f1c occluded           truth=far   July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 20 frames posed, 0 with no box)
+  4d6bb666 occluded           truth=far   July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 20 frames posed, 0 with no box)
+  50f5d307 visible            truth=far   July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 20 frames posed, 0 with no box)
+  56fa8de0 occluded           truth=far   July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 20 frames posed, 0 with no box)
+  57091d3b occluded           truth=near  July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 20 frames posed, 0 with no box)
+  5e4f1fe4 prior_wrong_server truth=far   July withheld     -     -> v2 high_confide WRONG   (coherent_service_motion; 19 frames posed, 0 with no box)
+  5fd9af95 occluded           truth=far   July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 20 frames posed, 0 with no box)
+  60073ea5 occluded           truth=near  July high_confide RIGHT -> v2 withheld     -       (service_motion_absent_or_ambiguous; 20 frames posed, 0 with no box)
+  a0885d3a occluded           truth=far   July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 20 frames posed, 0 with no box)
+  ac434751 prior_wrong_server truth=far   July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 15 frames posed, 0 with no box)
+  b0d19ee6 prior_wrong_server truth=far   July withheld     -     -> v2 high_confide WRONG   (coherent_service_motion; 20 frames posed, 0 with no box)
+  ccbd5aa0 prior_wrong_server truth=far   July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 13 frames posed, 0 with no box)
+  cf09b074 visible            truth=near  July withheld     -     -> v2 high_confide WRONG   (coherent_service_motion; 20 frames posed, 0 with no box)
+  ddeb8f4b visible            truth=far   July withheld     -     -> v2 high_confide RIGHT   (coherent_service_motion; 20 frames posed, 0 with no box)
+  e850cece visible            truth=far   July high_confide RIGHT -> v2 withheld     -       (service_motion_absent_or_ambiguous; 20 frames posed, 0 with no box)
+  f86ae7fc occluded           truth=far   July high_confide RIGHT -> v2 high_confide WRONG   (coherent_service_motion; 20 frames posed, 0 with no box)
+  fbfb807d occluded           truth=far   July high_confide WRONG -> v2 high_confide RIGHT   (coherent_service_motion; 20 frames posed, 0 with no box)
+
+frames posed 743, frames skipped for having no person box 0

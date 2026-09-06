@@ -1,23 +1,16 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { netSegmentFromQuad } from "../../../research/serve-accuracy/netDeath";
 import { NORMAL_SPEED_IDX, SPEEDS, SpeedMenu } from "../../../match/[id]/SpeedMenu";
 import { CardTimeline } from "./CardTimeline";
 import {
   TABLE_L_M,
   TABLE_W_M,
-  courtTrajectory,
-  inferredBounceMarkerTitle,
-  inferredBounceMarkers,
   reasonShort,
   reasonTone,
-  tablePathSegments,
-  tableTrailAt,
   type MissCard,
   type ServeMissData,
-  type TableTrackPoint,
-  type TableTrackSegment,
 } from "../serveMiss";
 
 /**
@@ -38,68 +31,6 @@ import {
 /** The serve's own bounces. Not green or red — those already mean
  *  on and off the playing surface, and a serve bounce can be either. */
 export const SERVE_BOUNCE = "#e879f9";
-
-const METRES_TO_PX = 65.5;
-const SIDE_MARGIN_M = 0.45;
-const END_MARGIN_M = 0.7;
-const COURT_VIEW_W = (TABLE_W_M + SIDE_MARGIN_M * 2) * METRES_TO_PX;
-const COURT_VIEW_H = (TABLE_L_M + END_MARGIN_M * 2) * METRES_TO_PX;
-const COURT_X = SIDE_MARGIN_M * METRES_TO_PX;
-const COURT_Y = END_MARGIN_M * METRES_TO_PX;
-const COURT_W = TABLE_W_M * METRES_TO_PX;
-const COURT_H = TABLE_L_M * METRES_TO_PX;
-
-function courtXY(u: number, v: number) {
-  return {
-    x: (u + SIDE_MARGIN_M) * METRES_TO_PX,
-    y: (TABLE_L_M + END_MARGIN_M - v) * METRES_TO_PX,
-  };
-}
-
-/** Two SVG nodes no matter how many full-rate observations a card carries. */
-const CompleteCourtPath = memo(function CompleteCourtPath({
-  points,
-  segments,
-}: {
-  points: TableTrackPoint[];
-  segments: TableTrackSegment[];
-}) {
-  const lineData = segments
-    .map(({ from, to }) => {
-      const a = courtXY(from.u, from.v);
-      const b = courtXY(to.u, to.v);
-      return `M${a.x},${a.y}L${b.x},${b.y}`;
-    })
-    .join("");
-  // A near-zero stroked segment with a round cap reads as a dot, while all
-  // raw observations remain consolidated into one DOM node.
-  const dotData = points
-    .map((point) => {
-      const p = courtXY(point.u, point.v);
-      return `M${p.x},${p.y}l0.01,0`;
-    })
-    .join("");
-  return (
-    <g pointerEvents="none" aria-label="Complete best estimate path">
-      <path
-        d={lineData}
-        fill="none"
-        stroke="#facc15"
-        strokeWidth="0.8"
-        strokeLinecap="round"
-        opacity="0.22"
-      />
-      <path
-        d={dotData}
-        fill="none"
-        stroke="#facc15"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        opacity="0.3"
-      />
-    </g>
-  );
-});
 
 export function ServeMissView({
   data,
@@ -315,7 +246,6 @@ export function ServeMissView({
   }, [data, card, cutOffset, cutT0]);
 
   const why = card.why;
-  const inferred = useMemo(() => inferredBounceMarkers(card), [card]);
 
   return (
     <div className="mt-3 rounded-2xl border border-edge bg-surface-2/40 p-3">
@@ -457,28 +387,6 @@ export function ServeMissView({
               )}
             </ul>
           )}
-          {inferred.length > 0 && (
-            <div className="mt-4 border-t border-edge pt-3">
-              <p className="text-sm font-medium text-zinc-300">
-                Inferred bounce evidence
-              </p>
-              <ul className="mt-2 space-y-2">
-                {inferred.slice(0, 8).map((marker) => (
-                  <li key={marker.id} className="text-xs text-zinc-400">
-                    <p className="text-zinc-300">
-                      {inferredBounceMarkerTitle(marker, card.t0)}
-                    </p>
-                    <p className="mt-0.5 text-zinc-500">{marker.missDetail}</p>
-                  </li>
-                ))}
-                {inferred.length > 8 && (
-                  <li className="text-xs text-zinc-600">
-                    and {inferred.length - 8} more diagnostic candidates
-                  </li>
-                )}
-              </ul>
-            </div>
-          )}
         </div>
       </div>
       </div>
@@ -486,27 +394,18 @@ export function ServeMissView({
   );
 }
 
-/** The reconstructed best-estimate path and bounces, looking down. */
-function Court({
-  card,
-  t,
-}: {
-  card: MissCard;
-  t: number;
-}) {
-  const VIEW_W = COURT_VIEW_W;
-  const VIEW_H = COURT_VIEW_H;
-  const TX = COURT_X;
-  const TY = COURT_Y;
-  const TW = COURT_W;
-  const TH = COURT_H;
-  const xy = courtXY;
-  const projectedTrack = useMemo(() => courtTrajectory(card), [card]);
-  const pathSegments = useMemo(
-    () => tablePathSegments(projectedTrack),
-    [projectedTrack]
-  );
-  const trail = tableTrailAt(projectedTrack, t);
+/** Where the bounces landed, looking down on the table. */
+function Court({ card, t }: { card: MissCard; t: number }) {
+  const VIEW_W = 150;
+  const VIEW_H = 260;
+  const TX = 25;
+  const TY = 15;
+  const TW = 100;
+  const TH = 230;
+  const xy = (u: number, v: number) => ({
+    x: TX + (TW * u) / TABLE_W_M,
+    y: TY + TH * (1 - v / TABLE_L_M),
+  });
   const placed = card.bounces.filter((b) => b.u !== null && b.v !== null);
   return (
     <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="w-full">
@@ -529,42 +428,6 @@ function Court({
         strokeWidth="1.75"
         strokeDasharray="4 2"
       />
-      {/* Keep the complete estimate visible at rest. The brighter layer
-          below follows the playhead and marks the current ball. */}
-      <CompleteCourtPath points={projectedTrack} segments={pathSegments} />
-      <g pointerEvents="none" aria-label="Recent best estimate trail">
-        {trail.map((point, index) => {
-          const position = xy(point.u, point.v);
-          const previous = index > 0 ? trail[index - 1] : null;
-          const previousPosition = previous
-            ? xy(previous.u, previous.v)
-            : null;
-          const alpha = 0.15 + 0.85 * point.opacity;
-          return (
-            <g key={`${point.t}-${index}`}>
-              {point.connectsFromPrevious && previousPosition && (
-                <line
-                  x1={previousPosition.x}
-                  y1={previousPosition.y}
-                  x2={position.x}
-                  y2={position.y}
-                  stroke="#facc15"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  opacity={alpha}
-                />
-              )}
-              <circle
-                cx={position.x}
-                cy={position.y}
-                r={index === trail.length - 1 ? 2.8 : 1.65}
-                fill="#facc15"
-                opacity={alpha}
-              />
-            </g>
-          );
-        })}
-      </g>
       {placed.map((b, i) => {
         const p = xy(b.u as number, b.v as number);
         const live = Math.abs(t - b.t) < 0.34;
@@ -607,15 +470,6 @@ function Court({
       </text>
       <text x={TX} y={TY - 5} fontSize="7" fill="#71717a">
         far end
-      </text>
-      <text
-        x={TX + TW}
-        y={TY - 5}
-        textAnchor="end"
-        fontSize="7"
-        fill="#facc15"
-      >
-        Best estimate path
       </text>
     </svg>
   );

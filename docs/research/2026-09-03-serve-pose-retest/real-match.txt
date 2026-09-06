@@ -1,0 +1,38 @@
+Yu Yu Lin, Westchester TTC — 93 scored cards (73 anchored, 20 unanchored)
+truth balance: {'near': 47, 'far': 46}
+
+ANCHORED — the ball rule already found the serve
+  ball rule      called  36/ 73 ( 49.3%)   right  21/ 36 ( 58.3%)
+  pose (v2)      called  48/ 73 ( 65.8%)   right  25/ 48 ( 52.1%)
+
+UNANCHORED — the ball rule found no serve at all
+  ball rule      called   0/ 20 (  0.0%)   right   0/  0 (  0.0%)
+  pose (v2)      called  20/ 20 (100.0%)   right  12/ 20 ( 60.0%)
+
+POOLED
+  ball rule      called  36/ 93 ( 38.7%)   right  21/ 36 ( 58.3%)
+  pose (v2)      called  68/ 93 ( 73.1%)   right  37/ 68 ( 54.4%)
+
+always answering 'near' would score 47/93 = 50.5%
+
+UNANCHORED cards, one line each (the arm that decides this)
+  idx  10 truth=far  pose=far  RIGHT conf=0.94 (68 frames, 17 windows tried)
+  idx  11 truth=near pose=far  WRONG conf=0.95 (68 frames, 17 windows tried)
+  idx  21 truth=far  pose=far  RIGHT conf=0.90 (68 frames, 17 windows tried)
+  idx  23 truth=near pose=near RIGHT conf=0.91 (68 frames, 17 windows tried)
+  idx  28 truth=near pose=far  WRONG conf=0.95 (68 frames, 17 windows tried)
+  idx  33 truth=near pose=far  WRONG conf=0.95 (68 frames, 17 windows tried)
+  idx  45 truth=near pose=near RIGHT conf=0.90 (68 frames, 17 windows tried)
+  idx  58 truth=far  pose=near WRONG conf=0.89 (68 frames, 17 windows tried)
+  idx  64 truth=far  pose=far  RIGHT conf=0.95 (68 frames, 17 windows tried)
+  idx  67 truth=far  pose=far  RIGHT conf=0.92 (68 frames, 17 windows tried)
+  idx  72 truth=near pose=near RIGHT conf=0.96 (68 frames, 17 windows tried)
+  idx  78 truth=near pose=far  WRONG conf=0.95 (68 frames, 17 windows tried)
+  idx  84 truth=near pose=near RIGHT conf=0.96 (68 frames, 17 windows tried)
+  idx  89 truth=near pose=far  WRONG conf=0.94 (68 frames, 17 windows tried)
+  idx  96 truth=near pose=near RIGHT conf=0.89 (68 frames, 17 windows tried)
+  idx  98 truth=far  pose=far  RIGHT conf=0.96 (68 frames, 17 windows tried)
+  idx 101 truth=near pose=near RIGHT conf=0.91 (68 frames, 17 windows tried)
+  idx 105 truth=near pose=far  WRONG conf=0.95 (68 frames, 17 windows tried)
+  idx 112 truth=near pose=far  WRONG conf=0.95 (68 frames, 17 windows tried)
+  idx 129 truth=far  pose=far  RIGHT conf=0.95 (68 frames, 17 windows tried)

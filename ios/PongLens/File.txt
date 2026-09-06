@@ -1,0 +1,7 @@
+I have another idea. I think it is another person's shoe that is getting mistaken for bounces, right, because another person in the background is going and getting the ball. This is going to keep happening because people in table tennis wear white shoes all the time.
+
+There's clearly a person identified, and his box is identified, and he's moving. I wonder: is there a way to neglect bounces from that person in the box, not count them or make PongLens exclude them somehow, because the box is drawn? Ideally, we don't consider bounces from another person's box.
+
+I know it's kind of problematic, but does that mean it will start omitting our own bounces as well? That's what I kind of want you to investigate. It's coming from his shoe, and there's a box drawn around him. A background player could be wearing any white accessory and moving, which could get captured.
+
+I want you to see: is it possible to just eliminate that alone and not have that be tracked as bounces? That is my question to you. 

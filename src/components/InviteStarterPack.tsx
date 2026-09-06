@@ -185,7 +185,11 @@ export function InviteStarterPack({
           strokeWidth="3"
           aria-hidden="true"
         >
-          <path strokeLinecap="round" strokeLinejoin="round" d="m5 13 4 4 10-10" />
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="m5 13 4 4 10-10"
+          />
         </svg>
       </span>
       <span className="min-w-0 flex-1">
@@ -199,11 +203,17 @@ export function InviteStarterPack({
   );
 
   return (
-    <div className="mt-4">
-      <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+    /* A step inside "Invite another coach", not a section beside it. It
+       used to carry the same uppercase eyebrow as the section header
+       above it — same size, weight, case and colour — so the two read as
+       peers and the head start looked like it had escaped (Adil,
+       2026-09-04). Sentence case, a rule above it, and it sits where it
+       belongs. */
+    <div className="mt-4 border-t border-edge/60 pt-4">
+      <p className="text-sm font-semibold text-zinc-200">
         Give them a head start
       </p>
-      <p className="mt-1 text-sm text-zinc-400">
+      <p className="mt-0.5 text-sm text-zinc-400">
         Anything you pick is waiting for them the moment they accept.
       </p>
 
@@ -239,9 +249,7 @@ export function InviteStarterPack({
               onClick={() => setAllMatches((v) => !v)}
               className="mt-1.5 text-sm font-medium text-cyan-glow"
             >
-              {allMatches
-                ? "Show fewer"
-                : `Show all ${matches.length} matches`}
+              {allMatches ? "Show fewer" : `Show all ${matches.length} matches`}
             </button>
           )}
         </div>

@@ -71,10 +71,7 @@ interface SharedFromStudent {
 /** The first line of an entry's substance, for a card that is closed.
  *  A title and a date alone tell a coach nothing about whether it is
  *  worth opening; the first thing the student actually wrote does. */
-function entryPreview(
-  transcript: string,
-  takeaways: Takeaways | null,
-): string {
+function entryPreview(transcript: string, takeaways: Takeaways | null): string {
   const first = takeaways?.themes?.[0]?.points?.[0];
   const words = (first ?? transcript ?? "").replace(/\s+/g, " ").trim();
   return words.length > 120 ? `${words.slice(0, 120)}…` : words;
@@ -481,7 +478,11 @@ export function StudentView({
   /** Turn off every copy of this link that is out there and mint a new
    *  one straight away. For a link that got forwarded too far. */
   const resetInvite = async () => {
-    if (!window.confirm("Reset this invite link? The old link stops working. You get a new one straight away."))
+    if (
+      !window.confirm(
+        "Reset this invite link? The old link stops working. You get a new one straight away.",
+      )
+    )
       return;
     const supabase = createClient();
     const { error } = await supabase
@@ -541,9 +542,7 @@ export function StudentView({
 
       <button
         type="button"
-        onClick={() =>
-          composerOpen ? closeComposer() : setComposerOpen(true)
-        }
+        onClick={() => (composerOpen ? closeComposer() : setComposerOpen(true))}
         className="glow-cta mt-5 flex w-full items-center justify-center gap-2 rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink sm:w-auto sm:py-2"
       >
         <svg
@@ -648,9 +647,8 @@ export function StudentView({
             Connect {student.display_name}
           </p>
           <p className="mt-2 text-sm leading-relaxed text-zinc-400">
-            An invite links them to their PongLens account. You&apos;ll see
-            the matches they upload, and the entries you share reach their
-            journal.
+            An invite links them to their PongLens account. You&apos;ll see the
+            matches they upload, and the entries you share reach their journal.
           </p>
           <div className="mt-4 overflow-hidden rounded-xl border border-edge bg-ink/40">
             <button
@@ -705,7 +703,9 @@ export function StudentView({
                     Couldn&apos;t get the link. Close this and try again.
                   </p>
                 ) : (
-                  <p className="mt-3 text-sm text-zinc-500">Getting the link…</p>
+                  <p className="mt-3 text-sm text-zinc-500">
+                    Getting the link…
+                  </p>
                 )}
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                   <button
@@ -760,12 +760,17 @@ export function StudentView({
                 key={entry.id}
                 className="rounded-2xl border border-edge bg-surface p-4"
               >
-                <button
-                  type="button"
-                  onClick={() => setOpen(expanded ? null : entry.id)}
-                  className="flex w-full items-start justify-between gap-3 text-left"
-                >
-                  <span className="flex min-w-0 items-start gap-3">
+                {/* A row, not one button: the share sits in the same
+                    corner as the Shared badge it replaces, and a button
+                    cannot be nested inside a button (Adil, 2026-09-04).
+                    It used to be a full-width cyan bar under the entry,
+                    which shouted next to a badge that whispers. */}
+                <div className="flex w-full items-start justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setOpen(expanded ? null : entry.id)}
+                    className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                  >
                     {/* The photo is half of what an entry says, so the row
                         that stands for the entry shows it. */}
                     {lesson?.image_path && (
@@ -777,18 +782,32 @@ export function StudentView({
                     <span className="min-w-0 text-sm font-medium text-zinc-100">
                       {entryTitle(lesson)}
                     </span>
-                  </span>
+                  </button>
                   <span className="flex shrink-0 items-center gap-2">
-                    {entry.shared_at && (
+                    {entry.shared_at ? (
                       <span className="rounded-full bg-cyan-glow/10 px-2 py-0.5 text-[11px] font-medium text-cyan-glow">
                         Shared
                       </span>
+                    ) : (
+                      canShare && (
+                        // Sized against the badge beside it, but drawn as
+                        // a control: a ring, a filled ground and a hover,
+                        // so it does not read as another status word.
+                        <button
+                          type="button"
+                          onClick={() => void setShared(entry, true)}
+                          disabled={sharingId === entry.id}
+                          className="rounded-full border border-cyan-glow/60 bg-cyan-glow/10 px-3 py-1 text-xs font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/20 disabled:opacity-60"
+                        >
+                          {sharingId === entry.id ? "Sharing…" : "Share"}
+                        </button>
+                      )
                     )}
                     <span className="text-xs text-zinc-500">
                       {day(entry.created_at)}
                     </span>
                   </span>
-                </button>
+                </div>
                 {expanded && (
                   <div className="mt-3 space-y-4">
                     {themes.length > 0 ? (
@@ -830,63 +849,41 @@ export function StudentView({
                     {lesson?.image_path && <EntryImage lessonId={lesson.id} />}
                   </div>
                 )}
-                {(canShare || expanded) && (
-                  <div
-                    className={`mt-3 flex flex-wrap items-center gap-2 ${
-                      expanded ? "border-t border-edge/60 pt-3" : ""
-                    }`}
-                  >
-                    {canShare && (
+                {expanded && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-edge/60 pt-3">
+                    {student.player_id && entry.shared_at && (
                       <button
                         type="button"
-                        onClick={() => void setShared(entry, true)}
+                        onClick={() => void setShared(entry, false)}
                         disabled={sharingId === entry.id}
-                        className="glow-cta rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink disabled:opacity-60"
+                        className={pill}
                       >
-                        {sharingId === entry.id
-                          ? "Sharing…"
-                          : `Share with ${student.display_name}`}
+                        {sharingId === entry.id ? "Stopping…" : "Stop sharing"}
                       </button>
                     )}
-                    {expanded && (
-                      <>
-                        {student.player_id && entry.shared_at && (
-                          <button
-                            type="button"
-                            onClick={() => void setShared(entry, false)}
-                            disabled={sharingId === entry.id}
-                            className={pill}
-                          >
-                            {sharingId === entry.id
-                              ? "Stopping…"
-                              : "Stop sharing"}
-                          </button>
-                        )}
-                        {lesson && (
-                          <button
-                            type="button"
-                            onClick={() => setEditing(asLesson(lesson))}
-                            className={pill}
-                          >
-                            Edit
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => void copyEntryLink(entry)}
-                          className={pill}
-                        >
-                          Copy link
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void deleteEntry(entry)}
-                          className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200"
-                        >
-                          Delete
-                        </button>
-                      </>
+                    {lesson && (
+                      <button
+                        type="button"
+                        onClick={() => setEditing(asLesson(lesson))}
+                        className={pill}
+                      >
+                        Edit
+                      </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => void copyEntryLink(entry)}
+                      className={pill}
+                    >
+                      Copy link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void deleteEntry(entry)}
+                      className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200"
+                    >
+                      Delete
+                    </button>
                   </div>
                 )}
                 {expanded && entry.shared_at && (
@@ -1146,8 +1143,8 @@ export function StudentView({
             Which student are they?
           </p>
           <p className="mt-1 text-sm text-zinc-400">
-            Your entries about them come along, and their account connects
-            to that name.
+            Your entries about them come along, and their account connects to
+            that name.
           </p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             {offlineStudents.map((row) => (

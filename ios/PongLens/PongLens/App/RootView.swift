@@ -122,6 +122,13 @@ struct RootView: View {
             // exactly how a coach account got shown the player's journal
             // on a shared phone. Hand the new identity fresh stores and
             // re-run the onboarding check.
+            //
+            // Cancel their timers BEFORE dropping them: the bell's poll
+            // used to outlive the account it belonged to, so a signed-out
+            // app kept asking for notifications it was no longer allowed
+            // to read.
+            notifications.stopPolling()
+            library.stopPolling()
             router = Router()
             library = LibraryStore()
             ThumbLoader.shared.clear()

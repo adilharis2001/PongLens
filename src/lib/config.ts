@@ -29,6 +29,26 @@ const FALLBACK_SUPPORT_EMAIL = "support@ponglens.com";
  */
 export const ADMIN_EMAIL = "adilharis2001@gmail.com";
 
+/**
+ * Everyone the admin surfaces open for. Anton was added 2026-09-02 so he
+ * can read the behind-the-scenes of uploads; is_admin() (migration 161)
+ * carries the same two literals, and the two lists must move together —
+ * a name in one and not the other gets pages that render but RPCs that
+ * refuse, which reads as a broken portal rather than a permissions gap.
+ *
+ * ADMIN_EMAIL above stays singular on purpose: the worker uses it as the
+ * operational identity — failure mail, export receipts, the digest — and
+ * none of that should follow a second reader of the dashboard.
+ */
+export const ADMIN_EMAILS: readonly string[] = [
+  ADMIN_EMAIL,
+  "aber97@gmail.com",
+];
+
+export function isAdminEmail(email: string | null | undefined): boolean {
+  return !!email && ADMIN_EMAILS.includes(email);
+}
+
 async function getConfigValue(key: string): Promise<string | null> {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -56,6 +76,16 @@ export const getSupportEmail = cache(async (): Promise<string> => {
 /** Runtime kill switch for the usage-based commercial model (096). */
 export const getCommerceEnabled = cache(async (): Promise<boolean> => {
   return (await getConfigValue("commerce_enabled")) === "true";
+});
+
+/**
+ * Sponsored reviews, where a coach covers a review for their own student
+ * (096), turned off by Adil on 2026-09-04 for being hard to understand.
+ * Off unless the key says exactly 'true', so a missing row or a failed
+ * read hides the feature rather than exposing it (170).
+ */
+export const getSponsoredEnabled = cache(async (): Promise<boolean> => {
+  return (await getConfigValue("sponsored_reviews_enabled")) === "true";
 });
 
 /** Source-video minutes a paid or sponsored review covers (096). */

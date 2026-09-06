@@ -195,6 +195,18 @@ final class NotificationsStore {
     }
 
     func load() async {
+        // This table is per-viewer and `anon` has no read permission on it
+        // at all, so a poll from a signed-out app is REFUSED rather than
+        // answered with an empty list. `try?` swallowed that, and nothing
+        // cancelled the timer, so an app whose session had gone asked again
+        // every 60 s for as long as it stayed alive. Asking for the session
+        // first refreshes a stale token and, when the refresh fails, stops
+        // the loop instead of hammering a refusal.
+        guard (try? await supa.auth.session) != nil else {
+            stopPolling()
+            loaded = true
+            return
+        }
         let fetched: [NotificationRow]? = try? await supa
             .from("notifications")
             .select("id,kind,match_id,title,body,href,group_count,read_at,created_at")
@@ -234,5 +246,12 @@ final class NotificationsStore {
                 await self?.load()
             }
         }
+    }
+
+    /// The sibling `LibraryStore` has always had this; the bell never did,
+    /// so signing out left its timer running.
+    func stopPolling() {
+        pollTask?.cancel()
+        pollTask = nil
     }
 }

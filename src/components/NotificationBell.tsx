@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { downloadReel } from "@/lib/download";
 import { createClient } from "@/lib/supabase/client";
+import { POLL_MS, createNotificationPoll } from "./notificationPoll";
 import type { AppNotification, NotificationKind } from "@/lib/types";
 
 /**
@@ -35,8 +36,51 @@ function exportTarget(n: AppNotification): { matchId: string; scope: string } | 
  * rest. The count always means "things you haven't opened".
  */
 
-const POLL_MS = 60_000;
 const PAGE_SIZE = 20;
+
+/**
+ * One poll, shared by every bell on the page, and no request at all
+ * without a session. The rule and the reasoning live in
+ * `notificationPoll.ts`, where they can be tested without a browser;
+ * this is only the Supabase wiring for it.
+ */
+const poll = createNotificationPoll<AppNotification>(
+  {
+    hasSession: async () => {
+      const {
+        data: { session },
+      } = await createClient().auth.getSession();
+      return Boolean(session);
+    },
+    fetch: async () => {
+      const { data } = await createClient()
+        .from("notifications")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(PAGE_SIZE);
+      // RLS scopes this to the viewer; the session check above is what
+      // keeps a signed-out tab from asking in the first place.
+      return (data as AppNotification[] | null) ?? null;
+    },
+    watchAuth: (onChange) => {
+      const { data } = createClient().auth.onAuthStateChange((event) => {
+        if (event === "SIGNED_OUT") onChange(false);
+        else if (event === "SIGNED_IN") onChange(true);
+      });
+      return () => data.subscription.unsubscribe();
+    },
+  },
+  { intervalMs: POLL_MS }
+);
+
+// A tab coming back to the foreground should not wait out the minute.
+if (typeof document !== "undefined") {
+  const onFocus = () => {
+    if (document.visibilityState === "visible") void poll.refresh();
+  };
+  document.addEventListener("visibilitychange", onFocus);
+  window.addEventListener("focus", onFocus);
+}
 
 function timeAgo(iso: string) {
   const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -170,45 +214,24 @@ function BellIcon() {
 
 export function NotificationBell() {
   const pathname = usePathname();
-  const [items, setItems] = useState<AppNotification[] | null>(null);
+  // Shared with the other bell this page also mounted; the timer, the
+  // focus refetch and the auth watch all live in the store above.
+  const items = useSyncExternalStore(
+    poll.subscribe,
+    poll.getSnapshot,
+    poll.getServerSnapshot
+  );
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
   const unread = (items ?? []).filter((n) => !n.read_at).length;
-
-  const load = useCallback(async () => {
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("notifications")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(PAGE_SIZE);
-    // RLS already scopes this to the viewer; a signed-out visitor just
-    // gets nothing back and the bell stays empty.
-    if (data) setItems(data as AppNotification[]);
-  }, []);
-
-  useEffect(() => {
-    void load();
-    const timer = setInterval(() => void load(), POLL_MS);
-    const onFocus = () => {
-      if (document.visibilityState === "visible") void load();
-    };
-    document.addEventListener("visibilitychange", onFocus);
-    window.addEventListener("focus", onFocus);
-    return () => {
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", onFocus);
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [load]);
 
   // A navigation means the panel's job is done.
   useEffect(() => setOpen(false), [pathname]);
 
   useEffect(() => {
     if (!open) return;
-    void load();
+    void poll.refresh();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
@@ -221,18 +244,14 @@ export function NotificationBell() {
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mousedown", onClick);
     };
-  }, [open, load]);
+  }, [open]);
 
   // Optimistic: the badge should drop the moment you tap, and a failed
   // write just reappears on the next poll.
   const markRead = useCallback(async (ids: string[]) => {
     if (ids.length === 0) return;
     const stamp = new Date().toISOString();
-    setItems((prev) =>
-      (prev ?? []).map((n) =>
-        ids.includes(n.id) && !n.read_at ? { ...n, read_at: stamp } : n
-      )
-    );
+    poll.applyRead(ids, stamp);
     const supabase = createClient();
     // read_at is the only column `authenticated` may UPDATE here.
     await supabase

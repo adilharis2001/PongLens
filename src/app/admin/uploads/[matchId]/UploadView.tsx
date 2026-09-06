@@ -13,7 +13,6 @@ import { clipPad, effectivePad } from "../../../match/[id]/clipEdit";
 import { computeServing, type ServeInfo } from "../../../match/[id]/serving";
 import {
   buildPointRows,
-  cardCanOpen,
   formatClock,
   fpsLabel,
   gapLabel,
@@ -635,7 +634,7 @@ export function UploadView({
                   names={names}
                   pad={pad}
                   ends={ends}
-                  playable={cardCanOpen(row.cut_t0, !!cutUrl, isDesktop)}
+                  playable={row.cut_t0 !== null && !!cutUrl}
                   selected={isDesktop && row.id === selectedId}
                   compact={isDesktop}
                   onPlay={() => pickCard(row.id)}

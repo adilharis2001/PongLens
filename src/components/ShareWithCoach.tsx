@@ -4,7 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ShareQR } from "@/components/ShareQR";
 import { UNNAMED_INVITE, nameCoachInvite } from "@/lib/coaches/nameInvite";
-import { InviteStarterPack, useStarterPack } from "@/components/InviteStarterPack";
+import {
+  InviteStarterPack,
+  useStarterPack,
+} from "@/components/InviteStarterPack";
 
 /** One waiting invite, from pending_invite_matches() (166): who it is
  *  for, what it already covers, and whether THIS match is lined up to go
@@ -59,7 +62,7 @@ export function ShareWithCoachSheet({
   // "selected" is the Coaching-tab case (161): connect the coach now,
   // share matches one at a time from their pages.
   const [scope, setScope] = useState<"match" | "all" | "selected">(
-    matchId ? "match" : "all"
+    matchId ? "match" : "all",
   );
   const [creating, setCreating] = useState(false);
   const [link, setLink] = useState<string | null>(null);
@@ -121,15 +124,20 @@ export function ShareWithCoachSheet({
       if (!l.coach_id) continue;
       byCoach.set(l.coach_id, [...(byCoach.get(l.coach_id) ?? []), l]);
     }
-    const rows: ConnectedCoach[] = [...byCoach.entries()].map(([coachId, links]) => ({
-      id: coachId,
-      name: links.map((l) => names.get(l.id)).find(Boolean) ?? "Coach",
-      allMatches: links.some((l) => l.scope_match_id === null && l.all_matches),
-      matchLinkId: links.find((l) => l.scope_match_id === matchId)?.id ?? null,
-      otherMatches: links.filter(
-        (l) => l.scope_match_id !== null && l.scope_match_id !== matchId,
-      ).length,
-    }));
+    const rows: ConnectedCoach[] = [...byCoach.entries()].map(
+      ([coachId, links]) => ({
+        id: coachId,
+        name: links.map((l) => names.get(l.id)).find(Boolean) ?? "Coach",
+        allMatches: links.some(
+          (l) => l.scope_match_id === null && l.all_matches,
+        ),
+        matchLinkId:
+          links.find((l) => l.scope_match_id === matchId)?.id ?? null,
+        otherMatches: links.filter(
+          (l) => l.scope_match_id !== null && l.scope_match_id !== matchId,
+        ).length,
+      }),
+    );
     rows.sort((a, b) => a.name.localeCompare(b.name));
     setCoaches(rows);
   }, [userId, matchId]);
@@ -261,9 +269,9 @@ export function ShareWithCoachSheet({
     // written somewhere they cannot be read.
     const matchIds = [...pickedMatches];
     if (scope !== "all" && matchIds.length > 0) {
-      await supabase.from("coach_invite_matches").insert(
-        matchIds.map((id) => ({ invite_id: data.id, match_id: id })),
-      );
+      await supabase
+        .from("coach_invite_matches")
+        .insert(matchIds.map((id) => ({ invite_id: data.id, match_id: id })));
     }
     const entryIds = [...pickedEntries];
     if (entryIds.length > 0) {
@@ -324,6 +332,15 @@ export function ShareWithCoachSheet({
   const canNativeShare =
     typeof navigator !== "undefined" && typeof navigator.share === "function";
 
+  /** Is there a left-hand column worth splitting the sheet for? People
+   *  who already hold this match, or are queued to. With nobody there,
+   *  a lone invite form stretched across a wide card reads worse than a
+   *  narrow one, so the sheet stays one column. */
+  const twoUp =
+    !link &&
+    Boolean(matchId) &&
+    ((coaches?.length ?? 0) > 0 || invites.length > 0);
+
   if (!open) return null;
 
   return (
@@ -334,14 +351,22 @@ export function ShareWithCoachSheet({
         onClick={onClose}
         className="absolute inset-0 bg-ink/70 backdrop-blur-sm"
       />
-      {/* A bottom sheet on a phone, a centred card from sm up — and in
-          BOTH cases it has to be shorter than the window. It had no
-          height cap at all, so once the head start went in it ran off
-          the bottom of a desktop screen as a tall thin column (Adil,
-          2026-09-04). max-w-lg rather than sm because the rows carry a
-          title, a subtitle and a trailing score: at 384px the venue was
-          being truncated. */}
-      <div className="absolute inset-x-0 bottom-0 max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain rounded-t-2xl border border-edge bg-surface p-5 pb-[max(2rem,env(safe-area-inset-bottom))] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-3rem)] sm:w-full sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
+      {/* A bottom sheet on a phone, a centred card from sm up, and from
+          lg a TWO-COLUMN card — because on a desktop the one-column
+          version is a tall thin ribbon you scroll for a while, which is
+          a mobile layout wearing a desktop's clothes (Adil, 2026-09-04,
+          twice). Who already has this match on the left, the new invite
+          on the right, so the whole sheet fits a laptop window without
+          scrolling. Two columns only when the left one has something in
+          it; a lone invite form spread across 900px is worse than a
+          narrow one. In every case it must be shorter than the window:
+          it had no height cap at all until the head start ran off the
+          bottom of the screen. */}
+      <div
+        className={`absolute inset-x-0 bottom-0 max-h-[calc(100dvh-1rem)] overflow-y-auto overscroll-contain rounded-t-2xl border border-edge bg-surface p-5 pb-[max(2rem,env(safe-area-inset-bottom))] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-3rem)] sm:w-full sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:p-6 ${
+          twoUp ? "sm:max-w-lg lg:max-w-4xl" : "sm:max-w-lg"
+        }`}
+      >
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">Share with coach</h2>
           <button
@@ -362,330 +387,365 @@ export function ShareWithCoachSheet({
             </svg>
           </button>
         </div>
-        {matchId && coaches && coaches.length > 0 && (
-          <div className="mt-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Your coaches
-            </p>
-            <div className="mt-2 divide-y divide-edge/60 overflow-hidden rounded-xl border border-edge bg-surface-2/60">
-              {coaches.map((c) => (
-                <div key={c.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-zinc-100">{c.name}</span>
-                    <span className="block text-xs text-zinc-500">{coachState(c)}</span>
-                  </span>
-                  {c.allMatches ? (
-                    <span className="text-sm font-medium text-cyan-glow">All matches</span>
-                  ) : busyCoach === c.id ? (
-                    <span className="text-sm text-zinc-500">…</span>
-                  ) : c.matchLinkId ? (
-                    <button
-                      type="button"
-                      onClick={() => void unshareWith(c)}
-                      className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+        <div
+          className={
+            twoUp ? "lg:grid lg:grid-cols-2 lg:items-start lg:gap-7" : undefined
+          }
+        >
+          <div>
+            {matchId && coaches && coaches.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Your coaches
+                </p>
+                <div className="mt-2 divide-y divide-edge/60 overflow-hidden rounded-xl border border-edge bg-surface-2/60">
+                  {coaches.map((c) => (
+                    <div
+                      key={c.id}
+                      className="flex items-center justify-between gap-3 px-4 py-3"
                     >
-                      Remove
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => void shareWith(c)}
-                      className="glow-cta rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink"
-                    >
-                      Share
-                    </button>
-                  )}
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-zinc-100">
+                          {c.name}
+                        </span>
+                        <span className="block text-xs text-zinc-500">
+                          {coachState(c)}
+                        </span>
+                      </span>
+                      {c.allMatches ? (
+                        <span className="text-sm font-medium text-cyan-glow">
+                          All matches
+                        </span>
+                      ) : busyCoach === c.id ? (
+                        <span className="text-sm text-zinc-500">…</span>
+                      ) : c.matchLinkId ? (
+                        <button
+                          type="button"
+                          onClick={() => void unshareWith(c)}
+                          className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                        >
+                          Remove
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void shareWith(c)}
+                          className="glow-cta rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink"
+                        >
+                          Share
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-zinc-500">
-              Sharing hands them this match. Take it back any time from Coaching.
-            </p>
-          </div>
-        )}
+                <p className="mt-2 text-xs text-zinc-500">
+                  Sharing hands them this match. Take it back any time from
+                  Coaching.
+                </p>
+              </div>
+            )}
 
-        {/* Coaches you have invited but who have not opened the link yet
+            {/* Coaches you have invited but who have not opened the link yet
             (166). You could not reach them at all before: sharing writes
             an accepted link, and there is no account to write one for. So
             this lines the match up instead, and the accept hands it over.
             Adil asked for it by name on 2026-09-04. */}
-        {matchId && invites.length > 0 && (
-          <div className="mt-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Waiting to accept
-            </p>
-            <div className="mt-2 divide-y divide-edge/60 overflow-hidden rounded-xl border border-edge bg-surface-2/60">
-              {invites.map((inv) => {
-                const covered =
-                  inv.all_matches || inv.scope_match_id === matchId;
-                return (
-                  <div
-                    key={inv.invite_id}
-                    className="flex items-center justify-between gap-3 px-4 py-3"
-                  >
-                    <span className="min-w-0">
-                      <span
-                        className={`block truncate text-sm font-medium ${
-                          inv.display_name ? "text-zinc-100" : "text-zinc-500"
-                        }`}
+            {matchId && invites.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Waiting to accept
+                </p>
+                <div className="mt-2 divide-y divide-edge/60 overflow-hidden rounded-xl border border-edge bg-surface-2/60">
+                  {invites.map((inv) => {
+                    const covered =
+                      inv.all_matches || inv.scope_match_id === matchId;
+                    return (
+                      <div
+                        key={inv.invite_id}
+                        className="flex items-center justify-between gap-3 px-4 py-3"
                       >
-                        {inv.display_name ?? UNNAMED_INVITE}
-                      </span>
-                      <span className="block text-xs text-zinc-500">
-                        {covered
-                          ? inv.all_matches
-                            ? "Gets all your matches when they accept"
-                            : "Their invite is for this match"
-                          : inv.queued
-                            ? "Gets this match when they accept"
-                            : "Hasn't opened the link yet"}
-                      </span>
-                      {!inv.display_name && (
-                        namingId === inv.invite_id ? (
-                          <span className="mt-2 flex gap-2">
-                            <input
-                              type="text"
-                              value={nameDraft}
-                              onChange={(e) =>
-                                setNameDraft(e.target.value.slice(0, 80))
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  void nameInvite(inv.invite_id, nameDraft);
-                                }
-                                if (e.key === "Escape") setNamingId(null);
-                              }}
-                              maxLength={80}
-                              autoFocus
-                              placeholder="Their name"
-                              aria-label="Coach name"
-                              className="min-w-0 flex-1 rounded-lg border border-edge bg-ink/40 px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:outline-none"
-                            />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void nameInvite(inv.invite_id, nameDraft)
-                              }
-                              disabled={nameDraft.trim() === ""}
-                              className="shrink-0 rounded-full border border-edge bg-surface-2 px-3 py-1 text-sm font-semibold text-zinc-200 disabled:opacity-60"
-                            >
-                              Save
-                            </button>
+                        <span className="min-w-0">
+                          <span
+                            className={`block truncate text-sm font-medium ${
+                              inv.display_name
+                                ? "text-zinc-100"
+                                : "text-zinc-500"
+                            }`}
+                          >
+                            {inv.display_name ?? UNNAMED_INVITE}
                           </span>
+                          <span className="block text-xs text-zinc-500">
+                            {covered
+                              ? inv.all_matches
+                                ? "Gets all your matches when they accept"
+                                : "Their invite is for this match"
+                              : inv.queued
+                                ? "Gets this match when they accept"
+                                : "Hasn't opened the link yet"}
+                          </span>
+                          {!inv.display_name &&
+                            (namingId === inv.invite_id ? (
+                              <span className="mt-2 flex gap-2">
+                                <input
+                                  type="text"
+                                  value={nameDraft}
+                                  onChange={(e) =>
+                                    setNameDraft(e.target.value.slice(0, 80))
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      void nameInvite(inv.invite_id, nameDraft);
+                                    }
+                                    if (e.key === "Escape") setNamingId(null);
+                                  }}
+                                  maxLength={80}
+                                  autoFocus
+                                  placeholder="Their name"
+                                  aria-label="Coach name"
+                                  className="min-w-0 flex-1 rounded-lg border border-edge bg-ink/40 px-3 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void nameInvite(inv.invite_id, nameDraft)
+                                  }
+                                  disabled={nameDraft.trim() === ""}
+                                  className="shrink-0 rounded-full border border-edge bg-surface-2 px-3 py-1 text-sm font-semibold text-zinc-200 disabled:opacity-60"
+                                >
+                                  Save
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNameDraft("");
+                                  setNamingId(inv.invite_id);
+                                }}
+                                className="mt-1 text-sm font-medium text-cyan-glow"
+                              >
+                                Add a name
+                              </button>
+                            ))}
+                        </span>
+                        {covered ? null : busyCoach === inv.invite_id ? (
+                          <span className="text-sm text-zinc-500">…</span>
+                        ) : inv.queued ? (
+                          <button
+                            type="button"
+                            onClick={() => void queueForInvite(inv, false)}
+                            className="shrink-0 rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+                          >
+                            Remove
+                          </button>
                         ) : (
                           <button
                             type="button"
-                            onClick={() => {
-                              setNameDraft("");
-                              setNamingId(inv.invite_id);
-                            }}
-                            className="mt-1 text-sm font-medium text-cyan-glow"
+                            onClick={() => void queueForInvite(inv, true)}
+                            className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink"
                           >
-                            Add a name
+                            Share
                           </button>
-                        )
-                      )}
-                    </span>
-                    {covered ? null : busyCoach === inv.invite_id ? (
-                      <span className="text-sm text-zinc-500">…</span>
-                    ) : inv.queued ? (
-                      <button
-                        type="button"
-                        onClick={() => void queueForInvite(inv, false)}
-                        className="shrink-0 rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
-                      >
-                        Remove
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void queueForInvite(inv, true)}
-                        className="glow-cta shrink-0 rounded-full bg-cyan-glow px-4 py-1.5 text-sm font-semibold text-ink"
-                      >
-                        Share
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-        )}
 
-        {/* The header has to describe what is under it. It said "Invite
+          <div>
+            {/* The header has to describe what is under it. It said "Invite
             another coach" over a link that had just been made, which
             reads as a second invitation nobody asked for (Adil,
             2026-09-04). */}
-        {(link || (matchId && ((coaches?.length ?? 0) > 0 || invites.length > 0))) && (
-          <p className="mt-5 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            {link ? "Send this invite" : "Invite another coach"}
-          </p>
-        )}
+            {(link ||
+              (matchId &&
+                ((coaches?.length ?? 0) > 0 || invites.length > 0))) && (
+              <p className="mt-5 text-xs font-semibold uppercase tracking-wider text-zinc-500 lg:mt-4">
+                {link ? "Send this invite" : "Invite another coach"}
+              </p>
+            )}
 
-        {!link ? (
-          <>
-            <p className="mt-1 text-sm text-zinc-400">
-              Your coach can watch, but not edit. They can add notes.
-            </p>
-            {/* Naming them now is what lets the journal attribute lessons
+            {/* Everything the section header promises, inside one drawn box.
+            The name, the scope and the head start used to sit loose on
+            the sheet under that header, each with an eyebrow of its own,
+            so "Give them a head start" and "Create invite link" read as
+            new sections rather than steps of this one (Adil,
+            2026-09-04). A border is what makes a heading own what
+            follows it. */}
+            <div className="mt-2 rounded-2xl border border-edge bg-surface-2/30 p-4">
+              {!link ? (
+                <>
+                  <p className="text-sm text-zinc-400">
+                    Your coach can watch, but not edit. They can add notes.
+                  </p>
+                  {/* Naming them now is what lets the journal attribute lessons
                 to this coach before they have accepted anything. */}
-            <input
-              type="text"
-              value={inviteName}
-              onChange={(e) => setInviteName(e.target.value.slice(0, 80))}
-              maxLength={80}
-              placeholder="Their name (optional)"
-              aria-label="Coach name"
-              autoComplete="off"
-              className="mt-4 w-full rounded-xl border border-edge bg-surface-2/40 px-3.5 py-2.5 text-[15px] text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
-            />
-            <div className="mt-3 space-y-2">
-              {matchId && (
-                <button
-                  type="button"
-                  aria-pressed={scope === "match"}
-                  onClick={() => setScope("match")}
-                  className={`w-full rounded-xl border p-3.5 text-left transition-colors ${
-                    scope === "match"
-                      ? "border-cyan-glow/60 bg-cyan-glow/10"
-                      : "border-edge bg-ink/40 hover:border-cyan-glow/40"
-                  }`}
-                >
-                  <p className="text-sm font-semibold text-zinc-100">
-                    This match
-                  </p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    Your coach sees only this match.
-                  </p>
-                </button>
-              )}
-              <button
-                type="button"
-                aria-pressed={scope === "all"}
-                onClick={() => setScope("all")}
-                className={`w-full rounded-xl border p-3.5 text-left transition-colors ${
-                  scope === "all"
-                    ? "border-cyan-glow/60 bg-cyan-glow/10"
-                    : "border-edge bg-ink/40 hover:border-cyan-glow/40"
-                }`}
-              >
-                <p className="text-sm font-semibold text-zinc-100">
-                  All my matches
-                </p>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  Every match, including future uploads.
-                </p>
-              </button>
-              {!matchId && (
-                <button
-                  type="button"
-                  aria-pressed={scope === "selected"}
-                  onClick={() => setScope("selected")}
-                  className={`w-full rounded-xl border p-3.5 text-left transition-colors ${
-                    scope === "selected"
-                      ? "border-cyan-glow/60 bg-cyan-glow/10"
-                      : "border-edge bg-ink/40 hover:border-cyan-glow/40"
-                  }`}
-                >
-                  <p className="text-sm font-semibold text-zinc-100">
-                    Only matches I share
-                  </p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    You share each match from its page. Change this any time.
-                  </p>
-                </button>
-              )}
-            </div>
-            {/* Only when a name has been typed for the entries half:
+                  <input
+                    type="text"
+                    value={inviteName}
+                    onChange={(e) => setInviteName(e.target.value.slice(0, 80))}
+                    maxLength={80}
+                    placeholder="Their name (optional)"
+                    aria-label="Coach name"
+                    autoComplete="off"
+                    className="mt-3 w-full rounded-xl border border-edge bg-ink/40 px-3.5 py-2.5 text-[15px] text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
+                  />
+                  {/* Always exactly two choices, so they sit side by side and
+                cost one row instead of two. */}
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {matchId && (
+                      <button
+                        type="button"
+                        aria-pressed={scope === "match"}
+                        onClick={() => setScope("match")}
+                        className={`w-full rounded-xl border p-3.5 text-left transition-colors ${
+                          scope === "match"
+                            ? "border-cyan-glow/60 bg-cyan-glow/10"
+                            : "border-edge bg-ink/40 hover:border-cyan-glow/40"
+                        }`}
+                      >
+                        <p className="text-sm font-semibold text-zinc-100">
+                          This match
+                        </p>
+                        <p className="mt-0.5 text-xs text-zinc-500">
+                          Your coach sees only this match.
+                        </p>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      aria-pressed={scope === "all"}
+                      onClick={() => setScope("all")}
+                      className={`w-full rounded-xl border p-3.5 text-left transition-colors ${
+                        scope === "all"
+                          ? "border-cyan-glow/60 bg-cyan-glow/10"
+                          : "border-edge bg-ink/40 hover:border-cyan-glow/40"
+                      }`}
+                    >
+                      <p className="text-sm font-semibold text-zinc-100">
+                        All my matches
+                      </p>
+                      <p className="mt-0.5 text-xs text-zinc-500">
+                        Every match, including future uploads.
+                      </p>
+                    </button>
+                    {!matchId && (
+                      <button
+                        type="button"
+                        aria-pressed={scope === "selected"}
+                        onClick={() => setScope("selected")}
+                        className={`w-full rounded-xl border p-3.5 text-left transition-colors ${
+                          scope === "selected"
+                            ? "border-cyan-glow/60 bg-cyan-glow/10"
+                            : "border-edge bg-ink/40 hover:border-cyan-glow/40"
+                        }`}
+                      >
+                        <p className="text-sm font-semibold text-zinc-100">
+                          Only matches I share
+                        </p>
+                        <p className="mt-0.5 text-xs text-zinc-500">
+                          You share each match from its page. Change this any
+                          time.
+                        </p>
+                      </button>
+                    )}
+                  </div>
+                  {/* Only when a name has been typed for the entries half:
                 an entry has to be attributed to somebody, and an unnamed
                 invite has no row to attribute it to. Matches need no
                 name, so they stand on their own. */}
-            <InviteStarterPack
-              matches={scope === "all" ? [] : starter.matches}
-              entries={inviteName.trim() ? starter.entries : []}
-              points={starter.points}
-              pickedMatches={pickedMatches}
-              pickedEntries={pickedEntries}
-              disabled={creating}
-              onToggleMatch={(id) =>
-                setPickedMatches((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  return next;
-                })
-              }
-              onToggleEntry={(id) =>
-                setPickedEntries((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  return next;
-                })
-              }
-            />
-            {/* Not gated on the scope: "all my matches" is about matches
+                  <InviteStarterPack
+                    matches={scope === "all" ? [] : starter.matches}
+                    entries={inviteName.trim() ? starter.entries : []}
+                    points={starter.points}
+                    pickedMatches={pickedMatches}
+                    pickedEntries={pickedEntries}
+                    disabled={creating}
+                    onToggleMatch={(id) =>
+                      setPickedMatches((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        return next;
+                      })
+                    }
+                    onToggleEntry={(id) =>
+                      setPickedEntries((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(id)) next.delete(id);
+                        else next.add(id);
+                        return next;
+                      })
+                    }
+                  />
+                  {/* Not gated on the scope: "all my matches" is about matches
                 and says nothing about the journal, so the offer to share
                 entries stands either way. Gating it here hid the whole
                 head start behind the default choice. */}
-            {!inviteName.trim() && starter.entries.length > 0 && (
-              <p className="mt-3 text-sm text-zinc-400">
-                Name them above to send some of your journal too.
-              </p>
-            )}
-            <button
-              type="button"
-              disabled={creating}
-              onClick={() => void createLink()}
-              className="glow-cta mt-4 w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-60"
-            >
-              {creating ? "Creating…" : "Create invite link"}
-            </button>
-          </>
-        ) : (
-          <>
-            <p className="mt-1 text-sm text-zinc-400">
-              It is waiting until they open it. You can revoke it any time
-              from Coaching.
-            </p>
-            <p className="mt-3 break-all rounded-lg border border-edge bg-ink/60 px-3 py-2.5 text-xs text-zinc-300">
-              {link}
-            </p>
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                onClick={() => void copy()}
-                className="flex-1 rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink"
-              >
-                {copied ? "Copied" : "Copy link"}
-              </button>
-              {canNativeShare && (
-                <button
-                  type="button"
-                  onClick={() => void nativeShare()}
-                  className="flex-1 rounded-full border border-edge bg-surface-2 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
-                >
-                  Share…
-                </button>
+                  {!inviteName.trim() && starter.entries.length > 0 && (
+                    <p className="mt-3 text-sm text-zinc-400">
+                      Name them above to send some of your journal too.
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    disabled={creating}
+                    onClick={() => void createLink()}
+                    className="glow-cta mt-4 w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink disabled:opacity-60"
+                  >
+                    {creating ? "Creating…" : "Create invite link"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-zinc-400">
+                    It is waiting until they open it. You can revoke it any time
+                    from Coaching.
+                  </p>
+                  <p className="mt-3 break-all rounded-lg border border-edge bg-ink/60 px-3 py-2.5 text-xs text-zinc-300">
+                    {link}
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copy()}
+                      className="flex-1 rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink"
+                    >
+                      {copied ? "Copied" : "Copy link"}
+                    </button>
+                    {canNativeShare && (
+                      <button
+                        type="button"
+                        onClick={() => void nativeShare()}
+                        className="flex-1 rounded-full border border-edge bg-surface-2 px-4 py-2.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+                      >
+                        Share…
+                      </button>
+                    )}
+                  </div>
+                  <ShareQR url={link} />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLink(null);
+                      setInviteName("");
+                      setCopied(false);
+                      void loadCoaches();
+                    }}
+                    className="mt-3 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
+                  >
+                    Invite someone else
+                  </button>
+                </>
               )}
             </div>
-            <ShareQR url={link} />
-            <button
-              type="button"
-              onClick={() => {
-                setLink(null);
-                setInviteName("");
-                setCopied(false);
-                void loadCoaches();
-              }}
-              className="mt-3 text-sm font-medium text-zinc-400 transition-colors hover:text-zinc-200"
-            >
-              Invite someone else
-            </button>
-          </>
-        )}
-        {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
+            {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
+          </div>
+        </div>
       </div>
     </div>
   );

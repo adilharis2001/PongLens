@@ -1,0 +1,11 @@
+[
+ {"match":"25765e26","who":"Anton","label":"PingPod W37, 26 Aug","quad":"good","neighbour":"none"},
+ {"match":"47b83b9b","who":"Anton","label":"PingPod W37, 26 Aug","quad":"good","neighbour":"none"},
+ {"match":"74542390","who":"Anton","label":"PingPod W37, 27 Aug","quad":"far_short","neighbour":"none"},
+ {"match":"77fc4dee","who":"Adil","label":"vs Lester, Pingpod","quad":"good","neighbour":"partial"},
+ {"match":"7e02fbb9","who":"Adil","label":"vs Julian, Pingpod","quad":"good","neighbour":"none"},
+ {"match":"840b4635","who":"Anton","label":"PingPod W37, 26 Aug","quad":"good","neighbour":"full"},
+ {"match":"9ef09000","who":"Julian M","label":"vs Tomo, Aro","quad":"good","neighbour":"none"},
+ {"match":"bfc9b31b","who":"Anton","label":"PingPod W37, 27 Aug","quad":"good","neighbour":"none"},
+ {"match":"ec6490f4","who":"Adil","label":"vs Chris, Pingpod","quad":"good","neighbour":"none"}
+]
