@@ -319,6 +319,52 @@ export function PointDetail({
     [onSetGameOverride, flash]
   );
 
+  // The clip link lives an hour. When it stops working mid-session the
+  // player reports it (after its own CORS retry) and one fresh link is
+  // minted, resuming where the clip was; a second failure is a real one.
+  const remintedFor = useRef<string | null>(null);
+  const resumeAt = useRef<number | null>(null);
+  const mintClipUrl = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/media-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId, pointId: point.id }),
+      });
+      const data = res.ok ? await res.json() : null;
+      if (!data?.url) return false;
+      setVideoUrl(data.url);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [matchId, point.id]);
+  const onClipMediaError = useCallback(
+    (state?: { time: number; wasPlaying: boolean }) => {
+      if (remintedFor.current === point.id) {
+        setVideoError("Couldn't load the clip. Try again.");
+        return;
+      }
+      remintedFor.current = point.id;
+      resumeAt.current = state?.time ?? null;
+      void mintClipUrl().then((ok) => {
+        if (!ok) setVideoError("Couldn't load the clip. Try again.");
+      });
+    },
+    [mintClipUrl, point.id]
+  );
+  useEffect(() => {
+    const t = resumeAt.current;
+    const v = clipVideoRef.current;
+    if (t === null || !v || !videoUrl) return;
+    resumeAt.current = null;
+    const onMeta = () => {
+      v.currentTime = t;
+    };
+    v.addEventListener("loadedmetadata", onMeta, { once: true });
+    return () => v.removeEventListener("loadedmetadata", onMeta);
+  }, [videoUrl]);
+
   useEffect(() => {
     let cancelled = false;
     setVideoUrl(null);
@@ -328,23 +374,15 @@ export function PointDetail({
       return;
     }
     (async () => {
-      try {
-        const res = await fetch("/api/media-url", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ matchId, pointId: point.id }),
-        });
-        const data = res.ok ? await res.json() : null;
-        if (!data?.url) throw new Error("no url");
-        if (!cancelled) setVideoUrl(data.url);
-      } catch {
-        if (!cancelled) setVideoError("Couldn't load the clip. Try again.");
+      const ok = await mintClipUrl();
+      if (!ok && !cancelled) {
+        setVideoError("Couldn't load the clip. Try again.");
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [matchId, point.id, point.clip_path]);
+  }, [point.clip_path, mintClipUrl]);
 
   /**
    * "Looks wrong" on this point's map. Optimistic, because the map has to
@@ -500,6 +538,7 @@ export function PointDetail({
             src={videoUrl}
             videoElRef={clipVideoRef}
             startPaused={startPaused}
+            onMediaError={onClipMediaError}
           />
         ) : !point.clip_path && point.edited ? (
           <div className="flex aspect-video animate-pulse items-center justify-center bg-surface-2/40">

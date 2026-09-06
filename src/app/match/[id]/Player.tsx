@@ -1813,6 +1813,39 @@ export const Player = forwardRef<
   // ---------------------------------------------------------------- media
 
   // Presigned preview URL of the cut video (the poster needs it too).
+  //
+  // The link lives six hours. A session left open past that used to die
+  // silently on the next seek: the second onError below (the first is the
+  // CORS retry) mints a fresh link ONCE and resumes where the player was.
+  const remintedRef = useRef(false);
+  const remintT = useRef<number | null>(null);
+  const remintCutUrl = useCallback(async () => {
+    if (remintedRef.current) return;
+    remintedRef.current = true;
+    remintT.current = videoRef.current?.currentTime ?? null;
+    try {
+      const res = await fetch("/api/media-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId, preview: true }),
+      });
+      const data = res.ok ? await res.json() : null;
+      if (data?.url) setVideoUrl(data.url);
+    } catch {
+      // The element stays on its error; the next open mints again.
+    }
+  }, [matchId]);
+  useEffect(() => {
+    const t = remintT.current;
+    const v = videoRef.current;
+    if (t === null || !v || !videoUrl) return;
+    remintT.current = null;
+    const onMeta = () => {
+      v.currentTime = t;
+    };
+    v.addEventListener("loadedmetadata", onMeta, { once: true });
+    return () => v.removeEventListener("loadedmetadata", onMeta);
+  }, [videoUrl]);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -5314,6 +5347,8 @@ export const Player = forwardRef<
               if (!corsOff) {
                 corsRetryT.current = videoRef.current?.currentTime ?? 0;
                 setCorsOff(true);
+              } else if (!highlightAsset) {
+                void remintCutUrl();
               }
             }}
             // Press-and-hold on this video means 2x, not "save this file".

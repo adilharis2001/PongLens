@@ -281,7 +281,7 @@ extension MatchDetailModel {
     /// restoring the beat fixes who served every later point, the score,
     /// the deuce switch and the game boundaries at once.
     func runInsert(
-        prev: MatchPoint?, next: MatchPoint?,
+        prev: MatchPoint?, next: MatchPoint?, pad: ClipPad,
         t0: Double, t1: Double, cutT0: Double,
         winner: Winner?
     ) async -> Bool {
@@ -305,15 +305,24 @@ extension MatchDetailModel {
             points.append(created)
             // Mirror what the RPC did to the neighbours and to any stale
             // corrections, so the strip is truthful before any refetch.
+            // The trimmed edge is a split boundary now (insert_point marks
+            // it tight, so the re-cut keeps 0.3s past the new card instead
+            // of a full pad of it), and a moved start moves the cut anchor.
             if let prev, let pt1 = prev.t1, pt1 > t0,
                let j = points.firstIndex(where: { $0.id == prev.id }) {
                 points[j].t1 = t0
                 points[j].edited = true
+                points[j].tightEnd = true
             }
             if let next, let nt0 = next.t0, nt0 < t1,
                let j = points.firstIndex(where: { $0.id == next.id }) {
+                points[j].cutT0 = reanchorCutT0(
+                    cutT0: next.cutT0, t0: next.t0, tightStart: next.tightStart,
+                    tightEnd: next.tightEnd, t0New: t1, tightStartNew: true,
+                    pad: pad)
                 points[j].t0 = t1
                 points[j].edited = true
+                points[j].tightStart = true
             }
             for j in points.indices where points[j].serverOverride != nil {
                 if let pt0 = points[j].t0, pt0 > t0, points[j].id != created.id {

@@ -83,24 +83,33 @@ final class MatchDetailModel {
         clipPoll = nil
     }
 
+    /// Fetches the new file's path and the cut anchor as well as the
+    /// timing: without clip_path a re-cut stayed invisible until the match
+    /// was reopened (Share said the rally had no video, Starred stayed
+    /// blank), and without cut_t0 an Adjust made on another device kept
+    /// the old anchor here.
     private func refreshClipState(_ matchId: UUID) async {
         struct ClipRow: Decodable {
             let id: UUID
             let t0: Double?
             let t1: Double?
+            let cutT0: Double?
+            let clipPath: String?
             let edited: Bool
             let deleted: Bool
             let tightStart: Bool
             let tightEnd: Bool
             enum CodingKeys: String, CodingKey {
                 case id, t0, t1, edited, deleted
+                case cutT0 = "cut_t0"
+                case clipPath = "clip_path"
                 case tightStart = "tight_start"
                 case tightEnd = "tight_end"
             }
         }
         let fresh: [ClipRow]? = try? await supa
             .from("points")
-            .select("id, t0, t1, edited, deleted, tight_start, tight_end")
+            .select("id, t0, t1, cut_t0, clip_path, edited, deleted, tight_start, tight_end")
             .eq("match_id", value: matchId.uuidString.lowercased())
             .execute()
             .value
@@ -110,6 +119,8 @@ final class MatchDetailModel {
             guard let row = byId[points[i].id] else { continue }
             points[i].t0 = row.t0
             points[i].t1 = row.t1
+            points[i].cutT0 = row.cutT0
+            points[i].clipPath = row.clipPath
             points[i].edited = row.edited
             points[i].deleted = row.deleted
             points[i].tightStart = row.tightStart

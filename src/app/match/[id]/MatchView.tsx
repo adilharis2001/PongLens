@@ -1530,7 +1530,13 @@ export function MatchView({
     return () => window.removeEventListener("keydown", onKey);
   }, [isDesktop, visiblePoints.length, playerOpen, paneIndex, goToIndex]);
 
+  // When each point was last changed HERE. The pending-clip refresh below
+  // merges rows fetched from the server; a fetch that started before an
+  // optimistic write committed would otherwise put the old timing back for
+  // one cycle (a removed point reappearing, an Adjust snapping back).
+  const touchedAt = useRef<Map<string, number>>(new Map());
   const updatePoint = useCallback((pointId: string, patch: Partial<Point>) => {
+    touchedAt.current.set(pointId, Date.now());
     setPoints((ps) =>
       ps.map((p) => (p.id === pointId ? { ...p, ...patch } : p))
     );
@@ -2208,11 +2214,19 @@ export function MatchView({
       addSplitPoint(created);
       // Mirror what the RPC did to the neighbours and to any stale
       // corrections, so the strip is truthful before any refetch.
+      // The trimmed edge is a split boundary now (insert_point marks it
+      // tight, so the re-cut keeps 0.3s past the new card instead of a
+      // full pad of it), and a moved start moves the cut anchor with it.
       if (prevPoint && prevPoint.t1 !== null && Number(prevPoint.t1) > t0) {
-        updatePoint(prevPoint.id, { t1: t0, edited: true });
+        updatePoint(prevPoint.id, { t1: t0, edited: true, tight_end: true });
       }
       if (nextPoint && nextPoint.t0 !== null && Number(nextPoint.t0) < t1) {
-        updatePoint(nextPoint.id, { t0: t1, edited: true });
+        updatePoint(nextPoint.id, {
+          t0: t1,
+          edited: true,
+          tight_start: true,
+          cut_t0: reanchorCutT0(nextPoint, t1, true, pad),
+        });
       }
       for (const p of visiblePoints) {
         if (p.server_override === null) continue;
@@ -2231,6 +2245,7 @@ export function MatchView({
       updatePoint,
       visiblePoints,
       setWinner,
+      pad,
     ]
   );
 
@@ -2444,9 +2459,11 @@ export function MatchView({
     [visiblePoints, setWinner, setSkipped]
   );
 
-  // While clips are regenerating, poll so 'Updating clip' resolves into the
-  // fresh clip without a manual refresh. t0/t1 truth lives in Postgres; the
-  // video is the only thing arriving late.
+  // While clips are regenerating, poll so the fresh clip arrives without a
+  // manual refresh. t0/t1/cut_t0 truth lives in Postgres; the video is the
+  // only thing arriving late. A row changed here within the last ten
+  // seconds is left alone: the fetch may have started before that write
+  // committed, and the next cycle carries the same truth anyway.
   const hasPendingClips = points.some((p) => p.edited && !p.deleted);
   useEffect(() => {
     if (!hasPendingClips) return;
@@ -2455,13 +2472,19 @@ export function MatchView({
       void (async () => {
         const { data } = await supabase
           .from("points")
-          .select("id, t0, t1, clip_path, edited, deleted, tight_start, tight_end")
+          .select(
+            "id, t0, t1, cut_t0, clip_path, edited, deleted, tight_start, tight_end"
+          )
           .eq("match_id", match.id);
         if (!data) return;
+        const now = Date.now();
         setPoints((ps) =>
           ps.map((p) => {
             const fresh = data.find((d) => d.id === p.id);
-            return fresh ? { ...p, ...fresh } : p;
+            if (!fresh) return p;
+            const touched = touchedAt.current.get(p.id);
+            if (touched !== undefined && now - touched < 10_000) return p;
+            return { ...p, ...fresh };
           })
         );
       })();

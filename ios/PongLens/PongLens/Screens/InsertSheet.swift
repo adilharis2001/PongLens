@@ -425,7 +425,7 @@ struct InsertSheet: View {
         player.pause()
         let w = clampInsertWindow(seam, win)
         let ok = await model.runInsert(
-            prev: prev, next: next,
+            prev: prev, next: next, pad: pad,
             t0: w.t0, t1: w.t1,
             cutT0: insertCutT0(seam, w, pad: pad),
             winner: winner)

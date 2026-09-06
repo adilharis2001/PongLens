@@ -252,7 +252,9 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     /// one visible point in twelve has none (the pipeline dropped it), and
     /// a Share row that offers a video which does not exist is worse than
     /// one that says so.
-    let clipPath: String?
+    /// Mutable so the pending-clip refresh can learn a new file without the
+    /// match being reopened (the worker writes a fresh key per re-cut).
+    var clipPath: String?
     let placement: PlacementData?
     /// The umpire suggestion, read ONLY for its hit count — the highlight
     /// picker's receipt that a "long rally" actually contained rallying.

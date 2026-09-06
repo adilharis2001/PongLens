@@ -152,6 +152,9 @@ struct PlayerTakeover: View {
     /// sweep outlived.
     @State var itemStatus: NSKeyValueObservation?
     @State var loadFailed = false
+    /// The cut link lives six hours. One fresh link is minted when the
+    /// item fails; a second failure is a real one and says so.
+    @State var remintedCut = false
 
     /// The network fell behind. Named on screen, because without it a
     /// choppy connection reads as the app freezing — the picture stops and
@@ -191,6 +194,8 @@ struct PlayerTakeover: View {
     @State var ownClips: Set<UUID> = []
     /// Their preloaded items, so the swap starts with frames in hand.
     @State var clipItems: [UUID: AVPlayerItem] = [:]
+    /// The clip_path each item was minted for (see loadOwnClips).
+    @State var clipItemPaths: [UUID: String?] = [:]
     /// The cut's own item, kept to swap back on exit.
     @State var cutItem: AVPlayerItem?
     @State var clipEndObservers: [NSObjectProtocol] = []
@@ -505,6 +510,14 @@ struct PlayerTakeover: View {
         // spinners back down without anyone reopening the match.
         .onChange(of: model.hasPendingClips) { _, pending in
             if pending { model.startClipPoll(match.id) }
+        }
+        // A card added or re-cut during the session: recompute which cards
+        // need their own file and fetch it, instead of only at start.
+        .onChange(of: model.points.map(\.clipPath)) { _, _ in
+            Task { await loadOwnClips() }
+        }
+        .onChange(of: model.points.count) { _, _ in
+            Task { await loadOwnClips() }
         }
         .onChange(of: isPlaying) { _, playing in
             if playing {
@@ -3103,25 +3116,10 @@ struct PlayerTakeover: View {
         try? AVAudioSession.sharedInstance().setCategory(.playback)
         try? AVAudioSession.sharedInstance().setActive(true)
 
-        let item = AVPlayerItem(url: videoURL)
-        player.replaceCurrentItem(with: item)
-        cutItem = item
+        attachCutItem(AVPlayerItem(url: videoURL))
         // Which cards the cut cannot show, and their clips — fetched now
         // so a detour never starts with an empty player.
         Task { await loadOwnClips() }
-        itemStatus = item.observe(\.status, options: [.new]) { item, _ in
-            Task { @MainActor in
-                if item.status == .failed { loadFailed = true }
-            }
-        }
-        NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: player.currentItem, queue: .main
-        ) { _ in
-            Task { @MainActor in
-                if mode == .score { phase = .summary }
-            }
-        }
         observer = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.2, preferredTimescale: 600),
             queue: .main
@@ -3626,6 +3624,59 @@ struct PlayerTakeover: View {
     /// the cut — exactly what every one of these cards did before the
     /// detour existed. Bracketing runs over model.points, the PHYSICAL
     /// timeline: deleted cards still occupy cut footage.
+    /// The cut as the player's item, with its watchers: a failed load
+    /// mints one fresh link and resumes (the six-hour signature is the
+    /// usual reason), the end of the file closes a scoring session.
+    func attachCutItem(_ item: AVPlayerItem, resumeAt: Double? = nil,
+                       resumePlaying: Bool = false) {
+        player.replaceCurrentItem(with: item)
+        cutItem = item
+        itemStatus = item.observe(\.status, options: [.new]) { item, _ in
+            Task { @MainActor in
+                guard item.status == .failed else { return }
+                if remintedCut {
+                    loadFailed = true
+                    return
+                }
+                remintedCut = true
+                await remintCut()
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item, queue: .main
+        ) { _ in
+            Task { @MainActor in
+                if mode == .score { phase = .summary }
+            }
+        }
+        if let resumeAt {
+            player.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600),
+                        toleranceBefore: .zero, toleranceAfter: .zero)
+            if resumePlaying { player.play() }
+        }
+    }
+
+    /// A fresh six-hour link for the cut, swapped in where the player was.
+    func remintCut() async {
+        let t = player.currentTime().seconds
+        let playing = player.rate > 0
+        struct Req: Encodable {
+            let matchId: String
+            let preview: Bool
+        }
+        struct Res: Decodable { let url: String? }
+        let res: Res? = try? await API.post(
+            "api/media-url",
+            Req(matchId: match.id.uuidString.lowercased(), preview: true))
+        guard let url = res?.url.flatMap(URL.init) else {
+            loadFailed = true
+            return
+        }
+        attachCutItem(AVPlayerItem(url: url),
+                      resumeAt: t.isFinite ? t : nil, resumePlaying: playing)
+    }
+
     func loadOwnClips() async {
         guard isCut else { return }
         let flagged = ownClipIds(
@@ -3634,7 +3685,10 @@ struct PlayerTakeover: View {
         )
         let eligible = Set(points.filter(\.hasClip).map(\.id))
         ownClips = flagged.intersection(eligible)
-        for id in ownClips where clipItems[id] == nil {
+        // A card whose file changed (a re-cut writes a fresh key) gets a
+        // fresh item; the old one would keep playing the old footage.
+        for id in ownClips where clipItems[id] == nil
+            || clipItemPaths[id] != points.first(where: { $0.id == id })?.clipPath {
             struct Req: Encodable {
                 let matchId: String
                 let pointId: String
@@ -3650,6 +3704,7 @@ struct PlayerTakeover: View {
             guard let url = res?.url.flatMap(URL.init) else { continue }
             let item = AVPlayerItem(url: url)
             clipItems[id] = item
+            clipItemPaths[id] = points.first(where: { $0.id == id })?.clipPath
             // The clip running out is the natural end of a detour.
             let token = NotificationCenter.default.addObserver(
                 forName: .AVPlayerItemDidPlayToEndTime,

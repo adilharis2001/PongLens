@@ -18,7 +18,9 @@ struct PointDetailScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
-    @State private var clipURLs: [UUID: URL] = [:]
+    /// Keyed by point AND file path: a re-cut writes a fresh key, so the
+    /// old link must not keep serving the old footage once the badge drops.
+    @State private var clipURLs: [String: URL] = [:]
     @State private var player = AVPlayer()
     @State private var shareSheetOpen = false
     @State private var tagPickerOpen = false
@@ -127,7 +129,7 @@ struct PointDetailScreen: View {
                         VStack(alignment: .leading, spacing: 16) {
                             ClipPlayerView(
                                 player: player,
-                                url: clipURLs[point.id],
+                                url: clipURLs[clipKey(point)],
                                 starred: point.starred,
                                 tagged: !tagsStore.tags(for: point.id).isEmpty,
                                 updating: point.edited,
@@ -168,9 +170,21 @@ struct PointDetailScreen: View {
             addingReason = false
             clearPendingImage()
             await loadClip()
+            // A timing edit made from this screen used to leave the badge
+            // and the Adjust lock up until the match was reopened: only the
+            // takeover started the refresh.
+            model.startClipPoll(match.id)
             if !notesStore.loaded {
                 await notesStore.load(matchId: match.id)
             }
+        }
+        .onChange(of: model.hasPendingClips) { _, pending in
+            if pending { model.startClipPoll(match.id) }
+        }
+        // The worker's new file: fetch its link the moment the refresh
+        // learns the path, so the fresh footage plays without a reopen.
+        .onChange(of: point?.clipPath) { _, _ in
+            Task { await loadClip() }
         }
         .sheet(isPresented: $shareSheetOpen) {
             if let point {
@@ -870,7 +884,7 @@ struct PointDetailScreen: View {
                             .buttonStyle(.plain)
                     }
                 }
-            } else if clipURLs[point.id] != nil {
+            } else if clipURLs[clipKey(point)] != nil {
                 Button {
                     captureFrame()
                 } label: {
@@ -942,8 +956,14 @@ struct PointDetailScreen: View {
 
     // MARK: - Data
 
+    private func clipKey(_ point: MatchPoint) -> String {
+        point.id.uuidString + "|" + (point.clipPath ?? "")
+    }
+
     private func loadClip() async {
-        guard let point, clipURLs[point.id] == nil else { return }
+        guard let point, point.clipPath != nil else { return }
+        let key = clipKey(point)
+        guard clipURLs[key] == nil else { return }
         struct Req: Encodable {
             let matchId: String
             let pointId: String
@@ -957,7 +977,7 @@ struct PointDetailScreen: View {
             )
         )
         if let url = res?.url.flatMap(URL.init) {
-            clipURLs[point.id] = url
+            clipURLs[key] = url
         }
     }
 }

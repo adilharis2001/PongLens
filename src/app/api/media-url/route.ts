@@ -343,7 +343,25 @@ export async function POST(req: Request) {
         expiresSeconds: 6 * 3600,
         disposition: "inline",
       });
-      return NextResponse.json({ url, available: true });
+      // A library upload processed with a trim is cut down before the
+      // pipeline sees it, so every t0/t1 in points is measured from
+      // trim_start_s INTO this file. Both apps' Add-a-rally sheets add the
+      // offset to land on the right footage; they read this field, and
+      // until now nothing produced it, so a trimmed upload previewed the
+      // wrong stretch of the original.
+      let trimStartS = 0;
+      if (match.job_id) {
+        const { data: job } = await supabase
+          .from("jobs")
+          .select("options")
+          .eq("id", match.job_id)
+          .maybeSingle();
+        const s = Number(
+          (job?.options as { trim_start_s?: unknown } | null)?.trim_start_s ?? 0
+        );
+        if (Number.isFinite(s) && s > 0) trimStartS = s;
+      }
+      return NextResponse.json({ url, available: true, trimStartS });
     }
 
     if (raw) {
