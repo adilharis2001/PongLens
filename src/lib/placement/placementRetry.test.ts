@@ -52,6 +52,31 @@ test("lifecycle availability distinguishes normal generation from retry", () => 
     placementActionAvailability("not_requested", 0, expired, now), "expired");
 });
 
+test("a kept original never expires placement generation or retry", () => {
+  // matches.raw_path set means the sweep keeps the file for the life of
+  // the match; the deadline column is only a legacy row's memory of the
+  // old 30-day clock.
+  const now = new Date("2026-09-06T12:00:00Z");
+  const expired = "2026-08-01T12:00:00Z";
+
+  assert.equal(
+    placementActionAvailability("not_requested", 0, expired, now, true),
+    "generate",
+  );
+  assert.equal(
+    placementActionAvailability("retry_available", 0, null, now, true),
+    "retry",
+  );
+  assert.equal(
+    placementActionAvailability("retry_available", 1, null, now, true),
+    "used",
+  );
+  assert.equal(
+    placementActionAvailability("retry_available", 0, null, now, false),
+    "expired",
+  );
+});
+
 test("database errors become stable API codes", () => {
   assert.deepEqual(
     placementRetryError({ code: "P0002", message: "match not found" }),

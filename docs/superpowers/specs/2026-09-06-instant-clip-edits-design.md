@@ -67,10 +67,12 @@ database that serve them.
   and has a keyframe every two seconds so seeking is quick.
 - **The clip file.** One small 720-wide file per rally. The point view,
   Starred, public point links, coach review replay, tag reels and thumbnails
-  play this. Clip files are the only footage kept for the life of the match;
-  the match video and the original upload are deleted after 30 days today.
-  Once paid plans are switched on, the match video is kept for as long as
-  the match exists (that rule is already written; it waits on the switch).
+  play this. The original upload, the match video and the clip files are
+  all kept for the life of the match (checked against the live database and
+  the sweep on 2026-09-06; see the Retention section of `CLAUDE.md`). The
+  only matches without an original are legacy ones processed before August
+  2026 whose raw was swept back then. Every processed match has its match
+  video.
 - **Three clocks.** A point stores its start and end in original-video
   seconds (`t0`, `t1`). It also stores where its clip begins inside the match
   video (`cut_t0`). The clip file starts at `t0` minus a pad, so `cut_t0` is
@@ -248,8 +250,9 @@ Source rule, in order:
    windowed to the point, from `cut_t0` to the point's effective end. The
    window is computed with the same helpers Score the Match already uses;
    nothing new is derived.
-3. Otherwise, if a clip file exists (match video expired): play it with the
-   existing "Updating clip" label.
+3. Otherwise, if a clip file exists: play it with the existing "Updating
+   clip" label. No processed match should reach this rung (the match video
+   is kept for the life of the match); it stays as a defensive fallback.
 4. Otherwise: the existing placeholder.
 
 The player component already exists on both platforms: the web
@@ -305,10 +308,9 @@ change, not only at start.
 ### Starred
 
 Tiles and the sequence player use the same source rule as the point view.
-Where the match video is available a stale tile draws its still from the
-windowed match video; where it is not, the existing "Updating clip" state
-stays. Starred is the one owner surface where a label may still appear,
-briefly, on a match whose video has passed the 30-day limit.
+A stale tile draws its still from the windowed match video, so no owner
+surface shows "Updating clip" any more. The existing state stays only as
+the defensive fallback for a match with no video at all.
 
 ### Copy
 
@@ -342,11 +344,13 @@ For each stale point the worker chooses a source:
    original.
 2. **The original upload**, by URL, when the window reaches footage the
    match video does not hold.
-3. **Neither available**: the point keeps its previous file and `edited`
+3. **Neither available**: only possible on a legacy match processed before
+   August 2026 whose original was swept back then and whose window reaches
+   outside the match video. The point keeps its previous file and `edited`
    clears, rather than nulling the file. A stale clip with a label is better
-   than no clip, and the apps already label it. The current copy "Clip
-   unavailable — the original video has expired" is kept only for points
-   that never had a file.
+   than no clip, and the apps already label it. The copy "Clip unavailable.
+   The original video for this match is no longer stored" is kept only for
+   points that never had a file.
 
 ### No downloads
 
@@ -533,9 +537,9 @@ iOS. The changes, both platforms:
   killed.
 - **Correct copy.** The tooltip says "The match video skips N seconds here"
   only when the cut actually removed footage; on a continuous seam it says
-  "Add a rally between these two". "The original video has expired" is
-  shown only when the original is really gone (today it can be false for
-  older rows).
+  "Add a rally between these two". "The original video is no longer
+  stored" is shown only when the original is really gone, which is only
+  possible on a legacy match (today it can be false for older rows).
 - **Clamp head and tail inserts** to the file's real length; stop and move
   the playhead on the match-video fallback (today it plays on forever);
   make the winner part of the insert write; disable Cancel while the add is
@@ -584,8 +588,8 @@ app release that carries step 1.
 
 ## 14. Verification
 
-On desktop web, mobile web at 393×660, and native iOS, on a match under
-30 days old and on one whose match video has already been deleted:
+On desktop web, mobile web at 393×660, and native iOS, on a recent match
+and on a legacy match processed before August 2026 with no original:
 
 - Adjust the start 3 s earlier. The scoring pad starts 3 s earlier and
   pauses at the same deciding shot. The point view plays the new window

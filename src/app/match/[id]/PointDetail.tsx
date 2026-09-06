@@ -507,8 +507,8 @@ export function PointDetail({
           </div>
         ) : !point.clip_path && hasTiming ? (
           <p className="p-6 text-center text-sm text-zinc-400">
-            Clip unavailable — the original video has expired, but your
-            timing edits are saved.
+            Clip unavailable. The original video for this match is no longer
+            stored, but your timing edits are saved.
           </p>
         ) : videoError ? (
           <p className="p-6 text-center text-sm text-red-300">{videoError}</p>

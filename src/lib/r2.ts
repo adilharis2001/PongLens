@@ -14,8 +14,10 @@ import {
  * The browser only ever sees short-lived presigned URLs minted here.
  *
  * Buckets:
- *   ponglens-raw    raw user uploads   (retention: 30 days, worker sweeps)
- *   ponglens-media  processed results  (results/: 30 days, worker sweeps)
+ *   ponglens-raw    raw user uploads   (kept for the life of the match;
+ *                                       the worker sweeps only orphans)
+ *   ponglens-media  processed results  (results/: same rule; points/: kept
+ *                                       while the account is active)
  */
 
 export const RAW_BUCKET = "ponglens-raw";

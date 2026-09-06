@@ -324,13 +324,13 @@ export async function POST(req: Request) {
       // r2_raw_sweep never expires it while the library row points at it.
       //
       // raw_path only — deliberately NOT the source job's input_path that
-      // the { raw } download below falls back to. raw_path means the
-      // retention sweep is protecting the object; input_path only means a
-      // job once pointed there, and those files age out on the ordinary
-      // 30-day clock. The UI draws its pill from the same column without
-      // probing, so widening this to input_path would put a control on
-      // matches whose file is already gone. The HEAD below still runs, so
-      // a caller that asks anyway gets an honest answer.
+      // the { raw } download below falls back to. raw_path is the column
+      // the UI draws its pill from without probing; a legacy row whose
+      // raw was swept before commerce reads null here and must not grow a
+      // control that opens on nothing. (Since 2026-09 the sweep protects
+      // job-referenced raws too, and backfill_raw_path.py fills the column
+      // for legacy rows whose file survived.) The HEAD below still runs,
+      // so a caller that asks anyway gets an honest answer.
       const loc = parseR2(match.raw_path);
       if (!loc || loc.bucket !== RAW_BUCKET) {
         return NextResponse.json({ available: false });
@@ -351,9 +351,9 @@ export async function POST(req: Request) {
       // retention-protected object (r2_raw_sweep keeps it while the
       // library row exists), and an UNPROCESSED match has no job_id yet.
       // Older rows with a null raw_path fall back to the source job's
-      // input_path, which ages out on the 30-day clock. HEAD-check before
-      // signing so a gone upload reports { available: false } (the Export
-      // sheet hides the row) rather than handing back a link that 404s.
+      // input_path. Some legacy raws were swept before commerce, so
+      // HEAD-check before signing: a gone upload reports { available:
+      // false } (the Export sheet hides the row) rather than a 404 link.
       let loc = parseR2(match.raw_path);
       if ((!loc || loc.bucket !== RAW_BUCKET) && match.job_id) {
         const { data: job } = await supabase

@@ -16,11 +16,14 @@ On failure: mark failed with the error; archive the message once it has been
 attempted 3 times (poison-message guard), otherwise leave it to reappear
 after the visibility timeout.
 
-Daily retention sweep (SPEC.md §7; keep the Privacy Policy in step):
-  - R2 ponglens-raw: raw uploads older than 30 days -> delete
-  - R2 ponglens-media results/: cut videos older than 30 days -> delete
-  - Later phases add tiers for point clips + match.json (keep while account
-    active) and voice audio (90 days); wire them in here when they exist.
+Daily retention sweep (keep the Privacy Policy and Terms in step):
+  - Nothing a live match references is ever deleted. The original upload
+    and the cut video stay for the life of the match (policy since the
+    commerce flip, 2026-08; the Privacy Policy and Terms promise it). The
+    only 30-day clocks left are for ORPHANS: raws and cuts no match row
+    points at (rejected uploads, deleted matches, abandoned uploads).
+  - Point clips + match.json: kept while the account is active.
+  - Voice audio: 90 days. Orphaned sketches and Journal images: 2 days.
   - Legacy Supabase 'uploads' bucket: older than 30 days -> delete (until
     the last legacy rows age out, then this can go)
 
@@ -309,11 +312,17 @@ CLEANUP_EVERY_S = 24 * 3600
 COST_ALERT_CHECK_EVERY_S = 60
 LEGACY_UPLOAD_RETENTION_DAYS = 30   # Supabase 'uploads' bucket (legacy rows)
 
-# R2 storage (SPEC.md §7)
+# R2 storage
 R2_RAW_BUCKET = "ponglens-raw"
 R2_MEDIA_BUCKET = "ponglens-media"
-R2_RAW_RETENTION_DAYS = 30          # raw uploads
-R2_RESULTS_RETENTION_DAYS = 30      # cut videos under results/
+# ORPHANS ONLY. A raw or cut that any live match references is never
+# swept, whatever its age (r2_raw_sweep, _referenced_cut_paths). These
+# clocks apply to objects no match row points at: rejected uploads,
+# deleted matches, uploads that never registered. There is no 30-day
+# retention of a player's video; do not reintroduce one, and do not write
+# copy that says an original "expires".
+ORPHAN_RAW_DAYS = 30                # unreferenced raw uploads
+ORPHAN_CUT_DAYS = 30                # unreferenced cut videos under results/
 R2_VOICE_RETENTION_DAYS = 90        # voice note audio under voice/
 ENTRY_ORPHAN_GRACE_DAYS = 2         # staged Journal images under entry/
                                     # (transcripts live in Postgres forever)
@@ -2722,8 +2731,12 @@ def load_placement_attempt_record(
             "m.placement_generation_job_id::text as "
             "placement_generation_job_id, "
             "m.placement_retry_job_id::text as placement_retry_job_id, "
-            "(m.placement_retry_expires_at is null or "
-            " m.placement_retry_expires_at <= now()) as source_expired, "
+            # A live match keeps its original for good, so its retry never
+            # expires; the deadline only means something on a legacy row
+            # (raw_path null) whose raw was on the old 30-day clock.
+            "(m.raw_path is null and "
+            " (m.placement_retry_expires_at is null or "
+            "  m.placement_retry_expires_at <= now())) as source_expired, "
             "j.input_path, j.options as job_options, m.match_json_path "
             "from public.matches m "
             "left join public.jobs j on j.id = m.job_id "
@@ -3805,8 +3818,12 @@ def finish_match(conn, match_id: str, status: str,
             "then placement_failure_code else %s end, "
             "placement_retry_expires_at = case "
             "when %s in ('not_requested', 'retry_available') then "
-            "(select j.created_at + interval '30 days' "
-            " from public.jobs j where j.id = public.matches.job_id) "
+            # No deadline for a match whose original is kept (raw_path
+            # set); the 30-day clock survives only for legacy rows.
+            "(case when public.matches.raw_path is not null then null "
+            " else (select j.created_at + interval '30 days' "
+            "       from public.jobs j where j.id = public.matches.job_id) "
+            " end) "
             "when %s is not null then null "
             "else placement_retry_expires_at end "
             "where id = %s",
@@ -5296,8 +5313,10 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
             local_input = apply_source_trim(local_input, workdir, src_options)
 
         if not source_ok:
-            # Raw gone (30-day retention) and no original->cut mapping stored:
-            # keep the timing edits, mark the clips unavailable.
+            # Raw gone. A live match keeps its original for good (see
+            # r2_raw_sweep), so this is a legacy pre-commerce match whose
+            # raw was swept before 2026-08, or a rejected upload. Keep the
+            # timing edits, mark the clips unavailable.
             with conn.cursor() as cur:
                 for pid, _idx, t0, t1, _ts, _te in targets:
                     cur.execute(
@@ -5360,8 +5379,9 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
 # downloaded once): each point carries cut-timeline bounds (seg_start /
 # seg_end, clamped here against the cut's real duration) and ffmpeg extracts
 # the segment at source resolution. Points without bounds — and whole
-# matches whose cut video is gone (30-day retention) — fall back to the
-# 720p preview clips, scaled/padded to the target frame.
+# matches whose cut video is gone (a deleted match mid-render, or a legacy
+# match whose cut was swept before commerce) — fall back to the 720p
+# preview clips, scaled/padded to the target frame.
 #
 # Overlays are Pillow PNGs designed against a 1080p frame and scaled by
 # height/1080: a PongLens watermark bottom-RIGHT on every segment and, when
@@ -6076,8 +6096,8 @@ def render_reel(manifest: dict, show_score: bool, workdir: str,
     cut_local: local path to the match's full-resolution cut video. Points
     with seg_start/seg_end bounds are extracted from it at source
     resolution; points without bounds — and everything when it is None
-    (pre-v2 manifests, cut lost to 30-day retention) — fall back to their
-    720p preview clips."""
+    (pre-v2 manifests, a legacy cut swept before commerce) — fall back to
+    their 720p preview clips."""
     points = manifest["points"]
     you = (manifest.get("you_name") or "Player").strip() or "Player"
     them = (manifest.get("them_name") or "Opponent").strip() or "Opponent"
@@ -6540,9 +6560,9 @@ def _cut_video_url(conn, match_id: str, expires_s: int = 3600) -> str | None:
 def _fetch_cut_video(conn, match_id: str, workdir: str) -> str | None:
     """Download the match's full-resolution cut video ONCE per render —
     matches.cut_path, falling back to the source job's result path exactly
-    like /api/media-url does. Returns the local path, or None (the 30-day
-    results retention may have deleted it) — the caller then falls back to
-    the 720p preview clips."""
+    like /api/media-url does. Returns the local path, or None (a legacy
+    cut swept before commerce; live matches keep theirs) — the caller then
+    falls back to the 720p preview clips."""
     with conn.cursor() as cur:
         cur.execute(
             "select m.cut_path, j.result_path, j.status "
@@ -7131,7 +7151,7 @@ def reject_checked_match(conn, match_id: str, input_path: str | None):
     to carry it.
 
     Only the bytes go. The raw object is removed now rather than at the
-    30-day sweep, and its ledger rows are netted out by the same helper
+    orphan sweep, and its ledger rows are netted out by the same helper
     the import path uses — safe against the delete trigger doing it again
     later, which skips anything already summing to zero. raw_path goes
     null because a path that presigns to a 404 renders as a broken
@@ -7151,7 +7171,7 @@ def reject_checked_match(conn, match_id: str, input_path: str | None):
 
 def delete_rejected_raw(conn, input_path: str | None):
     """Rejected upload: remove the raw object immediately (don't wait for
-    the 30-day sweep) and net out its storage_ledger rows. Best-effort —
+    the orphan sweep) and net out its storage_ledger rows. Best-effort —
     retention catches anything we miss."""
     if not input_path:
         return
@@ -7658,13 +7678,16 @@ def cleanup_legacy_uploads(conn):
 
 
 def expire_placement_retries(conn):
-    """Normalize retry buttons before their retained raw source is swept."""
+    """Normalize retry buttons on LEGACY rows whose raw was on the old
+    30-day clock. A match with raw_path set keeps its original for good and
+    its retry never expires, whatever the deadline column says."""
     with conn.cursor() as cur:
         cur.execute(
             "update public.matches "
             "set placement_status = 'final_failed', "
             "placement_failure_code = 'source_expired' "
             "where placement_status = 'retry_available' "
+            "and raw_path is null "
             "and placement_retry_expires_at <= now()"
         )
         expired = cur.rowcount
@@ -7708,13 +7731,21 @@ def r2_raw_sweep(conn, older_than_days: int):
                 (paths,),
             )
             upload_created_at = dict(cur.fetchall())
-            # Commerce (096): a raw referenced by a live library row is the
-            # user's stored video — it never ages out. A deleted match
-            # leaves no row, so its raw expires here on the normal clock.
+            # A raw referenced by ANY live match is the user's stored video
+            # and never ages out: by matches.raw_path (every upload since
+            # commerce, 096) or by the source job of a legacy match whose
+            # row predates the column. Only a raw no match row reaches
+            # (deleted match, rejected or abandoned upload) expires here.
             cur.execute(
                 "select raw_path from public.matches "
-                "where raw_path = any(%s)",
-                (paths,),
+                "where raw_path = any(%s) "
+                "union "
+                "select j.input_path from public.jobs j "
+                "where j.input_path = any(%s) "
+                "and exists (select 1 from public.matches m "
+                "            where m.job_id = j.id "
+                "            or m.id::text = j.options->>'match_id')",
+                (paths, paths),
             )
             library_paths = {row[0] for row in cur.fetchall()}
         expired = []
@@ -7844,20 +7875,25 @@ def entry_image_sweep(conn):
              R2_MEDIA_BUCKET, deleted)
 
 
-def _live_cut_paths(conn) -> set[str]:
-    """Cut videos referenced by a live match, in commerce mode (096): the
-    cut counts toward the owner's storage, so it persists with the match.
-    Pre-flip this returns empty and the 30-day results sweep is unchanged.
-    Cuts of DELETED matches have no row and expire on the normal clock."""
-    if not commerce_enabled(conn):
-        return set()
+def _referenced_cut_paths(conn) -> set[str]:
+    """Cut videos any live match references: matches.cut_path, plus the
+    result of the match's source job for rows that predate the column.
+    These persist with the match, whatever their age and whatever the
+    commerce flag says — a flag flip must never start deleting a player's
+    video. Only cuts of DELETED matches (no row) expire on the orphan
+    clock."""
     with conn.cursor() as cur:
         cur.execute(
             "select cut_path from public.matches "
-            "where cut_path like %s",
-            (f"r2://{R2_MEDIA_BUCKET}/results/%",),
+            "where cut_path like %s "
+            "union "
+            "select j.result_path from public.jobs j "
+            "join public.matches m on m.job_id = j.id "
+            "where j.result_path like %s",
+            (f"r2://{R2_MEDIA_BUCKET}/results/%",
+             f"r2://{R2_MEDIA_BUCKET}/results/%"),
         )
-        return {row[0] for row in cur.fetchall()}
+        return {row[0] for row in cur.fetchall() if row[0]}
 
 
 SHARE_RENDER_RETENTION_DAYS = 7
@@ -7914,13 +7950,16 @@ def share_render_sweep(conn):
 def retention_sweep(conn):
     """Run all retention tiers. Each tier is independent and best-effort.
 
-    Current tiers (SPEC.md §7):
-      raw uploads (ponglens-raw)              30 days
-      cut videos  (ponglens-media results/)   30 days
-      voice audio (ponglens-media voice/)     90 days
-      orphaned sketches (sketch/, unreferenced by notes)  2 days
+    Nothing a live match references is ever deleted: originals and cut
+    videos stay for the life of the match. The timed tiers are for
+    orphans and for media with its own promised lifetime:
+      unreferenced raw uploads (ponglens-raw)              30 days
+      unreferenced cut videos  (ponglens-media results/)   30 days
+      voice audio (ponglens-media voice/)                  90 days
+      orphaned sketches (sketch/, unreferenced by notes)    2 days
       orphaned Journal images (entry/, unreferenced by lessons)  2 days
-    Remaining tier, kept while the account is active (no sweep):
+      share renders (v:* reels)                             7 days
+    Kept while the account is active (no sweep):
       point clips + match.json (points/), transcripts (Postgres),
       note-referenced sketches (sketch/), entry-referenced images (entry/)
     """
@@ -7928,10 +7967,10 @@ def retention_sweep(conn):
         ("placement-retry-expiry", lambda: expire_placement_retries(conn)),
         ("legacy-supabase-uploads", lambda: cleanup_legacy_uploads(conn)),
         ("r2-raw", lambda: r2_sweep_prefix(
-            conn, R2_RAW_BUCKET, "", R2_RAW_RETENTION_DAYS)),
+            conn, R2_RAW_BUCKET, "", ORPHAN_RAW_DAYS)),
         ("r2-results", lambda: r2_sweep_prefix(
-            conn, R2_MEDIA_BUCKET, "results/", R2_RESULTS_RETENTION_DAYS,
-            protect_keys=_live_cut_paths(conn))),
+            conn, R2_MEDIA_BUCKET, "results/", ORPHAN_CUT_DAYS,
+            protect_keys=_referenced_cut_paths(conn))),
         ("r2-voice", lambda: r2_sweep_prefix(
             conn, R2_MEDIA_BUCKET, "voice/", R2_VOICE_RETENTION_DAYS)),
         ("r2-sketch-orphans", lambda: sketch_sweep(conn)),

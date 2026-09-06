@@ -1334,10 +1334,11 @@ struct MatchDetailScreen: View {
     /// and its process card on the same condition.
     /// Is there an original upload left to watch? raw_path is set at
     /// upload and never cleared on the success path, and r2_raw_sweep
-    /// skips any object a live library row points at — so for anything
+    /// skips any object a live match references — so for anything
     /// uploaded since the commerce flip this is simply true, for good.
-    /// Rows older than that read null; their originals are on the ordinary
-    /// 30-day clock and mostly gone already.
+    /// A legacy row reads null only if its raw was swept before commerce
+    /// (worker/backfill_raw_path.py fills the column where the file
+    /// survived).
     private var hasOriginal: Bool {
         current.rawPath?.hasPrefix("r2://ponglens-raw/") == true
     }

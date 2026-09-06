@@ -550,6 +550,7 @@ export function MatchView({
     initialRetryCount: match.placement_retry_count,
     initialExpiresAt: match.placement_retry_expires_at,
     initialFailureCode: match.placement_failure_code,
+    initialHasOriginal: hasOriginal,
   });
 
   // The Player: one takeover surface owning the only match-footage video.

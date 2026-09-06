@@ -1,8 +1,9 @@
 """Harvest the table-corner training set while the footage still exists.
 
 Every match with a trusted quad has a static camera, so the quad labels
-every frame of its cut video. Cut objects die at 30 days (the 2026-07-22
-cohort has ~3 days left as of 2026-08-18), so this samples frames over
+every frame of its cut video. Cut objects died at 30 days when this was
+written (the 2026-07-22 cohort had ~3 days left as of 2026-08-18; live
+matches now keep their cut for good), so this samples frames over
 presigned HTTPS with ffmpeg seeks — no full downloads — into a cache
 outside the repo, with the label carried per match:
 

@@ -498,6 +498,38 @@ corpus and the per-video numbers, is `docs/research/2026-08-22-broadcast-gate/`.
 
 ---
 
+## Retention
+
+**Nothing a live match references is ever deleted.** The original upload
+and the cut video stay for the life of the match; point clips and match
+data stay for the life of the account. This has been the policy since the
+commerce flip (migration 096, switched on in August 2026) and it is what
+the Privacy Policy and the Terms promise. Checked against the live
+database and the sweep code on 2026-09-06.
+
+- **The 30-day clocks that remain are for orphans**: raws and cuts that no
+  match row points at (rejected uploads, deleted matches, uploads that
+  never registered). `r2_raw_sweep` protects a raw reached by
+  `matches.raw_path` OR by a live match's source job; `_referenced_cut_paths`
+  protects every referenced cut regardless of any flag. Voice audio is 90
+  days, share renders 7, orphan sketches and Journal images 2.
+- **Do not re-derive a 30-day expiry from old comments or SPEC.md
+  history.** Every chat that did cost Adil a round of "I removed that".
+  The constants are `ORPHAN_RAW_DAYS` and `ORPHAN_CUT_DAYS`, named so the
+  next reader sees what they sweep.
+- **"Expired" is not a word for a player's video.** The only matches
+  without an original are legacy ones processed before August 2026 whose
+  raw was swept back then; copy says "no longer stored", never "expired".
+  `worker/backfill_raw_path.py` fills `matches.raw_path` for legacy rows
+  whose file survived, so the Original pill and the raw preview are right.
+- **Nothing downstream may assume the original or the cut can vanish on a
+  clock.** The placement retry deadline used to, and turned a working
+  retry into "the original video is no longer available" a month after
+  processing. A match with `raw_path` set never expires its retry; the
+  deadline column only means something on a legacy row.
+
+---
+
 ## Support email
 
 Support mail lives in a Fastmail mailbox on `ponglens.com`, not in a

@@ -5,6 +5,13 @@ button, made for `docs/superpowers/specs/2026-09-06-instant-clip-edits-design.md
 Line numbers are from the tree on 2026-09-06. Nothing was run against the
 live database; statements about policies come from the migration files.
 
+**Superseded statements.** These reads describe a 30-day deletion of
+originals and cut videos. That was checked against the live database and
+the sweep on 2026-09-06 and is not the policy: nothing a live match
+references is deleted (see the Retention section of `CLAUDE.md`). Read
+every "expires after 30 days" in these files as "was on a clock before
+August 2026; legacy matches only".
+
 | File | Covers |
 | --- | --- |
 | `web-player-and-modify.md` | Player, ModifyClip, modifyOps, playhead, PointDetail, PointSheet, ClipPlayer, media-url; the three clocks; every `edited` consumer; weaknesses |

@@ -16,8 +16,9 @@ import SwiftUI
 /// trim_start_s into the raw file. The route returns that offset; adding it
 /// is what makes the footage the right footage.
 ///
-/// The cut video stays as the fallback for matches whose raw has expired,
-/// and only there does the hatched "not available" band appear.
+/// The cut video stays as the fallback for legacy matches whose raw was
+/// swept before commerce (live matches keep theirs for good), and only
+/// there does the hatched "not available" band appear.
 struct InsertSheet: View {
     let match: MatchRow
     let model: MatchDetailModel
@@ -112,7 +113,7 @@ struct InsertSheet: View {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(PL.ink.opacity(0.78))
                     .overlay(
-                        Text("The original video for this match has expired, so this stretch can't be shown. You can still add the rally.")
+                        Text("The original video for this match is no longer stored, so this stretch can't be shown. You can still add the rally.")
                             .font(.system(size: 11))
                             .foregroundStyle(PL.text300)
                             .multilineTextAlignment(.center)

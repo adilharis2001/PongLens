@@ -32,9 +32,9 @@ import {
  * into the raw file — 236.6s on the match this was built against. The route
  * returns that offset; adding it is what makes the footage the right footage.
  *
- * The cut video remains the fallback for matches whose raw has expired
- * (~18% today, none of them recent), and only there does the hatched "not in
- * this video" band appear.
+ * The cut video remains the fallback for legacy matches whose raw was
+ * swept before commerce (live matches keep theirs for good), and only
+ * there does the hatched "not in this video" band appear.
  */
 export function InsertPoint({
   matchId,
@@ -331,8 +331,9 @@ export function InsertPoint({
               // upload is gone, so these seconds exist nowhere we can read.
               <div className="absolute inset-0 flex items-center justify-center bg-ink/75 text-center">
                 <p className="px-4 text-xs text-zinc-300">
-                  The original video for this match has expired, so this
-                  stretch can&apos;t be shown. You can still add the rally.
+                  The original video for this match is no longer stored, so
+                  this stretch can&apos;t be shown. You can still add the
+                  rally.
                 </p>
               </div>
             )}
