@@ -71,9 +71,10 @@ struct AutomaticHighlightPoint: Codable, Hashable {
     let cutEndS: Double
     let outputStartS: Double
     let outputEndS: Double
-    let nHits: Int
-    let connectedCrossings: Int
+    let nHits: Int?
+    let connectedCrossings: Int?
     let tableBounces: Int
+    let alternatingTableLandings: Int?
 
     enum CodingKeys: String, CodingKey {
         case pointId = "point_id"
@@ -84,6 +85,7 @@ struct AutomaticHighlightPoint: Codable, Hashable {
         case nHits = "n_hits"
         case connectedCrossings = "connected_crossings"
         case tableBounces = "table_bounces"
+        case alternatingTableLandings = "alternating_table_landings"
     }
 }
 

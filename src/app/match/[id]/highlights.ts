@@ -4,14 +4,15 @@ export type HighlightManifestPoint = {
   cut_end_s: number;
   output_start_s: number;
   output_end_s: number;
-  n_hits: number;
-  connected_crossings: number;
+  n_hits: number | null;
+  connected_crossings: number | null;
   table_bounces: number;
+  alternating_table_landings: number | null;
 };
 
 export type HighlightManifest = {
-  v: 1;
-  rule: "quality-first-v1";
+  v: 2;
+  rule: "quality-first-v2";
   max_seconds: number;
   points_revision: string;
   duration_s: number;
@@ -43,8 +44,8 @@ export function parseHighlightResponse(value: unknown): HighlightState {
     typeof row.url !== "string" ||
     typeof row.durationS !== "number" ||
     !manifest ||
-    manifest.v !== 1 ||
-    manifest.rule !== "quality-first-v1" ||
+    manifest.v !== 2 ||
+    manifest.rule !== "quality-first-v2" ||
     !Array.isArray(manifest.points) ||
     manifest.points.length === 0
   ) {

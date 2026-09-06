@@ -14,14 +14,15 @@ type ManifestPoint = {
   cut_end_s: number;
   output_start_s: number;
   output_end_s: number;
-  n_hits: number;
-  connected_crossings: number;
+  n_hits: number | null;
+  connected_crossings: number | null;
   table_bounces: number;
+  alternating_table_landings: number | null;
 };
 
 type HighlightManifest = {
-  v: 1;
-  rule: "quality-first-v1";
+  v: 2;
+  rule: "quality-first-v2";
   max_seconds: number;
   points_revision: string;
   duration_s: number;
@@ -39,8 +40,8 @@ function manifestValue(value: unknown): HighlightManifest | null {
   if (!value || typeof value !== "object") return null;
   const manifest = value as Partial<HighlightManifest>;
   if (
-    manifest.v !== 1 ||
-    manifest.rule !== "quality-first-v1" ||
+    manifest.v !== 2 ||
+    manifest.rule !== "quality-first-v2" ||
     !Array.isArray(manifest.points) ||
     typeof manifest.points_revision !== "string"
   ) {
@@ -59,7 +60,7 @@ async function selectedPointsAreFresh(
   const { data: rows, error } = await supabase
     .from("points")
     .select(
-      "id,cut_t0,rally_end_cut_s,deleted,edited,is_let,highlight_evidence",
+      "id,t0,cut_t0,rally_end_cut_s,deleted,edited,is_let,highlight_evidence",
     )
     .eq("match_id", matchId)
     .in("id", ids);
@@ -68,20 +69,28 @@ async function selectedPointsAreFresh(
   return manifest.points.every((point) => {
     const row = byId.get(point.point_id);
     const evidence = row?.highlight_evidence as
-      | { v?: number; status?: string }
+      | { v?: number; status?: string; observed_end_s?: number }
       | null
       | undefined;
+    const rallyEndCutS =
+      typeof row?.rally_end_cut_s === "number"
+        ? row.rally_end_cut_s
+        : typeof row?.cut_t0 === "number" &&
+            typeof row?.t0 === "number" &&
+            typeof evidence?.observed_end_s === "number"
+          ? row.cut_t0 + evidence.observed_end_s - row.t0
+          : null;
     return Boolean(
       row &&
         !row.deleted &&
         !row.edited &&
         !row.is_let &&
-        evidence?.v === 1 &&
+        evidence?.v === 2 &&
         evidence.status === "ready" &&
         typeof row.cut_t0 === "number" &&
-        typeof row.rally_end_cut_s === "number" &&
+        typeof rallyEndCutS === "number" &&
         Math.abs(row.cut_t0 - point.cut_start_s) < 0.011 &&
-        Math.abs(row.rally_end_cut_s + 0.75 - point.cut_end_s) < 0.011,
+        Math.abs(rallyEndCutS + 0.75 - point.cut_end_s) < 0.011,
     );
   });
 }
@@ -124,13 +133,23 @@ export async function GET(req: Request) {
       .maybeSingle();
     if (reelError) throw reelError;
 
-    if (reel?.status === "empty") return response({ status: "empty" });
-    if (reel?.status === "failed") return response({ status: "failed" });
-    if (reel?.status === "queued" || reel?.status === "rendering") {
+    const manifest = manifestValue(reel?.manifest);
+    // A v1 terminal row is stale, not an answer. Let it fall through to
+    // enqueue so the evidence-v2 rollout recovers matches that were shown
+    // as empty under the over-strict intersection rule.
+    if (reel?.status === "empty" && manifest) {
+      return response({ status: "empty" });
+    }
+    if (reel?.status === "failed" && manifest) {
+      return response({ status: "failed" });
+    }
+    if (
+      (reel?.status === "queued" || reel?.status === "rendering") &&
+      manifest
+    ) {
       return response({ status: "rendering" });
     }
 
-    const manifest = manifestValue(reel?.manifest);
     if (
       reel?.status === "ready" &&
       reel.r2_key &&
@@ -155,8 +174,8 @@ export async function GET(req: Request) {
       return response({ status: "unavailable" });
     }
     const emptyManifest = {
-      v: 1,
-      rule: "quality-first-v1",
+      v: 2,
+      rule: "quality-first-v2",
       max_seconds: 150,
       points_revision: "",
       duration_s: 0,

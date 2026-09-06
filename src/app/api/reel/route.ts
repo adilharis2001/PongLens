@@ -76,17 +76,18 @@ type CanonicalHighlightPoint = {
   point_id: string;
   cut_start_s: number;
   cut_end_s: number;
-  n_hits: number;
-  connected_crossings: number;
+  n_hits: number | null;
+  connected_crossings: number | null;
   table_bounces: number;
+  alternating_table_landings: number | null;
 };
 
 function canonicalHighlightPoints(value: unknown): CanonicalHighlightPoint[] | null {
   if (!value || typeof value !== "object") return null;
   const manifest = value as Record<string, unknown>;
   if (
-    manifest.v !== 1 ||
-    manifest.rule !== "quality-first-v1" ||
+    manifest.v !== 2 ||
+    manifest.rule !== "quality-first-v2" ||
     !Array.isArray(manifest.points)
   ) {
     return null;
@@ -98,9 +99,12 @@ function canonicalHighlightPoints(value: unknown): CanonicalHighlightPoint[] | n
       Number.isFinite(point.cut_start_s) &&
       Number.isFinite(point.cut_end_s) &&
       point.cut_end_s > point.cut_start_s &&
-      Number.isFinite(point.n_hits) &&
-      Number.isFinite(point.connected_crossings) &&
-      Number.isFinite(point.table_bounces),
+      (point.n_hits === null || Number.isFinite(point.n_hits)) &&
+      (point.connected_crossings === null ||
+        Number.isFinite(point.connected_crossings)) &&
+      Number.isFinite(point.table_bounces) &&
+      (point.alternating_table_landings === null ||
+        Number.isFinite(point.alternating_table_landings)),
   )
     ? points
     : null;
@@ -115,11 +119,20 @@ function fitQualifiedHighlights(
   return points
     .map((point, timelineIndex) => ({ point, timelineIndex }))
     .sort((a, b) => {
-      const aContacts = Math.min(a.point.n_hits, a.point.connected_crossings + 1);
-      const bContacts = Math.min(b.point.n_hits, b.point.connected_crossings + 1);
+      const aCrossings = a.point.connected_crossings ?? 0;
+      const bCrossings = b.point.connected_crossings ?? 0;
+      const aLandings = a.point.alternating_table_landings ?? 0;
+      const bLandings = b.point.alternating_table_landings ?? 0;
+      const aHits =
+        aCrossings >= 2 || aLandings >= 3 ? (a.point.n_hits ?? 0) : 0;
+      const bHits =
+        bCrossings >= 2 || bLandings >= 3 ? (b.point.n_hits ?? 0) : 0;
+      const aExchanges = Math.max(aCrossings, aLandings, aHits);
+      const bExchanges = Math.max(bCrossings, bLandings, bHits);
       return (
-        bContacts - aContacts ||
-        b.point.connected_crossings - a.point.connected_crossings ||
+        bExchanges - aExchanges ||
+        bCrossings - aCrossings ||
+        bLandings - aLandings ||
         b.point.table_bounces - a.point.table_bounces ||
         a.timelineIndex - b.timelineIndex
       );

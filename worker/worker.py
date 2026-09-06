@@ -1031,8 +1031,16 @@ def get_config(conn, key: str) -> str | None:
 
 
 def automatic_highlights_enabled(value: str | None, user_id: str) -> bool:
-    """Allow a global rollout or a single-user production canary."""
-    return value == "on" or value == f"user:{user_id}"
+    """Allow a global rollout or backward-compatible user canaries."""
+    if value == "on" or value == f"user:{user_id}":
+        return True
+    if not value or not value.startswith("users:"):
+        return False
+    return user_id in {
+        candidate.strip()
+        for candidate in value.removeprefix("users:").split(",")
+        if candidate.strip()
+    }
 
 
 def set_config(conn, key: str, value: str):
@@ -6053,8 +6061,8 @@ def prepare_auto_highlights(conn, user_id: str, match_id: str,
         log.exception("  automatic highlights failed for match %s", match_id)
         try:
             failed_manifest = locals().get("manifest") or {
-                "v": 1,
-                "rule": "quality-first-v1",
+                "v": 2,
+                "rule": "quality-first-v2",
                 "max_seconds": 150.0,
                 "points_revision": "",
                 "duration_s": 0.0,
