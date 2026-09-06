@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import * as view from "./betaOutreachView.ts";
 import {
   unifyOutreach,
   unifiedQueueFor,
@@ -99,6 +100,24 @@ const manual = {
   touches: 0,
 } satisfies PersonRow;
 const now = new Date("2026-09-05T12:00:00Z");
+
+test("provider test mailboxes stay out of Real even without an account", () => {
+  assert.equal(typeof view.outreachKind, "function");
+  const rows = unifyOutreach([], [], [beta, { ...beta, id: "test", email: "delivered+beta-test@resend.dev" }, { ...beta, id: "real", email: "test@real-club.org" }], []);
+  assert.deepEqual(rows.map(view.outreachKind), ["real", "test", "real"]);
+  const [linked] = unifyOutreach([{ ...account, email: "delivered+beta-test@resend.dev" }], [], [{ ...beta, email: "delivered+beta-test@resend.dev" }], []);
+  assert.equal(view.outreachKind(linked), "test");
+});
+
+test("pending invitations include hidden Team applicants but exclude test mailboxes by default", () => {
+  assert.equal(typeof view.pendingOutreachInvitations, "function");
+  const rows = unifyOutreach([{ ...account, hidden: true, kind: "team" }], [], [beta, { ...beta, id: "test", email: "delivered+beta-test@resend.dev" }, { ...beta, id: "done", email: "done@club.org", delivery_state: "delivered" }], []);
+  assert.deepEqual(view.pendingOutreachInvitations(rows, "real").map(r => r.beta?.id), ["b1"]);
+  assert.deepEqual(view.pendingOutreachInvitations(rows, "test").map(r => r.beta?.id), ["test"]);
+  assert.equal(view.pendingOutreachInvitations(rows, "all").length, 2);
+  assert.equal(rows[0].account?.hidden, true);
+  assert.equal(unifiedQueueFor(rows[0], now), null);
+});
 
 test("normalized account/manual/beta identity retains literal histories and earliest reminder", () => {
   const touches = [
