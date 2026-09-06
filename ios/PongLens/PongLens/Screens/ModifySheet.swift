@@ -217,25 +217,7 @@ struct ModifySheet: View {
     /// cutter removed time, the picture holds at the span's edge and the
     /// caption says so. Port of ModifyClip.tsx playableBounds.
     private var playableBounds: (lo: Double, hi: Double)? {
-        guard let geo else { return nil }
-        let visible = model.visible
-        guard let i = visible.firstIndex(where: { $0.id == point.id }) else {
-            return (geo.spanStart, geo.spanEnd)
-        }
-        var lo = geo.spanStart
-        var hi = geo.spanEnd
-        if i > 0, let seam = seamBetween(visible[i - 1].insertNeighbour,
-                                         point.insertNeighbour, pad: pad),
-           seam.continuous, let prev = seam.prev {
-            lo = min(lo, prev.rallyStart)
-        }
-        if i + 1 < visible.count,
-           let seam = seamBetween(point.insertNeighbour,
-                                  visible[i + 1].insertNeighbour, pad: pad),
-           seam.continuous, let next = seam.next {
-            hi = max(hi, next.rallyEnd)
-        }
-        return (lo, hi)
+        contiguousCutBounds(for: point, in: model.visible, pad: pad)
     }
 
     /// True when a draft edge lies past the footage the cut video holds
@@ -1055,7 +1037,7 @@ struct ModifySheet: View {
         let landing = nextPoints.count >= joinCount
             ? landingAfter(nextPoints[joinCount - 1])
             : nil
-        let ok = await model.runJoin(point, count: joinCount)
+        let ok = await model.runJoin(point, pad: pad, count: joinCount)
         if ok {
             if let survivor = model.points.first(where: { $0.id == point.id }) {
                 await model.setOutcome(survivor, joinWinner)

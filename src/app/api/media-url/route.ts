@@ -405,7 +405,15 @@ export async function POST(req: Request) {
         .eq("match_id", matchId)
         .single();
       const loc = parseR2(point?.clip_path);
-      if (!loc) {
+      // Pinned to the owner's own clip folder, like the note branch pins
+      // its keys: a phone-made clip is claimed through claim_point_clip,
+      // which pins the same prefix, so clip_path is no longer a column
+      // only the worker writes — sign nothing outside it.
+      if (
+        !loc ||
+        loc.bucket !== MEDIA_BUCKET ||
+        !loc.key.startsWith(`points/${match.user_id}/`)
+      ) {
         return NextResponse.json({ error: "Clip not found" }, { status: 404 });
       }
       const url = await presignGet(loc.bucket, loc.key, {

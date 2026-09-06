@@ -112,6 +112,14 @@ export function seamBetween(
  */
 export function sourceToCut(seam: Seam, s: number): number {
   const { prev, next } = seam;
+  // A continuous seam kept every second between the rallies, so the map
+  // is one straight line across the whole neighbourhood — including the
+  // gap. Holding at the seam here anchored a card added into such a gap
+  // at the previous rally's end, and the pad then played the wrong window.
+  if (seam.continuous) {
+    if (prev) return prev.rallyStart + (s - prev.t0);
+    if (next) return next.rallyStart + (s - next.t0);
+  }
   if (prev && s <= prev.t1) {
     return prev.rallyStart + (s - prev.t0);
   }
@@ -122,6 +130,19 @@ export function sourceToCut(seam: Seam, s: number): number {
   if (prev) return prev.rallyEnd;
   if (next) return next.rallyStart;
   return 0;
+}
+
+/**
+ * Cut second -> source second across a CONTINUOUS seam, where one linear
+ * map covers the whole neighbourhood (the cut kept every second between
+ * the two rallies). The inverse of sourceToCut for the case that has an
+ * inverse; across a removed seam there is none, and callers hold the
+ * playhead instead.
+ */
+export function cutToSourceLinear(seam: Seam, t: number): number {
+  if (seam.prev) return seam.prev.t0 + (t - seam.prev.rallyStart);
+  if (seam.next) return seam.next.t0 + (t - seam.next.rallyStart);
+  return t;
 }
 
 /** Whether a source second is footage this video can show. */

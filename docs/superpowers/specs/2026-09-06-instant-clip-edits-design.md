@@ -1,7 +1,9 @@
 # Instant clip edits and seamless point playback
 
 **Date:** September 6, 2026
-**Status:** Draft for Adil's review. No code has been changed.
+**Status:** Approved by Adil on 2026-09-06 and implemented the same day on
+branch `claude/paulins-video-edit-processing-u0wozl`. Section 16 records
+what landed, what was verified, and what remains.
 **Record:** `docs/research/2026-09-06-clip-edits/` holds the five deep reads of the
 code this spec is built on (web player and Modify, web plus button, iOS,
 worker and database, every surface that plays a clip). File and line
@@ -574,15 +576,19 @@ repo, and the YouTube importer, which must stay on a residential IP.
 
 | Key in `app_config` | Values | Default | Gates |
 | --- | --- | --- | --- |
-| `point_playback_source` | `clip`, `cut_when_stale` | `clip` | Step 1 source rule in both apps |
-| `reclip_source` | `raw`, `cut_first` | `raw` | Step 2 source selection |
-| `reclip_lane` | `main`, `fast` | `main` | Step 3 routing |
-| `device_reclip` | `off`, `on` | `off` | Step 5 |
+| `reclip_source` | `raw`, `cut_first` | `cut_first` | Step 2: whether the worker cuts from the match video where it can. `raw` is the rollback. |
+| `reclip_lane` | `main`, `fast` | `main` | Step 3: flipped to `fast` only after the second worker process is running. |
+| `device_reclip` | `off`, `on` | `off` | Step 5: the iPhone cuts and uploads. |
 
-Order of landing: 0a with its backfill, then 0b to 0d, then step 1 behind
-its key, then 2, 3 and 4 (server only, no app release), then 5 behind its
-key. Each key is one row to roll back. The plus-button work rides with the
-app release that carries step 1.
+Step 1 (playing a changed point from the match video) has no switch: the
+source rule is app code and ships with the app release. Step 0 is database
+functions and a trigger, applied with the migrations. The plus-button
+work rides with the same app release as step 1.
+
+Order of landing: apply the migrations (0a to 0d, the fast lane, the
+device claim) and deploy the worker together; run the two backfills; ship
+the web; ship the iOS build; start the fast-lane process and flip
+`reclip_lane`; try `device_reclip` on one handset.
 
 ---
 
@@ -627,6 +633,96 @@ checks each row, per the working notes' "think in surfaces" rule.
 | Stale-state copy | | Modify sheet, point screen, Starred | `ModifyClip.tsx`, `PointDetail.tsx`, `Player.tsx` | same |
 | Learn guide and tutorial | | `learn-catalog.json` | `playerGuides.ts`, `SCRIPT.md` | same |
 | iOS behavioural spec | | `ios/docs/behavioral-spec.md` | | |
+
+---
+
+## 16. Status, 2026-09-06
+
+Everything below is on branch `claude/paulins-video-edit-processing-u0wozl`,
+one commit per step, each pushed after the checks named.
+
+### Landed
+
+- **Retention closed** (separate from this spec, done first): the sweep
+  protects any raw or cut a live match references, the placement retry
+  deadline no longer applies to a kept original, and every 30-day claim in
+  code, copy and docs is corrected. `worker/backfill_raw_path.py` fills
+  `matches.raw_path` for legacy rows whose file survived.
+- **0a** `adjust_point` re-anchors `cut_t0` and clears observed endings on
+  an end move; both apps call it and mirror it (`reanchorCutT0`, tested);
+  `worker/backfill_cut_t0.py` repairs earlier drift from match.json.
+- **0b** re-cut requests come from a trigger on `points`, one queued job
+  per match, five-second queue delay; the worker continues past a failed
+  clip and requests another pass for mid-run edits; the `jobs` insert
+  policy allows only YouTube imports; flagged points with no job get one at
+  migration time.
+- **0c** the web refresh fetches `cut_t0` and never clobbers a local change
+  under ten seconds old; both players mint a fresh link once on failure and
+  resume; iOS refreshes `clip_path` and `cut_t0`, starts the refresh from
+  the point screen, keys clip links by file path, reloads a changed detour
+  clip and recomputes the detour set on change.
+- **0d** `insert_point` tightens trimmed edges and moves the next card's
+  anchor; `match_pre_pad` is the one pad lookup; the media route returns
+  the library trim start.
+- **1** the point view plays a stale or missing clip from the match video,
+  windowed (web `ClipPlayer` `range`, iOS `ClipPlayerView` `window`);
+  source decided on open, flipped on an edit, file swaps in on the next
+  open; Adjust lock removed on both platforms; Modify preview follows the
+  handles across contiguous footage (`contiguousCutBounds` shared with
+  step 5 on iOS); chip spinner, timeline label, flashes and the Learn tip
+  removed.
+- **2** the worker cuts by presigned URL and range, from the match video
+  where match.json proves the footage is kept (`_CutMap`, tested), from
+  the original otherwise; keeps the birth tail; deletes the previous
+  re-cut object; keeps the old file when no source holds a window.
+- **3** `jobs_fast` queue, `--lane fast`, housekeeping main-lane only,
+  launchd unit and README steps, routing behind `reclip_lane`.
+- **4** re-cuts use the VideoToolbox-first helper.
+- **5** `claim_point_clip`, `/api/point-clip` (sign, complete), clip
+  signing pinned to the owner's folder, `ClipCutter` and
+  `recutOnDevice` on iOS hooked into Adjust, Split, Join and Insert,
+  behind `device_reclip`.
+- **Plus button**: match video first on a continuous seam (both
+  platforms); `sourceToCut` linear across a continuous seam, which also
+  fixes the anchor of a card added into such a gap; correct stop and
+  playhead on the cut; one-seek-in-flight guard on iOS; neighbour trims
+  said in the caption; head and tail clamped to the file; honest tooltip.
+
+### Verified here
+
+`npm run build` after each step; `test:match-structure` (131),
+`test:placement` (103), `test:learn` (36); worker unit tests for
+retention, the cut map and the re-cut key rule; eslint and `tsc` on the
+changed files (the repo's pre-existing lint and test-file type errors are
+untouched). Nothing was run against the live database beyond read-only
+queries. **The iOS changes were written without a compiler**: this
+container has no Xcode. They follow the surrounding code's patterns
+closely, but the first build on a Mac is the first compile.
+
+### Not done, in order of value
+
+- Starred (web and iOS) still plays clip files and shows "Updating clip"
+  on a stale one; its rows carry no `cut_t0` or pads, so the windowed
+  source needs the `starred_points` function extended first.
+- Undo for Insert (`uninsert_point`) and a shared handle-and-track
+  component between the Modify and Add sheets.
+- A phone-made clip uses the flat tail, not the birth tail the worker
+  keeps (up to 0.7 s shorter on an original point).
+- Public and coach surfaces still play a stale clip of an edited point
+  with no filter (Appendix A, item 6); with re-cuts now taking seconds
+  this window is short, but it is not zero.
+- Modal as a backup processor (section 12).
+
+### To do on the Mac and in Supabase
+
+1. Apply the migrations in order (they are timestamped after
+   `20260906041000`). 2. Deploy the worker; restart it. 3. Run
+   `worker/backfill_raw_path.py --dry-run`, then for real; same for
+   `worker/backfill_cut_t0.py`. 4. Ship the web. 5. Build the iOS app on
+   a Mac, fix whatever the compiler says, ship. 6. Build the fast runner
+   (README "Fast lane"), load its launchd unit, then set `reclip_lane` to
+   `fast`. 7. On one handset, set `device_reclip` to `on` and edit a
+   point; check the file plays in desktop Chrome.
 
 ---
 

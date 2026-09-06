@@ -16,6 +16,7 @@ import {
   seamBetween,
   sourceToCut,
   spanOf,
+  cutToSourceLinear,
 } from "./insertGeometry.ts";
 
 const PAD: ClipPad = { pre: 1.0, post: 1.6 };
@@ -304,4 +305,17 @@ test("ownClipIds is quiet on an untouched timeline", () => {
     { ...pt("c", 40, 49, 21.5), idx: 2 },
   ];
   assert.equal(ownClipIds(split, PAD, 33.1).size, 0);
+});
+
+test("cutToSourceLinear inverts sourceToCut across a continuous seam", () => {
+  const pad = { pre: 1.0, post: 1.6 };
+  const prev = { cut_t0: 100, t0: 50, t1: 60, tight_start: false, tight_end: false };
+  // The cut kept every second between the rallies: next's anchor sits
+  // exactly (next.t0 - prev.t0) after prev's.
+  const next = { cut_t0: 112, t0: 62, t1: 70, tight_start: false, tight_end: false };
+  const seam = seamBetween(prev, next, pad);
+  assert.ok(seam && seam.continuous);
+  for (const s of [50, 55, 61, 62, 69.5]) {
+    assert.ok(Math.abs(cutToSourceLinear(seam!, sourceToCut(seam!, s)) - s) < 1e-9);
+  }
 });

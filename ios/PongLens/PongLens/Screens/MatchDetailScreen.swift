@@ -57,6 +57,10 @@ final class MatchDetailModel {
     var hasPendingClips: Bool { points.contains { $0.edited && !$0.deleted } }
 
     private var clipPoll: Task<Void, Never>?
+    /// The on-device re-cut loop (DeviceReclip.swift): one pass at a time,
+    /// with one more queued if an edit lands while it runs.
+    var deviceRecutRunning = false
+    var deviceRecutAgain = false
 
     /// While clips regenerate, poll so "updating" resolves into the fresh
     /// clip without a manual refresh. t0/t1 truth lives in Postgres; the

@@ -498,6 +498,35 @@ corpus and the per-video numbers, is `docs/research/2026-08-22-broadcast-gate/`.
 
 ---
 
+## Clip edits
+
+**The timeline is the truth; the clip file is a copy that catches up.**
+Full record: `docs/superpowers/specs/2026-09-06-instant-clip-edits-design.md`
+and the reads under `docs/research/2026-09-06-clip-edits/`. The rules that
+cost a round each:
+
+- **`cut_t0` is the padded clip start on the cut video's clock, and only
+  the database moves it.** Adjust used to write `t0` and leave `cut_t0`
+  alone, so every cut-clock rule placed the serve wrong by the amount the
+  start moved, forever, on both platforms. `adjust_point` and
+  `insert_point` re-anchor it; the apps mirror the arithmetic
+  (`reanchorCutT0` in `clipEdit.ts` and `Playhead.swift`) and take the
+  returned row as truth. Never write `t0`/`t1` to `points` directly.
+- **Re-cuts are requested by a trigger on `points`, never by an app.** The
+  web's four-second timer was lost on any reload; iOS swallowed a refused
+  insert. One queued job per match, five seconds of queue delay.
+- **A stale or missing clip file plays from the cut video, windowed.** No
+  spinner, no Adjust lock, no "Updating clip" on an owner surface. The
+  file is for Starred, share links, coach review and reels.
+- **The worker never downloads a whole file to cut a clip.** Presigned URL
+  plus `-ss`, from the cut video where `match.json` proves the window is
+  kept, from the original otherwise. `_CutMap` is the lookup; do not guess.
+- **A continuous seam is one straight line, gap included.** `sourceToCut`
+  used to hold at the seam even where the cut kept everything, which
+  mis-anchored a card added into such a gap.
+
+---
+
 ## Retention
 
 **Nothing a live match references is ever deleted.** The original upload

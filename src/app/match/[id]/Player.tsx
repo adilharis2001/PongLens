@@ -60,7 +60,11 @@ import { hintEligible, markHintDone, markHintShown } from "./gestureHints";
 import { tapZone } from "./tapZone";
 import type { MatchServer, ServeInfo } from "./serving";
 import { InsertPoint } from "./InsertPoint";
-import { gapWorthOffering, ownClipIds } from "./insertGeometry";
+import {
+  gapWorthOffering,
+  ownClipIds,
+  seamBetween,
+} from "./insertGeometry";
 import {
   NORMAL_SPEED_IDX,
   SPEEDS as SPEED_VALUES,
@@ -4496,10 +4500,15 @@ export const Player = forwardRef<
     (o: { prev: Point | null; next: Point | null }) => {
       if (!o.prev) return "Add a rally before the first one.";
       if (!o.next) return "Add a rally after the last one.";
-      const skipped = Math.round(Number(o.next.t0) - Number(o.prev.t1));
-      return `The video skips ${skipped} seconds here. Add a missing rally.`;
+      // What the cutter REMOVED, not the gap between the rallies: on a
+      // continuous seam the video skips nothing, it just has no card there.
+      const seam = seamBetween(o.prev, o.next, pad);
+      if (seam && seam.removed > 0.25) {
+        return `The match video skips ${Math.round(seam.removed)} seconds here. Add a missing rally.`;
+      }
+      return "Add a rally between these two.";
     },
-    []
+    [pad]
   );
 
   /** The offer that sits after the LAST card — the end of the match. Shown

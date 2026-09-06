@@ -13,6 +13,8 @@ import {
   seamBetween,
   sourceToCut,
   type Window as InsertWindow,
+  cutToSourceLinear,
+  MIN_LEN_S,
 } from "./insertGeometry";
 
 /**
@@ -98,6 +100,17 @@ export function InsertPoint({
 
   useEffect(() => {
     let alive = true;
+    // A continuous seam (55% of them) is entirely in the match video, the
+    // file already streaming behind this sheet: open on it, instantly,
+    // and never touch the original. Only a seam the cutter removed time
+    // from needs the original to show what is in the hole.
+    if (seam?.continuous && videoUrl) {
+      setSource({ kind: "cut", url: videoUrl, offset: 0 });
+      setLoading(false);
+      return () => {
+        alive = false;
+      };
+    }
     void (async () => {
       try {
         const res = await fetch("/api/media-url", {
@@ -131,7 +144,14 @@ export function InsertPoint({
     return () => {
       alive = false;
     };
-  }, [matchId, videoUrl]);
+  }, [matchId, videoUrl, seam]);
+
+  // The file's real length, in source seconds, so a head or tail insert
+  // cannot be dragged past footage that exists. Only the original has
+  // an edge the seam does not already know about.
+  const [fileEnd, setFileEnd] = useState<number | null>(null);
+  const maxSource =
+    source?.kind === "raw" && fileEnd !== null ? fileEnd - source.offset : null;
 
   /** A point timestamp, in the seconds of whichever file is loaded. */
   const videoTimeFor = useCallback(
@@ -205,12 +225,13 @@ export function InsertPoint({
   const onHandleMove = useCallback(
     (e: React.PointerEvent) => {
       if (!dragEdge.current || !seam) return;
-      const s = pointerToSource(e.clientX);
-      if (s === null) return;
+      const raw = pointerToSource(e.clientX);
+      if (raw === null) return;
+      const s = maxSource !== null ? Math.min(raw, maxSource) : raw;
       setWin((w) => moveHandle(seam, w, dragEdge.current!, s));
       seek(s);
     },
-    [seam, pointerToSource, seek]
+    [seam, pointerToSource, seek, maxSource]
   );
   const onHandleUp = useCallback((e: React.PointerEvent) => {
     dragEdge.current = null;
@@ -235,17 +256,28 @@ export function InsertPoint({
 
   const onTime = useCallback(() => {
     const v = videoRef.current;
-    if (!v || !source) return;
+    if (!v || !source || !seam) return;
+    // The playhead in source seconds. On the original it is the file's
+    // clock less the trim; on a continuous seam the cut's clock maps
+    // linearly; across a removed seam the map has no inverse, so the
+    // handles drive the playhead and the picture holds.
+    const linear = source.kind === "raw" || seam.continuous;
     const s =
       source.kind === "raw"
         ? v.currentTime - source.offset
-        : playhead; // the cut's map is piecewise; the handles drive it
-    if (source.kind === "raw") setPlayhead(s);
-    if (!v.paused && s >= win.t1) {
+        : seam.continuous
+          ? cutToSourceLinear(seam, v.currentTime)
+          : playhead;
+    if (linear) setPlayhead(s);
+    // Stop at the end of the rally being restored, on the FILE's clock:
+    // comparing a held playhead against win.t1 never fired on the cut.
+    const endT =
+      source.kind === "raw" ? win.t1 + source.offset : sourceToCut(seam, win.t1);
+    if (!v.paused && v.currentTime >= endT) {
       v.pause();
       seek(win.t1);
     }
-  }, [source, playhead, win.t1, seek]);
+  }, [source, seam, playhead, win.t1, seek]);
 
   if (!seam) return null;
 
@@ -263,8 +295,22 @@ export function InsertPoint({
   const confirm = () => {
     if (busy) return;
     const w = clampWindow(seam, win);
+    if (maxSource !== null && w.t1 > maxSource) {
+      w.t1 = Math.max(w.t0 + MIN_LEN_S, maxSource);
+    }
     onInsert(w.t0, w.t1, cutT0For(seam, w, pad), winner);
   };
+
+  // What the new card takes from its neighbours, said before Add rather
+  // than found out from a spinner afterwards.
+  const prevTrim =
+    prev && prev.t1 !== null && Number(prev.t1) > win.t0
+      ? Number(prev.t1) - win.t0
+      : 0;
+  const nextTrim =
+    next && next.t0 !== null && Number(next.t0) < win.t1
+      ? win.t1 - Number(next.t0)
+      : 0;
 
   const choices: { value: "user" | "opponent" | null; label: string }[] = [
     { value: null, label: "Not sure yet" },
@@ -316,6 +362,10 @@ export function InsertPoint({
                 muted
                 preload="metadata"
                 onTimeUpdate={onTime}
+                onLoadedMetadata={(e) => {
+                  const d = e.currentTarget.duration;
+                  if (Number.isFinite(d) && d > 0) setFileEnd(d);
+                }}
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
                 className="block max-h-[38vh] w-full object-contain"
@@ -438,6 +488,12 @@ export function InsertPoint({
             {len.toFixed(1)}s
             {missingInside > 0.25
               ? ` · ${missingInside.toFixed(0)}s not available`
+              : ""}
+            {prevTrim > 0.05 && prevNumber !== null
+              ? ` · Card ${prevNumber} ends ${prevTrim.toFixed(1)}s earlier`
+              : ""}
+            {nextTrim > 0.05 && nextNumber !== null
+              ? ` · Card ${nextNumber} starts ${nextTrim.toFixed(1)}s later`
               : ""}
             {" · "}drag the handles to where the rally starts and ends
           </p>

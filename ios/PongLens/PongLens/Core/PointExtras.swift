@@ -237,13 +237,14 @@ extension MatchDetailModel {
                 return false
             }
         }
+        Task { await recutOnDevice(matchId: point.matchId, pad: pad) }
         return true
     }
 
     /// Join this point with the next `count` visible points. merge_points
     /// keeps the survivor and hard-deletes the rest — the one Modify action
     /// that cannot be undone.
-    func runJoin(_ point: MatchPoint, count: Int) async -> Bool {
+    func runJoin(_ point: MatchPoint, pad: ClipPad, count: Int) async -> Bool {
         guard let i = visible.firstIndex(where: { $0.id == point.id }) else { return false }
         let nexts = visible.dropFirst(i + 1)
             .filter { $0.cutT0 != nil && $0.t1 != nil }
@@ -263,6 +264,7 @@ extension MatchDetailModel {
             }
             let mergedIds = Set(nexts.map(\.id))
             points.removeAll { mergedIds.contains($0.id) }
+            Task { await recutOnDevice(matchId: point.matchId, pad: pad) }
             return true
         } catch {
             return false
@@ -329,13 +331,15 @@ extension MatchDetailModel {
                     points[j].serverOverride = nil
                 }
             }
-            // The clip has to come from the raw: this footage is either
-            // missing from the cut entirely or shared with a neighbour that
-            // just gave it up.
             if let winner {
                 _ = await setOutcome(
                     created, winner == .user ? .user : .opponent)
             }
+            // The phone cuts what the cut video holds (a card on a
+            // continuous seam, the trimmed neighbours); a card whose
+            // footage was cut from the match video is the worker's, from
+            // the original.
+            Task { await recutOnDevice(matchId: matchId, pad: pad) }
             return true
         } catch {
             return false
@@ -388,6 +392,7 @@ extension MatchDetailModel {
                 points[j].scoredAtCutS = row.scoredAtCutS
                 points[j].rallyEndCutS = row.rallyEndCutS
             }
+            Task { await recutOnDevice(matchId: point.matchId, pad: pad) }
             return true
         } catch {
             points[i] = before
