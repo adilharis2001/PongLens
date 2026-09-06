@@ -269,7 +269,11 @@ export function ProcessingSection() {
       {/* ---------------------------------------------------------- waiting */}
       <div className="mt-8 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <SectionHeading>Waiting</SectionHeading>
-        <p className="text-xs text-zinc-600">{queueSummary(waiting)}</p>
+        {/* The empty state below already says "Nothing waiting.", and the
+            two of them stacked read like a stutter. */}
+        {waiting.length > 0 && (
+          <p className="text-xs text-zinc-600">{queueSummary(waiting)}</p>
+        )}
       </div>
       {waiting.length === 0 ? (
         <p className="mt-3 text-sm text-zinc-500">Nothing waiting.</p>
