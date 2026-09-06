@@ -48,3 +48,9 @@ The independent whole-branch review and its scoped fix review are complete. All 
 - Keep scheduled messages intact on rollback. Do not restore a legacy sweep that treats scheduled invitations as unsent.
 
 No production database changes, deployment or real email sends have been performed during this implementation.
+
+## Deployment preflight after authorization
+
+The user authorized production deployment. Latest main changes were merged into this isolated branch; the real build and all 20 package test scripts passed again. Production migration prerequisites and the normal migration role's auth-table trigger permission were verified read-only. Historical request audit: two requests, both already invited, no unstamped pending invitations.
+
+Deployment is blocked before any production write: the configured Resend key is sending-only and rejects message-management requests. The other full-access credential available locally does not belong to an account with the PongLens domain and was not used for this project. The Resend sign-in page is open in the in-app browser; the correct account needs authentication before its key permissions and webhook configuration can be completed. The production TestFlight URL value also fails the expected URL check and must be restored to the user-supplied Apple join URL during release configuration. No migrations, git push, production deploy or real mail were performed. The temporary production environment download was removed.
