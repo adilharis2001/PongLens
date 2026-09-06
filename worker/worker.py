@@ -5242,6 +5242,115 @@ CLIP_PADDING = {"tight": (0.5, 1.0), "normal": (1.0, 1.6), "loose": (1.6, 2.4)}
 TIGHT_PAD = 0.3
 
 
+# ---------------------------------------------------------------------------
+# Re-cuts (spec 2026-09-06, step 2): by URL and byte range, from the cut
+# video wherever it holds the footage, from the original otherwise.
+#
+# A re-cut used to download the ENTIRE original upload — gigabytes, for a
+# rally nudged half a second — and cut from that. ffmpeg range-seeks over
+# https (render_story has done this for share renders since 135), so a
+# presigned link plus `-ss` fetches a few megabytes around the window.
+# The cut video is the better source where it can be: smaller, and the
+# same file every player streams. match.json records exactly which source
+# seconds the cut kept (cut_segments on plays-mode matches; each original
+# point's own clip window on the older spans-mode ones), so "does the cut
+# hold this window" is a lookup, never a guess — a window that reaches into
+# removed dead space goes to the original. app_config.reclip_source =
+# 'raw' turns the cut source off without a deploy.
+# ---------------------------------------------------------------------------
+RECLIP_SOURCE_KEY = "reclip_source"        # 'cut_first' (default) | 'raw'
+# points_pipeline's tail rule, mirrored for points born after processing.
+RECLIP_DYN_POST_MAX_S = 2.0
+RECLIP_DYN_GAP_KEEP_S = 0.2
+_RECUT_KEY_RE = re.compile(
+    r"^r2://" + re.escape(R2_MEDIA_BUCKET)
+    + r"/points/[^/]+/[^/]+/\d{2}-[0-9a-f]{8}\.mp4$")
+
+
+def _presigned_get(path: str | None, expires_s: int = 6 * 3600) -> str | None:
+    """A signed GET for an r2:// path that ffmpeg can range-seek, or None
+    for a legacy Supabase-Storage path."""
+    loc = parse_r2_path(path or "")
+    if not loc:
+        return None
+    try:
+        return r2().generate_presigned_url(
+            "get_object",
+            Params={"Bucket": loc[0], "Key": loc[1]},
+            ExpiresIn=expires_s,
+        )
+    except Exception as e:                                      # noqa: BLE001
+        log.warning("  could not sign %s (%s)", path, e)
+        return None
+
+
+class _CutMap:
+    """Which source seconds the cut video kept, and where they landed.
+
+    Plays-mode matches carry cut_segments: the exact list of kept source
+    spans, in order, so the cut position of any kept second is the
+    segment's offset plus the distance into it (points_pipeline
+    cut_position). Older spans-mode matches recorded only each original
+    point's own clip window and its cut_t0, which is enough to place a
+    window that stays inside that clip. Anything else is not provably in
+    the cut and goes to the original.
+    """
+
+    def __init__(self, mj: dict | None):
+        segs = (mj or {}).get("cut_segments") or []
+        self.segments = [(float(a), float(b)) for a, b in segs]
+        self.offsets: list[float] = []
+        acc = 0.0
+        for s0, s1 in self.segments:
+            self.offsets.append(acc)
+            acc += s1 - s0
+        # idx -> (clip_t0, clip_t1, cut_t0, t1) at birth
+        self.born: dict[int, tuple[float, float, float, float]] = {}
+        for p in (mj or {}).get("points") or []:
+            try:
+                self.born[int(p["idx"])] = (
+                    float(p["clip_t0"]), float(p["clip_t1"]),
+                    float(p["cut_t0"]), float(p["t1"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+        self.dynamic_tails = bool(mj) and (mj or {}).get("pipeline") != "v2"
+
+    def locate(self, idx: int, c0: float, c1: float) -> float | None:
+        """Cut second where the source window [c0, c1] starts, or None
+        when the cut does not hold all of it."""
+        for (s0, s1), off in zip(self.segments, self.offsets):
+            if c0 >= s0 - 0.01 and c1 <= s1 + 0.01:
+                return off + (max(c0, s0) - s0)
+        if not self.segments:
+            b = self.born.get(idx)
+            if b and c0 >= b[0] - 0.01 and c1 <= b[1] + 0.01:
+                return b[2] + (max(c0, b[0]) - b[0])
+        return None
+
+    def born_post(self, idx: int) -> float | None:
+        """The tail the pipeline cut this point with, in seconds past t1."""
+        b = self.born.get(idx)
+        return (b[1] - b[3]) if b else None
+
+
+def _load_match_json(conn, match_id: str, workdir: str) -> dict | None:
+    with conn.cursor() as cur:
+        cur.execute("select match_json_path from public.matches where id = %s",
+                    (match_id,))
+        row = cur.fetchone()
+    loc = parse_r2_path((row[0] if row else None) or "")
+    if not loc:
+        return None
+    local = os.path.join(workdir, "match.json")
+    try:
+        r2().download_file(loc[0], loc[1], local)
+        with open(local) as fh:
+            return json.load(fh)
+    except Exception as e:                                      # noqa: BLE001
+        log.warning("  reclip: match.json unreadable (%s)", e)
+        return None
+
+
 def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
     options = get_job_options(conn, job_id, payload)
     match_id = options.get("match_id")
@@ -5279,7 +5388,7 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
 
     with conn.cursor() as cur:
         cur.execute(
-            "select id, idx, t0, t1, tight_start, tight_end "
+            "select id, idx, t0, t1, tight_start, tight_end, clip_path "
             "from public.points "
             "where match_id = %s and edited and not deleted "
             "and t0 is not null and t1 is not null order by idx",
@@ -5289,54 +5398,105 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
     if not targets:
         log.info("  reclip: nothing to do for match %s", match_id)
         return
+    # Every visible point's start, for the tail room of a point born after
+    # processing (split children, inserted cards) — see p_post below.
+    with conn.cursor() as cur:
+        cur.execute(
+            "select t0 from public.points where match_id = %s "
+            "and not deleted and t0 is not null order by t0",
+            (match_id,),
+        )
+        starts = [float(r[0]) for r in cur.fetchall()]
 
     update_job(conn, job_id, progress=10)
     workdir = tempfile.mkdtemp(prefix=f"ponglens-reclip-{str(job_id)[:8]}-")
     try:
-        local_input = os.path.join(workdir, "source.mp4")
-        source_ok = False
-        try:
-            r2_input = parse_r2_path(input_path or "")
-            if r2_input:
-                log.info("  reclip: downloading r2://%s/%s", *r2_input)
-                r2().download_file(r2_input[0], r2_input[1], local_input)
-            elif input_path:
-                log.info("  reclip: downloading uploads/%s (legacy)", input_path)
-                storage_download("uploads", input_path, local_input)
-            source_ok = bool(input_path) and os.path.exists(local_input) \
-                and os.path.getsize(local_input) > 0
-        except Exception as e:
-            log.warning("  reclip: raw source unavailable: %s", e)
-
-        if source_ok:
-            # Library sources: cut the claimed window so t0/t1 line up.
-            local_input = apply_source_trim(local_input, workdir, src_options)
-
-        if not source_ok:
-            # Raw gone. A live match keeps its original for good (see
-            # r2_raw_sweep), so this is a legacy pre-commerce match whose
-            # raw was swept before 2026-08, or a rejected upload. Keep the
-            # timing edits, mark the clips unavailable.
-            with conn.cursor() as cur:
-                for pid, _idx, t0, t1, _ts, _te in targets:
-                    cur.execute(
-                        "update public.points set clip_path = null, "
-                        "edited = false where id = %s and t0 = %s and t1 = %s",
-                        (pid, t0, t1),
-                    )
-            log.info("  reclip: source gone; marked %d clip(s) unavailable",
-                     len(targets))
-            return
+        # Sources, by URL. Nothing is downloaded whole.
+        prefer_cut = (get_config(conn, RECLIP_SOURCE_KEY) or "cut_first") != "raw"
+        cut_map = _CutMap(_load_match_json(conn, match_id, workdir)) \
+            if prefer_cut else None
+        cut_url = _cut_video_url(conn, match_id, 6 * 3600) if prefer_cut else None
+        raw_url = _presigned_get(input_path)
+        raw_local: str | None = None
+        if raw_url is None and input_path:
+            # Legacy Supabase-Storage source (pre-R2 rows): the one case
+            # that still needs a local copy.
+            try:
+                raw_local = os.path.join(workdir, "source.mp4")
+                storage_download("uploads", input_path, raw_local)
+                raw_local = apply_source_trim(raw_local, workdir, src_options)
+            except Exception as e:                              # noqa: BLE001
+                log.warning("  reclip: legacy source unavailable: %s", e)
+                raw_local = None
+        # A library upload processed inside a trim window: every t0/t1 is
+        # measured from trim_start_s INTO the original, so a seek on the
+        # original adds it (apply_source_trim's rule, without the remux).
+        trim_start = 0.0
+        if isinstance(src_options, dict) \
+                and src_options.get("match_id") is not None \
+                and src_options.get("trim_end_s") is not None:
+            trim_start = float(src_options.get("trim_start_s") or 0.0)
+        if raw_url is not None:
+            # A gone original (a legacy match whose raw was swept before
+            # commerce) must be found out now, not once per clip.
+            try:
+                _ffprobe_streams(raw_url)
+            except Exception as e:                              # noqa: BLE001
+                log.warning("  reclip: original unreadable (%s)", e)
+                raw_url = None
+        log.info("  reclip: sources cut=%s raw=%s legacy=%s",
+                 bool(cut_url), bool(raw_url), bool(raw_local))
 
         update_job(conn, job_id, progress=30)
         key_prefix = f"points/{owner_id}/{match_id}"
         done = 0
+        kept = 0
         failed: list[str] = []
-        for pid, idx, t0, t1, tight_start, tight_end in targets:
+        for pid, idx, t0, t1, tight_start, tight_end, old_path in targets:
             p_pre = min(pre, TIGHT_PAD) if tight_start else pre
-            p_post = min(post, TIGHT_PAD) if tight_end else post
+            if tight_end:
+                p_post = min(post, TIGHT_PAD)
+            else:
+                # The tail this point was cut with. An original point keeps
+                # the tail its birth record shows (the pipeline stretches a
+                # tail toward DYN_POST_MAX_S where the next play leaves
+                # room, and an edited point must not lose 0.7s of it); a
+                # point born after processing gets the same rule, or the
+                # flat pad where the pipeline used flat tails.
+                born = cut_map.born_post(int(idx)) if cut_map else None
+                if born is not None:
+                    p_post = max(post, min(RECLIP_DYN_POST_MAX_S, born))
+                elif cut_map is not None and cut_map.dynamic_tails:
+                    nxt = next((s for s in starts if s > float(t1) + 0.01), None)
+                    room = (nxt - float(t1) - pre - RECLIP_DYN_GAP_KEEP_S) \
+                        if nxt is not None else RECLIP_DYN_POST_MAX_S
+                    p_post = max(post, min(RECLIP_DYN_POST_MAX_S, room))
+                else:
+                    p_post = post
             c0 = max(0.0, float(t0) - p_pre)
-            span = (float(t1) + p_post) - c0
+            c1 = float(t1) + p_post
+            span = c1 - c0
+            cut_at = cut_map.locate(int(idx), c0, c1) \
+                if (cut_map is not None and cut_url) else None
+            if cut_at is not None:
+                src, seek, src_kind = cut_url, cut_at, "cut"
+            elif raw_url is not None:
+                src, seek, src_kind = raw_url, trim_start + c0, "raw"
+            elif raw_local is not None:
+                src, seek, src_kind = raw_local, c0, "raw-local"
+            else:
+                # No source holds this window. Keep the previous file (a
+                # stale clip with a label beats no clip; the apps label it)
+                # and clear the flag so nothing spins for a file that can
+                # never come.
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update public.points set edited = false "
+                        "where id = %s and t0 = %s and t1 = %s",
+                        (pid, t0, t1),
+                    )
+                kept += 1
+                continue
             out = os.path.join(workdir, f"clip_{idx}.mp4")
             started = time.monotonic()
             # One clip failing must not abandon the rest of the match: a
@@ -5344,8 +5504,8 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
             # forever, with no bell (jobs_notify_failed ignores reclips).
             try:
                 subprocess.run(
-                    ["ffmpeg", "-y", "-v", "error", "-ss", f"{c0:.2f}",
-                     "-i", local_input, "-t", f"{span:.2f}",
+                    ["ffmpeg", "-y", "-v", "error", "-ss", f"{seek:.2f}",
+                     "-i", src, "-t", f"{span:.2f}",
                      "-vf", "scale=720:-2",
                      "-c:v", "libx264", "-preset", "medium", "-crf", "23",
                      "-c:a", "aac", "-b:a", "96k",
@@ -5373,13 +5533,28 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
                     "where id = %s and t0 = %s and t1 = %s",
                     (f"r2://{R2_MEDIA_BUCKET}/{key}", pid, t0, t1),
                 )
+                claimed = cur.rowcount == 1
+            # The previous re-cut object is dead weight the moment the new
+            # one is claimed: delete it and give its bytes back. An
+            # ORIGINAL clip (NN.mp4) stays — its bytes were booked under
+            # the match prefix as one row and cannot be netted out alone.
+            if claimed and old_path and _RECUT_KEY_RE.match(old_path):
+                loc = parse_r2_path(old_path)
+                try:
+                    if loc:
+                        r2().delete_object(Bucket=loc[0], Key=loc[1])
+                    ledger_negate_keys(conn, [old_path])
+                except Exception as e:                          # noqa: BLE001
+                    log.warning("  reclip: old clip not removed (%s)", e)
             done += 1
-            log.info("  reclip: point idx %s cut in %.1fs (%.1fs of video)",
-                     idx, time.monotonic() - started, span)
+            log.info("  reclip: point idx %s cut from %s in %.1fs "
+                     "(%.1fs of video)", idx, src_kind,
+                     time.monotonic() - started, span)
             update_job(conn, job_id,
                        progress=30 + int(60 * done / len(targets)))
-        log.info("  reclip: regenerated %d clip(s) for match %s (%d failed)",
-                 done, match_id, len(failed))
+        log.info("  reclip: regenerated %d clip(s) for match %s "
+                 "(%d kept as they were, %d failed)",
+                 done, match_id, kept, len(failed))
         # Anything still flagged that this run did not fail on was edited
         # while we were cutting (the claim above refused it): ask for
         # another pass through the same door the apps use. A point that
