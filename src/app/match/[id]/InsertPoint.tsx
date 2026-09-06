@@ -181,11 +181,26 @@ export function InsertPoint({
   // PLAY it. The whole reason to open this sheet is to see what is in the
   // gap; making that a second tap asks the owner to request the one thing
   // the screen exists for. Muted, so autoplay is allowed.
+  //
+  // The seek has to WAIT for the file. This effect runs the moment `source`
+  // is set, which is the same moment the <video> gets its src, so readyState
+  // is 0 and seek()'s own guard drops the request on the floor — the sheet
+  // then autoplayed the original from 0:00 and showed footage from the start
+  // of the match instead of the hole. Only the removed-seam case was
+  // affected, because a continuous seam reuses the file already streaming
+  // behind the sheet, which is loaded. Land again on loadedmetadata.
   useEffect(() => {
     if (!source || !seam) return;
-    seek(win.t0);
     const v = videoRef.current;
-    if (v) void v.play().catch(() => undefined);
+    seek(win.t0);
+    if (!v) return;
+    if (v.readyState < 1) {
+      const land = () => seek(win.t0);
+      v.addEventListener("loadedmetadata", land, { once: true });
+      void v.play().catch(() => undefined);
+      return () => v.removeEventListener("loadedmetadata", land);
+    }
+    void v.play().catch(() => undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
