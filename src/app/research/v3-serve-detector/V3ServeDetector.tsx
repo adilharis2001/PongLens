@@ -344,7 +344,7 @@ export function V3ServeDetector({
                 // When the walk back from the first bounce breaks before reaching
                 // anyone, WHERE it broke still says which end the ball came from.
                 : m0.emerged
-                  ? '<br><span class="how">from the end the ball came out of, where the track broke</span>"
+                  ? '<br><span class="how">from the end the ball came out of, where the track broke</span>'
                 : '<br><span class="how">from the first bounce we could see</span>';
           }
           // A card the rotation's own shape corrected. Said out loud rather
