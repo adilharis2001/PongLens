@@ -19,7 +19,7 @@ def parse_prediction(d,width,height):
     return {'state':d['state'],'x':x,'y':y,'reason':str(d.get('reason',''))}
 
 def main():
-    a=argparse.ArgumentParser();a.add_argument('run',type=Path);a.add_argument('--limit',type=int,default=178);a.add_argument('--max-usd',type=float,default=5);a.add_argument('--shard',type=int,default=0);a.add_argument('--shards',type=int,default=1);args=a.parse_args()
+    a=argparse.ArgumentParser();a.add_argument('run',type=Path);a.add_argument('--limit',type=int,default=178);a.add_argument('--max-usd',type=float,default=5);a.add_argument('--shard',type=int,default=0);a.add_argument('--shards',type=int,default=1);a.add_argument('--interval',type=float,default=13);args=a.parse_args()
     rows=json.loads((args.run/'inputs.json').read_text()); model='gemini-3.8-flash'
     frozen={'model':model,'prompt':PROMPT,'config':CONFIG,'input_sha256':hashlib.sha256((args.run/'inputs.json').read_bytes()).hexdigest(),'estimated_price_per_million':{'input':.75,'output_including_thinking':3.75},'evaluation_tolerances_source_px':[10,20,40]}
     protocol=args.run/'protocol.json'
@@ -44,7 +44,7 @@ def main():
         request=urllib.request.Request(f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',data=payload,headers={'x-goog-api-key':key,'Content-Type':'application/json'})
         start=time.monotonic()
         for attempt in range(4):
-            time.sleep(13)  # This key's observed free-tier limit is five requests/minute.
+            time.sleep(max(0,args.interval))  # Default pacing supports the observed free tier.
             try:
                 with urllib.request.urlopen(request,timeout=90) as response:raw=json.load(response)
                 break

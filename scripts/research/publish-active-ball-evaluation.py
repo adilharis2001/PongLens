@@ -3,7 +3,7 @@ import argparse,hashlib,json,subprocess
 from pathlib import Path
 import psycopg2
 from psycopg2.extras import Json
-p=argparse.ArgumentParser();p.add_argument('run',type=Path);args=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('run',type=Path);p.add_argument('--run-id',default='gemini-3.8-flash-20260905-v1');args=p.parse_args()
 rows={r['id']:r for r in json.loads((args.run/'benchmark.json').read_text())}
 results=[json.loads(f.read_text()) for f in (args.run/'responses').glob('*.json')]
 protocol=json.loads((args.run/'protocol.json').read_text())
@@ -11,7 +11,7 @@ assert protocol['model']=='gemini-3.8-flash'
 assert protocol['input_sha256']==hashlib.sha256((args.run/'inputs.json').read_bytes()).hexdigest()
 protocol_sha=hashlib.sha256((args.run/'protocol.json').read_bytes()).hexdigest()
 benchmark_sha=hashlib.sha256((args.run/'benchmark.json').read_bytes()).hexdigest()
-run_id='gemini-3.8-flash-20260905-v1'
+run_id=args.run_id
 url=subprocess.run(['security','find-generic-password','-a','openclaw','-s','ponglens-db-url','-w'],capture_output=True,text=True,check=True).stdout.strip()
 with psycopg2.connect(url) as connection:
  with connection.cursor() as cursor:

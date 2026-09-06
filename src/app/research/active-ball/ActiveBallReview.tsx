@@ -50,6 +50,7 @@ export function ActiveBallReview({initial,evaluations=[]}:{initial:BallSample[];
     <div className="h-0.5 bg-zinc-900"><div className="h-full bg-cyan-400 transition-all" style={{width:`${rows.length?reviewed/rows.length*100:0}%`}}/></div>
     <div className="mx-auto max-w-[1600px] p-4 sm:p-6">
       {evaluations.length>0 && <div className="mb-5 flex flex-wrap gap-x-8 gap-y-3 border-b border-edge pb-4 text-sm" aria-label="Gemini results">
+        <span>Gemini 3.8 Flash · Prompt 2</span>
         <span>{summary.total} / {rows.length} evaluated{summary.unanswered>0?` · ${summary.unanswered} unanswered`:null}</span>
         <span><strong className="text-cyan-100">{summary.located} / {summary.visible}</strong> visible balls within 20 pixels</span>
         <span><strong>{summary.falseDetections} / {summary.nonvisible}</strong> false visible-ball detections</span>

@@ -38,3 +38,21 @@ The page gains Gemini comparison and Edit labels modes; default comparison filte
 Independent review found and verified fixes for dropping invalid responses and mixing protocol versions. Three Python scoring and three TypeScript comparison cases verify denominators/location errors/missing results. Full28 Python active-ball tests and12 combined TypeScript review/catalog/comparison tests are the relevant suite. Browser QA `scripts/qa/active-ball-comparison.mjs` is read-only; it exercises navigation, disabled editing, separate label mode and1440×1000/393×660 layout. Build log is in the local artifact root.
 
 Sources: https://ai.google.dev/gemini-api/docs/pricing , https://ai.google.dev/gemini-api/docs/generate-content/structured-output , https://ai.google.dev/gemini-api/docs/billing .
+
+## Billing enabled and revised prompt
+
+Adil enabled billing and requested a prompt adjustment after spotting a white court-line fragment mistaken for the ball. Prompt 2 explicitly checks background-relative motion and line continuity, including short line fragments exposed by moving players. It distinguishes occluder motion from ball motion, without automatically rejecting motion blur, a ball overlapping a line, or small displacement between adjacent frames.
+
+`gemini-active-ball-v2.py` preserves the original runner and appends those instructions. Its separate format pilot (`gemini-run2`) was stopped at 29 responses after two answers were truncated at the shared 2,048-token reasoning/output cap. The final run uses `gemini-active-ball-v3.py`: exactly the same Prompt 2 with an 8,192-token allowance, otherwise unchanged model, media and generation settings. Paid request pacing is explicitly supplied with `--interval 0`; the original runner keeps its 13-second default for reproducibility. Four disjoint shards share a $4.50 estimated-cost guard, leaving room for the pilots inside the previously stated $5 estimate ceiling.
+
+All 178 frozen references are rerun in `/Users/adil/ponglens-data/active-ball/gemini-run3`, published under `gemini-3.8-flash-20260905-v3`. The page identifies the instructions as Prompt 2. Original responses and pilot responses remain separate. Unusable answers remain scored failures; the runner can resume past them without retrying or replacing them.
+
+The prompt adjustment uses feedback from run 1, so this is an adjusted experiment, not an untouched test corpus. `summarize-active-ball-evaluation.py` reports the 12 examples already evaluated in run 1 separately from the other 166, as well as per-venue results. The latter still share matches and potentially nearby moments with the inspected examples. No individual reference label is sent to Gemini.
+
+Resume and publish this revision:
+
+```sh
+python scripts/research/gemini-active-ball-v3.py /Users/adil/ponglens-data/active-ball/gemini-run3 --interval 0 --max-usd 4.5
+python scripts/research/publish-active-ball-evaluation.py /Users/adil/ponglens-data/active-ball/gemini-run3 --run-id gemini-3.8-flash-20260905-v3
+python scripts/research/summarize-active-ball-evaluation.py /Users/adil/ponglens-data/active-ball/gemini-run3 --prior-run /Users/adil/ponglens-data/active-ball/gemini-run1
+```
