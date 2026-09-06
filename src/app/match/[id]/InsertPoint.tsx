@@ -194,13 +194,27 @@ export function InsertPoint({
     const v = videoRef.current;
     seek(win.t0);
     if (!v) return;
-    if (v.readyState < 1) {
-      const land = () => seek(win.t0);
-      v.addEventListener("loadedmetadata", land, { once: true });
-      void v.play().catch(() => undefined);
-      return () => v.removeEventListener("loadedmetadata", land);
-    }
+    // Keep asking until it sticks. A seek issued at `loadedmetadata` is
+    // accepted and then thrown away again when a large remote .mov finishes
+    // loading — measured on the Chris match, seam 72-73: the playhead reached
+    // 795.11s at readyState 1 and was back at 0 by readyState 4. So re-assert
+    // through the loading states and stop at the first seek that holds, which
+    // also keeps this off the handles once the owner starts dragging.
+    let landed = false;
+    const land = () => {
+      if (landed || v.readyState < 1) return;
+      const target = videoTimeFor(win.t0);
+      if (Math.abs(v.currentTime - target) < 0.5) {
+        if (v.readyState >= 3) landed = true;
+        return;
+      }
+      v.currentTime = target;
+    };
+    const events = ["loadedmetadata", "loadeddata", "canplay", "canplaythrough"];
+    events.forEach((e) => v.addEventListener(e, land));
+    land();
     void v.play().catch(() => undefined);
+    return () => events.forEach((e) => v.removeEventListener(e, land));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
