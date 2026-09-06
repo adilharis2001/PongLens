@@ -6,14 +6,23 @@ from worker.lesson_video import create_edit, normalize_edit, chunk_ranges, relea
 
 
 class EditRuntime:
- def __init__(self,merge,chapters=None,outline=None): self.merge=merge;self.merge_content=None;self.merge_contents=[];self.merge_prompts=[];self.merge_calls=0;self.chapters=chapters;self.outline=outline
+ def __init__(self,merge,chapters=None,outline=None,window=None): self.merge=merge;self.merge_content=None;self.merge_contents=[];self.merge_prompts=[];self.merge_calls=0;self.chapters=chapters;self.outline=outline;self.window=window;self.window_calls=0;self.window_sections=0;self.window_prompts=[];self.window_contents=[]
  def stage(self,*args): pass
  def model(self,prompt,content):
   if 'Extract the teaching' in prompt:
-   return {'title':'Lesson','themes':[{'name':'Footwork','points':['Recover after each shot.']}], 'chapters':self.chapters or [
+   self.window_prompts.append(prompt);self.window_contents.append(content);self.window_calls+=1
+   if 'window_validation_error' not in json.loads(content):self.window_sections+=1
+   raw=self.window[min(self.window_calls-1,len(self.window)-1)] if self.window is not None else {'title':'Lesson','themes':[{'name':'Footwork','points':['Recover after each shot.']}], 'chapters':self.chapters or [
     {'title':'First','cues':['Recover after each shot.'],'start_s':100,'end_s':140},
     {'title':'Second','cues':['Move back into position.'],'start_s':200,'end_s':250},
-  ]}
+   ]}
+   if self.window_sections==1:return raw
+   shifted=json.loads(json.dumps(raw));offset=(self.window_sections-1)*600
+   for chapter in shifted.get('chapters',[]):
+    if isinstance(chapter,dict):
+     if 'start_s' in chapter:chapter['start_s']+=offset
+     if 'end_s' in chapter:chapter['end_s']+=offset
+   return shifted
   if 'Build the complete teaching outline' in prompt:
    return self.outline if self.outline is not None else {'title':'Lesson','themes':[{'name':'Footwork','points':['Recover after each shot.']}]}
   self.merge_content=content
@@ -23,14 +32,15 @@ class EditRuntime:
   return self.merge[min(self.merge_calls-1,len(self.merge)-1)] if isinstance(self.merge,list) else self.merge
 
 
-def merge_edit(merge,chapters=None,sections=1,duration=600,outline=None):
- runtime=EditRuntime(merge,chapters,outline)
+def merge_edit(merge,chapters=None,sections=1,duration=600,outline=None,window=None):
+ runtime=EditRuntime(merge,chapters,outline,window)
  with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit):
-  result=create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]} for _ in range(sections)],duration)
+  source_duration=max(duration,sections*600)
+  result=create_edit(runtime,{},'source',directory,[{'start_s':i*600,'end_s':(i+1)*600,'utterances':[]} for i in range(sections)],source_duration)
  return result,runtime
 
 def candidate_chapters(count,duration=30):
- return [{'title':f'Topic {i}','cues':['Recover after each shot.'],'start_s':0,'end_s':duration} for i in range(count)]
+ return [{'title':f'Topic {i}','cues':['Recover after each shot.'],'start_s':i*duration,'end_s':(i+1)*duration} for i in range(count)]
 
 def selected(chapter_ids):
  return {'title':'Lesson','chapters':[{'candidate_id':candidate_id,'title':'Topic','cues':['Recover after each shot.']} for candidate_id in chapter_ids], 'themes':[]}
@@ -76,7 +86,7 @@ class LessonVideoTests(unittest.TestCase):
     with self.subTest(chapter_ids=chapter_ids),self.assertRaisesRegex(ValueError,'Retry to continue'):
      merge_edit({'title':'Lesson','chapters':[{'candidate_id':candidate_id,'title':'Topic','cues':['Recover after each shot.']} for candidate_id in chapter_ids], 'themes':[]})
  def test_merge_repairs_more_than_sixteen_chapters_without_truncating(self):
-  result,runtime=merge_edit([selected([f'candidate-{i}' for i in range(1,19)]),selected([f'candidate-{i}' for i in range(1,18)]),selected(['candidate-1'])],candidate_chapters(18))
+  result,runtime=merge_edit([selected([f'candidate-{i}' for i in range(1,19)]),selected([f'candidate-{i}' for i in range(1,18)]),selected(['candidate-1'])],candidate_chapters(6),sections=3)
   self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,3)
   repair=[json.loads(item['text']) for item in runtime.merge_contents[1] if item.get('type')=='text'][-1]
   self.assertEqual(repair['selection_requirements']['maximum_chapters'],16)
@@ -92,24 +102,56 @@ class LessonVideoTests(unittest.TestCase):
    create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
   self.assertEqual(runtime.merge_calls,3)
  def test_merge_repairs_worker_owned_duration_over_nine_hundred_seconds(self):
-  result,runtime=merge_edit([selected([f'candidate-{i}' for i in range(1,11)]),selected(['candidate-1'])],candidate_chapters(10,100),sections=2)
+  result,runtime=merge_edit([selected([f'candidate-{i}' for i in range(1,11)]),selected(['candidate-1'])],candidate_chapters(5,100),sections=2)
   self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,2)
   self.assertIn('1000.0 seconds, 100.0 seconds over',runtime.merge_prompts[1])
  def test_merge_uses_varied_candidate_durations_to_repair_the_budget(self):
   chapters=[
    {'title':'A','cues':['Recover after each shot.'],'start_s':0,'end_s':120},
-   {'title':'B','cues':['Recover after each shot.'],'start_s':0,'end_s':115},
-   {'title':'C','cues':['Recover after each shot.'],'start_s':0,'end_s':110},
-   {'title':'D','cues':['Recover after each shot.'],'start_s':0,'end_s':100},
-   {'title':'E','cues':['Recover after each shot.'],'start_s':0,'end_s':95},
-   {'title':'F','cues':['Recover after each shot.'],'start_s':0,'end_s':90},
+   {'title':'B','cues':['Recover after each shot.'],'start_s':120,'end_s':235},
+   {'title':'C','cues':['Recover after each shot.'],'start_s':235,'end_s':345},
+   {'title':'D','cues':['Recover after each shot.'],'start_s':345,'end_s':445},
+   {'title':'E','cues':['Recover after each shot.'],'start_s':445,'end_s':540},
   ]
   result,runtime=merge_edit([selected([f'candidate-{i}' for i in range(1,11)]),selected([f'candidate-{i}' for i in range(1,9)])],chapters,sections=2)
   self.assertEqual(runtime.merge_calls,2)
-  self.assertEqual(sum(chapter['end_s']-chapter['start_s'] for chapter in result['chapters']),865)
+  self.assertEqual(sum(chapter['end_s']-chapter['start_s'] for chapter in result['chapters']),885)
   metadata=[json.loads(item['text']) for item in runtime.merge_contents[1] if item.get('type')=='text' and 'candidate_id' in item['text']]
-  self.assertEqual([candidate['duration_seconds'] for candidate in metadata[:6]],[120,115,110,100,95,90])
+  self.assertEqual([candidate['duration_seconds'] for candidate in metadata[:5]],[120,115,110,100,95])
   self.assertIn('sum the supplied duration_seconds',runtime.merge_prompts[1])
+ def test_merge_repairs_overlapping_candidate_ranges_without_replay(self):
+  chapters=[
+   {'title':'Timing','cues':['Recover after each shot.'],'start_s':100,'end_s':170},
+   {'title':'Backhand','cues':['Recover after each shot.'],'start_s':160,'end_s':220},
+   {'title':'Serve','cues':['Recover after each shot.'],'start_s':300,'end_s':360},
+  ]
+  result,runtime=merge_edit([selected(['candidate-1','candidate-2']),selected(['candidate-1','candidate-3'])],chapters)
+  self.assertEqual(runtime.merge_calls,2)
+  self.assertEqual([(chapter['start_s'],chapter['end_s']) for chapter in result['chapters']],[(100,170),(300,360)])
+  self.assertIn('candidate-1 and candidate-2 overlap',runtime.merge_prompts[1])
+  self.assertIn('distinct footage/topics',runtime.merge_prompts[1])
+ def test_merge_allows_a_tenth_second_source_boundary_tolerance(self):
+  chapters=[
+   {'title':'Timing','cues':['Recover after each shot.'],'start_s':100,'end_s':170},
+   {'title':'Backhand','cues':['Recover after each shot.'],'start_s':169.9,'end_s':230},
+  ]
+  result,runtime=merge_edit(selected(['candidate-1','candidate-2']),chapters)
+  self.assertEqual(len(result['chapters']),2);self.assertEqual(runtime.merge_calls,1)
+ def test_window_repairs_overlong_teaching_candidate_without_dropping_theme(self):
+  overlong={'title':'Lesson','themes':[{'name':'Pips','points':['Build the point before attacking.']}],'chapters':[{'title':'Pips and point building','cues':['Build the point before attacking.'],'start_s':100,'end_s':400}]}
+  repaired={'title':'Lesson','themes':[{'name':'Pips','points':['Build the point before attacking.']}],'chapters':[{'title':'Pips and point building','cues':['Build the point before attacking.'],'start_s':100,'end_s':160}]}
+  result,runtime=merge_edit(selected(['candidate-1']),window=[overlong,repaired])
+  self.assertEqual(runtime.window_calls,2);self.assertEqual(runtime.merge_calls,1)
+  self.assertEqual((result['chapters'][0]['start_s'],result['chapters'][0]['end_s']),(100,160))
+  repair=json.loads(runtime.window_contents[1])
+  self.assertIn('Pips and point building',repair['window_validation_error'])
+  self.assertEqual(repair['retain_supported_themes'],overlong['themes'])
+ def test_unrepaired_window_candidate_fails_instead_of_silently_dropping_teaching(self):
+  overlong={'title':'Lesson','themes':[{'name':'Pips','points':['Build the point before attacking.']}],'chapters':[{'title':'Pips and point building','cues':['Build the point before attacking.'],'start_s':100,'end_s':400}]}
+  runtime=EditRuntime(selected(['candidate-1']),window=[overlong,overlong])
+  with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),self.assertRaisesRegex(ValueError,'Retry to continue'):
+   create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
+  self.assertEqual(runtime.window_calls,2);self.assertEqual(runtime.merge_calls,0)
  def test_rich_long_lessons_repair_to_cover_candidate_sections_and_twelve_chapters(self):
   outline={'title':'Lesson','themes':[{'name':f'Theme {i}','points':['Keep this supported instruction.']} for i in range(1,9)]}
   initial=selected(['candidate-1','candidate-3','candidate-5','candidate-7','candidate-9','candidate-10','candidate-11','candidate-12','candidate-13','candidate-14'])
