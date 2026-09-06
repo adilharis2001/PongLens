@@ -271,6 +271,15 @@ struct PlayerTakeover: View {
     @State var draftThem = ""
 
     @State var chipPill: UUID?
+    /// Non-nil while a seek is in flight. The player's periodic clock keeps
+    /// reporting the OLD position until the seek completes, and on a remote
+    /// file completion waits for buffering; every such report used to
+    /// overwrite the playhead the seek had just set, so the strip's ring
+    /// flipped back to the previous point and forward again a beat later.
+    /// Ticks are dropped while this is set. An epoch, not a flag, so a
+    /// superseded seek's completion cannot clear a newer one.
+    @State var pendingSeekEpoch: Int?
+    @State var seekEpoch = 0
 
     /// The chip the strip is asked to keep centred. Driven by the target,
 
@@ -3159,7 +3168,10 @@ struct PlayerTakeover: View {
             forInterval: CMTime(seconds: 0.2, preferredTimescale: 600),
             queue: .main
         ) { time in
-            Task { @MainActor in tick(time.seconds) }
+            // Already on the main queue: run the tick now. Hopping through a
+            // Task let a tick read before a seek land after it, and the
+            // stale time won.
+            MainActor.assumeIsolated { tick(time.seconds) }
         }
         firstServer = match.firstServer.flatMap(Winner.init(rawValue:))
         prevGamesCount = runningScore.games.count
@@ -3226,6 +3238,9 @@ struct PlayerTakeover: View {
     }
 
     func tick(_ raw: Double) {
+        // A seek is in flight: the clock is still the old position. The
+        // playhead already holds the destination; leave it there.
+        if pendingSeekEpoch != nil { return }
         // During a detour the item is the card's own clip: translate its
         // raw clock onto the virtual cut clock everything downstream reads.
         let t = detourId != nil ? detourBase + raw : raw
@@ -3507,10 +3522,23 @@ struct PlayerTakeover: View {
             return
         }
         if detourId != nil { exitDetour() }
+        seekEpoch += 1
+        let epoch = seekEpoch
+        pendingSeekEpoch = epoch
         player.seek(
             to: CMTime(seconds: sec, preferredTimescale: 600),
             toleranceBefore: .zero, toleranceAfter: .zero
-        )
+        ) { _ in
+            Task { @MainActor in
+                if pendingSeekEpoch == epoch { pendingSeekEpoch = nil }
+            }
+        }
+        // A completion that never comes — the item replaced under the seek,
+        // say — must not leave the clock ignored for good.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if pendingSeekEpoch == epoch { pendingSeekEpoch = nil }
+        }
         currentT = sec
     }
 

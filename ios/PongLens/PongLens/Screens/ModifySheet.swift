@@ -1060,8 +1060,15 @@ struct ModifySheet: View {
                 guard let t0 = $0.t0 else { return false }
                 return t0 >= rootT0 - 0.001 && t0 < originalT1 - 0.001
             }
+            // The outcomes are written without waiting: each is a round trip,
+            // three of them in a row held the sheet open for a second or two
+            // on a slow connection after the split itself had already
+            // landed. setOutcome applies locally first, so the pad is right
+            // the moment it resumes and the rows catch up behind it — the
+            // web's own order.
             for (i, disposition) in plan.enumerated() where i < segPoints.count {
-                await model.setOutcome(segPoints[i], disposition)
+                let p = segPoints[i]
+                Task { await model.setOutcome(p, disposition) }
             }
             finish(ModifyOutcome(
                 landing: landing, play: true,
@@ -1091,7 +1098,9 @@ struct ModifySheet: View {
         guard pool.count >= joinCount else { busy = false; return }
         let landing = landingAfter(dir == .next ? pool[joinCount - 1] : point)
         if let survivor = await model.runJoin(point, pad: pad, count: joinCount, direction: dir) {
-            await model.setOutcome(survivor, joinWinner)
+            // Written without waiting, as the split's outcomes are.
+            let winner = joinWinner
+            Task { await model.setOutcome(survivor, winner) }
             finish(ModifyOutcome(
                 landing: landing, play: true,
                 flash: "Joined \(joinCount + 1) points"
