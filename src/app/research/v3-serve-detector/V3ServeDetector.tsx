@@ -650,6 +650,96 @@ export function V3ServeDetector({
     for (const id of ["ovOn", "ovTable", "ovBall", "ovBounce", "ovServe", "ovPeople", "ovShoe"])
       ($(id) as HTMLElement).addEventListener("change", kick);
 
+    // SPEED. Two ways, because they answer different questions: the buttons
+    // set a speed you keep, and holding the picture borrows one for a moment.
+    //
+    // Holding the LEFT of the picture plays at a tenth speed and the RIGHT at
+    // double,
+    // which needs no target to hit and no second control to find — the half
+    // you are already looking at is the button.
+    let speed = 1;
+    const hint = $<HTMLDivElement>("holdhint");
+    const spdButtons = Array.from(el.querySelectorAll(".spd")) as HTMLElement[];
+    const setSpeed = (v: number, remember: boolean) => {
+      speed = v;
+      vid.playbackRate = v;
+      for (const b of spdButtons)
+        b.setAttribute("aria-pressed", String(Number(b.dataset.s) === v));
+      if (remember) {
+        try {
+          localStorage.setItem("v3.speed", String(v));
+        } catch {
+          /* no storage in a private window; the choice still holds for this visit */
+        }
+      }
+    };
+    try {
+      const v = Number(localStorage.getItem("v3.speed"));
+      if (v > 0) setSpeed(v, false);
+    } catch {
+      /* ignore */
+    }
+    for (const b of spdButtons)
+      b.addEventListener("click", () => setSpeed(Number(b.dataset.s), true));
+
+    let holding = false;
+    const onHold = (e: PointerEvent) => {
+      const r = clip.getBoundingClientRect();
+      holding = true;
+      const slow = e.clientX - r.left < r.width / 2;
+      vid.playbackRate = slow ? 0.1 : 2;
+      hint.textContent = slow ? "0.1× while held" : "2× while held";
+      clip.classList.add("holding");
+      try {
+        clip.setPointerCapture(e.pointerId);
+      } catch {
+        /* capture is a convenience, not a requirement */
+      }
+      if (vid.paused) vid.play().catch(() => {});
+    };
+    const onRelease = () => {
+      if (!holding) return;
+      holding = false;
+      vid.playbackRate = speed;          // back to the speed you chose
+      clip.classList.remove("holding");
+    };
+    clip.addEventListener("pointerdown", onHold);
+    for (const ev of ["pointerup", "pointercancel", "pointerleave"])
+      clip.addEventListener(ev, onRelease);
+    // The browser resets playbackRate when the source changes.
+    vid.addEventListener("loadedmetadata", () => {
+      vid.playbackRate = speed;
+    });
+
+    // Putting the video away, so the table gets the whole window. Remembered,
+    // because the answer to "do I want the video right now" holds for a whole
+    // sitting rather than for one card.
+    //
+    // It PAUSES on the way out: a <video> that is merely display:none keeps
+    // playing, and with sound.
+    const vidToggle = $<HTMLButtonElement>("vidtoggle");
+    const setVideo = (hide: boolean) => {
+      el.classList.toggle("novideo", hide);
+      vidToggle.textContent = hide ? "Show the video" : "Hide the video";
+      if (hide) {
+        stopAt = null;
+        vid.pause();
+      }
+      try {
+        localStorage.setItem("v3.novideo", hide ? "1" : "0");
+      } catch {
+        /* a private window has no storage; the toggle still works for this visit */
+      }
+    };
+    let hidden0 = false;
+    try {
+      hidden0 = localStorage.getItem("v3.novideo") === "1";
+    } catch {
+      hidden0 = false;
+    }
+    setVideo(hidden0);
+    vidToggle.addEventListener("click", () => setVideo(!el.classList.contains("novideo")));
+
     playBtn.addEventListener("click", () => {
       stopAt = null;
       if (vid.paused) vid.play().catch(() => {});
@@ -827,12 +917,24 @@ export function V3ServeDetector({
             <button data-f="called_false" aria-pressed="false">You called it not a serve</button>
             <button data-f="ok" aria-pressed="false">Correct</button>
           </div>
+          <div id="viewbar">
+            <button id="vidtoggle">Hide the video</button>
+            <span className="lab">Speed</span>
+            <button className="spd" data-s="0.25">0.25×</button>
+            <button className="spd" data-s="0.5">0.5×</button>
+            <button className="spd" data-s="1" aria-pressed="true">1×</button>
+            <button className="spd" data-s="2">2×</button>
+            <span className="lab">
+              or hold the left of the picture for slow, the right for fast
+            </span>
+          </div>
         </header>
         <div id="videowrap">
           <div id="clip">
             {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
             <video id="vid" preload="metadata" playsInline />
             <canvas id="ov" />
+            <div id="holdhint" />
           </div>
         </div>
         <div id="transport">

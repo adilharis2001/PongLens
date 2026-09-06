@@ -9,8 +9,9 @@
 export const CSS = `
 .v3 { color-scheme: dark; margin:0; background:#0b0d10; color:#e7ecf3; min-height:100vh;
       font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
-.v3 #topbar { position:sticky; top:0; z-index:6; background:#0b0d10;
-              box-shadow:0 8px 20px -10px #000; }
+/* Not sticky. Frozen, the chips and filters ate most of the window and left
+   a few rows of table to scroll inside. */
+.v3 #topbar { background:#0b0d10; }
 .v3 header { padding:12px 16px 10px; border-bottom:1px solid #222831; }
 .v3 h1 { margin:0 0 9px; font-size:16px; font-weight:600; }
 .v3 #summary { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
@@ -110,6 +111,18 @@ export const CSS = `
 .v3 .tl q { position:absolute; top:-2px; bottom:-2px; min-width:2px; background:#ff7ab6; }
 .v3 .tlkey { font-size:11px; color:#6f7d8f; margin-top:3px; }
 .v3 #empty { padding:24px 16px; color:#8b97a7; }
+.v3 #viewbar { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.v3 #viewbar .lab { color:#8b97a7; font-size:12.5px; margin-left:6px; }
+.v3 #viewbar button[aria-pressed="true"] { background:#e7ecf3; color:#0b0d10;
+  border-color:#e7ecf3; }
+.v3 #holdhint { position:absolute; left:0; right:0; bottom:8px; text-align:center;
+  font-size:12px; color:#e7ecf3; text-shadow:0 1px 3px #000; pointer-events:none;
+  opacity:0; transition:opacity .12s; }
+.v3 #clip.holding #holdhint { opacity:1; }
+.v3 #viewbar button { font:inherit; font-size:12.5px; cursor:pointer; padding:4px 12px;
+  border-radius:999px; border:1px solid #2a323d; background:#141922; color:#c7d2e0; }
+.v3.novideo #videowrap, .v3.novideo #ovbar, .v3.novideo #transport,
+.v3.novideo #playbar, .v3.novideo #vlabel { display:none; }
 .v3 .vd { display:flex; gap:4px; margin-top:7px; }
 .v3 .vd button { font:inherit; font-size:11.5px; cursor:pointer; padding:2px 9px;
   border-radius:999px; border:1px solid #2a323d; background:#141922; color:#8b97a7; }
