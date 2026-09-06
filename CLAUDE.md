@@ -89,6 +89,49 @@ for and leaves a neighbouring screen worse, say that before building it.
 
 ---
 
+## The processing page has to keep up with the worker
+
+**`/admin/processing` is the only place anyone can see whether the workers
+are alive and what they are doing.** The worker changes often, and this
+page falls behind it silently: nothing breaks, the page simply stops
+mentioning a thing that is happening, and no test fails because nothing
+is wrong.
+
+So a new job kind, a new stage, a new lane or a second place the pipeline
+runs is **not finished when the worker handles it. It is finished when
+the page names it.**
+
+- **A new job kind** needs its plain English label in `KIND_LABELS`
+  (`src/app/admin/processing/processingView.ts`), and a `pulse_stage(...)`
+  call on its path in `worker/worker.py` so a row says what it is doing
+  rather than only that it exists.
+- **A new stage** needs a phrase in `STAGE_LABELS`. Write the sentence a
+  person would say — "Finding the ball", not `blurball_infer`.
+- **A new lane** needs its row in `buildWorkerRows`, INCLUDING the case
+  where nothing is running it. A lane switched off by config and a lane
+  that has died must never look the same: the first is a decision, the
+  second is an outage, and the page is worthless if it renders them alike.
+- **A second execution location** (the cloud twin) is a question about
+  both workers, never one. Anything true of the Mac is a question about
+  Modal.
+
+**The code is built so a missed update is visible rather than silent.** An
+unrecognised kind or stage renders as its own raw name with a marker
+beside it, so `spin_report` turns up in the middle of a page of English
+sentences on that kind's very first job. Do not "tidy" that into an
+`unknown` bucket — the ugliness is the notification, and it is the only
+part of this rule that works without anybody remembering it.
+
+**And the worker must keep reporting.** `jobs.progress` is written at a
+handful of milestones and `jobs.updated_at` only moves when a column
+does, so a healthy job can read 20% with a frozen timestamp for three
+hours — identical to a worker that died at the first milestone. The pulse
+thread (`start_pulse_monitor`) is what separates those two, and it is
+best-effort by design: it must never be able to fail a job. Monitoring
+that can take down the pipeline is worse than no monitoring.
+
+---
+
 ## Copy
 
 **Plain, natural English. Never try to sound clever.** Not witty, punchy,

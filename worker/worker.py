@@ -1654,6 +1654,16 @@ def run_blurball(
                 if line:
                     print(line, flush=True)
                 match = BLURBALL_FRAME_RE.match(line)
+                if match:
+                    # The line the log has printed all along, written
+                    # where /admin/processing can read it. This is the
+                    # only signal that separates a slow job from a dead
+                    # one while inference is running.
+                    frames, all_frames = int(match.group(1)), int(match.group(2))
+                    pulse_note(
+                        line[:200],
+                        round(100 * frames / all_frames) if all_frames else None,
+                    )
                 if match and on_progress:
                     done, total = int(match.group(1)), int(match.group(2))
                     if total > 0:
@@ -7463,7 +7473,10 @@ def process_job(conn, msg) -> None:
         archive_message(conn, msg["msg_id"])
         return
 
+    pulse_job(job_id, kind)
+
     if kind == "placement_generate":
+        pulse_stage("placement")
         update_job(conn, job_id, status="processing", progress=5, error=None)
         try:
             with COST_METER.timed_stage(
@@ -7504,6 +7517,7 @@ def process_job(conn, msg) -> None:
         return
 
     if kind == "placement_retry":
+        pulse_stage("placement")
         update_job(conn, job_id, status="processing", progress=5, error=None)
         with COST_METER.timed_stage("placement_retry_compute", attempt_key):
             result = process_placement_retry(conn, job_id, user_id, payload)
@@ -7519,6 +7533,7 @@ def process_job(conn, msg) -> None:
 
     if kind == "reclip":
         # lightweight path: no blurball pipeline, just ffmpeg re-cuts
+        pulse_stage("reclip")
         update_job(conn, job_id, status="processing", progress=5, error=None)
         with COST_METER.timed_stage("point_reclip_encoding", attempt_key):
             process_reclip(conn, job_id, user_id, payload)
@@ -7529,6 +7544,7 @@ def process_job(conn, msg) -> None:
 
     if kind == "reel":
         # render the starred-points highlight reel (no blurball pipeline)
+        pulse_stage("reel")
         update_job(conn, job_id, status="processing", progress=5, error=None)
         with COST_METER.timed_stage("reel_encoding", attempt_key):
             process_reel(conn, job_id, user_id, payload)
@@ -7545,6 +7561,7 @@ def process_job(conn, msg) -> None:
         # message — bell and email ride the existing failure machinery.
         # Everything else fails open; the processing-time gate remains
         # the backstop.
+        pulse_stage("content_check")
         update_job(conn, job_id, status="processing", progress=10, error=None)
         options = get_job_options(conn, job_id, payload)
         check_match_id = options.get("match_id")
@@ -7643,6 +7660,7 @@ def process_job(conn, msg) -> None:
         # imports, the file's creation_time tag for uploads, else now().
         played_at: str | None = None
         if kind == "youtube_import":
+            pulse_stage("import")
             # yt-dlp fetch -> R2 raw bucket; from here on the job is
             # indistinguishable from a direct upload.
             local_input, input_path, yt_title, played_at = fetch_youtube(
@@ -7705,6 +7723,7 @@ def process_job(conn, msg) -> None:
                 log.info("  library import done: %s", input_path)
                 return
         else:
+            pulse_stage("download")
             ext = os.path.splitext(input_path)[1] or ".mp4"
             local_input = os.path.join(workdir, f"input{ext}")
 
@@ -7732,6 +7751,7 @@ def process_job(conn, msg) -> None:
             if t1 is not None:
                 real = probe_duration_s(local_input)
                 if t0 > 0.5 or (real is not None and float(t1) < real - 0.5):
+                    pulse_stage("trim")
                     local_input = apply_trim(local_input, workdir,
                                              t0, float(t1))
 
@@ -7740,6 +7760,7 @@ def process_job(conn, msg) -> None:
         # a user-facing message, archive the queue message (no retries).
         # Skip the gate when the upload-time check (097) already cleared
         # this video; it stays as the backstop for anything unchecked.
+        pulse_stage("content_check")
         already_checked = False
         if options.get("match_id") is not None:
             with conn.cursor() as cur:
@@ -7792,6 +7813,7 @@ def process_job(conn, msg) -> None:
                     and all(isinstance(v, (list, tuple)) and len(v) == 2
                             for v in crop_corners.values())):
                 crop_corners = None
+            pulse_stage("ball")
             blurball_out = detect_ball(local_input, workdir,
                                        attempt_key=attempt_key,
                                        on_progress=blurball_progress,
@@ -7800,6 +7822,7 @@ def process_job(conn, msg) -> None:
             update_job(conn, job_id, progress=45)
             segments_json = None
             try:
+                pulse_stage("points")
                 serve_pad, serve_merge = serve_motif_settings(conn)
                 outdir = run_points_subprocess(
                     local_input, blurball_out, workdir, options,
@@ -7818,6 +7841,7 @@ def process_job(conn, msg) -> None:
                             "falling back to the span cut", e)
                 shutil.rmtree(os.path.join(workdir, "points_out"),
                               ignore_errors=True)
+            pulse_stage("cut")
             result = run_cut(local_input, workdir, blurball_out,
                              strictness, segments_json=segments_json,
                              attempt_key=attempt_key)
@@ -7832,6 +7856,7 @@ def process_job(conn, msg) -> None:
                     last_pct[0] = pct
                     update_job(conn, job_id, progress=pct)
 
+            pulse_stage("ball")
             result, blurball_out = run_pipeline(
                 local_input,
                 workdir,
@@ -7841,6 +7866,7 @@ def process_job(conn, msg) -> None:
             )
         update_job(conn, job_id, progress=60 if options.get("points") else 85)
 
+        pulse_stage("upload")
         if r2_input:
             result_key = f"results/{user_id}/{job_id}.mp4"
             result_path = f"r2://{R2_MEDIA_BUCKET}/{result_key}"
@@ -7863,6 +7889,7 @@ def process_job(conn, msg) -> None:
         points_match_id = None
         if options.get("points"):
             update_job(conn, job_id, progress=70)
+            pulse_stage("publish")
             points_match_id = run_points_stage(
                 conn, job_id, user_id, local_input,
                 blurball_out, workdir, options, result_path,
@@ -8376,12 +8403,125 @@ def _ytdlp_version() -> str:
         return "missing"
 
 
+
+# ---------------------------------------------------------------------------
+# Saying what we are doing (spec 2026-09-06, /admin/processing)
+#
+# The job row cannot answer "is the worker alive". `progress` is written
+# at a handful of milestones and `updated_at` only moves when a column
+# does, so a placement job reads 20% with a frozen timestamp for three
+# hours of perfectly healthy work — and a worker that died at the first
+# milestone looks exactly the same. The only cure is for the process to
+# say so itself, on a timer, from a thread that is not inside the job.
+#
+# Every part of this is best-effort. Monitoring must never fail a job:
+# same rule as the storage ledger and the cost meter.
+# ---------------------------------------------------------------------------
+WORKER_ID = f"mac:{LANE}"
+WORKER_HOST = "mac"
+PULSE_EVERY_S = 15
+PROCESS_STARTED_AT = datetime.now(timezone.utc)
+# Read once. The commit cannot change under a running process, and this
+# shells out to git — not something to do every fifteen seconds forever.
+_PULSE_CODE_VERSION: str | None = None
+
+_pulse_lock = threading.Lock()
+_pulse_state: dict = {
+    "job_id": None, "job_kind": None, "stage": None,
+    "stage_note": None, "stage_pct": None,
+}
+
+
+def pulse_job(job_id: str | None, kind: str | None) -> None:
+    """Claiming or releasing a job."""
+    with _pulse_lock:
+        _pulse_state.update(job_id=job_id, job_kind=kind, stage=None,
+                            stage_note=None, stage_pct=None)
+
+
+def pulse_stage(stage: str | None, note: str | None = None,
+                pct: int | None = None) -> None:
+    """Which part of the job is running.
+
+    The name is stored and rendered exactly as written. There is no
+    allow-list, on purpose: a stage the page has not been taught about has
+    to appear as itself so somebody notices, rather than being folded into
+    'unknown' and disappearing. See CLAUDE.md, "The processing page has to
+    keep up with the worker"."""
+    with _pulse_lock:
+        _pulse_state.update(stage=stage, stage_note=note, stage_pct=pct)
+
+
+def pulse_note(note: str | None, pct: int | None = None) -> None:
+    """A counter under the current stage, without changing the stage."""
+    with _pulse_lock:
+        _pulse_state.update(stage_note=note, stage_pct=pct)
+
+
+def _pulse_once(conn) -> None:
+    with _pulse_lock:
+        state = dict(_pulse_state)
+    # How busy the MACHINE is, which is the other half of "why is this
+    # slow". The Mac Studio is shared with research scripts and other
+    # sessions; on the day this was written three of them held 1700% CPU
+    # and ball detection was running at a fifth of its usual speed, with
+    # nothing anywhere saying so.
+    try:
+        load = os.getloadavg()[0]
+    except Exception:
+        load = None
+    with conn.cursor() as cur:
+        cur.execute(
+            "select public.record_worker_pulse("
+            "%s, %s, %s, %s, %s, %s, %s, %s, null, %s, %s, %s, %s, %s)",
+            (WORKER_ID, LANE, WORKER_HOST, os.getpid(), _PULSE_CODE_VERSION,
+             PROCESS_STARTED_AT, state["job_id"], state["job_kind"],
+             state["stage"], state["stage_note"], state["stage_pct"],
+             load, os.cpu_count()),
+        )
+
+
+def _pulse_monitor() -> None:
+    """Its own connection, deliberately. The main one spends hours inside
+    a job's work, and a heartbeat that waits behind the thing it is
+    reporting on is not a heartbeat."""
+    conn = None
+    while True:
+        try:
+            if conn is None:
+                conn = psycopg2.connect(DATABASE_URL)
+                conn.autocommit = True
+            _pulse_once(conn)
+        except Exception as e:
+            log.warning("pulse failed (non-fatal): %s", e)
+            try:
+                if conn is not None:
+                    conn.close()
+            except Exception:
+                pass
+            conn = None
+        time.sleep(PULSE_EVERY_S)
+
+
+def start_pulse_monitor():
+    global _PULSE_CODE_VERSION
+    _PULSE_CODE_VERSION = _code_version()
+    monitor = threading.Thread(
+        target=_pulse_monitor, name="ponglens-pulse", daemon=True)
+    monitor.start()
+    return monitor
+
+
 def main():
     log.info("PongLens worker starting (lane=%s queue=%s supabase=%s, "
              "code=%s, yt-dlp=%s at %s)",
              LANE, QUEUE_NAME, SUPABASE_URL, _code_version(),
              _ytdlp_version(), YTDLP)
     conn = connect()
+    # Both lanes pulse. A lane that is running and a lane that is not must
+    # be distinguishable on /admin/processing, and only the process itself
+    # can say which it is.
+    start_pulse_monitor()
     # Housekeeping belongs to the main lane alone: the digests' last-sent
     # markers in app_config are not atomic across processes, the sweep
     # need not run twice a day, and one cost monitor is one too many.
@@ -8415,7 +8555,13 @@ def main():
                 continue
 
             try:
-                process_job(conn, msg)
+                try:
+                    process_job(conn, msg)
+                finally:
+                    # Every exit, including the failures below: a finished
+                    # job must never leave the page claiming it is still
+                    # running.
+                    pulse_job(None, None)
             except Exception as e:
                 log.exception("job failed: %s", e)
                 payload = msg["message"]

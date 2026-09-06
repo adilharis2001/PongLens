@@ -1,3 +1,8 @@
+import {
+  processingHubDetail,
+  type ProcessingCounts,
+} from "./processing/processingView.ts";
+
 /**
  * The admin hub: one card per subpage. The detail line under a card is
  * live state (pending work, headline counts), never a description of
@@ -38,6 +43,10 @@ export type AdminPageKey = (typeof ADMIN_PAGES)[number]["key"];
  * already reach it.
  */
 export const ADMIN_WORKSPACES = [
+  // First, because it is the only card that can be an emergency. The rest
+  // are places you choose to go; this one tells you whether anybody's
+  // uploads are being processed at all.
+  { key: "processing", href: "/admin/processing", title: "Processing" },
   { key: "outreach", href: "/admin/outreach", title: "Outreach and feedback" },
   { key: "research", href: "/research", title: "Research" },
   { key: "marketing", href: "/marketing", title: "Marketing" },
@@ -87,7 +96,11 @@ export function hubDetail(
   backlogOpen?: number | null,
   /** Its own query too, for the same reason as the backlog: the outreach
    *  numbers must not blank every other card when their RPC fails. */
-  outreach?: OutreachCounts | null
+  outreach?: OutreachCounts | null,
+  /** admin_processing_counts: the queue and whether anything is beating.
+   *  Its own query as well — and the most important one to isolate, since
+   *  the case it reports is the platform being down. */
+  processing?: ProcessingCounts | null
 ): HubDetail | null {
   // Answered before the counts guard — these numbers load separately,
   // and one failing must not blank the other's card.
@@ -97,6 +110,9 @@ export function hubDetail(
       text: `${backlogOpen} open`,
       attention: false,
     };
+  }
+  if (key === "processing") {
+    return processingHubDetail(processing ?? null);
   }
   if (key === "outreach") {
     if (!outreach) return null;
