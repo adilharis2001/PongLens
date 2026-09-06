@@ -12,11 +12,11 @@
   ],
   "rawOffsetS": -0.033,
   "offsetErr": 1.107,
-  "cards": 59,
+  "cards": 101,
   "points": 105,
-  "ok": 59,
-  "srvAgree": 55,
-  "srvDisagree": 4
+  "ok": 98,
+  "srvAgree": 83,
+  "srvDisagree": 16
  },
  {
   "match": "89b35ee0",
@@ -50,10 +50,10 @@
   ],
   "rawOffsetS": 0.0,
   "offsetErr": 1.305,
-  "cards": 75,
+  "cards": 111,
   "points": 95,
-  "ok": 60,
-  "srvAgree": 53,
-  "srvDisagree": 7
+  "ok": 87,
+  "srvAgree": 75,
+  "srvDisagree": 12
  }
 ]
