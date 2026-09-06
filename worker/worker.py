@@ -1030,6 +1030,11 @@ def get_config(conn, key: str) -> str | None:
     return row[0] if row else None
 
 
+def automatic_highlights_enabled(value: str | None, user_id: str) -> bool:
+    """Allow a global rollout or a single-user production canary."""
+    return value == "on" or value == f"user:{user_id}"
+
+
 def set_config(conn, key: str, value: str):
     with conn.cursor() as cur:
         cur.execute(
@@ -4840,7 +4845,9 @@ def run_points_stage(
                     list(inserted_points.values()),
                     cut_local_path,
                     workdir,
-                    enabled=(get_config(conn, "automatic_highlights") == "on"),
+                    enabled=automatic_highlights_enabled(
+                        get_config(conn, "automatic_highlights"), user_id
+                    ),
                 )
 
         finish_match(

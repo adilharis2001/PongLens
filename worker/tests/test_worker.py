@@ -1,6 +1,14 @@
 import worker
 
 
+def test_automatic_highlights_switch_supports_one_user_canary():
+    assert worker.automatic_highlights_enabled("on", "user-a") is True
+    assert worker.automatic_highlights_enabled("user:user-a", "user-a") is True
+    assert worker.automatic_highlights_enabled("off", "user-a") is False
+    assert worker.automatic_highlights_enabled("user:user-b", "user-a") is False
+    assert worker.automatic_highlights_enabled(None, "user-a") is False
+
+
 class Cursor:
     def __init__(self, connection):
         self.connection = connection

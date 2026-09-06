@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MEDIA_BUCKET, presignGet } from "@/lib/r2";
+import { automaticHighlightsEnabled } from "./access";
 
 export const runtime = "nodejs";
 
@@ -110,7 +111,9 @@ export async function GET(req: Request) {
       .select("value")
       .eq("key", "automatic_highlights")
       .maybeSingle();
-    if (config?.value !== "on") return response({ status: "unavailable" });
+    if (!automaticHighlightsEnabled(config?.value, user.id)) {
+      return response({ status: "unavailable" });
+    }
 
     const { data: reel, error: reelError } = await supabase
       .from("match_reels")

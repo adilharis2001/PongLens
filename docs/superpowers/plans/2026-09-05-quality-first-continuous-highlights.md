@@ -19,7 +19,8 @@
 - In-app playback uses one continuous MP4 and performs no rally-boundary seek.
 - Automatic highlight failure is fail-soft and consumes no customer processing minutes.
 - Existing starred, tagged, full-match, and vertical point exports keep their behavior.
-- Keep `automatic_highlights` private and off through migration and client deployment.
+- Keep `automatic_highlights` private and off through migration and client deployment;
+  use `user:<uuid>` for the internal production canary before setting it to `on`.
 - Preserve unrelated worktree changes and commit only files belonging to each task.
 - Verify web at desktop and 393×660, then verify native iOS separately.
 

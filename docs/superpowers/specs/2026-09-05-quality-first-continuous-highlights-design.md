@@ -318,7 +318,8 @@ The row is written directly by the trusted worker. The owner-facing
 `enqueue_reel` RPC is not used for initial automatic generation.
 
 Migration 172 also inserts a private `app_config` key,
-`automatic_highlights`, initially `off`. It is not added to the anonymous
+`automatic_highlights`, initially `off`. The switch accepts `on` for the
+global rollout or `user:<uuid>` for a single-account production canary. It is not added to the anonymous
 allow-list. The worker reads it once per match. Thresholds remain versioned
 source code, not mutable production settings; a threshold change is a pipeline
 release and receives a new rule version.
