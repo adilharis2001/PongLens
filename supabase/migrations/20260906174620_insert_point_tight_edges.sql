@@ -10,7 +10,7 @@
 -- boundary exactly like a split's, so it is marked tight the same way.
 --
 -- 101 also left the next card's cut_t0 alone while moving its t0, the
--- same drift adjust_point (20260906060000) fixes for Adjust. The anchor now
+-- same drift adjust_point (20260906174457) fixes for Adjust. The anchor now
 -- moves by the change in the padded start, with the pad this match's clips
 -- were cut with. That pad lookup is shared with adjust_point through
 -- match_pre_pad so the two functions can never disagree.

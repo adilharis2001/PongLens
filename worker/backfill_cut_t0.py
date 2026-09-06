@@ -3,7 +3,7 @@
 
 points.cut_t0 is where a point's PADDED clip starts inside the cut video:
 source t0 minus the point's effective pre pad (playhead.ts, the anchoring
-fact). Until migration 20260906060000 an Adjust moved t0 and left cut_t0
+fact). Until migration 20260906174457 an Adjust moved t0 and left cut_t0
 where it was, so every cut-clock rule placed the serve wrong by exactly the
 amount the start had moved, on every replay.
 

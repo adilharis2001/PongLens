@@ -5,7 +5,7 @@ import { CLIP_PAD, TIGHT_PAD, effectivePad, reanchorCutT0 } from "./clipEdit.ts"
 // cut_t0 is the padded clip start on the cut video's clock (playhead.ts).
 // Adjust moves t0; the anchor must move by the change in the padded start,
 // or every cut-clock rule places the serve wrong by the amount moved.
-// adjust_point (migration 20260906060000) applies the same arithmetic.
+// adjust_point (migration 20260906174457) applies the same arithmetic.
 
 const pad = CLIP_PAD.normal; // pre 1.0
 
