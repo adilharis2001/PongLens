@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from worker.lesson_release.package import LINUX_FFMPEG_PACKAGE, seal, verify, verify_linux_media_tools, worker_release_id, launch_agent, load_runtime_env
+from worker.lesson_release.package import LINUX_FFMPEG_ARTIFACT_SHA256, LINUX_FFMPEG_BINARY_SHA256, LINUX_FFPROBE_BINARY_SHA256, LINUX_FFMPEG_VERSION, linux_media_install_commands, seal, verify, verify_linux_media_tools, worker_release_id, launch_agent, load_runtime_env
 
 class LessonReleaseTests(unittest.TestCase):
     def fixture(self, root):
@@ -34,16 +34,20 @@ class LessonReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):load_runtime_env(p)
             p.write_text('{}');s=Path(d)/'link';s.symlink_to(p)
             with self.assertRaises(ValueError):load_runtime_env(s)
-    def test_linux_media_tools_require_the_pinned_package_and_lesson_filters(self):
+    def test_linux_media_tools_require_the_pinned_artifact_and_lesson_filters(self):
         commands=[]
         def output(command,**kwargs):
             commands.append(command)
-            if command[0]=='dpkg-query': return LINUX_FFMPEG_PACKAGE+'\n'
             if '-filters' in command: return ' ... zscale ...\n'
             if '-encoders' in command: return ' V.... libx264\n A.... aac\n'
-            return 'ffmpeg version '+LINUX_FFMPEG_PACKAGE.split(':',1)[1]+'\n'
-        with patch('worker.lesson_release.package.subprocess.check_output',side_effect=output):
+            if command[0].endswith('/ffmpeg'): return 'ffmpeg version '+LINUX_FFMPEG_VERSION+'\n'
+            return 'ffprobe version '+LINUX_FFMPEG_VERSION+'\n'
+        with patch('worker.lesson_release.package.sha',side_effect=[LINUX_FFMPEG_BINARY_SHA256,LINUX_FFPROBE_BINARY_SHA256]),patch('worker.lesson_release.package.subprocess.check_output',side_effect=output):
             verify_linux_media_tools()
-        self.assertIn(['dpkg-query','-W','-f=${Version}','ffmpeg'],commands)
-        self.assertIn(['ffmpeg','-hide_banner','-filters'],commands)
+        self.assertTrue(any(command[0].endswith('/ffprobe') and command[1]=='-version' for command in commands))
+    def test_modal_media_install_checks_immutable_artifact_before_extracting(self):
+        commands='\n'.join(linux_media_install_commands())
+        self.assertIn(LINUX_FFMPEG_ARTIFACT_SHA256,commands)
+        self.assertIn('sha256sum -c -',commands)
+        self.assertIn('releases/assets/',commands)
 if __name__=='__main__':unittest.main()

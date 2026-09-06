@@ -12,8 +12,12 @@ import subprocess
 import sys
 import tempfile
 
-LINUX_FFMPEG_PACKAGE = '7:5.1.6-0+deb12u1'
-LINUX_FFMPEG_VERSION = LINUX_FFMPEG_PACKAGE.split(':',1)[1]
+LINUX_FFMPEG_ARTIFACT_URL = 'https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/assets/545866933'
+LINUX_FFMPEG_ARTIFACT_SHA256 = 'bdb1799f4e91707a05a5733384b619cc693fec785c0d8606c08e8f0cb8a7d6fb'
+LINUX_FFMPEG_VERSION = 'N-126416-g9997fd0606-20260905'
+LINUX_FFMPEG_ROOT = Path('/opt/ponglens-ffmpeg')
+LINUX_FFMPEG_BINARY_SHA256 = '4ff241ffcb19b0735156ffaa59a593e342376c9ab39e22544967406f0a11ac0f'
+LINUX_FFPROBE_BINARY_SHA256 = 'a28c2470c78e4824580dd47797306096ffa79ed9c8777353319d5cdac2d53e92'
 
 LABEL = 'com.adil.ponglens-lesson-video-worker'
 DEFAULT_ROOT = Path.home() / 'Library/Application Support/PongLensLessonVideoWorker'
@@ -27,15 +31,24 @@ def verify_lesson_ffmpeg(ffmpeg):
     if 'zscale' not in filters or 'libx264' not in encoders or 'aac' not in encoders:
         raise ValueError('Pinned FFmpeg lacks lesson HDR or H.264/AAC support')
 
+def linux_media_install_commands():
+    artifact='/tmp/ponglens-ffmpeg.tar.xz'
+    return (
+        'apt-get update && apt-get install -y --no-install-recommends ca-certificates curl xz-utils && rm -rf /var/lib/apt/lists/*',
+        f"curl -fsSL -H 'Accept: application/octet-stream' '{LINUX_FFMPEG_ARTIFACT_URL}' -o {artifact}",
+        f"echo '{LINUX_FFMPEG_ARTIFACT_SHA256}  {artifact}' | sha256sum -c -",
+        f'mkdir -p {LINUX_FFMPEG_ROOT} && tar -xJf {artifact} -C {LINUX_FFMPEG_ROOT} --strip-components=1 && rm -f {artifact}',
+    )
+
 def verify_linux_media_tools():
-    installed=subprocess.check_output(['dpkg-query','-W','-f=${Version}','ffmpeg'],text=True).strip()
-    if installed!=LINUX_FFMPEG_PACKAGE:
-        raise ValueError('Pinned Linux FFmpeg package is not installed')
-    for tool in ('ffmpeg','ffprobe'):
-        version=subprocess.check_output([tool,'-version'],text=True)
-        if f'ffmpeg version {LINUX_FFMPEG_VERSION}' not in version:
-            raise ValueError('Pinned Linux media tool identity changed: '+tool)
-    verify_lesson_ffmpeg('ffmpeg')
+    ffmpeg=LINUX_FFMPEG_ROOT/'bin/ffmpeg';ffprobe=LINUX_FFMPEG_ROOT/'bin/ffprobe'
+    for tool,digest,prefix in ((ffmpeg,LINUX_FFMPEG_BINARY_SHA256,'ffmpeg'),(ffprobe,LINUX_FFPROBE_BINARY_SHA256,'ffprobe')):
+        if sha(tool)!=digest:
+            raise ValueError('Pinned Linux media tool identity changed: '+tool.name)
+        version=subprocess.check_output([str(tool),'-version'],text=True)
+        if f'{prefix} version {LINUX_FFMPEG_VERSION}' not in version:
+            raise ValueError('Pinned Linux media tool version changed: '+tool.name)
+    verify_lesson_ffmpeg(ffmpeg)
 
 def sha(path):
     h=hashlib.sha256()

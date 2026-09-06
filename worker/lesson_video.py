@@ -230,7 +230,7 @@ def create_edit(rt,row,source,directory,transcript,duration):
     if normalized['start_s']>=chunk['start_s'] and normalized['end_s']<=chunk['end_s']:valid.append(normalized)
    except (ValueError,KeyError,TypeError):pass
   windows.append({'title':raw.get('title','Lesson'),'themes':raw.get('themes',[]),'chapters':valid})
- candidates=[c for w in windows for c in w['chapters']]
+ candidates=[{'section_title':w['title'],'chapter':c} for w in windows for c in w['chapters']]
  if not candidates:raise ValueError('No clear coaching was found. Your original is kept; try again or add a written lesson note.')
  rt.stage(row,'Preserving the complete lesson outline')
  outline=rt.model(OUTLINE_PROMPT,json.dumps([{'title':w['title'],'themes':w['themes']} for w in windows],ensure_ascii=False))
@@ -239,10 +239,11 @@ def create_edit(rt,row,source,directory,transcript,duration):
  # valid clip.
  content=[{'type':'text','text':json.dumps({'complete_outline':outline,'sections':[{'title':w['title'],'themes':w['themes']} for w in windows]},ensure_ascii=False)}]
  candidate_by_id={}
- for i,c in enumerate(candidates):
+ for i,candidate in enumerate(candidates):
+  c=candidate['chapter']
   candidate_id=f'candidate-{i+1}'
   candidate_by_id[candidate_id]=c
-  content.append({'type':'text','text':f'Candidate ID {candidate_id}'})
+  content.append({'type':'text','text':json.dumps({'candidate_id':candidate_id,'section_title':candidate['section_title'],'title':c['title'],'cues':c['cues']},ensure_ascii=False)})
   try:content.append({'type':'image_url','image_url':{'url':frame(source,(c['start_s']+c['end_s'])/2,directory,i),'detail':'low'}})
   except RuntimeError:raise ValueError('The footage could not be inspected. Your original is kept; retry to check the video again.')
  rt.stage(row,'Arranging the lesson recap')

@@ -6,20 +6,14 @@ import sys
 sys.dont_write_bytecode=True
 ROOT=Path(__file__).resolve().parent
 sys.path.insert(0,str(ROOT))
-from package import LINUX_FFMPEG_PACKAGE, verify
+from package import linux_media_install_commands, verify
 import modal
 
 manifest=verify(ROOT)
 REMOTE='/opt/lesson/'+ROOT.parent.name+'/payload'
 app=modal.App('ponglens-lesson-video')
 image=(modal.Image.debian_slim(python_version='3.12')
-       .apt_install(f'ffmpeg={LINUX_FFMPEG_PACKAGE}')
-       .run_commands(
-           f"test \"$(dpkg-query -W -f='${{Version}}' ffmpeg)\" = '{LINUX_FFMPEG_PACKAGE}'",
-           'ffmpeg -hide_banner -filters | grep -q zscale',
-           'ffmpeg -hide_banner -encoders | grep -q libx264',
-           'ffmpeg -hide_banner -encoders | grep -q aac',
-       )
+       .run_commands(*linux_media_install_commands())
        .pip_install_from_requirements(str(ROOT/'requirements.lock'))
        .env({'PYTHONDONTWRITEBYTECODE':'1'})
        .add_local_dir(str(ROOT),REMOTE,copy=True))

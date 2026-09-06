@@ -157,7 +157,10 @@ Do not run com.adil.ponglens-worker commands for this feature.
 
 The optional sealed modal_app.py defines only app `ponglens-lesson-video`,
 secret `ponglens-lesson-video-runtime`, no volumes and no match functions.
-It uses the same full lock, payload and font, with system FFmpeg on Debian.
+It uses the same full lock, payload and font, plus the fixed BtbN FFmpeg
+release asset recorded in `package.py`. The image verifies the archive SHA-256
+before extraction; cloud startup verifies the FFmpeg and FFprobe binary hashes,
+their distinct version banners, and `zscale`/H.264/AAC support before any claim.
 A single CPU container has a 40GiB ephemeral disk and polls one claimed lesson
 per scheduled invocation. Database cloud_enabled still gates all claims.
 

@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -51,6 +52,11 @@ class LessonVideoTests(unittest.TestCase):
   self.assertEqual((result['chapters'][0]['start_s'],result['chapters'][0]['end_s']),(200,250))
   self.assertNotIn('start_s',str(runtime.merge_content))
   self.assertNotIn('end_s',str(runtime.merge_content))
+ def test_merge_receives_timestamp_free_candidate_teaching_metadata(self):
+  _,runtime=merge_edit({'title':'Lesson','chapters':[{'candidate_id':'candidate-1','title':'Recover','cues':['Recover after each shot.']}], 'themes':[]})
+  candidates=[json.loads(item['text']) for item in runtime.merge_content if item.get('type')=='text' and 'candidate_id' in item['text']]
+  self.assertEqual(candidates[0],{'candidate_id':'candidate-1','section_title':'Lesson','title':'First','cues':['Recover after each shot.']})
+  self.assertTrue(all(not any('time' in key or key.endswith('_s') for key in candidate) for candidate in candidates))
  def test_merge_refuses_model_authored_timestamps(self):
   with self.assertRaisesRegex(ValueError,'candidate ID'):
    merge_edit({'title':'Lesson','chapters':[{'candidate_id':'candidate-1','title':'First','cues':['Recover after each shot.'],'start_s':0,'end_s':40}], 'themes':[]})

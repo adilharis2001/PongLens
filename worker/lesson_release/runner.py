@@ -9,7 +9,7 @@ import sys
 sys.dont_write_bytecode=True
 PAYLOAD=Path(__file__).resolve().parent
 sys.path.insert(0,str(PAYLOAD))
-from package import verify, verify_linux_media_tools, verify_runtime, load_runtime_env
+from package import LINUX_FFMPEG_ROOT, verify, verify_linux_media_tools, verify_runtime, load_runtime_env
 
 def main():
     parser=argparse.ArgumentParser()
@@ -39,6 +39,8 @@ def main():
         os.environ['LESSON_VIDEO_WORKDIR']=str(runtime/'work')
     elif not args.cloud:
         raise ValueError('Mac execution requires an installed runtime config')
+    else:
+        os.environ['PATH']=str(LINUX_FFMPEG_ROOT/'bin')+':/usr/bin:/bin'
     os.environ['LESSON_VIDEO_FONT']=str(PAYLOAD/'lesson-font.ttf')
     os.environ.setdefault('LESSON_VIDEO_WORKER_ID','modal' if args.cloud else 'mac')
     os.environ['PYTHONDONTWRITEBYTECODE']='1'
