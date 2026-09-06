@@ -150,7 +150,12 @@ export function StudentView({
   const [notice, setNotice] = useState<string | null>(null);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mergeBusy, setMergeBusy] = useState(false);
-  const [inviteOpen, setInviteOpen] = useState(false);
+  // Open from the start while there is nobody at the other end: the
+  // invite is the thing a coach should be nudged towards for a student who
+  // is not on PongLens yet, and a panel they have to ask for is not a
+  // nudge (Adil, 2026-09-05). The header button and the Matches row bring
+  // it into view; nothing collapses it.
+  const [inviteOpen, setInviteOpen] = useState(!initialStudent.player_id);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [inviteFailed, setInviteFailed] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -545,6 +550,22 @@ export function StudentView({
     };
   }, [inviteOpen, inviteUrl, inviteLink]);
 
+  /** Bring the invite panel into view. It is open from the start and
+   *  nothing closes it, so the element is there to scroll to at once;
+   *  the deferred branch only matters if that ever changes. */
+  const showInvite = () => {
+    const scrollTo = () =>
+      document
+        .getElementById("invite-panel")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (inviteOpen && document.getElementById("invite-panel")) {
+      scrollTo();
+      return;
+    }
+    setInviteOpen(true);
+    setTimeout(() => scrollTo() ?? window.scrollTo({ top: 0, behavior: "smooth" }), 0);
+  };
+
   const copyInvite = async () => {
     const url = inviteUrl ?? (await inviteLink());
     if (!url) {
@@ -664,8 +685,7 @@ export function StudentView({
           {!student.player_id && (
             <button
               type="button"
-              onClick={() => setInviteOpen((v) => !v)}
-              aria-expanded={inviteOpen}
+              onClick={() => showInvite()}
               className={`${pill} flex min-h-11 w-full items-center justify-center sm:min-h-0 sm:w-auto`}
             >
               Invite {student.display_name}
@@ -782,7 +802,10 @@ export function StudentView({
           "Connect" card said is still here, said once, in the one place a
           coach is actually deciding whether to send the link. */}
       {!student.player_id && inviteOpen && (
-        <div className="mt-4 rounded-2xl border border-edge bg-surface p-4 sm:p-5">
+        <div
+          id="invite-panel"
+          className="mt-4 scroll-mt-24 rounded-2xl border border-edge bg-surface p-4 sm:p-5"
+        >
           <p className="text-base font-semibold text-zinc-100">
             Invite {student.display_name}
           </p>
@@ -1211,10 +1234,7 @@ export function StudentView({
               </p>
               <ActionRow
                 label={`Invite ${student.display_name}`}
-                onClick={() => {
-                  setInviteOpen(true);
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
+                onClick={() => showInvite()}
               />
             </div>
           ) : matches.length === 0 ? (

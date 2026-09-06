@@ -192,6 +192,40 @@ struct CoachStudentScreen: View {
                     }
                 }
 
+                // The invite, open from the start while there is nobody at
+                // the other end: what the link does, what goes with it, and
+                // the row that gets it. A panel a coach has to ask for is not
+                // a nudge (Adil, 2026-09-05). The header's Invite button
+                // opens the same sheet as the row here.
+                if !student.linked {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Invite \(student.displayName)")
+                            .font(.plCardTitle)
+                            .foregroundStyle(PL.text100)
+                        Text("Opening this link and signing in connects \(student.displayName) to this row. You'll see the matches they upload, and the entries you share reach their journal. They choose whether you see all their matches or only the ones they share.")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text400)
+                            .lineSpacing(3)
+                        // What is already lined up for them (2026-09-04): a
+                        // coach reading this is deciding whether to send the
+                        // link, and what it hands over is the thing they
+                        // want to know.
+                        headStart(student)
+                        VStack(spacing: 0) {
+                            CoachNavRow(label: "Get the link", symbol: "link") {
+                                inviteOpen = true
+                            }
+                        }
+                        .background(PL.ink.opacity(0.4), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                                .strokeBorder(PL.edge, lineWidth: 1)
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .plCard(padding: 16)
+                }
+
                 // Every section from here down is built the same way: a
                 // heading, then one card. Where a section is empty it says
                 // so inside the card and, if there is something to do
@@ -210,14 +244,6 @@ struct CoachStudentScreen: View {
                 } else {
                     VStack(alignment: .leading, spacing: 10) {
                         SectionHeading("Journal")
-                        // What the invite will hand over, and the one button
-                        // that shares the rest (2026-09-04). It used to sit in
-                        // the Connect card; with that card gone it belongs
-                        // above the entries it is counting, while there is
-                        // nobody at the other end to receive them yet.
-                        if !student.linked {
-                            headStart(student)
-                        }
                         ForEach(entries) { entry in
                             NavigationLink(value: entry) {
                                 CoachEntryCard(
