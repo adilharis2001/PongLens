@@ -64,11 +64,13 @@ class LessonVideoTests(unittest.TestCase):
  def test_merge_receives_timestamp_free_candidate_teaching_metadata(self):
   _,runtime=merge_edit({'title':'Lesson','chapters':[{'candidate_id':'candidate-1','title':'Recover','cues':['Recover after each shot.']}], 'themes':[]})
   candidates=[json.loads(item['text']) for item in runtime.merge_content if item.get('type')=='text' and 'candidate_id' in item['text']]
-  self.assertEqual(candidates[0],{'candidate_id':'candidate-1','section_title':'Lesson','title':'First','cues':['Recover after each shot.']})
-  self.assertTrue(all(not any('time' in key or key.endswith('_s') for key in candidate) for candidate in candidates))
+  self.assertEqual(candidates[0],{'candidate_id':'candidate-1','section_title':'Lesson','title':'First','cues':['Recover after each shot.'],'duration_seconds':40})
+  self.assertTrue(all(set(key for key in candidate if key.endswith('_s') or key=='duration_seconds')=={'duration_seconds'} for candidate in candidates))
+  self.assertNotIn('start_s',str(candidates));self.assertNotIn('end_s',str(candidates))
  def test_merge_refuses_model_authored_timestamps(self):
-  with self.assertRaisesRegex(ValueError,'Retry to continue'):
-   merge_edit({'title':'Lesson','chapters':[{'candidate_id':'candidate-1','title':'First','cues':['Recover after each shot.'],'start_s':0,'end_s':40}], 'themes':[]})
+  for extra in [{'start_s':0,'end_s':40},{'duration_seconds':40}]:
+   with self.subTest(extra=extra),self.assertRaisesRegex(ValueError,'Retry to continue'):
+    merge_edit({'title':'Lesson','chapters':[{'candidate_id':'candidate-1','title':'First','cues':['Recover after each shot.'],**extra}], 'themes':[]})
  def test_merge_refuses_unknown_or_duplicate_candidate_ids(self):
   for chapter_ids in [['candidate-3'],['candidate-1','candidate-1']]:
     with self.subTest(chapter_ids=chapter_ids),self.assertRaisesRegex(ValueError,'Retry to continue'):
@@ -93,6 +95,21 @@ class LessonVideoTests(unittest.TestCase):
   result,runtime=merge_edit([selected([f'candidate-{i}' for i in range(1,11)]),selected(['candidate-1'])],candidate_chapters(10,100),sections=2)
   self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,2)
   self.assertIn('1000.0 seconds, 100.0 seconds over',runtime.merge_prompts[1])
+ def test_merge_uses_varied_candidate_durations_to_repair_the_budget(self):
+  chapters=[
+   {'title':'A','cues':['Recover after each shot.'],'start_s':0,'end_s':120},
+   {'title':'B','cues':['Recover after each shot.'],'start_s':0,'end_s':115},
+   {'title':'C','cues':['Recover after each shot.'],'start_s':0,'end_s':110},
+   {'title':'D','cues':['Recover after each shot.'],'start_s':0,'end_s':100},
+   {'title':'E','cues':['Recover after each shot.'],'start_s':0,'end_s':95},
+   {'title':'F','cues':['Recover after each shot.'],'start_s':0,'end_s':90},
+  ]
+  result,runtime=merge_edit([selected([f'candidate-{i}' for i in range(1,11)]),selected([f'candidate-{i}' for i in range(1,9)])],chapters,sections=2)
+  self.assertEqual(runtime.merge_calls,2)
+  self.assertEqual(sum(chapter['end_s']-chapter['start_s'] for chapter in result['chapters']),865)
+  metadata=[json.loads(item['text']) for item in runtime.merge_contents[1] if item.get('type')=='text' and 'candidate_id' in item['text']]
+  self.assertEqual([candidate['duration_seconds'] for candidate in metadata[:6]],[120,115,110,100,95,90])
+  self.assertIn('sum the supplied duration_seconds',runtime.merge_prompts[1])
  def test_merge_repairs_unknown_id_and_bounded_timestamp_failures(self):
   result,runtime=merge_edit([selected(['candidate-99']),selected(['candidate-1'])])
   self.assertEqual(result['chapters'][0]['start_s'],100);self.assertEqual(runtime.merge_calls,2)
