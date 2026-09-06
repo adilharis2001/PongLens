@@ -41,3 +41,22 @@ All 20 package test scripts passed. Full `npm run build` passed with 151 pages;
 existing lint/module warnings remain. Focused beta/email/admin/database run:
 142 tests passed with no failures or skips. Preview catalog tests passed after adding the receipt
 and repairing the previously missing allowance preview expectation.
+
+## Production verification
+
+Released application commit `e82b3a40` to production deployment
+`dpl_2PG3c62vibR3dwoAJDB5q9y3k5D7`. Confirmed Ready and aliased to
+`www.ponglens.com` before applying migration `20260906020000`.
+
+A new official Resend test-address signup returned 200. Provider readback and
+signed delivery events confirmed both admin notices delivered with the test
+submitter's email in their subjects, and the applicant confirmation delivered
+immediately with no TestFlight link. The separate invitation remained scheduled
+23 hours after signup. Repeating the signup preserved all four provider IDs and
+the original deadline. The existing real applicant's three jobs and scheduled
+invitation were unchanged; no historical receipt was created or sent.
+
+The shared confirmation was visually inspected at 393×660 in light and dark
+browser rendering with no horizontal overflow. This is not a claim of testing
+every native email client's dark-mode transformation. The official test mailbox
+retains its scheduled invitation and audit record; it is not a real applicant.
