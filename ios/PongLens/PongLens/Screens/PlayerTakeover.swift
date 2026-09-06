@@ -280,7 +280,20 @@ struct PlayerTakeover: View {
 
     /// is exactly what the old scrollTo-after-a-delay could not promise.
 
-    @State private var stripScrollId: UUID?
+    @State private var stripScrollId: StripItem?
+
+    /// What the strip can be asked to centre on. A chip's scroll id must NOT
+    /// be the point's bare UUID: the ForEach row that holds the chip is
+    /// keyed by that same UUID, and the row also holds the removed dots that
+    /// sit before the chip. Asked to centre a UUID, SwiftUI resolved it to
+    /// the ROW — dots plus chip — and centred the midpoint of that group,
+    /// which after a run of deletions is somewhere among the dots, with the
+    /// chip pushed off to the right. Reproduced in isolation, and the only
+    /// one of five candidate causes that did. A distinct type cannot collide.
+    enum StripItem: Hashable {
+        case chip(UUID)
+        case dot(UUID)
+    }
     @State var removedArmed: UUID?
     /// The seam the "Add a missing rally" sheet is open on.
     @State var insertSeam: InsertSeamPair?
@@ -2200,7 +2213,7 @@ struct PlayerTakeover: View {
                             // practice and, worse, invisible. The dot is the
                             // trace.
                             ForEach(removed[p.id] ?? [], id: \.self) { id in
-                                removedDot(id)
+                                removedDot(id).id(StripItem.dot(id))
                             }
                             if let offer = offers[p.id] {
                                 insertDot(offer)
@@ -2219,7 +2232,7 @@ struct PlayerTakeover: View {
                                         .transition(.opacity)
                                 }
                             }
-                            .id(p.id)
+                            .id(StripItem.chip(p.id))
                             if let ends = full.boundaryAfter[p.id] {
                                 gameDivider(p, ends)
                             } else if markers[p.id] != nil {
@@ -2228,7 +2241,7 @@ struct PlayerTakeover: View {
                         }
                     }
                     ForEach(removed[nil] ?? [], id: \.self) { id in
-                        removedDot(id)
+                        removedDot(id).id(StripItem.dot(id))
                     }
                     if let tail {
                         insertDot(tail)
@@ -2279,7 +2292,7 @@ struct PlayerTakeover: View {
     func centreStrip(on id: UUID?) {
         guard let id else { return }
         stripScrollId = nil
-        DispatchQueue.main.async { stripScrollId = id }
+        DispatchQueue.main.async { stripScrollId = .chip(id) }
     }
 
     /// Deleted points, keyed by the visible chip they sat BEFORE (nil for
@@ -3781,12 +3794,16 @@ struct PlayerTakeover: View {
     }
 
     func showFlash(_ message: String, seconds: Double = 1.2) {
-        withAnimation { flash = message }
+        // No fade either way. The pass is a rhythm of taps, and a 0.35 s
+        // cross-fade on every Delete, Skip and answer read as the pad
+        // hesitating — Adil, 2026-09-06. It appears, it goes.
+        var t = Transaction(); t.disablesAnimations = true
+        withTransaction(t) { flash = message }
         Task {
             try? await Task.sleep(nanoseconds: UInt64(max(0.2, seconds) * 1_000_000_000))
             // A newer flash owns the slot by now; clearing it here would cut
             // the message the user is actually reading in half.
-            if flash == message { withAnimation { flash = nil } }
+            if flash == message { withTransaction(t) { flash = nil } }
         }
     }
 
