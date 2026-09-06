@@ -236,6 +236,11 @@ def selected_candidates(raw,candidate_by_id):
   candidate_id=chapter.get('candidate_id')
   if not isinstance(candidate_id,str) or candidate_id not in candidate_by_id:raise ValueError(f'Chapter {index} names an unknown candidate ID.')
   if candidate_id in seen:raise ValueError(f'Chapter {index} repeats candidate ID {candidate_id}.')
+  title=chapter.get('title')
+  if not isinstance(title,str) or not title.strip() or len(title)>80:raise ValueError(f'Chapter {index} needs a nonempty title of at most 80 characters.')
+  cues=chapter.get('cues')
+  if not isinstance(cues,list) or not 1<=len(cues)<=3:raise ValueError(f'Chapter {index} needs one to three reminders.')
+  if any(not isinstance(cue,str) or not cue.strip() or len(cue)>220 for cue in cues):raise ValueError(f'Chapter {index} has an empty or overlong reminder.')
   seen.add(candidate_id)
   candidate=candidate_by_id[candidate_id]
   total+=candidate['end_s']-candidate['start_s']
@@ -281,7 +286,7 @@ def create_edit(rt,row,source,directory,transcript,duration):
  rt.stage(row,'Arranging the lesson recap')
  validation_error=None
  for merge_attempt in range(MAX_MERGE_ATTEMPTS):
-  repair=[] if validation_error is None else [{'type':'text','text':json.dumps({'selection_validation_error':validation_error,'selection_requirements':{'maximum_chapters':MAX_CHAPTERS,'maximum_total_worker_owned_seconds':MAX_RECAP_SECONDS,'allowed_chapter_fields':['candidate_id','title','cues'],'candidate_id_rule':'Each supplied candidate_id may be selected at most once. Do not provide times, durations, or range fields.'}},ensure_ascii=False)}]
+  repair=[] if validation_error is None else [{'type':'text','text':json.dumps({'selection_validation_error':validation_error,'selection_requirements':{'maximum_chapters':MAX_CHAPTERS,'maximum_total_worker_owned_seconds':MAX_RECAP_SECONDS,'allowed_chapter_fields':['candidate_id','title','cues'],'title_rule':'title must be a nonempty string of at most 80 characters','cue_rule':'cues must be an array of one to three nonempty strings, each at most 220 characters','candidate_id_rule':'Each supplied candidate_id may be selected at most once. Do not provide times, durations, or range fields.'}},ensure_ascii=False)}]
   prompt=MERGE_PROMPT if validation_error is None else MERGE_PROMPT+'\nYour previous selection was invalid: '+validation_error+' Return a coherent corrected selection using only supplied candidate IDs, with at most 16 chapters and 900 worker-owned seconds. Do not omit the complete outline from themes.'
   raw=rt.model(prompt,content+repair)
   try:

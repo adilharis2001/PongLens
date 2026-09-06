@@ -92,4 +92,24 @@ class LessonVideoTests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit),self.assertRaisesRegex(ValueError,'Retry to continue'):
    create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
   self.assertEqual(runtime.merge_calls,2)
+ def test_merge_repairs_and_bounds_malformed_chapter_schema(self):
+  malformed={'title':'Lesson','chapters':[{'candidate_id':'candidate-1'}], 'themes':[]}
+  result,runtime=merge_edit([malformed,selected(['candidate-1'])])
+  self.assertEqual(result['chapters'][0]['title'],'Topic');self.assertEqual(runtime.merge_calls,2)
+  self.assertIn('title',runtime.merge_prompts[1])
+  for bad_chapter in [
+   {'candidate_id':'candidate-1'},
+   {'candidate_id':'candidate-1','title':123,'cues':['Recover after each shot.']},
+   {'candidate_id':'candidate-1','title':'','cues':['Recover after each shot.']},
+   {'candidate_id':'candidate-1','title':'T'*81,'cues':['Recover after each shot.']},
+   {'candidate_id':'candidate-1','title':'Topic','cues':'Recover after each shot.'},
+   {'candidate_id':'candidate-1','title':'Topic','cues':[]},
+   {'candidate_id':'candidate-1','title':'Topic','cues':[123]},
+   {'candidate_id':'candidate-1','title':'Topic','cues':['One','Two','Three','Four']},
+   {'candidate_id':'candidate-1','title':'Topic','cues':['x'*221]},
+  ]:
+   runtime=EditRuntime([{'title':'Lesson','chapters':[bad_chapter],'themes':[]}] * 2)
+   with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit),self.assertRaisesRegex(ValueError,'Retry to continue'):
+    create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
+   self.assertEqual(runtime.merge_calls,2)
 if __name__=='__main__': unittest.main()
