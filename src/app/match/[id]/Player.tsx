@@ -12,7 +12,6 @@ import {
 } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point, ServeStartMeta, Tag } from "@/lib/types";
-import { TIGHT_PAD, effectivePad } from "./clipEdit";
 import { ModifyClip } from "./ModifyClip";
 import { runJoinPlan, runSplitPlan } from "./modifyOps";
 import {
@@ -47,10 +46,13 @@ import {
   pauseEnd,
   playingPointId,
   rallyEnd,
-  tapeMove,
   type ClipPad,
   type EndOptions,
 } from "./playhead";
+import {
+  highlightPointIdAt,
+  type HighlightAsset,
+} from "./highlights";
 import { fusedSplitCut } from "./fusedPoint";
 import { ScoreBug } from "./ScoreBug";
 import { GesturesButton } from "./GesturesSheet";
@@ -325,7 +327,6 @@ const SCORED_NOTE_WINDOW_MS = 15_000;
 /** The split at_t must sit at least this far inside the point on both edges
  *  (matches split_point's window; the Modify machinery in modifyOps.ts
  *  clamps with the same constant). */
-const SPLIT_EDGE_S = 0.3;
 
 /**
  * The one-tap door to "why did I lose that".
@@ -538,7 +539,7 @@ export interface PlayerHandle {
    * Footage between them is jumped, the working chrome stands down, and
    * the Download pill in the corner runs `onDownload`.
    */
-  openHighlights: (pointIds: string[], onDownload: () => void) => void;
+  openHighlights: (asset: HighlightAsset, onDownload: () => void) => void;
 }
 
 /**
@@ -1624,62 +1625,16 @@ export const Player = forwardRef<
   const letSpansRef = useRef(letSpans);
   letSpansRef.current = letSpans;
 
-  /**
-   * Highlights mode (2026-08-25): when set, watch playback shows ONLY
-   * these points — everything between them is dead footage, the same
-   * shape as letSpans but without the crossing courtesy: the tape only
-   * ever shows its rallies, so even a deliberate landing outside snaps
-   * forward. Cleared when the takeover closes.
-   */
-  const [highlightIds, setHighlightIds] = useState<Set<string> | null>(null);
+  /** Automatic highlights use a separate, continuous worker-rendered asset.
+   * The ref changes synchronously in the entry tap so media callbacks never
+   * mistake its output clock for the match cut clock. */
+  const [highlightAsset, setHighlightAsset] = useState<HighlightAsset | null>(
+    null
+  );
+  const highlightAssetRef = useRef<HighlightAsset | null>(null);
+  highlightAssetRef.current = highlightAsset;
+  const highlightRestoreTRef = useRef(0);
   const highlightDownloadRef = useRef<(() => void) | null>(null);
-  const highlightSpans = useMemo(() => {
-    if (!highlightIds) return null;
-    const out: { start: number; end: number }[] = [];
-    for (const p of points) {
-      if (!highlightIds.has(p.id) || p.cut_t0 === null) continue;
-      const end = effectiveEnd(p, pad, ends);
-      if (end === null) continue;
-      out.push({ start: Number(p.cut_t0), end });
-    }
-    return out.sort((a, b) => a.start - b.start);
-  }, [highlightIds, points, pad, ends]);
-  const highlightSpansRef = useRef(highlightSpans);
-  highlightSpansRef.current = highlightSpans;
-
-  // Frame-accurate tape jumps. Polling at timeupdate cadence (~4Hz) let a
-  // beat of the next unpicked serve show before every jump; while the
-  // tape is up this checks every DISPLAYED frame instead, so the jump
-  // lands on the frame a pick ends. onTime keeps the same logic as the
-  // safety net (no rVFC support, resumed playback).
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!highlightIds || !v) return;
-    const rvfc = v as HTMLVideoElement & {
-      requestVideoFrameCallback?: (cb: () => void) => number;
-      cancelVideoFrameCallback?: (h: number) => void;
-    };
-    if (!rvfc.requestVideoFrameCallback) return;
-    let handle = 0;
-    const step = () => {
-      const tape = highlightSpansRef.current;
-      if (tape && !scrubbing.current && !v.paused) {
-        const move = tapeMove(tape, v.currentTime);
-        if (move.kind === "jump") {
-          v.currentTime = move.to;
-          setPlayheadT(move.to);
-          watchTickRef.current = move.to;
-        } else if (move.kind === "end") {
-          v.pause();
-          setControlsVisible(true);
-        }
-      }
-      handle = rvfc.requestVideoFrameCallback!(step);
-    };
-    handle = rvfc.requestVideoFrameCallback(step);
-    return () => rvfc.cancelVideoFrameCallback?.(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [highlightIds]);
 
   /**
    * Tap-trimmed dead zones (2026-08-25): for every rally the owner scored
@@ -1994,6 +1949,9 @@ export const Player = forwardRef<
       // Nudge iOS to paint the first frame as the poster.
       v.currentTime = 0.001;
     }
+    if (highlightAssetRef.current) {
+      void v.play().catch(() => undefined);
+    }
   }, []);
 
   const reviewPoint =
@@ -2003,6 +1961,13 @@ export const Player = forwardRef<
 
   const onTime = useCallback(
     (v: HTMLVideoElement) => {
+      // The highlight file is already one continuous timeline. Nothing in
+      // the match-cut playhead (detours, deleted spans, tap tails, score
+      // pauses) may seek inside it.
+      if (highlightAssetRef.current) {
+        setPlayheadT(v.currentTime);
+        return;
+      }
       // While a detour is up the DETOUR element owns the playhead; the
       // main element sits paused underneath and its stray ticks (a pause
       // always flushes one last timeupdate) must not clobber the virtual
@@ -2010,32 +1975,6 @@ export const Player = forwardRef<
       if (detourRef.current !== null) {
         lastTickRef.current = null;
         return;
-      }
-      // THE TAPE OWNS PLAYBACK while highlights are up (2026-08-25). One
-      // authority, one hop: outside a pick, straight to the next pick's
-      // start — never via the deleted-span or let skips below, whose
-      // partial jumps crossed a gap in two or three visible hops, each
-      // showing a beat of an unpicked serve. The rVFC loop does the
-      // frame-accurate work; this is the safety net for browsers
-      // without it.
-      const tape = highlightSpansRef.current;
-      if (tape) {
-        if (!scrubbing.current && !v.paused) {
-          const move = tapeMove(tape, v.currentTime);
-          if (move.kind === "jump") {
-            v.currentTime = move.to;
-            setPlayheadT(move.to);
-            watchTickRef.current = move.to;
-            return;
-          }
-          if (move.kind === "end") {
-            v.pause();
-            setControlsVisible(true);
-            return;
-          }
-        }
-        setPlayheadT(v.currentTime);
-        return; // nothing below applies while the tape is up
       }
       // An insert card's footage is not in this file: playing into its
       // span swaps the surface to its own clip (the detour). The WYSIWYG
@@ -2071,7 +2010,6 @@ export const Player = forwardRef<
       // (playing only, never mid-scrub, forward by construction).
       if (
         modeRef.current === "watch" &&
-        !highlightSpansRef.current &&
         !scrubbing.current &&
         !v.paused
       ) {
@@ -2476,8 +2414,16 @@ export const Player = forwardRef<
   // span (the overlap is why the detour exists at all).
   const detourPoint =
     detourId !== null ? (points.find((p) => p.id === detourId) ?? null) : null;
+  const highlightedPointId = highlightAsset
+    ? highlightPointIdAt(highlightAsset.manifest, playheadT)
+    : null;
+  const highlightedPoint = highlightedPointId
+    ? (points.find((p) => p.id === highlightedPointId) ?? null)
+    : null;
   const displayTarget =
-    phase === "review"
+    highlightAsset
+      ? highlightedPoint
+      : phase === "review"
       ? reviewPoint
       : (endPausedPoint ??
         detourPoint ??
@@ -2709,12 +2655,19 @@ export const Player = forwardRef<
     const onPop = () => {
       pauseBoth();
       exitDetour(); // closing hands the surface back to the cut
+      const video = videoRef.current;
+      if (highlightAssetRef.current && video && videoUrl) {
+        pendingSeek.current = highlightRestoreTRef.current;
+        video.src = videoUrl;
+        video.load();
+      }
       pinEndPause(null);
       endPauseFiredRef.current = null;
       zoomRef.current = { s: 1, x: 0, y: 0 };
       setZoomT({ s: 1, x: 0, y: 0 });
       setMode(null);
-      setHighlightIds(null);
+      highlightAssetRef.current = null;
+      setHighlightAsset(null);
       highlightDownloadRef.current = null;
       setServeSheet(false);
       setNamesSheet(false);
@@ -2725,7 +2678,7 @@ export const Player = forwardRef<
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [open, pinEndPause, pauseBoth, exitDetour]);
+  }, [open, pinEndPause, pauseBoth, exitDetour, videoUrl]);
 
   const exit = useCallback(() => {
     // The component never unmounts, so a zoom left on would still be there
@@ -2784,16 +2737,23 @@ export const Player = forwardRef<
   );
 
   const openHighlights = useCallback(
-    (pointIds: string[], onDownload: () => void) => {
-      const ids = new Set(pointIds);
-      setHighlightIds(ids);
+    (asset: HighlightAsset, onDownload: () => void) => {
+      const video = videoRef.current;
+      highlightRestoreTRef.current =
+        video && video.readyState >= 1 ? video.currentTime : playheadT;
+      highlightAssetRef.current = asset;
+      setHighlightAsset(asset);
       highlightDownloadRef.current = onDownload;
-      const first = points.find((p) => ids.has(p.id) && p.cut_t0 !== null);
-      if (first && first.cut_t0 !== null) seekTo(Number(first.cut_t0));
+      pendingSeek.current = 0;
+      setPlayheadT(0);
       openTakeover("watch");
-      playNow();
+      if (video) {
+        video.src = asset.url;
+        video.load();
+        void video.play().catch(() => undefined);
+      }
     },
-    [points, seekTo, openTakeover, playNow]
+    [openTakeover, playheadT]
   );
 
   const askBeforeOpening = canScore && scoringRelevant && unscored.length > 0;
@@ -2996,10 +2956,13 @@ export const Player = forwardRef<
 
   const tapChip = useCallback(
     (p: Point, n: number) => {
-      if (p.cut_t0 === null) return;
+      const highlightStart = highlightAssetRef.current?.manifest.points.find(
+        (point) => point.point_id === p.id,
+      )?.output_start_s;
+      if (highlightStart === undefined && p.cut_t0 === null) return;
       pinEndPause(null); // navigation releases the paused-at-end pin
       endPauseFiredRef.current = null; // destination's boundary re-arms
-      seekTo(Number(p.cut_t0)); // zoom persists across navigation
+      seekTo(highlightStart ?? Number(p.cut_t0)); // zoom persists across navigation
       playNow();
       showPill(p.id, n);
       showControls();
@@ -3044,6 +3007,31 @@ export const Player = forwardRef<
   const doubleTapSeek = useCallback(
     (forward: boolean) => {
       const ps = pointsRef.current;
+      const highlight = highlightAssetRef.current;
+      if (highlight) {
+        const timeline = highlight.manifest.points;
+        if (timeline.length === 0) return;
+        const v = videoRef.current;
+        const t = v && v.readyState >= 1 ? v.currentTime : playheadT;
+        const currentId = highlightPointIdAt(highlight.manifest, t);
+        const currentIndex = currentId
+          ? timeline.findIndex((point) => point.point_id === currentId)
+          : -1;
+        const target = forward
+          ? (timeline[currentIndex + 1] ?? null)
+          : currentIndex > 0
+            ? timeline[currentIndex - 1]
+            : timeline[0];
+        if (!target) return;
+        seekTo(target.output_start_s);
+        playNow();
+        showFlash(
+          `${forward ? "Next" : "Back"} · point ${
+            (indexById.get(target.point_id) ?? 0) + 1
+          }`,
+        );
+        return;
+      }
       const cutPoints = ps.filter((p) => p.cut_t0 !== null);
       if (cutPoints.length === 0) return;
       const t = nowT(playheadT);
@@ -3461,6 +3449,13 @@ export const Player = forwardRef<
    */
   const currentPoint = useCallback((): Point | null => {
     const ps = pointsRef.current;
+    const highlight = highlightAssetRef.current;
+    if (highlight) {
+      const v = videoRef.current;
+      const t = v && v.readyState >= 1 ? v.currentTime : playheadT;
+      const id = highlightPointIdAt(highlight.manifest, t);
+      return id ? (ps.find((p) => p.id === id) ?? null) : null;
+    }
     if (endPausedRef.current) {
       const pinned = ps.find((p) => p.id === endPausedRef.current);
       if (pinned) return pinned;
@@ -3485,9 +3480,13 @@ export const Player = forwardRef<
    */
   const replayRally = useCallback(() => {
     const p = currentPoint();
-    if (!p || p.cut_t0 === null) return;
+    if (!p) return;
+    const highlightStart = highlightAssetRef.current?.manifest.points.find(
+      (point) => point.point_id === p.id,
+    )?.output_start_s;
+    if (highlightStart === undefined && p.cut_t0 === null) return;
     endPauseFiredRef.current = null; // re-arm: stop at this end again
-    seekTo(Number(p.cut_t0)); // zoom persists across the replay
+    seekTo(highlightStart ?? Number(p.cut_t0)); // zoom persists across the replay
     playNow();
   }, [currentPoint, seekTo, playNow]);
   // Read through a ref: replayRally is declared after the pointer handlers
@@ -5287,10 +5286,10 @@ export const Player = forwardRef<
     >
       {/* --------------------------------------------------- video area */}
       <div className={videoAreaClass}>
-        {videoUrl ? (
+        {highlightAsset?.url || videoUrl ? (
           <video
             ref={videoRef}
-            src={videoUrl}
+            src={highlightAsset ? highlightAsset.url : videoUrl ?? undefined}
             playsInline
             preload="metadata"
             // Readable pixels for frame annotation. If the bucket's CORS
@@ -5878,7 +5877,7 @@ export const Player = forwardRef<
             >
               {/* Left: the gestures sheet — or, on the highlights tape,
                   the Download pill, which is that tape's one action. */}
-              {highlightIds ? (
+              {highlightAsset ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -5905,7 +5904,7 @@ export const Player = forwardRef<
               {/* Tighter gaps on a phone: the row now ends with the close ✕,
                   and at 390px the Keep score pill wrapped to two lines. */}
               <div className="flex items-center gap-1.5 sm:gap-2">
-              {mode === "watch" && !highlightIds && (
+              {mode === "watch" && !highlightAsset && (
                 <>
                   <button
                     type="button"

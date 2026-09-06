@@ -10,6 +10,10 @@ const worker = readFileSync(
   new URL("../../../../worker/worker.py", import.meta.url),
   "utf8",
 );
+const reelRoute = readFileSync(
+  new URL("../reel/route.ts", import.meta.url),
+  "utf8",
+);
 
 test("highlight route is authenticated, owner-only, and switch guarded", () => {
   assert.match(route, /supabase\.auth\.getUser\(\)/);
@@ -35,4 +39,11 @@ test("the reel worker rebuilds automatic membership and uses its renderer", () =
   assert.match(worker, /scope == "highlights"/);
   assert.match(worker, /build_manifest\(stored_points\)/);
   assert.match(worker, /render_auto_highlights\(/);
+});
+
+test("legacy vertical derivatives use only the canonical qualified pool", () => {
+  assert.match(reelRoute, /eq\("scope", "highlights"\)/);
+  assert.match(reelRoute, /canonicalHighlightPoints\(automatic\?\.manifest\)/);
+  assert.doesNotMatch(reelRoute, /pickHighlights/);
+  assert.doesNotMatch(reelRoute, /MIN_HITS|MIN_CROSSINGS|MIN_TABLE_BOUNCES/);
 });

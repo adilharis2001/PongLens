@@ -3080,11 +3080,8 @@ export function MatchView({
             {hasCutOffsets && (
               <HighlightsRow
                 matchId={match.id}
-                points={visiblePoints}
-                pad={pad}
-                ends={ends}
-                onPlay={(ids, onDownload) =>
-                  playerRef.current?.openHighlights(ids, onDownload)
+                onPlay={(asset, onDownload) =>
+                  playerRef.current?.openHighlights(asset, onDownload)
                 }
               />
             )}
