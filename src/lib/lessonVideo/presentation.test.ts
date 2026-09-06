@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFile} from 'node:fs/promises';
 
-import {lessonChapterStart, lessonReaderSections} from './presentation.ts';
+import {lessonChapterIndexAt, lessonChapterStart, lessonReaderSections} from './presentation.ts';
 import type {LessonEdit} from './model.ts';
 
 const edit:LessonEdit={
@@ -29,6 +29,14 @@ test('chapter start uses recap timestamps and accumulated clip duration as fallb
  assert.equal(lessonChapterStart(edit.chapters,1),30);
  assert.equal(lessonChapterStart(edit.chapters,2),90);
  assert.equal(lessonChapterStart(edit.chapters,12),null);
+});
+
+test('playback synchronization uses the same fallback chapter timeline',()=>{
+ const chapters=edit.chapters.slice(0,3).map(({summary_start_s:_,...chapter})=>chapter);
+ assert.equal(lessonChapterIndexAt(chapters,29),0);
+ assert.equal(lessonChapterIndexAt(chapters,30),1);
+ assert.equal(lessonChapterIndexAt(chapters,59),1);
+ assert.equal(lessonChapterIndexAt(chapters,60),2);
 });
 
 test('lesson detail offers the complete read-only recap and returns students to the journal',async()=>{

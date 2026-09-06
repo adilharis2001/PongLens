@@ -14,6 +14,10 @@ final class LearnCatalogTests: XCTestCase {
         XCTAssertEqual(LessonVideoChapterSelection.start(at: 1, chapters: chapters, original: false), 30)
         XCTAssertEqual(LessonVideoChapterSelection.start(at: 2, chapters: chapters, original: true), 150)
         XCTAssertNil(LessonVideoChapterSelection.start(at: 3, chapters: chapters, original: false))
+        XCTAssertEqual(LessonVideoChapterSelection.index(at: 29, chapters: chapters, original: false), 0)
+        XCTAssertEqual(LessonVideoChapterSelection.index(at: 30, chapters: chapters, original: false), 1)
+        XCTAssertEqual(LessonVideoChapterSelection.index(at: 51, chapters: chapters, original: false), 1)
+        XCTAssertEqual(LessonVideoChapterSelection.index(at: 52, chapters: chapters, original: false), 2)
     }
 
     func testLessonVideoDetailOffersReadOnlyCompleteNotes() throws {

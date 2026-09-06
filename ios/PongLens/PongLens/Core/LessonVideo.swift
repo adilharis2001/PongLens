@@ -172,9 +172,8 @@ enum LessonVideoChapterSelection {
 
     static func index(at seconds: Double, chapters: [LessonVideoEdit.Chapter], original: Bool) -> Int? {
         guard seconds.isFinite, !chapters.isEmpty else { return nil }
-        return chapters.lastIndex(where: { chapter in
-            let start = original ? chapter.start_s : chapter.summary_start_s
-            return start.map { $0 <= seconds } ?? false
+        return chapters.indices.last(where: { index in
+            start(at: index, chapters: chapters, original: original).map { $0 <= seconds } ?? false
         }) ?? 0
     }
 }

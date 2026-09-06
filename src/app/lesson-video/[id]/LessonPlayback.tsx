@@ -3,7 +3,7 @@
 import {useEffect, useRef, useState} from 'react';
 import {ClipPlayer} from '@/app/match/[id]/ClipPlayer';
 import type {LessonEdit} from '@/lib/lessonVideo/model';
-import {lessonChapterStart} from '@/lib/lessonVideo/presentation';
+import {lessonChapterIndexAt, lessonChapterStart} from '@/lib/lessonVideo/presentation';
 
 interface Props {
  src:string;
@@ -22,7 +22,7 @@ export function LessonPlayback({src,poster,edit,initialTime,onClose,onRetry}:Pro
  const transport=useRef<{play:()=>void;pause:()=>void}|null>(null);
  const pages=useRef<HTMLDivElement>(null);
  const pending=useRef<{time:number;playing:boolean}|null>({time:initialTime,playing:true});
- const chapterAt=(time:number)=>{let index=0;edit.chapters.forEach((c,i)=>{if(time>=(c.summary_start_s??0))index=i;});return index;};
+ const chapterAt=(time:number)=>lessonChapterIndexAt(edit.chapters,time);
  const [chapter,setChapter]=useState(()=>chapterAt(initialTime));
  const chapterRef=useRef(chapter);
  const scrolling=useRef(false);
