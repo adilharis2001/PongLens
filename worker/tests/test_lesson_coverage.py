@@ -28,3 +28,8 @@ class CoverageTests(unittest.TestCase):
   self.assertIn('Third distinct correction',str(calls[2]))
   self.assertEqual(result['chapters'][0]['start_s'],200)
   self.assertEqual(result['themes'][0]['points'],['Third distinct correction'])
+
+ def test_complete_outline_survives_old_truncation_limits(self):
+  themes=[{'name':f'Topic {i}','points':['A'*500 for _ in range(17)]} for i in range(17)]
+  result=normalize_edit({'title':'Lesson','chapters':[chapter(0)],'themes':themes},5400)
+  self.assertEqual(result['themes'],themes)

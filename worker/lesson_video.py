@@ -47,8 +47,11 @@ def normalize_edit(raw,duration):
   cursor+=end-start
  if not chapters:raise ValueError('No clear coaching was found. Your original is kept; try again or add a written lesson note.')
  themes=[]
- for t in raw.get('themes',[])[:16]:
-  points=[str(p)[:400] for p in t.get('points',[]) if str(p).strip()][:16]
+ if len(raw.get('themes',[]))>64:raise ValueError('The lesson outline has too many themes; regroup it without dropping teaching.')
+ for t in raw.get('themes',[]):
+  if len(t.get('points',[]))>64:raise ValueError('A lesson theme has too many points; regroup it without dropping teaching.')
+  points=[str(p).strip() for p in t.get('points',[]) if str(p).strip()]
+  if any(len(p)>2000 for p in points):raise ValueError('An outline point needs shorter wording without losing its conditions.')
   if points:themes.append({'name':str(t.get('name','Lesson'))[:80],'points':points})
  out={'title':title,'chapters':chapters,'themes':themes}
  if raw.get('warning'):out['warning']=str(raw['warning'])[:600]

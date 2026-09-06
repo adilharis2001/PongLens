@@ -23,7 +23,18 @@ export function validateEdit(input:unknown,duration:number):LessonEdit|null {
   total+=end-start;if(total>900.1)return null;
   chapters.push({title:name,cues,start_s:start,end_s:end});
  }
- const themes=Array.isArray(e.themes)?e.themes.slice(0,16).map(t=>({name:clean(t?.name,80),points:Array.isArray(t?.points)?t.points.map((p:unknown)=>clean(p,400)).filter(Boolean).slice(0,16):[]})).filter(t=>t.name&&t.points.length):[];
+ const themes:{name:string;points:string[]}[]=[];
+ if(Array.isArray(e.themes)){
+  if(e.themes.length>64)return null;
+  for(const t of e.themes){
+   const name=clean(t?.name,80);
+   if(!Array.isArray(t?.points))continue;
+   if(t.points.length>64)return null;
+   const points=t.points.filter((p:unknown):p is string=>typeof p==='string').map((p:string)=>p.trim()).filter(Boolean);
+   if(points.some((p:string)=>p.length>2000))return null;
+   if(name&&points.length)themes.push({name,points});
+  }
+ }
  return {title,chapters,themes,...(clean(e.warning,600)?{warning:clean(e.warning,600)}:{})};
 }
 export function canReadVideo(viewer:string,owner:string,status:string,shared:boolean):boolean {return viewer===owner||(status==='ready'&&shared);}

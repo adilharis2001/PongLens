@@ -28,3 +28,8 @@ test('expanded lesson preserves twelve chapters and accepts up to fifteen minute
  assert.equal(validateEdit({title:'Lesson',chapters:Array.from({length:17},(_,i)=>({...chapters[0],start_s:i*20,end_s:i*20+10}))},5400),null);
  assert.equal(validateEdit({title:'Lesson',chapters:chapters.slice(0,10).map(c=>({...c,end_s:c.start_s+100}))},5400),null);
 });
+test('complete teaching outline survives beyond old theme and point limits',()=>{
+ const themes=Array.from({length:17},(_,i)=>({name:`Topic ${i}`,points:Array.from({length:17},()=> 'A'.repeat(500))}));
+ const result=validateEdit({title:'Lesson',chapters:[{title:'Topic',cues:['Adjust.'],start_s:0,end_s:30}],themes},5400);
+ assert.deepEqual(result?.themes,themes);
+});

@@ -9,8 +9,10 @@ Implemented on codex/lesson-video-coverage:
 - Reject excessive chapter counts instead of silently truncating them.
 - Match API validation to worker limits; native decoding and playback timestamps already support the expanded format.
 
-Verification: real npm run build passed with existing lint warnings after installing this worktree's locked dependencies. Web model tests passed. Worker lesson suite: 29 tests, 28 passed and one optional FFmpeg test skipped. Native Swift lesson tests passed, including twelve-chapter decoding. This does not claim simulator UI verification or end-to-end evaluation of the new automatic prompt on multiple recordings.
+Verification: real npm run build passed with existing lint warnings after installing this worktree's locked dependencies. Five web model tests passed. Worker lesson suite: 30 tests, 29 passed and one optional FFmpeg test skipped. Native Swift lesson tests passed, including twelve-chapter decoding. This does not claim simulator UI verification or end-to-end evaluation of the new automatic prompt on multiple recordings.
 
 Release status: prepared, NOT activated or deployed. Preserve the user's instruction to wait for Mac Studio/Modal coordination. Build one immutable release for both execution locations and run parity fixtures before promoting the worker or the matching web editor limits. Do not enable Modal as the default. The manually reviewed 12-chapter Jonathan recap is a separate data replacement and does not activate the pipeline.
 
 Known current limitation until coordinated deployment: the existing production editor still enforces the old ten-chapter/seven-minute bounds. Viewing and sharing the manually produced recap do not use that validator. Do not represent the prepared code as globally live.
+
+Review follow-up: fuller outlines preserve themes, points and sentences past the old truncation limits. Outlines exceeding 64 themes, 64 points per theme or 2,000 characters per point now fail explicitly instead of silently losing teaching. Regression fixtures cover 17 themes, 17 points and 500-character points. Independent code review found no remaining important issues.
