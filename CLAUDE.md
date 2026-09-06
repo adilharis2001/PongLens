@@ -775,3 +775,13 @@ calls this" is never what keeps a row private — the RLS policy is.
 - **State what was verified and what was not.** "Typecheck passed" is the
   sentence most likely to be used to skip a real check, so it is the one
   that must not be wrong.
+- **Production is whatever `main` is. Never `vercel --prod` from a branch
+  or a local checkout.** Vercel's production branch is `main`, and a CLI
+  production deploy from anywhere else takes over www.ponglens.com with a
+  build that lacks everything merged to main since that branch forked —
+  silently, with no error, and it stays that way until the next push to
+  main. On 2026-09-06 one such deploy landed 32 seconds after a main
+  deploy and removed the processing page and Build 141's web changes from
+  production; nothing noticed except the owner. Merge to main and let the
+  push deploy. To undo a bad deploy, promote a previous main build in
+  Vercel rather than deploying from a branch.
