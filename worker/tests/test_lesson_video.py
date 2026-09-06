@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from unittest.mock import patch
-from worker.lesson_video import create_edit, normalize_edit, chunk_ranges, release_id
+from worker.lesson_video import create_edit, normalize_edit, chunk_ranges, release_id, student_warning
 
 
 class EditRuntime:
@@ -64,6 +64,20 @@ class LessonVideoTests(unittest.TestCase):
  def test_limit_no_artificial_padding(self):
   e=normalize_edit({'title':'Lesson','chapters':[{'title':'A','cues':['B'],'start_s':0,'end_s':20}]},5400)
   self.assertEqual(e['chapters'][0]['summary_end_s'],20)
+ def test_warning_is_student_facing_deduplicated_and_sentence_safe(self):
+  chapters=[
+   {'title':'A','cues':['B'],'start_s':0,'end_s':100},
+   {'title':'B','cues':['C'],'start_s':200,'end_s':300},
+  ]
+  warning='Candidate candidate-4 exceeded the 900-second planning budget. The coach\'s wording about the receive was unclear. The coach\'s wording about the receive was unclear.'
+  edit=normalize_edit({'title':'Lesson','chapters':chapters,'warning':warning},1000)
+  self.assertEqual(edit['warning'],"The coach's wording about the receive was unclear.")
+  combined=student_warning('The coach\'s wording about the receive was unclear.','The coach\'s wording about the receive was unclear. Another instruction was unclear.')
+  self.assertEqual(combined,"The coach's wording about the receive was unclear. Another instruction was unclear.")
+  first='First supported uncertainty '+('x '*250)+'.'
+  second='Second supported uncertainty '+('y '*250)+'.'
+  capped=normalize_edit({'title':'Lesson','chapters':chapters,'warning':first+' '+second},1000)['warning']
+  self.assertLessEqual(len(capped),600);self.assertTrue(capped.endswith('.'));self.assertIn('First supported uncertainty',capped);self.assertNotIn('Second supported uncertainty',capped)
  def test_release_is_content_addressed(self):
   self.assertRegex(release_id(),r'^lesson-video-[0-9a-f]{16}$')
  def test_merge_candidate_id_maps_to_worker_owned_range_without_timestamps(self):
