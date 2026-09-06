@@ -7,6 +7,10 @@ class LessonHDRTests(unittest.TestCase):
    self.assertIn('transfer=linear',f);self.assertLess(f.index('transfer=linear'),f.index('tonemap='))
    self.assertIn('format=gbrpf32le',f);self.assertIn('transfer=bt709',f);self.assertIn('matrix=bt709',f);self.assertIn('format=yuv420p',f)
    self.assertIn('tonemap=tonemap=hable',f)
+   self.assertIn('npl=203' if transfer=='arib-std-b67' else 'npl=100',f)
+   self.assertIn('desat=0',f)
+   if transfer=='arib-std-b67':self.assertNotIn('npl=100',f)
+   self.assertNotIn('desat=1',f)
    self.assertNotIn('peak=10',f)
  def test_sdr_does_not_get_tone_mapped(self):
   for transfer in ['bt709',None]:

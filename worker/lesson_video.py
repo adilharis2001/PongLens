@@ -96,9 +96,13 @@ def lesson_color_filter(info):
  set separately on both encoders; the panel is converted from sRGB itself.
  """
  stream=next((s for s in info.get('streams',[]) if s.get('codec_type')=='video'),{})
- if stream.get('color_transfer') not in ('arib-std-b67','smpte2084'):return ''
- return ('zscale=transfer=linear:npl=100,format=gbrpf32le,'
-         'zscale=primaries=bt709,tonemap=tonemap=hable:desat=1,'
+ transfer=stream.get('color_transfer')
+ if transfer not in ('arib-std-b67','smpte2084'):return ''
+ # HLG's reference white is 203 cd/m². Treating it as 100 clips the diffuse
+ # whites in iPhone footage; forced highlight desaturation then washes color out.
+ nominal_peak=203 if transfer=='arib-std-b67' else 100
+ return (f'zscale=transfer=linear:npl={nominal_peak},format=gbrpf32le,'
+         'zscale=primaries=bt709,tonemap=tonemap=hable:desat=0,'
          'zscale=transfer=bt709:matrix=bt709:range=limited,format=yuv420p,')
 
 SDR_OUTPUT=['-pix_fmt','yuv420p','-color_primaries','bt709','-color_trc','bt709','-colorspace','bt709','-color_range','tv']
