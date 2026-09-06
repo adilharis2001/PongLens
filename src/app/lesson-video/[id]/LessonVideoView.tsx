@@ -16,7 +16,7 @@ export function LessonVideoView({id}:{id:string}) {
  const [error,setError]=useState('');
  const [busy,setBusy]=useState(false);
  const [editing,setEditing]=useState<LessonEdit|null>(null);
- const [chapter,setChapter]=useState(0);
+ const [,setChapter]=useState(0);
  const [confirmDelete,setConfirmDelete]=useState(false);
  const [watching,setWatching]=useState(false);
  const [reading,setReading]=useState(false);

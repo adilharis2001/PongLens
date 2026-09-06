@@ -332,15 +332,15 @@ final class LearnCatalogTests: XCTestCase {
     }
 
     @MainActor
-    func testCoachEntryChooserOffersWritingAndAudioOnly() {
+    func testCoachEntryChooserOffersWritingAudioAndVideo() {
         let choices = CoachNewEntryChoice.available
         let visibleCopy = choices
             .flatMap { [$0.title, $0.detail] }
             .joined(separator: " ")
             .lowercased()
 
-        XCTAssertEqual(choices.map(\.kind), [.write, .audio])
-        XCTAssertFalse(visibleCopy.contains("video"))
+        XCTAssertEqual(choices.map(\.kind), [.write, .audio, .video])
+        XCTAssertTrue(visibleCopy.contains("video"))
         XCTAssertFalse(visibleCopy.contains("coming soon"))
     }
 
