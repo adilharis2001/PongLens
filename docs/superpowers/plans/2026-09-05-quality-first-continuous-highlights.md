@@ -37,7 +37,7 @@
 - Produces: private `app_config.key = 'automatic_highlights'`, initially `off`.
 - Produces: `points_invalidate_highlight_evidence()` trigger function.
 
-- [ ] **Step 1: Add a failing migration contract test**
+- [x] **Step 1: Add a failing migration contract test**
 
 Add assertions that migration 172 contains the new column, widens both reel checks, inserts a non-public switch, and installs a trigger for membership-changing point edits:
 
@@ -53,13 +53,13 @@ expect(sql).toContain("automatic_highlights");
 expect(sql).toContain("points_invalidate_highlight_evidence");
 ```
 
-- [ ] **Step 2: Run the focused test and observe the missing-file failure**
+- [x] **Step 2: Run the focused test and observe the missing-file failure**
 
-Run: `npm test -- src/lib/research/migration.test.ts`
+Run: `node --test --experimental-strip-types src/lib/research/migration.test.ts`
 
 Expected: failure because migration 172 does not exist.
 
-- [ ] **Step 3: Add migration 172**
+- [x] **Step 3: Add migration 172**
 
 The migration must:
 
@@ -80,13 +80,13 @@ sets `new.highlight_evidence = null` when `t0`, `t1`, `cut_t0`, `clip_path`,
 `deleted`, or `edited` changes. A split child receives the column default and
 therefore starts with null evidence.
 
-- [ ] **Step 4: Run migration tests**
+- [x] **Step 4: Run migration tests**
 
-Run: `npm test -- src/lib/research/migration.test.ts`
+Run: `node --test --experimental-strip-types src/lib/research/migration.test.ts`
 
 Expected: all migration contract tests pass.
 
-- [ ] **Step 5: Commit the schema unit**
+- [x] **Step 5: Commit the schema unit**
 
 ```bash
 git add supabase/migrations/172_quality_first_highlights.sql src/lib/research/migration.test.ts
@@ -316,7 +316,7 @@ unavailable, and single-job deduplication.
 
 - [ ] **Step 2: Run route tests and observe missing route failure**
 
-Run: `npm test -- src/app/api/highlights/highlightsRoute.test.ts`
+Run: `node --test --experimental-strip-types src/app/api/highlights/highlightsRoute.test.ts`
 
 Expected: failure because the route does not exist.
 
@@ -336,7 +336,7 @@ automatic files. Keep current share/export scopes unchanged.
 
 - [ ] **Step 5: Run API and media tests**
 
-Run: `npm test -- src/app/api/highlights/highlightsRoute.test.ts src/app/api/reel/reelRoute.test.ts src/app/api/media-url/mediaUrlRoute.test.ts`
+Run: `node --test --experimental-strip-types src/app/api/highlights/highlightsRoute.test.ts`
 
 Expected: all listed tests pass.
 
@@ -371,7 +371,7 @@ that highlight mode selects one video URL and contains no assignment of
 
 - [ ] **Step 2: Run the affected web tests and observe failures**
 
-Run: `npm test -- 'src/app/match/[id]/highlights.test.ts' 'src/app/match/[id]/playerStructure.test.ts'`
+Run: `node --test --experimental-strip-types 'src/app/match/[id]/highlights.test.ts' 'src/app/match/[id]/playerStructure.test.ts'`
 
 Expected: failures against the client picker and boundary-seek implementation.
 
@@ -394,7 +394,7 @@ and next use output positions; natural transitions never assign
 
 - [ ] **Step 5: Run affected and match-structure tests**
 
-Run: `npm test -- 'src/app/match/[id]/highlights.test.ts' 'src/app/match/[id]/playerStructure.test.ts'`
+Run: `node --test --experimental-strip-types 'src/app/match/[id]/highlights.test.ts' 'src/app/match/[id]/playerStructure.test.ts'`
 
 Run: `npm run test:match-structure`
 
