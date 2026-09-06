@@ -90,6 +90,38 @@ with `LessonRecapPreview` and a button that presents the native recap;
 a recap notification opens the recap through the same door the journal
 uses.
 
+### iOS: the same screen
+
+Adil put build 139 on his phone beside the web page and the phone was
+the poorer of the two: title, poster, one line of text and two buttons,
+with everything else behind a "More" menu. `LessonVideoDetailScreen` now
+shows the same pieces in the same order the web page uses on a phone:
+the recap with "12 chapters" and "9 min recap" under it; an actions card
+(share or save, retry, who it is shared with, read the notes); a
+**Chapters** card listing every chapter with its number and length; and
+a **Manage** card in place of the More menu (edit recap, watch the
+original recording, export the video with text, export the original,
+delete). Tapping a chapter opens the player at that chapter, which the
+takeover takes as `initialChapter`. A video still processing gets the
+same "Waiting for the upload" card the web shows.
+
+Chapter lengths and recap minutes come from `LessonVideoEdit.recapMinutes`
+and `LessonVideoLength.label`, twins of the web helpers, checked in
+`ios/Tests/LessonVideo`. The student's name in "Shared with …" is read
+from the coach workspace when it is in reach; a recap opened from a
+notification is presented from the app root, so the store is read as
+optional and the line falls back to "your student".
+
+Opening at a chapter needed two things. The player is presented from a
+`WatchRequest` item (recap or original, and the chapter to start at)
+rather than from a flag beside a chapter number: presented from the
+flag, the cover read the chapter as nil the first time it opened, and a
+tap on a row played from the start. That is the well-known SwiftUI
+sheet-from-a-flag trap, and the item form is the standard cure. Inside
+the player, the cue pager is created already on that chapter, a write of
+the page already showing is ignored rather than restarting the chapter,
+and the seek is held until the video reports it is ready.
+
 ### The rest
 
 - iOS mute button: drawn at 30pt, tap target still 44pt.

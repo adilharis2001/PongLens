@@ -200,7 +200,7 @@ struct LessonVideoScreen: View {
                 CoachGroup {
                     ForEach(Array(videos.enumerated()), id: \.element.id) { index, video in
                         NavigationLink {
-                            LessonVideoDetailScreen(id: video.id)
+                            LessonVideoDetailScreen(id: video.id, studentName: studentName(video))
                         } label: {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 5) {
@@ -223,6 +223,9 @@ struct LessonVideoScreen: View {
         }
     }
 
+    private func studentName(_ video: LessonVideo) -> String? {
+        video.student_id.flatMap { workspace.student($0)?.displayName }
+    }
     private func beginImport() {
         importOwner = app.userId
         importStudent = studentId
@@ -295,8 +298,23 @@ private struct LessonVideoPhotosPicker: UIViewControllerRepresentable {
     }
 }
 
+/// One lesson video: the recap to watch, its chapters, and what the coach
+/// can do with it. The same pieces as the web page, in the same order a
+/// phone shows them there: recap, actions, chapters, manage.
+///
+/// The chapters are listed on the screen itself, not only inside the
+/// player: a coach checking a recap wants to see what is in it before
+/// pressing play, and a student coming back for one point wants to land
+/// on that point. Tapping a chapter opens playback there.
+///
+/// "Manage" replaces the More menu: the same actions, as rows in a card,
+/// which is how every other coach screen offers its secondary actions.
 struct LessonVideoDetailScreen: View {
     let id: UUID
+    /// Who the lesson is for, when the opening screen knows. A recap opened
+    /// from a notification or a journal entry does not, and says "your
+    /// student" instead.
+    var studentName: String? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var detail: LessonVideoDetail?
@@ -308,63 +326,39 @@ struct LessonVideoDetailScreen: View {
     @State private var busy = false
     @State private var error: String?
 
-    @State private var watchOpen = false
+    /// What the player is open on, or nil while it is closed. The player is
+    /// presented from this item rather than from a flag beside a chapter
+    /// number: presented from a flag, the cover read the chapter as nil the
+    /// first time it opened, and a tap on a chapter row played from the start.
+    @State private var watchRequest: WatchRequest?
     @State private var notesOpen = false
     @State private var deleteOpen = false
 
+    private struct WatchRequest: Identifiable {
+        let id = UUID()
+        /// The original recording rather than the recap.
+        let original: Bool
+        /// Start at this chapter; nil resumes where the video was.
+        let chapter: Int?
+    }
+    private var watchOpen: Bool { watchRequest != nil }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                HStack {
-                    Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
-                        .buttonStyle(PLSecondaryButtonStyle())
-                    Spacer()
-                    if let detail { moreMenu(detail) }
-                }
+            VStack(alignment: .leading, spacing: 24) {
+                Button { dismiss() } label: { Label("Back", systemImage: "chevron.left") }
+                    .buttonStyle(PLSecondaryButtonStyle())
                 if let detail {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(detail.video.title).font(.plPageTitle).tracking(-0.6).foregroundStyle(PL.textBody)
                         Text(detail.video.statusLabel).font(.plCaption).foregroundStyle(PL.cyan)
                     }
-                    if detail.playbackUrl != nil || detail.summaryUrl != nil {
-                        Button {
-                            if original { original = false; setPlayer() }
-                            watchOpen = true
-                        } label: {
-                            ZStack {
-                                PL.surface2
-                                AsyncImage(url: detail.posterUrl.flatMap(URL.init(string:))) { phase in
-                                    if let image = phase.image { image.resizable().scaledToFill() }
-                                    else if phase.error == nil && detail.posterUrl != nil { ProgressView().tint(PL.cyan).offset(y: 60) }
-                                }
-                                Image(systemName: "play.fill").font(.system(size: 26, weight: .semibold))
-                                    .foregroundStyle(.white).frame(width: 68, height: 68)
-                                    .background(.black.opacity(0.65), in: Circle())
-                            }
-                            .aspectRatio(16 / 9, contentMode: .fit)
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }.buttonStyle(.plain).accessibilityLabel("Watch lesson recap")
-                        if let count = detail.video.edit?.chapters.count, count > 0 {
-                            Label("\(count) chapters · Watch with coaching notes", systemImage: "text.bubble")
-                                .font(.plBody).foregroundStyle(PL.text300)
-                        }
-                        if detail.video.edit?.chapters.isEmpty == false {
-                            Button { notesOpen = true } label: {
-                                Text("Read lesson notes").frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(PLSecondaryButtonStyle())
-                        }
+                    if watchable(detail) { recap(detail) } else { waiting(detail) }
+                    actions(detail)
+                    if let edit = detail.video.edit, !edit.chapters.isEmpty {
+                        chapters(edit, enabled: watchable(detail))
                     }
-                    if detail.video.canShare(isOwner: detail.isOwner) {
-                        Button { perform("share") } label: {
-                            Text(detail.video.student_id == nil ? "Save recap" : "Share with student")
-                                .frame(maxWidth: .infinity)
-                        }.buttonStyle(PLPrimaryButtonStyle()).disabled(busy)
-                    }
-                    if detail.isOwner && detail.video.status == "failed" {
-                        Button("Retry processing") { perform("retry") }.buttonStyle(PLPrimaryButtonStyle()).disabled(busy)
-                    }
-                    if let message = detail.video.error { Text(message).foregroundStyle(PL.dangerText) }
+                    manage(detail)
                 } else if error == nil {
                     ProgressView().tint(PL.cyan).frame(maxWidth: .infinity, minHeight: 160)
                 }
@@ -394,10 +388,11 @@ struct LessonVideoDetailScreen: View {
             if phase != .active { player?.pause() }
             else if !watchOpen { Task { await load(refreshPlayback: true) } }
         }
-        .fullScreenCover(isPresented: $watchOpen, onDismiss: { player?.pause() }) {
+        .fullScreenCover(item: $watchRequest, onDismiss: { player?.pause() }) { request in
             if let player, player.currentItem != nil, let detail {
                 LessonVideoTakeover(player: player, title: detail.video.title,
-                    chapters: detail.video.edit?.chapters ?? [], original: original,
+                    chapters: detail.video.edit?.chapters ?? [], original: request.original,
+                    initialChapter: request.chapter,
                     refresh: { await load(refreshPlayback: true) },
                     renewIfNeeded: {
                         if LessonVideoPlaybackRefresh.isDue(lastRefresh: playerURLFetchedAt) { await load(refreshPlayback: true) }
@@ -413,25 +408,194 @@ struct LessonVideoDetailScreen: View {
             }
         }
     }
-    private func moreMenu(_ detail: LessonVideoDetail) -> some View {
-        Menu {
-            if detail.isOwner && detail.video.edit != nil && ["review", "ready", "failed"].contains(detail.video.status) {
-                Button("Edit recap", systemImage: "pencil") { editOpen = true }
+
+    private func watchable(_ detail: LessonVideoDetail) -> Bool {
+        detail.playbackUrl != nil || detail.summaryUrl != nil
+    }
+
+    /// The poster, and the two numbers the recap is made of.
+    private func recap(_ detail: LessonVideoDetail) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button { watch() } label: {
+                ZStack {
+                    PL.surface2
+                    AsyncImage(url: detail.posterUrl.flatMap(URL.init(string:))) { phase in
+                        if let image = phase.image { image.resizable().scaledToFill() }
+                        else if phase.error == nil && detail.posterUrl != nil { ProgressView().tint(PL.cyan).offset(y: 60) }
+                    }
+                    Image(systemName: "play.fill").font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(.white).frame(width: 68, height: 68)
+                        .background(.black.opacity(0.65), in: Circle())
+                }
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            if detail.isOwner, detail.sourceUrl != nil || detail.originalUrl != nil {
-                Button(original ? "Watch recap" : "Watch original") { original.toggle(); setPlayer(); watchOpen = true }
-                if let url = (detail.sourceUrl ?? detail.originalUrl).flatMap(URL.init(string:)) {
-                    ShareLink(item: url) { Label("Export original video", systemImage: "square.and.arrow.up") }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Watch lesson recap")
+            if let edit = detail.video.edit, !edit.chapters.isEmpty {
+                HStack {
+                    Text(edit.chapters.count == 1 ? "1 chapter" : "\(edit.chapters.count) chapters")
+                    Spacer()
+                    Text("\(edit.recapMinutes) min recap")
+                }
+                .font(.plBody).foregroundStyle(PL.text400)
+            }
+        }
+    }
+
+    /// Stands where the poster will be until the recap exists.
+    private func waiting(_ detail: LessonVideoDetail) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(detail.video.status == "failed" ? "The recap needs another try" : (detail.video.stage ?? "Waiting for the upload"))
+                .font(.plCardTitle).foregroundStyle(PL.text100)
+            Text(detail.video.error ?? "Your lesson will be here when it is ready.")
+                .font(.plBody).foregroundStyle(PL.text400).lineSpacing(4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 16)
+    }
+
+    /// What can be done with the recap right now: share it, retry it, read it.
+    @ViewBuilder
+    private func actions(_ detail: LessonVideoDetail) -> some View {
+        let video = detail.video
+        // Older servers do not say; until they do, ready-with-a-student means shared.
+        let shared = video.shared ?? (video.status == "ready" && video.student_id != nil)
+        let canShare = video.canShare(isOwner: detail.isOwner)
+        let canRetry = detail.isOwner && video.status == "failed"
+        let hasNotes = video.edit?.chapters.isEmpty == false
+        let sharedWith = (detail.isOwner && shared) ? video.student_id : nil
+        if canShare || canRetry || hasNotes || sharedWith != nil || !detail.isOwner {
+            VStack(alignment: .leading, spacing: 12) {
+                if canShare {
+                    Button { perform("share") } label: {
+                        Text(busy ? "Saving…" : (video.student_id == nil ? "Save recap" : "Share with student"))
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PLPrimaryButtonStyle()).disabled(busy)
+                }
+                if canRetry {
+                    Button { perform("retry") } label: { Text("Retry processing").frame(maxWidth: .infinity) }
+                        .buttonStyle(PLSecondaryButtonStyle()).disabled(busy)
+                }
+                if sharedWith != nil {
+                    Text("Shared with \(studentName ?? "your student"). It is in their journal, and any edit you make here goes to them once you share it again.")
+                        .font(.plBody).foregroundStyle(PL.text400).lineSpacing(4)
+                }
+                if !detail.isOwner {
+                    Text("Shared with you by your coach.").font(.plBody).foregroundStyle(PL.text400)
+                }
+                if hasNotes {
+                    Button { notesOpen = true } label: { Text("Read lesson notes").frame(maxWidth: .infinity) }
+                        .buttonStyle(PLSecondaryButtonStyle())
                 }
             }
-            if let url = detail.summaryUrl.flatMap(URL.init(string:)) {
-                ShareLink(item: url) { Label("Export recap with cues", systemImage: "square.and.arrow.up") }
+            .frame(maxWidth: .infinity)
+            .plCard(padding: 16)
+        }
+    }
+
+    /// Every chapter, numbered and timed, each a way into the player.
+    private func chapters(_ edit: LessonVideoEdit, enabled: Bool) -> some View {
+        CoachGroup("Chapters") {
+            ForEach(Array(edit.chapters.enumerated()), id: \.offset) { index, chapter in
+                Button { watch(from: index) } label: {
+                    HStack(spacing: 14) {
+                        Text("\(index + 1)")
+                            .font(.plCaption.weight(.semibold)).foregroundStyle(PL.text400)
+                            .frame(width: 28, height: 28)
+                            .background(PL.surface2, in: Circle())
+                        Text(chapter.title)
+                            .font(.plBody.weight(.medium)).foregroundStyle(PL.text100)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(LessonVideoLength.label(seconds: chapter.end_s - chapter.start_s))
+                            .font(.plCaption).monospacedDigit().foregroundStyle(PL.text500)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!enabled)
+                .opacity(enabled ? 1 : 0.6)
+                .accessibilityLabel("Chapter \(index + 1), \(chapter.title)")
+                .accessibilityHint("Plays the recap from this chapter")
+                if index < edit.chapters.count - 1 { CoachRowDivider() }
             }
-            if detail.isOwner && !detail.video.needsRefresh {
-                Button("Delete lesson video", role: .destructive) { deleteOpen = true }
+        }
+    }
+
+    private enum ManageRow: Hashable {
+        case edit, watchOriginal, exportSummary(URL), exportOriginal(URL), delete
+    }
+
+    private func manageRows(_ detail: LessonVideoDetail) -> [ManageRow] {
+        let video = detail.video
+        var rows: [ManageRow] = []
+        if detail.isOwner, video.edit != nil, ["review", "ready", "failed"].contains(video.status) { rows.append(.edit) }
+        let originalURL = detail.isOwner ? (detail.sourceUrl ?? detail.originalUrl).flatMap(URL.init(string:)) : nil
+        if originalURL != nil { rows.append(.watchOriginal) }
+        if let url = detail.summaryUrl.flatMap(URL.init(string:)) { rows.append(.exportSummary(url)) }
+        if let originalURL { rows.append(.exportOriginal(originalURL)) }
+        if detail.isOwner, !video.needsRefresh { rows.append(.delete) }
+        return rows
+    }
+
+    @ViewBuilder
+    private func manage(_ detail: LessonVideoDetail) -> some View {
+        let rows = manageRows(detail)
+        if !rows.isEmpty {
+            CoachGroup("Manage") {
+                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                    manageRow(row)
+                    if index < rows.count - 1 { CoachRowDivider() }
+                }
             }
-        } label: { Label("More", systemImage: "ellipsis") }
-            .buttonStyle(PLSecondaryButtonStyle()).disabled(busy)
+        }
+    }
+
+    @ViewBuilder
+    private func manageRow(_ row: ManageRow) -> some View {
+        switch row {
+        case .edit:
+            CoachNavRow(label: "Edit recap") { editOpen = true }.disabled(busy)
+        case .watchOriginal:
+            CoachNavRow(label: "Watch original recording") { watchOriginal() }
+        case .exportSummary(let url):
+            exportRow("Export video with text", url: url)
+        case .exportOriginal(let url):
+            exportRow("Export original video", url: url)
+        case .delete:
+            CoachNavRow(label: "Delete lesson video", tint: PL.dangerText) { deleteOpen = true }.disabled(busy)
+        }
+    }
+
+    /// A Manage row that hands the file to the share sheet rather than
+    /// opening a screen, so it carries the share glyph where the others
+    /// carry a chevron.
+    private func exportRow(_ label: String, url: URL) -> some View {
+        ShareLink(item: url) {
+            HStack(spacing: 12) {
+                Text(label).font(.system(size: 16)).foregroundStyle(PL.textBody)
+                Spacer()
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(PL.text500)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Open the player on the recap, at a chapter when one was tapped.
+    private func watch(from index: Int? = nil) {
+        if original { original = false; setPlayer() }
+        watchRequest = WatchRequest(original: false, chapter: index)
+    }
+    private func watchOriginal() {
+        original = true
+        setPlayer()
+        watchRequest = WatchRequest(original: true, chapter: nil)
     }
     private func setPlayer(preservingPosition: Bool = false) {
         let position = preservingPosition ? player?.currentTime() : nil
@@ -526,11 +690,16 @@ private struct LessonVideoTakeover: View {
     let title: String
     let chapters: [LessonVideoEdit.Chapter]
     let original: Bool
+    /// Start here when opened from a chapter row; nil resumes.
+    let initialChapter: Int?
     let refresh: () async -> Void
     let renewIfNeeded: () async -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
-    @State private var selected = 0
+    @State private var selected: Int
+    /// A chapter start still to be applied, when the player was asked to
+    /// open at a chapter before its video was ready to seek.
+    @State private var pendingStart: Double?
     @State private var currentTime = 0.0
     @State private var duration = 0.0
     @State private var isPlaying = false
@@ -548,6 +717,24 @@ private struct LessonVideoTakeover: View {
     @State private var indexOpen = false
     @State private var muted = false
     private let tick = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
+
+    init(player: AVPlayer, title: String, chapters: [LessonVideoEdit.Chapter], original: Bool,
+         initialChapter: Int? = nil, refresh: @escaping () async -> Void, renewIfNeeded: @escaping () async -> Void) {
+        self.player = player
+        self.title = title
+        self.chapters = chapters
+        self.original = original
+        self.initialChapter = initialChapter
+        self.refresh = refresh
+        self.renewIfNeeded = renewIfNeeded
+        // The cue pages open on the chapter being started, so the pager is
+        // never asked to jump on appearance. Jumping it there made the page
+        // style snap back to the first page and write that back through the
+        // selection binding, which seeked the video to the start and undid
+        // the chapter the row had asked for.
+        let start = initialChapter.flatMap { chapters.indices.contains($0) ? $0 : nil } ?? 0
+        _selected = State(initialValue: start)
+    }
 
     var body: some View {
         GeometryReader { geo in
@@ -587,6 +774,15 @@ private struct LessonVideoTakeover: View {
             try? session.setActive(true)
             muted = false
             player.isMuted = muted
+            if let initialChapter, chapters.indices.contains(initialChapter) {
+                // Opened from a chapter row: start there, not where the
+                // last viewing stopped. The seek goes first so the tick
+                // cannot read the old position back into the page selection
+                // before the video has moved.
+                startChapter(initialChapter)
+                synchronize()
+                return
+            }
             synchronize()
             if duration > 0 && currentTime >= duration - 0.1 { seek(to: 0, resume: true) }
             else { player.play() }
@@ -713,7 +909,9 @@ private struct LessonVideoTakeover: View {
                 }.foregroundStyle(PL.text100).padding(.horizontal, 8).padding(.top, 8)
                 // Only user-driven page writes seek. Playback-driven selection assigns
                 // `selected` directly, so an automatic cue transition cannot seek back.
-                TabView(selection: Binding(get: { selected }, set: { selectChapter($0) })) {
+                // A write of the page already showing is the pager settling, not a
+                // swipe, and must not restart the chapter.
+                TabView(selection: Binding(get: { selected }, set: { if $0 != selected { selectChapter($0) } })) {
                     ForEach(Array(chapters.enumerated()), id: \.offset) { index, chapter in
                         ScrollView {
                             VStack(alignment: .leading, spacing: 18) {
@@ -738,6 +936,23 @@ private struct LessonVideoTakeover: View {
         selected = index
         if let start = LessonVideoChapterSelection.start(at: index, chapters: chapters, original: original) {
             seek(to: start, resume: true)
+        }
+    }
+    /// Open on a chapter. The seek is issued at once when the video can take
+    /// it, and otherwise held until the tick sees the item ready, so a tap
+    /// on a chapter row lands there rather than wherever the video began.
+    private func startChapter(_ index: Int) {
+        guard let start = LessonVideoChapterSelection.start(at: index, chapters: chapters, original: original) else {
+            player.play()
+            return
+        }
+        selected = index
+        currentTime = start
+        if player.currentItem?.status == .readyToPlay {
+            pendingStart = nil
+            seek(to: start, resume: true)
+        } else {
+            pendingStart = start
         }
     }
     private func seek(to seconds: Double, resume: Bool) {
@@ -765,6 +980,14 @@ private struct LessonVideoTakeover: View {
         buffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
         let length = player.currentItem?.duration.seconds ?? 0
         if length.isFinite && length > 0 { duration = length }
+        if let pendingStart {
+            // Still waiting to open at a chapter: keep the page and the
+            // slider on it, and seek the moment the video is ready.
+            guard player.currentItem?.status == .readyToPlay else { return }
+            self.pendingStart = nil
+            seek(to: pendingStart, resume: true)
+            return
+        }
         guard !scrubbing && !seeking else { return }
         let time = player.currentTime().seconds
         guard time.isFinite else { return }

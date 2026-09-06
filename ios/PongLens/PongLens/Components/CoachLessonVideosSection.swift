@@ -25,7 +25,7 @@ struct CoachLessonVideosSection: View {
             } else {
                 ForEach(Array(videos.prefix(3).enumerated()), id: \.element.id) { index, video in
                     NavigationLink {
-                        LessonVideoDetailScreen(id: video.id)
+                        LessonVideoDetailScreen(id: video.id, studentName: video.student_id.flatMap { workspace.student($0)?.displayName })
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "video")
