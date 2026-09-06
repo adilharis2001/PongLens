@@ -551,8 +551,13 @@ git commit -m "docs: record highlight release verification"
 - Release verification passed: 47 affected worker tests, 21 API/schema tests,
   124 match/web behavior tests, the real `npm run build`, 649/649 Swift
   checks, and a complete iPhone 17 Pro simulator build.
-- iOS version 1.0 build 127 archived and uploaded successfully to App Store
-  Connect. Apple reported that the uploaded package is processing.
+- The local iOS archive identifies version 1.0 build 127. App Store Connect
+  reported that build 134 already existed during export, so Xcode automatically
+  assigned the uploaded package build 135. Apple processed build 135 as
+  `VALID`; it is `IN_BETA_TESTING` for the internal Team group.
+- Build 135 is attached to the public External testers group with automatic
+  notification enabled and has been submitted to TestFlight Beta App Review.
+  Its external state was `WAITING_FOR_REVIEW` at the time of this record.
 - `automatic_highlights` is enabled only for the product owner's account.
   It is not globally enabled. Cloud dispatch remains unchanged because this
   repository has no matching deployed Modal implementation.
