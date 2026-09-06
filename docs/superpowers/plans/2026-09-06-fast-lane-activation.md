@@ -120,8 +120,22 @@ scratchpad.
   `current/run-worker` becomes the real launcher, the fast lane needs its
   own unit invoking `run-worker --lane fast`, and the release's
   `worker.py` must be built from a commit that includes the lane code,
-  the pulse, and the highlights work. Until then the installed main plist
-  points at a release that has none of them.
+  the pulse, and the highlights work.
+
+  **Defused 2026-09-06 22:05 UTC, on Adil's instruction ("I just want
+  stability").** The installed `~/Library/LaunchAgents/com.adil.ponglens-worker.plist`
+  had been rewritten (Sep 5 16:29) to point at the staged release, while
+  the loaded job still ran `PongLensWorker.app`; a reboot would have
+  rolled main back to a snapshot with no pulse, no lane code and no
+  highlights. The on-disk plist was restored to the repo's own
+  `worker/com.adil.ponglens-worker.plist`, which matches the loaded job
+  field for field (program, log paths). Nothing was reloaded or
+  restarted. The rewritten file is kept as
+  `com.adil.ponglens-worker.plist.release-experiment-backup` in the
+  session scratchpad. The staged release directory and its `current`
+  symlink are untouched. **Re-pointing the launcher at a release is now a
+  deliberate step for the release work to take, once that release is
+  built from current code and carries a fast-lane unit.**
 - The fast lane runs at `Nice 0` against main's `Nice 5`, per the unit
   as designed: the person waiting on a re-cut outranks the batch job.
   Watch whether that starves a placement run on a shared, loaded Mac.
