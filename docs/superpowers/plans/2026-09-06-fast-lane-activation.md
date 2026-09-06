@@ -11,7 +11,7 @@ no process reading it is worse than no queue. This is the plan for the
 second half: starting the process and flipping the switch, on the machine
 as it actually is.
 
-**Status: in progress.** Updated at the bottom as steps land.
+**Status: live, 2026-09-06 21:53 UTC.** See "What actually happened" at the bottom.
 
 ## What was found before starting
 
@@ -125,3 +125,40 @@ scratchpad.
 - The fast lane runs at `Nice 0` against main's `Nice 5`, per the unit
   as designed: the person waiting on a re-cut outranks the batch job.
   Watch whether that starves a placement run on a shared, loaded Mac.
+
+## What actually happened
+
+Steps 1–4 went as written. The diff of the live `worker.py` against its
+pre-pulse backup removed 13 lines, all of them the queue literals and the
+`main()` preamble being replaced; the highlights symbols were untouched;
+the import check derived `main`, `fast` (by flag) and `fast` (by
+`WORKER_LANE`) correctly. Main restarted on the patched file at 21:47 UTC
+with the queue empty: `lane=main queue=jobs`, housekeeping ran, pulse
+continued, no errors.
+
+Between step 4 and step 6 another session committed **"Merge main into the
+production worker checkout (liveness)"** (`a7155b2c`, 21:45 UTC) — it
+committed the highlights work and merged `origin/main` into the Desktop
+checkout, then restarted main at 21:48. Because the lane and pulse code
+had been copied verbatim, the merge was clean and `git status worker/` is
+now empty. Both lanes run committed code on `a7155b2c`. The hand patch
+described above was therefore superseded within the hour, exactly as
+intended.
+
+Adil granted Full Disk Access (step 5). `launchctl load` reported the
+usual `Input/output error` from the legacy command and loaded anyway:
+`state = running`, pid 68373; `worker-fast.log` opened with
+`lane=fast queue=jobs_fast`, no housekeeping lines, no errors;
+`worker_pulse` gained `mac:fast` within seconds; the page showed
+`Mac Studio · fast lane — Idle` beside main. `reclip_lane` was set to
+`fast` at 21:52 UTC with both lanes' beats under 15 s old.
+
+**Step 9 happened unprompted.** Clip updates from the app: `5c57c980`
+and `8f7f67e9` queued 21:49 went to main (pre-switch, 10 s each);
+`6781f6fa` and `911e2e0d` queued 21:52:58 and 21:53:06 went to the fast
+lane (12 s and 10 s from queued, both `reclip done` in
+`worker-fast.log`, absent from `worker.log`). `pgmq.metrics_all()`:
+`jobs_fast total_messages = 2`, which had been 0 all day.
+
+Still open after this: the staged release layout (follow-ups above) and
+the `Nice 0` question, neither of which this activation changes.
