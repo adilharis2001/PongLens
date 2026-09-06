@@ -78,6 +78,16 @@ class LessonVideoTests(unittest.TestCase):
   second='Second supported uncertainty '+('y '*250)+'.'
   capped=normalize_edit({'title':'Lesson','chapters':chapters,'warning':first+' '+second},1000)['warning']
   self.assertLessEqual(len(capped),600);self.assertTrue(capped.endswith('.'));self.assertIn('First supported uncertainty',capped);self.assertNotIn('Second supported uncertainty',capped)
+ def test_merge_warning_cannot_replace_complete_outline_uncertainty(self):
+  chapters=[
+   {'title':'A','cues':['B'],'start_s':0,'end_s':100},
+   {'title':'B','cues':['C'],'start_s':200,'end_s':300},
+  ]
+  outline={'title':'Lesson','themes':[{'name':'Footwork','points':['Keep this supported instruction.']}],'warning':'The coach\'s wording about the receive was unclear.'}
+  merged=selected(['candidate-1','candidate-2']);merged['warning']='Clips omitted to keep recap short.'
+  result,_=merge_edit(merged,chapters,outline=outline)
+  self.assertEqual(result['warning'],outline['warning'])
+  self.assertNotIn('clips omitted',result['warning'].lower())
  def test_release_is_content_addressed(self):
   self.assertRegex(release_id(),r'^lesson-video-[0-9a-f]{16}$')
  def test_merge_candidate_id_maps_to_worker_owned_range_without_timestamps(self):
@@ -191,6 +201,10 @@ class LessonVideoTests(unittest.TestCase):
   candidates=[json.loads(item['text']) for item in runtime.merge_contents[0] if item.get('type')=='text' and 'candidate_id' in item['text']]
   self.assertEqual(candidates[0]['section_id'],'section-1')
   self.assertNotIn('start_s',str(candidates));self.assertNotIn('end_s',str(candidates))
+ def test_infeasible_rich_twelve_chapter_floor_does_not_reject_eleven(self):
+  outline={'title':'Lesson','themes':[{'name':f'Theme {i}','points':['Keep this supported instruction.']} for i in range(1,9)]}
+  result,runtime=merge_edit(selected([f'candidate-{i}' for i in range(1,12)]),candidate_chapters(6,80),sections=2,duration=5400,outline=outline)
+  self.assertEqual(len(result['chapters']),11);self.assertEqual(runtime.merge_calls,1)
  def test_sparse_long_lesson_can_select_fewer_chapters(self):
   result,runtime=merge_edit(selected(['candidate-1']),candidate_chapters(2,30),duration=5400)
   self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,1)
