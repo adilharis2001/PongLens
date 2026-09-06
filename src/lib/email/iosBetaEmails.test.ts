@@ -22,6 +22,28 @@ const request: BetaRequestRecord = {
   adminNoticeNeeded: true,
 };
 
+test("a failed receipt does not misreport delivered admin notices or resend completed mail", async () => {
+  const jobs = ["invite", "admin_adil", "admin_anton", "receipt"].map((kind) => ({
+    id: kind, request_id: request.id, kind, recipient: "player@example.com",
+    state: kind === "receipt" ? "failed" : "delivered",
+    provider_email_id: `provider-${kind}`, idempotency_key: `key-${kind}`,
+    create_payload: null, first_attempt_at: null, error_code: null,
+    early_target_at: null, early_applied_at: null, cancel_requested: false,
+  })) as BetaJob[];
+  let providerCalls = 0;
+  const unexpected = async () => { providerCalls++; throw new Error("No completed mail should be sent again"); };
+  const deps: BetaEmailDependencies = {
+    jobs: async () => jobs, pending: async () => [], requestEarly: async () => false,
+    delivery: {
+      now: Date.now, lease: async (id) => jobs.find(j => j.id === id)!, read: async (id) => jobs.find(j => j.id === id)!,
+      finish: async () => true, prepare: unexpected, payload: unexpected, isSuppressed: async () => false,
+      provider: {create: unexpected, retrieve: unexpected, update: unexpected, cancel: unexpected},
+    },
+  };
+  assert.deepEqual(await deliverIosBetaRequest(request.id, deps), { invite: "delivered", admin: "sent" });
+  assert.equal(providerCalls, 0);
+});
+
 test("delivery keys distinguish the two messages and stay bound to the request", () => {
   assert.equal(
     betaIdempotencyKey(request.id, "invite"),

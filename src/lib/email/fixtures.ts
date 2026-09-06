@@ -1,4 +1,4 @@
-import { betaAdminNoticeEmail, betaInvitationEmail, confirmAccountEmail, magicLinkEmail, purchaseReceiptEmail, reviewLifecycleEmail, type ReviewMessageKind } from "./catalog.ts";
+import { betaAdminNoticeEmail, betaInvitationEmail, betaRequestReceivedEmail, confirmAccountEmail, magicLinkEmail, purchaseReceiptEmail, reviewLifecycleEmail, type ReviewMessageKind } from "./catalog.ts";
 import type { EmailMessage } from "./message.ts";
 import { allowanceRequestEmail } from "../commerce/allowances.ts";
 
@@ -22,6 +22,7 @@ export function typescriptEmailFixtures(): EmailFixture[] {
     { id: "auth.confirm-account", label: "Confirm account", message: confirmAccountEmail({ confirmationUrl: confirmationUrl.replace("magiclink", "signup"), code: "248613" }) },
     { id: "auth.magic-link", label: "Magic-link sign in", message: magicLinkEmail({ confirmationUrl, code: "248613" }) },
     { id: "beta.invitation", label: "iPhone beta invitation", message: betaInvitationEmail("https://testflight.apple.com/join/H9XdnySg") },
+    { id: "beta.request-received", label: "iPhone beta request confirmation", message: betaRequestReceivedEmail() },
     { id: "beta.admin-notice", label: "iPhone beta admin notice", message: betaAdminNoticeEmail({ email: "maya.chen@example.com", requestedAt: "September 4, 2026 at 2:30 PM ET" }) },
   ];
   for (const kind of reviewKinds) {

@@ -55,10 +55,26 @@ export function betaInvitationEmail(testFlightUrl: string): EmailMessage {
   };
 }
 
+export function betaRequestReceivedEmail(): EmailMessage {
+  return {
+    templateId: "beta.request-received", templateVersion: VERSION, category: "beta", audience: "tester",
+    subject: "We’ve received your PongLens beta request",
+    preheader: "Your TestFlight invitation will arrive within 24 hours.",
+    eyebrow: "PongLens for iPhone",
+    heading: "Your beta request is confirmed",
+    blocks: [
+      { type: "paragraph", text: "We’ve received your request for the PongLens iPhone beta. We’ll email your TestFlight invitation within 24 hours." },
+      { type: "paragraph", text: "You don’t need to do anything else for now. Thanks for trying PongLens." },
+    ],
+    reason: "You received this because you requested the PongLens iPhone beta. No marketing.",
+    support: true,
+  };
+}
+
 export function betaAdminNoticeEmail(facts: { email: string; requestedAt: string; scheduledAt?: string; role?: string; interests?: string[]; feedback?: string; requestId?: string }): EmailMessage {
   return {
-    templateId: "beta.admin-notice", templateVersion: 2, category: "beta", audience: "admin",
-    subject: "New iPhone beta request",
+    templateId: "beta.admin-notice", templateVersion: 3, category: "beta", audience: "admin",
+    subject: `iPhone beta request: ${facts.email.replace(/[\r\n]/g, "").trim()}`,
     preheader: "You can send the invitation sooner from Outreach.",
     eyebrow: "iPhone beta",
     heading: "New iPhone beta request",
