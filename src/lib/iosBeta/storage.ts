@@ -4,7 +4,7 @@ import type {
   ScheduledDeliveryDependencies,
 } from "./scheduledDelivery.ts";
 import { betaApiKey, betaProviderPayload, createBetaProvider } from "./provider.ts";
-import { betaAdminNoticeEmail, betaInvitationEmail } from "../email/catalog.ts";
+import { betaAdminNoticeEmail, betaInvitationEmail, betaRequestReceivedEmail } from "../email/catalog.ts";
 import { parseTestFlightUrl } from "./model.ts";
 import {
   PLAYER_INTERESTS,
@@ -83,6 +83,13 @@ export async function betaEmailDependencies(): Promise<BetaEmailDependencies> {
         .eq("id", job.request_id)
         .single();
       if (error || !request) throw new Error("Beta request unavailable");
+      if (job.kind === "receipt") {
+        return betaProviderPayload({
+          to: job.recipient,
+          deliveryId: job.id,
+          message: betaRequestReceivedEmail(),
+        });
+      }
       if (job.kind === "invite") {
         const url = parseTestFlightUrl(process.env.IOS_TESTFLIGHT_URL);
         if (!url) throw new Error("Beta invitation not configured");

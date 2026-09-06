@@ -40,6 +40,21 @@ def candidate_patch(frames,x,y,size=96):
     return torch.from_numpy(np.concatenate(images).astype(np.float32)/255)
 
 
+def candidate_multiscale_patch(frames,x,y,size=96,field_size=384):
+    """Three native-detail crops plus three wider crops resized to the same grid."""
+    local=candidate_patch(frames,x,y,size)
+    x,y=round(x),round(y);half=field_size//2;images=[]
+    for frame in frames:
+        height,width=frame.shape[:2];left=x-half;top=y-half
+        tile=np.zeros((field_size,field_size,3),np.uint8)
+        x0,x1=max(0,left),min(width,left+field_size);y0,y1=max(0,top),min(height,top+field_size)
+        if x1>x0 and y1>y0:tile[y0-top:y1-top,x0-left:x1-left]=frame[y0:y1,x0:x1]
+        tile=cv2.resize(tile,(size,size),interpolation=cv2.INTER_AREA)
+        images.append(cv2.cvtColor(tile,cv2.COLOR_BGR2RGB).transpose(2,0,1))
+    context=torch.from_numpy(np.concatenate(images).astype(np.float32)/255)
+    return torch.cat([local,context],dim=0)
+
+
 def candidate_geometry(x,y,corners,dt):
     polygon=np.asarray(corners,np.float32)
     width=(np.linalg.norm(polygon[0]-polygon[1])+np.linalg.norm(polygon[2]-polygon[3]))/2
@@ -49,13 +64,13 @@ def candidate_geometry(x,y,corners,dt):
 
 
 class ActiveBallPatchNet(nn.Module):
-    def __init__(self):
+    def __init__(self,channels=9):
         super().__init__()
         layers=[]
-        for a,b in [(9,16),(16,32),(32,48)]:
+        for a,b in [(channels,16),(16,32),(32,48)]:
             layers.extend([nn.Conv2d(a,b,3,padding=1,stride=2),nn.GroupNorm(4,b),nn.SiLU()])
         self.features=nn.Sequential(*layers)
-        self.classifier=nn.Sequential(nn.Linear(100,48),nn.SiLU(),nn.Linear(48,1))
+        self.classifier=nn.Sequential(nn.Linear(100,48),nn.SiLU(),nn.Dropout(.2),nn.Linear(48,1))
 
     def forward(self,patches,geometry):
         f=self.features(patches)

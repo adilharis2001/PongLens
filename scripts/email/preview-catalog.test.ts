@@ -11,7 +11,9 @@ const EXPECTED_IDS = [
   "auth.confirm-account",
   "auth.magic-link",
   "beta.admin-notice",
+  "beta.allowance-request",
   "beta.invitation",
+  "beta.request-received",
   "billing.receipt-minutes",
   "billing.receipt-review-credits",
   "billing.receipt-storage",
@@ -73,8 +75,8 @@ test("sample sends are clearly marked and use batch-scoped idempotency", () => {
     "batch_20260904",
     "adilharis2001@gmail.com",
   );
-  assert.match(first.subject, /^\[Preview 1\/26\] /);
-  assert.match(last.subject, /^\[Preview 26\/26\] /);
+  assert.match(first.subject, /^\[Preview 1\/28\] /);
+  assert.match(last.subject, /^\[Preview 28\/28\] /);
   assert.equal(first.idempotencyKey, "ponglens-preview/batch_20260904/auth.confirm-account");
   assert.notEqual(first.idempotencyKey, last.idempotencyKey);
   assert.equal(first.to, "adilharis2001@gmail.com");

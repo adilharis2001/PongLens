@@ -2,6 +2,30 @@
 
 Adil authorized implementation and local training, targeting a preliminary result September 6. This supersedes the earlier read-only investigation. No cloud GPUs, hired engineering team, or production model swap.
 
+## Larger cross-venue teacher run and local model
+
+This experiment expands the corpus to 810 examples from nine additional recordings. Each source contributes 72 frames sampled inside the existing point intervals and 18 sampled from gaps. Recordings are kept whole across the fixed 450/180/180 train/validation/test split. The original Chris A, Ishan, Koko and Kumar sources are excluded because they appear in the 178-example human benchmark. Duplicate source hashes are rejected.
+
+The corpus stores decoded frame indexes and derives their displayed times from each recording's measured average frame rate. Cross-checking all nine files against presentation timestamps found at most about 1.1ms difference. This is immaterial for these adjacent stills, but a future variable-frame-rate corpus should retain presentation timestamps directly.
+
+Gemini 3.8 Flash Prompt 3 returned 810 valid structured answers: 474 visible, 303 hidden, 21 absent and 12 unsure. It received three original-resolution stills, a 2.4-second context clip and normalized selected-table corners. It did not receive human labels, split names, sample categories, venues or prior predictions. The prompt explicitly treats a held ball as visible and rejects other tables' balls, baskets, floor balls, court lines, logos and reflections. Estimated API cost was $4.96. Raw answers and the frozen protocol remain under `/Users/adil/ponglens-data/active-ball-scale/gemini-run2`.
+
+The first two local candidate scorers were rejected on validation. A 96-pixel motion-patch scorer localized 10 of 79 visible references within 20 pixels and made eight false visible detections. A multiscale motion-and-appearance scorer could not rank the ball among hundreds of lookalikes. These are recorded negative results, not candidate releases.
+
+The preliminary model is a generic pretrained YOLO26n detector fine-tuned locally on the Mac Studio through PyTorch MPS. It sees the full frame at 1280 pixels. The supplied selected-table geometry keeps the table and nearby player region at full brightness while dimming distant regions, so the model is conditioned on the selected table without a hard polygon crop. Visible Gemini centers become fixed 32-source-pixel training boxes; hidden and absent examples become negative images. Twelve unsure answers are excluded. The confidence threshold of 0.20 and the final checkpoint were selected using only the two validation recordings.
+
+| Frozen evaluation | Visible within 20px | False visible on non-visible | Conditional median error |
+| --- | ---: | ---: | ---: |
+| Gemini-teacher test: Julian RC + Terry | 41 / 93 (44.1%) | 5 / 86 (5.8%) | 3.54px |
+| Existing 178 human labels | 70 / 109 (64.2%) | 14 / 69 (20.3%) | 3.75px |
+| Gemini Prompt 3 on the same human labels | 100 / 109 (91.7%) | 21 / 69 (30.4%) | 5.31px |
+
+The local model is accurate when it fires: 69 of its 70 human-reference localizations are within 10 pixels. Its main failure is recall, with 36 visible balls receiving no detection and three more receiving the wrong location. Westchester remains the weakest venue, with eight correct localizations among 17 visible examples and eight false detections among 37 non-visible examples. Median model inference was 27.2ms on the teacher test and 31.0ms on the human audit, measured per focused still in the Python evaluation path. These timings exclude video decoding and the rest of the production pipeline.
+
+Checkpoint: `/Users/adil/ponglens-data/active-ball-scale/yolo-v1/runs/finetune/weights/best.pt`, SHA-256 `c8073ea52d7626988bd69552a1eb72454166ff5dad8a553508703848525b8d30`. Frozen summaries and predictions are under `/Users/adil/ponglens-data/active-ball-scale/yolo-v1/final-evaluation` and `/Users/adil/ponglens-data/active-ball-scale/human-audit`. The local predictions are published as the immutable `ponglens-yolo26n-20260905-v3` evaluation run, fingerprinted together with the threshold, preprocessing, evaluator, training parameters, base checkpoint, source and teacher manifests, summary and predictions. They can be compared with the frozen human labels or Gemini from the selector on the active-ball research page.
+
+This establishes a workable owned detector training path, not BlurBall equivalence or production readiness. The old point intervals were used only to distribute corpus sampling; they were not sent to Gemini and do not establish whether a rally is active. Rally activity should be a separate temporal label and model over longer clips. The next iteration should use page review to add human labels at the weakest venues, train on dense sequences rather than isolated samples, and add temporal association and confidence hysteresis before any production promotion. No production worker or released model changed in this experiment.
+
 ## Review interface revision, September 5
 
 User rejected the initial three-image selector as unusable. Live reproduction confirmed that Next frame selects image2 once and every later click is a no-op; adjacent images are only about33ms apart. This was a control-design fault, not evidence that the JPEGs were identical.

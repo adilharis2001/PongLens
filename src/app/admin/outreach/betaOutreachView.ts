@@ -4,6 +4,7 @@ import type {
   TouchRow,
   QueueKey,
   OutreachStatus,
+  PlayerKind,
 } from "./outreachView.ts";
 import {
   isStuck,
@@ -42,6 +43,26 @@ export type UnifiedOutreachRow = {
 };
 const normalized = (email: string | null) =>
   email?.trim().toLowerCase() || null;
+
+// Resend's official delivery-test mailboxes are never real applicants. This
+// mirrors _outreach_members; it does not change account roles or permissions.
+export function outreachKind(row: UnifiedOutreachRow): PlayerKind {
+  if (normalized(row.beta?.email ?? row.email)?.endsWith("@resend.dev"))
+    return "test";
+  return row.account?.kind ?? "real";
+}
+
+export function pendingOutreachInvitations(
+  rows: UnifiedOutreachRow[],
+  kind: PlayerKind | "all",
+): UnifiedOutreachRow[] {
+  // Invitation delivery is an operational queue, not a feedback-contact queue.
+  // In the default Real view include Team requests even if the account is hidden.
+  // Keep provider tests out unless Test or All is explicitly selected.
+  return rows.filter(row => row.beta && pendingInvitation(row.beta) && (
+    kind === "all" || (kind === "real" ? outreachKind(row) !== "test" : outreachKind(row) === kind)
+  )).sort((a,b) => a.beta!.scheduled_at.localeCompare(b.beta!.scheduled_at));
+}
 
 /** Mirrors the private SQL resolver. Matching is for outreach only, never auth. */
 export function unifyOutreach(

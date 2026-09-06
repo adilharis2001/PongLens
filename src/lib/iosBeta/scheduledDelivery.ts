@@ -5,7 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 export type BetaJob = {
   id: string;
   request_id: string;
-  kind: "invite" | "admin_adil" | "admin_anton";
+  kind: "invite" | "receipt" | "admin_adil" | "admin_anton";
   recipient: string;
   state: BetaDeliveryState;
   provider_email_id: string | null;

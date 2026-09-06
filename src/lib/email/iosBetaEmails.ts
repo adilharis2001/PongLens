@@ -27,7 +27,7 @@ export async function deliverIosBetaRequest(
   return {
     invite: results.find((x) => x.kind === "invite")?.state ?? "unknown",
     admin: results
-      .filter((x) => x.kind !== "invite")
+      .filter((x) => x.kind === "admin_adil" || x.kind === "admin_anton")
       .every((x) => ["sent", "delivered", "suppressed"].includes(x.state))
       ? "sent"
       : "failed",

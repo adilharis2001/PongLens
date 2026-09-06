@@ -7,7 +7,8 @@ import {
   unifiedQueueFor,
   invitationLabel,
   effectiveInvitationState,
-  pendingInvitation,
+  outreachKind,
+  pendingOutreachInvitations,
   type BetaOutreachRow,
   type UnifiedOutreachRow,
 } from "./betaOutreachView";
@@ -111,9 +112,8 @@ export function OutreachSection() {
     [rows, people, betas, touches],
   );
   const now = new Date();
-  const selected = unified.filter(
+  const filtered = unified.filter(
     (r) =>
-      (!r.account || kindFilter === "all" || r.account.kind === kindFilter) &&
       (!betaOnly || !!r.beta) &&
       (!betaOnly || !roleFilter || r.beta?.role === roleFilter) &&
       (!betaOnly ||
@@ -126,18 +126,18 @@ export function OutreachSection() {
         !channelFilter ||
         r.beta?.feedback_channels.includes(channelFilter)),
   );
+  const selected = filtered.filter(r => kindFilter === "all" || outreachKind(r) === kindFilter);
   const visible = selected.filter((r) => !r.account?.hidden);
   const hidden = selected.filter((r) => r.account?.hidden);
-  const pending = visible
-    .filter((r) => r.beta && pendingInvitation(r.beta))
-    .sort((a, b) => a.beta!.scheduled_at.localeCompare(b.beta!.scheduled_at));
+  const pending = pendingOutreachInvitations(filtered, kindFilter);
+  const counted = betaOnly ? unified.filter(r => r.beta) : unified;
   const kindCounts: Record<string, number> = {
     real: 0,
     team: 0,
     test: 0,
-    all: unified.length,
+    all: counted.length,
   };
-  for (const r of unified) kindCounts[r.account?.kind ?? "real"]++;
+  for (const r of counted) kindCounts[outreachKind(r)]++;
 
   async function refresh() {
     if (refreshing) return;
@@ -305,11 +305,14 @@ export function OutreachSection() {
     return (
       <ExpandableRow
         key={section + ":" + r.key}
-        title={r.name}
+        title={r.beta?.email ?? r.name}
+        identity={r.beta ? (r.name !== r.beta.email ? r.name : null) : (r.email !== r.name ? r.email : null)}
         status={r.status}
         meta={
           meta ??
-          (r.account
+          (r.beta && (betaOnly || section === "pending")
+            ? "iPhone beta · " + invitationLabel(r.beta, now) + (outreachKind(r) === "team" ? " · Team" : outreachKind(r) === "test" ? " · Test" : "")
+            : r.account
             ? "Signed up " +
               dateLabel(r.account.signed_up) +
               " · " +
@@ -755,6 +758,7 @@ function AddedByHand({
 
 function ExpandableRow({
   title,
+  identity,
   status,
   meta,
   side,
@@ -763,6 +767,7 @@ function ExpandableRow({
   children,
 }: {
   title: string;
+  identity?: string | null;
   status: OutreachStatus;
   meta: string;
   side: string;
@@ -776,8 +781,8 @@ function ExpandableRow({
         onClick={onToggle}
         className="w-full px-4 py-3 text-left transition-colors hover:bg-surface-2/40"
       >
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="min-w-0 truncate text-sm font-medium text-zinc-200">
+        <div className="flex items-start justify-between gap-3">
+          <p className="min-w-0 [overflow-wrap:anywhere] text-sm font-medium text-zinc-200">
             {title}
           </p>
           <span
@@ -786,8 +791,9 @@ function ExpandableRow({
             {STATUS_COPY[status]}
           </span>
         </div>
-        <div className="mt-1 flex items-baseline justify-between gap-3">
-          <p className="min-w-0 truncate text-xs text-zinc-500">{meta}</p>
+        {identity && <p className="mt-1 [overflow-wrap:anywhere] text-sm text-zinc-400">{identity}</p>}
+        <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <p className="min-w-0 text-xs text-zinc-500">{meta}</p>
           <p className="shrink-0 text-xs text-zinc-600">{side}</p>
         </div>
       </button>
@@ -1179,7 +1185,7 @@ function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs text-zinc-500">{label}</dt>
-      <dd className="truncate text-zinc-200">{value}</dd>
+      <dd className="[overflow-wrap:anywhere] text-zinc-200">{value}</dd>
     </div>
   );
 }

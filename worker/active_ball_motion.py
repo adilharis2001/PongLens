@@ -22,6 +22,29 @@ def motion_candidates(frames):
     return candidates
 
 
+def ball_candidates(frames):
+    """High-recall moving and stationary ball candidates in source pixels."""
+    candidates = [{**candidate, 'source': 'motion'} for candidate in motion_candidates(frames)]
+    middle = frames[1]
+    blue, green, red = cv2.split(middle)
+    low = cv2.min(blue, cv2.min(green, red)); high = cv2.max(blue, cv2.max(green, red))
+    white = cv2.bitwise_and(cv2.inRange(low, 155, 255), cv2.inRange(cv2.subtract(high, low), 0, 62))
+    hsv = cv2.cvtColor(middle, cv2.COLOR_BGR2HSV)
+    orange = cv2.inRange(hsv, np.array([3, 90, 110], np.uint8), np.array([35, 255, 255], np.uint8))
+    mask = cv2.bitwise_or(white, orange)
+    count, labels, stats, centers = cv2.connectedComponentsWithStats(mask, 8)
+    for i in range(1, count):
+        x, y, w, h, area = stats[i]
+        if not 5 <= area <= 900 or max(w, h) > 90 or max(w, h) / max(1, min(w, h)) > 6:
+            continue
+        cx, cy = centers[i]
+        if any(np.hypot(candidate['x'] - cx, candidate['y'] - cy) < 8 for candidate in candidates):
+            continue
+        candidates.append({'x': float(cx), 'y': float(cy), 'area': int(area),
+                           'motion': 0.0, 'source': 'appearance'})
+    return candidates
+
+
 def propose(frames,corners):
     candidates=motion_candidates(frames)
     polygon=np.asarray(corners,np.float32)

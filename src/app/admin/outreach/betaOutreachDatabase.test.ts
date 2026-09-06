@@ -1,8 +1,23 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 const local = process.env.BETA_LOCAL_DB_TEST === "1";
+test("Resend test applicants are classified as Test in private outreach groups and excluded from real feedback counts", { skip: !local }, () => {
+  const file = new URL("../../../../supabase/migrations/20260906030000_beta_outreach_test_identity.sql", import.meta.url);
+  const migration = existsSync(file) ? readFileSync(file, "utf8") : "";
+  const out = sql(`begin; ${migration}
+    insert into ios_beta_requests(email,feedback_choice) values ('delivered+outreach@resend.dev','opted_in'),('test@actual-club.org','opted_in');
+    select 'test-kind='||kind from _outreach_groups() where beta_id=(select id from ios_beta_requests where email='delivered+outreach@resend.dev');
+    select 'real-kind='||kind from _outreach_groups() where beta_id=(select id from ios_beta_requests where email='test@actual-club.org');
+    ${admin} select 'real-count='||to_contact from admin_outreach_counts(); reset role;
+    select 'private='||not(has_function_privilege('anon','_outreach_members()','execute') or has_function_privilege('authenticated','_outreach_members()','execute'));
+    rollback;`);
+  assert.match(out,/test-kind=test/);
+  assert.match(out,/real-kind=real/);
+  assert.match(out,/real-count=1/);
+  assert.match(out,/private=true/);
+});
 test(
   "account removal records displaced beta and account state without altering original touches",
   { skip: !local },

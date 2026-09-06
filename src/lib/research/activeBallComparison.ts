@@ -1,5 +1,5 @@
 import type { BallLabel } from './activeBall';
-export type BallEvaluation = {sample_id:string;model:string;prediction:(BallLabel & {reason?:string})|null;reference_label:BallLabel;reference_revision:number};
+export type BallEvaluation = {run_id:string;sample_id:string;model:string;prediction:(BallLabel & {reason?:string})|null;reference_label:BallLabel;reference_revision:number};
 export function ballDisagreement(reference:BallLabel,prediction:BallLabel|null):boolean {
   if(!prediction || reference.state!==prediction.state)return true;
   return reference.state==='visible' && Math.hypot(reference.x!-prediction.x!,reference.y!-prediction.y!)>20;

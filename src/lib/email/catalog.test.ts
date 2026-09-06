@@ -8,6 +8,22 @@ import {
 } from "./catalog.ts";
 import { typescriptEmailFixtures } from "./fixtures.ts";
 import { renderEmail } from "./render.ts";
+import * as catalog from "./catalog.ts";
+
+test("admin subjects identify the applicant instead of grouping every beta request together", () => {
+  const rendered = renderEmail(betaAdminNoticeEmail({ email: "aharisib@tepper.cmu.edu", requestedAt: "2026-09-06T01:20:12Z" }));
+  assert.match(rendered.subject, /aharisib@tepper\.cmu\.edu/);
+  assert.doesNotMatch(rendered.subject, /[\r\n]/);
+});
+
+test("beta receipt confirms the request without giving access early", () => {
+  assert.equal(typeof catalog.betaRequestReceivedEmail, "function");
+  const rendered = renderEmail(catalog.betaRequestReceivedEmail());
+  assert.match(rendered.text, /within 24 hours/);
+  assert.match(rendered.text, /received your request/i);
+  assert.doesNotMatch(rendered.html + rendered.text, /testflight\.apple\.com\/join/);
+  assert.match(rendered.html, /img\/icon-192\.png/);
+});
 
 test("beta admin notice describes a request, not an installation or completed invitation", () => {
   const message = betaAdminNoticeEmail({ email: "tester@example.com", requestedAt: "2026-09-05T12:00:00Z", scheduledAt: "2026-09-06T11:00:00Z", role: "Coach", interests: ["Recording lessons as audio or video"], feedback: "Audio call", requestId: "50aa4d45-9570-4d9b-90d6-79768994ce80" });
@@ -20,7 +36,7 @@ test("beta admin notice describes a request, not an installation or completed in
 
 test("fixture catalog covers every TypeScript email state with unique identities", () => {
   const fixtures = typescriptEmailFixtures();
-  assert.equal(fixtures.length, 17);
+  assert.equal(fixtures.length, 18);
   assert.equal(
     new Set(fixtures.map((fixture) => fixture.message.templateId)).size,
     fixtures.length,

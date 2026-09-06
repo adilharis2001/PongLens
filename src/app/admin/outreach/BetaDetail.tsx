@@ -115,6 +115,12 @@ export function BetaDetail({
     <section className="mt-4 text-sm">
       <h3 className="font-medium text-zinc-200">iPhone beta</h3>
       <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="min-w-0 sm:col-span-2">
+          <dt className="text-xs text-zinc-500">Email</dt>
+          <dd className="mt-1 text-sm text-zinc-200 [overflow-wrap:anywhere]">
+            <a href={`mailto:${beta.email}`} className="hover:text-cyan-glow">{beta.email}</a>
+          </dd>
+        </div>
         <div>
           <dt className="text-xs text-zinc-500">Role</dt>
           <dd className="text-zinc-200">
