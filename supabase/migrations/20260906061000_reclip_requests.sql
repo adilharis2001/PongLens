@@ -22,8 +22,8 @@
 -- NOTHING), and the queue message carries a five-second delay so a burst
 -- of edits becomes one job. The worker re-checks at the end of a run and
 -- requests another pass for anything that changed while it was cutting.
--- No client inserts a reclip job any more, so the jobs insert policy
--- narrows to the one kind an API route still inserts as the user.
+-- No client inserts a reclip job any more; the jobs insert policy itself
+-- is left alone (see the note near the end).
 
 create unique index if not exists jobs_one_queued_reclip_per_match
   on public.jobs ((options->>'match_id'))
@@ -108,20 +108,12 @@ begin
 end;
 $$;
 
--- The jobs insert policy checked only user_id, so a signed-in client could
--- insert any kind with any input path: a 'deadspace_cut' pointing at an
--- arbitrary object, a 'content_check' for another user's match, a
--- 'youtube_import' that skipped the route's limits. Every kind but one is
--- now inserted by a SECURITY DEFINER function or by the worker; the
--- YouTube import route still inserts as the user, so it stays allowed.
-drop policy if exists "Users can create own jobs" on public.jobs;
-create policy "Users can create own jobs"
-  on public.jobs for insert
-  to authenticated
-  with check (
-    user_id = (select auth.uid())
-    and kind = 'youtube_import'
-  );
+-- The jobs insert policy is deliberately left as it is (user_id only).
+-- Narrowing it to a kind allow-list was planned here, but the library
+-- still inserts processing jobs as the signed-in user with source hints
+-- that a sanitising trigger clamps (Modal control, 2026-09-06), so the
+-- allow-list is a separate change once every client insert goes through
+-- a function.
 
 -- Anything already flagged with no job waiting for it (the lost requests
 -- above) gets one now.
