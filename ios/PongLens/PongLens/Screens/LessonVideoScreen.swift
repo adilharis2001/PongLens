@@ -309,6 +309,7 @@ struct LessonVideoDetailScreen: View {
     @State private var error: String?
 
     @State private var watchOpen = false
+    @State private var notesOpen = false
     @State private var deleteOpen = false
 
     var body: some View {
@@ -347,14 +348,11 @@ struct LessonVideoDetailScreen: View {
                             Label("\(count) chapters · Watch with coaching notes", systemImage: "text.bubble")
                                 .font(.plBody).foregroundStyle(PL.text300)
                         }
-                        if let chapter = detail.video.edit?.chapters.first {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("First chapter").font(.plCaption).foregroundStyle(PL.text500)
-                                Text(chapter.title).font(.plCardTitle).foregroundStyle(PL.text100)
-                                ForEach(Array(chapter.cues.enumerated()), id: \.offset) { _, cue in
-                                    Text(cue).font(.plBody).foregroundStyle(PL.text300).lineSpacing(3)
-                                }
-                            }.padding(.top, 4)
+                        if detail.video.edit?.chapters.isEmpty == false {
+                            Button { notesOpen = true } label: {
+                                Text("Read lesson notes").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(PLSecondaryButtonStyle())
                         }
                     }
                     if detail.isOwner && detail.video.status == "review" {
@@ -405,6 +403,9 @@ struct LessonVideoDetailScreen: View {
                         if LessonVideoPlaybackRefresh.isDue(lastRefresh: playerURLFetchedAt) { await load(refreshPlayback: true) }
                     })
             }
+        }
+        .fullScreenCover(isPresented: $notesOpen) {
+            if let edit = detail?.video.edit { LessonVideoNotesReader(edit: edit) }
         }
         .sheet(isPresented: $editOpen) {
             if let edit = detail?.video.edit {
@@ -476,6 +477,46 @@ struct LessonVideoDetailScreen: View {
                 if action == "delete" { dismiss() } else { await load() }
             } catch { self.error = error.localizedDescription }
         }
+    }
+}
+
+private struct LessonVideoNotesReader: View {
+    let edit: LessonVideoEdit
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Lesson notes").font(.plPageTitle).foregroundStyle(PL.text100)
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark").font(.plCardTitle).frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Close lesson notes")
+                }
+                Text(edit.title)
+                    .font(.plPageTitle).tracking(-0.6).foregroundStyle(PL.textBody)
+                    .padding(.top, 24)
+                ForEach(Array(edit.chapters.enumerated()), id: \.offset) { index, chapter in
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Chapter \(index + 1)")
+                            .font(.plCaption).textCase(.uppercase).foregroundStyle(PL.cyan)
+                        Text(chapter.title).font(.plCardTitle).foregroundStyle(PL.text100)
+                        ForEach(Array(chapter.cues.enumerated()), id: \.offset) { _, cue in
+                            Text(cue).font(.plBody).foregroundStyle(PL.text300).lineSpacing(4)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 24)
+                    if index < edit.chapters.count - 1 { Divider().overlay(PL.edge) }
+                }
+            }
+            .padding(20).padding(.bottom, 36)
+        }
+        .background { ArenaBackground() }
+        .preferredColorScheme(.dark)
     }
 }
 

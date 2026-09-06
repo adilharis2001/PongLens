@@ -4,6 +4,7 @@ import Link from 'next/link';
 import {useEffect,useRef,useState} from 'react';
 import {LessonPlayback} from './LessonPlayback';
 import type {LessonVideo,LessonEdit} from '@/lib/lessonVideo/model';
+import {lessonReaderSections} from '@/lib/lessonVideo/presentation';
 
 const button='inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-edge px-5 py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2 disabled:opacity-40';
 const primary='glow-cta inline-flex min-h-11 items-center justify-center rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink disabled:opacity-40';
@@ -18,6 +19,7 @@ export function LessonVideoView({id}:{id:string}) {
  const [chapter,setChapter]=useState(0);
  const [confirmDelete,setConfirmDelete]=useState(false);
  const [watching,setWatching]=useState(false);
+ const [reading,setReading]=useState(false);
  const resumeTime=useRef(0);
 
  const menu=useRef<HTMLDetailsElement|null>(null);
@@ -48,8 +50,7 @@ export function LessonVideoView({id}:{id:string}) {
  const v=detail?.video;
  const edit=v?.edit;
  useEffect(()=>{setChapter(index=>Math.min(index,Math.max(0,(edit?.chapters.length??1)-1)));},[edit?.chapters.length]);
- const current=edit?.chapters[chapter]??edit?.chapters[0];
- const back=detail?.isOwner ? (v?.student_id?'/coaching/students/'+v.student_id:'/coaching/videos'):'/coaching';
+ const back=detail?.isOwner ? (v?.student_id?'/coaching/students/'+v.student_id:'/coaching/videos'):'/journal';
 
  async function action(name:string,extra:object={}) {
   setBusy(true);setError('');
@@ -89,7 +90,7 @@ export function LessonVideoView({id}:{id:string}) {
      <span className="absolute left-1/2 top-1/2 flex h-16 w-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/60 text-white backdrop-blur-md"><svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M8 4.5v15l12-7.5z"/></svg></span>
     </button>
     <div className="mt-4 flex items-center justify-between text-sm text-zinc-400"><span>{edit.chapters.length} chapters</span><span>{Math.round(edit.chapters.reduce((sum,c)=>sum+c.end_s-c.start_s,0)/60)} min recap</span></div>
-    <div className="mt-5 border-t border-edge pt-5"><p className="text-xs font-medium uppercase tracking-wider text-zinc-500">{resumeTime.current>0?'Continue watching':'First chapter'}</p><p className="mt-2 text-base font-medium">{current?.title}</p>{current&&<div className="mt-3 space-y-2">{current.cues.map((cue,index)=><p key={index} className="text-sm leading-relaxed text-zinc-300">{cue}</p>)}</div>}</div>
+    <button className={button+' mt-5 w-full'} onClick={()=>setReading(true)}>Read lesson notes</button>
    </div>:<div role="status" className="rounded-2xl border border-edge bg-surface p-5"><p className="font-medium">{v.status==='failed'?'The recap needs another try':v.stage??'Waiting for the upload'}</p><p className="mt-3 text-sm text-zinc-400">{v.error??'Your lesson will be here when it is ready.'}</p></div>}
    {detail?.isOwner&&<footer className="mx-auto mt-7 w-full max-w-3xl">
      {v.status==='review'&&<button className={primary+' w-full min-h-12'} disabled={busy} onClick={()=>void action('share')}>{busy?'Saving…':v.student_id?'Share with student':'Approve recap'}</button>}
@@ -97,6 +98,19 @@ export function LessonVideoView({id}:{id:string}) {
    </footer>}
   </>}
   {watching&&detail?.playbackUrl&&edit&&<LessonPlayback src={detail.playbackUrl} poster={detail.posterUrl} edit={edit} initialTime={resumeTime.current} onClose={(time,index)=>{resumeTime.current=time;setChapter(index);setWatching(false);}} onRetry={()=>load(true)}/>}
+  {reading&&edit&&<dialog ref={node=>{if(node&&!node.open)node.showModal();}} onCancel={()=>setReading(false)} className="m-0 h-dvh max-h-none w-screen max-w-none overflow-y-auto border-0 bg-ink p-0 text-zinc-100 backdrop:bg-black/80 sm:m-auto sm:h-auto sm:max-h-[85dvh] sm:w-[calc(100%-3rem)] sm:max-w-3xl sm:rounded-2xl sm:border sm:border-edge sm:bg-surface">
+   <div className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-edge bg-ink/95 px-5 py-4 backdrop-blur sm:bg-surface/95">
+    <h2 className="text-xl font-semibold">Lesson notes</h2><button autoFocus className={button} onClick={()=>setReading(false)}>Close</button>
+   </div>
+   <div className="px-5 pb-12 pt-7 sm:px-8">
+    <p className="text-2xl font-bold tracking-tight">{edit.title}</p>
+    <div className="mt-8 divide-y divide-edge">{lessonReaderSections(edit).map(section=><section key={section.number} className="py-7 first:pt-0">
+     <p className="text-xs font-semibold uppercase tracking-widest text-cyan-glow">Chapter {section.number}</p>
+     <h3 className="mt-2 text-xl font-semibold leading-snug">{section.title}</h3>
+     <div className="mt-4 space-y-3">{section.cues.map((cue,index)=><p key={index} className="text-base leading-relaxed text-zinc-300">{cue}</p>)}</div>
+    </section>)}</div>
+   </div>
+  </dialog>}
   {editing&&<dialog ref={node=>{if(node&&!node.open)node.showModal();}} onCancel={()=>setEditing(null)} className="m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-2xl border border-edge bg-surface p-5 text-zinc-100 backdrop:bg-black/75">
    <div className="flex items-center justify-between gap-4"><h2 className="text-xl font-semibold">Edit recap</h2><button className={button} onClick={()=>setEditing(null)}>Cancel</button></div>
    <label className="mt-5 block text-sm">Title<input autoFocus className={field} value={editing.title} maxLength={100} onChange={e=>setEditing({...editing,title:e.target.value})}/></label>

@@ -16,6 +16,18 @@ final class LearnCatalogTests: XCTestCase {
         XCTAssertNil(LessonVideoChapterSelection.start(at: 3, chapters: chapters, original: false))
     }
 
+    func testLessonVideoDetailOffersReadOnlyCompleteNotes() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("PongLens/Screens/LessonVideoScreen.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Read lesson notes"))
+        XCTAssertTrue(source.contains("LessonVideoNotesReader"))
+        XCTAssertFalse(source.contains("Text(\"First chapter\")"))
+    }
+
     private func loadStore() throws -> LearnCatalogStore {
         let resourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

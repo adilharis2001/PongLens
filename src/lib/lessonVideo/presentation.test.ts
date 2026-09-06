@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {readFile} from 'node:fs/promises';
 
 import {lessonChapterStart, lessonReaderSections} from './presentation.ts';
 import type {LessonEdit} from './model.ts';
@@ -28,4 +29,12 @@ test('chapter start uses recap timestamps and accumulated clip duration as fallb
  assert.equal(lessonChapterStart(edit.chapters,1),30);
  assert.equal(lessonChapterStart(edit.chapters,2),90);
  assert.equal(lessonChapterStart(edit.chapters,12),null);
+});
+
+test('lesson detail offers the complete read-only recap and returns students to the journal',async()=>{
+ const source=await readFile(new URL('../../app/lesson-video/[id]/LessonVideoView.tsx',import.meta.url),'utf8');
+ assert.match(source,/Read lesson notes/);
+ assert.match(source,/lessonReaderSections\(edit\)/);
+ assert.match(source,/const back=detail\?\.isOwner[^\n]+:\s*['"]\/journal['"]/);
+ assert.doesNotMatch(source,/First chapter/);
 });
