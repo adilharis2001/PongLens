@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { CSS } from "./styles";
 
@@ -919,6 +920,9 @@ export function V3ServeDetector({
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div id="matchbar">
         <span className="lab">Match</span>
+        <Link href="/research/v3-serve-detector/across" className="pill">
+          All matches
+        </Link>
         {matches.map((m, i) => (
           <button key={m.matchId} data-m={m.matchId} aria-pressed={i === 0}>
             {m.title}

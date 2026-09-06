@@ -130,7 +130,7 @@ function describe(r: Row): string | null {
       return `${point}, ${span}: swallowed by the card next door. Needs splitting out.`;
     case "extra": {
       const cards = (r.mine ?? []).map((c) => `${mmss(c.t0)} to ${mmss(c.t1)}`).join(" and ");
-      return `${point}, ${span}: more than one card (${cards}). Delete or join the extra one.`;
+      return `${point}, ${span}: two cards (${cards}). If one is a knock beside a complete card, delete it; if the point was cut in two, join them.`;
     }
     case "junk_unknown": {
       const c = r.mine?.[0];
@@ -170,8 +170,24 @@ export default async function V3AcrossMatchesPage() {
   return (
     <div className="v3 novideo">
       <style dangerouslySetInnerHTML={{ __html: CSS + EXTRA_CSS }} />
+      <div id="matchbar">
+        <span className="lab">Match</span>
+        <Link href="/research/v3-serve-detector/across" className="pill" aria-current="page">
+          All matches
+        </Link>
+        {data.map(({ meta }) => (
+          <Link
+            key={meta.matchId}
+            href={`/research/v3-serve-detector?m=${meta.matchId}`}
+            className="pill"
+          >
+            {meta.title}
+            {meta.venue ? ` · ${meta.venue}` : ""}
+          </Link>
+        ))}
+      </div>
       <header>
-        <h1>V3 across matches</h1>
+        <h1>All matches</h1>
       </header>
       <div className="across">
         {data.length === 0 ? (
@@ -186,7 +202,7 @@ export default async function V3AcrossMatchesPage() {
                   <th>Got one correct card</th>
                   <th>Add a missing point</th>
                   <th>Split a card holding two points</th>
-                  <th>Join or delete a doubled card</th>
+                  <th>Two cards on one point</th>
                   <th>Delete a junk card</th>
                   <th>Ends before your winner press</th>
                   <th>Server right</th>

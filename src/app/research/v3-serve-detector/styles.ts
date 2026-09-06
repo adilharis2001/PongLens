@@ -36,6 +36,12 @@ export const CSS = `
 .v3 #matchbar { display:flex; flex-wrap:wrap; gap:6px; align-items:center;
                 padding:8px 16px; border-bottom:1px solid #222831; }
 .v3 #matchbar .lab { color:#8b97a7; font-size:12.5px; margin-right:2px; }
+/* The across page and the per-match page share this bar, so a link between
+   them is drawn exactly like the match buttons beside it. */
+.v3 #matchbar a.pill { font-size:12.5px; padding:4px 12px; border-radius:999px;
+  border:1px solid #2a323d; background:#141922; color:#c7d2e0; text-decoration:none; }
+.v3 #matchbar a.pill:hover { border-color:#4a5563; }
+.v3 #matchbar a.pill[aria-current="page"] { background:#e7ecf3; color:#0b0d10; border-color:#e7ecf3; }
 .v3 #videowrap { background:#000; display:flex; justify-content:center; }
 .v3 #clip { position:relative; overflow:hidden; }
 /* max-width:none is load-bearing. Tailwind's preflight sets
