@@ -1,6 +1,9 @@
 import Foundation
 import Supabase
 
+/// Which way a Join reaches: into the points before this one, or after.
+enum JoinDirection { case previous, next }
+
 // The point sheet's supporting cast: tags, the owner's custom loss-reason
 // pills, and the Modify modal's split/join/adjust machinery — each a direct
 // port of the web's writes (MatchView.tsx, modifyOps.ts) so the two apps can
@@ -244,30 +247,50 @@ extension MatchDetailModel {
     /// Join this point with the next `count` visible points. merge_points
     /// keeps the survivor and hard-deletes the rest — the one Modify action
     /// that cannot be undone.
-    func runJoin(_ point: MatchPoint, pad: ClipPad, count: Int) async -> Bool {
-        guard let i = visible.firstIndex(where: { $0.id == point.id }) else { return false }
-        let nexts = visible.dropFirst(i + 1)
-            .filter { $0.cutT0 != nil && $0.t1 != nil }
-            .prefix(count)
-        guard nexts.count == count else { return false }
-        let ids = [point.id] + nexts.map(\.id)
+    /// The visible points a Join in `direction` would swallow, nearest
+    /// first, at most two. The sheet sizes its stepper and its preview from
+    /// this and the write builds the merge from it, so the two cannot
+    /// disagree about which rows are on the table.
+    func joinNeighbours(_ point: MatchPoint, direction: JoinDirection) -> [MatchPoint] {
+        guard let i = visible.firstIndex(where: { $0.id == point.id }) else { return [] }
+        let ok: (MatchPoint) -> Bool = { $0.cutT0 != nil && $0.t0 != nil && $0.t1 != nil }
+        switch direction {
+        case .next: return Array(visible.dropFirst(i + 1).filter(ok).prefix(2))
+        case .previous: return Array(visible.prefix(i).filter(ok).suffix(2).reversed())
+        }
+    }
+
+    /// Merge this point with `count` neighbours in `direction`. Returns the
+    /// survivor — the earliest point of the run, which joining backwards
+    /// makes one of the NEIGHBOURS, with this point among the rows that go.
+    func runJoin(
+        _ point: MatchPoint, pad: ClipPad, count: Int, direction: JoinDirection
+    ) async -> MatchPoint? {
+        let neighbours = Array(joinNeighbours(point, direction: direction).prefix(count))
+        guard neighbours.count == count else { return nil }
+        // merge_points keeps the FIRST id, so the run goes in timeline order.
+        let run: [MatchPoint] = direction == .next
+            ? [point] + neighbours
+            : Array(neighbours.reversed()) + [point]
+        let ids = run.map(\.id)
         struct Params: Encodable { let p_ids: [String] }
         do {
             let survivor: MatchPoint = try await supa
                 .rpc("merge_points", params: Params(p_ids: ids.map { $0.uuidString.lowercased() }))
                 .execute()
                 .value
-            if let j = points.firstIndex(where: { $0.id == point.id }) {
-                points[j].t1 = survivor.t1 ?? point.t1
+            let survivorId = ids[0]
+            if let j = points.firstIndex(where: { $0.id == survivorId }) {
+                points[j].t1 = survivor.t1 ?? points[j].t1
                 points[j].tightEnd = false
                 points[j].edited = true
             }
-            let mergedIds = Set(nexts.map(\.id))
+            let mergedIds = Set(ids.dropFirst())
             points.removeAll { mergedIds.contains($0.id) }
             Task { await recutOnDevice(matchId: point.matchId, pad: pad) }
-            return true
+            return points.first(where: { $0.id == survivorId })
         } catch {
-            return false
+            return nil
         }
     }
 

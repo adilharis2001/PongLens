@@ -1,5 +1,6 @@
 "use client";
 
+import type { JoinDirection } from "./modifyOps";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Note, Point, Tag } from "@/lib/types";
 import type { GameEndOverride, MatchScore } from "./gameScore";
@@ -222,6 +223,7 @@ export function PointSheet({
   ) => Promise<boolean>;
   onModifyJoin?: (
     point: Point,
+    direction: JoinDirection,
     count: number,
     winner: "user" | "opponent" | "skip"
   ) => Promise<boolean>;

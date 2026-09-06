@@ -13,7 +13,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import type { Note, Point, ServeStartMeta, Tag } from "@/lib/types";
 import { ModifyClip } from "./ModifyClip";
-import { runJoinPlan, runSplitPlan } from "./modifyOps";
+import { runJoinPlan, runSplitPlan, type JoinDirection } from "./modifyOps";
 import {
   computeMatchScore,
   createBoundaryWalk,
@@ -4297,7 +4297,11 @@ export const Player = forwardRef<
    * gone) — the modal confirms it and it is NOT pushed to the undo stack.
    */
   const performJoin = useCallback(
-    async (count: number, winner: "user" | "opponent" | "skip") => {
+    async (
+      direction: JoinDirection,
+      count: number,
+      winner: "user" | "opponent" | "skip"
+    ) => {
       if (modifyBusy || !onMerge || !modifyPoint) return;
       const ps = pointsRef.current;
       const i = ps.findIndex((p) => p.id === modifyPoint.id);
@@ -4306,14 +4310,17 @@ export const Player = forwardRef<
 
       setModifyBusy(true);
       pauseBoth();
-      const plan = await runJoinPlan({ point: A, points: ps, count });
+      const plan = await runJoinPlan({ point: A, points: ps, count, direction });
       if (!plan) {
         setModifyBusy(false);
         showToast("Couldn't join. Try again.");
         return;
       }
-      const { survivor, survivorPatch, mergedIds } = plan;
-      onMerge(A.id, survivorPatch, mergedIds);
+      const { survivor, survivorPatch, mergedIds, lastId } = plan;
+      // Joining backwards keeps the EARLIER point: this one is among the
+      // rows that go, so the patch and the score land on the survivor by
+      // its own id, never on A's.
+      onMerge(survivor.id, survivorPatch, mergedIds);
       if (winner === "skip") onSetSkipped(survivor, true);
       else onSetWinner(survivor, winner);
 
@@ -4322,14 +4329,14 @@ export const Player = forwardRef<
       pinEndPause(null);
       endPauseFiredRef.current = null;
       // Advance past the merged range: the survivor is scored, so land on
-      // the point after the last one we joined, not back on the survivor.
-      const lastIdx = ps.findIndex((p) => p.id === mergedIds[mergedIds.length - 1]);
+      // the point after the last one in the run, not back on the survivor.
+      const lastIdx = ps.findIndex((p) => p.id === lastId);
       const nextAfter = lastIdx >= 0 ? (ps[lastIdx + 1] ?? null) : null;
       if (nextAfter && nextAfter.cut_t0 !== null) {
         seekTo(Number(nextAfter.cut_t0));
         playNow();
-      } else if (A.cut_t0 !== null) {
-        seekTo(Number(A.cut_t0));
+      } else if (survivor.cut_t0 !== null) {
+        seekTo(Number(survivor.cut_t0));
       }
       showFlash("Joined");
     },
@@ -8255,7 +8262,9 @@ export const Player = forwardRef<
           onSplit={(cutTimes, segments) =>
             void performSplit(modifyPoint, cutTimes, segments)
           }
-          onJoin={(count, winner) => void performJoin(count, winner)}
+          onJoin={(direction, count, winner) =>
+            void performJoin(direction, count, winner)
+          }
           onAdjust={(t0, t1) => void performAdjust(t0, t1)}
         />
       )}

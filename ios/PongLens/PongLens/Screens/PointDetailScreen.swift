@@ -33,6 +33,7 @@ struct PointDetailScreen: View {
     @State private var shareSheetOpen = false
     @State private var tagPickerOpen = false
     @State private var modifyOpen = false
+    @State private var modifyingPoint: (UUID, Double)?
     @State private var feedbackOpen = false
     @State private var confirmingBefore = false
     @State private var annotateFrame: UIImage?
@@ -195,6 +196,27 @@ struct PointDetailScreen: View {
         // learns the path, so the fresh footage plays without a reopen.
         .onChange(of: point?.clipPath) { _, _ in
             Task { await loadClip() }
+        }
+        // A Join can take the point on screen WITH it — joining backwards
+        // keeps the earlier point and this row goes. Remember which point
+        // the sheet opened on and, if it is gone when the sheet closes,
+        // follow the merged point rather than showing whatever now sits at
+        // this position.
+        .onChange(of: modifyOpen) { _, open in
+            if open {
+                modifyingPoint = point.map { ($0.id, $0.t0 ?? 0) }
+                return
+            }
+            guard let (id, t0) = modifyingPoint else { return }
+            modifyingPoint = nil
+            if points.contains(where: { $0.id == id }) { return }
+            if let i = points.firstIndex(where: {
+                ($0.t0 ?? .infinity) <= t0 + 0.01 && ($0.t1 ?? -.infinity) >= t0 - 0.01
+            }) {
+                index = i
+            } else {
+                index = min(index, max(0, points.count - 1))
+            }
         }
         // An edit made from this screen: play the new window from the cut
         // video straight away rather than the file it just made stale.

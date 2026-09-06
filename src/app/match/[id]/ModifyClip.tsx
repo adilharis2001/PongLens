@@ -1,5 +1,6 @@
 "use client";
 
+import { joinNeighbours, type JoinDirection } from "./modifyOps";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Point } from "@/lib/types";
 import { effectivePad } from "./clipEdit";
@@ -102,7 +103,7 @@ export function ModifyClip({
   busy: boolean;
   onClose: () => void;
   onSplit: (cutTimes: number[], segments: Disposition[]) => void;
-  onJoin: (count: number, winner: Disposition) => void;
+  onJoin: (direction: JoinDirection, count: number, winner: Disposition) => void;
   /** Save adjusted timing (source-video seconds). The host owns the write
    *  and the reclip; the modal closes on the host's signal (busy → close). */
   onAdjust: (t0New: number, t1New: number) => void;
@@ -116,16 +117,25 @@ export function ModifyClip({
 }) {
   const [tab, setTab] = useState<Tab>("split");
 
-  // ---- adjacency for JOIN: the next visible points after this one ----
-  const nextPoints = useMemo(() => {
-    const i = points.findIndex((p) => p.id === point.id);
-    if (i < 0) return [];
-    return points
-      .slice(i + 1)
-      .filter((p) => p.cut_t0 !== null && p.t0 !== null && p.t1 !== null)
-      .slice(0, 2);
-  }, [points, point.id]);
-  const maxJoin = nextPoints.length; // 0, 1, or 2
+  // ---- adjacency for JOIN: up to two visible points either side ----
+  const prevPoints = useMemo(
+    () => joinNeighbours(point, points, "prev"),
+    [points, point]
+  );
+  const nextPoints = useMemo(
+    () => joinNeighbours(point, points, "next"),
+    [points, point]
+  );
+  // Backwards by default. You notice two cards are one rally by watching
+  // the second and realising it began in the first, so the join you want
+  // is with the point you just left. Forwards is still there for the
+  // other case.
+  const [joinDir, setJoinDir] = useState<JoinDirection>(() =>
+    prevPoints.length > 0 ? "prev" : "next"
+  );
+  const joinPool = joinDir === "prev" ? prevPoints : nextPoints;
+  const maxJoin = joinPool.length; // 0, 1, or 2
+  const canJoin = prevPoints.length > 0 || nextPoints.length > 0;
 
   const geo = useMemo(() => geometryOf(point, pad), [point, pad]);
   const splittable =
@@ -200,7 +210,7 @@ export function ModifyClip({
     if (joinCount > maxJoin) setJoinCount(Math.max(1, maxJoin));
   }, [joinCount, maxJoin]);
   // Any change to what's being joined disarms the confirm.
-  useEffect(() => setJoinArmed(false), [joinCount, joinWinner, tab]);
+  useEffect(() => setJoinArmed(false), [joinCount, joinWinner, tab, joinDir]);
 
   // ------------------------------ ADJUST state -------------------------------
   // Draft t0/t1 on the SOURCE timeline. The cut keeps source durations
@@ -249,13 +259,18 @@ export function ModifyClip({
   // the last joined point for JOIN.
   const videoSpan = useMemo(() => {
     if (!geo) return null;
-    if (tab === "join" && joinCount >= 1 && nextPoints.length >= joinCount) {
-      const last = nextPoints[joinCount - 1];
-      const end = paddedEnd(last, pad);
-      if (end !== null) return { start: geo.spanStart, end };
+    if (tab === "join" && joinCount >= 1 && joinPool.length >= joinCount) {
+      const far = joinPool[joinCount - 1];
+      if (joinDir === "next") {
+        const end = paddedEnd(far, pad);
+        if (end !== null) return { start: geo.spanStart, end };
+      } else {
+        const farGeo = geometryOf(far, pad);
+        if (farGeo) return { start: farGeo.spanStart, end: geo.spanEnd };
+      }
     }
     return { start: geo.spanStart, end: geo.spanEnd };
-  }, [geo, tab, joinCount, nextPoints, pad]);
+  }, [geo, tab, joinCount, joinPool, joinDir, pad]);
 
   // What PLAYS on the adjust tab: the draft point with its pads, clamped
   // to the footage the match video holds, so pressing play after a drag
@@ -509,8 +524,8 @@ export function ModifyClip({
       setJoinArmed(true);
       return;
     }
-    onJoin(joinCount, joinWinner);
-  }, [maxJoin, busy, joinArmed, joinCount, joinWinner, onJoin]);
+    onJoin(joinDir, joinCount, joinWinner);
+  }, [maxJoin, busy, joinArmed, joinDir, joinCount, joinWinner, onJoin]);
 
   const label = (d: Disposition) =>
     d === "user" ? youLabel : d === "opponent" ? themLabel : "Skip";
@@ -574,8 +589,8 @@ export function ModifyClip({
           </button>
           <button
             type="button"
-            onClick={() => maxJoin >= 1 && setTab("join")}
-            disabled={maxJoin < 1}
+            onClick={() => canJoin && setTab("join")}
+            disabled={!canJoin}
             className={`rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-40 ${
               tab === "join"
                 ? "border-cyan-glow/60 bg-cyan-glow/10"
@@ -586,7 +601,7 @@ export function ModifyClip({
               Join
             </span>
             <span className="block text-[11px] text-zinc-500">
-              {maxJoin < 1 ? "no next point" : "merge with next"}
+              {canJoin ? "merge neighbours" : "nothing beside it"}
             </span>
           </button>
           <button
@@ -911,9 +926,39 @@ export function ModifyClip({
             </>
           ) : (
             <>
+              {/* which way: the point(s) before this one, or after */}
+              <div className="grid grid-cols-2 gap-1.5 pt-1">
+                {(["prev", "next"] as const).map((dir) => {
+                  const n = dir === "prev" ? prevPoints.length : nextPoints.length;
+                  const on = joinDir === dir;
+                  return (
+                    <button
+                      key={dir}
+                      type="button"
+                      onClick={() => {
+                        if (n < 1) return;
+                        setJoinDir(dir);
+                        setJoinCount((c) => Math.min(Math.max(1, c), n));
+                      }}
+                      disabled={n < 1}
+                      aria-pressed={on}
+                      className={`rounded-lg border px-2 py-2 text-sm font-semibold transition-colors disabled:opacity-30 ${
+                        on
+                          ? "border-cyan-glow bg-cyan-glow/20 text-cyan-glow"
+                          : "border-edge bg-ink/40 text-zinc-400 enabled:hover:border-zinc-500"
+                      }`}
+                    >
+                      {dir === "prev" ? "← Previous" : "Next →"}
+                    </button>
+                  );
+                })}
+              </div>
+
               {/* join stepper */}
               <div className="flex items-center justify-between py-2">
-                <span className="text-sm text-zinc-300">Join with next</span>
+                <span className="text-sm text-zinc-300">
+                  {joinDir === "prev" ? "Points before" : "Points after"}
+                </span>
                 <div className="flex items-center gap-3">
                   <button
                     type="button"

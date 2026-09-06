@@ -76,6 +76,10 @@ struct ModifySheet: View {
     @State private var joinCount = 1
     @State private var joinWinner: WinnerOrSkip = .user
     @State private var joinArmed = false
+    /// Backwards by default. You notice two cards are one rally by watching
+    /// the second and realising it began in the first, so the join you want
+    /// is with the point you just left. Falls forward when nothing precedes.
+    @State private var joinDirection: JoinDirection = .previous
 
     // Adjust: edited t0/t1 in SOURCE seconds.
     @State private var adjT0: Double = 0
@@ -130,25 +134,35 @@ struct ModifySheet: View {
         return geo.markerHi - geo.markerLo > minGapS
     }
 
-    /// The visible points this one could swallow — at most two.
-    private var nextPoints: [MatchPoint] {
-        guard let i = model.visible.firstIndex(where: { $0.id == point.id }) else { return [] }
-        return Array(
-            model.visible.dropFirst(i + 1)
-                .filter { $0.cutT0 != nil && $0.t0 != nil && $0.t1 != nil }
-                .prefix(2)
-        )
+    /// The visible points this one could swallow either way — at most two
+    /// per side, nearest first.
+    private var prevPoints: [MatchPoint] { model.joinNeighbours(point, direction: .previous) }
+    private var nextPoints: [MatchPoint] { model.joinNeighbours(point, direction: .next) }
+
+    /// The chosen direction, corrected for a side that has nothing on it.
+    private var joinDir: JoinDirection {
+        switch joinDirection {
+        case .previous: return prevPoints.isEmpty ? .next : .previous
+        case .next: return nextPoints.isEmpty ? .previous : .next
+        }
     }
+    private var joinPool: [MatchPoint] { joinDir == .previous ? prevPoints : nextPoints }
+    private var maxJoin: Int { joinPool.count }
+    private var canJoin: Bool { !prevPoints.isEmpty || !nextPoints.isEmpty }
 
-    private var maxJoin: Int { nextPoints.count }
-
-    /// What the video covers: the point's clip, extended through the last
-    /// joined point while the Join tab is up.
+    /// What the video covers: the point's clip, extended through the far
+    /// end of the run while the Join tab is up — forward to the last joined
+    /// point's end, or back to the earliest one's start.
     private var videoSpan: (start: Double, end: Double)? {
         guard let geo else { return nil }
-        if tab == .join, joinCount >= 1, nextPoints.count >= joinCount,
-           let end = paddedEnd(nextPoints[joinCount - 1], pad) {
-            return (geo.spanStart, end)
+        if tab == .join, joinCount >= 1, joinPool.count >= joinCount {
+            let far = joinPool[joinCount - 1]
+            switch joinDir {
+            case .next:
+                if let end = paddedEnd(far, pad) { return (geo.spanStart, end) }
+            case .previous:
+                if let start = far.cutT0 { return (start, geo.spanEnd) }
+            }
         }
         return (geo.spanStart, geo.spanEnd)
     }
@@ -307,6 +321,10 @@ struct ModifySheet: View {
             joinArmed = false
             seekToSpanStart()
         }
+        .onChange(of: joinDirection) { _, _ in
+            joinArmed = false
+            joinCount = min(max(1, joinCount), max(1, maxJoin))
+        }
         .onChange(of: joinCount) { _, _ in
             joinArmed = false
             seekToSpanStart()
@@ -350,8 +368,8 @@ struct ModifySheet: View {
     private var tabPicker: some View {
         HStack(spacing: 6) {
             tabCard(.split, "one point → 2-3", enabled: true)
-            tabCard(.join, maxJoin < 1 ? "no next point" : "merge with next",
-                    enabled: maxJoin >= 1)
+            tabCard(.join, canJoin ? "merge neighbours" : "nothing beside it",
+                    enabled: canJoin)
             tabCard(.adjust, "fix start / end", enabled: point.t0 != nil)
         }
         .padding(.horizontal, 12)
@@ -692,8 +710,16 @@ struct ModifySheet: View {
 
     @ViewBuilder
     private var joinBody: some View {
+        // Which way: the point(s) before this one, or after.
+        HStack(spacing: 6) {
+            directionPill("← Previous", .previous, count: prevPoints.count)
+            directionPill("Next →", .next, count: nextPoints.count)
+        }
+        .padding(.top, 4)
+
         stepper(
-            "Join with next", value: joinCount, range: 1...max(1, maxJoin),
+            joinDir == .previous ? "Points before" : "Points after",
+            value: joinCount, range: 1...max(1, maxJoin),
             format: { "\($0) point\($0 == 1 ? "" : "s")" },
             set: { joinCount = $0 }
         )
@@ -855,6 +881,30 @@ struct ModifySheet: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .accessibilityLabel(icon == "minus" ? "Fewer points" : "More points")
+    }
+
+    private func directionPill(_ label: String, _ value: JoinDirection, count: Int) -> some View {
+        let on = joinDir == value
+        return Button { joinDirection = value } label: {
+            Text(label)
+                .font(.system(size: 14, weight: .semibold))
+                .lineLimit(1)
+                .foregroundStyle(on ? PL.cyan : PL.text400)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
+                        .fill(on ? PL.cyan.opacity(0.2) : PL.ink.opacity(0.4))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
+                        .strokeBorder(on ? PL.cyan : PL.edge, lineWidth: 1)
+                )
+                .opacity(count < 1 ? 0.3 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(count < 1)
+        .accessibilityLabel(value == .previous ? "Join with the previous point" : "Join with the next point")
     }
 
     private func dispositionRow(
@@ -1033,15 +1083,15 @@ struct ModifySheet: View {
         failed = false
         // Past the whole merged range, not back onto the survivor: it is
         // already scored, so landing on it would replay a point that has
-        // just been answered.
-        let landing = nextPoints.count >= joinCount
-            ? landingAfter(nextPoints[joinCount - 1])
-            : nil
-        let ok = await model.runJoin(point, pad: pad, count: joinCount)
-        if ok {
-            if let survivor = model.points.first(where: { $0.id == point.id }) {
-                await model.setOutcome(survivor, joinWinner)
-            }
+        // just been answered. Forward, the run ends at the last neighbour;
+        // backward, it ends at this point. Read before the write, while
+        // every row of the run still exists.
+        let dir = joinDir
+        let pool = joinPool
+        guard pool.count >= joinCount else { busy = false; return }
+        let landing = landingAfter(dir == .next ? pool[joinCount - 1] : point)
+        if let survivor = await model.runJoin(point, pad: pad, count: joinCount, direction: dir) {
+            await model.setOutcome(survivor, joinWinner)
             finish(ModifyOutcome(
                 landing: landing, play: true,
                 flash: "Joined \(joinCount + 1) points"

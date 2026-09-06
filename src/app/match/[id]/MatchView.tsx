@@ -63,6 +63,7 @@ import {
   runJoinPlan,
   runSplitPlan,
   type AdjustRestore,
+  type JoinDirection,
 } from "./modifyOps";
 import { reanchorCutT0 } from "./clipEdit";
 import { Player, type PlayerHandle } from "./Player";
@@ -2441,19 +2442,30 @@ export function MatchView({
   const modifyJoinFromDetail = useCallback(
     async (
       point: Point,
+      direction: JoinDirection,
       count: number,
       winner: "user" | "opponent" | "skip"
     ): Promise<boolean> => {
-      const plan = await runJoinPlan({ point, points: visiblePoints, count });
+      const plan = await runJoinPlan({
+        point,
+        points: visiblePoints,
+        count,
+        direction,
+      });
       if (!plan) return false;
       const drop = new Set(plan.mergedIds);
+      const sid = plan.survivor.id;
       setPoints((ps) =>
         ps
           .filter((p) => !drop.has(p.id))
-          .map((p) => (p.id === point.id ? { ...p, ...plan.survivorPatch } : p))
+          .map((p) => (p.id === sid ? { ...p, ...plan.survivorPatch } : p))
       );
       if (winner === "skip") void setSkipped(plan.survivor, true);
       else void setWinner(plan.survivor, winner);
+      // Joined backwards, the point on screen is one of the rows that
+      // just went; follow the merged point rather than falling to
+      // whatever now sits at that position.
+      if (sid !== point.id) setActivePointId(sid);
       return true;
     },
     [visiblePoints, setWinner, setSkipped]

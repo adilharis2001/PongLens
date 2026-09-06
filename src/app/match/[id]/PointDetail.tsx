@@ -1,5 +1,6 @@
 "use client";
 
+import type { JoinDirection } from "./modifyOps";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BetaPill } from "@/components/BetaPill";
@@ -193,6 +194,7 @@ export function PointDetail({
   ) => Promise<boolean>;
   onModifyJoin?: (
     point: Point,
+    direction: JoinDirection,
     count: number,
     winner: "user" | "opponent" | "skip"
   ) => Promise<boolean>;
@@ -1005,9 +1007,9 @@ export function PointDetail({
                   setModifyOpen(false);
                 });
               }}
-              onJoin={(count, winner) => {
+              onJoin={(direction, count, winner) => {
                 setModifyBusy(true);
-                void onModifyJoin(point, count, winner).then(() => {
+                void onModifyJoin(point, direction, count, winner).then(() => {
                   setModifyBusy(false);
                   setModifyOpen(false);
                 });
