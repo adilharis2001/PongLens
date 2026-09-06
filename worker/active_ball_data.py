@@ -2,7 +2,7 @@
 import math
 
 
-def validate_dataset(rows):
+def validate_dataset(rows, allow_shared_venues=False):
     ids, matches, venues, recordings = set(), {}, {}, {}
     for r in rows:
         if r['id'] in ids:
@@ -16,7 +16,10 @@ def validate_dataset(rows):
             if digest in recordings and recordings[digest] != split:
                 raise ValueError('recording leaks between splits')
             recordings[digest]=split
-        for key, mapping in [('match_id', matches), ('venue', venues)]:
+        mappings = [('match_id', matches)]
+        if not allow_shared_venues:
+            mappings.append(('venue', venues))
+        for key, mapping in mappings:
             value = r[key]
             if not value:
                 raise ValueError(f'missing {key}')

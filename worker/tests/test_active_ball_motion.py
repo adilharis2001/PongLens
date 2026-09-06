@@ -1,10 +1,21 @@
 import unittest
 import numpy as np
 import cv2
-from worker.active_ball_motion import motion_candidates, consistent_candidate
+from worker.active_ball_motion import ball_candidates, motion_candidates, consistent_candidate
 
 
 class MotionTests(unittest.TestCase):
+    def test_ball_candidates_include_stationary_white_and_orange_balls_but_not_line(self):
+        frames = [np.zeros((160, 240, 3), np.uint8) for _ in range(3)]
+        for frame in frames:
+            cv2.circle(frame, (60, 70), 5, (245, 245, 245), -1)
+            cv2.circle(frame, (170, 90), 5, (20, 125, 245), -1)
+            cv2.line(frame, (20, 130), (220, 130), (255, 255, 255), 3)
+        candidates = ball_candidates(frames)
+        self.assertTrue(any(np.hypot(c['x'] - 60, c['y'] - 70) < 3 for c in candidates))
+        self.assertTrue(any(np.hypot(c['x'] - 170, c['y'] - 90) < 3 for c in candidates))
+        self.assertFalse(any(abs(c['y'] - 130) < 3 for c in candidates))
+
     def test_moving_ball_survives_but_stationary_white_decoy_does_not(self):
         frames=[]
         for x in [70,80,90]:

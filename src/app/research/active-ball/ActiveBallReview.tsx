@@ -7,6 +7,8 @@ import { sourcePoint, type BallLabel, type BallSample } from '@/lib/research/act
 
 const secondary = 'min-h-11 rounded-full border border-edge px-4 py-2 text-sm text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white disabled:opacity-40';
 const primary = 'min-h-11 w-full rounded-full border border-cyan-400/60 bg-cyan-500/15 px-5 py-2.5 text-sm font-medium text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-40';
+const localRun='ponglens-yolo26n-20260905-v3';
+const geminiRun='gemini-3.8-flash-20260905-v4';
 const states = [
   {state:'hidden',title:'Ball is hidden',detail:'This table’s ball is present, but obscured or outside the frame.'},
   {state:'absent',title:'No ball present',detail:'No ball belonging to this table is present. A visible held ball should be marked.'},
@@ -16,10 +18,13 @@ const states = [
 export function ActiveBallReview({initial,evaluations=[]}:{initial:BallSample[];evaluations?:BallEvaluation[]}) {
   const [rows,setRows] = useState(initial);
   const [index,setIndex] = useState(0);
-  const [compare,setCompare] = useState(evaluations.length>0);
+  const [view,setView] = useState(evaluations.some(e=>e.run_id===localRun)?localRun:evaluations.length?geminiRun:'labels');
+  const compare=view!=='labels';
   const [filter,setFilter] = useState(evaluations.length?'differences':initial.every(r=>r.label)?'all':'todo');
-  const evaluationById = new Map(evaluations.map(e=>[e.sample_id,e]));
-  const summary = comparisonSummary(evaluations);
+  const activeEvaluations=evaluations.filter(e=>e.run_id===view);
+  const evaluationById = new Map(activeEvaluations.map(e=>[e.sample_id,e]));
+  const summary = comparisonSummary(activeEvaluations);
+  const comparisonName=view===localRun?'PongLens YOLO26n · preliminary':'Gemini 3.8 Flash · Prompt 3';
   const [venue,setVenue] = useState('all');
   const [blocked,setBlocked] = useState(false);
   const [notice,setNotice] = useState('');
@@ -49,15 +54,19 @@ export function ActiveBallReview({initial,evaluations=[]}:{initial:BallSample[];
     </header>
     <div className="h-0.5 bg-zinc-900"><div className="h-full bg-cyan-400 transition-all" style={{width:`${rows.length?reviewed/rows.length*100:0}%`}}/></div>
     <div className="mx-auto max-w-[1600px] p-4 sm:p-6">
-      {evaluations.length>0 && <div className="mb-5 flex flex-wrap gap-x-8 gap-y-3 border-b border-edge pb-4 text-sm" aria-label="Gemini results">
-        <span>Gemini 3.8 Flash · Prompt 3</span>
+      {activeEvaluations.length>0 && <div className="mb-5 flex flex-wrap gap-x-8 gap-y-3 border-b border-edge pb-4 text-sm" aria-label="Model results">
+        <span>{comparisonName}</span>
         <span>{summary.total} / {rows.length} evaluated{summary.unanswered>0?` · ${summary.unanswered} unanswered`:null}</span>
         <span><strong className="text-cyan-100">{summary.located} / {summary.visible}</strong> visible balls within 20 pixels</span>
         <span><strong>{summary.falseDetections} / {summary.nonvisible}</strong> false visible-ball detections</span>
         <span><strong>{summary.stateAgreement} / {summary.total}</strong> visibility states agree</span>
       </div>}
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        {evaluations.length>0 && <select aria-label="View" disabled={blocked} value={compare?'gemini':'labels'} onChange={e=>{const c=e.target.value==='gemini';setCompare(c);setFilter(c?'differences':'all');setIndex(0);setNotice('');}} className="min-h-11 rounded-full border border-edge bg-ink px-4 text-sm"><option value="gemini">Gemini comparison</option><option value="labels">Edit labels</option></select>}
+        {evaluations.length>0 && <select aria-label="View" disabled={blocked} value={view} onChange={e=>{const next=e.target.value;setView(next);setFilter(next==='labels'?'all':'differences');setIndex(0);setNotice('');}} className="min-h-11 rounded-full border border-edge bg-ink px-4 text-sm">
+          {evaluations.some(e=>e.run_id===localRun)&&<option value={localRun}>PongLens model</option>}
+          {evaluations.some(e=>e.run_id===geminiRun)&&<option value={geminiRun}>Gemini comparison</option>}
+          <option value="labels">Edit labels</option>
+        </select>}
         <select aria-label="Review status" disabled={blocked} value={filter} onChange={e=>{setFilter(e.target.value);setIndex(0);setNotice('');}} className="min-h-11 rounded-full border border-edge bg-ink px-4 text-sm">
           {compare && <option value="differences">Disagreements</option>}<option value="all">All examples</option>{!compare && <><option value="todo">Not reviewed</option><option value="done">Reviewed</option></>}
         </select>
@@ -142,7 +151,7 @@ function SampleEditor({sample,comparison,onBlocked,onSaved,navigation}:{sample:B
   const selected = label?.state==='visible'?'Ball marked':states.find(s=>s.state===label?.state)?.title;
   return <div data-sample-id={sample.id} className="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:items-start">
     <section className="min-w-0 lg:col-span-3">
-      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm"><span className="font-medium">{sample.venue}</span><span className="tabular-nums text-zinc-400">{sample.time_s.toFixed(3)}s</span><span className="text-zinc-500">{sample.split==='train'?'Training match':'Unseen venue'}</span></div>
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm"><span className="font-medium">{sample.venue}</span><span className="tabular-nums text-zinc-400">{sample.time_s.toFixed(3)}s</span><span className="text-zinc-500">{sample.split==='train'?'Training match':'Unseen recording'}</span></div>
       <div className="relative overflow-hidden rounded-xl border border-edge bg-black">
         <div ref={box} className={watching?'hidden':'w-full overflow-auto'} style={{aspectRatio:`${sample.width}/${sample.height}`}}>
           <div className="relative" style={{width:`${zoom*100}%`,aspectRatio:`${sample.width}/${sample.height}`}}>
@@ -172,12 +181,12 @@ function SampleEditor({sample,comparison,onBlocked,onSaved,navigation}:{sample:B
     <aside className="w-full lg:row-span-2">
       <div className="lg:pt-0">
         {comparison ? <>
-          <h2 className="text-lg font-semibold">Your label and Gemini</h2>
+          <h2 className="text-lg font-semibold">Your label and {comparison?.run_id===localRun?'PongLens':'Gemini'}</h2>
           <p className="mt-4 text-sm text-cyan-100">Your label: {label?.state==='visible'?'visible ball':label?.state}.{label?.state==='visible'?' Cyan circle.':''}</p>
-          <p className="mt-3 text-sm text-pink-300">Gemini: {proposal?.state==='visible'?'visible ball':proposal?.state??'no usable response'}.{proposal?.state==='visible'?' Pink square.':''}</p>
+          <p className="mt-3 text-sm text-pink-300">{comparison?.run_id===localRun?'PongLens':'Gemini'}: {proposal?.state==='visible'?'visible ball':proposal?.state??'no usable response'}.{proposal?.state==='visible'?' Pink square.':''}</p>
           {label?.state==='visible' && proposal?.state==='visible' && <p className="mt-3 text-sm">{Math.hypot(label.x!-proposal.x!,label.y!-proposal.y!).toFixed(1)} pixels from your mark.</p>}
-          <p className="mt-4 text-sm leading-relaxed text-zinc-400">{comparison.prediction?.reason ?? 'No usable model response was returned. This counts as an unanswered example.'}</p>
-          <p className="mt-4 text-xs leading-relaxed text-zinc-500">This run counts a ball visibly held by either player as visible. Compared with your answers saved before this test. The 20-pixel threshold is a comparison tolerance, not a claim of production accuracy.</p>
+          {comparison.prediction?.reason&&<p className="mt-4 text-sm leading-relaxed text-zinc-400">{comparison.prediction.reason}</p>}
+          <p className="mt-4 text-xs leading-relaxed text-zinc-500">{comparison.run_id===localRun?'Small local model trained on Gemini labels from nine other recordings. Confidence fixed on two validation recordings before this human audit.':'This run counts a ball visibly held by either player as visible. Compared with your answers saved before this test.'} The 20-pixel threshold is a comparison tolerance, not a claim of production accuracy.</p>
           <div className="mt-5">{navigation}</div>
         </> : <>
         <h2 className="text-lg font-semibold">Where is the active ball?</h2>
@@ -200,7 +209,7 @@ function SampleEditor({sample,comparison,onBlocked,onSaved,navigation}:{sample:B
         <label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={prediction} onChange={e=>setPrediction(e.target.checked)}/>Show model prediction</label>
       </div>
       {prediction && <p className="mt-1 text-sm text-zinc-400">{proposal?.state==='visible'?'Pink square: model prediction.':proposal?.state==='unsure'?'The model could not choose between candidates.':'The model did not locate a visible ball.'} Cyan circle: {comparison?'your frozen reference label':'your mark'}. {comparison?'':'Local-model accuracy has not been measured.'}</p>}
-      <details className="mt-3 text-sm text-zinc-500"><summary className="cursor-pointer py-2">Example details</summary><p className="mt-2">{comparison?'Gemini 3.8 Flash.':sample.model_run?`Run ${sample.model_run}.`:'No model run.'} Frame {sample.frame}. {sample.width} × {sample.height}.</p><button className={`${secondary} mt-3 w-full sm:w-auto`} disabled={busy} onClick={()=>{mark();setRetry(n=>n+1);}}>Reload media</button></details>
+      <details className="mt-3 text-sm text-zinc-500"><summary className="cursor-pointer py-2">Example details</summary><p className="mt-2">{comparison?(comparison.run_id===localRun?'PongLens YOLO26n preliminary model.':'Gemini 3.8 Flash.'):sample.model_run?`Run ${sample.model_run}.`:'No model run.'} Frame {sample.frame}. {sample.width} × {sample.height}.</p><button className={`${secondary} mt-3 w-full sm:w-auto`} disabled={busy} onClick={()=>{mark();setRetry(n=>n+1);}}>Reload media</button></details>
     </div>
   </div>;
 }

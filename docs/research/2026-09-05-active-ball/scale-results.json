@@ -1,0 +1,48 @@
+{
+  "corpus": {
+    "examples": 810,
+    "recordings": 9,
+    "split": {"train": 450, "validation": 180, "test": 180},
+    "manifest_sha256": "0c35b65012796612f3dfb40e9ea6e1e2724b41d19f4c0b506a8f3aa51289a0ef"
+  },
+  "teacher": {
+    "model": "gemini-3.8-flash",
+    "prompt": 3,
+    "valid": 810,
+    "states": {"visible": 474, "hidden": 303, "absent": 21, "unsure": 12},
+    "estimated_usd": 4.9619085
+  },
+  "local_model": {
+    "architecture": "yolo26n",
+    "ultralytics": "8.4.142",
+    "imgsz": 1280,
+    "threshold": 0.2,
+    "checkpoint_sha256": "c8073ea52d7626988bd69552a1eb72454166ff5dad8a553508703848525b8d30"
+  },
+  "teacher_test": {
+    "samples": 179,
+    "visible_reference": 93,
+    "within_10px": 41,
+    "within_20px": 41,
+    "visible_missed": 52,
+    "visible_abstained": 48,
+    "wrong_location": 4,
+    "false_visible": 5,
+    "nonvisible_reference": 86,
+    "conditional_median_error_px": 3.537758703699703,
+    "median_inference_ms": 27.16950001195073
+  },
+  "human_audit": {
+    "samples": 178,
+    "visible_reference": 109,
+    "within_10px": 69,
+    "within_20px": 70,
+    "visible_missed": 39,
+    "visible_abstained": 36,
+    "wrong_location": 3,
+    "false_visible": 14,
+    "nonvisible_reference": 69,
+    "conditional_median_error_px": 3.752988356536701,
+    "median_inference_ms": 30.956104048527777
+  }
+}

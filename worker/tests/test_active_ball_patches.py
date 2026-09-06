@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 import torch
-from worker.active_ball_patches import candidate_patch, candidate_geometry, ActiveBallPatchNet, patch_training_rows, choose_candidate
+from worker.active_ball_patches import candidate_multiscale_patch, candidate_patch, candidate_geometry, ActiveBallPatchNet, patch_training_rows, choose_candidate
 
 
 class PatchTests(unittest.TestCase):
@@ -30,6 +30,13 @@ class PatchTests(unittest.TestCase):
         patch=candidate_patch(frames,0,50)
         self.assertEqual(float(patch.sum()),0.)
 
+    def test_multiscale_patch_keeps_native_detail_and_wider_context(self):
+        frames=[np.zeros((480,640,3),np.uint8) for _ in range(3)]
+        frames[1][240,320]=255
+        patch=candidate_multiscale_patch(frames,320,240)
+        self.assertEqual(tuple(patch.shape),(18,96,96))
+        self.assertEqual(float(patch[3,48,48]),1.)
+
     def test_geometry_scales_with_recording_resolution(self):
         corners=[[100,200],[300,200],[250,100],[150,100]]
         a=candidate_geometry(200,150,corners,1/30)
@@ -40,3 +47,7 @@ class PatchTests(unittest.TestCase):
         model=ActiveBallPatchNet();output=model(torch.rand(2,9,96,96),torch.rand(2,4))
         self.assertEqual(tuple(output.shape),(2,));output.square().mean().backward()
         self.assertTrue(all(p.grad is not None and torch.isfinite(p.grad).all() for p in model.parameters()))
+
+    def test_multiscale_model_accepts_eighteen_channels(self):
+        model=ActiveBallPatchNet(channels=18)
+        self.assertEqual(tuple(model(torch.rand(2,18,96,96),torch.rand(2,4)).shape),(2,))
