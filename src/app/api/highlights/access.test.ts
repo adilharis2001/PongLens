@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { automaticHighlightsEnabled } from "./access";
+import { automaticHighlightsEnabled } from "./access.ts";
 
 test("automatic highlights can be global or limited to one user", () => {
   assert.equal(automaticHighlightsEnabled("on", "user-a"), true);

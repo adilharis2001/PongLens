@@ -550,7 +550,7 @@ The release is acceptable only when all of these are true:
 
 ## Rollout
 
-1. Ship migration 172 with `automatic_highlights = off`.
+1. Ship the quality-first highlights migration with `automatic_highlights = off`.
 2. Release the worker evidence, selection, rendering, storage, and retry paths.
 3. Process the existing private fixture corpus and review every selected rally
    plus a sample of rejected long rallies.

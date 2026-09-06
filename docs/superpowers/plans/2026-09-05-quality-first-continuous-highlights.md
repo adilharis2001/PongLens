@@ -29,7 +29,7 @@
 ### Task 1: Database evidence and artifact states
 
 **Files:**
-- Create: `supabase/migrations/172_quality_first_highlights.sql`
+- Create: `supabase/migrations/20260906040000_quality_first_highlights.sql`
 - Test: `src/lib/research/migration.test.ts`
 
 **Interfaces:**
@@ -40,11 +40,11 @@
 
 - [x] **Step 1: Add a failing migration contract test**
 
-Add assertions that migration 172 contains the new column, widens both reel checks, inserts a non-public switch, and installs a trigger for membership-changing point edits:
+Add assertions that the quality-first highlights migration contains the new column, widens both reel checks, inserts a non-public switch, and installs a trigger for membership-changing point edits:
 
 ```ts
 const sql = readFileSync(
-  join(process.cwd(), "supabase/migrations/172_quality_first_highlights.sql"),
+  join(process.cwd(), "supabase/migrations/20260906040000_quality_first_highlights.sql"),
   "utf8"
 );
 expect(sql).toContain("add column if not exists highlight_evidence jsonb");
@@ -58,9 +58,9 @@ expect(sql).toContain("points_invalidate_highlight_evidence");
 
 Run: `node --test --experimental-strip-types src/lib/research/migration.test.ts`
 
-Expected: failure because migration 172 does not exist.
+Expected: failure because the migration does not exist.
 
-- [x] **Step 3: Add migration 172**
+- [x] **Step 3: Add the migration**
 
 The migration must:
 
@@ -90,7 +90,7 @@ Expected: all migration contract tests pass.
 - [x] **Step 5: Commit the schema unit**
 
 ```bash
-git add supabase/migrations/172_quality_first_highlights.sql src/lib/research/migration.test.ts
+git add supabase/migrations/20260906040000_quality_first_highlights.sql src/lib/research/migration.test.ts
 git commit -m "feat: add automatic highlight evidence schema"
 ```
 

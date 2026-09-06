@@ -1,4 +1,4 @@
--- 172 — quality-first automatic highlights.
+-- Quality-first automatic highlights.
 --
 -- The worker records the receipts used to admit a rally: fitted bat hits,
 -- one connected run of dwell-confirmed net crossings, calibrated table

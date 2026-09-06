@@ -64,7 +64,7 @@ const serveFollowupExport = readFileSync(
 ).toLowerCase();
 const qualityFirstHighlights = readFileSync(
   new URL(
-    "../../../supabase/migrations/172_quality_first_highlights.sql",
+    "../../../supabase/migrations/20260906040000_quality_first_highlights.sql",
     import.meta.url,
   ),
   "utf8",
