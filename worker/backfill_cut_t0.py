@@ -99,7 +99,12 @@ def backfill_match(conn, client, row: dict, dry_run: bool) -> tuple[int, int]:
         return 0, 0
     by_idx = {}
     for p in mj.get("points") or []:
-        if all(k in p for k in ("idx", "clip_t0", "cut_t0")):
+        # Present is not the same as known: a match.json written before the
+        # cut clock was stamped carries the keys with null in them, and a
+        # null birth anchor is no birth record at all. Such a point is left
+        # alone for the same reason a split child is.
+        if all(isinstance(p.get(k), (int, float))
+               for k in ("idx", "clip_t0", "cut_t0")):
             by_idx[int(p["idx"])] = p
     pre = pre_pad(row, mj)
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
