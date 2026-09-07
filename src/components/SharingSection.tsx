@@ -624,10 +624,14 @@ export function SharingSection({
               disabled={busyIds.has(group.key)}
               onPick={(all) => void setAccess(group, all)}
             />
+            {/* It used to end "…from a match page", which was the only
+                way to share one. Share a match now sits on the coach's own
+                page too, so naming one of the two doors made the sentence
+                wrong on the page that has the other. */}
             <p className="mt-2 text-sm text-zinc-300">
               {group.watchesAll
                 ? "Watches all your matches, including future uploads."
-                : "Sees only the matches you share with them from a match page."}
+                : "Sees only the matches you share with them."}
             </p>
           </>
         )}
@@ -810,7 +814,7 @@ export function SharingSection({
                     <p className="mt-2 text-sm text-zinc-300">
                       {g.watchesAll
                         ? "Watches all your matches, including future uploads."
-                        : "Sees only the matches you share with them from a match page."}
+                        : "Sees only the matches you share with them."}
                     </p>
                     {/* Matches AND journal entries, each removable. The
                         matches were listed here already; the journal was

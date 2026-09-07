@@ -84,8 +84,16 @@ export async function POST(req:Request){
  try{
   if(action==='create'){
    const fileSize=Number(body.fileSize),duration=Number(body.durationS);const invalid=validateImport(fileSize,duration);if(invalid)return failure(invalid);
-   const studentId=typeof body.studentId==='string'?body.studentId:null;
-   const coachRefId=typeof body.coachRefId==='string'?body.coachRefId:null;
+   // Lower-cased on the way in. Foundation encodes a Swift UUID as its
+   // uppercase `uuidString`, and Postgres hands uuid columns back in lower
+   // case, so a resumed import from the phone compared its own id against
+   // the row it had just created and decided they were different videos.
+   // That 409s the retry, and every retry after it, leaving a 20 GB file
+   // on the phone with no way to finish. Postgres itself does not care —
+   // the `.eq()` filters cast to uuid — but these three string
+   // comparisons do.
+   const studentId=typeof body.studentId==='string'?body.studentId.toLowerCase():null;
+   const coachRefId=typeof body.coachRefId==='string'?body.coachRefId.toLowerCase():null;
    // Importing is open to every player now. Being a coach only decides who a
    // lesson may be addressed TO: a coach makes one for a student on their
    // roster, a player makes one with a coach on their list, and a lesson that

@@ -74,14 +74,21 @@ struct JournalScreen: View {
                                 // to be asked for, on the page they were
                                 // going to be looked for on. The walk is
                                 // already running at launch, so the tab
-                                // shows what it has and says so until it
-                                // finishes rather than pausing on nothing.
-                                if !scores.loaded {
+                                // says so rather than pausing on nothing.
+                                //
+                                // One or the other, never both: the
+                                // sections draw their own "nothing to
+                                // count yet" from a half-finished walk,
+                                // which under a line saying it is still
+                                // counting reads as two answers to one
+                                // question.
+                                if scores.loaded {
+                                    StatsScreen(embedded: true)
+                                } else {
                                     Text("Counting points…")
                                         .font(.plBody)
                                         .foregroundStyle(PL.text500)
                                 }
-                                StatsScreen(embedded: true)
                             } else {
                                 feed
                             }
