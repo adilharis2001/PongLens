@@ -67,6 +67,27 @@ export function shareHint(status: PlayerCoachStatus): string | null {
   return null;
 }
 
+/**
+ * Where this coach stands with you, in one phrase.
+ *
+ * Distinct from `statusLabel`, which is the counting line under a name in
+ * a list. This is the standing itself, and it is said in these exact words
+ * on the coaching feed's card, on the coach's own page and on the phone —
+ * three surfaces that read it out loud within one tap of each other.
+ */
+export function coachStanding(coach: PlayerCoach): string {
+  switch (coach.status) {
+    case "connected":
+      return "Connected";
+    case "invited":
+      return "Invite waiting";
+    case "past":
+      return "No longer connected";
+    default:
+      return "Not on PongLens";
+  }
+}
+
 /** What the row says under the name in a list. */
 export function statusLabel(coach: PlayerCoach): string {
   if (coach.status === "invited") return "Invite sent";

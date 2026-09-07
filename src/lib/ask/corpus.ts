@@ -35,6 +35,7 @@ export interface AskSource {
   kind:
     | "note"
     | "lesson"
+    | "lesson_recap"
     | "practice"
     | "coach"
     | "match"
@@ -257,6 +258,9 @@ export interface CoachEntryLite {
     themes?: { name: string; points: string[] }[] | null;
   } | null;
   shared_at: string;
+  /** Set when the entry is the journal side of a lesson video. The
+   *  transcript is then only a link, and the teaching is in the recap. */
+  lesson_video_id?: string | null;
 }
 
 function coachEntryBlock(
@@ -283,6 +287,96 @@ function coachEntryBlock(
   if ((includeTranscript || !e.takeaways?.themes?.length) && e.transcript.trim()) {
     parts.push("What the coach wrote:");
     parts.push(e.transcript.trim());
+  }
+  return parts.join("\n");
+}
+
+/**
+ * A lesson recap: the chapters a filmed lesson was cut into.
+ *
+ * This is here because the journal entry behind a recap is a single line
+ * of URL — "Video lesson: https://ponglens.com/lesson-video/…" — written
+ * by publish_lesson_video so older app versions could still find the
+ * video. Everything the lesson actually taught lives in
+ * lesson_videos.edit, which was not in the corpus at all, so "what did
+ * Jonathan tell me to work on" could not reach the one place he said it.
+ *
+ * Both directions land here: a recap the player filmed with their coach,
+ * and a recap a coach filmed and shared with them.
+ */
+export interface AskRecap {
+  /** lesson_videos.id, so the citation opens the recap itself. */
+  videoId: string;
+  title: string;
+  chapters: { title: string; cues: string[] }[];
+  /** The coach it was recorded with, or the coach who shared it. */
+  coachName: string | null;
+  /** True when a coach shared this recap with the player, false when the
+   *  player recorded it themselves. Changes who the reader is being told
+   *  about, so it is carried rather than guessed from coachName. */
+  fromCoach: boolean;
+  when: string;
+}
+
+/**
+ * Read the chapters back out of a stored lesson_videos.edit.
+ *
+ * Deliberately forgiving where validateEdit (lib/lessonVideo/model.ts) is
+ * strict. That one guards what may be SAVED, against the video's own
+ * duration, and refusing the whole edit is the right answer there. This
+ * one reads material that is already stored, including rows written
+ * before a rule existed, and a recap with one malformed chapter should
+ * still tell Ask what the other eleven taught.
+ */
+export function recapFromEdit(edit: unknown): {
+  title: string;
+  chapters: { title: string; cues: string[] }[];
+} | null {
+  if (!edit || typeof edit !== "object") return null;
+  const e = edit as { title?: unknown; chapters?: unknown };
+  const chapters: { title: string; cues: string[] }[] = [];
+  for (const raw of Array.isArray(e.chapters) ? e.chapters : []) {
+    if (!raw || typeof raw !== "object") continue;
+    const c = raw as { title?: unknown; cues?: unknown };
+    const title = typeof c.title === "string" ? c.title.trim() : "";
+    const cues = (Array.isArray(c.cues) ? c.cues : [])
+      .map((cue) => (typeof cue === "string" ? cue.trim() : ""))
+      .filter(Boolean);
+    if (!title && cues.length === 0) continue;
+    chapters.push({ title: title || "Chapter", cues });
+  }
+  const title = typeof e.title === "string" ? e.title.trim() : "";
+  if (!title && chapters.length === 0) return null;
+  return { title, chapters };
+}
+
+function recapBlock(r: AskRecap, id: string): string {
+  const what = r.fromCoach
+    ? r.coachName
+      ? `Lesson recap your coach ${r.coachName} shared`
+      : "Lesson recap your coach shared"
+    : "Lesson recap";
+  const head = [
+    `[${id}]`,
+    what,
+    !r.fromCoach && r.coachName ? `with ${r.coachName}` : null,
+    shortDate(r.when),
+    r.title ? `"${r.title}"` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const parts = [head];
+  if (r.chapters.length > 0) {
+    // One line a chapter, cues joined the way a lesson's takeaway themes
+    // are joined above. A recap runs to 16 chapters of 4 cues, so the
+    // shape has to stay tight or a season of them crowds out the journal.
+    parts.push("What the recap goes through:");
+    for (const c of r.chapters) {
+      parts.push(
+        c.cues.length ? `  ${c.title}: ${c.cues.join("; ")}` : `  ${c.title}`,
+      );
+    }
   }
   return parts.join("\n");
 }
@@ -319,6 +413,9 @@ export interface CorpusInput {
   /** Entries coaches shared with the player. Optional: older callers and
    *  the tier tests build without them. */
   coachEntries?: CoachEntryLite[];
+  /** The chapters of every lesson recap the player can read, their own
+   *  and their coaches'. Optional for the same reason. */
+  recaps?: AskRecap[];
   stats: AggregateStats | null;
   matchTitles: Map<string, { title: string; when: string }>;
   focusPoints: { label: string; done: boolean }[];
@@ -351,6 +448,7 @@ export function buildAtCoverage(
   const coachEntries = (input.coachEntries ?? []).filter((e) =>
     recentEnough(e.shared_at),
   );
+  const recaps = (input.recaps ?? []).filter((r) => recentEnough(r.when));
 
   if (input.profile) {
     const bits = [
@@ -421,6 +519,21 @@ export function buildAtCoverage(
       title: e.takeaways?.title || `From your coach ${e.coach_name}`,
       href: "/journal",
       when: e.shared_at,
+    });
+  });
+  // Recaps survive the takeaways tier with their chapters intact. That
+  // tier drops raw transcripts because the takeaways are the same lesson
+  // already distilled; a recap's chapters ARE that distillation, and it
+  // has no transcript to give up instead.
+  recaps.forEach((r, i) => {
+    const id = `v${i + 1}`;
+    writing.push(recapBlock(r, id));
+    sources.push({
+      id,
+      kind: "lesson_recap",
+      title: r.title || "Lesson recap",
+      href: `/lesson-video/${r.videoId}`,
+      when: r.when,
     });
   });
   notes.forEach((n, i) => {

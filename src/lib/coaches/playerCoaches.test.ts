@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   canReceiveEntries,
+  coachStanding,
   entryCountLabel,
   findCoachByName,
   mergeCandidates,
@@ -142,4 +143,13 @@ test("a name ending in s takes the bare apostrophe", () => {
   assert.equal(possessive("Colby"), "Colby's");
   assert.equal(possessive("  Chris  "), "Chris'");
   assert.equal(possessive(""), "");
+});
+
+test("standing: the phrase every surface says out loud", () => {
+  // The coaching feed's card, the coach's own page and the phone all read
+  // this line within one tap of each other, so it lives in one place.
+  assert.equal(coachStanding(coach({ status: "connected" })), "Connected");
+  assert.equal(coachStanding(coach({ status: "invited" })), "Invite waiting");
+  assert.equal(coachStanding(coach({ status: "past" })), "No longer connected");
+  assert.equal(coachStanding(coach({ status: "offline" })), "Not on PongLens");
 });

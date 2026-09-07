@@ -1,14 +1,18 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ShareWithCoach } from "@/components/ShareWithCoach";
+import { ShareMatches } from "@/components/ShareMatches";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import type { CoachLinkRow } from "@/lib/types";
 import {
   entryCountLabel,
   mergeCandidates,
   type PlayerCoach,
+  coachStanding,
 } from "@/lib/coaches/playerCoaches";
 import { UNNAMED_INVITE, nameCoachInvite } from "@/lib/coaches/nameInvite";
 import { CoachSharedWith } from "@/components/CoachSharedWith";
@@ -22,6 +26,14 @@ import { CoachSharedWith } from "@/components/CoachSharedWith";
  * way without removing them (161), the per-match shares (each revocable)
  * and "Remove coach". Outstanding invites collapse into one quiet "N
  * waiting" line. Primary action is a compact "Add a coach".
+ *
+ * `focusCoachId` turns the same component into ONE coach's page
+ * (/coaching/coach/<player_coaches.id>): that coach only, always open, and
+ * none of the list around them. Every rule below is the same one — the
+ * access pair, the copy-and-revoke of a waiting invite, the per-match
+ * revoke, the rename and the merge all run through the callbacks the list
+ * uses, because a second statement of any of them is a second thing to get
+ * wrong.
  */
 
 interface CoachGroup {
@@ -60,7 +72,175 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-export function SharingSection({ userId }: { userId: string }) {
+
+/** All matches, or only the ones you share. Written once because it is
+ *  rendered three times — for an accepted coach, for a waiting invite and
+ *  on a coach's own page — and three copies of a two-state control is how
+ *  one of them ends up with a different pressed state. */
+function AccessPair({
+  all,
+  disabled,
+  className,
+  onPick,
+}: {
+  all: boolean;
+  disabled: boolean;
+  className: string;
+  onPick: (all: boolean) => void;
+}) {
+  return (
+    <div className={className}>
+      {(
+        [
+          [true, "All matches"],
+          [false, "Only matches I share"],
+        ] as const
+      ).map(([value, label]) => (
+        <button
+          key={label}
+          type="button"
+          aria-pressed={all === value}
+          disabled={disabled}
+          onClick={() => onPick(value)}
+          className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-60 ${
+            all === value
+              ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
+              : "border-edge text-zinc-300 hover:border-zinc-500 hover:text-white"
+          }`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Rename in your journal, and Same as an existing coach. The open row and
+ *  the draft stay with the caller: only one coach is ever being edited, and
+ *  opening one has always closed the other. */
+function CoachManageRows({
+  coach,
+  candidates,
+  renameFor,
+  setRenameFor,
+  renameDraft,
+  setRenameDraft,
+  mergeFor,
+  setMergeFor,
+  onRename,
+  onMerge,
+}: {
+  coach: PlayerCoach;
+  candidates: PlayerCoach[];
+  renameFor: string | null;
+  setRenameFor: (id: string | null) => void;
+  renameDraft: string;
+  setRenameDraft: (value: string) => void;
+  mergeFor: string | null;
+  setMergeFor: (id: string | null) => void;
+  onRename: (id: string, name: string) => void;
+  onMerge: (into: string, from: string) => void;
+}) {
+  return (
+    <>
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => {
+            setMergeFor(null);
+            setRenameDraft(coach.display_name);
+            setRenameFor(renameFor === coach.id ? null : coach.id);
+          }}
+          className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+        >
+          Rename in your journal
+        </button>
+        {renameFor === coach.id && (
+          <div className="mt-2 flex gap-2">
+            <input
+              type="text"
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value.slice(0, 80))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  onRename(coach.id, renameDraft);
+                }
+                if (e.key === "Escape") setRenameFor(null);
+              }}
+              maxLength={80}
+              autoFocus
+              aria-label="What you call this coach"
+              className="min-w-0 flex-1 rounded-xl border border-edge bg-surface-2/40 px-3.5 py-2 text-sm text-zinc-100 focus:border-cyan-glow/60 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => onRename(coach.id, renameDraft)}
+              disabled={renameDraft.trim() === ""}
+              className="shrink-0 rounded-full border border-edge bg-surface-2 px-4 py-1.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 disabled:opacity-60"
+            >
+              Save
+            </button>
+          </div>
+        )}
+      </div>
+      {candidates.length > 0 && (
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => setMergeFor(mergeFor === coach.id ? null : coach.id)}
+            className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+          >
+            Same as an existing coach
+          </button>
+          {mergeFor === coach.id && (
+            <ul className="mt-2 space-y-2">
+              {candidates.map((other) => (
+                <li
+                  key={other.id}
+                  className="flex items-center justify-between gap-3"
+                >
+                  <span className="min-w-0 truncate text-sm text-zinc-300">
+                    {other.display_name}
+                    <span className="text-zinc-500">
+                      {" · "}
+                      {entryCountLabel(other.entry_count)}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onMerge(coach.id, other.id)}
+                    className="shrink-0 rounded-full border border-edge bg-surface-2 px-4 py-1.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+                  >
+                    Join up
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+export function SharingSection({
+  userId,
+  focusCoachId = null,
+  children,
+}: {
+  userId: string;
+  /** A `player_coaches.id`. Set it and the section stops being a list and
+   *  becomes that one coach, always expanded, with no chrome around them:
+   *  no "Coaches" heading, no chevron, no "Add a coach", nobody else. */
+  focusCoachId?: string | null;
+  /** Rendered inside the focused coach, between what they can see and
+   *  Manage. Ignored by the list, which has no one coach to put it under.
+   *  This is how /coaching/coach/<id> gets its lessons into the middle of
+   *  a body this component owns the rest of. */
+  children?: React.ReactNode;
+}) {
+  const router = useRouter();
   const [links, setLinks] = useState<CoachLinkRow[] | null>(null);
   const [matchNames, setMatchNames] = useState<Map<string, string>>(new Map());
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
@@ -71,6 +251,12 @@ export function SharingSection({ userId }: { userId: string }) {
   // The journal side of the same people (164): how many entries are
   // attributed to each, and which named rows are still unclaimed.
   const [journalCoaches, setJournalCoaches] = useState<PlayerCoach[]>([]);
+  // Whether that roster has answered once. The list never needed it — an
+  // empty roster only quiets a line inside a coach that is already drawn —
+  // but a page ABOUT one coach cannot tell "still loading" from "this
+  // coach is gone" without it, and revoking an invite really does delete
+  // the row (165).
+  const [rosterLoaded, setRosterLoaded] = useState(false);
   const [mergeFor, setMergeFor] = useState<string | null>(null);
   const [renameFor, setRenameFor] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
@@ -80,9 +266,10 @@ export function SharingSection({ userId }: { userId: string }) {
 
   const fetchLinks = useCallback(async () => {
     const supabase = createClient();
-    void supabase
-      .rpc("player_coaches_list")
-      .then(({ data: rows }) => setJournalCoaches((rows as PlayerCoach[]) ?? []));
+    void supabase.rpc("player_coaches_list").then(({ data: rows }) => {
+      setJournalCoaches((rows as PlayerCoach[]) ?? []);
+      setRosterLoaded(true);
+    });
     const { data } = await supabase.rpc("player_coach_links");
     const rows = (data ?? []) as CoachLinkRow[];
     setLinks(rows);
@@ -277,8 +464,13 @@ export function SharingSection({ userId }: { userId: string }) {
         .eq("id", id);
       if (dbError) setError("Couldn't rename them. Try again.");
       await fetchLinks();
+      // On the coach's own page the name is also the page title, and that
+      // is rendered on the server. Without this the heading keeps the old
+      // name until the next navigation, one line above the field that has
+      // just changed it.
+      if (focusCoachId) router.refresh();
     },
-    [fetchLinks],
+    [fetchLinks, focusCoachId, router],
   );
 
   /** Name a waiting invite that was created without one (164). The field
@@ -344,6 +536,181 @@ export function SharingSection({ userId }: { userId: string }) {
     },
     [fetchLinks],
   );
+
+  /* One coach's page. Everything below reads from the same state the list
+     does; nothing here talks to the database on its own. */
+  if (focusCoachId) {
+    if (links === null || !rosterLoaded) {
+      return (
+        <div className="h-28 animate-pulse rounded-2xl border border-edge bg-surface" />
+      );
+    }
+
+    const j = journalCoaches.find((c) => c.id === focusCoachId) ?? null;
+    if (!j) {
+      // Revoking a waiting invite DELETES the roster row when no lesson is
+      // attributed to it (165), so this page can lose its subject while
+      // somebody is standing on it. Saying so beats a page of nothing.
+      return (
+        <section>
+          <p className="text-sm text-zinc-400">
+            This coach is no longer on your list.
+          </p>
+          <Link
+            href="/coaching"
+            className="mt-4 inline-block rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+          >
+            Back to Coaching
+          </Link>
+        </section>
+      );
+    }
+
+    // A coach only has access to control if there is a link behind them. A
+    // name the player typed has neither an account nor an invite, so the
+    // page is their standing, their lessons and the Manage rows — not an
+    // access pair wired to nothing. That is the common case for a coach who
+    // is not on PongLens, not an edge one.
+    const group =
+      j.status === "connected"
+        ? (coaches.find((x) => x.coachId === j.coach_id) ?? null)
+        : null;
+    const invite =
+      j.status === "invited" && j.invite_id
+        ? (pending.find((l) => l.id === j.invite_id) ?? null)
+        : null;
+    const watchesAll = group
+      ? group.watchesAll
+      : invite
+        ? invite.scope_match_id === null && invite.all_matches
+        : false;
+    const groupIds = group?.links.map((l) => l.id) ?? [];
+    const removing = groupIds.length > 0 && groupIds.every((id) => busyIds.has(id));
+
+    return (
+      <section>
+        <p className="text-sm text-zinc-300">
+          {coachStanding(j)}
+          {j.coach_email && (
+            <span className="text-zinc-500"> · {j.coach_email}</span>
+          )}
+        </p>
+
+        {invite && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void copyInvite(invite)}
+              className="rounded-full border border-edge bg-surface-2 px-4 py-1.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+            >
+              {copiedId === invite.id ? "Copied" : "Copy link"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void revokeLinks([invite.id])}
+              disabled={busyIds.has(invite.id)}
+              className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-60"
+            >
+              {busyIds.has(invite.id) ? "Revoking…" : "Revoke"}
+            </button>
+          </div>
+        )}
+
+        {group && (
+          <>
+            <AccessPair
+              className="mt-4 flex flex-wrap gap-2"
+              all={group.watchesAll}
+              disabled={busyIds.has(group.key)}
+              onPick={(all) => void setAccess(group, all)}
+            />
+            <p className="mt-2 text-sm text-zinc-300">
+              {group.watchesAll
+                ? "Watches all your matches, including future uploads."
+                : "Sees only the matches you share with them from a match page."}
+            </p>
+          </>
+        )}
+
+        {invite && invite.scope_match_id === null && (
+          <AccessPair
+            className="mt-4 flex flex-wrap gap-2"
+            all={invite.all_matches}
+            disabled={busyIds.has(invite.id)}
+            onPick={(all) => void setPendingScope(invite, all)}
+          />
+        )}
+
+        {/* What they hold, each line removable. Only for a coach who can
+            actually read something: offering to share an entry with a name
+            in a notebook would be a control over nothing. */}
+        {(group || invite) && (
+          <CoachSharedWith
+            coachRefId={j.id}
+            inviteId={invite?.id ?? null}
+            allMatches={watchesAll}
+            matchLinks={
+              group
+                ? group.links
+                    .filter((l) => l.scope_match_id)
+                    .map((l) => ({
+                      linkId: l.id,
+                      matchId: l.scope_match_id as string,
+                    }))
+                : invite?.scope_match_id
+                  ? [{ linkId: null, matchId: invite.scope_match_id }]
+                  : []
+            }
+            onChanged={fetchLinks}
+          />
+        )}
+
+        {(group || invite) && !watchesAll && (
+          <ShareMatches
+            userId={userId}
+            coachId={group?.coachId ?? null}
+            inviteId={invite?.id ?? null}
+            onShared={fetchLinks}
+          />
+        )}
+
+        {children}
+
+        <div className="mt-8">
+          <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Manage
+          </p>
+          <CoachManageRows
+            coach={j}
+            candidates={mergeCandidates(journalCoaches, j)}
+            renameFor={renameFor}
+            setRenameFor={setRenameFor}
+            renameDraft={renameDraft}
+            setRenameDraft={setRenameDraft}
+            mergeFor={mergeFor}
+            setMergeFor={setMergeFor}
+            onRename={(id, name) => void renameCoach(id, name)}
+            onMerge={(into, from) => void mergeCoach(into, from)}
+          />
+          {/* Only where there is something to take back. A waiting invite
+              is removed by Revoke above, and a coach you merely wrote down
+              never had access to end. */}
+          {groupIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void revokeLinks(groupIds)}
+              disabled={removing}
+              className="mt-2 rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-60"
+            >
+              {removing ? "Removing…" : "Remove coach"}
+            </button>
+          )}
+        </div>
+
+        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+      </section>
+    );
+  }
 
   return (
     <section>
@@ -419,117 +786,27 @@ export function SharingSection({ userId }: { userId: string }) {
                               : ""}
                             .
                           </p>
-                          <div className="mt-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setMergeFor(null);
-                                setRenameDraft(j.display_name);
-                                setRenameFor(renameFor === j.id ? null : j.id);
-                              }}
-                              className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                            >
-                              Rename in your journal
-                            </button>
-                            {renameFor === j.id && (
-                              <div className="mt-2 flex gap-2">
-                                <input
-                                  type="text"
-                                  value={renameDraft}
-                                  onChange={(e) =>
-                                    setRenameDraft(e.target.value.slice(0, 80))
-                                  }
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      void renameCoach(j.id, renameDraft);
-                                    }
-                                    if (e.key === "Escape") setRenameFor(null);
-                                  }}
-                                  maxLength={80}
-                                  autoFocus
-                                  aria-label="What you call this coach"
-                                  className="min-w-0 flex-1 rounded-xl border border-edge bg-surface-2/40 px-3.5 py-2 text-sm text-zinc-100 focus:border-cyan-glow/60 focus:outline-none"
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    void renameCoach(j.id, renameDraft)
-                                  }
-                                  disabled={renameDraft.trim() === ""}
-                                  className="shrink-0 rounded-full border border-edge bg-surface-2 px-4 py-1.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50 disabled:opacity-60"
-                                >
-                                  Save
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                          {spare.length > 0 && (
-                            <div className="mt-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setMergeFor(mergeFor === j.id ? null : j.id)
-                                }
-                                className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
-                              >
-                                Same as an existing coach
-                              </button>
-                              {mergeFor === j.id && (
-                                <ul className="mt-2 space-y-2">
-                                  {spare.map((other) => (
-                                    <li
-                                      key={other.id}
-                                      className="flex items-center justify-between gap-3"
-                                    >
-                                      <span className="min-w-0 truncate text-sm text-zinc-300">
-                                        {other.display_name}
-                                        <span className="text-zinc-500">
-                                          {" · "}
-                                          {entryCountLabel(other.entry_count)}
-                                        </span>
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          void mergeCoach(j.id, other.id)
-                                        }
-                                        className="shrink-0 rounded-full border border-edge bg-surface-2 px-4 py-1.5 text-sm font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
-                                      >
-                                        Join up
-                                      </button>
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                          )}
+                          <CoachManageRows
+                            coach={j}
+                            candidates={spare}
+                            renameFor={renameFor}
+                            setRenameFor={setRenameFor}
+                            renameDraft={renameDraft}
+                            setRenameDraft={setRenameDraft}
+                            mergeFor={mergeFor}
+                            setMergeFor={setMergeFor}
+                            onRename={(id, name) => void renameCoach(id, name)}
+                            onMerge={(into, from) => void mergeCoach(into, from)}
+                          />
                         </div>
                       );
                     })()}
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {(
-                        [
-                          [true, "All matches"],
-                          [false, "Only matches I share"],
-                        ] as const
-                      ).map(([all, label]) => (
-                        <button
-                          key={label}
-                          type="button"
-                          aria-pressed={g.watchesAll === all}
-                          disabled={busyIds.has(g.key)}
-                          onClick={() => void setAccess(g, all)}
-                          className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-60 ${
-                            g.watchesAll === all
-                              ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
-                              : "border-edge text-zinc-300 hover:border-zinc-500 hover:text-white"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
+                    <AccessPair
+                      className="mt-3 flex flex-wrap gap-2"
+                      all={g.watchesAll}
+                      disabled={busyIds.has(g.key)}
+                      onPick={(all) => void setAccess(g, all)}
+                    />
                     <p className="mt-2 text-sm text-zinc-300">
                       {g.watchesAll
                         ? "Watches all your matches, including future uploads."
@@ -719,29 +996,12 @@ export function SharingSection({ userId }: { userId: string }) {
                   />
 
                   {l.scope_match_id === null && (
-                    <div className="mt-2.5 flex flex-wrap gap-2">
-                      {(
-                        [
-                          [true, "All matches"],
-                          [false, "Only matches I share"],
-                        ] as const
-                      ).map(([all, label]) => (
-                        <button
-                          key={label}
-                          type="button"
-                          aria-pressed={l.all_matches === all}
-                          disabled={busyIds.has(l.id)}
-                          onClick={() => void setPendingScope(l, all)}
-                          className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-colors disabled:opacity-60 ${
-                            l.all_matches === all
-                              ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
-                              : "border-edge text-zinc-300 hover:border-zinc-500 hover:text-white"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
+                    <AccessPair
+                      className="mt-2.5 flex flex-wrap gap-2"
+                      all={l.all_matches}
+                      disabled={busyIds.has(l.id)}
+                      onPick={(all) => void setPendingScope(l, all)}
+                    />
                   )}
                 </li>
               ))}

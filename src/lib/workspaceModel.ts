@@ -54,13 +54,29 @@ const PLAYER_PREFIXES = [
 ] as const;
 
 /**
+ * The player's own rooms under /coaching. They have to be named here,
+ * because the rule below hands everything under /coaching/ to the coach:
+ * without this, a player with a coach side who opened their coach's page
+ * would be flipped into coach mode by the act of reading it. That is the
+ * bug 157 fixed once already, arriving from the other direction.
+ */
+const PLAYER_COACHING_PREFIXES = [
+  "/coaching/coach",
+  "/coaching/lesson",
+  "/coaching/import",
+] as const;
+
+/**
  * Which side a path belongs to, or null for shared ground. Bare
  * /coaching is shared: it renders whichever side the workspace says.
- * Everything beneath it (students, orders, offerings, your page) is the
- * coach's.
+ * Beneath it, the player's own rooms are named first and everything
+ * else (students, orders, offerings, your page) is the coach's.
  */
 export function routeTerritory(path: string): Workspace | null {
   const clean = path.split("?")[0].replace(/\/+$/, "") || "/";
+  for (const prefix of PLAYER_COACHING_PREFIXES) {
+    if (clean === prefix || clean.startsWith(`${prefix}/`)) return "player";
+  }
   if (clean.startsWith("/coaching/")) return "coach";
   for (const prefix of PLAYER_PREFIXES) {
     if (clean === prefix || clean.startsWith(`${prefix}/`)) return "player";

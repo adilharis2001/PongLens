@@ -68,6 +68,15 @@ test('one status word, and shared is not the same as ready', () => {
  assert.equal(lessonStatusLabel(video('queued', 's1'), false), 'Waiting to process');
 });
 
+test('a player recording their own lesson gets the same words as a coach', () => {
+ const withCoach = (status: string) => ({ status, student_id: null, coach_ref_id: 'pc1', stage: null });
+ assert.equal(lessonStatusLabel(withCoach('review'), false), 'Ready to review');
+ assert.equal(lessonStatusLabel(withCoach('ready'), false), 'Ready to share');
+ assert.equal(lessonStatusLabel(withCoach('ready'), true), 'Shared');
+ // Neither side named: nobody to send it to, so it is only saved.
+ assert.equal(lessonStatusLabel({ status: 'ready', student_id: null, coach_ref_id: null, stage: null }, false), 'Saved');
+});
+
 test('chapter lengths and recap minutes read from the clips', () => {
  assert.equal(formatClipLength(0), '0:00');
  assert.equal(formatClipLength(65), '1:05');
@@ -89,4 +98,11 @@ test('the share button comes back when the coach took the entry away', () => {
  assert.equal(lessonCanShare({ status: 'ready', student_id: null }, true, false), false, 'nothing to share a private lesson with');
  assert.equal(lessonCanShare({ status: 'review', student_id: 's1' }, false, false), false, 'never for the student');
  assert.equal(lessonCanShare({ status: 'processing', student_id: 's1' }, true, false), false);
+});
+
+test('a player can send their own recap to their coach, and only theirs', () => {
+ assert.equal(lessonCanShare({ status: 'ready', coach_ref_id: 'pc1' }, true, false), true, 'kept it back, now wants to send it');
+ assert.equal(lessonCanShare({ status: 'ready', coach_ref_id: 'pc1' }, true, true), false, 'already shared');
+ assert.equal(lessonCanShare({ status: 'ready', coach_ref_id: 'pc1' }, false, false), false, 'never for the coach reading it');
+ assert.equal(lessonCanShare({ status: 'ready', student_id: null, coach_ref_id: null }, true, false), false, 'a private lesson has nobody to send it to');
 });

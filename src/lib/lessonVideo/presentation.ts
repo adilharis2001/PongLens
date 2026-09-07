@@ -29,20 +29,33 @@ export function lessonChapterIndexAt(chapters:LessonChapter[],seconds:number):nu
 }
 
 /**
+ * Does this recap have somebody to share it with.
+ *
+ * A coach's import names the student it was made for; a player's import
+ * names the coach it was made with. A lesson that names neither is private
+ * and there is nobody to send it to. Asking about `student_id` alone left a
+ * player's finished recap reading "Saved" with no way to share it.
+ */
+function hasRecipient(video:{student_id?:string|null;coach_ref_id?:string|null}):boolean {
+ return !!video.student_id||!!video.coach_ref_id;
+}
+
+/**
  * One word for where a lesson video is, the same on every surface.
  *
- * `shared` is whether the student can see it today, which is not the same
- * as `status === 'ready'`: the coach can take an entry back from the
- * student page, and the video row does not change when they do. Twin of
+ * `shared` is whether the other person can see it today, which is not the
+ * same as `status === 'ready'`: the coach can take an entry back from the
+ * student page, and a player can stop sharing their own recap, and the
+ * video row does not change when either happens. Twin of
  * `LessonVideo.statusLabel` on iOS.
  */
 export function lessonStatusLabel(
- video:{status:string;stage?:string|null;student_id?:string|null},
+ video:{status:string;stage?:string|null;student_id?:string|null;coach_ref_id?:string|null},
  shared:boolean,
 ):string {
  switch(video.status){
   case 'review':return 'Ready to review';
-  case 'ready':return video.student_id?(shared?'Shared':'Ready to share'):'Saved';
+  case 'ready':return hasRecipient(video)?(shared?'Shared':'Ready to share'):'Saved';
   case 'failed':return 'Needs attention';
   case 'uploading':return 'Uploading';
   case 'queued':return 'Waiting to process';
@@ -65,15 +78,16 @@ export function formatClipLength(seconds:number):string {
  * Whether the owner can press the share button now.
  *
  * Review is the first time; ready-but-unshared is the coach taking an
- * entry back from the student page and changing their mind, which the
- * page used to have no button for.
+ * entry back from the student page and changing their mind, or a player
+ * who kept their recap to themselves and has since decided to send it.
+ * Neither had a button before.
  */
 export function lessonCanShare(
- video:{status:string;student_id?:string|null},
+ video:{status:string;student_id?:string|null;coach_ref_id?:string|null},
  isOwner:boolean,
  shared:boolean,
 ):boolean {
  if(!isOwner)return false;
  if(video.status==='review')return true;
- return video.status==='ready'&&!!video.student_id&&!shared;
+ return video.status==='ready'&&hasRecipient(video)&&!shared;
 }

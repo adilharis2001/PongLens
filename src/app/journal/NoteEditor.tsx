@@ -380,10 +380,10 @@ export function NoteEditor({
 
   const save = async () => {
     if (!lesson || saving) return;
-    // Only a lesson has a coach, and this overlay cannot change an
-    // Any note of the player's own may name a coach now; only a
-    // coach-written entry (kind 'coach') has none of its own.
-    const isLesson = lesson.kind !== "coach";
+    // Only a lesson has a coach. A plain note is your own reflection and
+    // an entry a coach wrote (kind 'coach') has no coach of its own, so
+    // neither shows the picker and neither may gain one here.
+    const isLesson = lesson.kind === "lesson";
     const refId = isLesson ? coachRefId : null;
     const share = isLesson && shareWithCoach && refId !== null;
     const coachRow = coaches.find((c) => c.id === refId) ?? null;
@@ -554,7 +554,7 @@ export function NoteEditor({
                 the focused field has to be able to reach the middle of
                 it. */}
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
-              {lesson.kind !== "coach" && (
+              {lesson.kind === "lesson" && (
                 <div className="mb-4">
                   {/* The picker, not a text field (164). Correcting an
                       entry is where a journal full of spellings gets
@@ -570,6 +570,7 @@ export function NoteEditor({
                       setShareWithCoach(share);
                     }}
                     onCreate={createCoach}
+                    shareNoun="this lesson"
                   />
                 </div>
               )}

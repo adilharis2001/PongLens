@@ -185,13 +185,28 @@ export default async function AccountPage() {
         </div>
       )}
 
-      {/* 4 — the whole coaching world (your coaches, bought reviews,
-          the coach workspace) lives on the Coaching tab now */}
+      {/* 4 — public share links: the safety switch for anything a
+          stranger can open. Day-to-day management stays in each match's
+          Share sheet. */}
       <div className="mt-8">
         <ShareLinksSection />
       </div>
 
-      {/* 5 — resource management sits mid-low; playing-side only */}
+      {/* 5 — the coaching world (your coaches, the lessons you record
+          with them, bought reviews) lives on the Coaching tab, and
+          Account keeps the one door to it. Playing-side only, like Your
+          game: from the coaching side the tab is already under you. iOS
+          Account has the same group in the same place. */}
+      {!coachSide && (
+        <div className="mt-8">
+          <SectionLabel>Coaching</SectionLabel>
+          <div className="overflow-hidden rounded-2xl border border-edge bg-surface">
+            <RowLink href="/coaching" label="Your coaches" />
+          </div>
+        </div>
+      )}
+
+      {/* 6 — resource management sits mid-low; playing-side only */}
       {commerceEnabled && !coachSide && (
         <div id="minutes" className="mt-8 scroll-mt-20">
           <SectionLabel>Processing minutes</SectionLabel>
@@ -205,7 +220,7 @@ export default async function AccountPage() {
         </div>
       )}
 
-      {/* 6 — the two sides of the account, in one place on both sides.
+      {/* 7 — the two sides of the account, in one place on both sides.
           It used to sit at the foot of "Your game" on the playing side
           and under its own "Workspace" label on the coaching side, so
           the same row had two homes and two names (Adil, 2026-09-02).
@@ -222,7 +237,7 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 7 — support block, just above legal. Closing the account is its
+      {/* 8 — support block, just above legal. Closing the account is its
           last row, where the iOS app keeps it (Adil, 2026-09-05). */}
       <div className="mt-8">
         <SectionLabel>Support</SectionLabel>
@@ -254,7 +269,7 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 8 — legal, last among the links */}
+      {/* 9 — legal, last among the links */}
       <div className="mt-8">
         <SectionLabel>Legal</SectionLabel>
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
@@ -263,7 +278,7 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 9 — the exit, alone at the very bottom. */}
+      {/* 10 — the exit, alone at the very bottom. */}
       <div className="mt-10">
         <SignOutRow />
       </div>

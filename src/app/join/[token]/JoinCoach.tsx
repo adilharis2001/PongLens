@@ -57,11 +57,12 @@ export function JoinCoach({
       setError("Couldn't join. The link may have been revoked — ask for a new one.");
       return;
     }
-    // The journal, opened on what the coach has already written rather
-    // than on everything (Adil, 2026-09-04). A student joining a coach
-    // they have worked with for months should land on their material,
-    // not on a feed where it is mixed in among their own notes.
-    router.replace("/journal?from=coach");
+    // The Coaching tab, which is where a player reads their coaches and
+    // everything shared with them. This used to open the Journal filtered
+    // to the coach's own material ("/journal?from=coach"); the Journal's
+    // tabs are fixed now and that parameter no longer does anything, so a
+    // student who has just joined someone lands on the room they share.
+    router.replace("/coaching");
     router.refresh();
   };
 

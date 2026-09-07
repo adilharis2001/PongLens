@@ -107,7 +107,9 @@ export default async function CoachingPage() {
   }
 
   return (
-    <AppShell avatarUrl={avatarUrl}>
+    // The playing side floats "New lesson", so the content column needs
+    // the same bottom clearance the Journal's New button gets.
+    <AppShell avatarUrl={avatarUrl} hasFab={workspace !== "coach"}>
       <CoachHub
         workspace={workspace}
         profile={(profile as CoachProfileRow | null) ?? null}

@@ -3,7 +3,8 @@ export const MAX_SECONDS = 10800;
 export const PART_SIZE = 64 * 1024 ** 2;
 export interface LessonChapter { title: string; cues: string[]; start_s: number; end_s: number; summary_start_s?: number; summary_end_s?: number }
 export interface LessonEdit { title: string; chapters: LessonChapter[]; themes: {name:string;points:string[]}[]; warning?:string }
-export interface LessonVideo {/** Can the linked student see it today. From the API only; never stored. */shared?:boolean; id:string; owner_id:string; student_id:string|null; lesson_id:string|null; original_name:string;file_size:number;duration_s:number;status:string;stage:string|null;error:string|null;edit:LessonEdit|null;created_at:string;updated_at:string;revision:number }
+/** A lesson names the student it was made for, or the coach it was made with, never both. */
+export interface LessonVideo {/** Can the other person see it today. From the API only; never stored. */shared?:boolean; id:string; owner_id:string; student_id:string|null; coach_ref_id:string|null; lesson_id:string|null; original_name:string;file_size:number;duration_s:number;status:string;stage:string|null;error:string|null;edit:LessonEdit|null;created_at:string;updated_at:string;revision:number }
 export function validateImport(bytes:number, seconds:number):string|null {
  if (!Number.isSafeInteger(bytes)||bytes<=0||bytes>MAX_BYTES) return 'Choose a video up to 20 GB.';
  if (!Number.isFinite(seconds)||seconds<=0||seconds>MAX_SECONDS) return 'Choose a lesson up to three hours long.';
@@ -37,9 +38,18 @@ export function validateEdit(input:unknown,duration:number):LessonEdit|null {
  }
  return {title,chapters,themes,...(clean(e.warning,600)?{warning:clean(e.warning,600)}:{})};
 }
-export function canReadVideo(viewer:string,owner:string,status:string,shared:boolean):boolean {return viewer===owner||(status==='ready'&&shared);}
+/**
+ * Who may open a recap, given the answer the database already worked out.
+ *
+ * `access` is the result of `lesson_video_access(id)`: 'owner', 'coach' for
+ * the coach a player shared with, 'student' for the student a coach shared
+ * with, or null for everybody else. Only the owner sees a recap that is
+ * still rendering; the other two wait for it to finish, because a half-made
+ * recap read as the finished one when this was decided in the route.
+ */
+export function canReadVideo(access:string|null,status:string):boolean {return access==='owner'||((access==='coach'||access==='student')&&status==='ready');}
 export function publicVideo(row:Record<string,unknown>,isOwner:boolean):Record<string,unknown>{
- const fields=['id','owner_id','student_id','lesson_id','original_name','file_size','duration_s','status','stage','error','edit','created_at','updated_at','revision'];
+ const fields=['id','owner_id','student_id','coach_ref_id','lesson_id','original_name','file_size','duration_s','status','stage','error','edit','created_at','updated_at','revision'];
  const out=Object.fromEntries(fields.filter(k=>k in row).map(k=>[k,row[k]]));
  if(!isOwner){delete out.error;delete out.stage;delete out.original_name;delete out.file_size;out.original_name='Lesson';out.file_size=0;}
  return out;

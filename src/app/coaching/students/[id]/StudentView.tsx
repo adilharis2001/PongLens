@@ -22,6 +22,7 @@ import {
 import { LinkedText } from "@/components/LinkedText";
 import { entryThemes, recapHref, recapIdOf } from "@/lib/lessonVideo/entries";
 import { NoteEditor } from "@/app/journal/NoteEditor";
+import { RecapPreview } from "@/app/journal/RecapPreview";
 import type { Lesson, Point } from "@/lib/types";
 import { possessive } from "@/lib/coaches/playerCoaches";
 import {
@@ -76,6 +77,9 @@ interface SharedFromStudent {
   match_id: string | null;
   shared_at: string;
   created_at: string;
+  /** The recap behind the entry, when what they shared is a lesson video.
+   *  The tenth column of student_shared_lessons(). */
+  lesson_video_id: string | null;
 }
 
 /** The first line of an entry's substance, for a card that is closed.
@@ -1148,6 +1152,14 @@ export function StudentView({
           <div className="space-y-2">
             {fromStudent.map((entry) => {
               const isOpen = openShared === entry.lesson_id;
+              // A recap they recorded with you. Its entry text is only a
+              // link to the video, written so app versions that can show
+              // nothing else still have something; a bare URL as the whole
+              // body of a card is the defect that was fixed on the
+              // player's side of this (2026-09-06). Here the recap is the
+              // body and the link stays out of the way.
+              const recapId = recapIdOf(entry);
+              const themes = entryThemes(entry.takeaways?.themes, !!recapId);
               return (
                 <div
                   key={entry.lesson_id}
@@ -1168,10 +1180,16 @@ export function StudentView({
                       <span className="mt-0.5 block text-xs text-zinc-500">
                         {day(entry.created_at)}
                       </span>
-                      {!isOpen && (
-                        <span className="mt-1.5 block line-clamp-2 text-sm leading-relaxed text-zinc-400">
-                          {entryPreview(entry.transcript, entry.takeaways)}
+                      {recapId ? (
+                        <span className="mt-0.5 block text-xs text-zinc-500">
+                          Lesson recap
                         </span>
+                      ) : (
+                        !isOpen && (
+                          <span className="mt-1.5 block line-clamp-2 text-sm leading-relaxed text-zinc-400">
+                            {entryPreview(entry.transcript, entry.takeaways)}
+                          </span>
+                        )
                       )}
                     </span>
                     <svg
@@ -1192,16 +1210,17 @@ export function StudentView({
                     </svg>
                   </button>
                   {isOpen && (
-                    <div className="border-t border-edge/60 px-4 py-3">
+                    <div className="space-y-3 border-t border-edge/60 px-4 py-3">
+                      {/* The recap itself, opened at /lesson-video/<id>,
+                          which lesson_video_access() lets a coach read for
+                          as long as the student keeps sharing it. */}
+                      {recapId && <RecapPreview id={recapId} />}
                       {entry.image_path && (
-                        <EntryImage
-                          lessonId={entry.lesson_id}
-                          className="mb-3"
-                        />
+                        <EntryImage lessonId={entry.lesson_id} />
                       )}
-                      {entry.takeaways?.themes?.length ? (
+                      {themes.length > 0 ? (
                         <div className="space-y-3">
-                          {entry.takeaways.themes.map((theme) => (
+                          {themes.map((theme) => (
                             <div key={theme.name}>
                               <p className="text-xs font-semibold uppercase tracking-wider text-cyan-glow/80">
                                 {theme.name}
@@ -1219,7 +1238,7 @@ export function StudentView({
                             </div>
                           ))}
                         </div>
-                      ) : (
+                      ) : recapId ? null : (
                         <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">
                           <LinkedText text={entry.transcript} />
                         </p>

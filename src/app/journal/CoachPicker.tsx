@@ -37,6 +37,9 @@ export function CoachPicker({
   disabled = false,
   title = "Who taught it?",
   shareNoun = "this entry",
+  allowNone = false,
+  noneChosen = false,
+  onNone,
 }: {
   coaches: PlayerCoach[];
   /** The chosen player_coaches row, or null for "not saying". */
@@ -52,6 +55,15 @@ export function CoachPicker({
   /** What the share line calls what is being shared, so a bulk move does
    *  not offer to share "this entry" when it means twelve of them. */
   shareNoun?: string;
+  /** Offer "No coach" as an answer. A lesson has to answer the question,
+   *  and "nobody" is an honest answer to it — you can practise a thing
+   *  a coach taught you months ago. Without the chip, null means "not
+   *  asked yet" and there is no way to say "asked, and nobody". */
+  allowNone?: boolean;
+  /** Whether "No coach" is the answer given. Held by the parent, because
+   *  it and `value` are one answer between them. */
+  noneChosen?: boolean;
+  onNone?: () => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
@@ -133,6 +145,21 @@ export function CoachPicker({
             )}
           </button>
         ))}
+        {allowNone && (
+          <button
+            type="button"
+            onClick={() => onNone?.()}
+            aria-pressed={noneChosen}
+            disabled={disabled}
+            className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-60 ${
+              noneChosen
+                ? "border-cyan-glow/60 bg-cyan-glow/10 text-cyan-glow"
+                : "border-edge text-zinc-400 hover:text-zinc-200"
+            }`}
+          >
+            No coach
+          </button>
+        )}
         {!adding && (
           <button
             type="button"

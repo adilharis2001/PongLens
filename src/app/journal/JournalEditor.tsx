@@ -48,6 +48,7 @@ export function JournalEditor({
   createCoach,
   createTag,
   onSaved,
+  mode = "note",
 }: {
   open: boolean;
   onClose: () => void;
@@ -62,6 +63,17 @@ export function JournalEditor({
   /** Find-or-create in the shared vocabulary. */
   createTag: (label: string) => Promise<Tag | null>;
   onSaved: (lesson: Lesson, tags: Tag[]) => void;
+  /**
+   * "note" is the Journal's own composer: a reflection, no coach, saved
+   * as `practice`. "lesson" is the coaching workspace's written lesson:
+   * it asks who taught it, will not save until that is answered, and is
+   * saved as `lesson`.
+   *
+   * The kind is where the entry was made, not what is in it. Deriving it
+   * from whether a coach happened to be named is what let a note about
+   * your own practice turn into a lesson because you mentioned someone.
+   */
+  mode?: "note" | "lesson";
 }) {
   /* The kind is no longer asked for. It is derived on save from whether
      a coach was named — 'lesson' when one was, 'practice' when not —
@@ -69,6 +81,7 @@ export function JournalEditor({
      2026-09-04). Nothing reads it for display any more. */
   const [text, setText] = useState("");
   const [coachRefId, setCoachRefId] = useState<string | null>(null);
+  const [noCoach, setNoCoach] = useState(false);
   const [shareWithCoach, setShareWithCoach] = useState(false);
   const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
   const [summarize, setSummarize] = useState(true);
@@ -104,6 +117,7 @@ export function JournalEditor({
     seeded.current = true;
     setText("");
     setCoachRefId(null);
+    setNoCoach(false);
     setShareWithCoach(false);
     setSummarize(true);
   }, [open]);
@@ -158,6 +172,11 @@ export function JournalEditor({
   };
 
   const chosenCoach = coaches.find((c) => c.id === coachRefId) ?? null;
+  const lessonMode = mode === "lesson";
+  /* A lesson has to say who taught it, even if the answer is nobody.
+     "Not answered yet" and "answered: no coach" are different states and
+     only one of them may save. */
+  const coachAnswered = !lessonMode || coachRefId !== null || noCoach;
 
   const save = async () => {
     const transcript = text.trim();
@@ -170,13 +189,13 @@ export function JournalEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transcript,
-          kind: coachRefId ? "lesson" : "practice",
+          kind: lessonMode ? "lesson" : "practice",
           summarize,
           imagePath: photo?.path ?? null,
-          // The coach rides along whenever one was named.
-          // picking one must not smuggle it through.
-          coachRefId,
-          shareWithCoach,
+          // Only a lesson carries a coach. A note is a reflection, and
+          // the API refuses the fields for any other kind anyway.
+          coachRefId: lessonMode ? coachRefId : null,
+          shareWithCoach: lessonMode ? shareWithCoach : false,
         }),
       });
       const data = res.ok ? await res.json() : null;
@@ -201,11 +220,11 @@ export function JournalEditor({
           transcript,
           takeaways: data.takeaways ?? null,
           status: data.status === "ready" ? "ready" : "failed",
-          kind: coachRefId ? "lesson" : "practice",
-          coach_name: chosenCoach?.display_name ?? null,
-          coach_ref_id: coachRefId,
+          kind: lessonMode ? "lesson" : "practice",
+          coach_name: lessonMode ? (chosenCoach?.display_name ?? null) : null,
+          coach_ref_id: lessonMode ? coachRefId : null,
           shared_with_coach_at:
-            shareWithCoach && chosenCoach
+            lessonMode && shareWithCoach && chosenCoach
               ? new Date().toISOString()
               : null,
           image_path: photo?.path ?? null,
@@ -215,6 +234,7 @@ export function JournalEditor({
       );
       setText("");
       setCoachRefId(null);
+      setNoCoach(false);
       setShareWithCoach(false);
       setSelectedTags([]);
       releasePhoto();
@@ -239,7 +259,9 @@ export function JournalEditor({
       />
       <div className="absolute inset-x-0 bottom-0 max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-t-2xl border border-edge bg-surface p-5 pb-[max(2rem,env(safe-area-inset-bottom))] shadow-2xl sm:inset-x-auto sm:left-1/2 sm:top-1/2 sm:bottom-auto sm:max-h-[calc(100dvh-2rem)] sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl sm:pb-5">
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold text-zinc-100">New note</h2>
+          <h2 className="text-base font-semibold text-zinc-100">
+            {lessonMode ? "New lesson" : "New note"}
+          </h2>
           <button
             type="button"
             onClick={closeEditor}
@@ -259,26 +281,38 @@ export function JournalEditor({
           </button>
         </div>
         <p className="mt-2 text-sm text-zinc-400">
-          Anything worth keeping. Type it, speak it, or paste it.
+          {lessonMode
+            ? "What you worked on, and who with. Type it, speak it, or paste it."
+            : "Anything worth keeping. Type it, speak it, or paste it."}
         </p>
 
-        {/* Who taught it, on every note rather than behind a mode picked
-            before a word is written. A pick rather than a typed name
-            (164), so the second lesson with someone is the same coach
-            rather than a second spelling of them, and so the entry can
-            reach their account. The share answer sits in here with it:
-            one moment, one decision. */}
-        {(
+        {/* Who taught it — on a lesson, and only on a lesson. A pick
+            rather than a typed name (164), so the second lesson with
+            someone is the same coach rather than a second spelling of
+            them, and so the entry can reach their account. The share
+            answer sits in here with it: one moment, one decision. A note
+            written in the Journal asks neither question; it is your own
+            reflection and has nobody to attribute. */}
+        {lessonMode && (
           <CoachPicker
             coaches={coaches}
             value={coachRefId}
             share={shareWithCoach}
             disabled={saving}
+            allowNone
+            noneChosen={noCoach}
+            onNone={() => {
+              setNoCoach(true);
+              setCoachRefId(null);
+              setShareWithCoach(false);
+            }}
             onChange={(id, share) => {
               setCoachRefId(id);
               setShareWithCoach(share);
+              if (id !== null) setNoCoach(false);
             }}
             onCreate={createCoach}
+            shareNoun="this lesson"
           />
         )}
 
@@ -405,6 +439,7 @@ export function JournalEditor({
           disabled={
             saving ||
             text.trim() === "" ||
+            !coachAnswered ||
             photo?.checking === true ||
             dictation.state !== "idle"
           }
@@ -414,8 +449,15 @@ export function JournalEditor({
             ? summarize
               ? "Reading it through…"
               : "Saving…"
-            : "Save entry"}
+            : lessonMode
+              ? "Save lesson"
+              : "Save entry"}
         </button>
+        {lessonMode && !coachAnswered && (
+          <p className="mt-2 text-xs text-zinc-500">
+            Say who taught it, or choose No coach.
+          </p>
+        )}
         {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
       </div>
     </div>

@@ -14,10 +14,7 @@ import type {
 } from "@/lib/types";
 import { LessonCard } from "./LessonCard";
 import { useFocusPoints } from "./useFocusPoints";
-import {
-  WorkingOn,
-  type FocusPoint,
-} from "./WorkingOn";
+import { WorkingOn } from "./WorkingOn";
 import { deriveMatchTitleParts, shortDate } from "@/lib/matchTitle";
 import { NoteItem } from "@/app/match/[id]/Notes";
 import { TagGlyph } from "@/app/match/[id]/Tags";
@@ -25,23 +22,24 @@ import { FabButton } from "@/components/Fab";
 import { journalTagsForOwner } from "@/lib/journal/tags";
 import { JournalEditor } from "./JournalEditor";
 import { NoteEditor } from "./NoteEditor";
-import {
-  sortCoaches,
-  statusLabel,
-  type PlayerCoach,
-} from "@/lib/coaches/playerCoaches";
+import { type PlayerCoach } from "@/lib/coaches/playerCoaches";
 import { SharedEntryCard, type SharedEntry } from "./CoachShared";
 import { AskPanel, MAX_QUESTION_CHARS, askable } from "./AskPanel";
 import { askExamples, topOpponentFromNotes } from "@/lib/ask/examples";
 import { Recollect } from "./Recollect";
+import { JournalStats } from "./JournalStats";
 import type { RecollectSource } from "@/lib/recollect/types";
 
-/* Four sections, not six. Lessons and Practice were never two kinds of
-   entry — the composer's choice between them controlled only whether the
-   entry could carry a coach, so the tab bar was showing an internal split
-   rather than a question anybody asks (Adil, 2026-09-04). They are one
-   list now, and the only remaining distinction is who wrote it. */
-type Section = "all" | "matches" | "notes" | "coach" | "recollect";
+/* Fixed tabs, always in this order, so the journal reads the same on
+   every visit and on every device. All is everything you can read;
+   Matches is the notes born in matches, grouped; Coaches is your lessons
+   and what a coach has shared with you; Stats is the numbers a journal
+   was always going to be asked for. Recollect appears only when it is
+   switched on — it is the one tab that is a setting.
+
+   There is no "Notes" tab any more. Your own written entries were never
+   a category anybody asked for; they are simply part of All. */
+type Section = "all" | "matches" | "coaches" | "stats" | "recollect";
 
 /**
  * Export a tag's points as ONE video across every match (042). Request →
@@ -198,9 +196,8 @@ export function NotesFeed({
   accountName: string | null;
   /** ?match= deep link: open pre-filtered to this match's notes. */
   initialMatch?: string | null;
-  /** ?from=coach: open on what a coach has shared. Used by the join
-   *  flow, so a student who has just connected lands on their coach's
-   *  material rather than on a feed it is mixed into. */
+  /** Which tab to open on. Nothing sends one today: a student who has
+   *  just connected lands on the Coaching tab, not here. */
   initialSection?: Section | null;
   initialRecollectEnabled?: boolean;
 }) {
@@ -241,9 +238,6 @@ export function NotesFeed({
   // lessons in hand, because the feed is capped and a coach with forty
   // entries would otherwise report however many happened to be loaded.
   const [coaches, setCoaches] = useState<PlayerCoach[]>([]);
-  // Which coach the lesson list is narrowed to, or null for everyone.
-  // Bulk move: the ids ticked, and whether the sheet is up. Empty set
-  // means selection mode is off, which is also why leaving it is one tap.
   // Working on cues (active + retired). The hook owns loading and every
   // server-confirmed write; it lives here so lesson takeaways and
   // Recollect file cues into the same list the pinned card renders.
@@ -543,9 +537,7 @@ export function NotesFeed({
   );
 
   const filteredNotes = (rows ?? []).filter(noteMatches);
-  const filteredLessons = lessons
-    .filter(lessonMatches)
-;
+  const filteredLessons = lessons.filter(lessonMatches);
   const filteredShared = shared.filter(
     (e) =>
       tokens.length === 0 ||
@@ -658,13 +650,22 @@ export function NotesFeed({
         ? x.lesson.created_at
         : x.entry.shared_at;
   const feedItems: FeedItem[] = [
-    ...(section === "all" || section === "matches"
+    // Match and point notes are part of All. They are also the whole of
+    // Matches, but that tab groups them itself and never reads this list.
+    ...(section === "all"
       ? filteredNotes.map((n) => ({ type: "note" as const, note: n }))
       : []),
-    ...(section === "all" || section === "notes"
+    // Coaches holds the lessons — the entries that name a coach, made in
+    // the coaching workspace. A plain note is a reflection and stays in
+    // All only.
+    ...(section === "all"
       ? filteredLessons.map((l) => ({ type: "lesson" as const, lesson: l }))
-      : []),
-    ...(section === "all" || section === "coach"
+      : section === "coaches"
+        ? filteredLessons
+            .filter((l) => l.kind === "lesson")
+            .map((l) => ({ type: "lesson" as const, lesson: l }))
+        : []),
+    ...(section === "all" || section === "coaches"
       ? filteredShared.map((e) => ({ type: "shared" as const, entry: e }))
       : []),
   ].sort((a, b) => feedStamp(b).localeCompare(feedStamp(a)));
@@ -720,12 +721,11 @@ export function NotesFeed({
         if (matchFilter) clearMatchFilter();
       }}
       aria-pressed={section === value}
-      /* Tighter on a phone so the whole set fits 393px without a
-         sideways scroll — a primary navigation row you have to drag is
-         one you miss options in. Roomy again from sm up, where there is
-         width to spend. The height, which is what a thumb actually
-         needs, does not change. */
-      className={`shrink-0 whitespace-nowrap rounded-full px-2 py-1.5 text-[13px] font-medium transition-colors sm:px-3.5 ${
+      /* Equal segments across the row, never a sideways scroll: a primary
+         navigation row you have to drag is one you miss options in, and
+         until now the fifth tab was off the edge of a 393px phone. The
+         height, which is what a thumb actually needs, is unchanged. */
+      className={`min-w-0 flex-1 truncate rounded-full px-1 py-1.5 text-[13px] font-medium transition-colors sm:px-3 ${
         section === value
           ? "bg-surface-2 text-white"
           : "text-zinc-500 hover:text-zinc-300"
@@ -813,7 +813,7 @@ export function NotesFeed({
     setActiveTag(null);
     setQuery("");
     setMatchFilter(null);
-    setSection("notes");
+    setSection("all");
     window.history.replaceState(null, "", "/journal");
     window.setTimeout(() => {
       document
@@ -1014,14 +1014,15 @@ export function NotesFeed({
         />
       )}
 
-      {!activeTag &&
-        rows !== null &&
-        (!empty || recollectEnabled) && (
-        <div className="flex gap-0.5 overflow-x-auto border-b border-edge/60 pb-2 sm:gap-1">
+      {/* Always the same tabs, whether or not anything has been written
+          yet — an empty journal still has stats to read and a coach to
+          hear from. */}
+      {!activeTag && rows !== null && (
+        <div className="flex gap-0.5 border-b border-edge/60 pb-2 sm:gap-1">
           {sectionTab("all", "All")}
           {sectionTab("matches", "Matches")}
-          {sectionTab("notes", "Notes")}
-          {shared.length > 0 && sectionTab("coach", "From Coaches")}
+          {sectionTab("coaches", "Coaches")}
+          {sectionTab("stats", "Stats")}
           {recollectEnabled && sectionTab("recollect", "Recollect")}
         </div>
       )}
@@ -1156,6 +1157,11 @@ export function NotesFeed({
           onOpenSource={openRecollectSource}
           onFocusPointAdded={acceptRecollectFocus}
         />
+      ) : section === "stats" ? (
+        /* Mounted only here, so opening the Journal never waits on the
+           points walk. The walk is shared with /stats and Home, which is
+           why coming back to this tab does not count them again. */
+        <JournalStats userId={userId} accountName={accountName} />
       ) : rows === null ? (
         <div className="mt-4 space-y-3">
           {[0, 1, 2].map((i) => (
@@ -1172,8 +1178,8 @@ export function NotesFeed({
             Your journal starts here
           </p>
           <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-zinc-500">
-            Notes from your matches collect here on their own. Add a lesson
-            or a practice entry. Type it, speak it, or paste it.
+            Notes from your matches collect here on their own. Add a note
+            of your own. Type it, speak it, or paste it.
           </p>
           {/* The floating New sits in a far corner on a wide screen; the
               empty state offers the same action where the eye already is,
@@ -1248,11 +1254,9 @@ export function NotesFeed({
         </>
       ) : feedItems.length === 0 ? (
         <p className="mt-4 text-sm text-zinc-500">
-          {section === "notes"
-            ? "No notes yet. New saves your first."
-            : section === "coach"
-              ? "Nothing from a coach yet."
-              : "Nothing found."}
+          {section === "coaches"
+            ? "No lessons yet. Record one in Coaching."
+            : "Nothing found."}
         </p>
       ) : (
         <>

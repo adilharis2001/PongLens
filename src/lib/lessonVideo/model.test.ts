@@ -12,11 +12,14 @@ test('edits never reach outside source or use a clip longer than two minutes',()
  assert.equal(validateEdit({...e,chapters:[{...e.chapters[0],start_s:0,end_s:421}]},5400),null);
  assert.equal(validateEdit({...e,chapters:[{...e.chapters[0],start_s:-1}]},5400),null);
 });
-test('only owner or explicitly granted student sees ready recap; source stays private',()=>{
- assert.equal(canReadVideo('owner','owner','processing',false),true);
- assert.equal(canReadVideo('student','owner','review',true),false);
- assert.equal(canReadVideo('student','owner','ready',true),true);
- assert.equal(canReadVideo('other','owner','ready',false),false);
+test('only the owner or a granted reader sees a ready recap; source stays private',()=>{
+ assert.equal(canReadVideo('owner','processing'),true);
+ assert.equal(canReadVideo('student','review'),false);
+ assert.equal(canReadVideo('student','ready'),true);
+ // The other direction: a player shared their own recap with their coach.
+ assert.equal(canReadVideo('coach','review'),false);
+ assert.equal(canReadVideo('coach','ready'),true);
+ assert.equal(canReadVideo(null,'ready'),false);
  const row={id:'a',source_key:'secret',upload_id:'secret',transcript:[{text:'private'}],edit:{title:'Lesson'},status:'ready'};
  const out=publicVideo(row,false); assert.equal('source_key' in out,false); assert.equal('transcript' in out,false); assert.equal('upload_id' in out,false);
 });

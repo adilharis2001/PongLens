@@ -4,10 +4,9 @@ import Link from "next/link";
 import { confirmLeaveDuringUpload } from "@/lib/uploadGuard";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect } from "react";
 import { Logo } from "@/components/Logo";
 import { NotificationBell } from "@/components/NotificationBell";
-import { createClient } from "@/lib/supabase/client";
 import { rememberLanding, setWorkspace, useWorkspace } from "@/lib/workspace";
 import { useCoachEligible } from "@/lib/coachEligible";
 import { routeTerritory, type Workspace } from "@/lib/workspaceModel";
@@ -174,13 +173,19 @@ function CoachIcon({ active }: { active: boolean }) {
   );
 }
 
+/**
+ * The playing side's spine. Coaching is permanent: a player with no coach
+ * yet still opens it to add one or to record a lesson of their own, and a
+ * tab that only appears once somebody else acts is a tab nobody learns.
+ * It used to be conditional on having a coach link or a bought review,
+ * worked out with two queries and cached in sessionStorage.
+ */
 const TABS = [
   { href: "/dashboard", label: "Home" },
   { href: "/matches", label: "Matches" },
   { href: "/journal", label: "Journal" },
+  { href: "/coaching", label: "Coaching" },
 ] as const;
-
-const COACHING_TAB = { href: "/coaching", label: "Coaching" } as const;
 
 /**
  * The coaching workspace's spine (156, three deep since 2026-09-02): the
@@ -249,54 +254,6 @@ function tabIcon(label: string, active: boolean) {
   }
 }
 
-/**
- * The player bar's Coaching tab is the STUDENT direction only (158):
- * coaches you have, reviews you've bought. Being a coach never adds it —
- * the coaching workspace is reached through the switch or a coach link,
- * so the two sides stay apart. Cached in sessionStorage so the bar
- * doesn't pop in a tab after first paint; refreshed quietly each mount.
- */
-function useStudentSide(): boolean {
-  // Hydrates false (matching the server), then flips from the session
-  // cache in the first effect — reading storage during render is a
-  // hydration mismatch.
-  const [studentSide, setStudentSide] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    if (sessionStorage.getItem("pl-student-side") === "1") setStudentSide(true);
-    const check = async () => {
-      const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-      const [asPlayer, orders] = await Promise.all([
-        supabase
-          .from("coach_links")
-          .select("id")
-          .eq("player_id", user.id)
-          .neq("status", "revoked")
-          .limit(1)
-          .maybeSingle(),
-        supabase
-          .from("review_orders")
-          .select("id")
-          .eq("student_id", user.id)
-          .limit(1)
-          .maybeSingle(),
-      ]);
-      const coach = Boolean(asPlayer.data || orders.data);
-      sessionStorage.setItem("pl-student-side", coach ? "1" : "0");
-      if (alive) setStudentSide(coach);
-    };
-    void check();
-    return () => {
-      alive = false;
-    };
-  }, []);
-  return studentSide;
-}
-
 export function AppNav({
   avatarUrl,
   wide,
@@ -309,7 +266,6 @@ export function AppNav({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const studentSide = useStudentSide();
   const { eligible: coachEligible, userId } = useCoachEligible();
   const chosen = useWorkspace(remembered);
   // Route territory wins over the remembered choice, and it is known on
@@ -321,14 +277,8 @@ export function AppNav({
     if (userId) rememberLanding(userId, pathname);
   }, [userId, pathname]);
   // The coaching workspace swaps the spine wholesale: same bar, other
-  // side of the table. The player bar keeps its Coaching tab for the
-  // student direction (your coaches, reviews you bought).
-  const tabs =
-    workspace === "coach"
-      ? [...COACH_TABS]
-      : studentSide
-        ? [...TABS, COACHING_TAB]
-        : [...TABS];
+  // side of the table.
+  const tabs = workspace === "coach" ? [...COACH_TABS] : [...TABS];
   const activeTab = (href: string) => {
     switch (href) {
       case "/dashboard":
@@ -370,9 +320,12 @@ export function AppNav({
   };
 
   // The side switch (158): one tap between playing and coaching, only for
-  // accounts that have both. A label over an icon — "Coaching" on the
-  // playing side, "Playing" on the coaching side — so it never reads as
-  // "your coach". Everyone else keeps the door in Account.
+  // accounts that have both. It names the side it switches TO. It used to
+  // say "Coaching", which is now also the name of a tab one row below it,
+  // so the bar offered two doors under one word. "Mode" is what makes it
+  // read as a switch rather than a destination; the phone drops it,
+  // because the top bar there also carries the bell and the avatar.
+  // Everyone else keeps the door in Account.
   const sideSwitch =
     coachEligible && userId ? (
       <button
@@ -398,7 +351,12 @@ export function AppNav({
         >
           <path d="M7 8h10m0 0-3-3m3 3-3 3M17 16H7m0 0 3-3m-3 3 3 3" />
         </svg>
-        {workspace === "coach" ? "Playing" : "Coaching"}
+        <span className="hidden md:inline">
+          {workspace === "coach" ? "Player mode" : "Coach mode"}
+        </span>
+        <span className="md:hidden">
+          {workspace === "coach" ? "Player" : "Coach"}
+        </span>
       </button>
     ) : null;
 

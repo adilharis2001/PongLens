@@ -572,6 +572,10 @@ export interface Lesson {
   shared_with_coach_at?: string | null;
   // Attached photo (047): r2://…/entry/<user_id>/… — moderated on upload.
   image_path?: string | null;
+  // The lesson video this entry is the journal side of, when the lesson
+  // was filmed rather than written. The entry's transcript is only a link
+  // to it; the teaching itself lives in lesson_videos.edit.
+  lesson_video_id?: string | null;
   created_at: string;
 }
 
@@ -630,7 +634,11 @@ export type NotificationKind =
   // 2026-09-06, so the bell drew them with the generic tick.
   | "coach_entry"
   | "student_joined"
-  | "student_match_ready";
+  | "student_match_ready"
+  // The player's coaching workspace (2026-09-07). The mirror of
+  // `coach_entry`: a student shared a lesson they recorded with the coach
+  // they took it from, so this one goes to the coach.
+  | "student_lesson";
 
 // Named AppNotification so it never shadows the DOM's Notification global.
 // Copy is denormalised server-side (see migration 031) — the bell renders

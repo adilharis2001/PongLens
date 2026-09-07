@@ -22,6 +22,14 @@ test("route territory: coach rooms, player rooms, shared ground", () => {
   assert.equal(routeTerritory("/coaching/orders/abc"), "coach");
   assert.equal(routeTerritory("/coaching"), null);
   assert.equal(routeTerritory("/coaching/"), null);
+  // The player's own rooms under /coaching, which must not flip a
+  // dual-role account into coach mode by being opened.
+  assert.equal(routeTerritory("/coaching/coach/abc"), "player");
+  assert.equal(routeTerritory("/coaching/lesson/new"), "player");
+  assert.equal(routeTerritory("/coaching/import"), "player");
+  assert.equal(routeTerritory("/coaching/import?from=journal"), "player");
+  // ...and the coach's rooms are still the coach's.
+  assert.equal(routeTerritory("/coaching/videos"), "coach");
   assert.equal(routeTerritory("/dashboard"), "player");
   assert.equal(routeTerritory("/journal?entry=1"), "player");
   assert.equal(routeTerritory("/orders/abc"), "player");
