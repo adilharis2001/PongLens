@@ -107,13 +107,27 @@ calls stop running on silence.
 
 Two independent causes, and both were live.
 
-1. **The transcription step was different code.** The good run's
-   utterances are 70-second windows with 10-second overlap, speaker null,
-   `[unclear]` markers, stamped `asr_version: 3`. Nothing in this
-   repository or in any packaged release on disk writes 3; every one
-   writes 2. A whisper-1 call on one of those windows reproduces its text
-   almost word for word, so the run used Whisper over short windows, from
-   a bundle that no longer exists.
+1. **The good recap was never made by the product.** It was repaired by
+   hand. The cost ledger records the whole run on 2026-09-06 between
+   00:38 and 00:41 UTC, under operation names no shipped code uses:
+   `lesson_video_audio_audit`, `lesson_video_recovery_asr` (90 calls,
+   69.9 s each), `lesson_video_recovery_check` (90 calls), and
+   `lesson_video_full_audio_check` (90 calls). Twenty-nine scripts named
+   `ponglens-jonathan-*.py` survive in `/private/tmp`, and they say
+   exactly what happened: the lesson was cut into 90 windows of 60
+   seconds plus 5 seconds of padding either side, put through
+   `gpt-4o-transcribe`, then `whisper-1`, then `gpt-audio` listening to
+   the same audio directly, and a fourth model reconciled the three —
+   keeping only speech two recognizers agreed on, marking the rest
+   `[unclear]`, and stripping hallucinated outros and echoed prompts.
+   That is where `[unclear]` came from and why the stored text reads
+   cleaner than any single model's.
+
+   **The worker was never changed.** So the next time that file went
+   through the actual product, on Sept 7, it got the product's real
+   behaviour, which is what this document is about. The finding recorded
+   here is a rediscovery: the same conclusion had been reached once,
+   applied to one row by hand, and written down nowhere.
 2. **Chapter selection had no floor below 75 minutes.** `Adam Hugh
    Lesson.MOV` came out as **6 chapters on Sept 5 and 14 on Sept 7** from
    equivalent transcripts, because `selection_requirements` returns
@@ -121,6 +135,47 @@ Two independent causes, and both were live.
    free to return anywhere from one chapter to sixteen. This is not fixed
    here and it should be: a lesson that renders as 6 chapters one day and
    14 the next has dropped teaching on one of those days.
+
+## The three transcribers over the whole lesson
+
+The hand run's artefacts survive, so all three models can be compared
+across the same 90 windows (6,288 seconds, overlapping) at no cost.
+
+| Model | Total words | Words a minute | Median per window | Windows under 10 words |
+| --- | --- | --- | --- | --- |
+| gpt-4o-transcribe | 2,849 | 27.2 | 16 | 26 |
+| **whisper-1** | **6,346** | **60.6** | **62** | 5 |
+| gpt-audio | 6,257 | 59.7 | 58 | **0** |
+| the reconciliation | 4,200 | 40.1 | 37 | 15 |
+
+Heard the most, per window: whisper-1 49, gpt-audio 40, gpt-4o-transcribe 1.
+
+Three things follow.
+
+**whisper-1 as the first rung is right, and now measured at scale** rather
+than on one window.
+
+**The reconciliation kept FEWER words than either good model alone.** It
+was built to be conservative — corroborated by two recognizers or marked
+`[unclear]` — so it trades recall for trust. The recap Adil was comparing
+against is not the most complete reading of that lesson; it is the most
+cautious one. Whether cautious is better here is a real question and it
+is not settled by word counts.
+
+**The second rung is the weakest model available.** The ladder shipped
+today escalates to `gpt-4o-transcribe-diarize`, a sibling of the model
+that came last on every measure here: it won 1 window of 90 and returned
+under 10 words on 26. `gpt-audio` won 40 and failed none. It should
+probably be the rescue instead.
+
+Two things stopped that being changed today. `gpt-audio` answers through
+chat completions and returns no segment times, so a section rescued by it
+would carry window-granularity timing only; and it has no rows in
+`cost_rates`, so the 90 calls the hand run made are recorded but unpriced,
+and swapping a rung on a guessed price is not a decision worth making.
+The cost of leaving it is bounded and it is the safe direction: a section
+both rungs miss is excluded rather than invented, so this costs coverage
+on hard audio, never correctness.
 
 ## Not measured
 
@@ -132,3 +187,9 @@ Two independent causes, and both were live.
 - The corpus is four lessons from two recordings, both Adil's, both in
   club halls. That is the audio this product actually gets, but it is two
   rooms, not twenty.
+- `gpt-audio`'s price. It has no `cost_rates` rows, so the hand run's 90
+  calls sit in the ledger unpriced.
+- Whether 70-second window timing is precise enough for clip selection,
+  which is what a `gpt-audio` rescue would have to live with.
+- Whether the conservative reconciliation is more ACCURATE than whisper
+  alone, as opposed to shorter. Only listening would settle it.
