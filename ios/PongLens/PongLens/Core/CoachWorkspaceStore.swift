@@ -109,6 +109,12 @@ final class CoachWorkspaceStore {
     /// what you wrote about someone and what they showed you must never
     /// look like one pile.
     var fromStudents: [StudentSharedLesson] = []
+    /// Invite links this coach has ever minted, revoked ones included.
+    /// Home's first steps is the only reader: "Send a student their invite
+    /// link" is done the moment a link exists, and turning a link off
+    /// afterwards does not un-send it. Counted here rather than in the
+    /// screen so the checklist never runs a query of its own.
+    var inviteCount = 0
     var loaded = false
     /// The roster query itself failed (offline, expired session). Screens
     /// say so rather than showing "No students yet." over a network error.
@@ -117,6 +123,13 @@ final class CoachWorkspaceStore {
     var activeStudents: [CoachStudentRow] {
         students.filter { $0.archivedAt == nil }
     }
+
+    /// The oldest student still on the roster, which is where a new
+    /// coach's first steps happen: the invite, the first entry and the
+    /// first share all live on one student's page. The roster arrives
+    /// newest first, so the oldest is the last of it. The web reads the
+    /// same student by ordering its query the other way round.
+    var firstStudent: CoachStudentRow? { activeStudents.last }
 
     func student(_ id: UUID) -> CoachStudentRow? {
         students.first { $0.id == id }
@@ -163,6 +176,13 @@ final class CoachWorkspaceStore {
         async let sharedQ: [StudentSharedLesson]? = try? await supa
             .rpc("student_shared_lessons")
             .execute().value
+        // A head request. Nothing reads an invite row here, only whether
+        // one exists, so the rows never need to come back.
+        async let invitesQ = try? await supa
+            .from("coach_student_invites")
+            .select("id", head: true, count: .exact)
+            .eq("coach_id", value: uid)
+            .execute()
 
         let (s, e, l) = await (studentsQ, entriesQ, lessonsQ)
         fromStudents = (await sharedQ) ?? []
@@ -171,6 +191,7 @@ final class CoachWorkspaceStore {
             return
         }
         loadFailed = false
+        inviteCount = (await invitesQ)?.count ?? 0
         students = s
         entries = e ?? []
         lessons = Dictionary(uniqueKeysWithValues: (l ?? []).map { ($0.id, $0) })
