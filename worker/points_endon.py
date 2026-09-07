@@ -13,12 +13,18 @@ produces four cards for a seven-minute video.
 Do not read that gap as a law. It was 1.07 to 5.17 across the first
 twenty matches and narrowed as soon as two more users' uploads were
 measured. It will keep narrowing, and the day a match lands inside it,
-the router needs better evidence than a threshold in a hole.
+the router needs better evidence than a threshold in a hole. (Since
+2026-09-06 the router no longer reads minutes at all: it counts serves
+per candidate point and vetoes a table the ball does not bounce on. See
+SERVE_YIELD_MIN and TABLE_SHARE_MIN below.)
 
-This module is the other assembler for that group. It never looks for a
-serve. Instead it scores every tick of the match as play-like or
+This module is the other assembler for that group. It does not anchor
+on a serve. Instead it scores every tick of the match as play-like or
 dead-like and finds the single alternating segmentation of the whole
-match that best explains it. A boundary is accepted not because it looks
+match that best explains it. (Since 2026-09-06 the serves the detector
+DID find are offered to that segmentation as candidates and stamped onto
+the cards that hold them — see SERVE_LEAD_S below. That borrows what
+there is; it does not make this a serve-anchored assembler.) A boundary is accepted not because it looks
 convincing on its own, but because the segmentation containing it beats
 every segmentation without it.
 
@@ -65,39 +71,74 @@ TICK = V2.TICK
 # ---------------------------------------------------------------------------
 # router
 # ---------------------------------------------------------------------------
-# Serves per minute below which the serve-anchored assembler has nothing
-# to anchor on. Sited at the middle of the observed gap: the highest rate
-# among matches that clearly need the fallback is 1.32 (Tripp), the
-# lowest among matches whose serve-anchored cards come out healthy is
-# 2.90 (a Guillaume match at camera 0.57), so 2.1 sits about 0.8 clear
-# either way.
+# Serves per CANDIDATE POINT below which the serve-anchored assembler has
+# nothing to anchor on. The candidate points are its own cards, which it
+# has already built by the time the router runs, so the question is the one
+# that was always meant: on what share of the points it found did the serve
+# detector actually see a serve?
 #
-# It was 2.5 when the only evidence was a gap running 1.07 to 5.17.
-# Validating two users' uploads put a real match at 2.90 and left the
-# old threshold with 0.40 of headroom above and 1.18 below, which is a
-# lopsided place to stand. The gap is narrower than it first looked and
-# will keep narrowing; the route and the rate are recorded on every match
-# so the next revision argues from more than a dozen numbers.
+# Until 2026-09-06 this was serves per minute of VIDEO (SERVE_RATE_MIN,
+# 2.5 then 2.1). That conflated the detector with the clock: on the
+# seventeen lab matches dead time is 30 to 63% of the video even after the
+# dead-space cut, so a long break between games could push a good camera
+# under the line. Serves per ACTIVE minute is not the fix either: Tripp
+# reads 2.22 per active minute and would go serve-anchored, where he
+# scores 46% instead of 75%. Serves per card has no minutes in it at all.
 #
-# Deliberately NOT foreshortening. Camera angle looks like the obvious
-# criterion and it is the worse one: it overlaps across the decision
-# (0.49 with no serves at all, 0.46 with 5.17), it is absent on the ~20%
-# of matches that never calibrate, and a quad recovered one position
-# round reads as a superb camera angle. Serve rate measures the thing we
-# actually care about — whether cards can be anchored — rather than a
-# proxy for it.
-SERVE_RATE_MIN = 2.1
+# 0.42 sits in the gap between tripp_rc (0.34, the highest end-on yield)
+# and gavin_16 (0.50, the lowest side-on); on the stored corpus the nearest
+# values are 0.39 and 0.47. It reproduces the route of every one of the 62
+# matches the per-minute rule handled. The yield and the table share are
+# written into every match's note so the next revision argues from the
+# whole corpus rather than seventeen numbers.
+#
+# Deliberately NOT foreshortening, still. Camera angle looks like the
+# obvious criterion and it is the worse one: it is absent on the matches
+# that never calibrate, and on a net-post diamond (the PingPod W37 booth,
+# Tim's match, gavin_16) it measures the calibration error, not the camera.
+SERVE_YIELD_MIN = 0.42
+
+# The veto. Share of moving-ball bounces the homography puts on the playing
+# surface: 60 to 85% on every real quad in the lab, 42 to 53% on a net-post
+# diamond, because half the surface projects off the table. Under this the
+# geometry the serve-anchored assembler is about to trust is not the table
+# (its "same side of the net" test becomes a diagonal), and the end-on
+# assembler, which leans on it less, measures 64% against 49% on that
+# booth. 0.57 sits between anton_first (53%) and terry (60%), the worst
+# real camera. Seventeen matches; see the note above about writing it down.
+TABLE_SHARE_MIN = 0.57
 
 
 def serve_rate(E):
-    """Accepted serve contacts per minute of video."""
+    """Accepted serve contacts per minute of video. Still written into the
+    note on every match so the record stays comparable with the matches
+    routed before 2026-09-06; it no longer decides anything."""
     minutes = max(E.duration / 60.0, 1e-6)
     return len(E.serves) / minutes
 
 
-def wants_endon(E):
-    """True when the serve-anchored assembler has too little to work with."""
-    return serve_rate(E) < SERVE_RATE_MIN
+def serve_yield(E, cards):
+    """Accepted serve contacts per candidate point."""
+    return len(E.serves) / max(len(cards), 1)
+
+
+def table_share(E):
+    """Share of moving-ball bounces that land on the playing surface, or
+    None when there were no moving-ball bounces to judge by."""
+    bt = getattr(E, "bt", None)
+    n = len(bt) if bt is not None else 0
+    if n == 0:
+        return None
+    return len(E.bt_table) / n
+
+
+def wants_endon(E, cards):
+    """True when the serve-anchored assembler has too little to work with,
+    or when the table it would work with is not where the ball bounces."""
+    if serve_yield(E, cards) < SERVE_YIELD_MIN:
+        return True
+    share = table_share(E)
+    return share is not None and share < TABLE_SHARE_MIN
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +197,29 @@ CROP_PAD_X = 0.35
 CROP_PAD_Y = 0.60
 CROP_PAD_BELOW = 0.15
 CROP_SIDE_M = 1.3
+
+# Below this camera shape (points_v2.foreshortening of the quad: 1.0 is
+# square-on, Tripp is 0.28) the crop is skipped and the detector sees the
+# whole frame. Measured 2026-09-06 on the Westchester bench (koko, terry,
+# tripp_rc; 199 marked points): the crop raised serves (40 to 69) and the
+# serve-anchored assembler (43% to 55%), but those matches never use that
+# assembler, and the end-on one they do use went from 74% to 71% clean with
+# three rallies lost, whose ball left the box sideways. Losing a rally is
+# the one outcome the scorecard forbids. 0.40 separates the bench (0.25 to
+# 0.32) from every real side-on quad in the lab (0.46 to 1.39); the one
+# diamond that reads under it, gavin_16 at 0.33, simply keeps the
+# full-frame detection it had before the crop existed.
+CROP_MIN_SHAPE = 0.40
+
+
+def crop_allowed(corners_px):
+    """(allowed, shape). A table that reads end-on is detected on the full
+    frame; a quad whose shape cannot be measured is left to ball_crop_box,
+    which refuses on its own terms."""
+    shape = V2.foreshortening(corners_px) if corners_px else None
+    if shape is None:
+        return True, None
+    return shape >= CROP_MIN_SHAPE, shape
 
 
 def ball_crop_box(corners_px, width=1920, height=1080):
@@ -461,14 +525,56 @@ def valleys(z, zfps, pct):
     return idx / zfps
 
 
-def boundaries(E, z, zfps, exits, P):
-    """Candidate boundary ticks: freeze valleys, prism exits, chain gaps."""
+# Borrowed serves (2026-09-06). The serve detector is not blind on every
+# match that lands here: on a serve-blind SIDE view (a PingPod booth whose
+# calibration is a net-post diamond) it still accepts a serve on a third of
+# the points, and even on the Westchester bench it finds 5, 4 and 31. Those
+# contacts are offered to the segmentation as candidates, and the card that
+# ends up holding one is stamped with it so placement and the serve
+# statistics get what there is. Measured leave-one-match-out on koko, terry
+# and tripp_rc (lab s71, s73, s79; docs/research/2026-09-06-endon-routing.md
+# section 5): the bench is unchanged to the tick, 74% clean and zero lost,
+# and every fold chose a lead of 0.0. On Anton's two side-view matches the
+# stamps are right four times in five against the audio serve marks.
+SERVE_LEAD_S = 0.0
+# A contact deeper into the card than this is a mid-rally bounce pair the
+# detector mistook for a serve, not the serve that opened the point: lead
+# 2.2 s + HEAD_LEAD 1.6 s + slack. With the cap, stamp precision goes from
+# 49% to 59% on the end-on bench and 82% to 86% on the side-view booth.
+STAMP_MAX_OFFSET_S = 4.5
+
+
+def stamp_serves(E, cards):
+    """serve_s = the first accepted serve contact inside the card, if it sits
+    within STAMP_MAX_OFFSET_S of the card's start; else None. serves_inside
+    is the count of contacts in the card, kept for the diagnosis page (a
+    card holding two is a fusion candidate). Mutates and returns cards."""
+    sv = np.asarray(E.serves, float)
+    for c in cards:
+        inside = sv[(sv >= c["t0"]) & (sv <= c["t1"])] if len(sv) else sv
+        c["serves_inside"] = int(len(inside))
+        first = float(inside[0]) if len(inside) else None
+        if first is not None and first - c["t0"] > STAMP_MAX_OFFSET_S:
+            first = None
+        c["serve_s"] = first
+    return cards
+
+
+def boundaries(E, z, zfps, exits, P, borrow_serves=True):
+    """Candidate boundary ticks: freeze valleys, prism exits, chain gaps,
+    and every accepted serve contact minus SERVE_LEAD_S. The segmentation
+    still decides; a serve tick it does not like is ignored like any other.
+    borrow_serves=False is the pre-2026-09-06 candidate set, kept so the
+    faithfulness check can prove the port changes nothing else."""
     cand = [valleys(z, zfps, P["cand_pct"]), np.asarray(exits, float)]
     cr = np.asarray(E.cross, float)
     if len(cr):
         cand.append(np.asarray(
             [(cr[i] + cr[i + 1]) / 2 for i in range(len(cr) - 1)
              if cr[i + 1] - cr[i] > 2.0], float))
+    if borrow_serves and len(E.serves):
+        sv = np.asarray(E.serves, float) - SERVE_LEAD_S
+        cand.append(sv[sv > 0])
     usable = [c for c in cand if len(c)]
     b = np.unique(np.concatenate(usable)) if usable else np.zeros(0)
     b = np.concatenate([[0.0], b, [E.duration]])
@@ -476,7 +582,7 @@ def boundaries(E, z, zfps, exits, P):
     return ticks[(ticks >= 0) & (ticks < E.n)]
 
 
-def segment(E, z, zfps, exits, P):
+def segment(E, z, zfps, exits, P, borrow_serves=True):
     """Viterbi over candidate boundaries, strictly alternating.
 
     f[j][0] is the best total for a segmentation whose segment ending at
@@ -486,7 +592,7 @@ def segment(E, z, zfps, exits, P):
     """
     ev = play_evidence(E, z, zfps, P)
     s = np.concatenate([[0.0], np.cumsum(ev - P["theta"])])
-    B = boundaries(E, z, zfps, exits, P)
+    B = boundaries(E, z, zfps, exits, P, borrow_serves)
     m = len(B)
     if m < 2:
         return []
@@ -526,17 +632,22 @@ def segment(E, z, zfps, exits, P):
     return segs[::-1]
 
 
-def build_cards(E, z, zfps, exits, P=None):
+def build_cards(E, z, zfps, exits, P=None, borrow_serves=True, stamp=True):
     """Cards in SOURCE seconds, sorted and disjoint.
 
-    serve_s is always None: this assembler never claims to have found a
-    serve, and downstream code that wants one must treat its absence as
-    the normal case rather than a failure.
+    serve_s is the detected serve contact the card holds (stamp_serves),
+    and None wherever no contact lies within STAMP_MAX_OFFSET_S of the
+    card's start. On a genuinely end-on camera that is most cards, and
+    about four stamps in ten there are a mid-rally pair: downstream code
+    must still treat None as the normal case, and placement's own checks
+    (first bounce on the server's half, consecutive bounces, the trust
+    threshold) are what stand between a wrong stamp and a wrong dot.
     """
     P = dict(CONFIG, **(P or {}))
     out = []
-    for a, b in segment(E, z, zfps, exits, P):
+    for a, b in segment(E, z, zfps, exits, P, borrow_serves):
         out.append({"t0": max(0.0, a - P["lead"]),
                     "t1": min(E.duration, b + P["pad"]),
                     "serve_s": None, "why": "endon"})
-    return V2.resolve(out)
+    cards = V2.resolve(out)
+    return stamp_serves(E, cards) if stamp else cards

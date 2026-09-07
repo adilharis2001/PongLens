@@ -308,6 +308,8 @@ test("an unknown job kind reads as its raw name", () => {
 
 test("an unknown stage reads as its raw name", () => {
   assert.equal(stageLabel("ball"), "Finding the ball");
+  // the second detection pass on a vision-calibrated table (2026-09-06)
+  assert.equal(stageLabel("ball_recrop"), "Finding the ball again, around the table");
   assert.equal(stageLabel("rtmpose"), "rtmpose");
   assert.equal(stageLabel(null), null);
   assert.equal(isKnownStage("rtmpose"), false);

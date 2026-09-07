@@ -2548,6 +2548,48 @@ def build_placement_v3(
 # curate the timeline with delete instead. points.warmup stays in Postgres
 # as a dead column (see migration 011); the worker never sets it.
 # ---------------------------------------------------------------------------
+CALIBRATION_JSON_SKIP = ("bg", "debug")
+
+
+def save_calibration_json(calib, path):
+    """The ladder's answer, on disk, for a later run of this command.
+
+    Everything the pipeline reads off the calib dict except the median
+    background frame (a numpy image nobody downstream needs) and the debug
+    string. The homography is a 3x3 float array and is stored as a list.
+    """
+    import numpy as np
+    out = {}
+    for k, v in calib.items():
+        if k in CALIBRATION_JSON_SKIP:
+            continue
+        if k == "H":
+            v = np.asarray(v, dtype=float).tolist()
+        elif isinstance(v, tuple):
+            v = list(v)
+        out[k] = v
+    with open(path, "w") as fh:
+        json.dump(out, fh, indent=1, default=float)
+
+
+def load_calibration_json(path):
+    """Inverse of save_calibration_json. Raises on anything short of a
+    complete calibration, so the caller falls back to the ladder."""
+    import numpy as np
+    with open(path) as fh:
+        calib = json.load(fh)
+    if not isinstance(calib, dict) or "corners_px" not in calib \
+            or "H" not in calib or "e" not in calib:
+        raise ValueError("calibration.json lacks corners, homography or axis")
+    calib["H"] = np.asarray(calib["H"], dtype=np.float64)
+    if calib["H"].shape != (3, 3) or not np.isfinite(calib["H"]).all():
+        raise ValueError("calibration.json homography is not a finite 3x3")
+    calib["e"] = tuple(float(x) for x in calib["e"])
+    if calib.get("roi") is not None:
+        calib["roi"] = tuple(float(x) for x in calib["roi"])
+    return calib
+
+
 def cmd_points(args):
     meta = probe(args.video)
     fps, dur = meta["fps"], meta["duration"]
@@ -2560,6 +2602,8 @@ def cmd_points(args):
     os.makedirs(clips_dir, exist_ok=True)
 
     notes = []
+    if getattr(args, "detections_note", None):
+        notes.append(str(args.detections_note))
 
     # 0. bounce-cloud activity gate (the user's table region)
     gate = activity_gate(det, meta["width"], meta["height"])
@@ -2597,10 +2641,25 @@ def cmd_points(args):
     # where the table's thirteen landmarks are, and the fitter keeps only
     # the set of them that agree on one real 2.740 x 1.525 m rectangle.
     calib = None
-    try:
-        calib = keypoint_calibrate(args.video, args.outdir)
-    except Exception as e:
-        print(f"keypoint calibration crashed: {e}")
+    if getattr(args, "calibration_json", None):
+        # The second detection pass. The first pass already paid for this
+        # table and validated it against the full-frame detections; asking
+        # the ladder again would run the keypoint detector for nothing and
+        # the vision call for money, and could even answer differently.
+        try:
+            calib = load_calibration_json(args.calibration_json)
+            notes.append("calibration reused from the first pass "
+                         f"({calib.get('source', 'unknown')})")
+            print(f"calibration reused from {args.calibration_json} "
+                  f"({calib.get('source', 'unknown')})")
+        except Exception as e:
+            print(f"calibration reuse failed ({e}); running the ladder")
+            calib = None
+    if calib is None:
+        try:
+            calib = keypoint_calibrate(args.video, args.outdir)
+        except Exception as e:
+            print(f"keypoint calibration crashed: {e}")
     if calib is None:
         notes.append("keypoint calibration unavailable; trying vision")
 
@@ -2659,6 +2718,14 @@ def cmd_points(args):
     else:
         print(f"calibration ok ({calib.get('source', 'unknown')}): "
               f"{calib['corners_px']}  e={calib['e']}")
+        # Written on every run so a second pass can hand it back through
+        # --calibration-json. Best effort: a match must not fail over its
+        # own paperwork.
+        try:
+            save_calibration_json(
+                calib, os.path.join(args.outdir, "calibration.json"))
+        except Exception as e:                              # noqa: BLE001
+            print(f"calibration.json not written: {e}")
     H = calib["H"] if calib else None
     e = calib["e"] if calib else None
     roi = calib["roi"] if calib else None
@@ -2744,14 +2811,18 @@ def cmd_points(args):
             clip_pre = points_v2.CLIP_PRE_S
             clip_post = points_v2.CLIP_POST_S
 
-            # The route, and why. Serve rate is recorded on every match
-            # whichever way it goes, because the threshold below was drawn
-            # through a gap in twenty matches and the only way it gets
+            # The route, and why. The serve rate, the serves per candidate
+            # point and the table share are recorded on every match
+            # whichever way it goes, because the thresholds were drawn
+            # through gaps in a few dozen matches and the only way they get
             # better evidence is by being written down every time.
             v2_rate = points_endon.serve_rate(v2_E)
+            v2_yield = points_endon.serve_yield(v2_E, v2_out)
+            v2_share = points_endon.table_share(v2_E)
+            v2_share_txt = ("n/a" if v2_share is None else f"{v2_share:.2f}")
             route = "serve-anchored"
             if getattr(args, "endon_fallback", False) \
-                    and points_endon.wants_endon(v2_E):
+                    and points_endon.wants_endon(v2_E, v2_out):
                 # Only now is the extra decode worth paying for: the motion
                 # pass costs a pass over the video and nothing on this path
                 # needs it unless the segmentation is actually going to run.
@@ -2776,6 +2847,15 @@ def cmd_points(args):
                         notes.append("end-on assembler produced no cards; "
                                      "kept the serve-anchored ones")
             v2_route = route
+            # How many cards carry a detected serve. On the serve-anchored
+            # route that is every card the motif built (the dense-net
+            # fallback cards carry none); on the end-on route it is what
+            # the assembler borrowed (points_endon.stamp_serves). Recorded
+            # so the next argument about an end-on match is settled from
+            # the match rather than from memory. Appended LAST: the admin
+            # uploads page parses the front of this note with a regex
+            # (uploadView.ts) that must keep matching.
+            stamped = sum(1 for c in v2_cards if c.get("serve_s") is not None)
             # The tolerances go in the note for the same reason the serve
             # rate does: when a match is argued about weeks later, the
             # settings it was built under have to be readable off the match
@@ -2785,12 +2865,17 @@ def cmd_points(args):
                          f"{len(v2_E.cross)} crossings, "
                          f"camera {v2_E.shape:.2f}, "
                          f"serves/min {v2_rate:.2f}, route {route}, "
+                         f"serves/card {v2_yield:.2f}, "
+                         f"table share {v2_share_txt}, "
                          f"surface pad {points_v2.PAIR_SURFACE_PAD_M:.2f}, "
-                         f"merge {points_v2.CLUSTER_S:.1f}s")
+                         f"merge {points_v2.CLUSTER_S:.1f}s, "
+                         f"{stamped} stamped")
             print(f"points v2: {len(v2_cards)} cards "
                   f"({len(v2_E.serves)} serves, {len(v2_E.cross)} "
                   f"crossings, camera shape {v2_E.shape:.2f}, "
-                  f"serves/min {v2_rate:.2f}) -> {route}")
+                  f"serves/min {v2_rate:.2f}, serves/card {v2_yield:.2f}, "
+                  f"table share {v2_share_txt}, {stamped} stamped) "
+                  f"-> {route}")
             if getattr(args, "evidence_dump", None):
                 write_evidence_dump(args.evidence_dump, v2_E, v2_cards,
                                     calib, meta, fps, route, v2_rate, notes)
@@ -3267,8 +3352,20 @@ def main():
                         "app_config.placement_serve_seed")
     p.add_argument("--endon-fallback", action="store_true",
                    help="allow the end-on assembler (points_endon) for a "
-                        "match whose serve rate is below its threshold; "
-                        "without this every v2 match stays serve-anchored")
+                        "match the router sends there (too few serves per "
+                        "candidate point, or a table the ball does not "
+                        "bounce on); without this every v2 match stays "
+                        "serve-anchored")
+    p.add_argument("--calibration-json", metavar="PATH",
+                   help="reuse this calibration (the calibration.json a "
+                        "previous run of this command wrote) instead of "
+                        "running the ladder. The second detection pass on "
+                        "a vision-calibrated match passes it so the paid "
+                        "call is made once")
+    p.add_argument("--detections-note", metavar="TEXT",
+                   help="a sentence about what the ball detector saw (crop "
+                        "or full frame), appended to match.json's notes "
+                        "verbatim so the match records it")
     p.set_defaults(fn=cmd_points)
 
     args = ap.parse_args()

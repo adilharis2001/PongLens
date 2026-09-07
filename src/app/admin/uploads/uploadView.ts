@@ -311,6 +311,10 @@ export interface AssemblyReading {
   /** Where the route came from, so the page can say how sure it is. */
   routeFrom: "structured" | "notes" | "inferred" | null;
   servesPerMin: number | null;
+  /** Serves per candidate point and the share of bounces on the drawn
+   *  table, the per-point router's own inputs. Null on older matches. */
+  servesPerCard: number | null;
+  tableShare: number | null;
   cameraShape: number | null;
   cards: number | null;
   serves: number | null;
@@ -330,9 +334,18 @@ export interface AssemblyReading {
 /** points_endon.SERVE_RATE_MIN. Mirrored, not imported — the worker is
  *  Python. It has moved once (2.5 → 2.1) and will move again. */
 export const SERVE_RATE_MIN = 2.1;
+/** points_endon.SERVE_YIELD_MIN and TABLE_SHARE_MIN: the router since
+ *  2026-09-06 counts serves per candidate point instead of per minute, and
+ *  vetoes a drawn table the ball does not bounce on. Mirrored for the same
+ *  reason as the rate. */
+export const SERVE_YIELD_MIN = 0.42;
+export const TABLE_SHARE_MIN = 0.57;
 
 const ROUTE_NOTE =
   /points v2:\s*(\d+)\s*cards,\s*(\d+)\s*serves,\s*(\d+)\s*crossings,\s*camera\s*([\d.]+),\s*serves\/min\s*([\d.]+),\s*route\s*([a-z-]+)/i;
+/** The two numbers the per-point router adds to the same sentence. Absent
+ *  on every match routed before 2026-09-06. */
+const YIELD_NOTE = /serves\/card\s*([\d.]+),\s*table share\s*([\d.]+|n\/a)/i;
 const FALLBACK_NOTE = /points v2 requested but fell back to v1:\s*(.+)$/i;
 
 /**
@@ -344,11 +357,11 @@ const FALLBACK_NOTE = /points v2 requested but fell back to v1:\s*(.+)$/i;
  * prose, which will break the day someone rewords that line.
  *
  * So there is a second, independent read that cannot break the same way:
- * an end-on card carries no detected serve, and points_endon writes
- * serve_s: None on every card it builds. If the file says v2 and not one
- * card has a serve, the end-on assembler ran. That agrees with the sentence
- * wherever both exist, and answers alone where the sentence has been
- * reworded.
+ * a serve-anchored card always carries a detected serve. If the file says
+ * v2 and not one card has a serve, the end-on assembler ran. Since
+ * 2026-09-06 the end-on assembler stamps the serves the detector did find
+ * onto its cards, so the tell works one way only: no serves at all means
+ * end-on, some serves proves nothing, and the sentence is what decides.
  *
  * It is deliberately NOT inferred from app_config.points_endon_fallback:
  * that switch describes the NEXT upload, not this one.
@@ -359,6 +372,8 @@ export function readAssembly(matchJson: MatchJson | null): AssemblyReading {
     route: null,
     routeFrom: null,
     servesPerMin: null,
+    servesPerCard: null,
+    tableShare: null,
     cameraShape: null,
     cards: null,
     serves: null,
@@ -402,6 +417,7 @@ export function readAssembly(matchJson: MatchJson | null): AssemblyReading {
     const m = ROUTE_NOTE.exec(note);
     if (m) {
       const route = m[6] === "end-on" ? "end-on" : "serve-anchored";
+      const y = YIELD_NOTE.exec(note);
       return {
         ...base,
         route,
@@ -411,6 +427,8 @@ export function readAssembly(matchJson: MatchJson | null): AssemblyReading {
         crossings: Number(m[3]),
         cameraShape: Number(m[4]),
         servesPerMin: Number(m[5]),
+        servesPerCard: y ? Number(y[1]) : null,
+        tableShare: y && y[2].toLowerCase() !== "n/a" ? Number(y[2]) : null,
       };
     }
     const f = FALLBACK_NOTE.exec(note);
@@ -434,6 +452,25 @@ export function readAssembly(matchJson: MatchJson | null): AssemblyReading {
 /** One line explaining the route in the router's own terms. */
 export function routeExplanation(a: AssemblyReading): string | null {
   if (a.route === null) return null;
+  if (a.servesPerCard !== null) {
+    const y = a.servesPerCard.toFixed(2);
+    if (a.route === "serve-anchored") {
+      return `${y} serves per point, over the ${SERVE_YIELD_MIN} threshold, so `
+        + "every card is anchored on a detected serve.";
+    }
+    if (a.servesPerCard < SERVE_YIELD_MIN) {
+      return `${y} serves per point, under the ${SERVE_YIELD_MIN} the `
+        + "serve-anchored assembler needs, so the whole match was segmented "
+        + "on motion instead.";
+    }
+    const share = a.tableShare === null
+      ? "Too few"
+      : `Only ${Math.round(a.tableShare * 100)}%`;
+    return `${share} of the ball's bounces land inside the drawn table, under `
+      + `the ${Math.round(TABLE_SHARE_MIN * 100)}% the serve-anchored `
+      + "assembler's geometry needs, so the whole match was segmented on "
+      + "motion instead.";
+  }
   if (a.servesPerMin === null) {
     return a.route === "end-on"
       ? "No card carries a detected serve, which is what the end-on "

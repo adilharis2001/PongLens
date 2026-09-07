@@ -393,6 +393,49 @@ at this level:
 
 ---
 
+## Ball detection: the crop, the second pass and the router
+
+Full record: `docs/research/2026-09-06-endon-routing.md` and the two specs
+of that date. The rules that cost a round each:
+
+- **The crop is skipped when the table reads end-on** (`points_endon.
+  crop_allowed`, shape under 0.40). The crop was tuned for serves and it
+  finds them; but on the Westchester bench it took the end-on assembler
+  from 74% to 71% clean and lost three rallies whose ball left the box
+  sideways, and losing a rally is the one outcome the scorecard forbids.
+  Do not re-enable it there for the serves: on an end-on camera they are
+  the mid-rally kind.
+- **A vision-calibrated upload is detected twice.** The vision calibrator
+  validates its table against the ball detections, so it cannot run
+  before them; the worker detects on the full frame, calibrates, then
+  detects again on the crop and rebuilds the points, handing the first
+  pass's table back through `--calibration-json` so the paid call is made
+  once. Fails open to the first pass at every step. Do not "optimise" the
+  order by calibrating first; that is the circularity the second pass
+  exists for.
+- **match.json says what the detector saw** (`detections: crop ... corners
+  from ...` or `detections: full frame (...)`). The lab had to reproduce
+  production from scratch to learn that Anton's matches were detected on
+  the full frame. A match must never need reproducing to answer that.
+- **The router counts serves per candidate point, never per minute.** Dead
+  time is 30 to 63% of the video minutes even after the dead-space cut,
+  and per-ACTIVE-minute misroutes Tripp. The veto (`table_share < 0.57`)
+  keeps a match off the serve-anchored assembler when the drawn table is
+  not where the ball bounces (a net-post diamond, the PingPod W37 booth);
+  both numbers are in every match's note so the next revision argues from
+  the corpus.
+- **The end-on assembler borrows serves; it does not anchor on them.**
+  Detected contacts are candidates for its segmentation and stamps on the
+  cards that hold them (`serve_s`, cap 4.5 s). This does not change the
+  clean rate anywhere; it gives end-on matches serves for placement. On a
+  genuinely end-on camera four stamps in ten are mid-rally pairs, and
+  placement's own checks are what stand between them and a wrong dot.
+- **The note is parsed by the admin uploads page.** Anything new goes at
+  the END of the "points v2" sentence (`uploadView.ts` reads the front
+  with a regex), and the page's mirrored thresholds move with the worker's.
+
+---
+
 ## Placement maps
 
 They show **serves only** (132, `app_config.placement_serves_only`). The

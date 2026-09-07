@@ -1691,6 +1691,12 @@ def run_blurball(
     return blurball_out
 
 
+# What detect_ball did, beside the detections it wrote. Read by the job
+# flow (rerun_points_on_vision_crop) and turned into a sentence for
+# match.json (detections_note_from_sidecar).
+BALL_CROP_SIDECAR = "ball_crop.json"
+
+
 def detect_ball(
     input_video: str,
     workdir: str,
@@ -1729,11 +1735,41 @@ def detect_ball(
     Fails open in every direction — no table, no usable box, a failed
     encode — because a match processed on full-frame detections is the
     outcome we have today, and a match that fails to process is not.
+
+    Two additions on 2026-09-06. THE CROP IS SKIPPED WHEN THE TABLE READS
+    END-ON (points_endon.crop_allowed): on the Westchester bench the crop
+    took the end-on assembler from 74% to 71% clean and lost three rallies
+    whose ball left the box sideways, and the extra serves it found there
+    were the mid-rally kind. And WHAT HAPPENED IS WRITTEN DOWN: ball_crop.json
+    beside the detections says which box was used, whose corners, or why
+    there was none, so the points stage can put it in match.json and the
+    job flow can decide whether a second pass on a vision-calibrated table
+    is worth running. The lab had to reproduce production from scratch to
+    learn that Anton's matches were detected on the full frame.
     """
+    sidecar = os.path.join(workdir, BALL_CROP_SIDECAR)
+
+    def record(box, corners_from, reason=None, shape=None):
+        # A record, never a reason to fail.
+        try:
+            with open(sidecar, "w") as fh:
+                json.dump({"box": [int(v) for v in box] if box else None,
+                           "corners_from": corners_from,
+                           "reason": reason,
+                           "shape": (round(float(shape), 3)
+                                     if shape is not None else None)}, fh)
+        except Exception:                                   # noqa: BLE001
+            log.warning("  table crop: could not write %s", sidecar,
+                        exc_info=True)
+
     if not table_crop:
+        record(None, None, "crop off")
         return run_blurball(input_video, workdir, attempt_key=attempt_key,
                             on_progress=on_progress)
     box = None
+    corners_from = "job" if corners else None
+    reason = None
+    shape = None
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import points_endon
@@ -1743,17 +1779,31 @@ def detect_ball(
         else:
             calib = keypoint_calibrate(input_video, workdir)
             corners = (calib or {}).get("corners_px")
-        if corners:
-            meta = probe(input_video)
-            box = points_endon.ball_crop_box(
-                corners, meta["width"], meta["height"])
-        if box is None:
-            log.info("  table crop: no usable box, detecting on the full frame")
+            corners_from = "keypoints" if corners else None
+        if not corners:
+            reason = "no table"
+        else:
+            allowed, shape = points_endon.crop_allowed(corners)
+            if not allowed:
+                reason = "end-on table"
+                log.info("  table crop: skipped, the table reads end-on "
+                         "(shape %.2f, under %.2f); the full frame keeps "
+                         "the sideways ball", shape,
+                         points_endon.CROP_MIN_SHAPE)
+            else:
+                meta = probe(input_video)
+                box = points_endon.ball_crop_box(
+                    corners, meta["width"], meta["height"])
+                if box is None:
+                    reason = "no usable box"
+        if box is None and reason != "end-on table":
+            log.info("  table crop: %s, detecting on the full frame", reason)
     except Exception:                                       # noqa: BLE001
         log.warning("  table crop: calibration failed, full frame",
                     exc_info=True)
-        box = None
+        box, reason = None, "calibration failed"
     if box is None:
+        record(None, corners_from, reason, shape)
         return run_blurball(input_video, workdir, attempt_key=attempt_key,
                             on_progress=on_progress)
 
@@ -1768,6 +1818,7 @@ def detect_ball(
             check=True, timeout=2 * 3600)
     except Exception:                                       # noqa: BLE001
         log.warning("  table crop: encode failed, full frame", exc_info=True)
+        record(None, corners_from, "encode failed", shape)
         return run_blurball(input_video, workdir, attempt_key=attempt_key,
                             on_progress=on_progress)
 
@@ -1785,6 +1836,7 @@ def detect_ball(
             os.remove(path)
         except OSError:
             pass
+    record(box, corners_from, None, shape)
     return shifted
 
 
@@ -4588,10 +4640,16 @@ def run_points_subprocess(
     serve_merge_s: str = SERVE_MERGE_S_DEFAULT,
     placement_serve_seed: bool = False,
     attempt_key: str = "manual",
+    calibration_json: str | None = None,
+    detections_note: str | None = None,
 ) -> str:
     """The points pipeline in plays cut mode, run BEFORE the cut so the
     cut can keep exactly the per-point segments (dead-space round 4).
-    Returns the outdir whose match.json carries cut_segments."""
+    Returns the outdir whose match.json carries cut_segments.
+
+    calibration_json hands a previous run's table back so the ladder is
+    not asked twice (the second detection pass); detections_note is the
+    sentence about what the detector saw, written into match.json."""
     strictness = options.get("strictness", "normal")
     if strictness not in VALID_STRICTNESS:
         strictness = "normal"
@@ -4623,9 +4681,14 @@ def run_points_subprocess(
         cmd.append("--placement")
         if placement_serve_seed:
             cmd.append("--placement-serve-seed")
+    if calibration_json:
+        cmd += ["--calibration-json", calibration_json]
+    if detections_note:
+        cmd += ["--detections-note", detections_note]
     log.info("  points pipeline (strictness=%s placement=%s cut=plays "
-             "pipeline=%s)…",
-             strictness, bool(options.get("placement")), pipeline)
+             "pipeline=%s%s)…",
+             strictness, bool(options.get("placement")), pipeline,
+             " calibration reused" if calibration_json else "")
     # The points pipeline reaches the same paid vision call the placement
     # retry does, through vision_calibrate's colour-independent fallback.
     # Without this the child cannot report it and an upload's table
@@ -4640,6 +4703,160 @@ def run_points_subprocess(
         scope="points-vision",
     )
     return outdir
+
+
+def read_ball_crop_sidecar(workdir: str) -> dict:
+    """What detect_ball did, or an empty record if it did not say."""
+    try:
+        with open(os.path.join(workdir, BALL_CROP_SIDECAR)) as fh:
+            side = json.load(fh)
+        return side if isinstance(side, dict) else {}
+    except Exception:                                       # noqa: BLE001
+        return {}
+
+
+def detections_note_from_sidecar(side: dict) -> str:
+    """The sentence match.json keeps about the detector's view."""
+    box = side.get("box")
+    if box and len(box) == 4:
+        x, y, w, h = box
+        return (f"detections: crop {w}x{h} at ({x},{y}), corners from "
+                f"{side.get('corners_from') or 'unknown'}")
+    reason = side.get("reason")
+    return "detections: full frame" + (f" ({reason})" if reason else "")
+
+
+def second_pass_wanted(ball_crop: bool, side: dict,
+                       calibration: dict | None) -> tuple[bool, str]:
+    """Whether to detect again on a crop cut from the vision table.
+
+    Pure, so it can be tested. The first pass is kept unless every one of
+    these holds: the crop is on, the first pass ran on the full frame for
+    a reason other than the table reading end-on, the points stage found
+    a table through the vision calibrator, and that table does not read
+    end-on either.
+    """
+    if not ball_crop:
+        return False, "crop off"
+    if side.get("box"):
+        return False, "first pass already cropped"
+    if side.get("reason") == "end-on table":
+        return False, "table reads end-on"
+    if not calibration or not calibration.get("ok"):
+        return False, "no calibration"
+    if calibration.get("source") != "vision":
+        return False, f"calibration from {calibration.get('source')}"
+    corners = calibration.get("table_corners_px")
+    if not isinstance(corners, dict) or len(corners) != 4:
+        return False, "no corners"
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import points_endon
+    allowed, shape = points_endon.crop_allowed(corners)
+    if not allowed:
+        return False, f"vision table reads end-on (shape {shape:.2f})"
+    return True, "vision table found after a full-frame detection"
+
+
+def append_match_note(match_json_path: str, note: str) -> None:
+    """Best effort: a note that cannot be written is logged, not raised."""
+    try:
+        with open(match_json_path) as fh:
+            mj = json.load(fh)
+        mj.setdefault("notes", []).append(note)
+        with open(match_json_path, "w") as fh:
+            json.dump(mj, fh, indent=1)
+    except Exception:                                       # noqa: BLE001
+        log.warning("  could not append a note to %s", match_json_path,
+                    exc_info=True)
+
+
+def rerun_points_on_vision_crop(
+    local_input: str,
+    blurball_out: str,
+    workdir: str,
+    options: dict,
+    *,
+    ball_crop: bool,
+    points_kwargs: dict,
+) -> str:
+    """The second detection pass, for a table the vision calibrator found.
+
+    detect_ball crops only around a table the free keypoint rung found,
+    because the vision rung validates its proposals against the ball
+    detections and so cannot run before them. An upload the keypoint rung
+    declines was therefore detected on the full frame: Anton's PingPod
+    booth, ball two pixels across, 13 serves where the crop finds 48. This
+    runs detection again on the crop cut from the vision table and rebuilds
+    the points from it, handing the first pass's calibration back so the
+    paid call is made once.
+
+    Fails open at every step. The first pass's points_out and detections
+    are set aside, not deleted, and come back with a note if the second
+    pass raises, produces no crop, or produces no points. A match processed
+    on full-frame detections is what we had; a match that fails is not.
+
+    Returns the outdir to read match.json from (points_out either way).
+    """
+    outdir = os.path.join(workdir, "points_out")
+    side = read_ball_crop_sidecar(workdir)
+    try:
+        with open(os.path.join(outdir, "match.json")) as fh:
+            calibration = json.load(fh).get("calibration")
+    except Exception:                                       # noqa: BLE001
+        calibration = None
+    wanted, why = second_pass_wanted(ball_crop, side, calibration)
+    if not wanted:
+        log.info("  second pass: not needed (%s)", why)
+        return outdir
+    log.info("  second pass: %s; detecting again on the crop", why)
+
+    keep = outdir + ".fullframe"
+    keep_det = blurball_out + ".fullframe"
+    shutil.rmtree(keep, ignore_errors=True)
+    os.replace(outdir, keep)
+    shutil.copyfile(blurball_out, keep_det)
+    # The first pass's vision spend was metered when it returned; moving
+    # its sidecar aside keeps the second run from reporting it twice.
+    usage = Path(workdir) / "points-cost-usage.jsonl"
+    if usage.is_file():
+        usage.replace(usage.with_name("points-cost-usage.pass1.jsonl"))
+    try:
+        pulse_stage("ball_recrop")
+        corners = calibration["table_corners_px"]
+        new_det = detect_ball(local_input, workdir,
+                              attempt_key=points_kwargs.get("attempt_key",
+                                                            "manual"),
+                              table_crop=True, corners=corners)
+        side2 = read_ball_crop_sidecar(workdir)
+        if not side2.get("box"):
+            raise RuntimeError("no crop box on the second pass "
+                               f"({side2.get('reason')})")
+        pulse_stage("points")
+        run_points_subprocess(
+            local_input, new_det, workdir, options,
+            calibration_json=os.path.join(keep, "calibration.json"),
+            detections_note=detections_note_from_sidecar(side2)
+            + ", second pass",
+            **points_kwargs)
+        with open(os.path.join(outdir, "match.json")) as fh:
+            if not json.load(fh).get("points"):
+                raise RuntimeError("the second pass produced no points")
+        log.info("  second pass: done, points rebuilt on the cropped "
+                 "detections")
+        return outdir
+    except Exception as e:                                  # noqa: BLE001
+        log.warning("  second pass failed (%s); keeping the full-frame "
+                    "points", e, exc_info=True)
+        shutil.rmtree(outdir, ignore_errors=True)
+        os.replace(keep, outdir)
+        try:
+            os.replace(keep_det, blurball_out)
+        except OSError:
+            pass
+        append_match_note(os.path.join(outdir, "match.json"),
+                          f"second pass failed ({e}); kept the full-frame "
+                          "points")
+        return outdir
 
 
 def run_points_stage(
@@ -7819,14 +8036,24 @@ def process_job(conn, msg) -> None:
             try:
                 pulse_stage("points")
                 serve_pad, serve_merge = serve_motif_settings(conn)
-                outdir = run_points_subprocess(
-                    local_input, blurball_out, workdir, options,
+                points_kwargs = dict(
                     pipeline=points_pipeline_version(conn),
                     endon_fallback=endon_fallback_enabled(conn),
                     serve_surface_pad=serve_pad,
                     serve_merge_s=serve_merge,
                     placement_serve_seed=placement_serve_seed_enabled(conn),
                     attempt_key=attempt_key)
+                outdir = run_points_subprocess(
+                    local_input, blurball_out, workdir, options,
+                    detections_note=detections_note_from_sidecar(
+                        read_ball_crop_sidecar(workdir)),
+                    **points_kwargs)
+                # A table the vision calibrator found only now, after a
+                # full-frame detection: detect again on its crop and
+                # rebuild the points. Keeps the first pass on any failure.
+                outdir = rerun_points_on_vision_crop(
+                    local_input, blurball_out, workdir, options,
+                    ball_crop=bool(ball_crop), points_kwargs=points_kwargs)
                 mj = os.path.join(outdir, "match.json")
                 with open(mj) as fh:
                     if json.load(fh).get("cut_segments"):

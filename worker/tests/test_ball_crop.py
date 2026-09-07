@@ -172,3 +172,29 @@ class ShiftDetections(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CropGate(unittest.TestCase):
+    """The crop is skipped when the table reads end-on (2026-09-06).
+
+    On the Westchester bench the crop took the end-on assembler from 74% to
+    71% clean and lost three rallies whose ball left the box sideways. The
+    shape that separates that bench (0.25 to 0.32) from every real side-on
+    quad in the lab (0.46 to 1.39) is points_v2.foreshortening.
+    """
+
+    def test_an_end_on_table_is_not_cropped(self):
+        allowed, shape = EO.crop_allowed(TERRY)
+        self.assertFalse(allowed)
+        self.assertLess(shape, EO.CROP_MIN_SHAPE)
+
+    def test_side_on_tables_are_cropped(self):
+        for name, cor in (("kyle", KYLE), ("jose", JOSE)):
+            with self.subTest(name):
+                allowed, shape = EO.crop_allowed(cor)
+                self.assertTrue(allowed)
+                self.assertGreaterEqual(shape, EO.CROP_MIN_SHAPE)
+
+    def test_an_unreadable_quad_is_left_to_the_box_rule(self):
+        self.assertEqual(EO.crop_allowed(None), (True, None))
+        self.assertEqual(EO.crop_allowed({"A_near_1": [1, 2]}), (True, None))

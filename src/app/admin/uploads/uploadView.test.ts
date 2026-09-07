@@ -282,6 +282,45 @@ test("serve-anchored is read the same way, with its rate", () => {
   assert.match(routeExplanation(a) ?? "", /4\.25 serves a minute/);
 });
 
+test("the per-point router's sentence is read, with both of its numbers", () => {
+  const a = readAssembly({
+    pipeline: "v2",
+    notes: [
+      "points v2: 94 cards, 32 serves, 409 crossings, camera 0.68, "
+        + "serves/min 1.46, route end-on, serves/card 0.34, table share 0.48, "
+        + "surface pad 0.45, merge 2.5s, 23 stamped",
+    ],
+  });
+  assert.equal(a.route, "end-on");
+  assert.equal(a.servesPerMin, 1.46);
+  assert.equal(a.servesPerCard, 0.34);
+  assert.equal(a.tableShare, 0.48);
+  assert.match(routeExplanation(a) ?? "", /0\.34 serves per point, under the 0\.42/);
+});
+
+test("a veto route explains itself with the table share, not the yield", () => {
+  const a = readAssembly({
+    pipeline: "v2",
+    notes: [
+      "points v2: 82 cards, 53 serves, 548 crossings, camera 0.68, "
+        + "serves/min 2.41, route end-on, serves/card 0.65, table share 0.48, "
+        + "surface pad 0.45, merge 2.5s, 38 stamped",
+    ],
+  });
+  assert.equal(a.route, "end-on");
+  assert.match(routeExplanation(a) ?? "", /Only 48% of the ball's bounces/);
+  const b = readAssembly({
+    pipeline: "v2",
+    notes: [
+      "points v2: 100 cards, 88 serves, 284 crossings, camera 0.73, "
+        + "serves/min 4.91, route serve-anchored, serves/card 0.88, "
+        + "table share 0.77, surface pad 0.45, merge 2.5s, 84 stamped",
+    ],
+  });
+  assert.equal(b.route, "serve-anchored");
+  assert.match(routeExplanation(b) ?? "", /0\.88 serves per point, over the 0\.42/);
+});
+
 test("a structured assembly block outranks the sentence", () => {
   const a = readAssembly({
     pipeline: "v2",

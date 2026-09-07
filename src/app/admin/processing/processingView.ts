@@ -193,6 +193,7 @@ const STAGE_LABELS: Record<string, string> = {
   content_check: "Checking what the video is",
   trim: "Trimming to the claimed window",
   ball: "Finding the ball",
+  ball_recrop: "Finding the ball again, around the table",
   points: "Building the points",
   cut: "Cutting the video",
   upload: "Uploading the result",
