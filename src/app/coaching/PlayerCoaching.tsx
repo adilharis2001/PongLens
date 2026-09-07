@@ -399,12 +399,21 @@ export function PlayerCoaching({
         </div>
       )}
 
+      {/* The same first-run card the match library uses. A player opening
+          a tab they have never had before is owed the explanation, not a
+          label and a button. */}
       {noCoaches && loaded && (
-        <div className="mt-6 rounded-2xl border border-edge bg-surface p-6">
-          <p className="text-sm text-zinc-300">No coaches yet.</p>
+        <div className="mt-6 rounded-2xl border border-edge bg-surface p-10 text-center">
+          <p className="text-3xl">👥</p>
+          <p className="mt-3 font-medium text-zinc-200">No coaches yet</p>
+          <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-zinc-500">
+            Invite your coach and they can watch your matches and leave notes
+            on them. You can also record a lesson here on your own, with or
+            without a coach on it.
+          </p>
           <Link
             href="/coaching/coach"
-            className="mt-4 inline-block rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink"
+            className="glow-cta mt-5 inline-block rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink"
           >
             Add a coach
           </Link>

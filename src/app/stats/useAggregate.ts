@@ -62,22 +62,37 @@ async function walk(
 
   // Points arrive in match-id chunks (URL length) and 1000-row pages
   // (PostgREST cap). Order doesn't matter — sortPoints runs per match.
-  const all: Point[] = [];
+  //
+  // The chunks run TOGETHER. They are independent queries against
+  // different matches, and walking them one after another was most of the
+  // wait: on an account of 115 matches and 7,800 points that is three
+  // chunks of three pages each, ten round trips end to end, every one of
+  // them waiting for the last. The database answers each in about three
+  // milliseconds; the time was almost entirely in the queueing. Pages
+  // within a chunk still have to be sequential, because a page only knows
+  // it is the last one by coming back short.
   const ids = list.map((m) => m.id);
-  for (let i = 0; i < ids.length; i += 50) {
-    const chunk = ids.slice(i, i + 50);
-    for (let from = 0; ; from += 1000) {
-      const { data: ps } = await supabase
-        .from("points")
-        .select(POINT_COLS)
-        .in("match_id", chunk)
-        .eq("deleted", false)
-        .range(from, from + 999);
-      const page = (ps as unknown as Point[]) ?? [];
-      all.push(...page);
-      if (page.length < 1000) break;
-    }
-  }
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
+
+  const perChunk = await Promise.all(
+    chunks.map(async (chunk) => {
+      const rows: Point[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data: ps } = await supabase
+          .from("points")
+          .select(POINT_COLS)
+          .in("match_id", chunk)
+          .eq("deleted", false)
+          .range(from, from + 999);
+        const page = (ps as unknown as Point[]) ?? [];
+        rows.push(...page);
+        if (page.length < 1000) break;
+      }
+      return rows;
+    })
+  );
+  const all: Point[] = perChunk.flat();
 
   const byMatch = new Map<string, Point[]>();
   for (const p of all) {

@@ -150,16 +150,26 @@ struct CoachingScreen: View {
                         coachCard(selected)
                     }
 
+                    // The same first-run card Matches uses: a player who
+                    // opens a tab they have never had before is owed the
+                    // explanation, not a label and a button.
                     if coaching.playerCoaches.isEmpty, coaching.loaded {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Text("No coaches yet.")
+                        VStack(spacing: 12) {
+                            Text("👥").font(.system(size: 40))
+                            Text("No coaches yet")
+                                .font(.plCardTitle)
+                                .foregroundStyle(PL.text100)
+                            Text("Invite your coach and they can watch your matches and leave notes on them. You can also record a lesson here on your own, with or without a coach on it.")
                                 .font(.plBody)
                                 .foregroundStyle(PL.text400)
+                                .multilineTextAlignment(.center)
+                                .lineSpacing(4)
                             Button("Add a coach") { inviteOpen = true }
                                 .buttonStyle(PLPrimaryButtonStyle())
+                                .padding(.top, 8)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .plCard(padding: 18)
+                        .frame(maxWidth: .infinity)
+                        .plCard(padding: 40)
                     }
 
                     feed
