@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  highlightLifecycleView,
   highlightPointIdAt,
+  highlightRequestSheetIsVisible,
   parseHighlightResponse,
   type HighlightAsset,
 } from "./highlights.ts";
@@ -50,9 +52,49 @@ test("decodes only a complete continuous ready asset", () => {
 });
 
 test("passes through non-playable server states", () => {
-  for (const status of ["rendering", "empty", "unavailable", "failed"] as const) {
+  for (const status of [
+    "rendering",
+    "needs_update",
+    "updating",
+    "empty",
+    "unavailable",
+    "failed",
+  ] as const) {
     assert.deepEqual(parseHighlightResponse({ status }), { status });
   }
+});
+
+test("stale highlights ask before spending compute", () => {
+  assert.deepEqual(highlightLifecycleView({ status: "needs_update" }), {
+    rowSummary: "Update needed",
+    sheetTitle: "Update highlights",
+    body: "This match changed after these highlights were prepared. Update them to use your latest rally edits.",
+    actionLabel: "Update highlights",
+    shouldPoll: false,
+  });
+  assert.deepEqual(highlightLifecycleView({ status: "updating" }), {
+    rowSummary: "Updating rally clips",
+    sheetTitle: "Highlights",
+    body: "Your rally clips are still updating. You can update highlights when they’re ready.",
+    actionLabel: null,
+    shouldPoll: true,
+  });
+  assert.equal(
+    highlightLifecycleView({ status: "rendering" }).rowSummary,
+    "Preparing highlights",
+  );
+});
+
+test("the request sheet stops owning page scroll once highlights become ready", () => {
+  assert.equal(
+    highlightRequestSheetIsVisible(true, { status: "rendering" }),
+    true,
+  );
+  assert.equal(highlightRequestSheetIsVisible(true, asset), false);
+  assert.equal(
+    highlightRequestSheetIsVisible(false, { status: "needs_update" }),
+    false,
+  );
 });
 
 test("maps an overlap to the incoming rally", () => {
@@ -64,11 +106,12 @@ test("maps an overlap to the incoming rally", () => {
 
 test("web presentation has one row and no tape-seek implementation", () => {
   const row = readFileSync(new URL("./HighlightsRow.tsx", import.meta.url), "utf8");
+  const state = readFileSync(new URL("./highlights.ts", import.meta.url), "utf8");
   const player = readFileSync(new URL("./Player.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(row, /Short highlight|Long highlight|pickHighlights/);
-  assert.match(row, /No highlight rallies/);
-  assert.match(row, /Preparing highlights/);
-  assert.match(row, /Highlights unavailable/);
+  assert.match(state, /No highlight rallies/);
+  assert.match(state, /Preparing highlights/);
+  assert.match(state, /Highlights unavailable/);
   assert.doesNotMatch(player, /highlightSpans|tapeMove\(tape/);
   assert.match(player, /highlightAsset\.url/);
   assert.match(player, /target\.output_start_s/);

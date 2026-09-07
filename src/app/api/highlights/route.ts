@@ -3,7 +3,12 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MEDIA_BUCKET, presignGet } from "@/lib/r2";
 import { automaticHighlightsEnabled } from "./access";
-import { highlightManifestIsFresh } from "./endPolicy";
+import {
+  automaticHighlightEvidenceRefreshNeeded,
+  automaticHighlightReadDecision,
+  highlightManifestIsFresh,
+  type AutomaticHighlightRevisionPoint,
+} from "./endPolicy";
 
 export const runtime = "nodejs";
 
@@ -51,38 +56,44 @@ function manifestValue(value: unknown): HighlightManifest | null {
   return manifest as HighlightManifest;
 }
 
-async function selectedPointsAreFresh(
+async function loadPoints(
   supabase: Awaited<ReturnType<typeof createClient>>,
   matchId: string,
-  manifest: HighlightManifest,
-) {
-  const ids = manifest.points.map((point) => point.point_id);
-  if (!ids.length || ids.some((id) => !UUID_RE.test(id))) return false;
+): Promise<AutomaticHighlightRevisionPoint[] | null> {
   const { data: rows, error } = await supabase
     .from("points")
     .select(
       "id,idx,t0,t1,cut_t0,scored_at_cut_s,rally_end_cut_s,clip_path,deleted,edited,is_let,highlight_evidence",
     )
     .eq("match_id", matchId);
-  if (error || !rows) return false;
-  return highlightManifestIsFresh(
-    rows.map((row) => ({
-      ...row,
-      highlight_evidence: row.highlight_evidence as
-        | {
-            v?: number | null;
-            status?: string | null;
-            n_hits?: number | null;
-            connected_crossings?: number | null;
-            alternating_table_landings?: number | null;
-            table_bounces?: number | null;
-            observed_end_s?: number | null;
-            end_source?: string | null;
-          }
-        | null,
-    })),
-    manifest,
-  );
+  if (error || !rows) return null;
+  return rows.map((row) => ({
+    ...row,
+    highlight_evidence: row.highlight_evidence as
+      | {
+          v?: number | null;
+          status?: string | null;
+          n_hits?: number | null;
+          connected_crossings?: number | null;
+          alternating_table_landings?: number | null;
+          table_bounces?: number | null;
+          observed_end_s?: number | null;
+          end_source?: string | null;
+        }
+      | null,
+  })) as AutomaticHighlightRevisionPoint[];
+}
+
+function initialManifest(refreshEvidence = false) {
+  return {
+    v: 2,
+    rule: "quality-first-v2",
+    max_seconds: 150,
+    points_revision: "",
+    duration_s: 0,
+    points: [],
+    ...(refreshEvidence ? { refresh_evidence: true } : {}),
+  };
 }
 
 export async function GET(req: Request) {
@@ -124,30 +135,27 @@ export async function GET(req: Request) {
     if (reelError) throw reelError;
 
     const manifest = manifestValue(reel?.manifest);
-    // A v1 terminal row is stale, not an answer. Let it fall through to
-    // enqueue so the evidence-v2 rollout recovers matches that were shown
-    // as empty under the over-strict intersection rule.
-    if (reel?.status === "empty" && manifest) {
-      return response({ status: "empty" });
-    }
-    if (reel?.status === "failed" && manifest) {
-      return response({ status: "failed" });
-    }
-    if (
-      (reel?.status === "queued" || reel?.status === "rendering") &&
-      manifest
-    ) {
-      return response({ status: "rendering" });
-    }
+    const points = await loadPoints(supabase, matchId);
+    if (!points) throw new Error("automatic highlights points unavailable");
+    const manifestFresh = Boolean(
+      manifest && highlightManifestIsFresh(points, manifest),
+    );
+    const decision = automaticHighlightReadDecision({
+      hasReel: Boolean(reel),
+      reelStatus: reel?.status ?? null,
+      manifestFresh,
+      pointsUpdating: points.some((point) => !point.deleted && point.edited),
+    });
 
-    if (
-      reel?.status === "ready" &&
-      reel.r2_key &&
-      manifest &&
-      reel.r2_key.startsWith(`reels/${matchId}-highlights-`) &&
-      reel.r2_key.endsWith(".mp4") &&
-      (await selectedPointsAreFresh(supabase, matchId, manifest))
-    ) {
+    if (decision.status === "ready") {
+      if (
+        !reel?.r2_key ||
+        !manifest ||
+        !reel.r2_key.startsWith(`reels/${matchId}-highlights-`) ||
+        !reel.r2_key.endsWith(".mp4")
+      ) {
+        return response({ status: "needs_update" });
+      }
       const url = await presignGet(MEDIA_BUCKET, reel.r2_key, {
         expiresSeconds: 6 * 3600,
         disposition: "inline",
@@ -160,27 +168,107 @@ export async function GET(req: Request) {
       });
     }
 
+    if (!decision.enqueueInitial) {
+      return response({ status: decision.status });
+    }
+
     if (!match.cut_path || match.status !== "ready") {
       return response({ status: "unavailable" });
     }
-    const emptyManifest = {
-      v: 2,
-      rule: "quality-first-v2",
-      max_seconds: 150,
-      points_revision: "",
-      duration_s: 0,
-      points: [],
-    };
     const { error: enqueueError } = await supabase.rpc("enqueue_reel", {
       p_match_id: matchId,
       p_scope: "highlights",
       p_show_score: false,
-      p_manifest: emptyManifest,
+      p_manifest: initialManifest(),
     });
     if (enqueueError) throw enqueueError;
     return response({ status: "rendering" });
   } catch (error) {
     console.error("automatic highlights route failed", error);
     return response({ status: "failed" });
+  }
+}
+
+export async function POST(req: Request) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return response({ code: "not_authenticated" }, 401);
+
+  let matchId = "";
+  try {
+    const body = await req.json();
+    matchId = String(body.matchId ?? "");
+  } catch {
+    return response({ code: "invalid_json" }, 400);
+  }
+  if (!UUID_RE.test(matchId)) {
+    return response({ code: "invalid_match_id" }, 400);
+  }
+
+  const { data: match, error: matchError } = await supabase
+    .from("matches")
+    .select("id,user_id,cut_path,status")
+    .eq("id", matchId)
+    .maybeSingle();
+  if (matchError || !match || match.user_id !== user.id) {
+    return response({ code: "match_not_found" }, 404);
+  }
+  if (!match.cut_path || match.status !== "ready") {
+    return response({ code: "highlights_unavailable" }, 409);
+  }
+
+  try {
+    const admin = createAdminClient();
+    const { data: config } = await admin
+      .from("app_config")
+      .select("value")
+      .eq("key", "automatic_highlights")
+      .maybeSingle();
+    if (!automaticHighlightsEnabled(config?.value, user.id)) {
+      return response({ code: "highlights_unavailable" }, 403);
+    }
+
+    const [{ data: reel, error: reelError }, points] = await Promise.all([
+      supabase
+        .from("match_reels")
+        .select("status,manifest")
+        .eq("match_id", matchId)
+        .eq("scope", "highlights")
+        .maybeSingle(),
+      loadPoints(supabase, matchId),
+    ]);
+    if (reelError || !points) throw reelError ?? new Error("points unavailable");
+    if (!reel) return response({ code: "highlights_not_prepared" }, 409);
+    if (reel.status === "queued" || reel.status === "rendering") {
+      return response({ status: "rendering" }, 202);
+    }
+    if (points.some((point) => !point.deleted && point.edited)) {
+      return response({ code: "rally_clips_updating" }, 409);
+    }
+    const manifest = manifestValue(reel.manifest);
+    if (manifest && highlightManifestIsFresh(points, manifest)) {
+      return response({ code: "highlights_current" }, 409);
+    }
+
+    const { error: enqueueError } = await supabase.rpc("enqueue_reel", {
+      p_match_id: matchId,
+      p_scope: "highlights",
+      p_show_score: false,
+      p_manifest: initialManifest(
+        automaticHighlightEvidenceRefreshNeeded(points),
+      ),
+    });
+    if (enqueueError) {
+      if (String(enqueueError.message).includes("render_queue_full")) {
+        return response({ code: "render_queue_full" }, 429);
+      }
+      throw enqueueError;
+    }
+    return response({ status: "rendering" }, 202);
+  } catch (error) {
+    console.error("automatic highlights update failed", error);
+    return response({ code: "highlight_update_failed" }, 500);
   }
 }

@@ -112,7 +112,9 @@ struct ToolsSection: View {
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $highlightsOpen) {
-            HighlightsSheet(match: match, model: model)
+            HighlightsSheet(match: match, model: model) { response in
+                automaticHighlights = response
+            }
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
@@ -177,7 +179,8 @@ struct ToolsSection: View {
                     status: "failed", url: nil, durationS: nil, manifest: nil
                 )
             }
-            guard automaticHighlights?.status == "rendering" else { return }
+            guard automaticHighlights?.status == "rendering"
+                    || automaticHighlights?.status == "updating" else { return }
             try? await Task.sleep(for: .milliseconds(1800))
         }
     }

@@ -62,6 +62,8 @@ func runAutomaticHighlightsChecks() {
 
     let states: [(String, String)] = [
         ("rendering", "Preparing highlights"),
+        ("needs_update", "Update needed"),
+        ("updating", "Updating rally clips"),
         ("empty", "No highlight rallies"),
         ("unavailable", "No highlight rallies"),
         ("failed", "Highlights unavailable"),
@@ -71,4 +73,16 @@ func runAutomaticHighlightsChecks() {
         let response = try? JSONDecoder().decode(AutomaticHighlightsResponse.self, from: data)
         check(response?.summary == summary, "\(status) state copy matches web")
     }
+
+    let request = automaticHighlightsRequestView(status: "needs_update")
+    check(request?.title == "Update highlights", "stale highlights use the request title")
+    check(request?.actionLabel == "Update highlights", "stale highlights have one explicit action")
+    check(request?.running == false, "stale highlights do not start processing on open")
+    check(
+        request?.body == "This match changed after these highlights were prepared. Update them to use your latest rally edits.",
+        "highlight refresh explains why an update is needed"
+    )
+    let updating = automaticHighlightsRequestView(status: "updating")
+    check(updating?.running == true, "edited rally clips report their existing work")
+    check(updating?.actionLabel == nil, "refresh cannot race rally clip edits")
 }

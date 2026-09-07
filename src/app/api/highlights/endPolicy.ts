@@ -31,6 +31,54 @@ export type AutomaticHighlightRevisionPoint = AutomaticHighlightEndPoint & {
 export const TAP_END_TAIL_S = 0.2;
 export const DETECTOR_END_TAIL_S = 0.25;
 
+export type AutomaticHighlightReadStatus =
+  | "ready"
+  | "rendering"
+  | "needs_update"
+  | "updating"
+  | "empty"
+  | "failed";
+
+export function automaticHighlightReadDecision({
+  hasReel,
+  reelStatus,
+  manifestFresh,
+  pointsUpdating,
+}: {
+  hasReel: boolean;
+  reelStatus: string | null;
+  manifestFresh: boolean;
+  pointsUpdating: boolean;
+}): { status: AutomaticHighlightReadStatus; enqueueInitial: boolean } {
+  if (pointsUpdating) return { status: "updating", enqueueInitial: false };
+  if (!hasReel) return { status: "rendering", enqueueInitial: true };
+  if (reelStatus === "queued" || reelStatus === "rendering") {
+    return { status: "rendering", enqueueInitial: false };
+  }
+  if (!manifestFresh) {
+    return {
+      status: pointsUpdating ? "updating" : "needs_update",
+      enqueueInitial: false,
+    };
+  }
+  if (reelStatus === "ready") return { status: "ready", enqueueInitial: false };
+  if (reelStatus === "empty") return { status: "empty", enqueueInitial: false };
+  return { status: "failed", enqueueInitial: false };
+}
+
+export function automaticHighlightEvidenceRefreshNeeded(
+  points: AutomaticHighlightRevisionPoint[],
+): boolean {
+  return points.some(
+    (point) =>
+      !point.deleted &&
+      !point.edited &&
+      !point.is_let &&
+      Boolean(point.clip_path) &&
+      point.highlight_evidence?.v !== 2,
+  );
+}
+
 function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }

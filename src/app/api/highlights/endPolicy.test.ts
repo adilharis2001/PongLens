@@ -1,10 +1,116 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  automaticHighlightEvidenceRefreshNeeded,
+  automaticHighlightReadDecision,
   automaticHighlightEnd,
   highlightManifestIsFresh,
   highlightPointsRevision,
 } from "./endPolicy.ts";
+
+test("only missing version-2 evidence asks the worker to remeasure rallies", () => {
+  const base = {
+    id: "point",
+    idx: 1,
+    t0: 1,
+    t1: 2,
+    clip_path: "r2://media/point.mp4",
+    deleted: false,
+    edited: false,
+  };
+  assert.equal(
+    automaticHighlightEvidenceRefreshNeeded([
+      { ...base, highlight_evidence: null },
+    ]),
+    true,
+  );
+  assert.equal(
+    automaticHighlightEvidenceRefreshNeeded([
+      { ...base, highlight_evidence: { v: 2, status: "ready" } },
+    ]),
+    false,
+  );
+  assert.equal(
+    automaticHighlightEvidenceRefreshNeeded([
+      { ...base, deleted: true, highlight_evidence: null },
+    ]),
+    false,
+  );
+  assert.equal(
+    automaticHighlightEvidenceRefreshNeeded([
+      { ...base, is_let: true, clip_path: "r2://media/let.mp4", highlight_evidence: null },
+    ]),
+    false,
+  );
+  assert.equal(
+    automaticHighlightEvidenceRefreshNeeded([
+      { ...base, clip_path: null, highlight_evidence: null },
+    ]),
+    false,
+  );
+});
+
+test("only a match without a reel starts highlights on read", () => {
+  assert.deepEqual(
+    automaticHighlightReadDecision({
+      hasReel: false,
+      reelStatus: null,
+      manifestFresh: false,
+      pointsUpdating: false,
+    }),
+    { status: "rendering", enqueueInitial: true },
+  );
+  assert.deepEqual(
+    automaticHighlightReadDecision({
+      hasReel: true,
+      reelStatus: "ready",
+      manifestFresh: false,
+      pointsUpdating: false,
+    }),
+    { status: "needs_update", enqueueInitial: false },
+  );
+});
+
+test("edited rally clips settle before an explicit highlight update", () => {
+  assert.deepEqual(
+    automaticHighlightReadDecision({
+      hasReel: true,
+      reelStatus: "ready",
+      manifestFresh: false,
+      pointsUpdating: true,
+    }),
+    { status: "updating", enqueueInitial: false },
+  );
+  assert.deepEqual(
+    automaticHighlightReadDecision({
+      hasReel: false,
+      reelStatus: null,
+      manifestFresh: false,
+      pointsUpdating: true,
+    }),
+    { status: "updating", enqueueInitial: false },
+  );
+});
+
+test("fresh reel states remain terminal or in flight without another enqueue", () => {
+  for (const [reelStatus, status] of [
+    ["ready", "ready"],
+    ["queued", "rendering"],
+    ["rendering", "rendering"],
+    ["empty", "empty"],
+    ["failed", "failed"],
+  ] as const) {
+    assert.deepEqual(
+      automaticHighlightReadDecision({
+        hasReel: true,
+        reelStatus,
+        manifestFresh: true,
+        pointsUpdating: false,
+      }),
+      { status, enqueueInitial: false },
+    );
+  }
+});
 
 test("a scoring tap is the authoritative automatic-highlight end", () => {
   assert.equal(

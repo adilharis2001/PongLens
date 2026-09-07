@@ -34,6 +34,33 @@ func automaticHighlightsSheetHeight(hasActions: Bool) -> Double {
     hasActions ? 570 : 250
 }
 
+struct AutomaticHighlightsRequestView: Hashable {
+    let title: String
+    let body: String
+    let actionLabel: String?
+    let running: Bool
+}
+
+func automaticHighlightsRequestView(status: String) -> AutomaticHighlightsRequestView? {
+    switch status {
+    case "needs_update":
+        AutomaticHighlightsRequestView(
+            title: "Update highlights",
+            body: "This match changed after these highlights were prepared. Update them to use your latest rally edits.",
+            actionLabel: "Update highlights",
+            running: false
+        )
+    case "updating":
+        AutomaticHighlightsRequestView(
+            title: "Highlights",
+            body: "Your rally clips are still updating. You can update highlights when they’re ready.",
+            actionLabel: nil,
+            running: true
+        )
+    default: nil
+    }
+}
+
 /// The worker-authored automatic highlight. Clients render this contract;
 /// they never reinterpret the underlying ball evidence or choose rallies.
 struct AutomaticHighlightsResponse: Codable, Hashable {
@@ -53,6 +80,8 @@ struct AutomaticHighlightsResponse: Codable, Hashable {
             return "\(n) \(n == 1 ? "rally" : "rallies") · "
                 + String(format: "%d:%02d", seconds / 60, seconds % 60)
         case "rendering": return "Preparing highlights"
+        case "needs_update": return "Update needed"
+        case "updating": return "Updating rally clips"
         case "empty", "unavailable": return "No highlight rallies"
         default: return "Highlights unavailable"
         }

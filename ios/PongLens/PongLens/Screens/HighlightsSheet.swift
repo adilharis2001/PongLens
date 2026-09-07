@@ -5,39 +5,84 @@ import SwiftUI
 struct HighlightsSheet: View {
     let match: MatchRow
     let model: MatchDetailModel
+    let onChanged: (AutomaticHighlightsResponse) -> Void
 
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @State private var response: AutomaticHighlightsResponse?
     @State private var playing = false
+    @State private var submitting = false
+    @State private var errorMessage: String?
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            PLChooserSheet(title: "Highlights") {
-                switch response?.status {
-                case "ready":
-                    if hasActions {
-                        AutomaticHighlightActions(
-                            match: match,
-                            includePlay: true,
-                            playDetail: response?.summary ?? "",
-                            onPlay: { playing = true }
-                        )
-                    } else {
-                        stateText("Highlights unavailable")
+        Group {
+            if let requestView {
+                NavigationStack {
+                    Form {
+                        Section {
+                            if requestView.running {
+                                HStack(spacing: 10) {
+                                    ProgressView().tint(PL.cyan)
+                                    Text("Updating rally clips…")
+                                        .font(.plBody)
+                                        .foregroundStyle(PL.text300)
+                                }
+                            } else if let actionLabel = requestView.actionLabel {
+                                Button(submitting ? "Starting…" : actionLabel) {
+                                    Task { await requestUpdate() }
+                                }
+                                .disabled(submitting)
+                            }
+                            if let errorMessage {
+                                Text(errorMessage)
+                                    .font(.plCaption)
+                                    .foregroundStyle(PL.dangerText)
+                            }
+                        } footer: {
+                            Text(requestView.body)
+                        }
                     }
-                case "empty", "unavailable":
-                    stateText("No highlight rallies")
-                case "failed":
-                    stateText("Highlights unavailable")
-                default:
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small).tint(PL.text300)
-                        stateText("Preparing highlights")
+                    .tint(PL.cyan)
+                    .navigationTitle(requestView.title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { dismiss() }
+                                .fontWeight(.semibold)
+                        }
                     }
                 }
+                .preferredColorScheme(.dark)
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    PLChooserSheet(title: "Highlights") {
+                        switch response?.status {
+                        case "ready":
+                            if hasActions {
+                                AutomaticHighlightActions(
+                                    match: match,
+                                    includePlay: true,
+                                    playDetail: response?.summary ?? "",
+                                    onPlay: { playing = true }
+                                )
+                            } else {
+                                stateText("Highlights unavailable")
+                            }
+                        case "empty", "unavailable":
+                            stateText("No highlight rallies")
+                        case "failed":
+                            stateText("Highlights unavailable")
+                        default:
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small).tint(PL.text300)
+                                stateText("Preparing highlights")
+                            }
+                        }
+                    }
+                }
+                .scrollBounceBehavior(.basedOnSize)
             }
         }
-        .scrollBounceBehavior(.basedOnSize)
         .presentationDetents(detents)
         .task(id: match.id) { await loadUntilSettled() }
         .fullScreenCover(isPresented: $playing) {
@@ -53,7 +98,12 @@ struct HighlightsSheet: View {
         response?.status == "ready" && response?.url != nil && response?.manifest != nil
     }
 
+    private var requestView: AutomaticHighlightsRequestView? {
+        automaticHighlightsRequestView(status: response?.status ?? "")
+    }
+
     private var detents: Set<PresentationDetent> {
+        if requestView != nil { return [.medium] }
         if hasActions && verticalSizeClass == .compact { return [.large] }
         let height = automaticHighlightsSheetHeight(hasActions: hasActions)
         return [.height(CGFloat(height))]
@@ -78,8 +128,40 @@ struct HighlightsSheet: View {
                     status: "failed", url: nil, durationS: nil, manifest: nil
                 )
             }
-            guard response?.status == "rendering" else { return }
+            if let response { onChanged(response) }
+            guard response?.status == "rendering" || response?.status == "updating" else {
+                return
+            }
             try? await Task.sleep(for: .milliseconds(1800))
+        }
+    }
+
+    private func requestUpdate() async {
+        submitting = true
+        errorMessage = nil
+        struct Req: Encodable { let matchId: String }
+        do {
+            let next: AutomaticHighlightsResponse = try await API.post(
+                "api/highlights",
+                Req(matchId: match.id.uuidString.lowercased())
+            )
+            response = next
+            onChanged(next)
+            submitting = false
+            await loadUntilSettled()
+        } catch let APIError.http(_, code) {
+            if code == "highlights_current" || code == "rally_clips_updating" {
+                submitting = false
+                await loadUntilSettled()
+                return
+            }
+            errorMessage = code == "render_queue_full"
+                ? "Three videos are already being prepared. Try again when one is finished."
+                : "Couldn't update highlights. Try again."
+            submitting = false
+        } catch {
+            errorMessage = "Couldn't update highlights. Try again."
+            submitting = false
         }
     }
 }

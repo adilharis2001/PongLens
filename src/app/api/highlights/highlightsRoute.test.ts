@@ -28,9 +28,11 @@ test("ready assets are prefix pinned and signed inline", () => {
   assert.match(route, /disposition: "inline"/);
 });
 
-test("stale or absent artifacts enqueue only the server-authoritative scope", () => {
+test("only absent artifacts auto-enqueue; stale artifacts require POST", () => {
   assert.match(route, /p_scope: "highlights"/);
-  assert.match(route, /p_manifest: emptyManifest/);
+  assert.match(route, /if \(!decision\.enqueueInitial\)/);
+  assert.match(route, /export async function POST/);
+  assert.match(route, /refresh_evidence: true/);
   assert.match(route, /highlightManifestIsFresh\(/);
   assert.doesNotMatch(route, /n_hits\s*>?=/);
   assert.doesNotMatch(route, /connected_crossings\s*>?=/);
@@ -38,7 +40,11 @@ test("stale or absent artifacts enqueue only the server-authoritative scope", ()
 
 test("the reel worker rebuilds automatic membership and uses its renderer", () => {
   assert.match(worker, /scope == "highlights"/);
-  assert.match(worker, /build_manifest\(stored_points\)/);
+  assert.match(worker, /build_manifest\(points\)/);
+  assert.match(worker, /highlight_revision_is_current\(/);
+  assert.match(worker, /_mark_reel_failed\(/);
+  assert.match(worker, /except HighlightRefreshObsoleteError/);
+  assert.match(worker, /archive_message\(conn, msg\["msg_id"\]\)/);
   assert.match(worker, /render_auto_highlights\(/);
 });
 

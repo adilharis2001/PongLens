@@ -21,14 +21,45 @@ from typing import Any
 import psycopg2.extras
 
 try:
-    from .highlights import qualifies
+    from .highlights import points_revision, qualifies
     from .points_pipeline import build_highlight_evidence
 except ImportError:
-    from highlights import qualifies
+    from highlights import points_revision, qualifies
     from points_pipeline import build_highlight_evidence
 
 
 TABLE_LENGTH_M = 2.74
+
+
+def highlight_points_are_updating(points: list[dict[str, Any]]) -> bool:
+    return any(
+        not point.get("deleted") and point.get("edited")
+        for point in points
+    )
+
+
+def highlight_evidence_refresh_needed(points: list[dict[str, Any]]) -> bool:
+    return any(
+        not point.get("deleted")
+        and not point.get("edited")
+        and not point.get("is_let")
+        and bool(point.get("clip_path"))
+        and not (
+            isinstance(point.get("highlight_evidence"), dict)
+            and point["highlight_evidence"].get("v") == 2
+        )
+        for point in points
+    )
+
+
+def highlight_revision_is_current(
+    expected_revision: str,
+    points: list[dict[str, Any]],
+) -> bool:
+    return (
+        not highlight_points_are_updating(points)
+        and points_revision(points) == expected_revision
+    )
 
 
 def protected_point_snapshot(point: dict[str, Any]) -> dict[str, Any]:
@@ -39,7 +70,9 @@ def protected_point_snapshot(point: dict[str, Any]) -> dict[str, Any]:
     })
 
 
-def _matching_card(point: dict[str, Any], cards: list[dict[str, Any]]):
+def _matching_cards(
+    point: dict[str, Any], cards: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     start, end = float(point["t0"]), float(point["t1"])
     candidates = []
     for card in cards:
@@ -49,22 +82,35 @@ def _matching_card(point: dict[str, Any], cards: list[dict[str, Any]]):
             continue
         overlap = max(0.0, min(end, card_end) - max(start, card_start))
         if overlap > 0:
-            candidates.append((overlap, -abs(start - card_start), card))
-    return max(candidates, key=lambda item: item[:2])[2] if candidates else None
+            candidates.append((card_start, card_end, card))
+    return [item[2] for item in sorted(candidates, key=lambda item: item[:2])]
 
 
-def _source_rally_end(point: dict[str, Any]) -> float | None:
+def _source_rally_end(point: dict[str, Any]) -> tuple[float | None, str | None]:
     cut_start = point.get("cut_t0")
-    cut_end = point.get("rally_end_cut_s")
+    tapped = point.get("scored_at_cut_s")
+    has_tap = isinstance(tapped, (int, float, Decimal))
+    cut_end = tapped if has_tap else point.get("rally_end_cut_s")
     if not isinstance(cut_start, (int, float, Decimal)) or not isinstance(
         cut_end, (int, float, Decimal)
     ):
-        return None
+        return None, None
     result = float(point["t0"]) + float(cut_end) - float(cut_start)
-    return result if float(point["t0"]) <= result <= float(point["t1"]) else None
+    if not float(point["t0"]) <= result <= float(point["t1"]):
+        return None, None
+    return result, "tap" if has_tap else "observed"
+
+
+def _unique_times(values: list[float], tolerance: float = 0.02) -> list[float]:
+    answer: list[float] = []
+    for value in sorted(values):
+        if not answer or value - answer[-1] > tolerance:
+            answer.append(value)
+    return answer
 
 
 def _unavailable(point: dict[str, Any], reason: str) -> dict[str, Any]:
+    observed_end, end_source = _source_rally_end(point)
     return {
         "v": 2,
         "status": "unavailable",
@@ -76,8 +122,8 @@ def _unavailable(point: dict[str, Any], reason: str) -> dict[str, Any]:
         "first_crossing_s": None,
         "last_crossing_s": None,
         "max_crossing_gap_s": None,
-        "observed_end_s": _source_rally_end(point),
-        "end_source": "observed" if _source_rally_end(point) is not None else None,
+        "observed_end_s": observed_end,
+        "end_source": end_source,
         "reasons": [reason],
     }
 
@@ -107,37 +153,45 @@ def build_receipts_from_diagnostic(
             points.append(shadow)
     for point, source_point in zip(points, source_points):
         point_id = str(point["id"])
-        card = _matching_card(point, cards)
-        if card is None:
+        matching_cards = _matching_cards(point, cards)
+        if not matching_cards:
             receipts[point_id] = _unavailable(
                 point, "no_matching_diagnostic_card"
             )
             continue
 
-        crossings = [
-            float(value) for value in card.get("crossings", [])
+        crossings = _unique_times([
+            float(value)
+            for card in matching_cards
+            for value in card.get("crossings", [])
             if isinstance(value, (int, float))
-        ]
-        table_bounces = []
+        ])
+        bounce_rows = []
+        for card in matching_cards:
+            for bounce in card.get("bounces", []):
+                if not isinstance(bounce, dict) or not bounce.get("onSurface"):
+                    continue
+                timestamp = bounce.get("t")
+                if isinstance(timestamp, (int, float)):
+                    bounce_rows.append((float(timestamp), bounce.get("v")))
+        deduped_bounces = []
+        for timestamp, position in sorted(bounce_rows, key=lambda row: row[0]):
+            if not deduped_bounces or timestamp - deduped_bounces[-1][0] > 0.02:
+                deduped_bounces.append((timestamp, position))
+        table_bounces = [timestamp for timestamp, _position in deduped_bounces]
         landings = []
-        for bounce in card.get("bounces", []):
-            if not isinstance(bounce, dict) or not bounce.get("onSurface"):
-                continue
-            timestamp = bounce.get("t")
-            position = bounce.get("v")
-            if not isinstance(timestamp, (int, float)):
-                continue
-            table_bounces.append(float(timestamp))
+        for timestamp, position in deduped_bounces:
             if isinstance(position, (int, float)):
                 side = "far" if float(position) < TABLE_LENGTH_M / 2 else "near"
-                landings.append((float(timestamp), side))
+                landings.append((timestamp, side))
 
         suggestion = point.get("suggestion")
         hits = suggestion.get("n_hits") if isinstance(suggestion, dict) else None
+        observed_end, end_source = _source_rally_end(point)
         measured_card = {
             "t0": float(point["t0"]),
             "t1": float(point["t1"]),
-            "end_evidence_s": _source_rally_end(point),
+            "end_evidence_s": observed_end,
         }
         evidence = SimpleNamespace(
             cross=crossings,
@@ -147,6 +201,8 @@ def build_receipts_from_diagnostic(
         receipt = build_highlight_evidence(
             measured_card, evidence, hits, route
         )
+        if end_source is not None:
+            receipt["end_source"] = end_source
         if diagnostic_clock == "cut" and point is not source_point:
             offset = float(source_point["t0"]) - float(point["t0"])
             for field in ("first_crossing_s", "last_crossing_s", "observed_end_s"):
@@ -287,8 +343,9 @@ def analyze_match_from_diagnostic(conn, match_id: str) -> HighlightBackfillResul
     return _result(match_id, points, receipts)
 
 
-def backfill_match_from_diagnostic(conn, match_id: str) -> HighlightBackfillResult:
-    """Download one diagnostic and atomically update only its receipts."""
+def _write_match_receipts(
+    conn, match_id: str, *, delete_reel: bool
+) -> HighlightBackfillResult:
     production_worker, original, receipts = _prepare_diagnostic(conn, match_id)
     before = [protected_point_snapshot(point) for point in original]
 
@@ -307,14 +364,14 @@ def backfill_match_from_diagnostic(conn, match_id: str) -> HighlightBackfillResu
                     "where id = %s and match_id = %s",
                     (json.dumps(receipt), point_id, match_id),
                 )
-            # The reel is derived data. Removing its state makes the next
-            # web/iOS request enqueue a v2 render, including when a v2
-            # empty answer was cached before this recovery ran.
-            cur.execute(
-                "delete from public.match_reels "
-                "where match_id = %s and scope = 'highlights'",
-                (match_id,),
-            )
+            if delete_reel:
+                # The administrative backfill predates explicit refresh:
+                # removing the reel keeps its existing recovery contract.
+                cur.execute(
+                    "delete from public.match_reels "
+                    "where match_id = %s and scope = 'highlights'",
+                    (match_id,),
+                )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -335,3 +392,15 @@ def backfill_match_from_diagnostic(conn, match_id: str) -> HighlightBackfillResu
             f"match {match_id} highlight evidence verification failed"
         )
     return _result(match_id, original, receipts)
+
+
+def backfill_match_from_diagnostic(conn, match_id: str) -> HighlightBackfillResult:
+    """Download one diagnostic and atomically update only its receipts."""
+    return _write_match_receipts(conn, match_id, delete_reel=True)
+
+
+def refresh_match_evidence_for_render(
+    conn, match_id: str
+) -> HighlightBackfillResult:
+    """Refresh edited rally receipts without deleting the queued reel row."""
+    return _write_match_receipts(conn, match_id, delete_reel=False)

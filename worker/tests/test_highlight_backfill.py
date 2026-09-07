@@ -1,8 +1,15 @@
 import copy
+from types import SimpleNamespace
+from unittest.mock import patch
 
+import highlight_backfill
 from highlight_backfill import (
     build_receipts_from_diagnostic,
+    highlight_evidence_refresh_needed,
+    highlight_points_are_updating,
+    highlight_revision_is_current,
     protected_point_snapshot,
+    refresh_match_evidence_for_render,
 )
 from highlights import qualifies
 
@@ -36,6 +43,39 @@ def diagnostic_card(*, crossings=(), bounces=()):
 
 def bounce(t, v, on_surface=True):
     return {"t": t, "u": 0.7, "v": v, "onSurface": on_surface}
+
+
+def test_refresh_waits_for_any_live_edited_rally():
+    assert highlight_points_are_updating([
+        {"deleted": False, "edited": True},
+        {"deleted": True, "edited": True},
+    ]) is True
+    assert highlight_points_are_updating([
+        {"deleted": True, "edited": True},
+        {"deleted": False, "edited": False},
+    ]) is False
+
+
+def test_refresh_ignores_ineligible_missing_evidence():
+    assert highlight_evidence_refresh_needed([
+        {"deleted": False, "edited": False, "is_let": True,
+         "clip_path": "point.mp4", "highlight_evidence": None},
+        {"deleted": False, "edited": False, "is_let": False,
+         "clip_path": None, "highlight_evidence": None},
+    ]) is False
+    assert highlight_evidence_refresh_needed([
+        {"deleted": False, "edited": False, "is_let": False,
+         "clip_path": "point.mp4", "highlight_evidence": None},
+    ]) is True
+
+
+def test_revision_guard_rejects_an_edit_started_after_the_snapshot():
+    original = point()
+    expected = highlight_backfill.points_revision([original])
+    assert highlight_revision_is_current(expected, [copy.deepcopy(original)]) is True
+    changed = copy.deepcopy(original)
+    changed["edited"] = True
+    assert highlight_revision_is_current(expected, [changed]) is False
 
 
 def test_diagnostic_crossing_chain_recovers_end_on_rally():
@@ -110,3 +150,99 @@ def test_cut_clock_fallback_translates_receipt_back_to_source_time():
         diagnostic_clock="cut",
     )
     assert receipts["p1"]["observed_end_s"] == 105.5
+
+
+def test_joined_point_combines_every_overlapping_diagnostic_card():
+    joined = point(start=10, end=30, hits=1)
+    receipts = build_receipts_from_diagnostic(
+        [joined],
+        {
+            "meta": {"route": "serve-anchored"},
+            "cards": [
+                {
+                    **diagnostic_card(
+                        crossings=[11, 12, 13, 14],
+                        bounces=[bounce(11.5, .4), bounce(12.5, 2.1)],
+                    ),
+                    "t0": 10, "t1": 15,
+                },
+                {
+                    **diagnostic_card(
+                        crossings=[14, 15],
+                        bounces=[bounce(14.5, .5), bounce(15.5, 2.2)],
+                    ),
+                    "t0": 14, "t1": 30,
+                },
+            ],
+        },
+    )
+    receipt = receipts["p1"]
+    assert receipt["connected_crossings"] == 5
+    assert receipt["table_bounces"] == 4
+    assert receipt["last_crossing_s"] == 15
+
+
+def test_scoring_tap_is_authoritative_when_evidence_is_rebuilt():
+    original = point(start=100, end=112)
+    original["cut_t0"] = 20.0
+    original["scored_at_cut_s"] = 30.5
+    original["rally_end_cut_s"] = 29.0
+    receipts = build_receipts_from_diagnostic(
+        [original],
+        {"cards": [{
+            **diagnostic_card(crossings=[101, 102, 103, 104, 105]),
+            "t0": 100, "t1": 112,
+        }]},
+    )
+    assert receipts["p1"]["observed_end_s"] == 110.5
+    assert receipts["p1"]["end_source"] == "tap"
+
+
+def test_render_refresh_preserves_the_queued_reel_row():
+    original = point()
+    receipt = {"v": 2, "status": "ready"}
+    stored = {**original, "highlight_evidence": receipt}
+
+    class Cursor:
+        def __init__(self, statements):
+            self.statements = statements
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement, _params):
+            self.statements.append(statement)
+
+    class Connection:
+        autocommit = True
+
+        def __init__(self):
+            self.statements = []
+
+        def cursor(self):
+            return Cursor(self.statements)
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    connection = Connection()
+    worker = SimpleNamespace(BackfillConsistencyError=RuntimeError)
+    with patch.object(
+        highlight_backfill,
+        "_prepare_diagnostic",
+        return_value=(worker, [original], {"p1": receipt}),
+    ), patch.object(
+        highlight_backfill,
+        "_load_points",
+        side_effect=[[stored], [stored]],
+    ):
+        refresh_match_evidence_for_render(connection, "match")
+
+    assert any("update public.points" in sql for sql in connection.statements)
+    assert not any("delete from public.match_reels" in sql for sql in connection.statements)

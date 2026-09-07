@@ -1870,6 +1870,10 @@ class BackfillConsistencyError(RuntimeError):
     """A post-mutation failure that must halt the entire rollout."""
 
 
+class HighlightRefreshObsoleteError(BackfillConsistencyError):
+    """The match changed, so this explicit refresh must not retry later."""
+
+
 def run_blurball_only(
     input_video: str | Path,
     workdir: str | Path,
@@ -6916,6 +6920,92 @@ def process_tag_reel(conn, job_id: str, user_id: str, tag_id: str) -> None:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def _load_highlight_points(conn, match_id: str) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "select id, idx, t0, t1, cut_t0, scored_at_cut_s, "
+            "rally_end_cut_s, "
+            "clip_path, deleted, edited, is_let, highlight_evidence "
+            "from public.points where match_id = %s order by idx, id",
+            (match_id,),
+        )
+        return [
+            dict(zip(("id", "idx", "t0", "t1", "cut_t0",
+                      "scored_at_cut_s", "rally_end_cut_s", "clip_path",
+                      "deleted", "edited", "is_let", "highlight_evidence"),
+                     values))
+            for values in cur.fetchall()
+        ]
+
+
+def _wait_for_highlight_points(conn, match_id: str) -> list[dict]:
+    """Let the lightweight reclip finish before spending on a new reel."""
+    from highlight_backfill import highlight_points_are_updating
+    deadline = time.monotonic() + 120
+    while True:
+        points = _load_highlight_points(conn, match_id)
+        if not highlight_points_are_updating(points):
+            return points
+        if time.monotonic() >= deadline:
+            raise HighlightRefreshObsoleteError(
+                "highlight rally clips did not finish updating"
+            )
+        time.sleep(1)
+
+
+def _prepare_automatic_highlight_manifest(
+    conn,
+    match_id: str,
+    requested_refresh: bool,
+    job_id: str,
+) -> dict:
+    from highlight_backfill import (
+        highlight_evidence_refresh_needed,
+        highlight_revision_is_current,
+        refresh_match_evidence_for_render,
+    )
+    from highlights import build_manifest
+
+    last_error: Exception | None = None
+    for _attempt in range(2):
+        try:
+            points = _wait_for_highlight_points(conn, match_id)
+            if requested_refresh or highlight_evidence_refresh_needed(points):
+                refresh_match_evidence_for_render(conn, match_id)
+                requested_refresh = False
+                update_job(conn, job_id, progress=12)
+                points = _wait_for_highlight_points(conn, match_id)
+            manifest = build_manifest(points)
+            current = _load_highlight_points(conn, match_id)
+            if highlight_revision_is_current(
+                manifest["points_revision"], current
+            ):
+                return manifest
+            last_error = BackfillConsistencyError(
+                f"match {match_id} changed during highlight preparation"
+            )
+        except HighlightRefreshObsoleteError:
+            raise
+        except BackfillConsistencyError as error:
+            last_error = error
+        time.sleep(0.25)
+    raise HighlightRefreshObsoleteError(
+        f"match {match_id} did not hold a stable highlight snapshot"
+    ) from last_error
+
+
+def _mark_reel_failed(conn, match_id: str, scope: str, error: Exception) -> None:
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "update public.match_reels set status = 'failed', "
+                "error = %s where match_id = %s and scope = %s",
+                (str(error)[:500], match_id, scope),
+            )
+    except Exception:
+        log.exception("  failed to mark reel failed")
+
+
 def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     options = get_job_options(conn, job_id, payload)
     match_id = options.get("match_id")
@@ -6964,23 +7054,17 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         raise RuntimeError("reel: job user does not own the match")
     automatic = scope == "highlights"
     if automatic:
-        from highlights import build_manifest
-        with conn.cursor() as cur:
-            cur.execute(
-                "select id, idx, t0, t1, cut_t0, scored_at_cut_s, "
-                "rally_end_cut_s, "
-                "clip_path, deleted, edited, is_let, highlight_evidence "
-                "from public.points where match_id = %s order by idx, id",
-                (match_id,),
+        requested_refresh = (
+            isinstance(manifest, dict)
+            and manifest.get("refresh_evidence") is True
+        )
+        try:
+            manifest = _prepare_automatic_highlight_manifest(
+                conn, str(match_id), requested_refresh, job_id
             )
-            stored_points = [
-                dict(zip(("id", "idx", "t0", "t1", "cut_t0",
-                          "scored_at_cut_s",
-                          "rally_end_cut_s", "clip_path", "deleted",
-                          "edited", "is_let", "highlight_evidence"), values))
-                for values in cur.fetchall()
-            ]
-        manifest = build_manifest(stored_points)
+        except Exception as error:
+            _mark_reel_failed(conn, str(match_id), scope, error)
+            raise
         if not manifest["points"]:
             _write_auto_highlight_state(conn, match_id, "empty", manifest)
             _delete_auto_highlight_object(conn, old_key)
@@ -7019,6 +7103,14 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
             out, manifest = render_auto_highlights(
                 manifest, cut_local, workdir
             )
+            from highlight_backfill import highlight_revision_is_current
+            current_points = _load_highlight_points(conn, str(match_id))
+            if not highlight_revision_is_current(
+                manifest["points_revision"], current_points
+            ):
+                raise HighlightRefreshObsoleteError(
+                    f"match {match_id} changed while highlights rendered"
+                )
         elif vertical:
             out = render_story(manifest, bool(show_score), workdir,
                                cut_local, story_crop)
@@ -7069,15 +7161,7 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         if not vertical and not automatic:
             notify_reel_done(conn, str(owner_id), match_id)
     except Exception as e:
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "update public.match_reels set status = 'failed', "
-                    "error = %s where match_id = %s and scope = %s",
-                    (str(e)[:500], match_id, scope),
-                )
-        except Exception:
-            log.exception("  failed to mark reel failed")
+        _mark_reel_failed(conn, str(match_id), scope, e)
         raise
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -7556,8 +7640,19 @@ def process_job(conn, msg) -> None:
         # render the starred-points highlight reel (no blurball pipeline)
         pulse_stage("reel")
         update_job(conn, job_id, status="processing", progress=5, error=None)
-        with COST_METER.timed_stage("reel_encoding", attempt_key):
-            process_reel(conn, job_id, user_id, payload)
+        try:
+            with COST_METER.timed_stage("reel_encoding", attempt_key):
+                process_reel(conn, job_id, user_id, payload)
+        except HighlightRefreshObsoleteError as error:
+            # A player changed the source rallies after asking for this reel.
+            # The failed reel exposes Update needed. Archive this exact queue
+            # message so it cannot wake later and duplicate a newer request.
+            update_job(
+                conn, job_id, status="failed", error=str(error)[:500]
+            )
+            archive_message(conn, msg["msg_id"])
+            log.info("  reel job %s became stale and was archived", job_id)
+            return
         update_job(conn, job_id, status="done", progress=100)
         archive_message(conn, msg["msg_id"])
         log.info("  reel done: job %s", job_id)
