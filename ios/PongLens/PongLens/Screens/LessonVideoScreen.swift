@@ -87,7 +87,7 @@ struct LessonVideoScreen: View {
             }
             .background { ArenaBackground() }
             .toolbar(.hidden, for: .navigationBar)
-            .refreshable { await queue.resume(); await refresh() }
+            .refreshable { await queue.resume(); await refresh(asked: true) }
             .sheet(isPresented: $photosOpen) {
                 LessonVideoPhotosPicker { result in
                     photosOpen = false
@@ -215,7 +215,7 @@ struct LessonVideoScreen: View {
                         Text(message).font(.plBody).foregroundStyle(PL.dangerText)
                     }
                     if item.state == "failed" || item.state == "waiting" {
-                        Button("Resume upload") { Task { await queue.retry(item.id); await refresh() } }
+                        Button("Resume upload") { Task { await queue.retry(item.id); await refresh(asked: true) } }
                             .buttonStyle(PLSecondaryButtonStyle())
                     }
                 }
@@ -302,13 +302,31 @@ struct LessonVideoScreen: View {
             }
         }
     }
-    private func refresh() async {
+    /// Re-read the list.
+    ///
+    /// `asked` is whether a PERSON asked for it. This runs every ten
+    /// seconds while an upload is in flight, again whenever the app comes
+    /// back to the front, and again after a video is queued — and a poll
+    /// that fails is not news. It used to write whatever it caught
+    /// straight onto the screen, so a request that was merely cancelled,
+    /// because the view went away or the app was backgrounded mid-flight,
+    /// painted a red word over a page whose upload was going along fine.
+    /// Adil saw "cancelled" sitting above an upload at 23%.
+    ///
+    /// A poll that fails now leaves the last good list alone and says
+    /// nothing. Pull to refresh still reports, because somebody asked.
+    /// The upload itself reports through the queue, which is the thing
+    /// that would actually be lost.
+    private func refresh(asked: Bool = false) async {
         do {
             let response: LessonVideoList = try await API.get("api/lesson-video", query: LessonVideoScope(studentId: student?.id).query)
             videos = playerImport
                 ? response.videos.filter { $0.student_id == nil }
                 : response.videos
-        } catch { self.error = error.localizedDescription }
+            error = nil
+        } catch {
+            if asked { self.error = error.localizedDescription }
+        }
         loading = false
     }
 }
@@ -710,7 +728,17 @@ struct LessonVideoDetailScreen: View {
             }
         } else if wasPlaying && watchOpen && scenePhase == .active { activePlayer.play() }
     }
+    /// Read the recap.
+    ///
+    /// This runs on a ten-second poll while the recap is still being made,
+    /// and again whenever the app comes back to the front. A reload that
+    /// fails when a recap is already on screen is not news: the screen is
+    /// still correct, and writing a red word over it says the lesson is
+    /// broken when nothing is. Only the FIRST read reports, because then
+    /// there is nothing else to show and an empty page would be a lie.
+    /// Same rule as `refresh()` above.
     private func load(refreshPlayback: Bool = false) async {
+        let hadRecap = detail != nil
         do {
             let value: LessonVideoDetail = try await API.get("api/lesson-video", query: ["id": id.uuidString])
             let changed = detail?.video.revision != value.video.revision || detail?.video.status != value.video.status
@@ -720,7 +748,9 @@ struct LessonVideoDetailScreen: View {
             if player == nil || changed || refreshPlayback {
                 setPlayer(preservingPosition: !changed && player != nil)
             }
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            if !hadRecap { self.error = error.localizedDescription }
+        }
     }
     private func perform(_ action: String, share: Bool? = nil) {
         busy = true
