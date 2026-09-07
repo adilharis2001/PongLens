@@ -109,7 +109,9 @@ export const CSS = `
 .v3 .tag.disagree { color:#ff9a9a; border-color:#5d2f2f; background:#1f1213; }
 .v3 .tl { position:relative; height:16px; margin-top:7px; border-radius:3px;
           background:#161b22; border:1px solid #222831; }
-.v3 .tl i { position:absolute; top:2px; bottom:2px; border-radius:2px; background:#3d5a7a; }
+.v3 .tl i { position:absolute; top:2px; bottom:2px; border-radius:2px; background:#3d5a7a; z-index:1; }
+.v3 .tl w { position:absolute; bottom:0; max-height:7px; background:rgba(127,212,160,.55); z-index:0; }
+.v3 .body { display:block; margin:3px 0 6px; font-size:11px; color:#7fd4a0; }
 .v3 .tl i.hastap { background:#2f6f4f; }
 .v3 .tl u { position:absolute; top:-2px; bottom:-2px; width:2px; background:#ffd479; }
 .v3 .tl s { position:absolute; top:2px; bottom:2px; border-radius:2px;

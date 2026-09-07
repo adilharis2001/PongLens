@@ -87,6 +87,12 @@ export function V3ServeDetector({
     let bnT: Float64Array | null = null;
     let svT: Float64Array | null = null;
     let ppT: Float64Array | null = null;
+    // The two bodies (pose.json): 17 keypoints per player at 5 fps in crop
+    // pixels, and the body-only play signal every 0.2 s. Optional: a match
+    // exported before poses existed simply has neither.
+    let POSE: any = null;
+    let psT: Float64Array | null = null;
+    let plT: Float64Array | null = null;
     let raf = 0;
     let SCALE = 1;
     let OFF = 0;
@@ -208,6 +214,16 @@ export function V3ServeDetector({
         if (d1 >= a && d0 <= b0)
           h += '<q style="left:' + at(Math.max(d0, a)) + ";width:" +
             wd(Math.max(d0, a), Math.min(d1, b0)) + '"></q>';
+      if (POSE && POSE.play && POSE.play.length && plT) {
+        // where the two bodies say a point is on, as a green floor under the bars
+        const pl = POSE.play;
+        for (let j = lower(plT, a); j < pl.length && pl[j][0] <= b0; j++) {
+          const [pt, pv] = pl[j];
+          if (pv < 0.5) continue;
+          h += '<w style="left:' + at(pt) + ";width:" + wd(pt, pt + 0.2) +
+            ";height:" + Math.round(pv * 100) + '%"></w>';
+        }
+      }
       if (r.tap != null) h += '<u style="left:' + at(r.tap) + '"></u>';
       h += '</div><div class="tlkey">solid bars are my cards' +
         (r.prod_t0 != null
@@ -215,7 +231,8 @@ export function V3ServeDetector({
             (r.verdict === "junk_deleted" ? "the card you deleted" : "production’s own card")
           : "") +
         (r.tap != null ? ", the yellow line is where you pressed the winner" : "") +
-        ", pink is the ball going dead</div>";
+        ", pink is the ball going dead" +
+        (POSE ? ", green underneath is where the bodies say a point is on" : "") + "</div>";
       return h;
     }
 
@@ -252,7 +269,9 @@ export function V3ServeDetector({
                 ? r.srv === "disagree"
                 : filter === "called_false"
                   ? CALLS.get(`${META.matchId}|${(verdictKey(r) ?? -1).toFixed(1)}`) === "false"
-                  : r.verdict === filter,
+                  : filter === "bodies"
+                    ? r.mine.some((m: any) => m.why && m.why.indexOf("bodies") >= 0)
+                    : r.verdict === filter,
       );
       for (const r of rows) {
         const tr = document.createElement("tr");
@@ -271,6 +290,9 @@ export function V3ServeDetector({
           '<span class="card' + (m.holds_tap ? " hastap" : "") + '">' +
           "<b>my card " + m.n + '</b> <span class="t">' + fmt(m.t0) + "&ndash;" + fmt(m.t1) +
           '</span> <span class="seek">(' + (m.t1 - m.t0).toFixed(1) + "s)</span></span>" +
+          (m.why && m.why.indexOf("bodies") >= 0
+            ? '<span class="body">from the players\u2019 bodies alone \u2014 no ball seen</span>'
+            : "") +
           blindHtml(m.blind);
         const mine = r.mine.length
           ? r.mine.map(cardHtml).join("")
@@ -609,6 +631,56 @@ export function V3ServeDetector({
         }
       }
 
+      if (on("ovBodies") && POSE && psT) {
+        // Joints, as RTMPose read them off the stored player boxes: the same
+        // nearest-sample rule as the boxes above, at 5 fps.
+        let i = lower(psT, t);
+        if (i >= psT.length || (i > 0 && psT[i] - t > t - psT[i - 1])) i--;
+        if (i >= 0 && Math.abs(psT[i] - t) < 0.3) {
+          const fr = POSE.frames[i];
+          const EDGES = [[5, 7], [7, 9], [6, 8], [8, 10], [5, 6], [5, 11], [6, 12], [11, 12],
+            [11, 13], [13, 15], [12, 14], [14, 16], [0, 5], [0, 6]];
+          const skel = (p: any, col: string) => {
+            if (!p) return;
+            const k = p.k;
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = col;
+            ctx.globalAlpha = 0.9;
+            for (const [a, b] of EDGES)
+              if (k[a] && k[b]) {
+                ctx.beginPath();
+                ctx.moveTo(X(k[a][0]), Y(k[a][1]));
+                ctx.lineTo(X(k[b][0]), Y(k[b][1]));
+                ctx.stroke();
+              }
+            // wrists, because the toss is what a serve looks like from the body
+            for (const j of [9, 10])
+              if (k[j]) {
+                ctx.fillStyle = "#ffffff";
+                ctx.beginPath();
+                ctx.arc(X(k[j][0]), Y(k[j][1]), 3.5, 0, 7);
+                ctx.fill();
+              }
+            ctx.globalAlpha = 1;
+          };
+          skel(fr[1], "#ffd479");
+          skel(fr[2], "#c9a0ff");
+        }
+        if (plT && plT.length) {
+          let j = lower(plT, t);
+          if (j >= plT.length) j = plT.length - 1;
+          const pv = POSE.play[j][1];
+          const col = pv > 0.5 ? "127,212,160" : "150,160,175";
+          ctx.fillStyle = "rgba(" + col + ",.95)";
+          ctx.font = "600 12px -apple-system,system-ui,sans-serif";
+          ctx.fillText(
+            "bodies say " + (pv > 0.5 ? "IN PLAY" : "dead") + " \u00b7 " + Math.round(pv * 100) + "%",
+            10,
+            eh - 10,
+          );
+        }
+      }
+
       if (on("ovServe") && svT) {
         const a = lower(svT, t - SERVE_HOLD), b = lower(svT, t + 0.05);
         for (let i = a; i < b; i++) {
@@ -669,7 +741,7 @@ export function V3ServeDetector({
       kick();
     };
     window.addEventListener("resize", onResize);
-    for (const id of ["ovOn", "ovTable", "ovBall", "ovBounce", "ovServe", "ovPeople", "ovShoe"])
+    for (const id of ["ovOn", "ovTable", "ovBall", "ovBounce", "ovServe", "ovPeople", "ovBodies", "ovShoe"])
       ($(id) as HTMLElement).addEventListener("change", kick);
 
     // SPEED. Two ways, because they answer different questions: the buttons
@@ -797,14 +869,18 @@ export function V3ServeDetector({
       const base = `/research/v3-serve-detector/${meta.matchId}`;
       OV = null;
       PPL = null;
+      POSE = null;
+      psT = null;
+      plT = null;
       DATA = null;
       tbody.replaceChildren();
       vlabel.textContent = "Loading …";
 
-      const [cmp, ovj, ppl] = await Promise.all([
+      const [cmp, ovj, ppl, pose] = await Promise.all([
         fetch(`${base}/compare.json`).then((r) => r.json()),
         fetch(`${base}/overlay.json`).then((r) => r.json()),
         fetch(`${base}/people.json`).then((r) => r.json()),
+        fetch(`${base}/pose.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       ]);
       if (dead) return;
       OV = ovj;
@@ -813,7 +889,15 @@ export function V3ServeDetector({
       svT = Float64Array.from(ovj.serves, (r: any) => r[0]);
       PPL = ppl;
       ppT = Float64Array.from(ppl.frames, (r: any) => r[0]);
+      POSE = pose;
+      psT = pose ? Float64Array.from(pose.frames, (r: any) => r[0]) : null;
+      plT = pose && pose.play ? Float64Array.from(pose.play, (r: any) => r[0]) : null;
       DATA = cmp;
+      const bodyCards = cmp.rows.reduce(
+        (n: number, r: any) =>
+          n + r.mine.filter((m: any) => m.why && m.why.indexOf("bodies") >= 0).length,
+        0,
+      );
 
       const s = cmp.summary;
       const pct = Math.round((100 * s.srv_agree) / (s.srv_agree + s.srv_disagree));
@@ -837,6 +921,10 @@ export function V3ServeDetector({
         '<span class="chip" style="border-color:#7a3358;color:#ff7ab6">' +
         s.blind_cards + " cards never saw the ball cross the net, " +
         s.blind_held + " held open longer</span>" +
+        (pose
+          ? '<span class="chip" style="border-color:#2c5a3a;color:#7fd4a0"><b>' + bodyCards +
+            "</b> cards from the players\u2019 bodies alone, no ball</span>"
+          : "") +
         '<span class="chip v-ok"><b>' + s.srv_agree + "</b> right server</span>" +
         (s.srv_fixed
           ? '<span class="chip"><b>' + s.srv_fixed +
@@ -945,6 +1033,7 @@ export function V3ServeDetector({
             <button data-f="nopress" aria-pressed="false">Misses your winner press</button>
             <button data-f="srv_disagree" aria-pressed="false">Wrong server</button>
             <button data-f="called_false" aria-pressed="false">You called it not a serve</button>
+            <button data-f="bodies" aria-pressed="false">Cards from the bodies</button>
             <button data-f="ok" aria-pressed="false">Correct</button>
           </div>
           <div id="viewbar">
@@ -966,6 +1055,7 @@ export function V3ServeDetector({
           <label><input type="checkbox" id="ovBounce" defaultChecked /> Bounces</label>
           <label><input type="checkbox" id="ovServe" defaultChecked /> Serves</label>
           <label><input type="checkbox" id="ovPeople" defaultChecked /> Players</label>
+          <label><input type="checkbox" id="ovBodies" defaultChecked /> Bodies</label>
           <label><input type="checkbox" id="ovShoe" /> Hide bounces inside a bystander&apos;s box</label>
           <span className="key"><i className="sw" style={{ background: "#ffd479" }} />near player</span>
           <span className="key"><i className="sw" style={{ background: "#c9a0ff" }} />far player</span>
