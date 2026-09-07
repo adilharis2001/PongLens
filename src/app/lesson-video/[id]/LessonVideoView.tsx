@@ -6,6 +6,7 @@ import { UpLink } from '@/components/UpLink';
 import type { LessonEdit, LessonVideo } from '@/lib/lessonVideo/model';
 import {
   formatClipLength,
+  lessonCanSetCoach,
   lessonCanShare,
   lessonChapterStart,
   lessonReaderSections,
@@ -68,7 +69,16 @@ const chevron = (
   </svg>
 );
 
-export function LessonVideoView({ id, up }: { id: string; up: LessonUp | null }) {
+export function LessonVideoView({
+  id,
+  up,
+  coaches = [],
+}: {
+  id: string;
+  up: LessonUp | null;
+  /** The player's own coaches, for answering who taught this lesson. */
+  coaches?: { id: string; display_name: string }[];
+}) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -400,8 +410,39 @@ export function LessonVideoView({ id, up }: { id: string; up: LessonUp | null })
   function Actions() {
     if (!v) return null;
     const anyPrimary = canShare || canRetry;
+    const canAttribute = lessonCanSetCoach(v, owner);
     return (
       <>
+        {canAttribute && (
+          <div className="mb-6 rounded-2xl border border-edge bg-surface p-5">
+            <label className="block text-sm text-zinc-400">
+              Who taught it?
+              <select
+                className={field}
+                disabled={busy}
+                value={v.coach_ref_id ?? ''}
+                onChange={(e) =>
+                  void action('recipient', { coachRefId: e.target.value || null })
+                }
+              >
+                <option value="">No coach</option>
+                {coaches.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.display_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {/* Said once, at the moment somebody is choosing. Moving a
+                lesson to a different coach cannot carry the first one's
+                access across with it. */}
+            {v.coach_ref_id && (
+              <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+                Changing this stops sharing, so you choose again who sees it.
+              </p>
+            )}
+          </div>
+        )}
         <div className="rounded-2xl border border-edge bg-surface p-5">
           {canShare && (
             <button

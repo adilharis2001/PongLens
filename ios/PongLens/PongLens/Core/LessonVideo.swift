@@ -38,6 +38,18 @@ struct LessonVideo: Codable, Identifiable {
         if status == "review" { return true }
         return status == "ready" && hasRecipient && shared == false
     }
+    /// Whether who taught this lesson can still be answered or corrected.
+    ///
+    /// Attribution is a fact about an afternoon that already happened, so
+    /// it is never too late to record it and never wrong to fix it. A
+    /// coach's own import is excluded: it names the student it was made
+    /// for, and moving a delivered lesson to a different student is not a
+    /// correction, it is a different lesson. Twin of lessonCanSetCoach on
+    /// web.
+    static func canSetCoach(_ video: LessonVideo, isOwner: Bool) -> Bool {
+        isOwner && video.student_id == nil && video.stage != "Deleting"
+            && ["review", "ready", "failed"].contains(video.status)
+    }
     var statusLabel: String {
         switch status {
         case "uploading": "Uploading"
@@ -92,6 +104,26 @@ struct LessonVideoAction: Encodable {
     /// rule the journal's share toggle already follows. A coach's import
     /// ignores it; publishing IS the share there, as it always was.
     var share: Bool? = nil
+}
+
+/// Who taught the lesson, answered or corrected after the import.
+///
+/// Its own type with its own encoder because the answer "nobody" has to
+/// travel as null rather than as a missing key, and a synthesized encoder
+/// drops a nil optional. The id is lower-cased for the same reason the
+/// create call is: Foundation writes a UUID in upper case and Postgres
+/// hands its uuid columns back in lower, and the route compares strings.
+struct LessonVideoRecipient: Encodable {
+    let action = "recipient"
+    let id: UUID
+    let coachRefId: UUID?
+    private enum CodingKeys: String, CodingKey { case action, id, coachRefId }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(action, forKey: .action)
+        try c.encode(id.uuidString.lowercased(), forKey: .id)
+        try c.encode(coachRefId?.uuidString.lowercased(), forKey: .coachRefId)
+    }
 }
 struct LessonVideoOK: Decodable { let ok: Bool }
 

@@ -399,6 +399,7 @@ struct LessonVideoDetailScreen: View {
     var coachName: String? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(JournalStore.self) private var journal
     @State private var detail: LessonVideoDetail?
     @State private var player: AVPlayer?
     @State private var urlsFetchedAt: Date?
@@ -415,6 +416,10 @@ struct LessonVideoDetailScreen: View {
     @State private var watchRequest: WatchRequest?
     @State private var notesOpen = false
     @State private var deleteOpen = false
+    /// Who the recap says taught the lesson. Mirrors the row so the
+    /// picker can show an answer before the write comes back.
+    @State private var coachRefId: UUID?
+    @State private var noCoach = false
 
     private struct WatchRequest: Identifiable {
         let id = UUID()
@@ -436,6 +441,7 @@ struct LessonVideoDetailScreen: View {
                         Text(detail.video.statusLabel).font(.plCaption).foregroundStyle(PL.cyan)
                     }
                     if watchable(detail) { recap(detail) } else { waiting(detail) }
+                    attribution(detail)
                     actions(detail)
                     if let edit = detail.video.edit, !edit.chapters.isEmpty {
                         chapters(edit, enabled: watchable(detail))
@@ -535,6 +541,33 @@ struct LessonVideoDetailScreen: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
+    }
+
+    /// Who taught the lesson, answered or corrected after the import.
+    ///
+    /// The importer asks, but nobody is a real answer and an unanswered
+    /// picker looks exactly like one, so a lesson could be filed against
+    /// no coach with no way back: nothing set it afterwards, and a recap
+    /// naming nobody can never be shared, which left this page reading
+    /// "Saved" beside no controls at all. Same control the journal and
+    /// the recorder use, so there is one place this question is asked.
+    @ViewBuilder
+    private func attribution(_ detail: LessonVideoDetail) -> some View {
+        if LessonVideo.canSetCoach(detail.video, isOwner: detail.isOwner) {
+            CoachGroup {
+                CoachPickerRow(
+                    coaches: journal.playerCoaches,
+                    coachRefId: Binding(get: { coachRefId }, set: { setCoach($0) }),
+                    shareWithCoach: .constant(false),
+                    noCoach: Binding(get: { noCoach }, set: { if $0 { setCoach(nil) } }),
+                    requireAnswer: true,
+                    shareNoun: "this recap",
+                    onCreate: { await journal.createCoach(named: $0) },
+                    onAppearReload: { await journal.loadCoaches() }
+                )
+                .padding(16)
+            }
+        }
     }
 
     /// What can be done with the recap right now: share it, retry it, read it.
@@ -752,6 +785,11 @@ struct LessonVideoDetailScreen: View {
             let value: LessonVideoDetail = try await API.get("api/lesson-video", query: ["id": id.uuidString])
             let changed = detail?.video.revision != value.video.revision || detail?.video.status != value.video.status
             detail = value
+            // The picker follows the row. "No coach" is only shown as an
+            // answer once somebody has given it, so an unattributed recap
+            // still reads as a question the first time it is opened.
+            coachRefId = value.video.coach_ref_id
+            if value.video.coach_ref_id != nil { noCoach = false }
             urlsFetchedAt = Date()
             error = nil
             if player == nil || changed || refreshPlayback {
@@ -761,6 +799,29 @@ struct LessonVideoDetailScreen: View {
             if !hadRecap { self.error = UserFacingError.message(error) }
         }
     }
+    /// Record who taught it, and keep the picker showing the answer while
+    /// the write is in flight.
+    private func setCoach(_ id: UUID?) {
+        coachRefId = id
+        noCoach = id == nil
+        busy = true
+        Task {
+            defer { busy = false }
+            do {
+                let _: LessonVideoOK = try await API.post(
+                    "api/lesson-video",
+                    LessonVideoRecipient(id: self.id, coachRefId: id)
+                )
+                await load()
+            } catch {
+                self.error = UserFacingError.message(error)
+                // Put the picker back on what the row actually says.
+                coachRefId = detail?.video.coach_ref_id
+                noCoach = false
+            }
+        }
+    }
+
     private func perform(_ action: String, share: Bool? = nil) {
         busy = true
         Task {

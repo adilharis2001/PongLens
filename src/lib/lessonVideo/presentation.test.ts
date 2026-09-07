@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFile} from 'node:fs/promises';
 
-import {formatClipLength, lessonCanShare, lessonChapterIndexAt, lessonChapterStart, lessonReaderSections, lessonRecapMinutes, lessonStatusLabel} from './presentation.ts';
+import {formatClipLength, lessonCanSetCoach, lessonCanShare, lessonChapterIndexAt, lessonChapterStart, lessonReaderSections, lessonRecapMinutes, lessonStatusLabel} from './presentation.ts';
 import type {LessonEdit} from './model.ts';
 
 const edit:LessonEdit={
@@ -109,4 +109,44 @@ test('a player can send their own recap to their coach, and only theirs', () => 
  assert.equal(lessonCanShare({ status: 'ready', coach_ref_id: 'pc1' }, true, true), false, 'already shared');
  assert.equal(lessonCanShare({ status: 'ready', coach_ref_id: 'pc1' }, false, false), false, 'never for the coach reading it');
  assert.equal(lessonCanShare({ status: 'ready', student_id: null, coach_ref_id: null }, true, false), false, 'a private lesson has nobody to send it to');
+});
+
+// Who taught the lesson, answered after the import.
+//
+// The importer asks, but nobody is a real answer and an unanswered picker
+// looks exactly like one, so a recap arrived naming nobody with no way
+// back: nothing set the coach afterwards, and a recap with nobody on it
+// can never be shared, which left the page reading "Saved" beside no
+// controls at all.
+const unattributed={status:'review',student_id:null};
+
+test('a finished recap that names nobody can still be attributed',()=>{
+ assert.equal(lessonCanSetCoach(unattributed,true),true);
+ assert.equal(lessonCanSetCoach({...unattributed,status:'ready'},true),true);
+});
+
+test('a recap that needs another try can be attributed too',()=>{
+ // The lesson happened either way, and a failed render is the moment
+ // somebody is most likely to be looking at the page.
+ assert.equal(lessonCanSetCoach({...unattributed,status:'failed'},true),true);
+});
+
+test('attribution is not offered while the recap is still being made',()=>{
+ for(const status of ['uploading','queued','processing'])
+  assert.equal(lessonCanSetCoach({...unattributed,status},true),false,status);
+});
+
+test('a coach\u2019s own import is never reattributed',()=>{
+ // It names the student it was made for, and the database refuses both
+ // at once. Moving a delivered lesson to a different student is not a
+ // correction, it is a different lesson.
+ assert.equal(lessonCanSetCoach({status:'ready',student_id:'student-1'},true),false);
+});
+
+test('somebody a recap was shared with cannot reattribute it',()=>{
+ assert.equal(lessonCanSetCoach(unattributed,false),false);
+});
+
+test('a recap being deleted is left alone',()=>{
+ assert.equal(lessonCanSetCoach({...unattributed,stage:'Deleting',status:'failed'},true),false);
 });

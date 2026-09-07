@@ -75,6 +75,28 @@ export function formatClipLength(seconds:number):string {
 }
 
 /**
+ * Whether who taught this lesson can still be answered or corrected.
+ *
+ * Attribution is a fact about an afternoon that already happened, so it
+ * is never too late to record it and never wrong to fix it. The importer
+ * asks, but "no coach" is a real answer and an unanswered picker looks
+ * exactly like one, so a recap could arrive naming nobody with no way
+ * back: no route set the coach after the import, and a recap with nobody
+ * on it can never be shared, which left the page reading "Saved" beside
+ * no controls at all.
+ *
+ * A coach's own import is excluded. It names the student it was made
+ * for, the database refuses both at once, and moving a delivered lesson
+ * to a different student is not a correction, it is a different lesson.
+ */
+export function lessonCanSetCoach(
+ video:{status:string;stage?:string|null;student_id?:string|null},
+ isOwner:boolean,
+):boolean {
+ return isOwner&&!video.student_id&&video.stage!=='Deleting'&&['review','ready','failed'].includes(video.status);
+}
+
+/**
  * Whether the owner can press the share button now.
  *
  * Review is the first time; ready-but-unshared is the coach taking an

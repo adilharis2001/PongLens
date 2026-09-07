@@ -33,6 +33,10 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     null;
 
   let up: LessonUp | null = null;
+  // The player's own coaches, so the page can answer "who taught it?" for a
+  // lesson that arrived without one. Only fetched for a recap the viewer
+  // owns that names no student: a coach's own import is not reattributed.
+  let coaches: { id: string; display_name: string }[] = [];
   if (UUID.test(id)) {
     const admin = createAdminClient();
     const { data: row } = await admin
@@ -65,12 +69,19 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
       } else {
         up = { href: '/coaching/videos', label: 'Lesson videos' };
       }
+      if (!row.student_id) {
+        const { data: list } = await db.rpc('player_coaches_list');
+        coaches = ((list ?? []) as { id: string; display_name: string }[]).map((c) => ({
+          id: c.id,
+          display_name: c.display_name,
+        }));
+      }
     }
   }
 
   return (
     <AppShell avatarUrl={avatarUrl} wide>
-      <LessonVideoView id={id} up={up} />
+      <LessonVideoView id={id} up={up} coaches={coaches} />
     </AppShell>
   );
 }

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { MEDIA_BUCKET,createMultipartUpload,presignUploadPart,listParts,completeMultipartUpload,headObject,presignGet,abortMultipartUpload,deleteObjects,listObjects } from '@/lib/r2';
 import { PART_SIZE,validateImport,validateEdit,canReadVideo,publicVideo } from '@/lib/lessonVideo/model';
+import { lessonCanSetCoach } from '@/lib/lessonVideo/presentation';
 import { queueLessonRender } from '@/lib/lessonVideo/queueing';
 import { QUOTA_ERRORS,type StorageState } from '@/lib/quota';
 export const runtime='nodejs';
@@ -206,6 +207,31 @@ export async function POST(req:Request){
    if(!row.lesson_id)return failure('This recap has not been shared yet.',409);
    const {error}=await db.from('lessons').update({shared_with_coach_at:null}).eq('id',row.lesson_id).eq('user_id',user.id);if(error)throw error;
    return NextResponse.json({ok:true});
+  }
+  if(action==='recipient'){
+   // Who taught the lesson, answered or corrected after the import.
+   //
+   // The importer asks, but nobody is a real answer and an unanswered
+   // picker looks the same as one, so a lesson could be filed against
+   // no coach with no way back: nothing set it afterwards, and a recap
+   // with nobody on it can never be shared. Owner only, and never on a
+   // coach's own import, which names a student instead.
+   if(!lessonCanSetCoach(row,true))return failure('This recap cannot be reattributed.',409);
+   const coachRefId=typeof body.coachRefId==='string'?body.coachRefId.toLowerCase():null;
+   if(coachRefId){
+    if(!UUID.test(coachRefId))return failure('Choose a coach from your list.',403);
+    const {data:c}=await db.from('player_coaches').select('id').eq('id',coachRefId).eq('player_id',user.id).is('archived_at',null).maybeSingle();
+    if(!c)return failure('Choose a coach from your list.',403);
+   }
+   if(coachRefId===row.coach_ref_id)return NextResponse.json({ok:true,video:publicVideo(row,true)});
+   const {data:changed,error}=await db.from('lesson_videos').update({coach_ref_id:coachRefId,updated_at:new Date().toISOString()}).eq('id',id).eq('owner_id',user.id).eq('revision',row.revision).select().maybeSingle();
+   if(error)throw error;if(!changed)return failure('The lesson changed. Reload before changing the coach.',409);
+   // The entry moves with it, and sharing does not come along. Whoever
+   // it was shared with was a different person, and carrying their
+   // access across to somebody they have never met is the one mistake
+   // this must not make.
+   if(row.lesson_id)await db.from('lessons').update({coach_ref_id:coachRefId,shared_with_coach_at:null}).eq('id',row.lesson_id).eq('user_id',user.id);
+   return NextResponse.json({ok:true,video:publicVideo(changed,true)});
   }
   if(action==='delete'){
    if(['uploading','queued','processing'].includes(row.status))return failure('Wait for uploading and processing to finish before deleting this lesson.',409);

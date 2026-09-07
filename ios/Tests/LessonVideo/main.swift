@@ -123,3 +123,44 @@ let timedEdit = LessonVideoEdit(title: "T", chapters: [
 ], themes: [], warning: nil)
 check(timedEdit.recapMinutes == 4, "recap minutes add the chapters up and round")
 print("lesson video length checks passed")
+
+// Who taught it, answered after the import (twin of presentation.test.ts).
+//
+// A lesson arrived filed against nobody because the importer's picker
+// starts on "No coach" and nothing forces an answer. Nothing set it
+// afterwards either, and a recap naming nobody can never be shared, so
+// the page read "Saved" beside no controls at all.
+func attributable(_ status: String, student: Bool = false, stage: String? = nil) -> Bool {
+    let json = """
+    {"id":"c75c8a89-16ee-41a1-b8f2-d3b441f0f82f","owner_id":"c75c8a89-16ee-41a1-b8f2-d3b441f0f82f","student_id":\(student ? "\"c75c8a89-16ee-41a1-b8f2-d3b441f0f82f\"" : "null"),"lesson_id":null,"original_name":"IMG_0001.MOV","file_size":10,"duration_s":10,"status":"\(status)","stage":\(stage.map { "\"\($0)\"" } ?? "null"),"error":null,"edit":null,"created_at":"2026-09-06T00:00:00Z","revision":1}
+    """
+    let decoded = try! JSONDecoder().decode(LessonVideo.self, from: Data(json.utf8))
+    return LessonVideo.canSetCoach(decoded, isOwner: true)
+}
+check(attributable("review"), "a finished recap naming nobody can be attributed")
+check(attributable("ready"), "an already saved recap can still be corrected")
+check(attributable("failed"), "a recap that needs another try can be attributed")
+check(!attributable("uploading"), "not while it is still uploading")
+check(!attributable("queued"), "not while it is waiting to process")
+check(!attributable("processing"), "not while it is being made")
+check(!attributable("ready", student: true), "a coach\u{2019}s own import names a student, not a coach")
+check(!attributable("failed", stage: "Deleting"), "a recap being deleted is left alone")
+
+let owned = try! JSONDecoder().decode(LessonVideo.self, from: Data("""
+{"id":"c75c8a89-16ee-41a1-b8f2-d3b441f0f82f","owner_id":"c75c8a89-16ee-41a1-b8f2-d3b441f0f82f","student_id":null,"lesson_id":null,"original_name":"a","file_size":1,"duration_s":1,"status":"ready","stage":null,"error":null,"edit":null,"created_at":"2026-09-06T00:00:00Z","revision":1}
+""".utf8))
+check(!LessonVideo.canSetCoach(owned, isOwner: false), "never for somebody it was shared with")
+
+// "Nobody" has to travel as null, not as a missing key, or clearing the
+// coach would silently leave the old one in place.
+let cleared = String(data: try! JSONEncoder().encode(
+    LessonVideoRecipient(id: UUID(uuidString: "c75c8a89-16ee-41a1-b8f2-d3b441f0f82f")!, coachRefId: nil)
+), encoding: .utf8)!
+check(cleared.contains("\"coachRefId\":null"), "clearing the coach sends null")
+let named = String(data: try! JSONEncoder().encode(
+    LessonVideoRecipient(id: UUID(uuidString: "c75c8a89-16ee-41a1-b8f2-d3b441f0f82f")!,
+                         coachRefId: UUID(uuidString: "1bb309bb-abac-47f6-979a-093e075fbfc1")!)
+), encoding: .utf8)!
+check(named.contains("1bb309bb-abac-47f6-979a-093e075fbfc1"), "the coach id travels lower-cased")
+print("lesson attribution checks passed")
+

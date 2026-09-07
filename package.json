@@ -33,7 +33,8 @@
     "email:preview": "node --experimental-strip-types scripts/email/preview-catalog.ts",
     "email:send-samples": "node --experimental-strip-types scripts/email/send-preview-catalog.ts",
     "test:starred": "node --test --experimental-strip-types src/app/starred/starred.test.ts",
-    "test:stats": "node --test --experimental-strip-types src/lib/stats/*.test.ts"
+    "test:stats": "node --test --experimental-strip-types src/lib/stats/*.test.ts",
+    "test:lesson-video": "node --test --experimental-strip-types src/lib/lessonVideo/*.test.ts"
   },
   "dependencies": {
     "@apple/app-store-server-library": "^3.1.0",
