@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { createClient } from "@/lib/supabase/client";
 import { FabButton } from "@/components/Fab";
@@ -100,6 +100,11 @@ export function PlayerCoaching({
   const [loaded, setLoaded] = useState(false);
   const [filter, setFilter] = useState<string | null>(null);
   const [chooserOpen, setChooserOpen] = useState(false);
+  /* The bell's deep link scrolls to its entry ONCE. A ref callback runs
+     again whenever the element is remounted, and re-scrolling under a
+     reader who has started scrolling away is worse than not scrolling at
+     all. */
+  const scrolledToEntry = useRef(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [editing, setEditing] = useState<Lesson | null>(null);
   const [cap, setCap] = useState(FEED_CAP);
@@ -279,7 +284,10 @@ export function PlayerCoaching({
       if (lessons.some((l) => l.lesson_video_id === r.id)) continue;
       out.push({
         kind: "recap",
-        at: r.updated_at || r.created_at,
+        // When the lesson happened, not when the recap was last touched.
+        // Editing a recap should not move it to the top of a feed that
+        // reads as a history. iOS sorts on the same field.
+        at: r.created_at,
         coachRef: r.coach_ref_id ?? NO_COACH,
         recap: r,
       });
@@ -374,7 +382,12 @@ export function PlayerCoaching({
             </p>
             <p className="mt-0.5 text-xs text-zinc-500">
               {coachStanding(selected)}
-              <span className="text-zinc-600"> · {accessLine(selected)}</span>
+              {/* Only a connected coach has match access to describe.
+                  "Not on PongLens · Not connected" was one fact said
+                  twice, and the second half read as a second problem. */}
+              {selected.coach_id && (
+                <span className="text-zinc-600"> · {accessLine(selected)}</span>
+              )}
             </p>
           </div>
           <Link
@@ -409,10 +422,13 @@ export function PlayerCoaching({
         </div>
       ) : shown.length === 0 ? (
         // The "No coaches yet" card above already speaks for a player with
-        // nothing at all; a second empty line under it says it twice.
+        // nothing at all; a second empty line under it says it twice. And
+        // a chip nobody has pressed cannot be "this coach".
         noCoaches ? null : (
           <p className="mt-6 text-sm text-zinc-500">
-            Nothing with this coach yet.
+            {filter === null
+              ? "Nothing here yet."
+              : "Nothing with this coach yet."}
           </p>
         )
       ) : (
@@ -423,6 +439,7 @@ export function PlayerCoaching({
                 key={rowKey(item)}
                 item={item}
                 openEntryId={openEntryId}
+                scrolledRef={scrolledToEntry}
                 tagsByLesson={tagsByLesson}
                 vocab={vocab}
                 addCue={addCue}
@@ -518,7 +535,9 @@ function rowKey(item: Item): string {
     case "recap":
       return `recap-${item.recap.id}`;
     case "match":
-      return `match-${item.matchId}`;
+      // One match shared with two coaches is two rows, and React needs
+      // them told apart or it renders one and drops the other.
+      return `match-${item.matchId}-${item.coachRef ?? "none"}`;
     default:
       return `order-${item.order.id}`;
   }
@@ -527,6 +546,7 @@ function rowKey(item: Item): string {
 function FeedRow({
   item,
   openEntryId,
+  scrolledRef,
   tagsByLesson,
   vocab,
   addCue,
@@ -537,6 +557,8 @@ function FeedRow({
   item: Item;
   /** The coach_entries row the bell was tapped on, if any. */
   openEntryId: string | null;
+  /** Whether that entry has already been scrolled to, once, this visit. */
+  scrolledRef: React.MutableRefObject<boolean>;
   tagsByLesson: Map<string, Tag[]>;
   vocab: Tag[];
   addCue: ReturnType<typeof useFocusPoints>["addCue"];
@@ -552,7 +574,9 @@ function FeedRow({
         ref={
           asked
             ? (el) => {
-                el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                if (!el || scrolledRef.current) return;
+                scrolledRef.current = true;
+                el.scrollIntoView({ behavior: "smooth", block: "center" });
               }
             : undefined
         }

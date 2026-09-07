@@ -397,7 +397,7 @@ final class JournalStore {
         // belong to the coaching workspace, not this journal.
         async let lessonsQ: [LessonRow]? = try? supa
             .from("lessons")
-            .select("id,user_id,transcript,takeaways,status,kind,coach_name,coach_ref_id,shared_with_coach_at,image_path,created_at")
+            .select("id,user_id,transcript,takeaways,status,kind,coach_name,coach_ref_id,shared_with_coach_at,image_path,lesson_video_id,created_at")
             .neq("kind", value: "coach")
             .order("created_at", ascending: false)
             .execute().value

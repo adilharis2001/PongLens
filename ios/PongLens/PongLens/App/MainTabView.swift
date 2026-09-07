@@ -284,7 +284,13 @@ struct MainTabView: View {
                     // player reads their coaches. /journal is still
                     // honoured: notifications written before this build
                     // carry it, and the entry is in the Journal too.
-                    if href.hasPrefix("/coaching") {
+                    //
+                    // Not /coaching/students, which is a COACH's row about
+                    // one of their students. This root is the playing side
+                    // and has nowhere to put it; the coaching root handles
+                    // it, and an account holding both switches sides to
+                    // read it rather than landing on the wrong feed.
+                    if href.hasPrefix("/coaching"), !href.hasPrefix("/coaching/students") {
                         bellOpen = false
                         router.tab = .coaching
                     }

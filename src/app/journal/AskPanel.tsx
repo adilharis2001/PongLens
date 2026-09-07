@@ -28,6 +28,7 @@ interface AskSource {
   kind:
     | "note"
     | "lesson"
+    | "lesson_recap"
     | "practice"
     | "match"
     | "working_on"
@@ -65,6 +66,10 @@ export function askable(query: string): boolean {
 const KIND_LABEL: Record<AskSource["kind"], string> = {
   note: "Match note",
   lesson: "Note",
+  // A filmed lesson keeps its own label: the answer came from what the
+  // coach said on camera, and the citation opens the recap rather than a
+  // written entry.
+  lesson_recap: "Lesson recap",
   practice: "Note",
   match: "Match",
   working_on: "Working on",

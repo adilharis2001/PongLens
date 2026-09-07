@@ -40,11 +40,10 @@ export function JournalStats({
   if (agg.matchesWithScores === 0) {
     return (
       <div className="mt-4 rounded-2xl border border-edge bg-surface p-6 text-center">
-        <p className="text-sm text-zinc-300">Nothing to count yet.</p>
-        <p className="mx-auto mt-2 max-w-sm text-xs leading-relaxed text-zinc-500">
-          Score the points in your matches and this tab builds itself: serve
-          and receive, pressure points, patterns across every match.
-        </p>
+        {/* One line, then the way out. The /stats page carries a longer
+            explanation because it is the whole page; here it is a tab
+            among five. */}
+        <p className="text-sm text-zinc-300">Score a match and this fills in.</p>
         <Link
           href="/matches"
           className="mt-4 inline-block rounded-full bg-cyan-glow px-4 py-2 text-sm font-semibold text-ink"

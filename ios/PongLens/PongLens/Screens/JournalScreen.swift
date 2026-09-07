@@ -485,8 +485,7 @@ struct JournalScreen: View {
 
     private var emptyLine: String {
         switch tab {
-        case "Notes": "No notes yet. New saves your first."
-        case "From Coaches": "Nothing from a coach yet."
+        case "Coaches": "No lessons yet. Record one in Coaching."
         default: "Nothing found."
         }
     }
@@ -823,6 +822,7 @@ struct AskPanelView: View {
     private enum SourceTarget {
         case match(MatchRow, pointId: UUID?)
         case entry(UUID)
+        case recap(UUID)
         case journal
         case account
         case none
@@ -843,6 +843,12 @@ struct AskPanelView: View {
             }
             return .match(match, pointId: pointId)
         }
+        // An answer that came from a filmed lesson opens the recap, which
+        // is where the coach actually said it.
+        if href.hasPrefix("/lesson-video/"),
+           let id = UUID(uuidString: String(href.dropFirst("/lesson-video/".count))) {
+            return .recap(id)
+        }
         if let range = href.range(of: "#journal-entry-"),
            let entryId = UUID(uuidString: String(href[range.upperBound...])) {
             return .entry(entryId)
@@ -862,6 +868,13 @@ struct AskPanelView: View {
             .buttonStyle(.plain)
         case .entry(let entryId):
             Button { onOpenEntry(entryId) } label: {
+                sourceRowBody(source, number: number)
+            }
+            .buttonStyle(.plain)
+        case .recap(let id):
+            NavigationLink {
+                LessonVideoDetailScreen(id: id)
+            } label: {
                 sourceRowBody(source, number: number)
             }
             .buttonStyle(.plain)
@@ -926,6 +939,9 @@ struct AskPanelView: View {
         // its own label because it is anchored to footage.
         case "note": "Match note"
         case "lesson": "Note"
+        // A filmed lesson keeps its own label: the answer came from what
+        // the coach said on camera, and the row opens the recap.
+        case "lesson_recap": "Lesson recap"
         case "practice": "Note"
         case "match": "Match"
         case "working_on": "Working on"

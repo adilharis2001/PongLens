@@ -57,7 +57,12 @@ final class ScoresStore {
                 ($0.id, $0.firstServer.flatMap(Winner.init(rawValue:)))
             }
         )
-        guard !loading, !matchIds.isEmpty else { return }
+        // Nothing to walk is a finished walk. Returning here without
+        // saying so left the Journal's Stats tab counting for ever on an
+        // account with no matches, which is the account most likely to
+        // open it first.
+        if matchIds.isEmpty { loaded = true; return }
+        guard !loading else { return }
         loading = true
         defer { loading = false; loaded = true }
 

@@ -41,8 +41,17 @@ struct CoachingScreen: View {
 
     private let feedCap = 30
 
+    /// Notes somebody else left on YOUR matches.
+    ///
+    /// Both halves matter. note_feed returns every match the viewer may
+    /// read, which for an account that also coaches includes their
+    /// students' matches — so without the owner check a coach would find
+    /// their students' notes in the feed of what their own coach has told
+    /// them. The web filters this server-side for the same reason.
     private var coachNotes: [NoteFeedRow] {
-        journal.notes.filter { $0.authorId != app.userId }
+        journal.notes.filter {
+            $0.authorId != app.userId && $0.matchOwnerId == app.userId
+        }
     }
 
     /// Which of the player's coaches a coach account belongs to, so a

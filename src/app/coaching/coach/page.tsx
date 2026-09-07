@@ -40,6 +40,9 @@ export default async function YourCoachesPage() {
         ← Coaching
       </Link>
 
+      <h1 className="mt-4 text-2xl font-bold tracking-tight sm:text-3xl">
+        Your coaches
+      </h1>
       <div className="mt-6">
         <SharingSection userId={user.id} />
       </div>

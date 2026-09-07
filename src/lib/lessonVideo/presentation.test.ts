@@ -39,11 +39,15 @@ test('playback synchronization uses the same fallback chapter timeline',()=>{
  assert.equal(lessonChapterIndexAt(chapters,60),2);
 });
 
-test('lesson detail offers the complete read-only recap and returns students to the journal',async()=>{
+test('lesson detail offers the complete read-only recap and returns a reader to coaching',async()=>{
  const source=await readFile(new URL('../../app/lesson-video/[id]/LessonVideoView.tsx',import.meta.url),'utf8');
  assert.match(source,/Read lesson notes/);
  assert.match(source,/lessonReaderSections\(edit\)/);
- assert.match(source,/const back=detail\?\.isOwner[^\n]+:\s*['"]\/journal['"]/);
+ // Somebody who did not make the recap goes back to Coaching, not to the
+ // Journal. A recap now travels in both directions — a coach shares one
+ // with a student, a student shares one with their coach — and Coaching
+ // is the room both of them read it in.
+ assert.match(source,/const back=detail\?\.isOwner[^\n]+:\s*['"]\/coaching['"]/);
  assert.doesNotMatch(source,/First chapter/);
 });
 
