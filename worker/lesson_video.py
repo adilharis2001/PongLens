@@ -17,11 +17,16 @@ MAX_RECAP_SECONDS=900
 MAX_CHAPTERS=16
 MAX_MERGE_ATTEMPTS=3
 MAX_WINDOW_ATTEMPTS=3
+# The transcription ladder. Rungs are tried in order and stop as soon as one
+# clears the floor, so ordinary audio pays for a single pass; only a section
+# nobody heard pays twice. Raising ASR_VERSION re-hears every thin section
+# saved by an older ladder and leaves every good one alone.
+TRANSCRIPT_FLOOR_WPM=12
+ASR_VERSION=4
 RICH_RECAP_MIN_SECONDS=75*60
 RICH_RECAP_SPACING_SECONDS=45
 BUCKET='ponglens-media'
 MODEL='gpt-5.6-luna'
-KEYTERMS=['table tennis','topspin','backspin','underspin','sidespin','no-spin','anti-spin','long pips','short pips','twiddle','penhold','shakehand','forehand','backhand','counterloop','banana flick','chiquita','chop block','dead serve','half-long','third ball','footwork','bat angle','crosscourt','down the line','multiball']
 log=logging.getLogger('lesson-video')
 
 def release_id():
@@ -117,12 +122,57 @@ def load_secret(env,service):
  if not value:raise RuntimeError('Missing configuration: '+env)
  return value
 
-def sparse_transcript(utterances):
- return sum(len(u.get('text',u.get('transcript','')).split()) for u in utterances)<3
+def transcript_words(utterances):
+ return sum(len(str(u.get('text',u.get('transcript','')) or '').split()) for u in utterances)
+
+def transcript_density(utterances,seconds):
+ """Words a minute: the one number that separates heard from missed.
+
+ Measured over four real lessons. A transcriber that heard the room
+ returns 25 to 150 words a minute; one that gave up returns under 7.
+ Nothing has ever landed between. That empty band is what makes this a
+ reading rather than a guess, and it is why the check is density and not
+ a word count: a count cannot tell a quiet minute from a lost hour.
+ """
+ return transcript_words(utterances)*60.0/seconds if seconds>0 else 0.0
+
+def thin_transcript(utterances,seconds):
+ return transcript_density(utterances,seconds)<TRANSCRIPT_FLOOR_WPM
 
 def transcript_chunk_reusable(chunk):
- # Old successful-but-empty provider responses must not pin a retry forever.
- return chunk.get('asr_version',0)>=2 or not sparse_transcript(chunk.get('utterances',[]))
+ """Keep a saved section only if somebody was actually heard in it.
+
+ A stamped version is not a promise of quality, and treating it as one
+ is what pinned a lesson to a near-silent transcript for good: every
+ section was marked reusable the moment it was written, so no retry
+ could ever replace one. A thin section is kept only once the current
+ ladder has been the thing that produced it, because by then every rung
+ has already been tried and re-running them would cost money to learn
+ the same answer.
+ """
+ span=float(chunk.get('end_s',0) or 0)-float(chunk.get('start_s',0) or 0)
+ if thin_transcript(chunk.get('utterances',[]),span):return chunk.get('asr_version',0)>=ASR_VERSION
+ return True
+
+def merge_segments(segments,start,duration,gap=1.5,span=45.0):
+ """Join a transcriber's one-second pieces back into utterances.
+
+ Whisper answers in very short segments, so a stretch of a coach talking
+ arrives as sixty separate lines, most of them the student saying
+ "Yeah.". Everything downstream reads utterances, so pieces are joined
+ while the silence between them is short and the utterance stays under
+ three quarters of a minute. Timing is never invented: an utterance
+ spans from its first piece's start to its last piece's end.
+ """
+ out=[]
+ for segment in segments:
+  a=float(segment['start']);b=float(segment['end']);text=str(segment.get('text','')).strip()
+  if not all(math.isfinite(x) for x in (a,b)) or a<0 or b<=a or b>duration+.5:raise ValueError('Invalid transcription segment timing.')
+  if not text:continue
+  if out and a-out[-1]['end']<=gap and b-out[-1]['start']<=span:
+   out[-1]['end']=b;out[-1]['text']+=' '+text
+  else:out.append({'start':a,'end':b,'text':text})
+ return [{'start_s':round(start+u['start'],3),'end_s':round(start+u['end'],3),'speaker':None,'text':u['text']} for u in out]
 
 class Runtime:
  def __init__(self):
@@ -136,7 +186,6 @@ class Runtime:
   service=load_secret('SUPABASE_SERVICE_ROLE_KEY','ponglens-service-role')
   self.headers={'apikey':service,'Authorization':'Bearer '+service,'Content-Type':'application/json'}
   self.openai=load_secret('OPENAI_API_KEY','openai-api-key')
-  self.deepgram=load_secret('DEEPGRAM_API_KEY','deepgram-api-key')
   self.s3=boto3.client('s3',endpoint_url='https://'+load_secret('R2_ACCOUNT_ID','ponglens-r2-account')+'.r2.cloudflarestorage.com',aws_access_key_id=load_secret('R2_ACCESS_KEY_ID','ponglens-r2-key-id'),aws_secret_access_key=load_secret('R2_SECRET_ACCESS_KEY','ponglens-r2-secret'),region_name='auto',config=Config(retries={'max_attempts':5,'mode':'standard'}))
   self.worker_release_id=None
   self.worker_id=None
@@ -169,36 +218,76 @@ class Runtime:
     r.raise_for_status();d=r.json();self.meter_events(self.meter.openai_usage_events(d,model=MODEL,operation='lesson_video_summary',idempotency_key='openai:'+str(d.get('id',uuid.uuid4()))));return json.loads(d['choices'][0]['message']['content'])
    except (requests.RequestException,ValueError,KeyError) as e:last=e;time.sleep(2*(attempt+1))
   raise RuntimeError('The lesson could not be written up. Retry to continue from the saved transcript.') from last
- def transcribe_fallback(self,path,start):
-  # Nova can return HTTP 200 with no speech on audible far-field coaching.
-  # Diarized JSON preserves measured segment times, unlike plain text ASR.
-  model='gpt-4o-transcribe-diarize'
+ def openai_transcription(self,path,model,data,timeout=600):
+  """One call to a transcription model, metered by measured audio seconds."""
   with open(path,'rb') as audio:
-   r=self.http.post('https://api.openai.com/v1/audio/transcriptions',headers={'Authorization':'Bearer '+self.openai},files={'file':(Path(path).name,audio,'audio/mpeg')},data={'model':model,'response_format':'diarized_json','chunking_strategy':'auto'},timeout=600)
+   r=self.http.post('https://api.openai.com/v1/audio/transcriptions',headers={'Authorization':'Bearer '+self.openai},files={'file':(Path(path).name,audio,'audio/mpeg')},data={'model':model,**data},timeout=timeout)
   r.raise_for_status();d=r.json();duration=float(d['duration'])
-  self.meter_events([{'provider':'OpenAI','service':'Transcription','operation':'lesson_video_transcription_fallback','sku':model,'quantity':duration,'unit':'audio_second','idempotency_key':'openai:'+str(r.headers.get('x-request-id') or uuid.uuid4())+':audio'}])
+  if not math.isfinite(duration) or duration<=0:raise ValueError('The transcription returned no measured duration.')
+  self.meter_events([{'provider':'OpenAI','service':'Transcription','operation':'lesson_video_transcription','sku':model,'quantity':duration,'unit':'audio_second','idempotency_key':'openai:'+str(r.headers.get('x-request-id') or uuid.uuid4())+':audio'}])
+  return d,duration
+ def transcribe_whisper(self,path,start):
+  """First rung: the model that hears the room this product records in.
+
+  Lessons arrive as a phone on a tripod several metres from the coach,
+  in a hall with other tables going. Measured on one ten-minute section
+  of a real lesson, Deepgram returned 8 words and the diarized model
+  102; this returned 631, and matched a known-good transcript of the
+  same audio almost line for line. It offers no speaker labels, which
+  costs nothing: the prompts are told not to trust them anyway.
+  """
+  # Greedy decoding: measured both the most accurate setting on this audio
+  # and the only one that repeats itself. The same section transcribed
+  # twice at the default returned 549 and 631 words; at zero it returned
+  # 639 both times, byte for byte. A lesson that reads differently each
+  # time it is processed is its own kind of broken.
+  d,duration=self.openai_transcription(path,'whisper-1',{'response_format':'verbose_json','temperature':0})
+  return merge_segments(d.get('segments') or [],start,duration)
+ def transcribe_diarized(self,path,start):
+  """Second rung, reached only when the first heard almost nothing.
+
+  A different model with a different blind spot, which is the whole
+  reason to keep it: on close-miked lessons it transcribes cleanly where
+  the first rung would be no better, and it labels speakers. Its
+  segments carry measured times, unlike plain text transcription.
+  """
+  d,_=self.openai_transcription(path,'gpt-4o-transcribe-diarize',{'response_format':'diarized_json','chunking_strategy':'auto'})
+  duration=float(d['duration'])
   result=[]
   for segment in d['segments']:
    a=float(segment['start']);b=float(segment['end']);text=str(segment.get('text','')).strip()
    if not all(math.isfinite(x) for x in (a,b,duration)) or a<0 or b<=a or b>duration+.5:raise ValueError('Invalid transcription segment timing.')
    if text:result.append({'start_s':round(start+a,3),'end_s':round(start+b,3),'speaker':segment.get('speaker'),'text':text})
   return result
- def transcribe(self,path,start):
-  import requests
-  for attempt in range(3):
-   try:
-    with open(path,'rb') as audio:
-     r=self.http.post('https://api.deepgram.com/v1/listen',headers={'Authorization':'Token '+self.deepgram,'Content-Type':'audio/mpeg'},params=[('model','nova-3'),('smart_format','true'),('mip_opt_out','true'),('utterances','true'),('diarize_model','v2')]+[('keyterm',k) for k in KEYTERMS],data=audio,timeout=240)
-    r.raise_for_status();response=r.json();meta=response.get('metadata',{});self.meter_events([{'provider':'Deepgram','service':'Transcription','operation':'lesson_video_transcription','sku':sku,'quantity':meta.get('duration',0),'unit':'audio_second','idempotency_key':'deepgram:'+str(meta.get('request_id',uuid.uuid4()))+':'+sku} for sku in ['nova-3','nova-3-keyterm']]);data=response['results'];utterances=data.get('utterances') or []
-    if not utterances:
-     words=data.get('channels',[{}])[0].get('alternatives',[{}])[0].get('words',[])
-     for i in range(0,len(words),35):
-      w=words[i:i+35];utterances.append({'start':w[0]['start'],'end':w[-1]['end'],'transcript':' '.join(x.get('punctuated_word',x['word']) for x in w),'speaker':None})
-    if sparse_transcript(utterances):return self.transcribe_fallback(path,start)
-    return [{'start_s':round(start+float(u['start']),3),'end_s':round(start+float(u['end']),3),'speaker':u.get('speaker'),'text':u.get('transcript','')} for u in utterances]
-   except (requests.RequestException,ValueError,KeyError):
-    if attempt==2:raise RuntimeError('Part of the audio could not be transcribed. Retry to continue; the original and completed sections are kept.')
-    time.sleep(3*(attempt+1))
+ def transcribe(self,path,start,seconds):
+  """Climb the ladder until a rung has actually heard the section.
+
+  Escalation is on measured evidence, never on a crash, because the
+  failure this exists for is not an error: a transcriber that gives up
+  answers 200 OK with a handful of words, and the pipeline believed it
+  all the way to a finished recap built out of noise. So each rung is
+  read for density, the best of what was heard is kept whatever happens,
+  and a section that clears the floor stops the climb before the next
+  rung is paid for.
+
+  A rung that raises is not the same as a rung that heard nothing. If
+  every rung failed outright the section is left unwritten and the job
+  asks to be retried, because an empty section saved here would be read
+  afterwards as silence in the room.
+  """
+  best=[];heard=False
+  for rung in (self.transcribe_whisper,self.transcribe_diarized):
+   for attempt in range(3):
+    try:
+     utterances=rung(path,start);heard=True
+     if transcript_words(utterances)>transcript_words(best):best=utterances
+     break
+    except Exception:
+     log.warning('Lesson transcription rung failed',exc_info=True)
+     if attempt<2:time.sleep(3*(attempt+1))
+   if heard and not thin_transcript(best,seconds):return best
+  if not heard:raise RuntimeError('Part of the audio could not be transcribed. Retry to continue; the original and completed sections are kept.')
+  return best
 
 def frame(source,seconds,directory,n):
  path=Path(directory)/f'frame-{n}.jpg'
@@ -315,6 +404,13 @@ def window_candidates(raw,chunk,duration):
    if end-start>120:raise ValueError(f'Range {range_label} is {end-start-120:g}s over the 120s hard maximum. Split or shorten it to 25–90 seconds (hard <=120) within [{chunk["start_s"]:g}, {chunk["end_s"]:g}].')
    if start<chunk['start_s'] or end>chunk['end_s']:raise ValueError(f'Range {range_label} falls outside supplied section bounds [{chunk["start_s"]:g}, {chunk["end_s"]:g}].')
    normalized=normalize_edit({'title':raw.get('title','Lesson'),'chapters':[proposal]},duration)['chapters'][0]
+   # A chapter is written from the speech inside its own range: the text
+   # model is told the selected speech defines the clip. Where there is
+   # none it can only invent, and it does, confidently. Dropped rather
+   # than raised, because a section with nothing to say should contribute
+   # nothing rather than fail a lesson that has plenty elsewhere.
+   spoken=[u for u in chunk.get('utterances',[]) if float(u['end_s'])>start and float(u['start_s'])<end]
+   if thin_transcript(spoken,end-start):continue
    valid.append(normalized)
   except (ValueError,KeyError,TypeError) as error:
    errors.append(f'Proposal {index} ({str(title)[:80]!r}) failed: {error}')
@@ -372,9 +468,31 @@ def selected_candidates(raw,candidate_by_id,requirements=None):
  if errors:raise ValueError(' '.join(errors))
  return selected
 
+def inaudible_sections(transcript):
+ """The sections nobody was heard in, after the whole ladder has tried.
+
+ Kept apart from the rest for two reasons. Nothing downstream may build a
+ chapter out of one, and the person is owed a straight answer about how
+ much of their lesson could not be made out.
+ """
+ out=[]
+ for chunk in transcript:
+  span=float(chunk.get('end_s',0) or 0)-float(chunk.get('start_s',0) or 0)
+  if span>0 and thin_transcript(chunk.get('utterances',[]),span):out.append(chunk)
+ return out
+
 def create_edit(rt,row,source,directory,transcript,duration):
  windows=[]
+ # Coverage used to be built from every section that produced a candidate,
+ # which on a long lesson made each one MANDATORY. Eight near-silent
+ # sections therefore did not get skipped: they were required, and the
+ # recap that came back had a chapter for each, written out of nothing.
+ # A section nobody was heard in now takes no part at all, which is also
+ # the cheaper answer: no clip search, no per-chapter writing call.
+ silent={i for i,chunk in enumerate(transcript) if inaudible_sections([chunk])}
+ quiet_seconds=sum(float(transcript[i]['end_s'])-float(transcript[i]['start_s']) for i in silent)
  for i,chunk in enumerate(transcript):
+  if i in silent:continue
   rt.stage(row,f"Finding teaching {i+1} of {len(transcript)}")
   # Include the end of the previous section for context without authorizing
   # clips outside this section; no giant single request loses the middle.
@@ -392,7 +510,9 @@ def create_edit(rt,row,source,directory,transcript,duration):
   if not raw.get('themes'):raw['themes']=prior_themes
   windows.append({'section_id':f'section-{i+1}','title':raw.get('title','Lesson'),'themes':raw.get('themes',[]),'chapters':valid})
  candidates=[{'section_id':w['section_id'],'section_title':w['title'],'chapter':c} for w in windows for c in w['chapters']]
- if not candidates:raise ValueError('No clear coaching was found. Your original is kept; try again or add a written lesson note.')
+ if not candidates:
+  if quiet_seconds>=duration*.5:raise ValueError('The coach could not be made out over the background noise. Your original is kept. Next time place the phone closer to where they stand, and play a few seconds back before the lesson starts to check you can hear them.')
+  raise ValueError('No clear coaching was found. Your original is kept; try again or add a written lesson note.')
  rt.stage(row,'Preserving the complete lesson outline')
  outline=rt.model(OUTLINE_PROMPT,json.dumps([{'title':w['title'],'themes':w['themes']} for w in windows],ensure_ascii=False))
  # The merge model sees opaque ordinal choices only. Source times are kept in
@@ -426,7 +546,10 @@ def create_edit(rt,row,source,directory,transcript,duration):
   raise ValueError('The recap selection could not be completed after correction passes. Your original and completed work are kept. Retry to continue.')
  # Clip selection must not discard the fuller written teaching outline.
  raw['themes']=outline.get('themes') or raw.get('themes',[])
- raw['warning']=student_warning(outline.get('warning'))
+ # Plain words, and no numbers: a recap built on part of a lesson has to
+ # say so, or the gaps read as the coach having said nothing.
+ quiet_notice='Parts of this lesson were too quiet to make out, so the recap covers only what could be heard clearly.' if quiet_seconds>=duration*.2 else None
+ raw['warning']=student_warning(outline.get('warning'),quiet_notice)
  raw['chapters']=selected
  return contextualize_edit(rt,row,normalize_edit(raw,duration),transcript,duration,directory)
 
@@ -509,8 +632,8 @@ def process(rt,row):
      if lease_lost.is_set():raise RuntimeError('Lesson lease heartbeat was lost.')
      rt.stage(row,f"Transcribing section {i+1} of {len(chunk_ranges(duration))}")
      audio=Path(directory)/'audio.mp3';run(['ffmpeg','-v','error','-y','-ss',str(start),'-t',str(end-start),'-i',str(source),'-vn','-ac','1','-ar','16000','-c:a','libmp3lame','-b:a','64k',str(audio)],180)
-     utterances=rt.transcribe(audio,start)
-     chunk={'start_s':start,'end_s':end,'utterances':utterances,'asr_version':2}
+     utterances=rt.transcribe(audio,start,end-start)
+     chunk={'start_s':start,'end_s':end,'utterances':utterances,'asr_version':ASR_VERSION}
      if i<len(transcript):transcript[i]=chunk
      else:transcript.append(chunk)
      rt.update(row,transcript=transcript)

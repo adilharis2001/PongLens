@@ -97,7 +97,7 @@ For launchd without Keychain access, supply `--secrets-file /absolute/private.js
 at install time. Create it privately with mode 0600; it must be owned by the
 current user, a regular non-symlink file, and outside the release directory.
 Allowed string-valued JSON keys are SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
-OPENAI_API_KEY, DEEPGRAM_API_KEY, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
+OPENAI_API_KEY, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
 R2_SECRET_ACCESS_KEY, and optional LESSON_VIDEO_WORKER_ID. Values are loaded
 into the child environment and never printed. PATH/PYTHONPATH or arbitrary
 code-loading environment keys are rejected. Do not commit the file or put
