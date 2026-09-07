@@ -150,3 +150,27 @@ test('somebody a recap was shared with cannot reattribute it',()=>{
 test('a recap being deleted is left alone',()=>{
  assert.equal(lessonCanSetCoach({...unattributed,stage:'Deleting',status:'failed'},true),false);
 });
+
+// Correcting a word is not reprocessing the lesson.
+//
+// A rebuild walked the same stages a first import does, starting at
+// "Downloading the lesson", over a page whose finished recap had just
+// been cleared, so fixing a typo read as the whole ninety minutes going
+// through again.
+test('a rebuild over an existing recap says it is updating',()=>{
+ const rebuilding={status:'queued',stage:'Updating recap',coach_ref_id:'c1'};
+ assert.equal(lessonStatusLabel(rebuilding,false,true),'Updating your recap');
+ assert.equal(lessonStatusLabel({...rebuilding,status:'processing',stage:'Downloading the lesson'},false,true),'Updating your recap');
+});
+
+test('a first import still reports what it is doing',()=>{
+ // Nothing to watch yet, so the stages are the only news there is.
+ assert.equal(lessonStatusLabel({status:'queued',stage:'Waiting to process'},false,false),'Waiting to process');
+ assert.equal(lessonStatusLabel({status:'processing',stage:'Transcribing section 1 of 9'},false,false),'Transcribing section 1 of 9');
+});
+
+test('a finished recap is unaffected by having something to watch',()=>{
+ assert.equal(lessonStatusLabel({status:'review'},false,true),'Ready to review');
+ assert.equal(lessonStatusLabel({status:'ready',coach_ref_id:'c1'},true,true),'Shared');
+});
+

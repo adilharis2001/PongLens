@@ -52,7 +52,15 @@ function hasRecipient(video:{student_id?:string|null;coach_ref_id?:string|null})
 export function lessonStatusLabel(
  video:{status:string;stage?:string|null;student_id?:string|null;coach_ref_id?:string|null},
  shared:boolean,
+ /** Whether there is already a recap to watch. */
+ hasRecap=false,
 ):string {
+ // Correcting a word is not reprocessing the lesson, and it must not read
+ // like it. A rebuild used to walk the same stages a first import does,
+ // starting at "Downloading the lesson", over a page whose recap had just
+ // disappeared, so a typo fix looked like the whole ninety minutes going
+ // through again.
+ if(hasRecap&&['queued','processing'].includes(video.status))return 'Updating your recap';
  switch(video.status){
   case 'review':return 'Ready to review';
   case 'ready':return hasRecipient(video)?(shared?'Shared':'Ready to share'):'Saved';

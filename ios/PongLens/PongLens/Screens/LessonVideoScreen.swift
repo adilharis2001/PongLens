@@ -438,7 +438,7 @@ struct LessonVideoDetailScreen: View {
                 if let detail {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(detail.video.title).font(.plPageTitle).tracking(-0.6).foregroundStyle(PL.textBody)
-                        Text(detail.video.statusLabel).font(.plCaption).foregroundStyle(PL.cyan)
+                        Text(detail.video.statusLabel(hasRecap: watchable(detail))).font(.plCaption).foregroundStyle(PL.cyan)
                     }
                     if watchable(detail) { recap(detail) } else { waiting(detail) }
                     attribution(detail)

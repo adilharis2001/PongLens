@@ -164,3 +164,12 @@ let named = String(data: try! JSONEncoder().encode(
 check(named.contains("1bb309bb-abac-47f6-979a-093e075fbfc1"), "the coach id travels lower-cased")
 print("lesson attribution checks passed")
 
+// A rebuild over an existing recap (twin of presentation.test.ts).
+let rebuilding = try! JSONDecoder().decode(LessonVideo.self, from: Data("""
+{"id":"c75c8a89-16ee-41a1-b8f2-d3b441f0f82f","owner_id":"c75c8a89-16ee-41a1-b8f2-d3b441f0f82f","student_id":null,"coach_ref_id":"1bb309bb-abac-47f6-979a-093e075fbfc1","lesson_id":null,"original_name":"a","file_size":1,"duration_s":1,"status":"processing","stage":"Downloading the lesson","error":null,"edit":null,"created_at":"2026-09-06T00:00:00Z","revision":2}
+""".utf8))
+check(rebuilding.statusLabel(hasRecap: true) == "Updating your recap", "a correction does not read as a fresh import")
+check(rebuilding.statusLabel(hasRecap: false) == "Preparing your recap", "a first import still reads as a first import")
+check(rebuilding.statusLabel == "Preparing your recap", "the plain label is unchanged for callers with nothing to watch")
+print("lesson rebuild label checks passed")
+

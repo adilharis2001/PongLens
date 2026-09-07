@@ -49,8 +49,12 @@ export async function GET(req:Request){
    if(!owner){const {data:granted}=await client.rpc('lesson_video_access',{p_video_id:id});access=typeof granted==='string'?granted:null;}
    if(!canReadVideo(access,row.status))return failure('Not found',404);
    const sourceUrl=owner&&row.status!=='uploading'?await presignGet(MEDIA_BUCKET,row.source_key,{expiresSeconds:14400,filename:row.original_name,disposition:'inline'}):undefined;
-   const summaryUrl=row.summary_key&&['review','ready'].includes(row.status)?await presignGet(MEDIA_BUCKET,row.summary_key,{expiresSeconds:14400}):undefined;
-   const playbackUrl=row.playback_key&&['review','ready'].includes(row.status)?await presignGet(MEDIA_BUCKET,row.playback_key,{expiresSeconds:14400}):summaryUrl;
+   // A key that is set is a file that exists. The status says what is
+   // happening next, not whether there is anything to watch now, and
+   // reading it as both is what made an edit look like a fresh import.
+   const watchable=(owner&&!!row.summary_key)||['review','ready'].includes(row.status);
+   const summaryUrl=row.summary_key&&watchable?await presignGet(MEDIA_BUCKET,row.summary_key,{expiresSeconds:14400}):undefined;
+   const playbackUrl=row.playback_key&&watchable?await presignGet(MEDIA_BUCKET,row.playback_key,{expiresSeconds:14400}):summaryUrl;
    let posterUrl: string | undefined;
    if(playbackUrl&&row.playback_key){
     const posterKey=row.playback_key.replace(/\.mp4$/,'.jpg');
@@ -185,7 +189,15 @@ export async function POST(req:Request){
    if(body.expectedRevision!==row.revision)return failure('The lesson changed. Reload before editing.',409);
    const edit=validateEdit(body.edit,row.duration_s);if(!edit)return failure('Check the chapter text and clip times. Recaps can have up to 16 chapters and be up to 15 minutes.');
    // CAS prevents a late editor from overwriting a newly queued/rendered version.
-   const {data:changed,error}=await db.from('lesson_videos').update({...queueLessonRender('Updating recap',new Date().toISOString()),edit,summary_key:null,playback_key:null,revision:row.revision+1}).eq('id',id).eq('revision',row.revision).eq('status',row.status).select('id').maybeSingle();
+   // The recap that exists keeps playing while the new one is made. The
+   // text saved here is the truth and the file catches up, which is the
+   // rule clip edits already follow. Clearing the keys meant a recap
+   // vanished the moment its wording was corrected, and the page fell
+   // back to the card that stands in before a recap exists at all, so a
+   // typo fix read as the whole lesson being processed again. The worker
+   // writes its new file under a key stamped with the new revision, so
+   // the old one is never overwritten while it is still being watched.
+   const {data:changed,error}=await db.from('lesson_videos').update({...queueLessonRender('Updating recap',new Date().toISOString()),edit,revision:row.revision+1}).eq('id',id).eq('revision',row.revision).eq('status',row.status).select('id').maybeSingle();
    if(error)throw error;if(!changed)return failure('The lesson changed. Reload before editing.',409);
    if(row.lesson_id)await db.from('coach_entries').update({shared_at:null}).eq('lesson_id',row.lesson_id).eq('coach_id',user.id);
    return NextResponse.json({ok:true});

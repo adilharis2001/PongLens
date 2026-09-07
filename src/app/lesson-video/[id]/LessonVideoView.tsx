@@ -195,7 +195,7 @@ export function LessonVideoView({
     <>
       <UpLink href={back} label={upLabel} />
       <header className="mt-4">
-        {v && <p className="text-sm font-medium text-zinc-400">{lessonStatusLabel(v, shared)}</p>}
+        {v && <p className="text-sm font-medium text-zinc-400">{lessonStatusLabel(v, shared, !!detail?.playbackUrl)}</p>}
         <h1 className="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">
           {edit?.title ?? v?.original_name ?? 'Lesson video'}
         </h1>

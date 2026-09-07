@@ -50,8 +50,16 @@ struct LessonVideo: Codable, Identifiable {
         isOwner && video.student_id == nil && video.stage != "Deleting"
             && ["review", "ready", "failed"].contains(video.status)
     }
-    var statusLabel: String {
-        switch status {
+    var statusLabel: String { statusLabel(hasRecap: false) }
+    /// One status word, with `hasRecap` saying whether there is already
+    /// something to watch. Correcting a word is not reprocessing the
+    /// lesson: a rebuild used to walk the same stages a first import
+    /// does, starting at "Downloading the lesson", so a typo fix read as
+    /// the whole ninety minutes going through again. Twin of
+    /// lessonStatusLabel on web.
+    func statusLabel(hasRecap: Bool) -> String {
+        if hasRecap, ["queued", "processing"].contains(status) { return "Updating your recap" }
+        return switch status {
         case "uploading": "Uploading"
         case "queued": "Waiting to process"
         case "processing": "Preparing your recap"
