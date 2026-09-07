@@ -16,6 +16,14 @@ export const RESEARCH_PAGES = [
     accent: "magenta",
   },
   {
+    title: "Body detector",
+    category: "Card assembly",
+    description:
+      "The same matches cut into points from the two players' bodies instead of from the ball. Every card, who served, and where each one starts and stops.",
+    href: "/research/body-detector",
+    accent: "cyan",
+  },
+  {
     title: "V3 across matches",
     category: "Card assembly",
     description:

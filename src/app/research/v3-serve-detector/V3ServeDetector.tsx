@@ -52,9 +52,28 @@ export interface Verdict {
 export function V3ServeDetector({
   matches,
   initialVerdicts,
+  dataBase = "/research/v3-serve-detector",
+  assetBase = dataBase,
+  heading,
 }: {
   matches: MatchMeta[];
   initialVerdicts: Verdict[];
+  /** Where compare.json is read from, per match. */
+  dataBase?: string;
+  /**
+   * Where overlay.json, people.json and pose.json are read from, per match.
+   *
+   * Separate from dataBase because a second review page can show DIFFERENT
+   * CARDS over the SAME video. compare.json is the cards, so it moves with
+   * the page; overlay, people and pose describe the video itself — the ball,
+   * the boxes, the keypoints — and are identical whichever assembler drew
+   * the cards. Body Detector therefore reads its cards from its own folder
+   * and points assetBase back at this one. Copying those three files instead
+   * would add roughly 45 MB to every deploy, forever.
+   */
+  assetBase?: string;
+  /** The page's title line. Each site below keeps its own wording as the default. */
+  heading?: string;
 }) {
   const root = useRef<HTMLDivElement>(null);
 
@@ -866,7 +885,8 @@ export function V3ServeDetector({
     async function loadMatch(meta: MatchMeta) {
       META = meta;
       OFF = meta.rawOffsetS || 0;
-      const base = `/research/v3-serve-detector/${meta.matchId}`;
+      const cards = `${dataBase}/${meta.matchId}`;
+      const video = `${assetBase}/${meta.matchId}`;
       OV = null;
       PPL = null;
       POSE = null;
@@ -877,10 +897,10 @@ export function V3ServeDetector({
       vlabel.textContent = "Loading …";
 
       const [cmp, ovj, ppl, pose] = await Promise.all([
-        fetch(`${base}/compare.json`).then((r) => r.json()),
-        fetch(`${base}/overlay.json`).then((r) => r.json()),
-        fetch(`${base}/people.json`).then((r) => r.json()),
-        fetch(`${base}/pose.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+        fetch(`${cards}/compare.json`).then((r) => r.json()),
+        fetch(`${video}/overlay.json`).then((r) => r.json()),
+        fetch(`${video}/people.json`).then((r) => r.json()),
+        fetch(`${video}/pose.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
       ]);
       if (dead) return;
       OV = ovj;
@@ -937,7 +957,7 @@ export function V3ServeDetector({
         '<span class="chip">server correct on ' + pct + "% of the " +
         (s.srv_agree + s.srv_disagree) + " cards that could be checked</span>";
       h1.textContent =
-        "My cards against your scorekeeper — " + meta.title +
+        (heading ?? "My cards against your scorekeeper") + " — " + meta.title +
         (meta.venue ? " · " + meta.venue : "");
       vlabel.textContent = "Click any row to play it.";
       render();
@@ -987,17 +1007,17 @@ export function V3ServeDetector({
       // A <video> removed from the document keeps playing with sound.
       vid.pause();
     };
-  }, [matches, initialVerdicts]);
+  }, [matches, initialVerdicts, dataBase, assetBase, heading]);
 
   if (!matches.length) {
     return (
       <div className="v3">
         <style dangerouslySetInnerHTML={{ __html: CSS }} />
         <header>
-          <h1>V3 serve detector</h1>
+          <h1>{heading ?? "V3 serve detector"}</h1>
         </header>
         <div id="empty">
-          No match has been exported yet. Run the lab&apos;s export_prod.py to add one.
+          No match has been exported yet.
         </div>
       </div>
     );
@@ -1008,9 +1028,18 @@ export function V3ServeDetector({
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <div id="matchbar">
         <span className="lab">Match</span>
-        <Link href="/research/v3-serve-detector/across" className="pill">
-          All matches
-        </Link>
+        {/*
+          Only where it is true. The across page totals the BALL assembler's
+          cards, so from a page showing a different assembler's cards it is a
+          link to somebody else's numbers with nothing to say so. There is no
+          across page for the bodies yet, so the pill is left out rather than
+          pointed somewhere misleading.
+        */}
+        {dataBase === "/research/v3-serve-detector" ? (
+          <Link href="/research/v3-serve-detector/across" className="pill">
+            All matches
+          </Link>
+        ) : null}
         {matches.map((m, i) => (
           <button key={m.matchId} data-m={m.matchId} aria-pressed={i === 0}>
             {m.title}
@@ -1020,7 +1049,7 @@ export function V3ServeDetector({
       </div>
       <div id="topbar">
         <header>
-          <h1>My cards against your scorekeeper</h1>
+          <h1>{heading ?? "My cards against your scorekeeper"}</h1>
           <div id="summary" />
           <div id="filters">
             <button data-f="all" aria-pressed="true">Everything</button>
