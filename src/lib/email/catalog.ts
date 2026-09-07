@@ -1,4 +1,5 @@
 import type { EmailMessage } from "./message.ts";
+import { betaFeatureBlocks, type BetaInvitationPreferences } from "./betaFeatures.ts";
 
 const VERSION = 1;
 
@@ -34,22 +35,23 @@ export function magicLinkEmail(facts: { confirmationUrl: string; code: string })
   };
 }
 
-export function betaInvitationEmail(testFlightUrl: string): EmailMessage {
+export function betaInvitationEmail(testFlightUrl: string, preferences?: BetaInvitationPreferences): EmailMessage {
   return {
-    templateId: "beta.invitation", templateVersion: VERSION, category: "beta", audience: "tester",
+    templateId: "beta.invitation", templateVersion: 2, category: "beta", audience: "tester",
     subject: "Your PongLens iPhone beta is ready",
     preheader: "Install PongLens through TestFlight in a few taps.",
     eyebrow: "PongLens for iPhone",
-    heading: "PongLens is ready for your iPhone",
+    heading: "Your PongLens beta is ready",
     blocks: [
-      { type: "paragraph", text: "Open the invitation on your iPhone to install PongLens through TestFlight." },
       { type: "steps", items: [
         "Install TestFlight from the App Store if you do not have it.",
         "Open this invitation on the iPhone where you want PongLens.",
         "Tap Accept, then Install.",
       ] },
+      ...betaFeatureBlocks(preferences),
     ],
     action: { label: "Install PongLens beta", url: testFlightUrl },
+    actionPlacement: "before-content",
     reason: "You requested the PongLens iPhone beta. Beta access and essential beta notices only. No marketing.",
     support: true,
   };

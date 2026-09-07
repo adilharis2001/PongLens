@@ -85,6 +85,8 @@ function blockHtml(block: EmailBlock): string {
       return `<p class="secondary-text" style="margin:0 0 18px;color:${EMAIL_COLORS.light.secondary};font-size:16px;line-height:1.6;">${escapeHtml(block.text)}</p>`;
     case "steps":
       return `<ol class="secondary-text" style="margin:2px 0 20px;padding-left:22px;color:${EMAIL_COLORS.light.secondary};font-size:15px;line-height:1.65;">${block.items.map((item) => `<li style="margin:7px 0;padding-left:4px;">${escapeHtml(item)}</li>`).join("")}</ol>`;
+    case "bullets":
+      return `<div class="details-table" style="margin:24px 0 0;padding-top:20px;border-top:1px solid ${EMAIL_COLORS.light.border};"><h2 class="primary-text" style="margin:0 0 12px;color:${EMAIL_COLORS.light.primary};font-size:16px;line-height:1.4;font-weight:700;">${escapeHtml(block.heading)}</h2><ul class="secondary-text" style="margin:0;padding-left:20px;color:${EMAIL_COLORS.light.secondary};font-size:15px;line-height:1.6;">${block.items.map(item => `<li style="margin:0 0 9px;padding-left:3px;">${escapeHtml(item)}</li>`).join("")}</ul></div>`;
     case "details":
       return `<table class="details-table" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 22px;border-top:1px solid ${EMAIL_COLORS.light.border};border-bottom:1px solid ${EMAIL_COLORS.light.border};">${block.rows.map((row) => `<tr><td class="muted-text details-label" style="padding:11px 12px 11px 0;color:${EMAIL_COLORS.light.muted};font-size:13px;line-height:1.45;vertical-align:top;">${escapeHtml(row.label)}</td><td class="primary-text" align="right" style="padding:11px 0 11px 12px;color:${EMAIL_COLORS.light.primary};font-size:13px;line-height:1.45;font-weight:600;vertical-align:top;">${escapeHtml(row.value)}</td></tr>`).join("")}</table>`;
     case "items":
@@ -100,6 +102,8 @@ function blockText(block: EmailBlock): string {
       return block.text;
     case "steps":
       return block.items.map((item, index) => `${index + 1}. ${item}`).join("\n");
+    case "bullets":
+      return `${block.heading}\n${block.items.map(item => `• ${item}`).join("\n")}`;
     case "details":
       return block.rows.map((row) => `${row.label}: ${row.value}`).join("\n");
     case "items": {
@@ -128,8 +132,9 @@ export function renderEmail(message: EmailMessage): RenderedEmail {
   const width =
     message.category === "digest" || message.category === "ops" ? 600 : 560;
   const support = message.support !== false;
+  const actionFirst = message.actionPlacement === "before-content";
   const action = message.action
-    ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 0;"><tr><td align="center" bgcolor="${EMAIL_COLORS.accent}" style="background:${EMAIL_COLORS.accent};border-radius:999px;"><a href="${approvedUrl(message.action.url)}" style="display:block;box-sizing:border-box;min-height:44px;padding:13px 22px;color:${EMAIL_COLORS.actionText};font-size:15px;line-height:18px;font-weight:750;text-decoration:none;border-radius:999px;">${escapeHtml(message.action.label)}</a></td></tr></table>`
+    ? `<table${actionFirst ? ' class="email-top-action"' : ""} role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 ${actionFirst ? "24px" : "0"};"><tr><td align="center" bgcolor="${EMAIL_COLORS.accent}" style="background:${EMAIL_COLORS.accent};border-radius:999px;"><a href="${approvedUrl(message.action.url)}" style="display:block;box-sizing:border-box;min-height:44px;padding:13px 22px;color:${EMAIL_COLORS.actionText};font-size:15px;line-height:18px;font-weight:750;text-decoration:none;border-radius:999px;">${escapeHtml(message.action.label)}</a></td></tr></table>`
     : "";
   const preheaderPadding = "&nbsp;&zwnj;".repeat(12);
   const title = `${message.subject} | PongLens`;
@@ -146,7 +151,7 @@ export function renderEmail(message: EmailMessage): RenderedEmail {
 :root { color-scheme: light dark; supported-color-schemes: light dark; }
 @media only screen and (max-width: 480px) {
   .email-card-cell { padding: 24px !important; }
-  .details-label { width: 34% !important; }
+  .details-label { width: 34% !important; }${actionFirst ? "\n  .email-top-action { width: 100% !important; }" : ""}
 }
 @media (prefers-color-scheme: dark) {
   .email-body, .email-canvas { background-color: ${EMAIL_COLORS.dark.canvas} !important; }
@@ -172,8 +177,8 @@ export function renderEmail(message: EmailMessage): RenderedEmail {
 </tr></table>
 ${message.eyebrow ? `<p style="margin:0 0 10px;color:${EMAIL_COLORS.accent};font-size:12px;line-height:1.4;font-weight:800;letter-spacing:.12em;text-transform:uppercase;">${escapeHtml(message.eyebrow)}</p>` : ""}
 <h1 class="primary-text" style="margin:0 0 18px;color:${EMAIL_COLORS.light.primary};font-size:28px;line-height:1.2;font-weight:750;letter-spacing:-0.025em;">${escapeHtml(message.heading)}</h1>
-${message.blocks.map(blockHtml).join("")}
-${action}
+${actionFirst ? action : ""}${message.blocks.map(blockHtml).join("")}
+${actionFirst ? "" : action}
 <div class="details-table" style="margin-top:30px;padding-top:18px;border-top:1px solid ${EMAIL_COLORS.light.border};">
 <p class="muted-text" style="margin:0;color:${EMAIL_COLORS.light.muted};font-size:12px;line-height:1.6;">${escapeHtml(message.reason)}</p>
 ${support ? `<p class="muted-text" style="margin:7px 0 0;color:${EMAIL_COLORS.light.muted};font-size:12px;line-height:1.6;">Questions? <a class="email-link" href="mailto:${SUPPORT_EMAIL}" style="color:${EMAIL_COLORS.accent};text-decoration:none;">${SUPPORT_EMAIL}</a></p>` : ""}
@@ -186,8 +191,9 @@ ${support ? `<p class="muted-text" style="margin:7px 0 0;color:${EMAIL_COLORS.li
   const text = [
     message.eyebrow,
     message.heading,
+    actionFirst && message.action ? `${message.action.label}\n${message.action.url}` : undefined,
     ...message.blocks.map(blockText),
-    message.action
+    message.action && !actionFirst
       ? `${message.action.label}\n${message.action.url}`
       : undefined,
     message.reason,

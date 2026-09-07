@@ -19,6 +19,7 @@ export type EmailItem = {
 export type EmailBlock =
   | { type: "paragraph"; text: string }
   | { type: "steps"; items: readonly string[] }
+  | { type: "bullets"; heading: string; items: readonly string[] }
   | {
       type: "details";
       rows: readonly { label: string; value: string }[];
@@ -41,6 +42,7 @@ export type EmailMessage = {
   heading: string;
   blocks: readonly EmailBlock[];
   action?: { label: string; url: string };
+  actionPlacement?: "before-content";
   reason: string;
   support?: boolean;
 };
@@ -52,4 +54,3 @@ export type RenderedEmail = {
   html: string;
   text: string;
 };
-

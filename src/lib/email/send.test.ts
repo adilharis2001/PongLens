@@ -48,7 +48,7 @@ test("delivery sends one complete multipart transactional request", async () => 
   assert.match(payload.text, /Install PongLens beta/);
   assert.deepEqual(payload.headers, {
     "X-PongLens-Template-Id": "beta.invitation",
-    "X-PongLens-Template-Version": "1",
+    "X-PongLens-Template-Version": "2",
   });
   assert.equal(
     new Headers(request?.init.headers).get("Idempotency-Key"),
@@ -148,4 +148,3 @@ test("invalid idempotency keys and missing credentials never make a request", as
     /idempotency key/,
   );
 });
-

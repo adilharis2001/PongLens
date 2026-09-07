@@ -103,7 +103,7 @@ export async function betaEmailDependencies(): Promise<BetaEmailDependencies> {
         return betaProviderPayload({
           to: job.recipient,
           deliveryId: job.id,
-          message: betaInvitationEmail(url),
+          message: betaInvitationEmail(url, { role: request.role, interests: request.interests }),
           scheduledAt: at,
         });
       }
