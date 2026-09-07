@@ -12,7 +12,7 @@
   ],
   "rawOffsetS": 0.0,
   "offsetErr": 1.192,
-  "cards": 53,
+  "cards": 60,
   "points": 52,
   "ok": 45,
   "srvAgree": 22,
@@ -20,7 +20,7 @@
   "missed": 1,
   "fused": 3,
   "extra": 3,
-  "onDeleted": 2,
+  "onDeleted": 9,
   "nowhere": 0,
   "short": 4
  },
@@ -37,7 +37,7 @@
   ],
   "rawOffsetS": 0.0,
   "offsetErr": 0.833,
-  "cards": 56,
+  "cards": 65,
   "points": 46,
   "ok": 40,
   "srvAgree": 25,
@@ -45,8 +45,8 @@
   "missed": 0,
   "fused": 4,
   "extra": 2,
-  "onDeleted": 11,
-  "nowhere": 1,
+  "onDeleted": 19,
+  "nowhere": 2,
   "short": 8
  },
  {
@@ -73,6 +73,31 @@
   "onDeleted": 3,
   "nowhere": 0,
   "short": 3
+ },
+ {
+  "match": "7e02fbb9",
+  "matchId": "7e02fbb9-a3af-4686-84bc-d4b961ab9fed",
+  "title": "Julian",
+  "venue": "Pingpod",
+  "crop": [
+   734.0,
+   204.0,
+   824.0,
+   462.0
+  ],
+  "rawOffsetS": 0.033,
+  "offsetErr": 1.086,
+  "cards": 75,
+  "points": 77,
+  "ok": 68,
+  "srvAgree": 52,
+  "srvDisagree": 17,
+  "missed": 5,
+  "fused": 2,
+  "extra": 2,
+  "onDeleted": 0,
+  "nowhere": 3,
+  "short": 8
  },
  {
   "match": "89b35ee0",
@@ -123,6 +148,31 @@
   "onDeleted": 0,
   "nowhere": 0,
   "short": 4
+ },
+ {
+  "match": "cebaa6d4",
+  "matchId": "cebaa6d4-81e4-4aab-b4fa-1ed485685d00",
+  "title": "Rowel",
+  "venue": "Pingpod",
+  "crop": [
+   508.0,
+   196.0,
+   988.0,
+   556.0
+  ],
+  "rawOffsetS": 0.033,
+  "offsetErr": 1.014,
+  "cards": 71,
+  "points": 84,
+  "ok": 71,
+  "srvAgree": 31,
+  "srvDisagree": 39,
+  "missed": 2,
+  "fused": 11,
+  "extra": 0,
+  "onDeleted": 0,
+  "nowhere": 0,
+  "short": 14
  },
  {
   "match": "d15aad4d",
