@@ -87,7 +87,16 @@ struct LessonVideoScreen: View {
             }
             .background { ArenaBackground() }
             .toolbar(.hidden, for: .navigationBar)
-            .refreshable { await queue.resume(); await refresh(asked: true) }
+            // Pull to refresh reads the list. It does NOT wait for the
+            // upload: `resume()` can spend minutes pushing parts, and
+            // awaiting it here held the spinner open the whole time and
+            // then let SwiftUI cancel the list read when the control
+            // retracted — which is how a pull to refresh came back saying
+            // "cancelled" while the upload underneath was fine.
+            .refreshable {
+                Task { await queue.resume() }
+                await refresh(asked: true)
+            }
             .sheet(isPresented: $photosOpen) {
                 LessonVideoPhotosPicker { result in
                     photosOpen = false
@@ -282,7 +291,7 @@ struct LessonVideoScreen: View {
     private func receive(_ result: Result<LessonVideoImport, Error>?) {
         guard let result else { importing = false; return }
         switch result {
-        case .failure(let failure): importing = false; error = failure.localizedDescription
+        case .failure(let failure): importing = false; error = UserFacingError.message(failure)
         case .success(let file):
             Task {
                 defer { importing = false }
@@ -297,7 +306,7 @@ struct LessonVideoScreen: View {
                     await refresh()
                 } catch {
                     try? FileManager.default.removeItem(at: file.url)
-                    self.error = error.localizedDescription
+                    self.error = UserFacingError.message(error)
                 }
             }
         }
@@ -325,7 +334,7 @@ struct LessonVideoScreen: View {
                 : response.videos
             error = nil
         } catch {
-            if asked { self.error = error.localizedDescription }
+            if asked { self.error = UserFacingError.message(error) }
         }
         loading = false
     }
@@ -749,7 +758,7 @@ struct LessonVideoDetailScreen: View {
                 setPlayer(preservingPosition: !changed && player != nil)
             }
         } catch {
-            if !hadRecap { self.error = error.localizedDescription }
+            if !hadRecap { self.error = UserFacingError.message(error) }
         }
     }
     private func perform(_ action: String, share: Bool? = nil) {
@@ -762,7 +771,7 @@ struct LessonVideoDetailScreen: View {
                     LessonVideoAction(action: action, id: id, share: share)
                 )
                 if action == "delete" { dismiss() } else { await load() }
-            } catch { self.error = error.localizedDescription }
+            } catch { self.error = UserFacingError.message(error) }
         }
     }
 }
@@ -1241,7 +1250,7 @@ private struct LessonVideoEditSheet: View {
                 let _: LessonVideoOK = try await API.post("api/lesson-video", LessonVideoAction(action: "edit", id: id, edit: edit, expectedRevision: expectedRevision))
                 await onSaved()
                 dismiss()
-            } catch { self.error = error.localizedDescription }
+            } catch { self.error = UserFacingError.message(error) }
             busy = false
         }
     }

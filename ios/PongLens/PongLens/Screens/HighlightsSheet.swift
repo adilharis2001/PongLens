@@ -386,7 +386,7 @@ private struct AutomaticHighlightActions: View {
                 instagramOpen = false
                 dismiss()
             } catch {
-                model.errorMessage = error.localizedDescription
+                model.errorMessage = UserFacingError.message(error)
             }
         } else {
             shareItem = url

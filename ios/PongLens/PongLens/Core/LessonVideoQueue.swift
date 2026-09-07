@@ -143,7 +143,9 @@ final class LessonVideoQueue: NSObject {
     private func fail(_ id: UUID, _ error: Error) {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         items[i].state = "failed"
-        items[i].error = error.localizedDescription
+        // A cancelled part is the upload being interrupted, not broken —
+        // resume picks it up from the last completed part.
+        items[i].error = UserFacingError.message(error)
         try? persist()
     }
 

@@ -179,7 +179,7 @@ struct SharePointSheet: View {
                 try InstagramShare.share(url, to: destination)
                 dismiss()
             } catch {
-                model.errorMessage = error.localizedDescription
+                model.errorMessage = UserFacingError.message(error)
             }
         } else {
             shareItem = url
@@ -432,7 +432,7 @@ final class StoryShareModel {
                     showLogo: showLogo)
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = UserFacingError.message(error)
             return nil
         }
     }

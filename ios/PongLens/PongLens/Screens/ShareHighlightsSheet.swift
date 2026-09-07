@@ -99,7 +99,7 @@ struct ShareHighlightsSheet: View {
                 try InstagramShare.share(url, to: destination)
                 dismiss()
             } catch {
-                model.errorMessage = error.localizedDescription
+                model.errorMessage = UserFacingError.message(error)
             }
         } else {
             shareItem = url

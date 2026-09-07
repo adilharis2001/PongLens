@@ -19,6 +19,7 @@ runScoreCaptureChecks()
 runLinkifyTests()
 runStandardGameChecks()
 runAllowanceRecoveryChecks()
+runUserFacingErrorChecks()
 
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {

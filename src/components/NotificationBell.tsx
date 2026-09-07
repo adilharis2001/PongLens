@@ -193,7 +193,15 @@ export function NotificationBell() {
 
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), POLL_MS);
+    // Only while somebody is looking. A hidden tab has nobody to tell,
+    // and the listener below re-reads the moment it comes back, so
+    // nothing is missed by staying quiet. Left running, every tab anyone
+    // leaves open polls all day: this account had 25,000 notification
+    // reads in twenty-four hours, which is roughly eighteen pollers, and
+    // almost all of them were behind other windows.
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, POLL_MS);
     const onFocus = () => {
       if (document.visibilityState === "visible") void load();
     };
