@@ -21,6 +21,16 @@ struct CoachPickerRow: View {
     let coaches: [PlayerCoach]
     @Binding var coachRefId: UUID?
     @Binding var shareWithCoach: Bool
+    /// Whether "No coach" is the answer given. Held by the caller, because
+    /// it and `coachRefId` are one answer between them: nil alone cannot
+    /// tell "not asked yet" from "asked, and nobody".
+    var noCoach: Binding<Bool> = .constant(false)
+    /// A lesson has to answer the question, so "No coach" is always on the
+    /// menu rather than appearing only once somebody is chosen. A journal
+    /// note never asks it at all.
+    var requireAnswer = false
+    /// What the share line calls the thing being shared.
+    var shareNoun = "this entry"
     /// Find-or-create by name; nil if it failed.
     let onCreate: (String) async -> PlayerCoach?
 
@@ -45,6 +55,7 @@ struct CoachPickerRow: View {
                 ForEach(coaches) { coach in
                     Button {
                         coachRefId = coach.id
+                        noCoach.wrappedValue = false
                         // Moving to someone who cannot receive entries
                         // cannot leave a share switched on behind it.
                         if !coach.canReceiveEntries { shareWithCoach = false }
@@ -63,9 +74,11 @@ struct CoachPickerRow: View {
                         }
                     }
                 }
-                if coachRefId != nil {
-                    Button("Nobody", role: .destructive) {
+                if requireAnswer || coachRefId != nil {
+                    let noneRole: ButtonRole? = requireAnswer ? nil : .destructive
+                    Button("No coach", role: noneRole) {
                         coachRefId = nil
+                        noCoach.wrappedValue = true
                         shareWithCoach = false
                     }
                 }
@@ -80,9 +93,11 @@ struct CoachPickerRow: View {
                         .font(.plBody)
                         .foregroundStyle(PL.text400)
                     Spacer(minLength: 12)
-                    Text(chosen?.displayName ?? "Choose")
+                    Text(chosen?.displayName ?? (noCoach.wrappedValue ? "No coach" : "Choose"))
                         .font(.plBody)
-                        .foregroundStyle(chosen == nil ? PL.text500 : PL.text100)
+                        .foregroundStyle(
+                            chosen == nil && !noCoach.wrappedValue ? PL.text500 : PL.text100
+                        )
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(PL.text500)
@@ -93,7 +108,7 @@ struct CoachPickerRow: View {
             if let chosen, chosen.canReceiveEntries {
                 Toggle(isOn: $shareWithCoach) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Share this entry with \(chosen.displayName)")
+                        Text("Share \(shareNoun) with \(chosen.displayName)")
                             .font(.plBody)
                             .foregroundStyle(PL.text300)
                         if let hint = chosen.shareHint {

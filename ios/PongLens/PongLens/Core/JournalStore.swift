@@ -61,6 +61,9 @@ struct LessonRow: Codable, Identifiable, Hashable {
     /// "Lesson about this match" (037). Defaulted so the journal's own
     /// queries, which never select it, keep decoding.
     var matchId: UUID? = nil
+    /// The lesson video this entry is the journal side of, when the lesson
+    /// was filmed rather than written. Defaulted for the same reason.
+    var lessonVideoId: UUID? = nil
     let createdAt: String
 
     enum CodingKeys: String, CodingKey {
@@ -71,6 +74,7 @@ struct LessonRow: Codable, Identifiable, Hashable {
         case sharedWithCoachAt = "shared_with_coach_at"
         case imagePath = "image_path"
         case matchId = "match_id"
+        case lessonVideoId = "lesson_video_id"
         case createdAt = "created_at"
     }
 

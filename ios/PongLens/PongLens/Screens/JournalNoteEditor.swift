@@ -148,10 +148,11 @@ struct JournalNoteEditor: View {
             onDone: { Task { await save() } }
         ) {
             Form {
-                // Any note of the player's own may name a coach now;
-                // only a coach-written entry has none of its own
-                // (2026-09-04). The web twin is NoteEditor.tsx.
-                if lesson.kind != "coach" {
+                // Only a lesson has a coach. A plain note is your own
+                // reflection and an entry a coach wrote has no coach of
+                // its own, so neither shows the picker and neither may
+                // gain one here. The web twin is NoteEditor.tsx.
+                if lesson.kind == "lesson" {
                     Section {
                         // The picker, not a text field (164). Correcting
                         // an entry is where a journal full of spellings
@@ -363,9 +364,8 @@ struct JournalNoteEditor: View {
     private func save() async {
         saving = true
         errorMessage = nil
-        // Every own note may carry a coach; a coach-written entry never
-        // does.
-        let isLesson = lesson.kind != "coach"
+        // Only a lesson carries a coach.
+        let isLesson = lesson.kind == "lesson"
         let refId = isLesson ? coachRefId : nil
         let named = refId.flatMap { id in
             coaches.first(where: { $0.id == id })?.displayName

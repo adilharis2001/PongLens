@@ -724,8 +724,16 @@ export function NotesFeed({
       /* Equal segments across the row, never a sideways scroll: a primary
          navigation row you have to drag is one you miss options in, and
          until now the fifth tab was off the edge of a 393px phone. The
-         height, which is what a thumb actually needs, is unchanged. */
-      className={`min-w-0 flex-1 truncate rounded-full px-1 py-1.5 text-[13px] font-medium transition-colors sm:px-3 ${
+         height, which is what a thumb actually needs, is unchanged.
+
+         The horizontal padding is almost nothing below sm and it costs
+         nothing to look at: flex-1 makes the button the whole cell, so the
+         pill is the same width either way and the padding only decides how
+         much room the word has inside it. At 393px five cells are 69px
+         each and "Recollect" needs about 64, which is the reason it is
+         0.5 here and 3 from sm up. `truncate` is the honest fallback on a
+         narrower phone than any we test. */
+      className={`min-w-0 flex-1 truncate rounded-full px-0.5 py-1.5 text-[13px] font-medium transition-colors sm:px-3 ${
         section === value
           ? "bg-surface-2 text-white"
           : "text-zinc-500 hover:text-zinc-300"

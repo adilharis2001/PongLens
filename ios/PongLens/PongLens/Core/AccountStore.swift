@@ -182,8 +182,10 @@ final class NotificationsStore {
             "allowance_request", "allowance_decided",
             "reel_ready", "reel_failed", "coach_joined",
             // Coach workspace (156): an entry shared with you, a student
-            // joining, a student's match turning ready.
+            // joining, a student's match turning ready, and — the other
+            // direction — a student sharing a lesson they recorded.
             "coach_entry", "student_joined", "student_match_ready",
+            "student_lesson",
         ]
         if AppConfig.coachMarketplace {
             list += [

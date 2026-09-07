@@ -116,7 +116,9 @@ struct CoachTabView: View {
             .safeAreaInset(edge: .top, spacing: 0) {
                 PLTopBar(
                     unreadCount: notifications.unreadCount,
-                    switchTo: app.playerSetupPending ? nil : "Playing",
+                    // The side it switches TO, short enough for a top bar
+                    // that also carries the bell and the avatar.
+                    switchTo: app.playerSetupPending ? nil : "Player",
                     onSwitch: { app.setWorkspace(.player) },
                     onBell: { bellOpen = true },
                     onAvatar: { path.append("account") }

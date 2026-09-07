@@ -43,6 +43,11 @@ final class ScoresStore {
 
     private(set) var aggregate = Aggregate()
     private(set) var scores: [UUID: Entry] = [:]
+    /// Whether the walk has finished at least once. The Journal's Stats
+    /// tab shows the sections it has and one line until it has, because
+    /// half-counted numbers presented as finished ones are worse than
+    /// saying they are still being counted.
+    private(set) var loaded = false
     private var loading = false
 
     func load(for matches: [MatchRow]) async {
@@ -54,7 +59,7 @@ final class ScoresStore {
         )
         guard !loading, !matchIds.isEmpty else { return }
         loading = true
-        defer { loading = false }
+        defer { loading = false; loaded = true }
 
         var byMatch: [UUID: [PointRow]] = [:]
         var start = 0

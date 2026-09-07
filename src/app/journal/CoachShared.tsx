@@ -60,8 +60,17 @@ function day(iso: string): string {
  * 2026-09-02) — they used to sit in a section of their own above the
  * tabs, which read as a second journal.
  */
-export function SharedEntryCard({ entry }: { entry: SharedEntry }) {
-  const [expanded, setExpanded] = useState(false);
+export function SharedEntryCard({
+  entry,
+  defaultOpen = false,
+}: {
+  entry: SharedEntry;
+  /** Opened already, for the one the bell was tapped on. A notification
+   *  that lands you beside the thing it was about, still shut, has made
+   *  you find it twice. */
+  defaultOpen?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultOpen);
   // A lesson video shared with this player. The entry's own text is only
   // a link to it, written for app versions that cannot show more; here
   // the recap itself is the body, and that text stays out of the way.

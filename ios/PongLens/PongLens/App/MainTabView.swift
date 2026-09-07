@@ -118,7 +118,13 @@ struct MainTabView: View {
                     // player who set up coaching from Account. A coach who
                     // merely switched here still has the playing questions
                     // pending, and their way back stays in Account.
-                    switchTo: canSwitchWorkspace ? "Coaching" : nil,
+                    // It names the side it switches TO. It used to say
+                    // "Coaching", which is also the name of the tab one
+                    // row below it, so the bar offered two doors under one
+                    // word. Short, because the top bar also carries the
+                    // bell and the avatar; the web says "Coach mode" where
+                    // there is width for it.
+                    switchTo: canSwitchWorkspace ? "Coach" : nil,
                     onSwitch: { app.setWorkspace(.coach) },
                     onBell: { bellOpen = true },
                     onAvatar: { path.append("account") }
@@ -160,6 +166,9 @@ struct MainTabView: View {
             }
             .navigationDestination(for: MatchPointRoute.self) { route in
                 MatchDetailScreen(match: route.match, openPointId: route.pointId)
+            }
+            .navigationDestination(for: CoachPageRoute.self) { route in
+                CoachPageScreen(coachRefId: route.coachRefId)
             }
             .appRoutes()
             .navigationDestination(for: CoachOrderRoute.self) { route in
@@ -271,8 +280,14 @@ struct MainTabView: View {
                         bellOpen = false
                         path.append("account")
                     }
-                    // "shared a lesson note" lands on the journal, where the
-                    // From your coach section sits at the top.
+                    // "shared a lesson note" lands on Coaching, where a
+                    // player reads their coaches. /journal is still
+                    // honoured: notifications written before this build
+                    // carry it, and the entry is in the Journal too.
+                    if href.hasPrefix("/coaching") {
+                        bellOpen = false
+                        router.tab = .coaching
+                    }
                     if href.hasPrefix("/journal") {
                         bellOpen = false
                         router.tab = .journal

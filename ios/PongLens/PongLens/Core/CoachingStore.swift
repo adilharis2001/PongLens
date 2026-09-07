@@ -52,6 +52,8 @@ final class CoachingStore {
     /// Someone's accepted coach, regardless of having a marketplace page.
     /// One leg of "does the coaching workspace offer itself".
     var coachesAnyone = false
+    /// Always true. Kept as a property rather than removed at every call
+    /// site so the tab has one name to be switched off by, if it ever is.
     var showTab: Bool
     var coachLinks: [CoachLinkRow] = []
     /// Invite id -> what the player calls that coach (164), so a waiting
@@ -74,21 +76,13 @@ final class CoachingStore {
     var orders: [StudentOrderRow] = []
     var loaded = false
 
-    /// The no-pop-in cache is per account — two people share a phone, and
-    /// one being a coach must not flash the tab at the other.
-    static func tabCacheKey(_ userId: UUID) -> String {
-        "pl-coach-tab-\(userId.uuidString.lowercased())"
-    }
-
     init() {
-        // With the marketplace web-only, the Coaching tab never shows: the
-        // free half of coaching lives on Account (your coaches) and in
-        // Matches (shared with you) instead.
-        if AppConfig.coachMarketplace, let uid = supa.auth.currentSession?.user.id {
-            showTab = UserDefaults.standard.bool(forKey: Self.tabCacheKey(uid))
-        } else {
-            showTab = false
-        }
+        // Permanent. A player with no coach yet still opens the tab to add
+        // one or to record a lesson of their own, and a tab that appears
+        // only once somebody else acts is a tab nobody learns. It used to
+        // be conditional, cached per account so it would not pop in; there
+        // is nothing left to cache when the answer is always yes.
+        showTab = true
     }
 
     func load(userId: UUID?) async {
@@ -112,12 +106,6 @@ final class CoachingStore {
         coachesAnyone = (asCoach?.count ?? 0) > 0
         coachLinks = (links ?? []).filter { $0.status != "revoked" }
         orders = orderRows ?? []
-        showTab = AppConfig.coachMarketplace
-            && (isCoach
-                || (asCoach?.count ?? 0) > 0
-                || !coachLinks.isEmpty
-                || !orders.isEmpty)
-        UserDefaults.standard.set(showTab, forKey: Self.tabCacheKey(userId))
         let named: [PlayerCoach]? = try? await supa
             .rpc("player_coaches_list").execute().value
         playerCoaches = named ?? []
@@ -368,5 +356,167 @@ extension CoachingStore {
                 .execute()
             return true
         } catch { return false }
+    }
+}
+
+// MARK: - One coach's page
+
+/// What a single coach's page asks for that the list of coaches never did:
+/// rename them, fold a duplicate row into them, set a waiting invite's
+/// scope, hand them several matches in one go, and read the lessons taken
+/// with them.
+///
+/// Every write here is one the product already makes somewhere else. What
+/// is new is making it from the coach's side rather than the match's, so
+/// the twins are SharingSection.tsx in focus mode and ShareMatches.tsx;
+/// keep them in step.
+extension CoachingStore {
+    /// What YOU call this coach, which is not always what their account
+    /// says (164). Adil's own case: the account reads "Jonatan Mcdonald"
+    /// and he has always written "Jonathan". The name is on every journal
+    /// entry attributed to them and a trigger carries a rename to all of
+    /// them, so this is the one place it can be put right. Their own
+    /// account is untouched: this is a label, not their identity.
+    func renameCoach(userId: UUID, coachRefId: UUID, name: String) async -> Bool {
+        let clean = name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .prefix(80)
+        guard !clean.isEmpty else { return false }
+        do {
+            try await supa
+                .from("player_coaches")
+                .update([
+                    "display_name": AnyJSON.string(String(clean)),
+                    // The player typed it, so the name stops following the
+                    // account. Same rule as the coach's roster (161).
+                    "name_from_account": AnyJSON.bool(false),
+                ])
+                .eq("id", value: coachRefId.uuidString.lowercased())
+                .execute()
+        } catch { return false }
+        await load(userId: userId)
+        return true
+    }
+
+    /// Fold one coach row into another (164), because a name typed before
+    /// an account arrives will not match the name on it: "Jonathan" and
+    /// "Jonatan Mcdonald" are one man and two rows.
+    ///
+    /// `into` survives and keeps its name; the entries and the recordings
+    /// move to it. The RPC refuses a pair of bound accounts — those are two
+    /// different people, and folding them would hand one coach the other's
+    /// entries — so the caller offers only rows nobody has claimed.
+    func mergeCoaches(userId: UUID, into: UUID, from: UUID) async -> Bool {
+        struct Params: Encodable {
+            let p_into: String
+            let p_from: String
+        }
+        do {
+            try await supa
+                .rpc("merge_player_coaches", params: Params(
+                    p_into: into.uuidString.lowercased(),
+                    p_from: from.uuidString.lowercased()
+                ))
+                .execute()
+        } catch { return false }
+        await load(userId: userId)
+        return true
+    }
+
+    /// The scope of an invite nobody has accepted yet (164).
+    ///
+    /// set_coach_access refuses a pending link — it needs an accepted one
+    /// to hang the connection off — so this writes the flag straight onto
+    /// the row, which the player's own policy on coach_links already
+    /// allows. Without it the only way down from "all matches" before an
+    /// invite is accepted is to revoke it and send a fresh link.
+    func setInviteAccess(userId: UUID, inviteId: UUID, allMatches: Bool) async -> Bool {
+        do {
+            try await supa
+                .from("coach_links")
+                .update(["all_matches": AnyJSON.bool(allMatches)])
+                .eq("id", value: inviteId.uuidString.lowercased())
+                .execute()
+        } catch { return false }
+        await load(userId: userId)
+        return true
+    }
+
+    /// Hand several matches to one coach at once.
+    ///
+    /// Nothing new is written: a connected coach gets the accepted,
+    /// match-scoped coach_links rows the match page's sheet writes one at a
+    /// time, and a coach who has not accepted yet gets the
+    /// coach_invite_matches rows that become access only when they do
+    /// (166). Matches they already hold are left out by the caller rather
+    /// than granted twice — the queue's key is (invite, match), so one
+    /// repeat would fail the whole insert and lose the others with it.
+    func shareMatches(
+        userId: UUID, coachId: UUID?, inviteId: UUID?, matchIds: [UUID]
+    ) async -> Bool {
+        guard !matchIds.isEmpty else { return false }
+        do {
+            if let coachId {
+                struct Grant: Encodable {
+                    let player_id: String
+                    let coach_id: String
+                    let scope_match_id: String
+                    let status: String
+                }
+                try await supa
+                    .from("coach_links")
+                    .insert(matchIds.map {
+                        Grant(
+                            player_id: userId.uuidString.lowercased(),
+                            coach_id: coachId.uuidString.lowercased(),
+                            scope_match_id: $0.uuidString.lowercased(),
+                            status: "accepted"
+                        )
+                    })
+                    .execute()
+            } else if let inviteId {
+                struct Queue: Encodable {
+                    let invite_id: String
+                    let match_id: String
+                }
+                try await supa
+                    .from("coach_invite_matches")
+                    .insert(matchIds.map {
+                        Queue(
+                            invite_id: inviteId.uuidString.lowercased(),
+                            match_id: $0.uuidString.lowercased()
+                        )
+                    })
+                    .execute()
+            } else {
+                // A coach the player only wrote down has neither an account
+                // to grant to nor an invite to queue against, so there is
+                // nothing this could write. The page keeps the control off
+                // them; this is the second lock.
+                return false
+            }
+        } catch { return false }
+        await load(userId: userId)
+        return true
+    }
+
+    /// The lessons taken with one coach, newest first.
+    ///
+    /// Its own query rather than a filter over the journal's list, because
+    /// the journal never selects lesson_video_id: read from there, a filmed
+    /// lesson cannot be told from a written one and would be drawn as its
+    /// transcript instead of as the recap it is.
+    func lessonsWith(coachRefId: UUID) async -> [LessonRow] {
+        let rows: [LessonRow]? = try? await supa
+            .from("lessons")
+            .select(
+                "id,user_id,transcript,takeaways,status,kind,coach_name,coach_ref_id,shared_with_coach_at,image_path,lesson_video_id,created_at"
+            )
+            .eq("coach_ref_id", value: coachRefId.uuidString.lowercased())
+            .eq("kind", value: "lesson")
+            .order("created_at", ascending: false)
+            .execute().value
+        return rows ?? []
     }
 }

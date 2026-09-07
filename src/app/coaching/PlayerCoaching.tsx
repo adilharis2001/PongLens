@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { createClient } from "@/lib/supabase/client";
@@ -104,6 +105,11 @@ export function PlayerCoaching({
   const [cap, setCap] = useState(FEED_CAP);
 
   const { addCue } = useFocusPoints(userId);
+
+  /* The bell's "your coach shared a lesson note" lands here carrying the
+     entry it was about. Without this it would land on a feed with the
+     entry somewhere in it, which is making the reader find it twice. */
+  const openEntryId = useSearchParams().get("entry");
 
   /** Find-or-create one of the player's own coaches by name (164). The
    *  same rule the Journal's composer uses: a name that already exists
@@ -402,11 +408,13 @@ export function PlayerCoaching({
           ))}
         </div>
       ) : shown.length === 0 ? (
-        <p className="mt-6 text-sm text-zinc-500">
-          {noCoaches
-            ? "Nothing here yet. Record a lesson and it lands here."
-            : "Nothing with this coach yet."}
-        </p>
+        // The "No coaches yet" card above already speaks for a player with
+        // nothing at all; a second empty line under it says it twice.
+        noCoaches ? null : (
+          <p className="mt-6 text-sm text-zinc-500">
+            Nothing with this coach yet.
+          </p>
+        )
       ) : (
         <>
           <ul className="mt-6 space-y-3">
@@ -414,6 +422,7 @@ export function PlayerCoaching({
               <FeedRow
                 key={rowKey(item)}
                 item={item}
+                openEntryId={openEntryId}
                 tagsByLesson={tagsByLesson}
                 vocab={vocab}
                 addCue={addCue}
@@ -517,6 +526,7 @@ function rowKey(item: Item): string {
 
 function FeedRow({
   item,
+  openEntryId,
   tagsByLesson,
   vocab,
   addCue,
@@ -525,6 +535,8 @@ function FeedRow({
   onEdit,
 }: {
   item: Item;
+  /** The coach_entries row the bell was tapped on, if any. */
+  openEntryId: string | null;
   tagsByLesson: Map<string, Tag[]>;
   vocab: Tag[];
   addCue: ReturnType<typeof useFocusPoints>["addCue"];
@@ -533,9 +545,20 @@ function FeedRow({
   onEdit: (lesson: Lesson) => void;
 }) {
   if (item.kind === "shared") {
+    const asked = openEntryId === item.entry.entry_id;
     return (
-      <li>
-        <SharedEntryCard entry={item.entry} />
+      <li
+        id={`coaching-entry-${item.entry.entry_id}`}
+        ref={
+          asked
+            ? (el) => {
+                el?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }
+            : undefined
+        }
+        className="scroll-mt-24"
+      >
+        <SharedEntryCard entry={item.entry} defaultOpen={asked} />
       </li>
     );
   }

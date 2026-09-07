@@ -6,6 +6,11 @@ import Supabase
 /// the record.
 struct StatsScreen: View {
     var initialTab = "My stats"
+    /// Rendered inside another page — the Journal's Stats tab. No back
+    /// button, no page title, no tab pills and no scroll view of its own,
+    /// because the page around it has all four. The numbers come from the
+    /// same walk either way, so the two can never disagree.
+    var embedded = false
 
     @Environment(\.dismiss) private var dismiss
     @Environment(AppState.self) private var app
@@ -36,6 +41,14 @@ struct StatsScreen: View {
     }
 
     var body: some View {
+        if embedded {
+            VStack(alignment: .leading, spacing: 20) { myStats }
+        } else {
+            fullPage
+        }
+    }
+
+    private var fullPage: some View {
         ZStack {
             ArenaBackground()
             ScrollView {

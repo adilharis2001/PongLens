@@ -7,12 +7,20 @@ import UniformTypeIdentifiers
 
 struct LessonVideoScreen: View {
     var student: CoachStudentRow? = nil
+    /// The player's own coaches. Non-nil means the PLAYER is importing a
+    /// lesson they had, rather than a coach importing one they gave: the
+    /// picker names coaches, the create call carries coachRefId, and the
+    /// list shows only the player's own lessons. Same upload either way,
+    /// because that is the part nobody wants written twice.
+    var coaches: [PlayerCoach]? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AppState.self) private var app
     @Environment(CoachWorkspaceStore.self) private var workspace
     @State private var queue = LessonVideoQueue.shared
     @State private var studentId: UUID?
+    @State private var coachRefId: UUID?
+    @State private var importCoachRef: UUID?
     @State private var videos: [LessonVideo] = []
     @State private var photosOpen = false
     @State private var filesOpen = false
@@ -22,10 +30,15 @@ struct LessonVideoScreen: View {
     @State private var error: String?
     @State private var loading = true
 
+    private var playerImport: Bool { coaches != nil }
+
     private var uploads: [QueuedLessonVideo] {
         queue.items.filter {
-            $0.ownerId == app.userId && $0.state != "done"
-                && LessonVideoScope(studentId: student?.id).includes(studentId: $0.studentId)
+            guard $0.ownerId == app.userId, $0.state != "done" else { return false }
+            // A player's page never shows a coach's imports, and a coach's
+            // never shows the player's own. One account can have both.
+            if playerImport { return $0.studentId == nil }
+            return LessonVideoScope(studentId: student?.id).includes(studentId: $0.studentId)
         }.reversed()
     }
 
@@ -46,7 +59,24 @@ struct LessonVideoScreen: View {
                     importControls
 
                     if let error {
-                        Text(error).font(.plBody).foregroundStyle(PL.dangerText)
+                        Text(
+                            AllowanceLimit.isStorage(error)
+                                ? "There isn't enough storage to import this lesson."
+                                : error
+                        )
+                        .font(.plBody)
+                        .foregroundStyle(PL.dangerText)
+                        // A refusal that only says no leaves the player
+                        // stuck: in beta the storage is theirs to ask for,
+                        // so the way out sits with the refusal.
+                        if AllowanceLimit.isStorage(error) {
+                            AllowanceRecoveryView(
+                                resource: "storage", retryLabel: "Try again"
+                            ) {
+                                await queue.resume()
+                                await refresh()
+                            }
+                        }
                     }
                     if !uploads.isEmpty { uploadSection }
                     videoSection
@@ -111,15 +141,23 @@ struct LessonVideoScreen: View {
                     .padding(16)
                 } else {
                 Menu {
-                    Button("Private lesson") { studentId = nil }
-                    ForEach(workspace.activeStudents) { row in
-                        Button(row.displayName) { studentId = row.id }
+                    if let coaches {
+                        Button("No coach") { coachRefId = nil }
+                        ForEach(coaches) { row in
+                            Button(row.displayName) { coachRefId = row.id }
+                        }
+                    } else {
+                        Button("Private lesson") { studentId = nil }
+                        ForEach(workspace.activeStudents) { row in
+                            Button(row.displayName) { studentId = row.id }
+                        }
                     }
                 } label: {
                     HStack(spacing: 12) {
-                        Text("Student").foregroundStyle(PL.text400)
+                        Text(playerImport ? "Who taught it?" : "Student")
+                            .foregroundStyle(PL.text400)
                         Spacer(minLength: 12)
-                        Text(workspace.activeStudents.first { $0.id == studentId }?.displayName ?? "Private lesson")
+                        Text(chosenName)
                             .foregroundStyle(PL.text100)
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 11, weight: .semibold))
@@ -223,12 +261,21 @@ struct LessonVideoScreen: View {
         }
     }
 
+    /// Whoever the lesson is with, in the picker's own words.
+    private var chosenName: String {
+        if let coaches {
+            return coaches.first { $0.id == coachRefId }?.displayName ?? "No coach"
+        }
+        return workspace.activeStudents.first { $0.id == studentId }?.displayName
+            ?? "Private lesson"
+    }
     private func studentName(_ video: LessonVideo) -> String? {
         video.student_id.flatMap { workspace.student($0)?.displayName }
     }
     private func beginImport() {
         importOwner = app.userId
-        importStudent = studentId
+        importStudent = playerImport ? nil : studentId
+        importCoachRef = playerImport ? coachRefId : nil
         error = nil
         importing = true
     }
@@ -243,7 +290,10 @@ struct LessonVideoScreen: View {
                     guard let owner = importOwner, app.userId == owner else {
                         throw LessonVideoLocalError.message("Sign back in before importing this video.")
                     }
-                    try await queue.enqueue(copy: file.url, originalName: file.name, ownerId: owner, studentId: importStudent)
+                    try await queue.enqueue(
+                        copy: file.url, originalName: file.name, ownerId: owner,
+                        studentId: importStudent, coachRefId: importCoachRef
+                    )
                     await refresh()
                 } catch {
                     try? FileManager.default.removeItem(at: file.url)
@@ -255,7 +305,9 @@ struct LessonVideoScreen: View {
     private func refresh() async {
         do {
             let response: LessonVideoList = try await API.get("api/lesson-video", query: LessonVideoScope(studentId: student?.id).query)
-            videos = response.videos
+            videos = playerImport
+                ? response.videos.filter { $0.student_id == nil }
+                : response.videos
         } catch { self.error = error.localizedDescription }
         loading = false
     }
@@ -315,6 +367,9 @@ struct LessonVideoDetailScreen: View {
     /// from a notification or a journal entry does not, and says "your
     /// student" instead.
     var studentName: String? = nil
+    /// The coach a PLAYER recorded the lesson with, when the opening screen
+    /// knows. A recap has one side or the other, never both.
+    var coachName: String? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @State private var detail: LessonVideoDetail?
@@ -459,31 +514,66 @@ struct LessonVideoDetailScreen: View {
     @ViewBuilder
     private func actions(_ detail: LessonVideoDetail) -> some View {
         let video = detail.video
-        // Older servers do not say; until they do, ready-with-a-student means shared.
-        let shared = video.shared ?? (video.status == "ready" && video.student_id != nil)
+        // Older servers do not say; until they do, ready-with-somebody
+        // means shared.
+        let shared = video.shared ?? (video.status == "ready" && video.hasRecipient)
         let canShare = video.canShare(isOwner: detail.isOwner)
         let canRetry = detail.isOwner && video.status == "failed"
         let hasNotes = video.edit?.chapters.isEmpty == false
-        let sharedWith = (detail.isOwner && shared) ? video.student_id : nil
-        if canShare || canRetry || hasNotes || sharedWith != nil || !detail.isOwner {
+        // A coach made it FOR a student; a player made it WITH a coach.
+        // Same recap, opposite halves of the relationship, and this screen
+        // used to know only one of them.
+        let forStudent = video.student_id != nil
+        let withCoach = video.coach_ref_id != nil
+        let other = forStudent
+            ? (studentName ?? "your student")
+            : (coachName ?? "your coach")
+        let sharedWith = (detail.isOwner && shared && video.hasRecipient)
+        if canShare || canRetry || hasNotes || sharedWith || !detail.isOwner {
             VStack(alignment: .leading, spacing: 12) {
                 if canShare {
-                    Button { perform("share") } label: {
-                        Text(busy ? "Saving…" : (video.student_id == nil ? "Save recap" : "Share with student"))
-                            .frame(maxWidth: .infinity)
+                    Button { perform("share", share: withCoach ? true : nil) } label: {
+                        Text(
+                            busy
+                                ? "Saving…"
+                                : forStudent
+                                    ? "Share with student"
+                                    : withCoach ? "Share with \(other)" : "Save recap"
+                        )
+                        .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(PLPrimaryButtonStyle()).disabled(busy)
+                }
+                // Sharing is asked every time and never assumed: a player
+                // who wants the recap in their own journal and nowhere
+                // else says so here, rather than finding out later that
+                // pressing the one button sent it.
+                if canShare && withCoach {
+                    Button { perform("share", share: false) } label: {
+                        Text("Keep it to myself").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PLSecondaryButtonStyle()).disabled(busy)
+                }
+                if detail.isOwner && withCoach && shared && video.status == "ready" {
+                    Button { perform("unshare") } label: {
+                        Text("Stop sharing").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(PLSecondaryButtonStyle()).disabled(busy)
                 }
                 if canRetry {
                     Button { perform("retry") } label: { Text("Retry processing").frame(maxWidth: .infinity) }
                         .buttonStyle(PLSecondaryButtonStyle()).disabled(busy)
                 }
-                if sharedWith != nil {
-                    Text("Shared with \(studentName ?? "your student"). It is in their journal, and any edit you make here goes to them once you share it again.")
+                if sharedWith && forStudent {
+                    Text("Shared with \(other). It is in their journal, and any edit you make here goes to them once you share it again.")
+                        .font(.plBody).foregroundStyle(PL.text400).lineSpacing(4)
+                }
+                if sharedWith && withCoach {
+                    Text("\(other) can read this recap. Stop sharing takes it back.")
                         .font(.plBody).foregroundStyle(PL.text400).lineSpacing(4)
                 }
                 if !detail.isOwner {
-                    Text("Shared with you by your coach.").font(.plBody).foregroundStyle(PL.text400)
+                    Text("Shared with you.").font(.plBody).foregroundStyle(PL.text400)
                 }
                 if hasNotes {
                     Button { notesOpen = true } label: { Text("Read lesson notes").frame(maxWidth: .infinity) }
@@ -632,12 +722,15 @@ struct LessonVideoDetailScreen: View {
             }
         } catch { self.error = error.localizedDescription }
     }
-    private func perform(_ action: String) {
+    private func perform(_ action: String, share: Bool? = nil) {
         busy = true
         Task {
             defer { busy = false }
             do {
-                let _: LessonVideoOK = try await API.post("api/lesson-video", LessonVideoAction(action: action, id: id))
+                let _: LessonVideoOK = try await API.post(
+                    "api/lesson-video",
+                    LessonVideoAction(action: action, id: id, share: share)
+                )
                 if action == "delete" { dismiss() } else { await load() }
             } catch { self.error = error.localizedDescription }
         }

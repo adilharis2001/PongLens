@@ -9,13 +9,12 @@ struct AccountScreen: View {
     @Environment(AppState.self) private var app
     @Environment(CoachingStore.self) private var coaching
     @Environment(CoachWorkspaceStore.self) private var coachWorkspace
+    @Environment(Router.self) private var router
     @State private var store = AccountStore()
     @State private var purchases = PurchaseStore()
     @State private var editingName = false
     @State private var nameDraft = ""
     @State private var linksOpen = false
-    @State private var coachesOpen = false
-    @State private var coachInviteOpen = false
     @State private var profileOpen = false
     @State private var deleteOpen = false
     @State private var recollectSaving = false
@@ -178,18 +177,6 @@ struct AccountScreen: View {
         }
         .sheet(isPresented: $linksOpen) {
             ShareLinksManager(store: store)
-                .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $coachesOpen) {
-            CoachLinksManager()
-                .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $coachInviteOpen) {
-            AllMatchesCoachInvite()
                 .presentationDetents([.medium, .large])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
@@ -364,14 +351,14 @@ struct AccountScreen: View {
                         .foregroundStyle(PL.text500)
                 }
                 Spacer()
-                if !coaching.coachLinks.isEmpty {
-                    Button("Manage") { coachesOpen = true }
-                        .buttonStyle(PLSecondaryButtonStyle())
-                }
             }
             .padding(16)
             rowDivider
-            navRow("Add a coach") { coachInviteOpen = true }
+            // One row, and it opens the tab. Everything about a coach now
+            // lives there: what they have shared, what you have shared
+            // back, and what they can see. Two places to manage the same
+            // relationship is how the two drift.
+            navRow("Your coaches") { router.tab = .coaching; dismiss() }
         }
     }
 

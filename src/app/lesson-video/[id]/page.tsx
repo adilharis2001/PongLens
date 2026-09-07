@@ -37,7 +37,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     const admin = createAdminClient();
     const { data: row } = await admin
       .from('lesson_videos')
-      .select('owner_id,student_id')
+      .select('owner_id,student_id,coach_ref_id')
       .eq('id', id)
       .maybeSingle();
     if (row?.owner_id === user.id) {
@@ -48,6 +48,20 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
           .eq('id', row.student_id)
           .maybeSingle();
         up = { href: '/coaching/students/' + row.student_id, label: student?.display_name ?? 'Student' };
+      } else if (row.coach_ref_id) {
+        // The player's own lesson. The name is the coach it was recorded
+        // with, so the page can say "Share with Jonathan" rather than
+        // "Share with your student", which is the wrong half of the
+        // relationship for a recap somebody filmed of their own lesson.
+        const { data: coach } = await admin
+          .from('player_coaches')
+          .select('display_name')
+          .eq('id', row.coach_ref_id)
+          .maybeSingle();
+        up = {
+          href: '/coaching/coach/' + row.coach_ref_id,
+          label: coach?.display_name ?? 'Your coach',
+        };
       } else {
         up = { href: '/coaching/videos', label: 'Lesson videos' };
       }

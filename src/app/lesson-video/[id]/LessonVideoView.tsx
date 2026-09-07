@@ -123,12 +123,22 @@ export function LessonVideoView({ id, up }: { id: string; up: LessonUp | null })
     setChapter((index) => Math.min(index, Math.max(0, (edit?.chapters.length ?? 1) - 1)));
   }, [edit?.chapters.length]);
 
-  // Owners go up to the student or the list; a student came from their journal.
-  const back=detail?.isOwner?(up?.href??(v?.student_id?'/coaching/students/'+v.student_id:'/coaching/videos')):'/journal';
-  const upLabel = detail?.isOwner ? (up?.label ?? (v?.student_id ? 'Student' : 'Lesson videos')) : 'Journal';
+  // Owners go up to the student, the coach, or the list. A reader came
+  // from the room the recap was shared into: a student's journal for a
+  // coach's recap, the coaching workspace for a student's.
+  const back=detail?.isOwner?(up?.href??(v?.student_id?'/coaching/students/'+v.student_id:v?.coach_ref_id?'/coaching':'/coaching/videos')):'/coaching';
+  const upLabel = detail?.isOwner ? (up?.label ?? (v?.student_id ? 'Student' : 'Lesson videos')) : 'Coaching';
 
-  // Older responses do not say; until they do, ready-with-a-student means shared.
-  const shared = detail?.shared ?? (v?.status === 'ready' && !!v?.student_id);
+  /* Whose recap this is, which decides every sentence below. A coach made
+     it FOR a student; a player made it WITH a coach. Same recap, opposite
+     halves of the relationship, and the page used to only know one. */
+  const forStudent = !!v?.student_id;
+  const withCoach = !!v?.coach_ref_id;
+  const otherName = up?.label ?? (forStudent ? 'your student' : 'your coach');
+
+  // Older responses do not say; until they do, ready-with-a-recipient
+  // means shared.
+  const shared = detail?.shared ?? (v?.status === 'ready' && (!!v?.student_id || !!v?.coach_ref_id));
   const owner = !!detail?.isOwner;
   const watchable = !!detail?.playbackUrl && !!edit;
   const canShare = !!v && lessonCanShare(v, owner, shared);
@@ -394,8 +404,40 @@ export function LessonVideoView({ id, up }: { id: string; up: LessonUp | null })
       <>
         <div className="rounded-2xl border border-edge bg-surface p-5">
           {canShare && (
-            <button className={primary + ' w-full'} disabled={busy} onClick={() => void action('share')}>
-              {busy ? 'Saving…' : v.student_id ? 'Share with student' : 'Save recap'}
+            <button
+              className={primary + ' w-full'}
+              disabled={busy}
+              onClick={() => void action('share', withCoach ? { share: true } : {})}
+            >
+              {busy
+                ? 'Saving…'
+                : forStudent
+                  ? 'Share with student'
+                  : withCoach
+                    ? `Share with ${otherName}`
+                    : 'Save recap'}
+            </button>
+          )}
+          {/* Sharing is asked every time and never assumed: a player who
+              wants the recap in their own journal and nowhere else says
+              so here, rather than finding out later that pressing the one
+              button sent it. */}
+          {canShare && withCoach && (
+            <button
+              className={button + ' mt-3 w-full'}
+              disabled={busy}
+              onClick={() => void action('share', { share: false })}
+            >
+              Keep it to myself
+            </button>
+          )}
+          {owner && withCoach && shared && v.status === 'ready' && (
+            <button
+              className={button + ' mt-3 w-full'}
+              disabled={busy}
+              onClick={() => void action('unshare')}
+            >
+              Stop sharing
             </button>
           )}
           {canRetry && (
@@ -403,12 +445,17 @@ export function LessonVideoView({ id, up }: { id: string; up: LessonUp | null })
               Retry processing
             </button>
           )}
-          {owner && shared && v.student_id && (
+          {owner && shared && forStudent && (
             <p className="text-sm leading-relaxed text-zinc-400">
-              Shared with {up?.label ?? 'your student'}. It is in their journal, and any edit you make here goes to them once you share it again.
+              Shared with {otherName}. It is in their journal, and any edit you make here goes to them once you share it again.
             </p>
           )}
-          {!owner && <p className="text-sm leading-relaxed text-zinc-400">Shared with you by your coach.</p>}
+          {owner && shared && withCoach && (
+            <p className="text-sm leading-relaxed text-zinc-400">
+              {otherName} can read this recap. Stop sharing takes it back.
+            </p>
+          )}
+          {!owner && <p className="text-sm leading-relaxed text-zinc-400">Shared with you.</p>}
           {edit && (
             <button className={button + ' w-full' + (anyPrimary || shared || !owner ? ' mt-3' : '')} onClick={() => setReading(true)}>
               Read lesson notes

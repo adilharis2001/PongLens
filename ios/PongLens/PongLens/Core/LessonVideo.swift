@@ -4,6 +4,11 @@ struct LessonVideo: Codable, Identifiable {
     let id: UUID
     let owner_id: UUID
     let student_id: UUID?
+    /// The player_coaches row this lesson was recorded with, when the
+    /// PLAYER imported it rather than the coach. A video names one side or
+    /// the other, never both. Optional so a row from a server that
+    /// predates the column still decodes.
+    var coach_ref_id: UUID? = nil
     let lesson_id: UUID?
     let original_name: String
     let file_size: Int64
@@ -21,13 +26,17 @@ struct LessonVideo: Codable, Identifiable {
     var isProcessing: Bool { status == "queued" || status == "processing" }
     var needsRefresh: Bool { status == "uploading" || isProcessing }
     var title: String { edit?.title ?? original_name }
+    /// Somebody to share it with: a student the coach made it for, or the
+    /// coach the player made it with. A private lesson has neither, and is
+    /// finished the moment it is saved.
+    var hasRecipient: Bool { student_id != nil || coach_ref_id != nil }
     /// Whether the owner can press the share button now. Review is the
-    /// first time; ready-but-unshared is the coach taking an entry back and
+    /// first time; ready-but-unshared is somebody taking it back and
     /// changing their mind. Twin of lessonCanShare on web.
     func canShare(isOwner: Bool) -> Bool {
         guard isOwner else { return false }
         if status == "review" { return true }
-        return status == "ready" && student_id != nil && shared == false
+        return status == "ready" && hasRecipient && shared == false
     }
     var statusLabel: String {
         switch status {
@@ -37,7 +46,7 @@ struct LessonVideo: Codable, Identifiable {
         case "review": "Ready to review"
         // A ready row is not the same as a shared one: the coach can take the
         // entry back from the student page. Twin of lessonStatusLabel on web.
-        case "ready": student_id == nil ? "Saved" : ((shared ?? true) ? "Shared" : "Ready to share")
+        case "ready": !hasRecipient ? "Saved" : ((shared ?? true) ? "Shared" : "Ready to share")
         case "failed": "Needs attention"
         default: "Preparing"
         }
@@ -78,6 +87,11 @@ struct LessonVideoAction: Encodable {
     let id: UUID
     var edit: LessonVideoEdit? = nil
     var expectedRevision: Int? = nil
+    /// Only on "share", and only for a player's own recap: whether the
+    /// coach may read it. Asked every time and never assumed, which is the
+    /// rule the journal's share toggle already follows. A coach's import
+    /// ignores it; publishing IS the share there, as it always was.
+    var share: Bool? = nil
 }
 struct LessonVideoOK: Decodable { let ok: Bool }
 
@@ -146,6 +160,9 @@ nonisolated struct LessonVideoCreateRequest: Encodable {
         let action = "create"
         let clientRequestId: UUID
         let studentId: UUID?
+        /// The player_coaches row, when a player imported the lesson. The
+        /// route refuses both at once.
+        var coachRefId: UUID? = nil
         let originalName: String
         let fileSize: Int64
         let durationS: Double

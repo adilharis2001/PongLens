@@ -7,6 +7,10 @@ struct QueuedLessonVideo: Codable, Identifiable {
     let id: UUID
     let ownerId: UUID
     let studentId: UUID?
+    /// The player_coaches row, when the PLAYER imported the lesson rather
+    /// than the coach. A lesson names one side or the other, never both.
+    /// Defaulted so an item queued by an older build still decodes.
+    var coachRefId: UUID? = nil
     let fileName: String
     let originalName: String
     let bytes: Int64
@@ -93,11 +97,14 @@ final class LessonVideoQueue: NSObject {
         try data.write(to: Self.directory().appendingPathComponent("queue.json"), options: .atomic)
     }
 
-    func enqueue(copy: URL, originalName: String, ownerId: UUID, studentId: UUID?) async throws {
+    func enqueue(
+        copy: URL, originalName: String, ownerId: UUID,
+        studentId: UUID?, coachRefId: UUID? = nil
+    ) async throws {
         let duration = try await AVURLAsset(url: copy).load(.duration).seconds
         let bytes = Int64(try copy.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0)
         try LessonVideoUploadPlan.validate(bytes: bytes, duration: duration)
-        let item = QueuedLessonVideo(id: UUID(), ownerId: ownerId, studentId: studentId,
+        let item = QueuedLessonVideo(id: UUID(), ownerId: ownerId, studentId: studentId, coachRefId: coachRefId,
             fileName: copy.lastPathComponent, originalName: originalName, bytes: bytes, duration: duration)
         items.append(item)
         do { try persist() } catch { items.removeAll { $0.id == item.id }; throw error }
@@ -156,7 +163,7 @@ final class LessonVideoQueue: NSObject {
             guard owner == items[i].ownerId else { return }
             if items[i].videoId == nil {
                 let item = items[i]
-                let response: Created = try await API.post("api/lesson-video", LessonVideoCreateRequest(clientRequestId: item.id, studentId: item.studentId,
+                let response: Created = try await API.post("api/lesson-video", LessonVideoCreateRequest(clientRequestId: item.id, studentId: item.studentId, coachRefId: item.coachRefId,
                     originalName: item.originalName, fileSize: item.bytes, durationS: item.duration,
                     contentType: item.fileName.hasSuffix("mp4") ? "video/mp4" : "video/quicktime"))
                 guard response.video.owner_id == item.ownerId, response.partSize == LessonVideoUploadPlan.partSize else {

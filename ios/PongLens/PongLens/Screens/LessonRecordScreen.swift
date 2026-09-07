@@ -50,6 +50,11 @@ struct LessonRecordScreen: View {
     /// Which of the player's own coaches taught it, and whether they may
     /// read it (164).
     @State private var coachRefId: UUID?
+    /// "No coach" as an answer rather than an absence. A lesson has to say
+    /// who taught it, and nobody is an honest answer to that; without this
+    /// nil means "not asked yet" and Save would accept an unanswered
+    /// question. The coach's own recorder never asks it (hideAuthorField).
+    @State private var noCoach = false
     @State private var shareWithCoach = false
     @State private var saving = false
     @State private var saveFailed = false
@@ -464,6 +469,9 @@ struct LessonRecordScreen: View {
                     coaches: store.playerCoaches,
                     coachRefId: $coachRefId,
                     shareWithCoach: $shareWithCoach,
+                    noCoach: $noCoach,
+                    requireAnswer: true,
+                    shareNoun: "this lesson",
                     onCreate: { await store.createCoach(named: $0) },
                     onAppearReload: { await store.loadCoaches() }
                 )
@@ -679,7 +687,10 @@ struct LessonRecordScreen: View {
                     wide(saving ? "Saving…" : "Add to journal")
                 }
                 .buttonStyle(PLPrimaryButtonStyle())
-                .disabled(saving || draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(
+                    saving || draft.trimmingCharacters(in: .whitespaces).isEmpty
+                        || !(hideAuthorField || coachRefId != nil || noCoach)
+                )
                 Button { discardAsk = true } label: { wide("Discard") }
                     .buttonStyle(PLSoftDestructiveButtonStyle())
                     .disabled(saving)

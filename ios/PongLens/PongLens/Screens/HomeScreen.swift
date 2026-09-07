@@ -77,12 +77,20 @@ struct HomeScreen: View {
 
                     nextAction
 
-                    // A coach's entry, only while it is new: opening the
-                    // Journal marks it seen and the card goes. Adil's call
-                    // over a fourth tab — what a coach sends arrives here.
+                    // A coach's entry, only while it is new: reading it
+                    // marks it seen and the card goes. There is a Coaching
+                    // tab now, so the card says where the rest of them
+                    // live rather than being the only door to them.
                     if let fresh = journal.unseenCoachShare(userId: app.userId) {
                         VStack(alignment: .leading, spacing: 10) {
-                            SectionHeading("From Coaches")
+                            HStack {
+                                SectionHeading("From Coaches")
+                                Spacer()
+                                Button("Open Coaching") { router.tab = .coaching }
+                                    .font(.plCaption)
+                                    .foregroundStyle(PL.text400)
+                                    .buttonStyle(.plain)
+                            }
                             Button {
                                 coachEntryOpen = fresh
                             } label: {
