@@ -11,15 +11,15 @@
  ],
  "rawOffsetS": 0.0,
  "offsetErr": 1.305,
- "cards": 128,
+ "cards": 102,
  "points": 95,
- "ok": 91,
- "srvAgree": 82,
- "srvDisagree": 12,
+ "ok": 93,
+ "srvAgree": 86,
+ "srvDisagree": 8,
  "missed": 1,
  "fused": 0,
- "extra": 3,
- "onDeleted": 28,
- "nowhere": 3,
- "short": 4
+ "extra": 1,
+ "onDeleted": 5,
+ "nowhere": 2,
+ "short": 3
 }
