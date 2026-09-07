@@ -72,9 +72,22 @@ BUCKET='ponglens-media'
 MODEL='gpt-5.6-luna'
 log=logging.getLogger('lesson-video')
 
+# Every file whose contents define this release. It must match
+# package.py's WORKER_FILES exactly: the packaging tool stamps the
+# manifest from its list and the worker reports its own from this one, so
+# any difference makes a worker that cannot claim the release it is
+# running. That happened — the cloud dispatcher was added to one list and
+# not the other, and the first release cut afterwards started, beat, and
+# quietly claimed nothing. test_lesson_release.py pins them together now.
+#
+# The dispatcher belongs here on its own merits: it decides whether the
+# cloud twin may claim, and the twin has to be the identical sealed
+# bundle, so changing it has to change the release.
+RELEASE_FILES=('lesson_video.py','lesson-video-requirements.txt','cost_meter.py','lesson-font.ttf','lesson_deletion.py','lesson_cloud_dispatch.py')
+
 def release_id():
  h=hashlib.sha256()
- for name in ['lesson_video.py','lesson-video-requirements.txt','cost_meter.py','lesson-font.ttf','lesson_deletion.py']:
+ for name in RELEASE_FILES:
   path=Path(__file__).with_name(name)
   if path.exists():h.update(name.encode());h.update(path.read_bytes())
  return 'lesson-video-'+h.hexdigest()[:16]
