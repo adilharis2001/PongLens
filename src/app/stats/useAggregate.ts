@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
 import {
+  readCached,
+  splitByFreshness,
+  writeCached,
+} from "@/lib/stats/pointCache";
+import {
   aggregateStats,
   type AggregateStats,
   type MatchLite,
@@ -17,23 +22,30 @@ const POINT_COLS =
 
 /**
  * There is no summary row anywhere: every one of these numbers is folded
- * out of every live point of every match, in the browser, on each mount.
- * On a big account that is thousands of rows over several round trips,
- * and three surfaces want the same answer — Home's "Your game" card,
- * /stats, and the Journal's Stats tab.
+ * out of every live point of every match, through the exact pure walks the
+ * match page uses, so they can never drift from what a match page shows.
+ * Three surfaces want the same answer — Home's "Your game" card, /stats,
+ * and the Journal's Stats tab.
  *
- * So the walk is shared. The first caller in a page session does it; the
- * rest are handed the finished result, which is why the Journal's Stats
- * tab can paint filled the second time it is opened. A caller arriving
- * while the walk is still running waits on the same promise rather than
- * starting a second one.
+ * Two things stop that costing what it used to.
  *
- * `matches` has no `updated_at`, so there is nothing cheap to compare a
- * cached answer against. Instead the result is simply re-walked in the
- * background when it is more than a minute old, and the stale numbers
- * stay on screen until the new ones land. Making this a stored per-match
- * summary is its own piece of work; until then, this is the difference
- * between a tab that pauses and one that does not.
+ * Within a page session the walk is SHARED: the first caller does it, the
+ * rest are handed the finished result, and a caller arriving mid-walk
+ * waits on the same promise rather than starting a second one. That is
+ * why the Journal's Stats tab paints filled the second time it is opened.
+ *
+ * Between sessions the POINTS are cached, per match, under a fingerprint
+ * of every column the walk reads (`my_match_point_fingerprints`, 41 ms and
+ * 7 KB). A match whose fingerprint is unchanged is not fetched again, so
+ * an ordinary visit downloads nothing at all instead of 2.5 MB. This is
+ * deliberately not a stored ANSWER: a stored answer is faster still, but a
+ * write that is ever missed leaves a confident wrong number on screen with
+ * nothing to show it is wrong, and a fingerprint cannot be wrong because
+ * it IS the question. Adil's call, 2026-09-07.
+ *
+ * The match rows themselves are always read fresh — 115 rows, and a change
+ * to `first_server` or `user_side` moves the numbers — so nothing about
+ * them is ever cached.
  */
 const FRESH_MS = 60_000;
 
@@ -59,47 +71,68 @@ async function walk(
     )
     .eq("user_id", userId);
   const list = (ms as MatchLite[]) ?? [];
-
-  // Points arrive in match-id chunks (URL length) and 1000-row pages
-  // (PostgREST cap). Order doesn't matter — sortPoints runs per match.
-  //
-  // The chunks run TOGETHER. They are independent queries against
-  // different matches, and walking them one after another was most of the
-  // wait: on an account of 115 matches and 7,800 points that is three
-  // chunks of three pages each, ten round trips end to end, every one of
-  // them waiting for the last. The database answers each in about three
-  // milliseconds; the time was almost entirely in the queueing. Pages
-  // within a chunk still have to be sequential, because a page only knows
-  // it is the last one by coming back short.
   const ids = list.map((m) => m.id);
-  const chunks: string[][] = [];
-  for (let i = 0; i < ids.length; i += 50) chunks.push(ids.slice(i, i + 50));
+  if (ids.length === 0) return aggregateStats(list, new Map(), accountName);
 
-  const perChunk = await Promise.all(
-    chunks.map(async (chunk) => {
-      const rows: Point[] = [];
-      for (let from = 0; ; from += 1000) {
-        const { data: ps } = await supabase
-          .from("points")
-          .select(POINT_COLS)
-          .in("match_id", chunk)
-          .eq("deleted", false)
-          .range(from, from + 999);
-        const page = (ps as unknown as Point[]) ?? [];
-        rows.push(...page);
-        if (page.length < 1000) break;
-      }
-      return rows;
-    })
+  // "Has anything changed?", asked in one cheap query. A digest per match
+  // of every column the walk reads: 107 rows and about 7 KB against the
+  // 2.5 MB of points it decides whether we need. A match with no live
+  // points is absent from the answer, which is itself a fingerprint —
+  // the empty string below.
+  const { data: fp } = await supabase.rpc("my_match_point_fingerprints");
+  const fingerprints = new Map<string, string>(
+    ((fp as { match_id: string; fingerprint: string }[] | null) ?? []).map(
+      (r) => [r.match_id, r.fingerprint]
+    )
   );
-  const all: Point[] = perChunk.flat();
+  const fingerprintOf = (id: string) => fingerprints.get(id) ?? "";
 
-  const byMatch = new Map<string, Point[]>();
-  for (const p of all) {
-    const rows = byMatch.get(p.match_id) ?? [];
-    rows.push(p);
-    byMatch.set(p.match_id, rows);
+  const cached = await readCached(userId, ids);
+  const { fresh, stale } = splitByFreshness(ids, fingerprints, cached);
+  const byMatch = new Map<string, Point[]>(fresh);
+
+  // Only the matches that actually moved. On an ordinary visit this is
+  // empty and nothing is downloaded at all. Points arrive in match-id
+  // chunks (URL length) and 1000-row pages (PostgREST cap); the chunks are
+  // independent queries and run together, because walking them one after
+  // another was most of the wait.
+  if (stale.length > 0) {
+    const chunks: string[][] = [];
+    for (let i = 0; i < stale.length; i += 50) chunks.push(stale.slice(i, i + 50));
+    const perChunk = await Promise.all(
+      chunks.map(async (chunk) => {
+        const rows: Point[] = [];
+        for (let from = 0; ; from += 1000) {
+          const { data: ps } = await supabase
+            .from("points")
+            .select(POINT_COLS)
+            .in("match_id", chunk)
+            .eq("deleted", false)
+            .range(from, from + 999);
+          const page = (ps as unknown as Point[]) ?? [];
+          rows.push(...page);
+          if (page.length < 1000) break;
+        }
+        return rows;
+      })
+    );
+    for (const id of stale) byMatch.set(id, []);
+    for (const rows of perChunk) {
+      for (const p of rows) {
+        byMatch.get(p.match_id)?.push(p);
+      }
+    }
+    void writeCached(
+      userId,
+      stale.map((id) => ({
+        matchId: id,
+        fingerprint: fingerprintOf(id),
+        points: byMatch.get(id) ?? [],
+      })),
+      ids
+    );
   }
+
   return aggregateStats(list, byMatch, accountName);
 }
 
