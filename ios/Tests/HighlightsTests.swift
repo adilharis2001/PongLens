@@ -4,18 +4,18 @@ func runAutomaticHighlightsChecks() {
     print("\n— automatic highlight manifest —")
     check(
         automaticHighlightActions(includePlay: true, sharingEnabled: true)
-            == [.play, .instagramStory, .instagramReel, .saveVideo],
-        "the Highlights sheet puts playback and every share choice together"
+            == [.play, .instagram, .shareLink, .saveVideo],
+        "the Highlights sheet keeps four clear top-level choices"
     )
     check(
         automaticHighlightActions(includePlay: false, sharingEnabled: true)
-            == [.instagramStory, .instagramReel, .saveVideo],
+            == [.instagram, .shareLink, .saveVideo],
         "the player share sheet reuses the share choices without a second play row"
     )
     check(
         automaticHighlightActions(includePlay: true, sharingEnabled: false)
-            == [.play, .saveVideo],
-        "the sharing switch hides Instagram but keeps playback and saving"
+            == [.play, .shareLink, .saveVideo],
+        "the sharing switch hides Instagram but keeps links and saving"
     )
     check(
         automaticHighlightsSheetHeight(hasActions: true) == 570,

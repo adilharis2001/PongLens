@@ -41,8 +41,8 @@ export function ShareView({
   them,
 }: {
   token: string;
-  /** A point link plays one rally; a match link plays the cut video. */
-  kind: "point" | "match";
+  /** A point link plays one rally; match and highlight links play one video. */
+  kind: "point" | "match" | "highlights";
   matchId: string;
   /** Match links only: the visible points, in timeline order. Plain rows
    *  straight from resolve_share_points — the walk happens here rather

@@ -14,7 +14,13 @@ import { deriveMatchTitleParts } from "@/lib/matchTitle";
 
 interface ShareLinkRow {
   id: string;
-  kind: "point" | "match" | "starred" | "tag" | "entry";
+  kind:
+    | "point"
+    | "match"
+    | "starred"
+    | "tag"
+    | "entry"
+    | "highlights";
   /** null on journal entry links (154) — they name a lesson, not a match */
   match_id: string | null;
   point_id: string | null;
@@ -28,11 +34,13 @@ function kindLabel(kind: ShareLinkRow["kind"]) {
     ? "Point"
     : kind === "starred"
       ? "Starred points"
-      : kind === "tag"
-        ? "Tagged points"
-        : kind === "entry"
-          ? "Journal entry"
-          : "Match";
+      : kind === "highlights"
+        ? "Highlights"
+        : kind === "tag"
+          ? "Tagged points"
+          : kind === "entry"
+            ? "Journal entry"
+            : "Match";
 }
 
 // Journal entry links have no match to group under; they share one

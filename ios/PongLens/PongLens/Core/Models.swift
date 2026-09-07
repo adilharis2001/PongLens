@@ -12,8 +12,8 @@ struct CountRow: Codable, Hashable {
 
 enum AutomaticHighlightAction: Hashable {
     case play
-    case instagramStory
-    case instagramReel
+    case instagram
+    case shareLink
     case saveVideo
 }
 
@@ -22,10 +22,8 @@ func automaticHighlightActions(
 ) -> [AutomaticHighlightAction] {
     var actions: [AutomaticHighlightAction] = []
     if includePlay { actions.append(.play) }
-    if sharingEnabled {
-        actions.append(.instagramStory)
-        actions.append(.instagramReel)
-    }
+    if sharingEnabled { actions.append(.instagram) }
+    actions.append(.shareLink)
     actions.append(.saveVideo)
     return actions
 }

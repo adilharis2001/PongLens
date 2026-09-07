@@ -228,6 +228,7 @@ private struct AutomaticHighlightActions: View {
     @State private var shareItem: URL?
     @State private var sharingOn = true
     @State private var busyAction: String?
+    @State private var instagramOpen = false
     @AppStorage("shareShowNames") private var showNames = true
     @AppStorage("shareShowScore") private var showScore = true
     @AppStorage("shareShowLogo") private var showLogo = true
@@ -246,22 +247,28 @@ private struct AutomaticHighlightActions: View {
                         icon: "play.fill",
                         title: "Play highlights",
                         detail: playDetail,
+                        pending: busyAction != nil,
                         action: onPlay
                     )
-                case .instagramStory:
-                    shareRow(
-                        action: "story",
-                        title: "Instagram Story",
-                        detail: "Your best qualifying rally inside 20 seconds. Opens Instagram ready to post.",
-                        destination: .story
-                    )
-                case .instagramReel:
-                    shareRow(
-                        action: "reel",
-                        title: "Instagram Reel",
-                        detail: "Your best qualifying rallies inside a minute. Opens Instagram ready to post.",
-                        destination: .reel
-                    )
+                case .instagram:
+                    PLChooserRow(
+                        icon: "camera.aperture",
+                        title: "Instagram",
+                        detail: "Share as a Story or Reel.",
+                        pending: busyAction != nil
+                    ) {
+                        instagramOpen = true
+                    }
+                case .shareLink:
+                    PLChooserRow(
+                        icon: "link",
+                        title: busyAction == "link" ? "Creating…" : "Share a link",
+                        detail: "Anyone with the link can watch. You can revoke it anytime from your account.",
+                        pending: busyAction != nil && busyAction != "link",
+                        busy: busyAction == "link"
+                    ) {
+                        Task { await shareHighlightLink() }
+                    }
                 case .saveVideo:
                     shareRow(
                         action: "save",
@@ -293,6 +300,25 @@ private struct AutomaticHighlightActions: View {
         .sheet(item: $shareItem) { url in
             ActivityView(items: [url]).presentationDetents([.medium])
         }
+        .sheet(isPresented: $instagramOpen) {
+            PLChooserSheet(title: "Instagram") {
+                shareRow(
+                    action: "story",
+                    title: "Story",
+                    detail: "Your best qualifying rally inside 20 seconds.",
+                    destination: .story
+                )
+                shareRow(
+                    action: "reel",
+                    title: "Reel",
+                    detail: "Your best qualifying rallies inside a minute.",
+                    destination: .reel
+                )
+            }
+            .presentationDetents([.height(300)])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
+        }
         .task { sharingOn = await StoryShareModel.sharingEnabled() }
     }
 
@@ -306,10 +332,37 @@ private struct AutomaticHighlightActions: View {
             icon: destination == nil ? "square.and.arrow.down" : "camera.aperture",
             title: busyAction == action ? "Preparing…" : title,
             detail: busyAction == action ? model.progressLine : detail,
-            pending: model.busy && busyAction != action,
+            pending: busyAction != nil && busyAction != action,
             busy: busyAction == action
         ) {
             Task { await run(action, to: destination) }
+        }
+    }
+
+    private func shareHighlightLink() async {
+        guard busyAction == nil else { return }
+        busyAction = "link"
+        model.errorMessage = nil
+        defer { busyAction = nil }
+        struct Req: Encodable {
+            let matchId: String
+            let kind: String
+        }
+        struct Res: Decodable { let url: String }
+        do {
+            let response: Res = try await API.post(
+                "api/share",
+                Req(
+                    matchId: match.id.uuidString.lowercased(),
+                    kind: "highlights"
+                )
+            )
+            guard let url = URL(string: response.url) else {
+                throw URLError(.badURL)
+            }
+            shareItem = url
+        } catch {
+            model.errorMessage = "Couldn't create the link. Try again."
         }
     }
 
@@ -330,6 +383,7 @@ private struct AutomaticHighlightActions: View {
         if let destination {
             do {
                 try InstagramShare.share(url, to: destination)
+                instagramOpen = false
                 dismiss()
             } catch {
                 model.errorMessage = error.localizedDescription

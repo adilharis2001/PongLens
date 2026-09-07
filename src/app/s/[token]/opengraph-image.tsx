@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 import {
   playersLine,
   pointContextLine,
+  highlightContextLine,
   starredContextLine,
   tagContextLine,
   type ResolvedShareEntry,
@@ -182,11 +183,13 @@ export default async function OgImage({
         ? starredContextLine(collectionCount, names)
         : link.kind === "tag"
           ? tagContextLine(link.tag_label, collectionCount, names)
-          : // "Adil vs Julian" is already the name of the thing. The
-            // "Match · " prefix in front of it was the card telling you
-            // what kind of page it is, which the picture and the wordmark
-            // under it already say.
-            (names ?? "Match");
+          : link.kind === "highlights"
+            ? highlightContextLine(names)
+            : // "Adil vs Julian" is already the name of the thing. The
+              // "Match · " prefix in front of it was the card telling you
+              // what kind of page it is, which the picture and the wordmark
+              // under it already say.
+              (names ?? "Match");
   const custom = link?.title?.trim() || null;
   const big = custom ?? machine;
   const sub = !link

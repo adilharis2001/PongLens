@@ -8,7 +8,7 @@
 import type { Point } from "@/lib/types";
 
 export interface ResolvedShareLink {
-  kind: "point" | "match" | "starred" | "tag";
+  kind: "point" | "match" | "starred" | "tag" | "highlights";
   match_id: string;
   point_id: string | null;
   /** owner-written headline (<= 80 chars); null = machine context line */
@@ -277,6 +277,10 @@ export function starredContextLine(
   if (count < 1) return names ?? "Starred points";
   const pts = `${count} ${count === 1 ? "point" : "points"}`;
   return names ? `${pts} · ${names}` : pts;
+}
+
+export function highlightContextLine(names: string | null): string {
+  return names ? `Highlights · ${names}` : "Highlights";
 }
 
 /** "backhand error · 4 points · Adil vs Marco" — the tag collection line. */

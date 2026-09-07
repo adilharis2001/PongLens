@@ -22,6 +22,7 @@ struct ShareLinkRow: Codable, Identifiable, Hashable {
         if let title, !title.isEmpty { return title }
         switch kind {
         case "starred": return "Starred points"
+        case "highlights": return "Highlights"
         case "tag": return "Tagged points"
         case "entry": return "Journal entry"
         default: return pointId == nil ? "This match" : "This point"
