@@ -6,6 +6,7 @@ import { automaticHighlightsEnabled } from "./access";
 import {
   automaticHighlightEvidenceRefreshNeeded,
   automaticHighlightReadDecision,
+  automaticHighlightRequestDecision,
   highlightManifestIsFresh,
   type AutomaticHighlightRevisionPoint,
 } from "./endPolicy";
@@ -168,21 +169,13 @@ export async function GET(req: Request) {
       });
     }
 
-    if (!decision.enqueueInitial) {
-      return response({ status: decision.status });
-    }
-
-    if (!match.cut_path || match.status !== "ready") {
+    if (
+      decision.status === "needs_generation" &&
+      (!match.cut_path || match.status !== "ready")
+    ) {
       return response({ status: "unavailable" });
     }
-    const { error: enqueueError } = await supabase.rpc("enqueue_reel", {
-      p_match_id: matchId,
-      p_scope: "highlights",
-      p_show_score: false,
-      p_manifest: initialManifest(),
-    });
-    if (enqueueError) throw enqueueError;
-    return response({ status: "rendering" });
+    return response({ status: decision.status });
   } catch (error) {
     console.error("automatic highlights route failed", error);
     return response({ status: "failed" });
@@ -240,15 +233,24 @@ export async function POST(req: Request) {
       loadPoints(supabase, matchId),
     ]);
     if (reelError || !points) throw reelError ?? new Error("points unavailable");
-    if (!reel) return response({ code: "highlights_not_prepared" }, 409);
-    if (reel.status === "queued" || reel.status === "rendering") {
+    const manifest = manifestValue(reel?.manifest);
+    const requestDecision = automaticHighlightRequestDecision({
+      hasReel: Boolean(reel),
+      reelStatus: reel?.status ?? null,
+      manifestFresh: Boolean(
+        manifest && highlightManifestIsFresh(points, manifest),
+      ),
+      pointsUpdating: points.some(
+        (point) => !point.deleted && point.edited,
+      ),
+    });
+    if (requestDecision === "rendering") {
       return response({ status: "rendering" }, 202);
     }
-    if (points.some((point) => !point.deleted && point.edited)) {
+    if (requestDecision === "clips_updating") {
       return response({ code: "rally_clips_updating" }, 409);
     }
-    const manifest = manifestValue(reel.manifest);
-    if (manifest && highlightManifestIsFresh(points, manifest)) {
+    if (requestDecision === "current") {
       return response({ code: "highlights_current" }, 409);
     }
 

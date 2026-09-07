@@ -31,6 +31,7 @@ export type HighlightState =
   | {
       status:
         | "rendering"
+        | "needs_generation"
         | "needs_update"
         | "updating"
         | "empty"
@@ -40,6 +41,7 @@ export type HighlightState =
 
 const nonPlayable = new Set([
   "rendering",
+  "needs_generation",
   "needs_update",
   "updating",
   "empty",
@@ -81,6 +83,14 @@ export function highlightLifecycleView(
   state: Exclude<HighlightState, HighlightAsset>,
 ): HighlightLifecycleView {
   switch (state.status) {
+    case "needs_generation":
+      return {
+        rowSummary: "Generate",
+        sheetTitle: "Generate highlights?",
+        body: "Highlights haven't been generated for this match. You can generate them from Tools.",
+        actionLabel: "Generate highlights",
+        shouldPoll: false,
+      };
     case "needs_update":
       return {
         rowSummary: "Update needed",

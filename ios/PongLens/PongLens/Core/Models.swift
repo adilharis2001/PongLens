@@ -43,6 +43,13 @@ struct AutomaticHighlightsRequestView: Hashable {
 
 func automaticHighlightsRequestView(status: String) -> AutomaticHighlightsRequestView? {
     switch status {
+    case "needs_generation":
+        AutomaticHighlightsRequestView(
+            title: "Generate highlights?",
+            body: "Highlights haven't been generated for this match. You can generate them from Tools.",
+            actionLabel: "Generate highlights",
+            running: false
+        )
     case "needs_update":
         AutomaticHighlightsRequestView(
             title: "Update highlights",
@@ -80,6 +87,7 @@ struct AutomaticHighlightsResponse: Codable, Hashable {
             return "\(n) \(n == 1 ? "rally" : "rallies") · "
                 + String(format: "%d:%02d", seconds / 60, seconds % 60)
         case "rendering": return "Preparing highlights"
+        case "needs_generation": return "Generate"
         case "needs_update": return "Update needed"
         case "updating": return "Updating rally clips"
         case "empty", "unavailable": return "No highlight rallies"

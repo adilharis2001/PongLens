@@ -34,6 +34,7 @@ export const DETECTOR_END_TAIL_S = 0.25;
 export type AutomaticHighlightReadStatus =
   | "ready"
   | "rendering"
+  | "needs_generation"
   | "needs_update"
   | "updating"
   | "empty"
@@ -49,21 +50,44 @@ export function automaticHighlightReadDecision({
   reelStatus: string | null;
   manifestFresh: boolean;
   pointsUpdating: boolean;
-}): { status: AutomaticHighlightReadStatus; enqueueInitial: boolean } {
-  if (pointsUpdating) return { status: "updating", enqueueInitial: false };
-  if (!hasReel) return { status: "rendering", enqueueInitial: true };
+}): { status: AutomaticHighlightReadStatus } {
+  if (pointsUpdating) return { status: "updating" };
+  if (!hasReel) {
+    return { status: "needs_generation" };
+  }
   if (reelStatus === "queued" || reelStatus === "rendering") {
-    return { status: "rendering", enqueueInitial: false };
+    return { status: "rendering" };
   }
   if (!manifestFresh) {
     return {
       status: pointsUpdating ? "updating" : "needs_update",
-      enqueueInitial: false,
     };
   }
-  if (reelStatus === "ready") return { status: "ready", enqueueInitial: false };
-  if (reelStatus === "empty") return { status: "empty", enqueueInitial: false };
-  return { status: "failed", enqueueInitial: false };
+  if (reelStatus === "ready") return { status: "ready" };
+  if (reelStatus === "empty") return { status: "empty" };
+  return { status: "failed" };
+}
+
+export function automaticHighlightRequestDecision({
+  hasReel,
+  reelStatus,
+  manifestFresh,
+  pointsUpdating,
+}: {
+  hasReel: boolean;
+  reelStatus: string | null;
+  manifestFresh: boolean;
+  pointsUpdating: boolean;
+}): "enqueue" | "rendering" | "clips_updating" | "current" {
+  if (
+    hasReel &&
+    (reelStatus === "queued" || reelStatus === "rendering")
+  ) {
+    return "rendering";
+  }
+  if (pointsUpdating) return "clips_updating";
+  if (hasReel && manifestFresh) return "current";
+  return "enqueue";
 }
 
 export function automaticHighlightEvidenceRefreshNeeded(

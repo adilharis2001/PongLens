@@ -114,6 +114,7 @@ export function HighlightsRow({
       return;
     }
     if (
+      state?.status === "needs_generation" ||
       state?.status === "needs_update" ||
       state?.status === "updating" ||
       state?.status === "rendering"
@@ -149,7 +150,7 @@ export function HighlightsRow({
         throw new Error(
           body.code === "render_queue_full"
             ? "Three videos are already being prepared. Try again when one is finished."
-            : "Couldn't update highlights. Try again.",
+            : "Couldn't prepare highlights. Try again.",
         );
       }
       setState({ status: "rendering" });
@@ -160,7 +161,7 @@ export function HighlightsRow({
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Couldn't update highlights. Try again.",
+          : "Couldn't prepare highlights. Try again.",
       );
     } finally {
       setSubmitting(false);
@@ -169,6 +170,7 @@ export function HighlightsRow({
 
   const actionable =
     state?.status === "ready" ||
+    state?.status === "needs_generation" ||
     state?.status === "needs_update" ||
     state?.status === "updating" ||
     state?.status === "rendering";

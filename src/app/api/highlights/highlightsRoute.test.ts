@@ -28,9 +28,10 @@ test("ready assets are prefix pinned and signed inline", () => {
   assert.match(route, /disposition: "inline"/);
 });
 
-test("only absent artifacts auto-enqueue; stale artifacts require POST", () => {
+test("opening highlights never enqueues work; every missing or stale artifact requires POST", () => {
+  const getHandler = route.slice(0, route.indexOf("export async function POST"));
   assert.match(route, /p_scope: "highlights"/);
-  assert.match(route, /if \(!decision\.enqueueInitial\)/);
+  assert.doesNotMatch(getHandler, /enqueue_reel/);
   assert.match(route, /export async function POST/);
   assert.match(route, /refresh_evidence: true/);
   assert.match(route, /highlightManifestIsFresh\(/);

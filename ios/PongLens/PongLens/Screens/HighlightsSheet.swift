@@ -157,10 +157,10 @@ struct HighlightsSheet: View {
             }
             errorMessage = code == "render_queue_full"
                 ? "Three videos are already being prepared. Try again when one is finished."
-                : "Couldn't update highlights. Try again."
+                : "Couldn't prepare highlights. Try again."
             submitting = false
         } catch {
-            errorMessage = "Couldn't update highlights. Try again."
+            errorMessage = "Couldn't prepare highlights. Try again."
             submitting = false
         }
     }

@@ -62,6 +62,7 @@ func runAutomaticHighlightsChecks() {
 
     let states: [(String, String)] = [
         ("rendering", "Preparing highlights"),
+        ("needs_generation", "Generate"),
         ("needs_update", "Update needed"),
         ("updating", "Updating rally clips"),
         ("empty", "No highlight rallies"),
@@ -73,6 +74,15 @@ func runAutomaticHighlightsChecks() {
         let response = try? JSONDecoder().decode(AutomaticHighlightsResponse.self, from: data)
         check(response?.summary == summary, "\(status) state copy matches web")
     }
+
+    let generation = automaticHighlightsRequestView(status: "needs_generation")
+    check(generation?.title == "Generate highlights?", "legacy matches use the generation title")
+    check(generation?.actionLabel == "Generate highlights", "legacy matches require one explicit action")
+    check(generation?.running == false, "legacy matches do not start processing on open")
+    check(
+        generation?.body == "Highlights haven't been generated for this match. You can generate them from Tools.",
+        "legacy matches explain that generation is available"
+    )
 
     let request = automaticHighlightsRequestView(status: "needs_update")
     check(request?.title == "Update highlights", "stale highlights use the request title")

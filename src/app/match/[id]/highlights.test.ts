@@ -54,6 +54,7 @@ test("decodes only a complete continuous ready asset", () => {
 test("passes through non-playable server states", () => {
   for (const status of [
     "rendering",
+    "needs_generation",
     "needs_update",
     "updating",
     "empty",
@@ -65,6 +66,13 @@ test("passes through non-playable server states", () => {
 });
 
 test("stale highlights ask before spending compute", () => {
+  assert.deepEqual(highlightLifecycleView({ status: "needs_generation" }), {
+    rowSummary: "Generate",
+    sheetTitle: "Generate highlights?",
+    body: "Highlights haven't been generated for this match. You can generate them from Tools.",
+    actionLabel: "Generate highlights",
+    shouldPoll: false,
+  });
   assert.deepEqual(highlightLifecycleView({ status: "needs_update" }), {
     rowSummary: "Update needed",
     sheetTitle: "Update highlights",

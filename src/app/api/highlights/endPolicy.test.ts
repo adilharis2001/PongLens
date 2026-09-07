@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   automaticHighlightEvidenceRefreshNeeded,
   automaticHighlightReadDecision,
+  automaticHighlightRequestDecision,
   automaticHighlightEnd,
   highlightManifestIsFresh,
   highlightPointsRevision,
@@ -50,7 +51,7 @@ test("only missing version-2 evidence asks the worker to remeasure rallies", () 
   );
 });
 
-test("only a match without a reel starts highlights on read", () => {
+test("a ready match without a reel waits for an explicit request", () => {
   assert.deepEqual(
     automaticHighlightReadDecision({
       hasReel: false,
@@ -58,7 +59,7 @@ test("only a match without a reel starts highlights on read", () => {
       manifestFresh: false,
       pointsUpdating: false,
     }),
-    { status: "rendering", enqueueInitial: true },
+    { status: "needs_generation" },
   );
   assert.deepEqual(
     automaticHighlightReadDecision({
@@ -67,7 +68,7 @@ test("only a match without a reel starts highlights on read", () => {
       manifestFresh: false,
       pointsUpdating: false,
     }),
-    { status: "needs_update", enqueueInitial: false },
+    { status: "needs_update" },
   );
 });
 
@@ -79,7 +80,7 @@ test("edited rally clips settle before an explicit highlight update", () => {
       manifestFresh: false,
       pointsUpdating: true,
     }),
-    { status: "updating", enqueueInitial: false },
+    { status: "updating" },
   );
   assert.deepEqual(
     automaticHighlightReadDecision({
@@ -88,7 +89,28 @@ test("edited rally clips settle before an explicit highlight update", () => {
       manifestFresh: false,
       pointsUpdating: true,
     }),
-    { status: "updating", enqueueInitial: false },
+    { status: "updating" },
+  );
+});
+
+test("a missing reel can be explicitly requested once rally clips are settled", () => {
+  assert.equal(
+    automaticHighlightRequestDecision({
+      hasReel: false,
+      reelStatus: null,
+      manifestFresh: false,
+      pointsUpdating: false,
+    }),
+    "enqueue",
+  );
+  assert.equal(
+    automaticHighlightRequestDecision({
+      hasReel: false,
+      reelStatus: null,
+      manifestFresh: false,
+      pointsUpdating: true,
+    }),
+    "clips_updating",
   );
 });
 
@@ -107,7 +129,7 @@ test("fresh reel states remain terminal or in flight without another enqueue", (
         manifestFresh: true,
         pointsUpdating: false,
       }),
-      { status, enqueueInitial: false },
+      { status },
     );
   }
 });
