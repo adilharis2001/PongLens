@@ -124,6 +124,7 @@ as $function$
   where v.id = p_video_id;
 $function$;
 
+revoke all on function public.lesson_video_access(uuid) from public;
 grant execute on function public.lesson_video_access(uuid) to authenticated, service_role;
 
 -- 3. Publishing, for both directions.
@@ -234,6 +235,11 @@ begin
   return v;
 end $function$;
 
+-- `drop function` above took the old function's privileges with it, and a
+-- new function is granted EXECUTE to PUBLIC by default. Saying so here as
+-- well as in 20260907140654, so a fresh database never holds the wrong
+-- grants even for the statements in between.
+revoke all on function public.publish_lesson_video(uuid, uuid, boolean) from public;
 grant execute on function public.publish_lesson_video(uuid, uuid, boolean) to service_role;
 
 -- 4. The coach's view of what a student shared now carries the recap, so
@@ -285,6 +291,7 @@ as $function$
   order by l.shared_with_coach_at desc;
 $function$;
 
+revoke all on function public.student_shared_lessons() from public;
 grant execute on function public.student_shared_lessons() to authenticated, service_role;
 
 -- 5. A shared note now opens the coaching workspace, which is where a
