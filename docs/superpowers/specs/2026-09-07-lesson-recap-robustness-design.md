@@ -56,7 +56,55 @@ far-field speech below what a small VAD can separate.
 anyone talking". The only things that can hear these rooms are the large
 models, and that shapes the whole design.
 
-## 3. The principle
+## 3. What was built, and why it is not what section 3 first said
+
+This section originally proposed a second listener as the discriminator,
+bought only for stretches the first one came back empty on. It was built,
+tested against real audio, and **abandoned on the evidence**. The record
+is kept because the reasoning is the useful part.
+
+`gpt-audio` was chosen because it was the only model that never returned
+an empty window across 90 windows of a real lesson. Run against a stretch
+of a real drill it wrote:
+
+> "Alright, more spin on the serve. Hit the ball. That's it. Make sure
+> you follow through. Good. There we go."
+
+and against 300 seconds of pure digital silence:
+
+> "OK, let's keep your elbow up and follow through. Good, now angle your
+> wrist a bit more. There you go."
+
+Different every run, in both cases. **It cannot say nothing.** Its perfect
+record of never returning empty was never good hearing; it was an
+inability to be silent, and the measurement that made it look best is the
+one that disqualifies it. A model that invents coaching is the exact
+failure this whole design exists to prevent, and putting it in the ladder
+would have made a drill produce a chapter.
+
+Whisper hallucinates on non-speech too, and harmlessly differently: on
+the same real drill it returned "RUPERT STREET" three times, and on
+silence "you" ten times, identically on repeat runs. Degenerate
+repetition at six to ten words a minute — under the floor, and caught by
+a repetition check besides.
+
+**So the two cases are not told apart at all.** Nothing available can do
+it honestly. What is done instead is make not knowing safe:
+
+- A stretch nobody was heard in contributes no clips and no coverage
+  requirement — exactly as a drill should.
+- A clip must have speech inside its own range.
+- Nothing is ever said to the player about a quiet stretch, because a
+  warning that fires on drilling teaches them to distrust a recap that is
+  in fact complete.
+- A lesson is refused only when it yields nothing at all.
+
+The cost of not knowing is bounded and one-directional: a stretch that
+really was missed is silently dropped rather than recovered. That costs
+coverage on hard audio and can never cost correctness, which is the trade
+Adil asked for.
+
+### The original proposal, kept for the record
 
 **A second opinion is the discriminator, and it is bought only where it
 is needed.**
@@ -205,15 +253,17 @@ whole ladder.
 - **No attempt to separate a coach's voice from other tables.** Worth
   knowing about, not worth blocking this on.
 
-## 8. Wants an answer before building
+## 8. Answered
 
-1. **Refusal.** When most of a lesson was inaudible, is refusing right,
-   or would a short recap plus a plain warning be better? Refusing keeps
-   the original and costs the player nothing but time; a thin recap risks
-   being trusted. My view: refuse, because a recap is a reference a
-   player relies on months later.
-2. **Recap length.** Is "a quarter of the audible lesson, capped at 15
-   minutes" the right shape, or should a 30-minute lesson be allowed a
-   longer recap in proportion?
-3. **The second opinion's price.** Needs confirming before `gpt-audio`
-   goes in the ladder.
+1. **Refusal.** Adil: refuse when it is really bad. Done — a lesson that
+   yields nothing is refused with the likely reason and the original
+   kept. A lesson that yields something is built from what it yields and
+   says nothing about the rest.
+2. **Recap length.** Adil: "the focus should be on completeness of the
+   key parts taught in the lesson. It shouldn't be concise or too long
+   for the sake of it." So no proportional cap. Coverage is measured
+   against the outline and the recap is as long as the teaching earns,
+   inside the existing 16-chapter and 15-minute safety limits.
+3. **The second opinion's price.** Moot: there is no second opinion. The
+   rate rows for `gpt-audio` were added and are harmless if it is ever
+   used for something it is honest at.

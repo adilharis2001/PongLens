@@ -17,13 +17,56 @@ MAX_RECAP_SECONDS=900
 MAX_CHAPTERS=16
 MAX_MERGE_ATTEMPTS=3
 MAX_WINDOW_ATTEMPTS=3
-# The transcription ladder. Rungs are tried in order and stop as soon as one
-# clears the floor, so ordinary audio pays for a single pass; only a section
-# nobody heard pays twice. Raising ASR_VERSION re-hears every thin section
-# saved by an older ladder and leaves every good one alone.
+# Hearing the lesson.
+#
+# The question this pipeline could never answer is whether a quiet stretch
+# means nobody spoke or means we failed to hear them. They produce
+# identical evidence and they need opposite responses: a ten-minute drill
+# is an ordinary part of a lesson, and ten minutes lost to a phone on the
+# wrong side of the hall is a fault. Every rule that judged a stretch on
+# its word count alone punished the drill.
+#
+# Voice activity detection is the obvious answer and it does not work
+# here. Silero VAD over 90 windows of a real lesson never exceeded 0.003
+# of 1.0 on a window holding 197 words of clear conversation, and scored
+# an empty window higher; sixteen times the gain did not move it. Ball
+# impacts and hall reverb bury far-field speech below what a small model
+# can separate. There is no cheap local signal.
+#
+# A second listener was the obvious answer and it is worse than the
+# problem. gpt-audio, the one model that never returned an empty window
+# across 90 windows of a real lesson, turns out to be unable to say
+# nothing: given a real drill it wrote "Alright, more spin on the serve.
+# Hit the ball. That's it," and given pure digital silence it wrote "OK,
+# let's keep your elbow up and follow through" — plausible coaching,
+# different every run, none of it said by anybody.
+#
+# So the two cases are not told apart at all. Nothing available can do it
+# honestly, and pretending otherwise is how a drill becomes a chapter.
+# What is done instead is make not knowing safe: a stretch nobody was
+# heard in contributes nothing to the recap, exactly as a drill would,
+# and the recap is built only from speech that is really there. That
+# costs coverage on hard audio and can never cost correctness.
+#
+# Whisper hallucinates on non-speech too, and harmlessly: on a real drill
+# it returned "RUPERT STREET" three times and on silence "you" ten times,
+# identically on repeat runs. Degenerate repetition, six to ten words a
+# minute, caught by the floor below and by degenerate() besides.
 TRANSCRIPT_FLOOR_WPM=12
-ASR_VERSION=4
-RICH_RECAP_MIN_SECONDS=75*60
+# Density is read over a rolling two minutes rather than over a section,
+# so a lesson that is half drilling and half teaching is not averaged into
+# one verdict.
+THIN_WINDOW_SECONDS=120
+ASR_VERSION=5
+# Sections exist because whisper takes at most 25 MB, which at this
+# worker's 64 kbps mono is about 52 minutes. They are an artefact of that
+# limit and of nothing else: no rule about quality, coverage or reporting
+# is phrased in terms of a section. Twenty minutes halves the number of
+# boundaries a teaching moment can straddle against the old ten.
+SECTION_SECONDS=1200
+# How far past the end of a file a transcriber may claim before its answer
+# is treated as broken rather than as its usual overshoot.
+SEGMENT_OVERRUN_SECONDS=5.0
 RICH_RECAP_SPACING_SECONDS=45
 BUCKET='ponglens-media'
 MODEL='gpt-5.6-luna'
@@ -36,8 +79,9 @@ def release_id():
   if path.exists():h.update(name.encode());h.update(path.read_bytes())
  return 'lesson-video-'+h.hexdigest()[:16]
 
-def chunk_ranges(duration):
- ranges=[(s,min(s+600,duration)) for s in range(0,math.ceil(duration),600)]
+def chunk_ranges(duration,section=None):
+ section=section or SECTION_SECONDS
+ ranges=[(s,min(s+section,duration)) for s in range(0,math.ceil(duration),section)]
  if len(ranges)>1 and ranges[-1][1]-ranges[-1][0]<15:
   ranges[-2]=(ranges[-2][0],ranges[-1][1]);ranges.pop()
  return ranges
@@ -139,6 +183,50 @@ def transcript_density(utterances,seconds):
 def thin_transcript(utterances,seconds):
  return transcript_density(utterances,seconds)<TRANSCRIPT_FLOOR_WPM
 
+def words_between(utterances,start,end):
+ """Words spoken inside a span, counting an utterance that straddles it."""
+ return transcript_words([u for u in utterances
+                          if float(u['end_s'])>start and float(u['start_s'])<end])
+
+def thin_stretches(utterances,start,end,window=None,floor=None):
+ """The parts of a section the first listener came back empty on.
+
+ Read over a rolling window rather than over the whole section, because a
+ section is an arbitrary slice of clock: a lesson that spends ten minutes
+ drilling and ten minutes being taught averages out to something that
+ looks fine and is half missing. Neighbouring empty windows are joined so
+ a quiet quarter of an hour is one question, not eight.
+
+ This says only WHERE nobody was heard. It does not say why, and nothing
+ downstream may treat it as if it did.
+ """
+ window=window or THIN_WINDOW_SECONDS;floor=TRANSCRIPT_FLOOR_WPM if floor is None else floor
+ out=[]
+ at=float(start)
+ while at<end-.5:
+  stop=min(at+window,end)
+  if words_between(utterances,at,stop)*60.0/(stop-at)<floor:
+   if out and abs(out[-1][1]-at)<.5:out[-1][1]=stop
+   else:out.append([at,stop])
+  at=stop
+ return [(a,b) for a,b in out]
+
+def degenerate(text):
+ """Whether a piece of transcript is a transcriber talking to itself.
+
+ Whisper fills non-speech with one token repeated: measured on a real
+ drill it returned "RUPERT STREET" three times, and on digital silence
+ "you" ten times, identically on repeat runs. That is not speech and it
+ must never reach a chapter, however few words it is.
+
+ Real speech does not repeat like this. The shortest genuine utterances
+ in a lesson still use most of their words once; a coach counting reps
+ is the only honest thing this discards, and there is no teaching in it.
+ """
+ words=[w for w in re.split(r'\W+',str(text or '').casefold()) if w]
+ if len(words)<4:return False
+ return len(set(words))/len(words)<=.4
+
 def transcript_chunk_reusable(chunk):
  """Keep a saved section only if somebody was actually heard in it.
 
@@ -167,8 +255,24 @@ def merge_segments(segments,start,duration,gap=1.5,span=45.0):
  out=[]
  for segment in segments:
   a=float(segment['start']);b=float(segment['end']);text=str(segment.get('text','')).strip()
-  if not all(math.isfinite(x) for x in (a,b)) or a<0 or b<=a or b>duration+.5:raise ValueError('Invalid transcription segment timing.')
-  if not text:continue
+  # Whisper habitually invents a second or two past the end of the file,
+  # usually somebody saying "Yeah." three times into audio that is not
+  # there. Refusing the section over it meant one hallucinated tail could
+  # fail twenty minutes of real teaching, which is how this was found:
+  # the first live run on a real lesson died on three stray words.
+  #
+  # So a small overrun is clamped and, if nothing of the segment remains
+  # inside the recording, dropped. A timestamp beyond that is not a tail,
+  # it is a broken response, and is still refused.
+  if not all(math.isfinite(x) for x in (a,b)) or a<0 or b<=a or b>duration+SEGMENT_OVERRUN_SECONDS:raise ValueError('Invalid transcription segment timing.')
+  b=min(b,duration)
+  if b<=a or not text:continue
+  # A transcriber filling non-speech repeats itself, either inside one
+  # segment ("you you you") or across several ("RUPERT STREET" three
+  # times, measured on a real drill). Both are dropped; a coach saying
+  # "Good. Good." loses nothing worth keeping.
+  if degenerate(text):continue
+  if out and text.casefold()==out[-1]['text'].casefold():continue
   if out and a-out[-1]['end']<=gap and b-out[-1]['start']<=span:
    out[-1]['end']=b;out[-1]['text']+=' '+text
   else:out.append({'start':a,'end':b,'text':text})
@@ -243,51 +347,24 @@ class Runtime:
   # time it is processed is its own kind of broken.
   d,duration=self.openai_transcription(path,'whisper-1',{'response_format':'verbose_json','temperature':0})
   return merge_segments(d.get('segments') or [],start,duration)
- def transcribe_diarized(self,path,start):
-  """Second rung, reached only when the first heard almost nothing.
-
-  A different model with a different blind spot, which is the whole
-  reason to keep it: on close-miked lessons it transcribes cleanly where
-  the first rung would be no better, and it labels speakers. Its
-  segments carry measured times, unlike plain text transcription.
-  """
-  d,_=self.openai_transcription(path,'gpt-4o-transcribe-diarize',{'response_format':'diarized_json','chunking_strategy':'auto'})
-  duration=float(d['duration'])
-  result=[]
-  for segment in d['segments']:
-   a=float(segment['start']);b=float(segment['end']);text=str(segment.get('text','')).strip()
-   if not all(math.isfinite(x) for x in (a,b,duration)) or a<0 or b<=a or b>duration+.5:raise ValueError('Invalid transcription segment timing.')
-   if text:result.append({'start_s':round(start+a,3),'end_s':round(start+b,3),'speaker':segment.get('speaker'),'text':text})
-  return result
  def transcribe(self,path,start,seconds):
-  """Climb the ladder until a rung has actually heard the section.
+  """Hear the section.
 
-  Escalation is on measured evidence, never on a crash, because the
-  failure this exists for is not an error: a transcriber that gives up
-  answers 200 OK with a handful of words, and the pipeline believed it
-  all the way to a finished recap built out of noise. So each rung is
-  read for density, the best of what was heard is kept whatever happens,
-  and a section that clears the floor stops the climb before the next
-  rung is paid for.
-
-  A rung that raises is not the same as a rung that heard nothing. If
-  every rung failed outright the section is left unwritten and the job
-  asks to be retried, because an empty section saved here would be read
-  afterwards as silence in the room.
+  One pass, greedy, and no second opinion, because there is no honest
+  one to be had: the only model that hears these rooms reliably also
+  writes coaching that nobody said. A stretch this comes back empty on
+  is left empty, and everything downstream is built so that not knowing
+  why can only cost coverage.
   """
-  best=[];heard=False
-  for rung in (self.transcribe_whisper,self.transcribe_diarized):
-   for attempt in range(3):
-    try:
-     utterances=rung(path,start);heard=True
-     if transcript_words(utterances)>transcript_words(best):best=utterances
-     break
-    except Exception:
-     log.warning('Lesson transcription rung failed',exc_info=True)
-     if attempt<2:time.sleep(3*(attempt+1))
-   if heard and not thin_transcript(best,seconds):return best
-  if not heard:raise RuntimeError('Part of the audio could not be transcribed. Retry to continue; the original and completed sections are kept.')
-  return best
+  first=None
+  for attempt in range(3):
+   try:
+    first=self.transcribe_whisper(path,start);break
+   except Exception:
+    log.warning('Lesson transcription failed',exc_info=True)
+    if attempt<2:time.sleep(3*(attempt+1))
+  if first is None:raise RuntimeError('Part of the audio could not be transcribed. Retry to continue; the original and completed sections are kept.')
+  return first
 
 def frame(source,seconds,directory,n):
  path=Path(directory)/f'frame-{n}.jpg'
@@ -354,37 +431,64 @@ def feasible_section_coverage(candidate_by_id,required_section_ids,spacing_secon
  required_mask=(1<<len(required_section_ids))-1
  return required_mask in states[-1]
 
-def feasible_twelve_chapters(candidate_by_id,required_section_ids,spacing_seconds=0):
- """Prove a 12-clip, nonreplayed worker-owned set before making it mandatory."""
- if len(candidate_by_id)<12 or len(required_section_ids)>12:return False
+def feasible_chapter_count(candidate_by_id,wanted,required_section_ids,spacing_seconds=0):
+ """Prove a nonreplayed set of this many clips exists before requiring it."""
+ if len(candidate_by_id)<wanted or len(required_section_ids)>wanted:return False
  section_bits={section_id:1<<index for index,section_id in enumerate(required_section_ids)}
  intervals,previous=compatible_intervals(candidate_by_id,spacing_seconds)
  states=[{(0,0):0.0}]
  for index,candidate in enumerate(intervals):
   current=dict(states[-1]);chapter=candidate['chapter'];clip_duration=chapter['end_s']-chapter['start_s'];bit=section_bits.get(candidate['section_id'],0)
   for (count,mask),total in states[previous[index]+1].items():
-   if count>=12 or total+clip_duration>MAX_RECAP_SECONDS+.1:continue
+   if count>=wanted or total+clip_duration>MAX_RECAP_SECONDS+.1:continue
    key=(count+1,mask|bit);best=current.get(key)
    if best is None or total+clip_duration<best:current[key]=total+clip_duration
   states.append(current)
  required_mask=(1<<len(required_section_ids))-1
- return (12,required_mask) in states[-1]
+ return (wanted,required_mask) in states[-1]
+
+def rich_themes(outline):
+ """The distinct things the lesson taught, from the complete outline."""
+ return [theme for theme in outline.get('themes',[]) if isinstance(theme,dict)
+         and any(str(point).strip() for point in theme.get('points',[]) if isinstance(point,str))]
 
 def selection_requirements(candidate_by_id,duration,outline):
- """Derive only feasible, worker-owned coverage requirements for a rich long lesson."""
+ """What the recap must cover, measured against the lesson, not the clock.
+
+ This used to be keyed to duration: nothing at all below seventy-five
+ minutes, and a twelve-chapter floor above it. Two things were wrong with
+ that. Sixty-minute lessons are most of what gets uploaded and had no
+ rule whatsoever, which is how one lesson came back as six chapters one
+ day and fourteen the next from the same transcript. And a floor written
+ as a number is a quota: it says nothing about whether the recap covered
+ what the coach actually taught.
+
+ The outline is the checklist. It is built from the whole transcript and
+ lists every distinct thing taught, so requiring a chapter per theme
+ makes the recap as long as the lesson earns and no longer. Every
+ requirement is proved reachable against the real clips before it is
+ imposed, because a requirement that cannot be met is a lesson that
+ cannot be rendered.
+ """
  sections={}
  for candidate in candidate_by_id.values():
   chapter=candidate['chapter'];sections.setdefault(candidate['section_id'],[]).append(chapter['end_s']-chapter['start_s'])
  required_sections=list(sections)
  requirements={}
- rich_themes=[theme for theme in outline.get('themes',[]) if isinstance(theme,dict) and any(str(point).strip() for point in theme.get('points',[]) if isinstance(point,str))]
- rich_long=duration>=RICH_RECAP_MIN_SECONDS and len(candidate_by_id)>=12 and len(rich_themes)>=8
- spacing_seconds=RICH_RECAP_SPACING_SECONDS if rich_long else 0
- if duration>=RICH_RECAP_MIN_SECONDS and len(required_sections)<=MAX_CHAPTERS and sum(min(lengths) for lengths in sections.values())<=MAX_RECAP_SECONDS and feasible_section_coverage(candidate_by_id,required_sections,spacing_seconds):
+ themes=rich_themes(outline)
+ # Spacing keeps a long lesson from spending its chapters on one passage.
+ # It is about density of teaching, not about how long the lesson ran.
+ crowded=len(candidate_by_id)>=12 and len(themes)>=8
+ spacing_seconds=RICH_RECAP_SPACING_SECONDS if crowded else 0
+ if len(required_sections)<=MAX_CHAPTERS and sum(min(lengths) for lengths in sections.values())<=MAX_RECAP_SECONDS and feasible_section_coverage(candidate_by_id,required_sections,spacing_seconds):
   requirements['required_section_ids']=required_sections
- if rich_long:requirements['minimum_spacing_seconds']=spacing_seconds
- if rich_long and feasible_twelve_chapters(candidate_by_id,requirements.get('required_section_ids',[]),RICH_RECAP_SPACING_SECONDS):
-  requirements['minimum_chapters']=12
+ if crowded:requirements['minimum_spacing_seconds']=spacing_seconds
+ # One chapter per distinct thing taught, as far as the footage allows.
+ # Asked for from the top down so a lesson that cannot support every
+ # theme still gets the most complete recap its clips can carry.
+ for wanted in range(min(len(themes),MAX_CHAPTERS,len(candidate_by_id)),1,-1):
+  if feasible_chapter_count(candidate_by_id,wanted,requirements.get('required_section_ids',[]),spacing_seconds):
+   requirements['minimum_chapters']=wanted;break
  return requirements
 
 def window_candidates(raw,chunk,duration):
@@ -462,35 +566,35 @@ def selected_candidates(raw,candidate_by_id,requirements=None):
   for (candidate_id,chapter),(other_id,other) in zip(ordered,ordered[1:]):
    gap=other['start_s']-chapter['end_s']
    if gap<spacing:errors.append(f'Selected candidate IDs {candidate_id} and {other_id} leave only {gap:g} source seconds between clips; rich long recaps require at least {spacing:g} seconds of unselected source time. Keep the stronger candidate and cover another outline topic.')
- if len(selected)<requirements.get('minimum_chapters',0):errors.append(f"This rich long lesson requires at least {requirements['minimum_chapters']} selected chapters; the selection returned {len(selected)}.")
+ if len(selected)<requirements.get('minimum_chapters',0):errors.append(f"The lesson taught {requirements['minimum_chapters']} distinct things and the selection covers {len(selected)}; give each its own chapter.")
  missing=[section_id for section_id in requirements.get('required_section_ids',[]) if section_id not in selected_sections]
  if missing:errors.append('The selection is missing required candidate-bearing section IDs: '+', '.join(missing)+'. Select at least one candidate from each.')
  if errors:raise ValueError(' '.join(errors))
  return selected
 
-def inaudible_sections(transcript):
- """The sections nobody was heard in, after the whole ladder has tried.
+def section_has_teaching(chunk):
+ """Whether any part of this section had somebody talking in it.
 
- Kept apart from the rest for two reasons. Nothing downstream may build a
- chapter out of one, and the person is owed a straight answer about how
- much of their lesson could not be made out.
+ Asked of the same rolling windows the second listener was bought for,
+ so a section is only skipped when every part of it came back empty
+ after both listeners have had their say. A section that is mostly a
+ drill with two minutes of coaching in it is not skipped: the two
+ minutes are the whole point.
  """
- out=[]
- for chunk in transcript:
-  span=float(chunk.get('end_s',0) or 0)-float(chunk.get('start_s',0) or 0)
-  if span>0 and thin_transcript(chunk.get('utterances',[]),span):out.append(chunk)
- return out
+ start=float(chunk.get('start_s',0) or 0);end=float(chunk.get('end_s',0) or 0)
+ if end<=start:return False
+ covered=sum(b-a for a,b in thin_stretches(chunk.get('utterances',[]),start,end))
+ return covered<end-start-.5
 
 def create_edit(rt,row,source,directory,transcript,duration):
  windows=[]
  # Coverage used to be built from every section that produced a candidate,
- # which on a long lesson made each one MANDATORY. Eight near-silent
- # sections therefore did not get skipped: they were required, and the
- # recap that came back had a chapter for each, written out of nothing.
- # A section nobody was heard in now takes no part at all, which is also
- # the cheaper answer: no clip search, no per-chapter writing call.
- silent={i for i,chunk in enumerate(transcript) if inaudible_sections([chunk])}
- quiet_seconds=sum(float(transcript[i]['end_s'])-float(transcript[i]['start_s']) for i in silent)
+ # which on a long lesson made each one MANDATORY. Near-silent sections
+ # were therefore not skipped: they were required, and the recap that came
+ # back had a chapter for each, written out of nothing. A section nobody
+ # was heard in anywhere now takes no part at all, which is also the
+ # cheaper answer: no clip search, no per-chapter writing call.
+ silent={i for i,chunk in enumerate(transcript) if not section_has_teaching(chunk)}
  for i,chunk in enumerate(transcript):
   if i in silent:continue
   rt.stage(row,f"Finding teaching {i+1} of {len(transcript)}")
@@ -510,9 +614,12 @@ def create_edit(rt,row,source,directory,transcript,duration):
   if not raw.get('themes'):raw['themes']=prior_themes
   windows.append({'section_id':f'section-{i+1}','title':raw.get('title','Lesson'),'themes':raw.get('themes',[]),'chapters':valid})
  candidates=[{'section_id':w['section_id'],'section_title':w['title'],'chapter':c} for w in windows for c in w['chapters']]
- if not candidates:
-  if quiet_seconds>=duration*.5:raise ValueError('The coach could not be made out over the background noise. Your original is kept. Next time place the phone closer to where they stand, and play a few seconds back before the lesson starts to check you can hear them.')
-  raise ValueError('No clear coaching was found. Your original is kept; try again or add a written lesson note.')
+ # Refusing is the answer when a lesson yields nothing, because a recap is
+ # a reference somebody comes back to months later and a thin one invites
+ # more trust than it has earned. Adil's call, 2026-09-07. The reason is
+ # offered as the likely one rather than asserted: nothing here can tell a
+ # microphone across the hall from an afternoon that was all drilling.
+ if not candidates:raise ValueError('No coaching could be made out in this lesson. Your original is kept. If the phone was far from where your coach stands, moving it closer usually fixes it; play a few seconds back before the next lesson to check you can hear them over the table.')
  rt.stage(row,'Preserving the complete lesson outline')
  outline=rt.model(OUTLINE_PROMPT,json.dumps([{'title':w['title'],'themes':w['themes']} for w in windows],ensure_ascii=False))
  # The merge model sees opaque ordinal choices only. Source times are kept in
@@ -529,11 +636,16 @@ def create_edit(rt,row,source,directory,transcript,duration):
    content.append({'type':'image_url','image_url':{'url':frame(source,(c['start_s']+c['end_s'])/2,directory,i),'detail':'low'}})
   except RuntimeError:
    raise ValueError('The footage could not be inspected. Your original is kept; retry to check the video again.')
- requirements=selection_requirements(candidate_by_id,duration,outline)
+ full_requirements=selection_requirements(candidate_by_id,duration,outline)
+ requirements=dict(full_requirements)
  if requirements:content.append({'type':'text','text':json.dumps({'selection_requirements':requirements},ensure_ascii=False)})
  rt.stage(row,'Arranging the lesson recap')
  validation_error=None
  for merge_attempt in range(MAX_MERGE_ATTEMPTS):
+  # The last attempt drops coverage and spacing and keeps only the hard
+  # limits, so the worst case is a recap that misses a topic rather than
+  # a lesson that will not render at all.
+  requirements=dict(full_requirements) if merge_attempt<MAX_MERGE_ATTEMPTS-1 else {}
   repair=[] if validation_error is None else [{'type':'text','text':json.dumps({'selection_validation_error':validation_error,'selection_requirements':{'maximum_chapters':MAX_CHAPTERS,'teaching_rich_chapter_target':'When correcting an over-limit teaching-rich selection, return 10 to 14 coherent chapters by merging the closest overlapping topics. Preserve every topic in themes.','maximum_total_worker_owned_seconds':MAX_RECAP_SECONDS,'duration_repair_rule':'Sum the supplied read-only duration_seconds values. When correcting an over-limit duration, select no more than 900 worker-owned seconds by combining closest overlapping topics while preserving the complete outline in themes.','overlap_repair_rule':'When named candidate IDs overlap, replace one with distinct footage and a distinct teaching topic. Do not replay shared source footage.','spacing_repair_rule':'When named candidate IDs are too close, keep the stronger candidate and replace the other with a later distinct outline topic.','allowed_chapter_fields':['candidate_id','title','cues'],'title_rule':'title must be a nonempty string of at most 80 characters','cue_rule':'cues must be an array of one to three nonempty strings, each at most 220 characters','candidate_id_rule':'Each supplied candidate_id may be selected at most once. Do not return section_id, duration_seconds, times, durations, or range fields.',**requirements}},ensure_ascii=False)}]
   prompt=MERGE_PROMPT if validation_error is None else MERGE_PROMPT+'\nYour previous selection was invalid: '+validation_error+' Correct it using only supplied candidate IDs. If it was over the chapter limit, return 10 to 14 coherent chapters by merging the closest overlapping topics; preserve every topic in themes. If it was over duration, sum the supplied duration_seconds values and return at most 900 worker-owned seconds by combining the closest overlapping topics. If named candidates overlap, replace one with distinct footage/topics so the recap does not replay shared source. If named candidates are too close, keep the stronger candidate and replace the other with a later distinct outline topic. The hard limits remain 16 chapters and 900 seconds. Do not omit the complete outline from themes.'
   raw=rt.model(prompt,content+repair)
@@ -546,10 +658,10 @@ def create_edit(rt,row,source,directory,transcript,duration):
   raise ValueError('The recap selection could not be completed after correction passes. Your original and completed work are kept. Retry to continue.')
  # Clip selection must not discard the fuller written teaching outline.
  raw['themes']=outline.get('themes') or raw.get('themes',[])
- # Plain words, and no numbers: a recap built on part of a lesson has to
- # say so, or the gaps read as the coach having said nothing.
- quiet_notice='Parts of this lesson were too quiet to make out, so the recap covers only what could be heard clearly.' if quiet_seconds>=duration*.2 else None
- raw['warning']=student_warning(outline.get('warning'),quiet_notice)
+ # No notice about quiet stretches. Nothing here can tell a drill from a
+ # lost quarter of an hour, and a warning that fires on drilling teaches
+ # a player to distrust a recap that is in fact complete.
+ raw['warning']=student_warning(outline.get('warning'))
  raw['chapters']=selected
  return contextualize_edit(rt,row,normalize_edit(raw,duration),transcript,duration,directory)
 

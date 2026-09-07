@@ -162,6 +162,15 @@ against is not the most complete reading of that lesson; it is the most
 cautious one. Whether cautious is better here is a real question and it
 is not settled by word counts.
 
+**gpt-audio's zero is not what it looks like, and this table should not
+be read without the correction below.** Put to a stretch of a real drill
+and to 300 seconds of digital silence, it wrote plausible coaching in
+both, differently on every run. It never returns an empty window because
+it cannot return an empty window. Its word counts here include an unknown
+amount of invention, and it must not be used as a transcriber or as a
+check on one. The reconciliation above is probably unharmed, since it
+required two recognizers to agree before keeping anything.
+
 **The second rung is the weakest model available.** The ladder shipped
 today escalates to `gpt-4o-transcribe-diarize`, a sibling of the model
 that came last on every measure here: it won 1 window of 90 and returned

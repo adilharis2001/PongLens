@@ -1,9 +1,11 @@
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 from worker.lesson_video import (
- ASR_VERSION, Runtime, inaudible_sections, merge_segments, thin_transcript,
- transcript_chunk_reusable, transcript_density, transcript_words, window_candidates,
+ ASR_VERSION, Runtime, chunk_ranges, degenerate, merge_segments, section_has_teaching,
+ thin_stretches, thin_transcript, transcript_chunk_reusable, transcript_density,
+ transcript_words, window_candidates, words_between,
 )
 
 def chunk(start,end,texts,**extra):
@@ -60,70 +62,100 @@ class TranscriptReuseTests(unittest.TestCase):
   self.assertTrue(transcript_chunk_reusable(heard))
   self.assertTrue(transcript_chunk_reusable({**heard,'asr_version':3}))
 
- def test_inaudible_sections_are_named_so_nothing_builds_on_them(self):
-  transcript=[chunk(0,600,['Yeah.']),chunk(600,1200,['word ']*600),chunk(1200,1800,[])]
-  self.assertEqual([c['start_s'] for c in inaudible_sections(transcript)],[0,1200])
+ def test_a_section_nobody_spoke_in_anywhere_is_skipped(self):
+  self.assertFalse(section_has_teaching(chunk(0,1200,['Yeah.'])))
+  self.assertFalse(section_has_teaching(chunk(0,1200,[])))
 
-class TranscriptionLadderTests(unittest.TestCase):
- def rt(self,**rungs):
+ def test_a_section_that_is_mostly_drilling_is_kept_for_its_talking(self):
+  # The two minutes of coaching in the middle of a twenty-minute drill
+  # are the whole point of the section. Judged over the section as a
+  # whole this reads as silence; judged in rolling windows it does not.
+  talk=[{'start_s':600,'end_s':720,'text':'word '*200}]
+  self.assertTrue(section_has_teaching({'start_s':0,'end_s':1200,'utterances':talk}))
+
+class TranscriptionTests(unittest.TestCase):
+ """One listener, greedy, and no second opinion.
+
+ A second opinion was the obvious way to tell a drill from a stretch
+ nobody was heard in, and there is no honest one to be had: the only
+ model that hears these rooms reliably cannot say nothing. Given a real
+ drill it wrote "Alright, more spin on the serve. Hit the ball. That's
+ it," and given digital silence "OK, let's keep your elbow up and follow
+ through" — plausible coaching, different every run, none of it said.
+
+ So the two are not told apart. Everything downstream is instead built so
+ that not knowing costs coverage and never correctness.
+ """
+ def rt(self,**attrs):
   rt=Runtime.__new__(Runtime);rt.openai='test';rt.http=Mock();rt.meter_events=Mock()
-  for name,value in rungs.items():setattr(rt,name,value)
+  for name,value in attrs.items():setattr(rt,name,value)
   return rt
 
- def test_a_section_that_is_heard_first_time_never_pays_for_the_second_rung(self):
-  heard=[{'start_s':0,'end_s':600,'text':'word '*600}]
-  second=Mock()
-  rt=self.rt(transcribe_whisper=Mock(return_value=heard),transcribe_diarized=second)
-  self.assertEqual(rt.transcribe('audio.mp3',0,600),heard)
-  second.assert_not_called()
-
- def test_a_thin_first_rung_escalates_and_the_best_answer_wins(self):
-  thin=[{'start_s':0,'end_s':600,'text':'Yeah.'}]
-  rich=[{'start_s':0,'end_s':600,'text':'word '*600}]
-  rt=self.rt(transcribe_whisper=Mock(return_value=thin),transcribe_diarized=Mock(return_value=rich))
-  self.assertEqual(rt.transcribe('audio.mp3',0,600),rich)
-
- def test_a_genuinely_quiet_section_keeps_the_most_that_was_heard(self):
-  # Both rungs answered and both heard almost nothing. That is a real
-  # state, not a failure: keep the fuller answer and let the caller
-  # decide it was inaudible.
-  quiet=[{'start_s':0,'end_s':600,'text':'Yeah, okay.'}]
-  quieter=[{'start_s':0,'end_s':600,'text':'Mm.'}]
-  rt=self.rt(transcribe_whisper=Mock(return_value=quieter),transcribe_diarized=Mock(return_value=quiet))
-  self.assertEqual(rt.transcribe('audio.mp3',0,600),quiet)
+ def test_a_section_is_heard_once_and_taken_as_it_comes(self):
+  heard=[{'start_s':0,'end_s':1200,'text':'word '*1200}]
+  rt=self.rt(transcribe_whisper=Mock(return_value=heard))
+  self.assertEqual(rt.transcribe('a.mp3',0,1200),heard)
+  self.assertEqual(rt.transcribe_whisper.call_count,1)
 
  @patch('worker.lesson_video.time.sleep')
- def test_every_rung_failing_asks_for_a_retry_rather_than_saving_silence(self,_sleep):
+ def test_a_failed_pass_is_retried_and_then_asks_for_a_retry(self,_sleep):
   # An empty section saved here would be read afterwards as silence in
   # the room, and never transcribed again.
-  boom=Mock(side_effect=RuntimeError('network'))
-  rt=self.rt(transcribe_whisper=boom,transcribe_diarized=boom)
-  with self.assertRaises(RuntimeError):rt.transcribe('audio.mp3',0,600)
+  rt=self.rt(transcribe_whisper=Mock(side_effect=RuntimeError('network')))
+  with self.assertRaises(RuntimeError):rt.transcribe('a.mp3',0,1200)
+  self.assertEqual(rt.transcribe_whisper.call_count,3)
 
  @patch('worker.lesson_video.time.sleep')
- def test_one_rung_failing_outright_still_uses_the_other(self,_sleep):
-  rich=[{'start_s':0,'end_s':600,'text':'word '*600}]
-  rt=self.rt(transcribe_whisper=Mock(side_effect=RuntimeError('network')),transcribe_diarized=Mock(return_value=rich))
-  self.assertEqual(rt.transcribe('audio.mp3',0,600),rich)
+ def test_a_pass_that_succeeds_on_the_second_try_is_kept(self,_sleep):
+  heard=[{'start_s':0,'end_s':1200,'text':'word '*1200}]
+  rt=self.rt(transcribe_whisper=Mock(side_effect=[RuntimeError('network'),heard]))
+  self.assertEqual(rt.transcribe('a.mp3',0,1200),heard)
 
  def test_whisper_is_greedy_and_metered_by_measured_seconds(self):
   response=Mock();response.headers={'x-request-id':'test'}
-  response.json.return_value={'duration':600,'segments':[{'start':1,'end':3,'text':'Bend your knees.'}]}
+  response.json.return_value={'duration':1200,'segments':[{'start':1,'end':3,'text':'Bend your knees.'}]}
   rt=self.rt();rt.http.post.return_value=response
   with tempfile.NamedTemporaryFile() as f:result=rt.transcribe_whisper(f.name,600)
   self.assertEqual(result,[{'start_s':601,'end_s':603,'speaker':None,'text':'Bend your knees.'}])
   sent=rt.http.post.call_args.kwargs['data']
   self.assertEqual(sent['model'],'whisper-1')
   self.assertEqual(sent['temperature'],0)
-  self.assertEqual(rt.meter_events.call_args.args[0][0]['quantity'],600)
+  self.assertEqual(rt.meter_events.call_args.args[0][0]['quantity'],1200)
   self.assertEqual(rt.meter_events.call_args.args[0][0]['sku'],'whisper-1')
 
- def test_a_segment_outside_the_recording_is_refused(self):
-  response=Mock();response.headers={}
-  response.json.return_value={'duration':60,'segments':[{'start':10,'end':800,'text':'Bend.'}]}
-  rt=self.rt();rt.http.post.return_value=response
-  with tempfile.NamedTemporaryFile() as f:
-   with self.assertRaises(ValueError):rt.transcribe_whisper(f.name,0)
+class DegenerateTextTests(unittest.TestCase):
+ """A transcriber talking to itself must never reach a chapter.
+
+ Whisper fills non-speech with one token repeated. Measured on a real
+ drill it returned "RUPERT STREET" three times; on digital silence, "you"
+ ten times. Both identical on repeat runs, both about six to ten words a
+ minute, so the density floor catches them as well — but a short piece of
+ it inside an otherwise talkative section would slip through, and this is
+ what stops that.
+ """
+ def test_the_two_hallucinations_measured_on_real_audio_are_refused(self):
+  self.assertTrue(degenerate('you you you you you you you you you you'))
+  self.assertTrue(degenerate('RUPERT STREET RUPERT STREET RUPERT STREET'))
+
+ def test_ordinary_speech_survives(self):
+  for text in ["Yeah, I'm trying a new experiment. Yeah.",
+               'Stay low through the push and keep your weight forward.',
+               'Thank you. Thank you.','Yeah.']:
+   self.assertFalse(degenerate(text),text)
+
+ def test_the_same_fragment_repeated_across_segments_is_refused(self):
+  # Measured on a real drill: three separate segments each reading
+  # "RUPERT STREET". Two words apiece is under the repetition ratio, so
+  # only the run of identical segments gives it away.
+  out=merge_segments([{'start':0,'end':2,'text':'RUPERT STREET'},
+                      {'start':10,'end':12,'text':'RUPERT STREET'},
+                      {'start':20,'end':22,'text':'RUPERT STREET'}],0,70)
+  self.assertEqual(len(out),1)
+
+ def test_a_hallucinated_piece_never_becomes_an_utterance(self):
+  out=merge_segments([{'start':0,'end':30,'text':'you you you you you you you'},
+                      {'start':60,'end':70,'text':'Open with a push to the middle.'}],0,1200)
+  self.assertEqual([u['text'] for u in out],['Open with a push to the middle.'])
 
 class MergeSegmentsTests(unittest.TestCase):
  def test_adjacent_pieces_join_and_a_real_pause_starts_a_new_utterance(self):
@@ -134,10 +166,33 @@ class MergeSegmentsTests(unittest.TestCase):
     [(600.0,604.0,'Bend your knees. Stay low.'),(640.0,642.0,'Again.')])
 
  def test_an_utterance_stops_growing_before_it_swallows_the_section(self):
-  segments=[{'start':i,'end':i+1,'text':'word'} for i in range(0,120)]
+  # Varied text, because a run of a hundred and twenty identical
+  # one-word segments is the hallucination signature and is dropped.
+  segments=[{'start':i,'end':i+1,'text':f'word{i}'} for i in range(0,120)]
   out=merge_segments(segments,0,600)
   self.assertTrue(all(u['end_s']-u['start_s']<=45 for u in out))
   self.assertEqual(transcript_words(out),120)
+
+ def test_a_hallucinated_tail_past_the_end_is_dropped_not_fatal(self):
+  # Found on the first live run against a real lesson: whisper returned
+  # 1,199 good segments and three saying "Yeah." between 1200 and 1203
+  # seconds of a 1200-second file. Refusing the section over that would
+  # have thrown away twenty minutes of teaching.
+  segments=[{'start':10,'end':12,'text':'Stay low.'},
+            {'start':1200,'end':1201,'text':'Yeah.'},
+            {'start':1201,'end':1202,'text':'Yeah.'}]
+  out=merge_segments(segments,0,1200)
+  self.assertEqual([(u['start_s'],u['end_s'],u['text']) for u in out],[(10.0,12.0,'Stay low.')])
+
+ def test_speech_running_just_over_the_end_is_kept_and_clamped(self):
+  out=merge_segments([{'start':1195,'end':1201.5,'text':'One more.'}],0,1200)
+  self.assertEqual(out,[{'start_s':1195.0,'end_s':1200.0,'speaker':None,'text':'One more.'}])
+
+ def test_a_timestamp_far_past_the_end_is_still_refused(self):
+  # A tail is a second or two. Ten minutes past the end is a broken
+  # response and must not be quietly clamped into looking fine.
+  with self.assertRaises(ValueError):
+   merge_segments([{'start':10,'end':800,'text':'Bend.'}],0,60)
 
  def test_empty_pieces_are_dropped_without_moving_any_timing(self):
   out=merge_segments([{'start':0,'end':1,'text':'  '},{'start':5,'end':6,'text':'Push.'}],0,600)
@@ -164,3 +219,44 @@ class ClipEvidenceTests(unittest.TestCase):
   self.assertEqual(len(valid),1)
 
 if __name__=='__main__':unittest.main()
+
+class RollingThinnessTests(unittest.TestCase):
+ """Where nobody was heard, read over a rolling window.
+
+ Adil, 2026-09-07: a ten-minute drill, or a group lesson with the coach
+ nowhere near the phone, is an ordinary part of a lesson. A rule that
+ reads silence as failure is dangerous. Judged over a whole section, a
+ lesson that is half drilling and half teaching averages out to something
+ that looks fine and is half missing.
+ """
+ def test_a_quiet_stretch_is_found_and_the_talking_around_it_is_not(self):
+  talking=[{'start_s':t,'end_s':t+5,'text':'word '*20} for t in range(0,240,5)]
+  talking+=[{'start_s':t,'end_s':t+5,'text':'word '*20} for t in range(600,1200,5)]
+  self.assertEqual(thin_stretches(talking,0,1200),[(240.0,600.0)])
+
+ def test_neighbouring_quiet_windows_become_one_question(self):
+  # Eight separate asks about a quiet quarter of an hour would cost
+  # eight times what one does.
+  self.assertEqual(thin_stretches([],0,1200),[(0.0,1200.0)])
+
+ def test_a_section_of_steady_coaching_asks_nothing(self):
+  steady=[{'start_s':t,'end_s':t+5,'text':'word '*20} for t in range(0,1200,5)]
+  self.assertEqual(thin_stretches(steady,0,1200),[])
+
+ def test_words_are_counted_where_they_were_spoken(self):
+  utterances=[{'start_s':0,'end_s':10,'text':'one two three'},{'start_s':100,'end_s':110,'text':'four'}]
+  self.assertEqual(words_between(utterances,0,50),3)
+  self.assertEqual(words_between(utterances,90,120),1)
+  self.assertEqual(words_between(utterances,200,300),0)
+
+class SectionRangeTests(unittest.TestCase):
+ def test_a_two_hour_lesson_is_six_sections(self):
+  # Twenty minutes at 64 kbps mono is about 9.6 MB, inside whisper's
+  # 25 MB limit, and halves the boundaries a teaching moment can
+  # straddle against the old ten.
+  self.assertEqual(len(chunk_ranges(7200)),6)
+  self.assertEqual(len(chunk_ranges(3600)),3)
+
+ def test_a_stub_of_a_final_section_joins_the_one_before_it(self):
+  ranges=chunk_ranges(1205)
+  self.assertEqual(ranges,[(0,1205)])
