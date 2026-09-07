@@ -693,6 +693,9 @@ was reprocessed.
 | 5fd822ec (10.6 min) production | end-on | 13 | 53 | 0 | 25 (47%) | 5 | 75% |
 | 5fd822ec first detection | end-on | 13 | 53 | 10 | 25 (47%) | 5 | 75% |
 | 5fd822ec after the second detection | end-on | 48 | 58 | 33 | 34 (64%) | 1 | 81% |
+| 66c0d904 (knock-up, 8.7 min) production | serve-anchored | 22 | 36 | 20 | not scored | | 78% |
+| 66c0d904 first detection | serve-anchored | 22 | 36 | 20 | not scored | | 78% |
+| 66c0d904 after the second detection | end-on | 31 | 47 | 18 | not scored | | 84% |
 | 1c08539e (Tim, 10.9 min) production | end-on | 15 | 57 | 0 | not scored | | 84% |
 | 1c08539e new code | end-on | 15 | 59 | 7 | not scored | | 84% |
 
@@ -724,6 +727,13 @@ Reading it:
   tables in view and 2007 audio impacts that merge into five spans of up
   to 251 s, so the microphone cannot mark his points and this match has no
   accuracy number.
+- **The knock-up is the one route that changes.** 66c0d904 went
+  serve-anchored on the full frame (0.61 serves per point, table share
+  0.81) and goes end-on after the crop, because the crop drops its table
+  share to 0.53, under the veto's 0.57. It is the first match in the
+  corpus the veto actually moves, and it is a knock-up with no marks, so
+  it says the veto fires on this booth without saying whether the cut is
+  better for it. Watch for this on the next scored W37 match.
 - **The keypoint rung declines Anton's booth on every frame** (0 usable of
   16 on both matches, reproduced here), which is what sends him down the
   vision path and is why the second pass exists.
