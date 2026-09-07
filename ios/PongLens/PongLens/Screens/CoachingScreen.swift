@@ -37,6 +37,15 @@ struct CoachingScreen: View {
     @State private var recordOpen = false
     @State private var importOpen = false
     @State private var recaps: [LessonVideo] = []
+    /// The entry being corrected. Presented from a value rather than a
+    /// flag, so the sheet cannot be built before the lesson lands — the
+    /// same shape the Journal uses.
+    @State private var editRequest: EditRequest?
+
+    struct EditRequest: Identifiable {
+        let id = UUID()
+        let lesson: LessonRow
+    }
     @State private var showAll = false
 
     private let feedCap = 30
@@ -192,6 +201,10 @@ struct CoachingScreen: View {
         .task { await loadRecaps() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await loadRecaps() } }
+        }
+        .sheet(item: $editRequest) { request in
+            JournalNoteEditor(lesson: request.lesson, store: journal)
+                .presentationDetents([.large])
         }
         .sheet(isPresented: $inviteOpen) {
             AllMatchesCoachInvite()
@@ -376,7 +389,9 @@ struct CoachingScreen: View {
                 coachNoteBody(note, title: title)
             }
         case .lesson(let lesson):
-            LessonCardView(lesson: lesson, store: journal, onEdit: {})
+            LessonCardView(lesson: lesson, store: journal) {
+                editRequest = EditRequest(lesson: lesson)
+            }
         case .recap(let recap):
             NavigationLink {
                 LessonVideoDetailScreen(
@@ -386,42 +401,83 @@ struct CoachingScreen: View {
                     }
                 )
             } label: {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("LESSON RECAP")
-                        .font(.system(size: 11, weight: .semibold))
-                        .tracking(0.6)
-                        .foregroundStyle(PL.cyan)
-                    Text(recap.title)
-                        .font(.plCardTitle)
-                        .foregroundStyle(PL.text100)
-                        .lineLimit(2)
-                    Text(recap.statusLabel)
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
+                // The chapter count and length come from the list response
+                // the feed already has, so a recap can look like a recap
+                // without a second request per row.
+                HStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                            .fill(PL.cyan.opacity(0.12))
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.system(size: 24))
+                            .foregroundStyle(PL.cyan)
+                    }
+                    .frame(width: 104, height: 64)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                            .strokeBorder(PL.edge, lineWidth: 1)
+                    )
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("LESSON RECAP")
+                            .font(.system(size: 11, weight: .semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(PL.cyan)
+                        Text(recap.title)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(PL.text200)
+                            .lineLimit(2)
+                        Text(recapMeta(recap))
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PL.text600)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .plCard(padding: 14)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         case .match(let match, let coachName):
+            // A shared match shows the match, not a sentence about it. The
+            // thumbnail is the one the library already caches, so this
+            // costs nothing the app has not already paid.
             NavigationLink(value: match) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Shared with \(coachName)")
-                        .font(.system(size: 11, weight: .semibold))
-                        .tracking(0.6)
-                        .foregroundStyle(PL.text500)
-                    Text(
-                        MatchTitle.parts(
-                            opponentName: match.opponentName, venue: match.venue,
-                            playedAt: match.playedAt
-                        ).primary
-                    )
-                    .font(.plCardTitle)
-                    .foregroundStyle(PL.text100)
-                    .lineLimit(2)
+                HStack(spacing: 14) {
+                    MatchThumb(matchId: match.id)
+                        .frame(width: 104, height: 64)
+                        .clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                                .strokeBorder(PL.edge, lineWidth: 1)
+                        )
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("SHARED WITH \(coachName.uppercased())")
+                            .font(.system(size: 11, weight: .semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(PL.text500)
+                            .lineLimit(1)
+                        Text(
+                            MatchTitle.parts(
+                                opponentName: match.opponentName, venue: match.venue,
+                                playedAt: match.playedAt
+                            ).primary
+                        )
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(PL.text200)
+                        .lineLimit(2)
+                        Text(PGDate.shortDate(match.playedAt))
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PL.text600)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .plCard(padding: 14)
                 .contentShape(Rectangle())
             }
@@ -429,21 +485,50 @@ struct CoachingScreen: View {
         }
     }
 
+    /// What a recap says under its title, from the list response rather
+    /// than a per-row fetch.
+    private func recapMeta(_ recap: LessonVideo) -> String {
+        guard let edit = recap.edit, !edit.chapters.isEmpty else {
+            return recap.statusLabel
+        }
+        let chapters = edit.chapters.count
+        return "\(chapters) chapter\(chapters == 1 ? "" : "s") · \(edit.recapMinutes) min"
+    }
+
     private func coachNoteBody(_ note: NoteFeedRow, title: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                Text(note.authorName ?? "Coach")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color(hex: 0xF0C420))
-                Text("· \(title) · \(PGDate.shortDate(note.createdAt))")
+        // A coach's note is about a rally, so it carries the picture of the
+        // match it is about. Smaller than the thumb on a shared match: here
+        // the words are the point and the picture is the place, where on a
+        // shared match it is the other way round.
+        HStack(alignment: .top, spacing: 12) {
+            MatchThumb(matchId: note.matchId)
+                .frame(width: 72, height: 46)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                        .strokeBorder(PL.edge, lineWidth: 1)
+                )
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(note.authorName ?? "Coach")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0xF0C420))
+                    Text("· \(note.pointId == nil ? "Match note" : "Point note")")
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
+                        .lineLimit(1)
+                }
+                Text(note.body.isEmpty ? (note.audioPath != nil ? "Voice note" : "Drawing") : note.body)
+                    .font(.plBody)
+                    .foregroundStyle(PL.text200)
+                    .lineLimit(3)
+                Text("\(title) · \(PGDate.shortDate(note.createdAt))")
                     .font(.plCaption)
                     .foregroundStyle(PL.text500)
                     .lineLimit(1)
             }
-            Text(note.body.isEmpty ? (note.audioPath != nil ? "Voice note" : "Drawing") : note.body)
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
-                .lineLimit(2)
+            Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 14)
@@ -453,7 +538,6 @@ struct CoachingScreen: View {
                 .frame(width: 3)
         }
     }
-
 }
 
 /// One row of the coaching feed, whichever direction it travelled.
