@@ -30,7 +30,11 @@ struct CoachSharedEntryCard: View {
                     .foregroundStyle(PL.text500)
             }
             HStack(alignment: .top, spacing: 12) {
-                if entry.imagePath != nil {
+                if let recapId = entry.recapId {
+                    // A recap looks like a recap before it is opened, the
+                    // way a shared match shows its picture.
+                    RecapPosterThumb(id: recapId)
+                } else if entry.imagePath != nil {
                     EntryPhotoThumb(lessonId: entry.lessonId)
                 }
                 VStack(alignment: .leading, spacing: 4) {
