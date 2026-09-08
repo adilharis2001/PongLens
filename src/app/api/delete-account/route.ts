@@ -5,7 +5,7 @@ import {
   refundOrder,
   releasePayoutForOrder,
 } from "@/lib/payments/orderMoney";
-import { deleteObjects, listObjects, MEDIA_BUCKET, RAW_BUCKET } from "@/lib/r2";
+import { abortMultipartUpload, deleteObjects, listObjects, MEDIA_BUCKET, RAW_BUCKET } from "@/lib/r2";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
@@ -47,6 +47,7 @@ const USER_PREFIXES = [
   "avatar", // coach page photo
   "entry", // journal entry images
   "feedback", // feedback screenshots
+  "lesson-video", // retained lesson originals and attempt-scoped recaps
   "offer", // offering images
   "points", // point clips, match.json, thumbs, calibration debug
   "qa", // QA attachments
@@ -234,6 +235,15 @@ export async function POST(req: Request) {
   }
 
   try {
+    // Fence lesson work before storage deletion. The marker survives auth's
+    // cascade so an upload already in flight is swept again after it finishes.
+    const { data: lessonUploads, error: lessonFenceError } = await admin.rpc(
+      "begin_lesson_video_account_deletion", { p_owner: uid },
+    );
+    if (lessonFenceError) throw lessonFenceError;
+    for (const upload of lessonUploads ?? []) {
+      await abortMultipartUpload(MEDIA_BUCKET, upload.source_key, upload.upload_id);
+    }
     for (const prefix of USER_PREFIXES) {
       await deletePrefix(MEDIA_BUCKET, `${prefix}/${uid}/`);
     }

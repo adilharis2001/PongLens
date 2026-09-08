@@ -17,12 +17,35 @@ import SwiftUI
 /// `takeaways != nil` edits the note, `takeaways == nil` edits the words.
 ///
 /// Two things the create sheet carries are deliberately absent. Practice
-/// or lesson was settled when the entry was made, and condensing is a
+/// or lesson was settled when the entry was made, and improving is a
 /// choice about writing a note rather than about correcting one. Neither
 /// question belongs on a screen for fixing a typo.
+///
+/// A coach correcting an entry about a student opens this same sheet.
+/// The two sides differ only in where the save lands — the coach's
+/// entries live in `CoachWorkspaceStore`, a player's in `JournalStore` —
+/// so the saving is two closures rather than a store, and everything a
+/// person sees is written down once.
+/// Who taught an entry, as the sheet hands it back: the typed name (085),
+/// the coach row it is attributed to (164), and whether they may read it.
+/// One value rather than three arguments, because the two save closures
+/// and both of their call sites would otherwise each carry the same
+/// trio and could each get the order wrong.
+struct CoachAttribution {
+    let name: String?
+    let refId: UUID?
+    let share: Bool
+
+    /// A coach's own entry about a student has no coach of its own.
+    static let none = CoachAttribution(name: nil, refId: nil, share: false)
+}
+
 struct JournalNoteEditor: View {
     let lesson: LessonRow
-    let store: JournalStore
+    /// Save the corrected note. nil on success, or a line worth showing.
+    let onSaveNote: (LessonTakeaways, CoachAttribution, EntryPhotoSave) async -> String?
+    /// Save corrected words, for an entry that never had a note.
+    let onSaveWords: (String, CoachAttribution, EntryPhotoSave) async -> String?
 
     @Environment(\.dismiss) private var dismiss
 
@@ -30,9 +53,12 @@ struct JournalNoteEditor: View {
     @State private var themes: [DraftTheme]
     @State private var words: String
     @State private var coachName: String
+    @State private var coachRefId: UUID?
+    @State private var shareWithCoach: Bool
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var discardAsk = false
+    @State private var photo: EntryPhotoDraft
     @FocusState private var focus: Field?
 
     // What the sheet opened with, so Cancel can tell "nothing touched"
@@ -42,10 +68,47 @@ struct JournalNoteEditor: View {
     private let openedThemes: [DraftTheme]
     private let openedWords: String
     private let openedCoach: String
+    private let openedCoachRef: UUID?
+    private let openedShare: Bool
 
+    /// A player's own entry.
     init(lesson: LessonRow, store: JournalStore) {
+        self.init(
+            lesson: lesson,
+            coaches: store.playerCoaches,
+            onCreateCoach: { await store.createCoach(named: $0) },
+            onReloadCoaches: { await store.loadCoaches() },
+            onSaveNote: { takeaways, coach, photo in
+                await store.saveNote(
+                    lesson: lesson, takeaways: takeaways, coachName: coach.name,
+                    photo: photo, coachRefId: coach.refId,
+                    shareWithCoach: coach.share
+                )
+            },
+            onSaveWords: { words, coach, photo in
+                await store.saveWords(
+                    lesson: lesson, transcript: words, coachName: coach.name,
+                    photo: photo, coachRefId: coach.refId,
+                    shareWithCoach: coach.share
+                )
+            }
+        )
+    }
+
+    init(
+        lesson: LessonRow,
+        coaches: [PlayerCoach] = [],
+        onCreateCoach: @escaping (String) async -> PlayerCoach? = { _ in nil },
+        onReloadCoaches: @escaping () async -> Void = {},
+        onSaveNote: @escaping (LessonTakeaways, CoachAttribution, EntryPhotoSave) async -> String?,
+        onSaveWords: @escaping (String, CoachAttribution, EntryPhotoSave) async -> String?
+    ) {
         self.lesson = lesson
-        self.store = store
+        self.coaches = coaches
+        self.onCreateCoach = onCreateCoach
+        self.onReloadCoaches = onReloadCoaches
+        self.onSaveNote = onSaveNote
+        self.onSaveWords = onSaveWords
         let draft = Self.draft(from: lesson.takeaways)
         let title = lesson.takeaways?.title ?? ""
         let coach = lesson.coachName ?? ""
@@ -53,27 +116,55 @@ struct JournalNoteEditor: View {
         _themes = State(initialValue: draft)
         _words = State(initialValue: lesson.transcript)
         _coachName = State(initialValue: coach)
+        _coachRefId = State(initialValue: lesson.coachRefId)
+        _shareWithCoach = State(initialValue: lesson.sharedWithCoachAt != nil)
+        _photo = State(initialValue: EntryPhotoDraft(
+            existing: lesson.imagePath, on: lesson.id
+        ))
         openedTitle = title
         openedThemes = draft
         openedWords = lesson.transcript
         openedCoach = coach
+        openedCoachRef = lesson.coachRefId
+        openedShare = lesson.sharedWithCoachAt != nil
     }
+
+    let coaches: [PlayerCoach]
+    let onCreateCoach: (String) async -> PlayerCoach?
+    let onReloadCoaches: () async -> Void
 
     /// A note exists, so the note is what gets edited.
     private var editsNote: Bool { lesson.takeaways != nil }
 
     var body: some View {
         PLSheetScaffold(
-            title: "Edit note",
+            // What is on screen decides the word, the same way the web
+            // does it: an entry with no written-up note has only its
+            // words, and calling that "the note" reads as a different
+            // screen from the one you are looking at.
+            title: editsNote ? "Edit note" : "Edit entry",
             doneLabel: saving ? "Saving…" : "Save",
             doneDisabled: saving || !canSave,
             onDone: { Task { await save() } }
         ) {
             Form {
+                // Only a lesson has a coach. A plain note is your own
+                // reflection and an entry a coach wrote has no coach of
+                // its own, so neither shows the picker and neither may
+                // gain one here. The web twin is NoteEditor.tsx.
                 if lesson.kind == "lesson" {
                     Section {
-                        TextField("Who taught it?", text: $coachName)
-                            .focused($focus, equals: .coach)
+                        // The picker, not a text field (164). Correcting
+                        // an entry is where a journal full of spellings
+                        // gets cleaned up, so this is the surface that has
+                        // to make moving one onto a real coach easy.
+                        CoachPickerRow(
+                            coaches: coaches,
+                            coachRefId: $coachRefId,
+                            shareWithCoach: $shareWithCoach,
+                            onCreate: onCreateCoach,
+                            onAppearReload: onReloadCoaches
+                        )
                     }
                 }
 
@@ -82,9 +173,7 @@ struct JournalNoteEditor: View {
                 } else {
                     Section {
                         TextField(
-                            lesson.kind == "lesson"
-                                ? "What your coach told you"
-                                : "What you worked on",
+                            "What you worked on",
                             text: $words, axis: .vertical
                         )
                         .lineLimit(8...20)
@@ -92,9 +181,17 @@ struct JournalNoteEditor: View {
                     }
                 }
 
-                if let errorMessage {
+                // Below both shapes, because the photo belongs to the
+                // entry rather than to the note or to the words.
+                Section {
+                    EntryPhotoRow(draft: photo, disabled: saving)
+                } footer: {
+                    Text("A photo is kept with the entry. Everyone it is shared with sees it.")
+                }
+
+                if let line = errorMessage ?? photo.errorMessage {
                     Section {
-                        Text(errorMessage)
+                        Text(line)
                             .font(.plBody)
                             .foregroundStyle(PL.dangerText)
                     }
@@ -104,15 +201,21 @@ struct JournalNoteEditor: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
-                        if dirty { discardAsk = true } else { dismiss() }
+                        if dirty { discardAsk = true } else {
+                            photo.discard()
+                            dismiss()
+                        }
                     }
-                    .disabled(saving)
+                    .disabled(saving || photo.isBusy)
                 }
             }
             .confirmationDialog(
                 "Discard your changes?", isPresented: $discardAsk, titleVisibility: .visible
             ) {
-                Button("Discard", role: .destructive) { dismiss() }
+                Button("Discard", role: .destructive) {
+                    photo.discard()
+                    dismiss()
+                }
                 Button("Keep editing", role: .cancel) {}
             }
         }
@@ -230,6 +333,7 @@ struct JournalNoteEditor: View {
     }
 
     private var canSave: Bool {
+        if photo.isBusy { return false }
         guard editsNote else {
             return !words.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
@@ -248,38 +352,55 @@ struct JournalNoteEditor: View {
 
     private var dirty: Bool {
         if title != openedTitle || coachName != openedCoach { return true }
+        // Both halves count. Turning sharing on and pressing Save would
+        // otherwise do nothing and say nothing about it.
+        if coachRefId != openedCoachRef || shareWithCoach != openedShare {
+            return true
+        }
+        if photo.changed { return true }
         return editsNote ? themes != openedThemes : words != openedWords
     }
 
     private func save() async {
         saving = true
         errorMessage = nil
-        let coach = coachName.trimmingCharacters(in: .whitespacesAndNewlines)
-        // A practice entry has no coach, and the name field is not shown
-        // for one, so nothing is sent for it either.
-        let sentCoach = lesson.kind == "lesson" ? (coach.isEmpty ? nil : coach) : nil
+        // Only a lesson carries a coach.
+        let isLesson = lesson.kind == "lesson"
+        let refId = isLesson ? coachRefId : nil
+        let named = refId.flatMap { id in
+            coaches.first(where: { $0.id == id })?.displayName
+        }
+        let typed = coachName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sentCoach = CoachAttribution(
+            name: isLesson ? (named ?? (typed.isEmpty ? nil : typed)) : nil,
+            refId: refId,
+            share: isLesson && shareWithCoach && refId != nil
+        )
+
+        let sentPhoto: EntryPhotoSave = photo.changed ? .set(photo.path) : .unchanged
 
         let notice: String?
         if editsNote {
-            notice = await store.saveNote(
-                lesson: lesson,
-                takeaways: LessonTakeaways(
+            notice = await onSaveNote(
+                LessonTakeaways(
                     title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                     themes: cleaned
                 ),
-                coachName: sentCoach
+                sentCoach, sentPhoto
             )
         } else {
-            notice = await store.saveWords(
-                lesson: lesson,
-                transcript: words.trimmingCharacters(in: .whitespacesAndNewlines),
-                coachName: sentCoach
+            notice = await onSaveWords(
+                words.trimmingCharacters(in: .whitespacesAndNewlines),
+                sentCoach, sentPhoto
             )
         }
         saving = false
         if let notice {
             errorMessage = notice
         } else {
+            // The entry owns the photo now, and the URL held for the old
+            // one points at something that is being deleted.
+            photo.release()
             dismiss()
         }
     }

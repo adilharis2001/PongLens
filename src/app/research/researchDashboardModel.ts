@@ -8,6 +8,37 @@ export interface ResearchPage {
 
 export const RESEARCH_PAGES = [
   {
+    title: "V3 serve detector",
+    category: "Card assembly",
+    description:
+      "The rebuilt card assembler, card by card against your scorekeeper. Every point you kept, whether it got exactly one card, who served, and where each card starts and stops.",
+    href: "/research/v3-serve-detector",
+    accent: "magenta",
+  },
+  {
+    title: "Body detector",
+    category: "Card assembly",
+    description:
+      "The same matches cut into points from the two players' bodies instead of from the ball. Every card, who served, and where each one starts and stops.",
+    href: "/research/body-detector",
+    accent: "cyan",
+  },
+  {
+    title: "V3 across matches",
+    category: "Card assembly",
+    description:
+      "The same detector on every exported match at once: how many points would need adding, splitting, joining or deleting afterwards, and which cards those are.",
+    href: "/research/v3-serve-detector/across",
+    accent: "magenta",
+  },
+  {
+    title: "Active ball",
+    category: "Model evaluation",
+    description: "Mark the active ball in short frame sequences and review the locally trained detector.",
+    href: "/research/active-ball",
+    accent: "cyan",
+  },
+  {
     title: "Audio impacts",
     category: "Data labeling",
     description:

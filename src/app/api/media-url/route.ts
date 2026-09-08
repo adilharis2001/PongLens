@@ -98,6 +98,7 @@ export async function POST(req: Request) {
     const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
     scope =
       rawScope === "full" ||
+      rawScope === "highlights" ||
       rawScope === "v:starred" ||
       /^v:hl:(story|reel|long)$/.test(rawScope) ||
       new RegExp(`^tag:${UUID}$`).test(rawScope) ||
@@ -114,22 +115,32 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // { lessonId, image: true } — a journal entry's attached photo. The
-  // lessons row is owner-scoped under RLS, and image_path (client-written
-  // via /api/lesson, which enforces the same prefix) must live under the
-  // OWNER's entry folder before it gets signed.
+  // { lessonId, image: true } — a journal entry's attached photo.
+  //
+  // Who may see it is one question with two answers, so it is asked in one
+  // place: entry_image_for_viewer (163) returns a path for the author, and
+  // for a student the entry has actually been shared with. Before that a
+  // student could not see a coach's photo at all, because the lessons row
+  // is author-only under RLS.
+  //
+  // The function pins the path to its author's folder; the same check is
+  // repeated here on purpose, against the author id the function hands
+  // back, so neither layer is trusting the other. image_path is written by
+  // the client via /api/lesson, and a value on a row you own is not a
+  // value you may point anywhere.
   if (lessonId) {
-    const { data: lesson } = await supabase
-      .from("lessons")
-      .select("id, user_id, image_path")
-      .eq("id", lessonId)
-      .maybeSingle();
-    const loc = parseR2(lesson?.image_path);
+    const { data: rows } = await supabase.rpc("entry_image_for_viewer", {
+      p_lesson_id: lessonId,
+    });
+    const entry = (
+      rows as { author_id: string; image_path: string | null }[] | null
+    )?.[0];
+    const loc = parseR2(entry?.image_path);
     if (
-      !lesson ||
+      !entry ||
       !loc ||
       loc.bucket !== "ponglens-media" ||
-      !loc.key.startsWith(`entry/${lesson.user_id}/`) ||
+      !loc.key.startsWith(`entry/${entry.author_id}/`) ||
       // A '..' segment would walk the signed key back out of the owner's
       // folder after the prefix check passes.
       loc.key.includes("..")
@@ -313,13 +324,13 @@ export async function POST(req: Request) {
       // r2_raw_sweep never expires it while the library row points at it.
       //
       // raw_path only — deliberately NOT the source job's input_path that
-      // the { raw } download below falls back to. raw_path means the
-      // retention sweep is protecting the object; input_path only means a
-      // job once pointed there, and those files age out on the ordinary
-      // 30-day clock. The UI draws its pill from the same column without
-      // probing, so widening this to input_path would put a control on
-      // matches whose file is already gone. The HEAD below still runs, so
-      // a caller that asks anyway gets an honest answer.
+      // the { raw } download below falls back to. raw_path is the column
+      // the UI draws its pill from without probing; a legacy row whose
+      // raw was swept before commerce reads null here and must not grow a
+      // control that opens on nothing. (Since 2026-09 the sweep protects
+      // job-referenced raws too, and backfill_raw_path.py fills the column
+      // for legacy rows whose file survived.) The HEAD below still runs,
+      // so a caller that asks anyway gets an honest answer.
       const loc = parseR2(match.raw_path);
       if (!loc || loc.bucket !== RAW_BUCKET) {
         return NextResponse.json({ available: false });
@@ -332,7 +343,25 @@ export async function POST(req: Request) {
         expiresSeconds: 6 * 3600,
         disposition: "inline",
       });
-      return NextResponse.json({ url, available: true });
+      // A library upload processed with a trim is cut down before the
+      // pipeline sees it, so every t0/t1 in points is measured from
+      // trim_start_s INTO this file. Both apps' Add-a-rally sheets add the
+      // offset to land on the right footage; they read this field, and
+      // until now nothing produced it, so a trimmed upload previewed the
+      // wrong stretch of the original.
+      let trimStartS = 0;
+      if (match.job_id) {
+        const { data: job } = await supabase
+          .from("jobs")
+          .select("options")
+          .eq("id", match.job_id)
+          .maybeSingle();
+        const s = Number(
+          (job?.options as { trim_start_s?: unknown } | null)?.trim_start_s ?? 0
+        );
+        if (Number.isFinite(s) && s > 0) trimStartS = s;
+      }
+      return NextResponse.json({ url, available: true, trimStartS });
     }
 
     if (raw) {
@@ -340,9 +369,9 @@ export async function POST(req: Request) {
       // retention-protected object (r2_raw_sweep keeps it while the
       // library row exists), and an UNPROCESSED match has no job_id yet.
       // Older rows with a null raw_path fall back to the source job's
-      // input_path, which ages out on the 30-day clock. HEAD-check before
-      // signing so a gone upload reports { available: false } (the Export
-      // sheet hides the row) rather than handing back a link that 404s.
+      // input_path. Some legacy raws were swept before commerce, so
+      // HEAD-check before signing: a gone upload reports { available:
+      // false } (the Export sheet hides the row) rather than a 404 link.
       let loc = parseR2(match.raw_path);
       if ((!loc || loc.bucket !== RAW_BUCKET) && match.job_id) {
         const { data: job } = await supabase
@@ -376,7 +405,15 @@ export async function POST(req: Request) {
         .eq("match_id", matchId)
         .single();
       const loc = parseR2(point?.clip_path);
-      if (!loc) {
+      // Pinned to the owner's own clip folder, like the note branch pins
+      // its keys: a phone-made clip is claimed through claim_point_clip,
+      // which pins the same prefix, so clip_path is no longer a column
+      // only the worker writes — sign nothing outside it.
+      if (
+        !loc ||
+        loc.bucket !== MEDIA_BUCKET ||
+        !loc.key.startsWith(`points/${match.user_id}/`)
+      ) {
         return NextResponse.json({ error: "Clip not found" }, { status: 404 });
       }
       const url = await presignGet(loc.bucket, loc.key, {

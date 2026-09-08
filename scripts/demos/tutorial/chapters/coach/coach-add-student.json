@@ -1,0 +1,15 @@
+{
+  "chapter": "coach-add-student",
+  "title": "Add a student",
+  "subtitle": "Chapter 2 of 9",
+  "voice": "sage",
+  "speed": 1.3,
+  "instructions": "Warm and plain spoken, like a friend showing you their app. Brisk and light on its feet, keeping things moving, but never rushed or clipped. No salesy lift at the end of sentences.",
+  "lines": [
+    { "id": "l1", "text": "A student does not need a PongLens account before you add them.", "beat": "students" },
+    { "id": "l2", "text": "Open Students, choose Add a student, and enter their name.", "beat": "add-student" },
+    { "id": "l3", "text": "Their page starts with a private journal for your lesson entries.", "beat": "private-journal" },
+    { "id": "l4", "text": "Once they connect, the matches they share appear on the same page.", "beat": "shared-matches" },
+    { "id": "l5", "text": "You can rename a student or remove them from your active list without losing the lesson history you already kept.", "beat": "student-actions" }
+  ]
+}

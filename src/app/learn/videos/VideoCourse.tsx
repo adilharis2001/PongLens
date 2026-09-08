@@ -1,12 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { CHAPTERS, type Chapter } from "./chapters";
+import { LearnAudienceSwitch } from "../LearnAudienceSwitch";
+import type { LearnAudience } from "../catalogTypes";
+import {
+  tutorialLoadFailureMessage,
+  tutorialURLLoadFailed,
+  tutorialURLLoadStarted,
+  tutorialURLLoadSucceeded,
+} from "../tutorialLoadState";
+import { tutorialProgressKey } from "../tutorialProgress";
+import {
+  tutorialTotalSeconds,
+  visibleChapters,
+  type Chapter,
+} from "./chapters";
 
 /**
- * The tutorial course: nine chapters, in order.
+ * The tutorial course for the selected Learn audience, in order.
  *
  * MOBILE is the whole screen. Not a video sitting inside the app's chrome —
  * the chapters are 9:16, and a 9:16 picture needs 699px of height to be
@@ -38,8 +51,35 @@ const mmss = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, 
 const DESK_H = "calc(100dvh - 11rem)";
 const DESK_W = "calc((100dvh - 11rem) * 9 / 16)";
 
+function TutorialLoadFailure({
+  chapterTitle,
+  onRetry,
+}: {
+  chapterTitle: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="pointer-events-auto absolute left-1/2 top-1/2 w-[min(17rem,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-white/15 bg-black/80 p-4 text-center backdrop-blur"
+    >
+      <p className="text-sm leading-relaxed text-zinc-200">
+        {tutorialLoadFailureMessage(chapterTitle)}
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="mt-3 rounded-full border border-white/25 px-4 py-2 text-sm font-semibold text-white transition-colors hover:border-cyan-glow/60 hover:text-cyan-glow"
+      >
+        Try again
+      </button>
+    </div>
+  );
+}
+
 function ChapterVideo({
   chapter,
+  chapterCount,
   src,
   active,
   near,
@@ -47,8 +87,11 @@ function ChapterVideo({
   boxHeight,
   onPlayingChange,
   onFirstPlay,
+  loadFailed,
+  onRetry,
 }: {
   chapter: Chapter;
+  chapterCount: number;
   src?: string;
   active: boolean;
   /** Next to the current card, so its first frame is worth fetching. */
@@ -59,6 +102,8 @@ function ChapterVideo({
   boxHeight?: string;
   onPlayingChange?: (playing: boolean) => void;
   onFirstPlay?: () => void;
+  loadFailed: boolean;
+  onRetry: () => void;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -147,7 +192,7 @@ function ChapterVideo({
           }`}
         >
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-glow">
-            Chapter {chapter.n} of {CHAPTERS.length}
+            Chapter {chapter.n} of {chapterCount}
           </p>
           <h2 className="mt-1 text-2xl font-bold leading-tight tracking-tight text-white">
             {chapter.title}
@@ -157,7 +202,12 @@ function ChapterVideo({
           </p>
         </div>
 
-        {!started && (
+        {loadFailed ? (
+          <TutorialLoadFailure
+            chapterTitle={chapter.title}
+            onRetry={onRetry}
+          />
+        ) : !started && (
           <button
             type="button"
             onClick={start}
@@ -197,10 +247,12 @@ function ChapterVideo({
  * it doubles as "you are here" without a second indicator.
  */
 function ChapterDirectory({
+  chapters,
   current,
   onPick,
   overlay,
 }: {
+  chapters: Chapter[];
   current: number;
   onPick: (i: number) => void;
   /** Sitting on the video rather than under it. */
@@ -222,7 +274,7 @@ function ChapterDirectory({
         overlay ? "px-4 pb-1" : "-mx-5 mt-4 px-5 pb-1"
       }`}
     >
-      {CHAPTERS.map((c, i) => (
+      {chapters.map((c, i) => (
         <button
           key={c.slug}
           ref={(el) => {
@@ -262,30 +314,68 @@ function ChapterDirectory({
   );
 }
 
-export function VideoCourse() {
-  const [urls, setUrls] = useState<Record<string, string>>({});
+interface VideoCourseProps {
+  audience: LearnAudience;
+  activeWorkspace: LearnAudience;
+  canSwitch: boolean;
+}
+
+export function VideoCourse(props: VideoCourseProps) {
+  // Audience owns every piece of course state. Remounting this inner course
+  // resets its index, signed URLs, playback state, loading failure, and DOM
+  // refs together when the URL override changes.
+  return <AudienceVideoCourse key={props.audience} {...props} />;
+}
+
+function AudienceVideoCourse({
+  audience,
+  activeWorkspace,
+  canSwitch,
+}: VideoCourseProps) {
+  const chapters = useMemo(() => visibleChapters(audience, "web"), [audience]);
+  const totalSeconds = useMemo(
+    () => tutorialTotalSeconds(audience, "web"),
+    [audience],
+  );
+  const learnHref =
+    audience === activeWorkspace ? "/learn" : `/learn?audience=${audience}`;
+  const [urlLoad, setURLLoad] = useState(tutorialURLLoadStarted);
   const [current, setCurrent] = useState(0);
-  const [failed, setFailed] = useState(false);
   const [playing, setPlaying] = useState(false);
   const deckRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef<HTMLDivElement[]>([]);
+  const loadAttempt = useRef(0);
+  const urls = urlLoad.urls;
+
+  const loadURLs = useCallback(async () => {
+    const attempt = ++loadAttempt.current;
+    setURLLoad(tutorialURLLoadStarted());
+    try {
+      const res = await fetch("/api/tutorial-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ course: audience, platform: "web" }),
+      });
+      const data = res.ok ? await res.json() : null;
+      if (attempt !== loadAttempt.current) return;
+      if (data?.urls && typeof data.urls === "object") {
+        setURLLoad(tutorialURLLoadSucceeded(data.urls));
+      } else {
+        setURLLoad(tutorialURLLoadFailed());
+      }
+    } catch {
+      if (attempt === loadAttempt.current) {
+        setURLLoad(tutorialURLLoadFailed());
+      }
+    }
+  }, [audience]);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/tutorial-url", { method: "POST" });
-        const data = res.ok ? await res.json() : null;
-        if (!cancelled && data?.urls) setUrls(data.urls);
-        else if (!cancelled) setFailed(true);
-      } catch {
-        if (!cancelled) setFailed(true);
-      }
-    })();
+    void loadURLs();
     return () => {
-      cancelled = true;
+      loadAttempt.current += 1;
     };
-  }, []);
+  }, [loadURLs]);
 
   /**
    * Which card the deck has settled on. Watched rather than computed from
@@ -324,7 +414,7 @@ export function VideoCourse() {
       if (!w) return;
       const i = Math.min(
         Math.max(Math.round(root.scrollLeft / w), 0),
-        CHAPTERS.length - 1
+        chapters.length - 1,
       );
       setCurrent((prev) => (prev === i ? prev : i));
     };
@@ -334,7 +424,7 @@ export function VideoCourse() {
       io.disconnect();
       root.removeEventListener("scroll", onScroll);
     };
-  }, []);
+  }, [chapters.length]);
 
   /**
    * Tick the first-steps checklist the first time a chapter actually plays.
@@ -342,13 +432,17 @@ export function VideoCourse() {
    * is worse than an unchecked one.
    */
   const played = useRef(false);
+  useEffect(() => {
+    played.current = false;
+  }, [audience]);
+
   const markStarted = useCallback(() => {
     if (played.current) return;
     played.current = true;
     void createClient()
-      .auth.updateUser({ data: { tutorial_started: true } })
+      .auth.updateUser({ data: { [tutorialProgressKey(audience)]: true } })
       .catch(() => {});
-  }, []);
+  }, [audience]);
 
   const goTo = useCallback((i: number) => {
     setCurrent(i);
@@ -359,7 +453,7 @@ export function VideoCourse() {
     });
   }, []);
 
-  const chapter = CHAPTERS[current];
+  const chapter = chapters[current];
 
   return (
     <>
@@ -375,7 +469,7 @@ export function VideoCourse() {
           ref={deckRef}
           className="flex h-full snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {CHAPTERS.map((c, i) => (
+          {chapters.map((c, i) => (
             <div
               key={c.slug}
               ref={(el) => {
@@ -385,12 +479,15 @@ export function VideoCourse() {
             >
               <ChapterVideo
                 chapter={c}
+                chapterCount={chapters.length}
                 src={urls[c.slug]}
                 active={i === current}
                 near={Math.abs(i - current) === 1}
                 fullBleed
                 onPlayingChange={i === current ? setPlaying : undefined}
                 onFirstPlay={markStarted}
+                loadFailed={urlLoad.status === "failed"}
+                onRetry={loadURLs}
               />
             </div>
           ))}
@@ -405,7 +502,7 @@ export function VideoCourse() {
           }`}
         >
           <Link
-            href="/learn"
+            href={learnHref}
             aria-label="Back to how-to guides"
             className="pointer-events-auto absolute left-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur transition-colors hover:text-cyan-glow"
           >
@@ -421,11 +518,15 @@ export function VideoCourse() {
             </svg>
           </Link>
 
-          {failed && (
-            <p className="absolute inset-x-6 top-20 rounded-xl bg-black/70 p-3 text-center text-sm text-zinc-300 backdrop-blur">
-              The videos could not be loaded just now. Refreshing usually sorts it.
-            </p>
-          )}
+          <div className="pointer-events-auto absolute right-4 top-4">
+            <LearnAudienceSwitch
+              audience={audience}
+              activeWorkspace={activeWorkspace}
+              canSwitch={canSwitch}
+              basePath="/learn/videos"
+              className="mt-0 border-white/15 bg-black/50 backdrop-blur"
+            />
+          </div>
 
           {/* env() rather than a utility: the home indicator's height is only
               known to the device, and a directory under it is unreachable. */}
@@ -433,7 +534,12 @@ export function VideoCourse() {
             style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0.75rem)" }}
             className="pointer-events-auto absolute inset-x-0 bottom-0"
           >
-            <ChapterDirectory current={current} onPick={goTo} overlay />
+            <ChapterDirectory
+              chapters={chapters}
+              current={current}
+              onPick={goTo}
+              overlay
+            />
           </div>
         </div>
       </div>
@@ -445,56 +551,67 @@ export function VideoCourse() {
             max-width circular against a shrink-to-fit parent. */}
         <div className="shrink-0">
           <ChapterVideo
+            key={chapter.slug}
             chapter={chapter}
+            chapterCount={chapters.length}
             src={urls[chapter.slug]}
             active
             boxHeight={DESK_H}
             onFirstPlay={markStarted}
+            loadFailed={urlLoad.status === "failed"}
+            onRetry={loadURLs}
           />
         </div>
 
         {/* Same width and height as the player, so the two read as a matched
             pair rather than a video with a sidebar bolted on. */}
-        <ol
+        <div
           style={{ width: DESK_W, height: DESK_H }}
-          className="shrink-0 divide-y divide-edge/60 overflow-y-auto rounded-2xl border border-edge bg-surface [scrollbar-width:thin]"
+          className="flex shrink-0 flex-col"
         >
-          {CHAPTERS.map((c, i) => (
-            <li key={c.slug}>
-              <button
-                type="button"
-                onClick={() => setCurrent(i)}
-                aria-current={i === current ? "true" : undefined}
-                className={`flex w-full items-center gap-3 p-3 text-left transition-colors ${
-                  i === current ? "bg-cyan-glow/10" : "hover:bg-surface-2"
-                }`}
-              >
-                <span
-                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                    i === current
-                      ? "bg-cyan-glow text-ink"
-                      : "border border-edge text-zinc-500"
+          <p className="mb-2 px-1 text-xs tabular-nums text-zinc-500">
+            {chapters.length} chapters · {Math.round(totalSeconds / 60)} min
+          </p>
+          <ol className="min-h-0 flex-1 divide-y divide-edge/60 overflow-y-auto rounded-2xl border border-edge bg-surface [scrollbar-width:thin]">
+            {chapters.map((c, i) => (
+              <li key={c.slug}>
+                <button
+                  type="button"
+                  onClick={() => setCurrent(i)}
+                  aria-current={i === current ? "true" : undefined}
+                  className={`flex w-full items-center gap-3 p-3 text-left transition-colors ${
+                    i === current ? "bg-cyan-glow/10" : "hover:bg-surface-2"
                   }`}
                 >
-                  {c.n}
-                </span>
-                <span className="min-w-0 flex-1">
                   <span
-                    className={`block truncate text-sm font-semibold ${
-                      i === current ? "text-white" : "text-zinc-300"
+                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                      i === current
+                        ? "bg-cyan-glow text-ink"
+                        : "border border-edge text-zinc-500"
                     }`}
                   >
-                    {c.title}
+                    {c.n}
                   </span>
-                  <span className="block truncate text-xs text-zinc-500">{c.blurb}</span>
-                </span>
-                <span className="shrink-0 text-xs tabular-nums text-zinc-600">
-                  {mmss(c.seconds)}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ol>
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={`block truncate text-sm font-semibold ${
+                        i === current ? "text-white" : "text-zinc-300"
+                      }`}
+                    >
+                      {c.title}
+                    </span>
+                    <span className="block truncate text-xs text-zinc-500">
+                      {c.blurb}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-xs tabular-nums text-zinc-600">
+                    {mmss(c.seconds)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </div>
       </div>
     </>
   );

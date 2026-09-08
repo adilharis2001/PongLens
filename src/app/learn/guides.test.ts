@@ -1,60 +1,865 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import {
-  GROUPS,
+  guideBySlug,
+  guideBySlugForPlatform,
   guideSearchText,
-  guides,
-  type Guide,
-} from "./guides.ts";
+  guideSnippet,
+  legacyGuideRedirect,
+  tutorialTotalSeconds,
+  validateLearnCatalog,
+  visibleChapters,
+  visibleGuides,
+  visibleGroups,
+  visibleRelatedGuides,
+} from "./catalog.ts";
+import type { Guide, TutorialChapter } from "./catalogTypes.ts";
+import { guideBySlug as legacyGuideBySlug } from "./guides.ts";
+import { resolveLearnAudience } from "./audience.ts";
+import { resolveTutorialRequest } from "./tutorialRequest.ts";
+import { tutorialProgressKey, tutorialWasStarted } from "./tutorialProgress.ts";
+import { dualRoleEligible } from "../../lib/dualRoleEligibility.ts";
+import {
+  REQUIRED_LEARN_SHOT_STATES,
+  learnShotManifest,
+} from "../../../scripts/demos/learn_shot_manifest.mjs";
 
-test("guide slugs and relationships are valid", () => {
-  const slugs = guides.map((guide) => guide.slug);
-  assert.equal(new Set(slugs).size, slugs.length);
+const iosCatalogPath = fileURLToPath(
+  new URL("../../../ios/PongLens/PongLens/Resources/learn-catalog.json", import.meta.url),
+);
 
-  const known = new Set(slugs);
-  for (const guide of guides) {
-    assert.ok(
-      GROUPS.includes(guide.group as (typeof GROUPS)[number]),
-      `${guide.slug} has an unknown group`
+async function loadIOSLearnSerializer(): Promise<() => string> {
+  let serializerModule: { serializeIOSLearnCatalog?: unknown };
+  try {
+    serializerModule = await import("../../../scripts/generate-ios-learn.ts");
+  } catch {
+    assert.fail("iOS Learn serializer module is missing");
+  }
+
+  assert.equal(
+    typeof serializerModule!.serializeIOSLearnCatalog,
+    "function",
+    "iOS Learn serializer must export serializeIOSLearnCatalog",
+  );
+  return serializerModule!.serializeIOSLearnCatalog as () => string;
+}
+
+function guide(overrides: Partial<Guide> = {}): Guide {
+  return {
+    slug: "guide-a",
+    title: "Guide A",
+    summary: "A guide for tests.",
+    group: "Get started",
+    visibility: { audiences: ["player"], platforms: ["web"] },
+    sections: [{ heading: "Quick steps", steps: ["Do the thing."] }],
+    ...overrides,
+  };
+}
+
+function chapter(overrides: Partial<TutorialChapter> = {}): TutorialChapter {
+  return {
+    slug: "chapter-a",
+    title: "Chapter A",
+    blurb: "A chapter for tests.",
+    seconds: 30,
+    guide: "guide-a",
+    visibility: { audiences: ["player"], platforms: ["web"] },
+    mediaKey: "tutorial/player/chapter-a.mp4",
+    ...overrides,
+  };
+}
+
+async function tutorialRouteResponse(
+  body: string | undefined,
+  signedIn = true,
+) {
+  let routeModule: {
+    handleTutorialURLRequest?: (
+      request: Request,
+      dependencies: {
+        getUser: () => Promise<{ id: string } | null>;
+        sign: (items: Array<{ key: string }>) => Promise<string[]>;
+      },
+    ) => Promise<Response>;
+  };
+  try {
+    routeModule = await import("./tutorialRoute.ts");
+  } catch {
+    assert.fail("tutorial route contract handler is missing");
+  }
+  assert.equal(
+    typeof routeModule!.handleTutorialURLRequest,
+    "function",
+    "tutorial route must expose its production contract handler",
+  );
+  const request = new Request("http://localhost/api/tutorial-url", {
+    method: "POST",
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body,
+  });
+  return routeModule!.handleTutorialURLRequest!(request, {
+    getUser: async () => signedIn ? { id: "test-user" } : null,
+    sign: async (items) => items.map(({ key }) => `signed:${key}`),
+  });
+}
+
+async function loadTutorialURLStateModule() {
+  let stateModule: Record<string, unknown>;
+  try {
+    stateModule = await import("./tutorialLoadState.ts");
+  } catch {
+    assert.fail("tutorial URL load-state helper is missing");
+  }
+  return stateModule! as {
+    tutorialURLLoadStarted: () => { status: string; urls: Record<string, string> };
+    tutorialURLLoadSucceeded: (
+      urls: Record<string, string>,
+    ) => { status: string; urls: Record<string, string> };
+    tutorialURLLoadFailed: () => { status: string; urls: Record<string, string> };
+    tutorialLoadFailureMessage: (chapterTitle: string) => string;
+  };
+}
+
+test("Learn audience uses only eligible player and coach URL overrides", () => {
+  assert.equal(
+    resolveLearnAudience({ active: "coach", requested: undefined, canSwitch: false }),
+    "coach",
+  );
+  assert.equal(
+    resolveLearnAudience({ active: "player", requested: "coach", canSwitch: true }),
+    "coach",
+  );
+  assert.equal(
+    resolveLearnAudience({ active: "player", requested: "coach", canSwitch: false }),
+    "player",
+  );
+  assert.equal(
+    resolveLearnAudience({ active: "coach", requested: "invalid", canSwitch: true }),
+    "coach",
+  );
+});
+
+test("tutorial video global nav follows the active workspace, not a Learn override", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./videos/page.tsx", import.meta.url)),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /<AppNav\s+avatarUrl=\{context\.avatarUrl\}\s+remembered=\{context\.activeWorkspace\}\s*\/>/,
+    "AppNav must receive the authenticated active workspace",
+  );
+  assert.match(
+    source,
+    /<LearnAudienceSwitch[\s\S]*?audience=\{context\.audience\}[\s\S]*?activeWorkspace=\{context\.activeWorkspace\}/,
+    "the local Learn switch must retain the separately resolved audience",
+  );
+});
+
+test("tutorial progress stays separate between player and coach workspaces", () => {
+  assert.equal(tutorialProgressKey("player"), "player_tutorial_started");
+  assert.equal(tutorialProgressKey("coach"), "coach_tutorial_started");
+  assert.equal(tutorialWasStarted({ tutorial_started: true }, "player"), true);
+  assert.equal(tutorialWasStarted({ tutorial_started: true }, "coach"), false);
+  assert.equal(
+    tutorialWasStarted({ coach_tutorial_started: true }, "coach"),
+    true,
+  );
+});
+
+test("dual-role eligibility requires completed player setup and coach evidence", () => {
+  const player = {
+    coachFlag: false,
+    coachProfile: false,
+    acceptedCoachLink: false,
+    coachRoster: false,
+    playerSetupDoneAt: "2026-09-04T10:00:00Z",
+  };
+
+  assert.equal(dualRoleEligible(player), false, "player evidence alone is not dual-role");
+  for (const coachEvidence of [
+    "coachFlag",
+    "coachProfile",
+    "acceptedCoachLink",
+    "coachRoster",
+  ] as const) {
+    assert.equal(
+      dualRoleEligible({ ...player, [coachEvidence]: true }),
+      true,
+      `${coachEvidence} plus completed player setup is dual-role`,
     );
-    for (const related of guide.related ?? []) {
-      assert.ok(known.has(related), `${guide.slug} links to missing ${related}`);
+    assert.equal(
+      dualRoleEligible({
+        ...player,
+        playerSetupDoneAt: null,
+        [coachEvidence]: true,
+      }),
+      false,
+      `${coachEvidence} alone is not dual-role`,
+    );
+  }
+});
+
+test("generated iOS catalog stays fresh and excludes web-only coach commerce", async () => {
+  const serializeIOSLearnCatalog = await loadIOSLearnSerializer();
+  assert.equal(existsSync(iosCatalogPath), true, "generated iOS Learn catalog is missing");
+
+  const output = serializeIOSLearnCatalog();
+  assert.equal(readFileSync(iosCatalogPath, "utf8"), output);
+
+  const catalog = JSON.parse(output) as {
+    groups: Array<{ audience: string; groups: string[] }>;
+    guides: Array<{ audience: string }>;
+    chapters: Array<Record<string, unknown> & { audience: string }>;
+  };
+  assert.deepEqual(
+    catalog.groups.map((group) => group.audience),
+    ["player", "coach"],
+  );
+  assert.ok(catalog.groups.every((group) => group.groups.length > 0));
+  assert.ok(
+    catalog.chapters.every((chapter) => !Object.hasOwn(chapter, "n")),
+    "iOS tutorial chapter numbers must be derived after platform filtering",
+  );
+
+  const coachRecords = JSON.stringify({
+    groups: catalog.groups.filter((group) => group.audience === "coach"),
+    guides: catalog.guides.filter((guide) => guide.audience === "coach"),
+    chapters: catalog.chapters.filter((chapter) => chapter.audience === "coach"),
+  });
+  for (const forbidden of [
+    "setup-paid-reviews",
+    "complete-paid-review",
+    "coach-paid-reviews",
+    "coach-paid-review",
+    "paid review",
+    "payout",
+    "offering",
+  ]) {
+    assert.doesNotMatch(coachRecords, new RegExp(forbidden, "i"));
+  }
+
+  const iosRecords = JSON.stringify(catalog);
+  assert.doesNotMatch(iosRecords, /youtube/i);
+  assert.doesNotMatch(iosRecords, /upload-from-youtube/i);
+});
+
+test("catalog selectors filter guides, sections, groups, and related links", () => {
+  const coachIosGuides = visibleGuides("coach", "ios");
+  assert.equal(
+    coachIosGuides.some((item) => guideSearchText(item).includes("paid review")),
+    false,
+  );
+  assert.ok(coachIosGuides.every((item) => item.visibility.audiences.includes("coach")));
+  assert.ok(visibleGroups("coach", "ios").length > 0);
+
+  const playerGuide = visibleGuides("player", "web")[0];
+  assert.ok(playerGuide);
+  assert.deepEqual(
+    visibleRelatedGuides(playerGuide, "player", "web").map((item) => item.slug),
+    ["upload-from-youtube", "match-viewer"],
+  );
+  const iosUploadGuide = guideBySlug("upload-a-video", "player", "ios");
+  assert.ok(iosUploadGuide);
+  assert.deepEqual(
+    visibleRelatedGuides(iosUploadGuide, "player", "ios").map((item) => item.slug),
+    ["record-a-match", "match-viewer"],
+  );
+  assert.equal(
+    playerGuide.sections.some((section) => section.heading === "On iPhone"),
+    false,
+  );
+  assert.equal(
+    visibleGuides("player", "ios")[0]?.sections.some(
+      (section) => section.heading === "On iPhone",
+    ),
+    true,
+  );
+});
+
+test("catalog selectors find only visible slugs and derive tutorial totals", () => {
+  const playerGuide = visibleGuides("player", "web")[0];
+  assert.ok(playerGuide);
+  assert.equal(guideBySlug(playerGuide.slug, "player", "web")?.slug, playerGuide.slug);
+  assert.equal(guideBySlug(playerGuide.slug, "coach", "web"), undefined);
+  assert.equal(guideBySlugForPlatform(playerGuide.slug, "web")?.slug, playerGuide.slug);
+  assert.equal(
+    tutorialTotalSeconds("player", "web"),
+    visibleChapters("player", "web").reduce((total, item) => total + item.seconds, 0),
+  );
+});
+
+test("legacy guide redirects preserve both renamed routes", () => {
+  assert.equal(legacyGuideRedirect("keep-score"), "score-keeper");
+  assert.equal(legacyGuideRedirect("for-coaches"), "review-student-match");
+});
+
+test("coach guide relationships stay visible on their platform", () => {
+  for (const coachGuide of visibleGuides("coach", "ios")) {
+    for (const related of visibleRelatedGuides(coachGuide, "coach", "ios")) {
+      assert.ok(
+        related.visibility.platforms.includes("ios"),
+        `${coachGuide.slug} only links to iOS-visible guides`,
+      );
+    }
+  }
+
+  const paidReviewGuides = visibleGuides("coach", "web").filter((item) =>
+    guideSearchText(item).includes("paid review"),
+  );
+  assert.ok(paidReviewGuides.length > 0, "coach paid-review guides remain on web");
+  assert.ok(
+    paidReviewGuides.every((item) => item.visibility.platforms.includes("web")),
+    "every coach paid-review guide is web-visible",
+  );
+});
+
+test("legacy guideBySlug defaults to the web catalog", () => {
+  assert.equal(legacyGuideBySlug("upload-a-video")?.slug, "upload-a-video");
+});
+
+test("web guide screenshots cover the refreshed player and coach workflows", () => {
+  const imagePaths = new Set(
+    (["player", "coach"] as const).flatMap((audience) =>
+      visibleGuides(audience, "web").flatMap((item) =>
+        item.sections.flatMap((section) =>
+          (section.images ?? []).map((image) => image.src),
+        ),
+      ),
+    ),
+  );
+
+  for (const imagePath of imagePaths) {
+    const filePath = fileURLToPath(
+      new URL(`../../../public${imagePath}`, import.meta.url),
+    );
+    assert.equal(existsSync(filePath), true, `${imagePath} does not exist under public/`);
+  }
+
+  const screenshotHarness = readFileSync(
+    fileURLToPath(
+      new URL("../../../scripts/demos/learn_shots.mjs", import.meta.url),
+    ),
+    "utf8",
+  );
+  assert.deepEqual(
+    learnShotManifest.map((item) => item.state),
+    REQUIRED_LEARN_SHOT_STATES,
+    "the manifest must enumerate every required and corrective Learn state",
+  );
+  for (const item of learnShotManifest) {
+    assert.ok(item.reason, `${item.state} must explain why and how it is captured`);
+    for (const [platform, variant] of Object.entries(item.variants)) {
+      assert.match(screenshotHarness, new RegExp(`"${variant.shot}"\\s*:`));
+      const expectedPath = `/learn/${variant.shot}.jpg`;
+      const filePath = fileURLToPath(
+        new URL(`../../../public${expectedPath}`, import.meta.url),
+      );
+      if (item.status === "captured") {
+        assert.equal(variant.guideImage, expectedPath);
+        assert.ok(imagePaths.has(expectedPath), `${expectedPath} is not referenced`);
+        assert.equal(existsSync(filePath), true, `${expectedPath} is missing`);
+        const expectedKind = platform === "desktop" ? "d" : "m";
+        const image = (["player", "coach"] as const)
+          .flatMap((audience) => visibleGuides(audience, "web"))
+          .flatMap((guide) => guide.sections)
+          .flatMap((section) => section.images ?? [])
+          .find((candidate) => candidate.src === expectedPath);
+        assert.equal(image?.kind, expectedKind, `${expectedPath} has the wrong kind`);
+      } else {
+        assert.equal(variant.guideImage, undefined);
+        assert.equal(existsSync(filePath), false, `${expectedPath} must not be fabricated`);
+      }
     }
   }
 });
 
-test("every guide starts with quick steps", () => {
-  for (const guide of guides) {
-    assert.ok(
-      guide.sections[0]?.steps?.length,
-      `${guide.slug} has no quick steps`
-    );
+test("externally staged Learn states ship as real desktop and mobile captures", () => {
+  const stagedStates = new Set([
+    "original-video",
+    "missed-rally-restoration",
+    "placement-retry",
+    "placement-current",
+    "coach-direct-share",
+    "coach-public-entry-link",
+  ]);
+
+  for (const item of learnShotManifest.filter(({ state }) => stagedStates.has(state))) {
+    assert.equal(item.status, "captured", `${item.state} is still missing its staged capture`);
+    for (const variant of Object.values(item.variants)) {
+      assert.equal(
+        variant.guideImage,
+        `/learn/${variant.shot}.jpg`,
+        `${variant.shot} is not wired to the guide catalog`,
+      );
+    }
   }
 });
 
-test("every guide image exists under public", () => {
-  for (const guide of guides) {
-    for (const section of guide.sections) {
-      for (const image of section.images ?? []) {
+test("guide search helpers retain their legacy behavior", () => {
+  const searchable = guide({
+    title: "Search test",
+    summary: "A test guide.",
+    sections: [{ steps: ["Choose the unmistakable control."] }],
+  });
+  assert.match(guideSearchText(searchable), /unmistakable/);
+  assert.equal(guideSnippet(searchable, "unmistakable"), "Choose the unmistakable control.");
+});
+
+test("chapter visibility preserves the player course and filters iOS coach paid review", () => {
+  assert.deepEqual(
+    visibleChapters("coach", "ios").map((item) => item.slug),
+    [
+      "coach-start",
+      "coach-add-student",
+      "coach-connect-account",
+      "coach-lesson-entry",
+      "coach-audio-lesson",
+      "coach-share-entry",
+      "coach-review-match",
+      "coach-feedback",
+    ],
+  );
+  assert.equal(visibleChapters("player", "web").length, 9);
+  assert.equal(visibleChapters("coach", "web").length, 9);
+});
+
+test("tutorial requests return only the course catalog visible on the requested platform", () => {
+  assert.deepEqual(
+    resolveTutorialRequest({ course: "coach", platform: "web" })?.map(
+      (item) => item.mediaKey,
+    ),
+    [
+      "tutorial/coach/coach-start.mp4",
+      "tutorial/coach/coach-add-student.mp4",
+      "tutorial/coach/coach-connect-account.mp4",
+      "tutorial/coach/coach-lesson-entry.mp4",
+      "tutorial/coach/coach-audio-lesson.mp4",
+      "tutorial/coach/coach-share-entry.mp4",
+      "tutorial/coach/coach-review-match.mp4",
+      "tutorial/coach/coach-feedback.mp4",
+      "tutorial/coach/coach-paid-review.mp4",
+    ],
+  );
+  assert.deepEqual(
+    resolveTutorialRequest({ course: "coach", platform: "ios" })?.map(
+      (item) => item.mediaKey,
+    ),
+    [
+      "tutorial/coach/coach-start.mp4",
+      "tutorial/coach/coach-add-student.mp4",
+      "tutorial/coach/coach-connect-account.mp4",
+      "tutorial/coach/coach-lesson-entry.mp4",
+      "tutorial/coach/coach-audio-lesson.mp4",
+      "tutorial/coach/coach-share-entry.mp4",
+      "tutorial/coach/coach-review-match.mp4",
+      "tutorial/coach/coach-feedback.mp4",
+    ],
+  );
+});
+
+test("tutorial requests match slugs only inside the selected catalog", () => {
+  assert.deepEqual(
+    resolveTutorialRequest({
+      course: "coach",
+      platform: "ios",
+      slug: "coach-paid-review",
+    }),
+    [],
+  );
+  assert.deepEqual(
+    resolveTutorialRequest({ course: "player", platform: "web", slug: "coach-start" }),
+    [],
+  );
+});
+
+test("tutorial requests reject invalid catalogs and never turn request strings into media keys", () => {
+  assert.equal(
+    resolveTutorialRequest({ course: "administrator", platform: "web" }),
+    null,
+  );
+  assert.equal(
+    resolveTutorialRequest({ course: "player", platform: "android" }),
+    null,
+  );
+  assert.deepEqual(
+    resolveTutorialRequest({
+      course: "player",
+      platform: "web",
+      slug: "../../private/customer-video",
+    }),
+    [],
+  );
+});
+
+test("tutorial URL route preserves legacy single-chapter requests", async () => {
+  const response = await tutorialRouteResponse(JSON.stringify({ slug: "viewer" }));
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    urls: { viewer: "signed:tutorial/viewer.mp4" },
+  });
+});
+
+test("tutorial URL route preserves legacy empty-body and empty-object batches", async () => {
+  const expected = {
+    urls: Object.fromEntries(
+      ["home", "upload", "viewer", "point", "keepscore", "analysis", "export", "coach", "journal"]
+        .map((slug) => [slug, `signed:tutorial/${slug}.mp4`]),
+    ),
+  };
+
+  for (const body of [undefined, "{}"] as const) {
+    const response = await tutorialRouteResponse(body);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), expected);
+  }
+});
+
+test("tutorial URL route rejects unknown legacy chapters and arbitrary paths", async () => {
+  for (const slug of ["not-a-chapter", "../../private/customer-video"]) {
+    const response = await tutorialRouteResponse(JSON.stringify({ slug }));
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: "Unknown chapter" });
+  }
+});
+
+test("tutorial URL route rejects malformed and partial new requests without legacy fallback", async () => {
+  for (const body of [
+    "{",
+    JSON.stringify({ course: "player" }),
+    JSON.stringify({ platform: "web" }),
+    JSON.stringify({ course: "player", slug: "viewer" }),
+    JSON.stringify({ slug: 42 }),
+    JSON.stringify({ course: "player", platform: "web", slug: 42 }),
+    JSON.stringify({ unrelated: true }),
+  ]) {
+    const response = await tutorialRouteResponse(body);
+    assert.equal(response.status, 400, body);
+    assert.deepEqual(await response.json(), { error: "Invalid course or platform" });
+  }
+});
+
+test("tutorial URL route signs only catalog media for the new course-platform contract", async () => {
+  const player = await tutorialRouteResponse(JSON.stringify({
+    course: "player",
+    platform: "web",
+  }));
+  assert.equal(player.status, 200);
+  assert.deepEqual(await player.json(), {
+    urls: Object.fromEntries(
+      ["home", "upload", "viewer", "point", "keepscore", "analysis", "export", "coach", "journal"]
+        .map((slug) => [slug, `signed:tutorial/player/${slug}.mp4`]),
+    ),
+  });
+
+  const coach = await tutorialRouteResponse(JSON.stringify({
+    course: "coach",
+    platform: "ios",
+    slug: "coach-feedback",
+  }));
+  assert.equal(coach.status, 200);
+  assert.deepEqual(await coach.json(), {
+    urls: { "coach-feedback": "signed:tutorial/coach/coach-feedback.mp4" },
+  });
+
+  const hidden = await tutorialRouteResponse(JSON.stringify({
+    course: "coach",
+    platform: "ios",
+    slug: "coach-paid-review",
+  }));
+  assert.equal(hidden.status, 404);
+  assert.deepEqual(await hidden.json(), { error: "Unknown chapter" });
+
+  const arbitrary = await tutorialRouteResponse(JSON.stringify({
+    course: "player",
+    platform: "web",
+    slug: "../../private/customer-video",
+  }));
+  assert.equal(arbitrary.status, 404);
+  assert.deepEqual(await arbitrary.json(), { error: "Unknown chapter" });
+});
+
+test("tutorial URL route requires authentication before signing either contract", async () => {
+  const response = await tutorialRouteResponse("{}", false);
+
+  assert.equal(response.status, 401);
+  assert.deepEqual(await response.json(), { error: "Not signed in" });
+});
+
+test("tutorial URL failure state clears stale URLs and retry returns to loading", async () => {
+  const state = await loadTutorialURLStateModule();
+
+  assert.deepEqual(state.tutorialURLLoadSucceeded({ viewer: "signed:old" }), {
+    status: "ready",
+    urls: { viewer: "signed:old" },
+  });
+  assert.deepEqual(state.tutorialURLLoadFailed(), {
+    status: "failed",
+    urls: {},
+  });
+  assert.deepEqual(state.tutorialURLLoadStarted(), {
+    status: "loading",
+    urls: {},
+  });
+});
+
+test("tutorial URL failure names the selected chapter", async () => {
+  const state = await loadTutorialURLStateModule();
+
+  assert.equal(
+    state.tutorialLoadFailureMessage("Watch it back"),
+    "We couldn’t load “Watch it back”.",
+  );
+});
+
+test("web tutorial uses one named retry treatment in both responsive players", () => {
+  const source = readFileSync(
+    fileURLToPath(new URL("./videos/VideoCourse.tsx", import.meta.url)),
+    "utf8",
+  );
+
+  assert.match(
+    source,
+    /function ChapterVideo[\s\S]*?<TutorialLoadFailure[\s\S]*?chapterTitle=\{chapter\.title\}[\s\S]*?onRetry=\{onRetry\}/,
+  );
+  assert.equal(
+    source.match(/<ChapterVideo/g)?.length,
+    2,
+    "mobile and desktop must both render the shared ChapterVideo",
+  );
+  assert.equal(
+    source.match(/<TutorialLoadFailure/g)?.length,
+    1,
+    "the failure UI must stay centralized rather than fork by breakpoint",
+  );
+});
+
+test("coach guide curriculum is complete and paid reviews stay web-only", () => {
+  const webSlugs = visibleGuides("coach", "web").map((item) => item.slug);
+  const iosSlugs = visibleGuides("coach", "ios").map((item) => item.slug);
+
+  assert.deepEqual(webSlugs, [
+    "coaching-workspace",
+    "add-connect-student",
+    "keep-lesson-entries",
+    "audio-record-lesson",
+    "share-coach-entry",
+    "review-student-match",
+    "leave-match-feedback",
+    "setup-paid-reviews",
+    "complete-paid-review",
+  ]);
+  assert.deepEqual(iosSlugs, webSlugs.slice(0, -2));
+  assert.equal(
+    visibleGuides("coach", "ios").some((item) =>
+      guideSearchText(item).includes("paid review"),
+    ),
+    false,
+  );
+});
+
+test("coach lesson recording guide is audio-only and covers the live action", () => {
+  const audioGuide = guideBySlug("audio-record-lesson", "coach", "ios");
+  assert.ok(audioGuide);
+
+  const copy = guideSearchText(audioGuide);
+  assert.match(copy, /audio record a lesson/);
+  assert.doesNotMatch(copy, /video recording|coming soon/);
+});
+
+test("every visible guide opens with at least three quick steps", () => {
+  for (const audience of ["player", "coach"] as const) {
+    for (const platform of ["web", "ios"] as const) {
+      for (const item of visibleGuides(audience, platform)) {
+        assert.equal(item.sections[0]?.heading, "Quick steps", `${item.slug} starts with Quick steps`);
         assert.ok(
-          existsSync(join(process.cwd(), "public", image.src)),
-          `${guide.slug} references missing ${image.src}`
+          (item.sections[0]?.steps?.length ?? 0) >= 3,
+          `${item.slug} has at least three quick steps`,
         );
       }
     }
   }
 });
 
-test("quick steps are searchable", () => {
-  const guide: Guide = {
-    slug: "search-test",
-    title: "Search test",
-    summary: "A test guide.",
-    group: "Get started",
-    sections: [{ steps: ["Choose the unmistakable control."] }],
+test("player curriculum retains established guides and gates recording to iOS", () => {
+  const establishedSlugs = [
+    "upload-a-video",
+    "match-viewer",
+    "score-points",
+    "score-keeper",
+    "match-analysis",
+    "journal",
+    "export",
+    "invite-a-coach",
+    "tags",
+    "stats",
+    "share-a-link",
+  ];
+  const webSlugs = visibleGuides("player", "web").map((item) => item.slug);
+  const iosSlugs = visibleGuides("player", "ios").map((item) => item.slug);
+
+  for (const slug of establishedSlugs) {
+    assert.ok(webSlugs.includes(slug), `${slug} remains available on web`);
+    assert.ok(iosSlugs.includes(slug), `${slug} remains available on iOS`);
+  }
+  assert.ok(webSlugs.includes("create-share-highlights"));
+  assert.ok(iosSlugs.includes("create-share-highlights"));
+  assert.ok(webSlugs.includes("upload-from-youtube"));
+  assert.equal(iosSlugs.includes("upload-from-youtube"), false);
+  assert.deepEqual(
+    visibleGuides("player", "web")
+      .filter((item) => guideSearchText(item).includes("youtube"))
+      .map((item) => item.slug),
+    ["upload-from-youtube"],
+  );
+  assert.equal(webSlugs.includes("record-a-match"), false);
+  assert.ok(iosSlugs.includes("record-a-match"));
+  assert.deepEqual(visibleGroups("player", "web"), [
+    "Get started",
+    "Review and score",
+    "Your game",
+    "Share and export",
+  ]);
+});
+
+test("player placement guidance describes the current serve-only maps", () => {
+  const placementGuide = guideBySlug("match-analysis", "player", "web");
+  assert.ok(placementGuide);
+
+  const copy = guideSearchText(placementGuide);
+  assert.match(copy, /serve placement shows where each serve landed/i);
+  assert.doesNotMatch(copy, /rally views?|later landings/i);
+});
+
+test("Instagram highlight instructions render only for iOS players", () => {
+  const webGuide = guideBySlug("create-share-highlights", "player", "web");
+  const iosGuide = guideBySlug("create-share-highlights", "player", "ios");
+  assert.ok(webGuide);
+  assert.ok(iosGuide);
+
+  assert.equal(guideSearchText(webGuide).includes("instagram story and reel"), false);
+  assert.match(guideSearchText(iosGuide), /instagram story and reel/);
+});
+
+test("tutorial metadata matches the approved player and coach courses", () => {
+  assert.deepEqual(
+    visibleChapters("player", "web").map(({ slug, title, guide }) => ({ slug, title, guide })),
+    [
+      { slug: "home", title: "Start here", guide: undefined },
+      { slug: "upload", title: "Upload a match", guide: "upload-a-video" },
+      { slug: "viewer", title: "Watch it back", guide: "match-viewer" },
+      { slug: "point", title: "Score a point", guide: "score-points" },
+      { slug: "keepscore", title: "Score the Match", guide: "score-keeper" },
+      { slug: "analysis", title: "Read your match", guide: "match-analysis" },
+      {
+        slug: "export",
+        title: "Highlights, export and share",
+        guide: "create-share-highlights",
+      },
+      { slug: "coach", title: "You and your coach", guide: "invite-a-coach" },
+      { slug: "journal", title: "The Journal", guide: "journal" },
+    ],
+  );
+
+  assert.deepEqual(
+    visibleChapters("coach", "web").map(({ slug, title, guide }) => ({ slug, title, guide })),
+    [
+      { slug: "coach-start", title: "Start here", guide: "coaching-workspace" },
+      { slug: "coach-add-student", title: "Add a student", guide: "add-connect-student" },
+      {
+        slug: "coach-connect-account",
+        title: "Connect their account",
+        guide: "add-connect-student",
+      },
+      {
+        slug: "coach-lesson-entry",
+        title: "Write a lesson entry",
+        guide: "keep-lesson-entries",
+      },
+      {
+        slug: "coach-audio-lesson",
+        title: "Audio record a lesson",
+        guide: "audio-record-lesson",
+      },
+      {
+        slug: "coach-share-entry",
+        title: "Share it with the student",
+        guide: "share-coach-entry",
+      },
+      {
+        slug: "coach-review-match",
+        title: "Review their matches",
+        guide: "review-student-match",
+      },
+      {
+        slug: "coach-feedback",
+        title: "Leave feedback",
+        guide: "leave-match-feedback",
+      },
+      {
+        slug: "coach-paid-review",
+        title: "Paid match reviews",
+        guide: "setup-paid-reviews",
+      },
+    ],
+  );
+});
+
+test("catalog validation accepts the seeded catalog", () => {
+  assert.deepEqual(validateLearnCatalog(), []);
+});
+
+test("catalog validation names every invalid relationship", () => {
+  const input = {
+    guides: [
+      guide({ slug: "duplicate" }),
+      guide({ slug: "duplicate" }),
+      guide({ slug: "unknown-group", group: "Unknown" }),
+      guide({ slug: "broken-related", related: ["missing-guide"] }),
+      guide({ slug: "empty-visibility", visibility: { audiences: [], platforms: [] } }),
+    ],
+    chapters: [
+      chapter({ slug: "duplicate-chapter", guide: undefined }),
+      chapter({ slug: "duplicate-chapter", guide: undefined }),
+      chapter({ slug: "missing-chapter-guide", guide: "missing-guide" }),
+      chapter({
+        slug: "empty-chapter-visibility",
+        guide: undefined,
+        visibility: { audiences: [], platforms: [] },
+      }),
+    ],
+    groups: { player: ["Get started"], coach: ["Coaching"] },
   };
 
-  assert.match(guideSearchText(guide), /unmistakable/);
+  assert.deepEqual(
+    validateLearnCatalog(input),
+    [
+      "guide duplicate: duplicate guide slug",
+      "guide unknown-group: unknown group Unknown for player",
+      "guide broken-related: related guide missing-guide does not exist",
+      "guide empty-visibility: visibility audiences must not be empty",
+      "guide empty-visibility: visibility platforms must not be empty",
+      "chapter duplicate-chapter: duplicate chapter slug for player",
+      "chapter missing-chapter-guide: guide missing-guide does not exist",
+      "chapter empty-chapter-visibility: visibility audiences must not be empty",
+      "chapter empty-chapter-visibility: visibility platforms must not be empty",
+    ],
+  );
+});
+
+test("catalog validation rejects related guides without shared visibility", () => {
+  const errors = validateLearnCatalog({
+    guides: [
+      guide({ slug: "player-guide", related: ["coach-guide"] }),
+      guide({ slug: "coach-guide", visibility: { audiences: ["coach"], platforms: ["ios"] } }),
+    ],
+    chapters: [],
+    groups: { player: ["Get started"], coach: ["Get started"] },
+  });
+
+  assert.deepEqual(errors, ["guide player-guide: related guide coach-guide has no shared visibility"]);
 });

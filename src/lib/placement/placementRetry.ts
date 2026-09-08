@@ -232,6 +232,7 @@ export function placementActionAvailability(
   retryCount: number,
   expiresAt: string | null,
   now = new Date(),
+  hasOriginal = false,
 ): PlacementActionAvailability {
   if (status === "processing" || status === "retrying") {
     return "already_processing";
@@ -240,7 +241,13 @@ export function placementActionAvailability(
     return "unavailable";
   }
   if (retryCount !== 0) return "used";
-  if (!expiresAt || new Date(expiresAt).getTime() <= now.getTime()) {
+  // A match whose original is kept (matches.raw_path set) never expires:
+  // the deadline is only a legacy row's memory of the old 30-day clock.
+  // Same rule as request_placement_retry / request_placement_generation.
+  if (
+    !hasOriginal
+    && (!expiresAt || new Date(expiresAt).getTime() <= now.getTime())
+  ) {
     return "expired";
   }
   return status === "not_requested" ? "generate" : "retry";
@@ -252,12 +259,14 @@ export function placementLifecycleView(
   expiresAt: string | null,
   now = new Date(),
   failureCode: string | null = null,
+  hasOriginal = false,
 ): PlacementLifecycleView {
   const availability = placementActionAvailability(
     status,
     retryCount,
     expiresAt,
     now,
+    hasOriginal,
   );
 
   if (status === "not_requested" && availability === "generate") {

@@ -123,28 +123,57 @@ export async function runSplitPlan({
  * action that cannot be undone. Returns null on failure or when there
  * aren't enough points after this one.
  */
+/** Which way a Join reaches: into the points before this one, or after. */
+export type JoinDirection = "prev" | "next";
+
+/**
+ * The points a Join in `direction` would swallow, nearest first, at most
+ * two. Shared by the sheet (to size the stepper and the preview) and the
+ * plan (to build the merge), so the two can never disagree about which
+ * rows are on the table.
+ */
+export function joinNeighbours(
+  point: Point,
+  points: Point[],
+  direction: JoinDirection
+): Point[] {
+  const i = points.findIndex((p) => p.id === point.id);
+  if (i < 0) return [];
+  const ok = (p: Point) => p.cut_t0 !== null && p.t0 !== null && p.t1 !== null;
+  if (direction === "next") return points.slice(i + 1).filter(ok).slice(0, 2);
+  return points.slice(0, i).filter(ok).slice(-2).reverse();
+}
+
 export async function runJoinPlan({
   point,
   points,
   count,
+  direction = "next",
 }: {
   point: Point;
   points: Point[];
   count: number;
+  direction?: JoinDirection;
 }): Promise<{
   survivor: Point;
   survivorPatch: Partial<Point>;
   mergedIds: string[];
+  /** The last point of the merged run on the timeline — what a landing
+   *  "after the join" is measured from. */
+  lastId: string;
 } | null> {
-  const i = points.findIndex((p) => p.id === point.id);
-  if (i < 0) return null;
-  const nexts = points
-    .slice(i + 1)
-    .filter((p) => p.cut_t0 !== null && p.t1 !== null)
-    .slice(0, count);
-  if (nexts.length < count) return null;
-  const A = points[i];
-  const ids = [A.id, ...nexts.map((p) => p.id)];
+  const neighbours = joinNeighbours(point, points, direction).slice(0, count);
+  if (neighbours.length < count) return null;
+  const A = points.find((p) => p.id === point.id);
+  if (!A) return null;
+  // merge_points keeps the FIRST id as the survivor, so the ids go in
+  // timeline order: joining backwards makes the earliest neighbour the
+  // survivor and this point one of the rows that disappear.
+  const run =
+    direction === "next"
+      ? [A, ...neighbours]
+      : [...neighbours].reverse().concat(A);
+  const ids = run.map((p) => p.id);
 
   const supabase = createClient();
   const { data, error } = await supabase.rpc("merge_points", { p_ids: ids });
@@ -153,19 +182,36 @@ export async function runJoinPlan({
   return {
     survivor,
     survivorPatch: {
-      t1: survivor.t1 === null ? A.t1 : Number(survivor.t1),
+      t1: survivor.t1 === null ? run[0].t1 : Number(survivor.t1),
       tight_end: false,
       edited: true,
     },
-    mergedIds: nexts.map((p) => p.id),
+    mergedIds: ids.slice(1),
+    lastId: ids[ids.length - 1],
   };
 }
 
 /**
- * The Adjust save: new t0/t1, with a manually re-timed split-boundary edge
- * dissolving its tight flag so the reclip pads the moved edge with full
- * strictness context again. Pure patch builder — the host owns the write,
- * the optimistic mirror, and the reclip schedule.
+ * What the undo path hands back to an Adjust so the reverse write restores
+ * exactly what the forward write changed: the tight flags the forward save
+ * may have dissolved, and the observed endings it cleared when the end
+ * moved (adjust_point nulls scored_at_cut_s / rally_end_cut_s on an end
+ * move, because a player who extended the end has overruled them).
+ */
+export interface AdjustRestore {
+  tight_start: boolean;
+  tight_end: boolean;
+  scored_at_cut_s?: number | null;
+  rally_end_cut_s?: number | null;
+}
+
+/**
+ * The Adjust save's tight-flag rule: a manually re-timed split-boundary
+ * edge dissolves its tight flag so the re-cut pads the moved edge with full
+ * strictness context again. Pure — the host owns the write (adjust_point)
+ * and the optimistic mirror; the database re-anchors cut_t0 and the host
+ * mirrors that with reanchorCutT0 so the pad is right before the row
+ * comes back.
  */
 export function adjustPatch(
   point: Point,

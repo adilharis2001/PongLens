@@ -89,6 +89,86 @@ for and leaves a neighbouring screen worse, say that before building it.
 
 ---
 
+## The processing page has to keep up with the worker
+
+**`/admin/processing` is the only place anyone can see whether the workers
+are alive and what they are doing.** The worker changes often, and this
+page falls behind it silently: nothing breaks, the page simply stops
+mentioning a thing that is happening, and no test fails because nothing
+is wrong.
+
+So a new job kind, a new stage, a new lane or a second place the pipeline
+runs is **not finished when the worker handles it. It is finished when
+the page names it.**
+
+- **A new job kind** needs its plain English label in `KIND_LABELS`
+  (`src/app/admin/processing/processingView.ts`), and a `pulse_stage(...)`
+  call on its path in `worker/worker.py` so a row says what it is doing
+  rather than only that it exists.
+- **A new stage** needs a phrase in `STAGE_LABELS`. Write the sentence a
+  person would say — "Finding the ball", not `blurball_infer`.
+- **A new lane** needs its row in `buildWorkerRows`, INCLUDING the case
+  where nothing is running it. A lane switched off by config and a lane
+  that has died must never look the same: the first is a decision, the
+  second is an outage, and the page is worthless if it renders them alike.
+- **A second execution location** (the cloud twin) is a question about
+  both workers, never one. Anything true of the Mac is a question about
+  Modal.
+
+The lesson-recap cloud worker is a backup, not a second ordinary consumer.
+Its cheap dispatcher may start the media worker only when the database says
+the exact enabled release matches and the Mac has been absent for 15 minutes
+with a 30-minute wait, or the oldest eligible lesson has waited three hours.
+The claim repeats that check. The scheduled dispatcher never receives a media
+job or reports a worker heartbeat; the 4-CPU/8GiB worker has no schedule.
+`cloud_enabled` stays false until the same sealed bundle is installed on the
+Mac and Modal and its parity is accepted.
+
+**The code is built so a missed update is visible rather than silent.** An
+unrecognised kind or stage renders as its own raw name with a marker
+beside it, so `spin_report` turns up in the middle of a page of English
+sentences on that kind's very first job. Do not "tidy" that into an
+`unknown` bucket — the ugliness is the notification, and it is the only
+part of this rule that works without anybody remembering it.
+
+**And the worker must keep reporting.** `jobs.progress` is written by the
+worker at whatever milestones its kind happens to have, so how much
+`jobs.updated_at` tells you depends entirely on the kind: a dead space cut
+advances it about every twenty seconds, and placement writes 5, then 20,
+then 100, so a healthy placement job reads 20% with a frozen timestamp for
+three hours — identical to a worker that died at the first milestone. The
+pulse thread (`start_pulse_monitor`) is what separates those two, and it
+is best-effort by design: it must never be able to fail a job. Monitoring
+that can take down the pipeline is worse than no monitoring.
+
+**Never report a fault you have not got evidence for.** This page's first
+day cost it its credibility: the Mac Studio was cutting dead space at 56
+frames a second, and because it was running code from before the pulse
+existed, the page said "Not reporting" in amber and the owner read it as
+an outage. Three rules came out of that, and they hold for any status
+surface, not just this one:
+
+- **Silence from something that has never spoken is not evidence.** A
+  worker with no pulse row has never once reported, so it cannot have
+  stopped. That is `unconfirmed` — grey, "Status unknown" — and it is a
+  gap in the page, not a fault in the machine. Only a worker that HAS
+  reported and then gone quiet is `silent`, and only that one is amber.
+  The excuse expires on its own: once anything on the machine beats,
+  `pulseProven` turns silence from the other lanes back into a real
+  absence.
+- **The job rows are a second, independent proof of life, and they are
+  asymmetric.** A job whose progress advanced, or that a worker just
+  finished, proves something is running it, because nothing else writes
+  those rows. A job standing still proves nothing at all. Read it one way
+  only. Include finished jobs, or the reading goes false in the seconds
+  between one job ending and the next starting, which is the moment the
+  worker is most obviously working.
+- **Amber is a budget.** Reserve it for the two states that are actually
+  wrong. A status page that cries wolf gets ignored, and then it does not
+  matter how correct the real alarm is.
+
+---
+
 ## Copy
 
 **Plain, natural English. Never try to sound clever.** Not witty, punchy,
@@ -122,7 +202,13 @@ not need entertaining; they need to understand the product immediately.
 - **Vary the rhythm.** Every line landing as two balanced clauses is its own
   tell. If three sentences in a row have the same shape, rewrite one.
 - **No em dashes in product copy.** No the word "AI" anywhere in the
-  product. "Workspace" is too corporate.
+  product, with ONE approved exception: the control that rewrites a rough
+  entry is labelled **"Improve with AI"** (Adil, 2026-09-03, chosen after
+  being shown this rule and the alternatives). It reads that way on the
+  journal composer and the coach's entry composer, on both platforms.
+  This is a named exception, not a softening — a new surface does not get
+  to reach for the word because this one has it. "Workspace" is too
+  corporate.
 - **Positioning line:** "a performance hub for competitive table tennis." Not "video studio", not "training platform", not "toolkit".
   This replaced "the table tennis toolkit for competitive players" on
   2026-08-09, so the site and the landing video's opening line agree. The
@@ -137,6 +223,33 @@ explaining what the section would contain.
 ---
 
 ## Design and layout
+
+### Approved application baseline (2026-09-05)
+
+Adil approved the flattened inline allowance-request flow as the existing
+PongLens theme, not a new design direction. Reuse the app's colors, fonts,
+input treatments and button styles. Keep messages and forms left-aligned
+inside their existing card; do not add nested bordered panels around each
+part. Use one cyan primary action and outlined secondary actions.
+
+On mobile web and iOS, form/action buttons must fill the available content
+width, stack with spacing and provide at least a 44px/44pt touch target.
+Desktop actions may remain content-width. Chips, segmented controls and
+icon controls retain their established compact patterns. On iOS, size the
+button's label before applying the existing PL button style, so the visible
+button and its hit area both expand.
+
+The reference components are `AllowanceRequest` / `AllowanceRecovery` on
+web and `AllowanceRequestRow` / `AllowanceRecoveryView` on iOS. Compare the
+real rendered screen, not just matching color classes. Check desktop,
+393×660 mobile web, and native iOS separately. Preserve selected files,
+links and drafts when a user encounters a limit.
+
+The **Copy** rules above still apply. For beta allowances, the approved
+wording is “PongLens is in beta. You can request more storage for free.”
+(or “processing minutes”). Do not describe purchases as “paused”; they
+were never enabled. Prefer direct action labels such as “Request more
+storage” and “Send request”, with a calm confirmation afterward.
 
 **Compute the ceiling before laying anything out.** Aspect ratio times
 available space, first, out loud. A 9:16 video needs 699px of height to be
@@ -465,6 +578,67 @@ corpus and the per-video numbers, is `docs/research/2026-08-22-broadcast-gate/`.
 
 ---
 
+## Clip edits
+
+**The timeline is the truth; the clip file is a copy that catches up.**
+Full record: `docs/superpowers/specs/2026-09-06-instant-clip-edits-design.md`
+and the reads under `docs/research/2026-09-06-clip-edits/`. The rules that
+cost a round each:
+
+- **`cut_t0` is the padded clip start on the cut video's clock, and only
+  the database moves it.** Adjust used to write `t0` and leave `cut_t0`
+  alone, so every cut-clock rule placed the serve wrong by the amount the
+  start moved, forever, on both platforms. `adjust_point` and
+  `insert_point` re-anchor it; the apps mirror the arithmetic
+  (`reanchorCutT0` in `clipEdit.ts` and `Playhead.swift`) and take the
+  returned row as truth. Never write `t0`/`t1` to `points` directly.
+- **Re-cuts are requested by a trigger on `points`, never by an app.** The
+  web's four-second timer was lost on any reload; iOS swallowed a refused
+  insert. One queued job per match, five seconds of queue delay.
+- **A stale or missing clip file plays from the cut video, windowed.** No
+  spinner, no Adjust lock, no "Updating clip" on an owner surface. The
+  file is for Starred, share links, coach review and reels.
+- **The worker never downloads a whole file to cut a clip.** Presigned URL
+  plus `-ss`, from the cut video where `match.json` proves the window is
+  kept, from the original otherwise. `_CutMap` is the lookup; do not guess.
+- **A continuous seam is one straight line, gap included.** `sourceToCut`
+  used to hold at the seam even where the cut kept everything, which
+  mis-anchored a card added into such a gap.
+
+---
+
+## Retention
+
+**Nothing a live match references is ever deleted.** The original upload
+and the cut video stay for the life of the match; point clips and match
+data stay for the life of the account. This has been the policy since the
+commerce flip (migration 096, switched on in August 2026) and it is what
+the Privacy Policy and the Terms promise. Checked against the live
+database and the sweep code on 2026-09-06.
+
+- **The 30-day clocks that remain are for orphans**: raws and cuts that no
+  match row points at (rejected uploads, deleted matches, uploads that
+  never registered). `r2_raw_sweep` protects a raw reached by
+  `matches.raw_path` OR by a live match's source job; `_referenced_cut_paths`
+  protects every referenced cut regardless of any flag. Voice audio is 90
+  days, share renders 7, orphan sketches and Journal images 2.
+- **Do not re-derive a 30-day expiry from old comments or SPEC.md
+  history.** Every chat that did cost Adil a round of "I removed that".
+  The constants are `ORPHAN_RAW_DAYS` and `ORPHAN_CUT_DAYS`, named so the
+  next reader sees what they sweep.
+- **"Expired" is not a word for a player's video.** The only matches
+  without an original are legacy ones processed before August 2026 whose
+  raw was swept back then; copy says "no longer stored", never "expired".
+  `worker/backfill_raw_path.py` fills `matches.raw_path` for legacy rows
+  whose file survived, so the Original pill and the raw preview are right.
+- **Nothing downstream may assume the original or the cut can vanish on a
+  clock.** The placement retry deadline used to, and turned a working
+  retry into "the original video is no longer available" a month after
+  processing. A match with `raw_path` set never expires its retry; the
+  deadline column only means something on a legacy row.
+
+---
+
 ## Support email
 
 Support mail lives in a Fastmail mailbox on `ponglens.com`, not in a
@@ -610,3 +784,13 @@ calls this" is never what keeps a row private — the RLS policy is.
 - **State what was verified and what was not.** "Typecheck passed" is the
   sentence most likely to be used to skip a real check, so it is the one
   that must not be wrong.
+- **Production is whatever `main` is. Never `vercel --prod` from a branch
+  or a local checkout.** Vercel's production branch is `main`, and a CLI
+  production deploy from anywhere else takes over www.ponglens.com with a
+  build that lacks everything merged to main since that branch forked —
+  silently, with no error, and it stays that way until the next push to
+  main. On 2026-09-06 one such deploy landed 32 seconds after a main
+  deploy and removed the processing page and Build 141's web changes from
+  production; nothing noticed except the owner. Merge to main and let the
+  push deploy. To undo a bad deploy, promote a previous main build in
+  Vercel rather than deploying from a branch.

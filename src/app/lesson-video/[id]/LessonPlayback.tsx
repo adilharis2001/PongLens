@@ -1,0 +1,167 @@
+'use client';
+
+import {useEffect, useRef, useState} from 'react';
+import {ClipPlayer} from '@/app/match/[id]/ClipPlayer';
+import type {LessonEdit} from '@/lib/lessonVideo/model';
+import {lessonChapterIndexAt, lessonChapterStart} from '@/lib/lessonVideo/presentation';
+
+interface Props {
+ src:string;
+ poster?:string;
+ edit:LessonEdit;
+ initialTime:number;
+ onClose:(time:number,chapter:number)=>void;
+ onRetry:()=>Promise<void>;
+}
+const control='flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-zinc-200 transition-colors hover:bg-white/10 disabled:opacity-25 focus-visible:outline focus-visible:outline-cyan-glow';
+const nav='inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-full px-2 text-sm font-medium text-zinc-200 transition-colors hover:bg-white/10 disabled:opacity-25 focus-visible:outline focus-visible:outline-cyan-glow';
+
+/** One video and one chapter clock, whether the notes sit below or beside it. */
+export function LessonPlayback({src,poster,edit,initialTime,onClose,onRetry}:Props) {
+ const dialog=useRef<HTMLDialogElement>(null);
+ const player=useRef<HTMLVideoElement|null>(null);
+ const transport=useRef<{play:()=>void;pause:()=>void}|null>(null);
+ const pages=useRef<HTMLDivElement>(null);
+ const pending=useRef<{time:number;playing:boolean}|null>({time:initialTime,playing:true});
+ const chapterAt=(time:number)=>lessonChapterIndexAt(edit.chapters,time);
+ const [chapter,setChapter]=useState(()=>chapterAt(initialTime));
+ const chapterRef=useRef(chapter);
+ const scrolling=useRef(false);
+ const scrollTimer=useRef<ReturnType<typeof setTimeout>|null>(null);
+ const [failed,setFailed]=useState(false);
+ const [retrying,setRetrying]=useState(false);
+ const [indexOpen,setIndexOpen]=useState(false);
+ const list=useRef<HTMLElement>(null);
+ const savedPosition=useRef(initialTime);
+ const previousSource=useRef(src);
+ // Capture before React replaces the media source and its clock resets.
+ if(previousSource.current!==src){
+  pending.current??={time:savedPosition.current,playing:!(player.current?.paused??true)};
+  previousSource.current=src;
+ }
+
+ useEffect(()=>{
+  dialog.current?.showModal();
+  const previous=document.body.style.overflow;
+  document.body.style.overflow='hidden';
+  const video=player.current;
+  const pause=()=>{if(document.hidden)video?.pause();};
+  document.addEventListener('visibilitychange',pause);
+  return()=>{video?.pause();document.body.style.overflow=previous;document.removeEventListener('visibilitychange',pause);if(scrollTimer.current)clearTimeout(scrollTimer.current);};
+ },[]);
+ useEffect(()=>{
+  chapterRef.current=chapter;
+  const el=pages.current;
+  if(el)el.scrollTo({left:chapter*el.clientWidth,behavior:'smooth'});
+  // The wide layout lists every chapter beside the video; keep the one
+  // that is playing in view as playback moves through them.
+  list.current?.querySelector<HTMLElement>('[aria-current]')?.scrollIntoView({block:'nearest'});
+ },[chapter]);
+ useEffect(()=>{
+  const el=pages.current;if(!el)return;
+  const observer=new ResizeObserver(()=>el.scrollTo({left:chapterRef.current*el.clientWidth,behavior:'instant'}));
+  observer.observe(el);return()=>observer.disconnect();
+ },[]);
+ function choose(index:number){
+  const time=lessonChapterStart(edit.chapters,index);if(time===null)return;
+  setIndexOpen(false);
+  chapterRef.current=index;setChapter(index);savedPosition.current=time;
+  if(player.current&&player.current.readyState>=1){player.current.currentTime=time;transport.current?.play();}
+  else pending.current={time,playing:true};
+ }
+ function onScroll(){
+  scrolling.current=true;
+  if(scrollTimer.current)clearTimeout(scrollTimer.current);
+  scrollTimer.current=setTimeout(()=>{
+   const el=pages.current;
+   if(el&&el.clientWidth){const index=Math.round(el.scrollLeft/el.clientWidth);if(index!==chapterRef.current)choose(index);}
+   scrolling.current=false;
+  },160);
+ }
+ function close(){
+  const video=player.current;
+  const finished=video?.ended??false;
+  transport.current?.pause();
+  onClose(finished?0:(video?.currentTime??savedPosition.current),finished?0:chapterRef.current);
+ }
+ async function retry(){
+  setRetrying(true);
+  pending.current??={time:savedPosition.current,playing:true};
+  try{await onRetry();setFailed(false);}catch{setFailed(true);}finally{setRetrying(false);}
+ }
+ return <dialog ref={dialog} aria-label="Lesson playback" onCancel={event=>{event.preventDefault();if(indexOpen)setIndexOpen(false);else close();}} className="lesson-playback relative m-0 h-dvh max-h-none w-screen max-w-none overflow-hidden border-0 bg-ink p-0 text-zinc-100 backdrop:bg-black">
+  <div className="flex h-full min-h-0 flex-col" style={{paddingTop:'env(safe-area-inset-top)',paddingBottom:'env(safe-area-inset-bottom)'}}>
+   <header className="flex shrink-0 items-center justify-between gap-3 px-3 py-2 sm:px-5">
+    <button autoFocus className={control} aria-label="Close playback" onClick={close}><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
+    <span className="text-sm font-medium text-zinc-300">Lesson recap</span><div className="w-11"/>
+   </header>
+   <div className="lesson-playback-content flex min-h-0 flex-1 flex-col">
+    <div className="lesson-playback-video flex shrink-0 items-center justify-center bg-black">
+     <div className="relative aspect-video w-full">
+      <ClipPlayer src={src} poster={poster} mode="cut" fill readPixels={false} videoElRef={player} playRef={transport}
+       onLoadedMetadata={el=>{if(pending.current){const target=pending.current;pending.current=null;el.currentTime=Math.max(0,Math.min(target.time,Math.max(0,el.duration-.1)));if(target.playing)transport.current?.play();}}}
+       onTime={el=>{savedPosition.current=el.currentTime;if(scrolling.current||el.seeking)return;const index=chapterAt(el.currentTime);if(index!==chapterRef.current){chapterRef.current=index;setChapter(index);}}}
+       onMediaError={state=>{if(state)pending.current={time:state.time,playing:state.wasPlaying};setFailed(true);}}/>
+      {failed&&<div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-ink/90"><p className="text-sm text-zinc-300">Could not play this video.</p><button disabled={retrying} className="min-h-11 rounded-full border border-edge px-5 text-sm" onClick={()=>void retry()}>{retrying?'Loading…':'Try again'}</button></div>}
+     </div>
+    </div>
+    <section aria-label="Chapter reminders" className="flex min-h-0 min-w-0 flex-1 flex-col">
+     {/* Previous and next were a ‹ and a › the size of body text, which
+         nobody read as buttons. They are now drawn chevrons on 44px targets,
+         and beside the video, where there is room, they carry their words. */}
+     <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-3 sm:px-5">
+      <button className={nav} aria-label="Previous chapter" disabled={chapter===0} onClick={()=>choose(chapter-1)}>
+       <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path strokeLinecap="round" strokeLinejoin="round" d="m15 6-6 6 6 6"/></svg>
+       <span className="lesson-playback-navlabel">Previous</span>
+      </button>
+      <button className="min-h-11 px-3 text-xs font-semibold uppercase tracking-widest text-cyan-glow underline decoration-cyan-glow/60 underline-offset-4 focus-visible:outline focus-visible:outline-cyan-glow" aria-label="Open chapter index" onClick={()=>{transport.current?.pause();setIndexOpen(true);}}>Chapter {chapter+1} of {edit.chapters.length}</button>
+      <button className={nav} aria-label="Next chapter" disabled={chapter===edit.chapters.length-1} onClick={()=>choose(chapter+1)}>
+       <span className="lesson-playback-navlabel">Next</span>
+       <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6"/></svg>
+      </button>
+     </div>
+     <div ref={pages} onScroll={onScroll} className="flex min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {edit.chapters.map((item,index)=><article key={index} aria-label={`Chapter ${index+1}`} aria-hidden={chapter!==index} className="h-full w-full shrink-0 snap-center overflow-y-auto px-6 pb-6 pt-2 sm:px-8">
+       <h2 className="text-xl font-semibold leading-snug tracking-tight">{item.title}</h2>
+       <div className="mt-5 space-y-4">{item.cues.map((cue,i)=><p key={i} className="text-base leading-relaxed text-zinc-300">{cue}</p>)}</div>
+      </article>)}
+     </div>
+     <nav aria-label="Chapters" className="lesson-playback-dots flex shrink-0 justify-center pb-3 pt-1">{edit.chapters.map((_,index)=><button key={index} aria-label={`Go to chapter ${index+1}`} aria-current={chapter===index?'step':undefined} className="flex h-9 w-8 items-center justify-center rounded-full focus-visible:outline focus-visible:outline-cyan-glow" onClick={()=>choose(index)}><span className={'h-1.5 rounded-full transition-all '+(chapter===index?'w-5 bg-cyan-glow':'w-1.5 bg-zinc-600')}/></button>)}</nav>
+     {/* Every chapter, in order, so the way through the recap is visible
+         rather than something to discover behind a small arrow. Hidden on a
+         phone, where the dots and the swipe do the same job in less room. */}
+     <nav ref={list} aria-label="All chapters" className="lesson-playback-list shrink-0 border-t border-edge/60 px-2 py-2">
+      {edit.chapters.map((item,index)=><button key={index} type="button" aria-current={chapter===index?'true':undefined} className={'flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors hover:bg-white/5 focus-visible:outline focus-visible:outline-cyan-glow '+(chapter===index?'bg-white/5':'')} onClick={()=>choose(index)}>
+       <span className={'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold '+(chapter===index?'bg-cyan-glow text-ink':'bg-surface-2 text-zinc-400')}>{index+1}</span>
+       <span className={'min-w-0 flex-1 truncate text-sm '+(chapter===index?'font-medium text-zinc-100':'text-zinc-300')}>{item.title}</span>
+      </button>)}
+     </nav>
+   </section>
+   </div>
+  </div>
+  {indexOpen&&<div className="absolute inset-0 z-50 flex items-end bg-black/70 p-3 backdrop-blur-sm sm:items-center sm:justify-center" role="presentation" onMouseDown={event=>{if(event.currentTarget===event.target)setIndexOpen(false);}}>
+   <section role="dialog" aria-modal="true" aria-label="Chapter index" className="max-h-[82dvh] w-full overflow-hidden rounded-2xl border border-edge bg-surface shadow-2xl sm:max-w-xl">
+    <header className="flex items-center justify-between border-b border-edge px-5 py-4"><h2 className="text-lg font-semibold">Chapters</h2><button autoFocus className={control} aria-label="Close chapter index" onClick={()=>setIndexOpen(false)}>×</button></header>
+    <div className="max-h-[calc(82dvh-77px)] overflow-y-auto p-2">{edit.chapters.map((item,index)=><button key={index} aria-current={chapter===index?'true':undefined} className="flex min-h-14 w-full items-center gap-4 rounded-xl px-3 py-3 text-left hover:bg-surface-2 focus-visible:outline focus-visible:outline-cyan-glow" onClick={()=>choose(index)}>
+     <span className={'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold '+(chapter===index?'bg-cyan-glow text-ink':'bg-surface-2 text-zinc-400')}>{index+1}</span>
+     <span className="min-w-0 flex-1 text-sm font-medium leading-snug text-zinc-100">{item.title}</span>
+     {chapter===index&&<span aria-label="Current chapter" className="text-cyan-glow">✓</span>}
+    </button>)}</div>
+   </section>
+  </div>}
+  <style jsx>{`
+   .lesson-playback-navlabel { display: none; }
+   .lesson-playback-list { display: none; }
+   @media (min-width: 900px), (orientation: landscape) and (max-height: 600px) {
+    .lesson-playback-content { flex-direction: row; }
+    .lesson-playback-video { width: 65%; flex-shrink: 1; container-type: size; }
+    .lesson-playback-video > div { width: min(100%, 177.777cqh); }
+   }
+   @media (min-width: 900px) and (min-height: 601px) {
+    .lesson-playback-navlabel { display: inline; }
+    .lesson-playback-dots { display: none; }
+    .lesson-playback-list { display: block; max-height: 48%; overflow-y: auto; }
+   }
+  `}</style>
+ </dialog>;
+}

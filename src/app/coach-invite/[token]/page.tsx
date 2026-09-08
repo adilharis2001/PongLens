@@ -1,13 +1,38 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { coachInviteCopy } from "@/lib/coaches/invitePreviewData";
 import { Logo } from "@/components/Logo";
 import { AcceptInvite } from "./AcceptInvite";
 
-export const metadata: Metadata = {
-  title: "Coach invite",
-  robots: { index: false, follow: false },
-};
+/**
+ * The link preview (169). An invite is pasted into a message and read as
+ * a picture before anybody taps it, so it says who is asking and what
+ * for, rather than the generic "a performance hub for competitive table
+ * tennis" that told a coach nothing.
+ *
+ * Still noindex: a preview is for the person holding the link, not for
+ * search. The image lives in opengraph-image.tsx beside this file and
+ * reads the same copy, so the two cannot disagree.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const copy = await coachInviteCopy((await params).token);
+  return {
+    title: copy.title,
+    description: copy.detail,
+    robots: { index: false, follow: false },
+    openGraph: { title: copy.title, description: copy.detail },
+    twitter: {
+      card: "summary_large_image",
+      title: copy.title,
+      description: copy.detail,
+    },
+  };
+}
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -105,14 +130,18 @@ export default async function CoachInvitePage({
       <Shell>
         <h1 className="text-xl font-semibold">Already accepted</h1>
         <p className="mt-2 text-sm text-zinc-400">
-          {info.player_name}&apos;s matches are in your dashboard under
-          &quot;Shared with me&quot;.
+          {info.player_name} is on your students list. Open them to watch
+          their matches and leave notes.
         </p>
+        {/* /coaching/students, not /dashboard: the roster is where a
+            coach's students live, and it is unambiguous coach territory,
+            so standing on it also puts the account back on the coaching
+            side for anyone the old destination had flipped. */}
         <Link
-          href="/dashboard"
+          href="/coaching/students"
           className="glow-cta mt-6 inline-block w-full rounded-full bg-cyan-glow px-5 py-2.5 text-sm font-semibold text-ink"
         >
-          Go to dashboard
+          Go to your students
         </Link>
       </Shell>
     );

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { sendPendingSubmitEmails } from "@/lib/email/reviewEmails";
+import { sendPendingIosBetaEmails } from "@/lib/email/iosBetaEmails";
+import { sendPendingAllowanceEmails } from "@/lib/email/allowanceEmails";
 import { releasePayoutForOrder } from "@/lib/payments/orderMoney";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -53,6 +55,8 @@ export async function GET(req: Request) {
   }
 
   await sendPendingSubmitEmails();
+  await sendPendingIosBetaEmails();
+  await sendPendingAllowanceEmails();
 
   return NextResponse.json({
     swept: swept?.length ?? 0,

@@ -1,11 +1,8 @@
 import "server-only";
 
-import { recordUsage, resendEmailEvent } from "@/lib/costs/meter";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { EMAIL_FROM, EMAIL_REPLY_TO, emailShell } from "./reviewEmails";
-import { skipIfSuppressed } from "./suppression";
-
-const APP_URL = "https://www.ponglens.com";
+import { purchaseReceiptEmail } from "./catalog";
+import { sendTransactionalEmail } from "./send";
 
 /**
  * The receipt for a platform purchase (096): minute packs, storage,
@@ -15,11 +12,10 @@ const APP_URL = "https://www.ponglens.com";
  * replayed fulfillment cannot send twice.
  */
 export async function sendPurchaseEmail(purchaseId: string): Promise<void> {
-  const key = process.env.RESEND_API_KEY;
   const admin = createAdminClient();
   const { data: purchase } = await admin
     .from("platform_purchases")
-    .select("id, user_id, kind, title, minutes, bytes, months, credits, amount_cents, billing_mode")
+    .select("id, user_id, kind, title, minutes, bytes, months, credits, amount_cents, billing_mode, paid_at, created_at, stripe_payment_intent_id, apple_transaction_id")
     .eq("id", purchaseId)
     .eq("status", "paid")
     .maybeSingle();
@@ -34,75 +30,50 @@ export async function sendPurchaseEmail(purchaseId: string): Promise<void> {
   const dollars = `$${(purchase.amount_cents / 100)
     .toFixed(2)
     .replace(/\.00$/, "")}`;
-  let body: string;
-  let cta: string;
-  let ctaUrl: string;
+  const purchasedAt = new Intl.DateTimeFormat("en-US", {
+    dateStyle: "long",
+    timeZone: "America/New_York",
+  }).format(new Date(purchase.paid_at ?? purchase.created_at));
+  const paymentReference =
+    purchase.stripe_payment_intent_id ?? purchase.apple_transaction_id ?? undefined;
+  let message;
   if (purchase.kind === "minute_pack") {
-    body = `${purchase.minutes} processing minutes are on your account, ready whenever your next match is. They never expire.`;
-    cta = "See your balance";
-    ctaUrl = `${APP_URL}/account`;
-  } else if (purchase.kind === "storage") {
-    const gb = Math.round((purchase.bytes ?? 0) / 1073741824);
-    const term =
-      purchase.months === 12 ? "the next year" : `${purchase.months} months`;
-    body = `${gb} GB of space is on your account for ${term}. Nothing you upload is ever deleted when space runs low — uploads just pause until there is room.`;
-    cta = "See your storage";
-    ctaUrl = `${APP_URL}/account`;
-  } else {
-    body = `${purchase.credits} sponsored reviews are ready to use. Pick an offering, create a link, and send it to a student — they pay nothing.`;
-    cta = "Cover a review";
-    ctaUrl = `${APP_URL}/coaching/sponsored`;
-  }
-
-  let subject = `Your PongLens purchase: ${purchase.title}`;
-  if (purchase.billing_mode === "test") subject = `[Test] ${subject}`;
-  const html = emailShell({
-    preheader: `${purchase.title} · ${dollars}`,
-    heading: "That's yours now",
-    body: `${purchase.title} for ${dollars}. ${body}`,
-    cta,
-    ctaUrl,
-  });
-
-  if (!key) {
-    console.log(`purchaseEmails: no RESEND_API_KEY, skipped receipt to ${to}`);
-    return;
-  }
-  if (await skipIfSuppressed(to, "purchase receipt")) return;
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-        "Idempotency-Key": `purchase-${purchase.id}`,
-      },
-      body: JSON.stringify({
-        from: EMAIL_FROM,
-        to: [to],
-        reply_to: EMAIL_REPLY_TO,
-        subject,
-        html,
-      }),
+    message = purchaseReceiptEmail({
+      kind: "minute_pack",
+      title: purchase.title,
+      amount: dollars,
+      purchaseDate: purchasedAt,
+      paymentReference,
+      minutes: purchase.minutes ?? 0,
     });
-    if (!res.ok) {
-      console.error(`purchaseEmails: Resend ${res.status}`);
-      return;
-    }
-    const resBody = (await res.json().catch(() => null)) as {
-      id?: string;
-    } | null;
-    if (resBody?.id) {
-      await recordUsage(
-        [
-          resendEmailEvent({
-            messageId: resBody.id,
-            operation: "purchase_receipt_email",
-          }),
-        ].filter((event) => event !== null),
-      );
-    }
-  } catch (e) {
-    console.error("purchaseEmails: receipt failed:", e);
+  } else if (purchase.kind === "storage") {
+    message = purchaseReceiptEmail({
+      kind: "storage",
+      title: purchase.title,
+      amount: dollars,
+      purchaseDate: purchasedAt,
+      paymentReference,
+      gigabytes: Math.round((purchase.bytes ?? 0) / 1073741824),
+      months: purchase.months ?? 0,
+    });
+  } else {
+    message = purchaseReceiptEmail({
+      kind: "review_credits",
+      title: purchase.title,
+      amount: dollars,
+      purchaseDate: purchasedAt,
+      paymentReference,
+      credits: purchase.credits ?? 0,
+    });
   }
+
+  if (purchase.billing_mode === "test") {
+    message = { ...message, subject: `[Test] ${message.subject}` };
+  }
+  await sendTransactionalEmail({
+    to,
+    message,
+    idempotencyKey: `purchase-${purchase.id}`,
+    operation: "purchase_receipt_email",
+  });
 }

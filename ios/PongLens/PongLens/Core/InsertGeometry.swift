@@ -100,11 +100,52 @@ func seamBetween(
 /// inside the hole there is no answer, so it holds at the seam — the frame
 /// where the cut jumps from one card to the other.
 func sourceToCut(_ seam: Seam, _ s: Double) -> Double {
+    // A continuous seam kept every second between the rallies: one straight
+    // line across the neighbourhood, gap included (see insertGeometry.ts).
+    if seam.continuous {
+        if let prev = seam.prev { return prev.rallyStart + (s - prev.t0) }
+        if let next = seam.next { return next.rallyStart + (s - next.t0) }
+    }
     if let prev = seam.prev, s <= prev.t1 { return prev.rallyStart + (s - prev.t0) }
     if let next = seam.next, s >= next.t0 { return next.rallyStart + (s - next.t0) }
     if let prev = seam.prev { return prev.rallyEnd }
     if let next = seam.next { return next.rallyStart }
     return 0
+}
+
+/// How far the cut video runs CONTIGUOUS with a point's own padded span,
+/// on each side, in cut seconds. The seam rule above answers it (55% of
+/// seams are continuous, and a neighbour's own kept footage is real on
+/// every seam). The Modify sheet's Adjust preview follows a handle inside
+/// these bounds; the on-device re-cut cuts a window only when the cut
+/// holds all of it. Port of ModifyClip.tsx playableBounds.
+func contiguousCutBounds(
+    for point: MatchPoint, in visible: [MatchPoint], pad: ClipPad
+) -> (lo: Double, hi: Double)? {
+    guard let cutT0 = point.cutT0, let spanEnd = paddedEnd(point, pad) else { return nil }
+    var lo = cutT0
+    var hi = spanEnd
+    guard let i = visible.firstIndex(where: { $0.id == point.id }) else { return (lo, hi) }
+    if i > 0,
+       let seam = seamBetween(visible[i - 1].insertNeighbour, point.insertNeighbour, pad: pad),
+       seam.continuous, let prev = seam.prev {
+        lo = min(lo, prev.rallyStart)
+    }
+    if i + 1 < visible.count,
+       let seam = seamBetween(point.insertNeighbour, visible[i + 1].insertNeighbour, pad: pad),
+       seam.continuous, let next = seam.next {
+        hi = max(hi, next.rallyEnd)
+    }
+    return (lo, hi)
+}
+
+/// Cut second -> source second across a CONTINUOUS seam, where one linear
+/// map covers the whole neighbourhood. The inverse of sourceToCut for the
+/// case that has one; across a removed seam callers hold the playhead.
+func cutToSourceLinear(_ seam: Seam, _ t: Double) -> Double {
+    if let prev = seam.prev { return prev.t0 + (t - prev.rallyStart) }
+    if let next = seam.next { return next.t0 + (t - next.rallyStart) }
+    return t
 }
 
 /// Whether a source second is footage this video can show.

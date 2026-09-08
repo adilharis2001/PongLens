@@ -1,12 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BetaDetail, OUTREACH_ACTION } from "./BetaDetail";
+import {
+  unifyOutreach,
+  unifiedQueueFor,
+  invitationLabel,
+  effectiveInvitationState,
+  outreachKind,
+  pendingOutreachInvitations,
+  type BetaOutreachRow,
+  type UnifiedOutreachRow,
+} from "./betaOutreachView";
+import {
+  PLAYER_INTERESTS,
+  COACH_INTERESTS,
+  FEEDBACK_OPTIONS,
+} from "@/lib/iosBeta/questionnaire";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import {
   activityLine,
-  buildPersonQueues,
-  buildQueues,
   CHANNEL_COPY,
   countLabel,
   dateLabel,
@@ -18,6 +32,7 @@ import {
   STATUSES,
   touchLine,
   type OutreachRow,
+  type PlayerKind,
   type OutreachStatus,
   type PersonRow,
   type TouchChannel,
@@ -46,467 +61,619 @@ export function OutreachSection() {
   const supabase = useMemo(() => createClient(), []);
   const [rows, setRows] = useState<OutreachRow[] | null>(null);
   const [people, setPeople] = useState<PersonRow[]>([]);
+  const [betas, setBetas] = useState<BetaOutreachRow[]>([]);
   const [touches, setTouches] = useState<TouchRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"players" | "feedback">("players");
+  const [kindFilter, setKindFilter] = useState<PlayerKind | "all">("real");
+  const [betaOnly, setBetaOnly] = useState(false);
+  const [roleFilter, setRoleFilter] = useState("");
+  const [interestFilter, setInterestFilter] = useState("");
+  const [inviteFilter, setInviteFilter] = useState("");
+  const [channelFilter, setChannelFilter] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const refreshedInvites = useRef(new Map<string, number>());
+  const refreshSequence = useRef(0);
 
-  useEffect(() => {
-    void Promise.all([
+  const load = useCallback(async () => {
+    const results = await Promise.all([
       supabase.rpc("admin_outreach_roster"),
       supabase.rpc("admin_outreach_people"),
       supabase.rpc("admin_outreach_touches"),
-    ]).then(([r, p, t]) => {
-      if (r.error) setError(r.error.message);
-      else setRows((r.data as OutreachRow[]) ?? []);
-      if (p.error) setError(p.error.message);
-      else setPeople((p.data as PersonRow[]) ?? []);
-      if (t.error) setError(t.error.message);
-      else setTouches((t.data as TouchRow[]) ?? []);
-    });
+      supabase.rpc("admin_beta_outreach_roster"),
+    ]);
+    const failure = results.find((r) => r.error);
+    if (failure?.error)
+      throw new Error("The outreach list could not be loaded. Please refresh.");
+    setRows(results[0].data ?? []);
+    setPeople(results[1].data ?? []);
+    setTouches(results[2].data ?? []);
+    setBetas(results[3].data ?? []);
+    return (results[3].data ?? []) as BetaOutreachRow[];
   }, [supabase]);
 
-  const patch = (userId: string, p: Partial<OutreachRow>) =>
-    setRows(
-      (rs) => rs?.map((r) => (r.user_id === userId ? { ...r, ...p } : r)) ?? rs
-    );
-  const patchPerson = (id: string, p: Partial<PersonRow>) =>
-    setPeople((ps) => ps.map((x) => (x.id === id ? { ...x, ...p } : x)));
-
-  // Both the user and person actions run the same optimistic shape: apply
-  // locally, call the RPC, revert and surface the message on error.
-  async function act(
-    apply: () => void,
-    revert: () => void,
-    // Supabase's rpc() builder is thenable rather than a real Promise.
-    call: () => PromiseLike<{ error: { message: string } | null }>
-  ) {
-    apply();
-    const { error: e } = await call();
-    if (e) {
-      revert();
-      setError(e.message);
+  useEffect(() => {
+    void load().catch((e) => setError(e.message));
+    const id = new URLSearchParams(window.location.search).get("beta");
+    if (id) {
+      setBetaOnly(true);
+      setKindFilter("all");
+      setShowHidden(true);
+      setOpen("beta-link:" + id);
     }
-  }
+  }, [load]);
 
-  const setStatus = (row: OutreachRow, status: OutreachStatus) =>
-    row.status === status
-      ? Promise.resolve()
-      : act(
-          () => patch(row.user_id, { status }),
-          () => patch(row.user_id, { status: row.status }),
-          () =>
-            supabase.rpc("admin_outreach_status_set", {
-              p_user_id: row.user_id,
-              p_status: status,
-            })
-        );
+  const unified = useMemo(
+    () => unifyOutreach(rows ?? [], people, betas, touches),
+    [rows, people, betas, touches],
+  );
+  const now = new Date();
+  const filtered = unified.filter(
+    (r) =>
+      (!betaOnly || !!r.beta) &&
+      (!betaOnly || !roleFilter || r.beta?.role === roleFilter) &&
+      (!betaOnly ||
+        !interestFilter ||
+        r.beta?.interests.includes(interestFilter)) &&
+      (!betaOnly ||
+        !inviteFilter ||
+        (r.beta && effectiveInvitationState(r.beta, now) === inviteFilter)) &&
+      (!betaOnly ||
+        !channelFilter ||
+        r.beta?.feedback_channels.includes(channelFilter)),
+  );
+  const selected = filtered.filter(r => kindFilter === "all" || outreachKind(r) === kindFilter);
+  const visible = selected.filter((r) => !r.account?.hidden);
+  const hidden = selected.filter((r) => r.account?.hidden);
+  const pending = pendingOutreachInvitations(filtered, kindFilter);
+  const counted = betaOnly ? unified.filter(r => r.beta) : unified;
+  const kindCounts: Record<string, number> = {
+    real: 0,
+    team: 0,
+    test: 0,
+    all: counted.length,
+  };
+  for (const r of counted) kindCounts[outreachKind(r)]++;
 
-  const setFollowUp = (row: OutreachRow, on: string | null) =>
-    act(
-      () => patch(row.user_id, { follow_up_on: on }),
-      () => patch(row.user_id, { follow_up_on: row.follow_up_on }),
-      () =>
-        supabase.rpc("admin_outreach_follow_up_set", {
-          p_user_id: row.user_id,
-          p_on: on,
-        })
-    );
-
-  const setHidden = (row: OutreachRow, hidden: boolean) =>
-    act(
-      () => patch(row.user_id, { hidden }),
-      () => patch(row.user_id, { hidden: !hidden }),
-      () =>
-        supabase.rpc("admin_outreach_hidden_set", {
-          p_user_id: row.user_id,
-          p_hidden: hidden,
-        })
-    );
-
-  const setPersonStatus = (p: PersonRow, status: OutreachStatus) =>
-    p.status === status
-      ? Promise.resolve()
-      : act(
-          () => patchPerson(p.id, { status }),
-          () => patchPerson(p.id, { status: p.status }),
-          () =>
-            supabase.rpc("admin_outreach_person_status_set", {
-              p_id: p.id,
-              p_status: status,
-            })
-        );
-
-  const setPersonFollowUp = (p: PersonRow, on: string | null) =>
-    act(
-      () => patchPerson(p.id, { follow_up_on: on }),
-      () => patchPerson(p.id, { follow_up_on: p.follow_up_on }),
-      () =>
-        supabase.rpc("admin_outreach_person_follow_up_set", {
-          p_id: p.id,
-          p_on: on,
-        })
-    );
-
-  /** Mirror the transition the database makes, so no refetch is needed. */
-  function bumpAfterTouch(
-    subject: { status: OutreachStatus; touches: number },
-    kind: TouchKind,
-    at: string
-  ): {
-    touches: number;
-    status?: OutreachStatus;
-    last_outreach_at?: string;
-    last_feedback_at?: string;
-  } {
-    const p: ReturnType<typeof bumpAfterTouch> = {
-      touches: subject.touches + 1,
-    };
-    if (kind === "outreach") {
-      p.last_outreach_at = at;
-      if (subject.status === "new") p.status = "contacted";
-    } else if (kind === "feedback") {
-      p.last_feedback_at = at;
-      if (subject.status === "new" || subject.status === "contacted") {
-        p.status = "in_touch";
+  async function refresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    setError(null);
+    try {
+      // Old quarantined rows can remain pending indefinitely. Rotate by last
+      // attempt, preserving deadline order for ties and the ten-request bound.
+      const opened = pending.find(
+        (r) =>
+          open === "beta-link:" + r.beta!.id ||
+          ["pending", "everyone", ...QUEUE_ORDER].some(
+            (section) => open === section + ":" + r.key,
+          ),
+      );
+      const batch = [...pending].sort(
+        (a, b) =>
+          (refreshedInvites.current.get(a.beta!.id) ?? 0) -
+          (refreshedInvites.current.get(b.beta!.id) ?? 0),
+      );
+      const ids = [
+        ...new Set([
+          ...(opened ? [opened.beta!.id] : []),
+          ...batch.map((r) => r.beta!.id),
+        ]),
+      ].slice(0, 10);
+      // Advance even on uncertainty, so another click can reach later rows.
+      const sequence = ++refreshSequence.current;
+      ids.forEach((id) => refreshedInvites.current.set(id, sequence));
+      if (ids.length) {
+        const response = await fetch("/api/admin/ios-beta/reconcile", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ids }),
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok)
+          setError(
+            "Some invitation statuses could not be confirmed. Please refresh again.",
+          );
       }
+      await load();
+    } catch {
+      setError("The outreach list could not be refreshed. Please try again.");
+    } finally {
+      setRefreshing(false);
     }
-    return p;
   }
 
-  async function addTouch(
-    row: OutreachRow,
-    kind: TouchKind,
-    channel: TouchChannel | null,
-    body: string
+  async function mutate(
+    rpc: string,
+    args: Record<string, unknown>,
   ): Promise<boolean> {
-    const { data, error: e } = await supabase.rpc("admin_outreach_touch_add", {
-      p_user_id: row.user_id,
-      p_kind: kind,
+    if (busy) return false;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await supabase.rpc(rpc, args);
+      if (result.error)
+        throw new Error("The change did not save. Please try again.");
+      await load();
+      return true;
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "The change did not save. Please try again.",
+      );
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+  function action(
+    row: UnifiedOutreachRow,
+    action: string,
+    value: string | null = null,
+    on: string | null = null,
+    channel: string | null = null,
+    body = "",
+  ) {
+    const [subject, id] = row.key.split(":");
+    return mutate("admin_outreach_act", {
+      p_subject: subject,
+      p_id: id,
+      p_action: action,
+      p_value: value,
+      p_on: on,
       p_channel: channel,
       p_body: body,
     });
-    if (e || !data?.[0]) {
-      setError(e?.message ?? "The entry did not save.");
-      return false;
-    }
-    const added = data[0] as TouchRow;
-    setTouches((ts) => [added, ...ts]);
-    patch(row.user_id, bumpAfterTouch(row, kind, added.at));
-    return true;
   }
-
-  async function addPersonTouch(
-    p: PersonRow,
-    kind: TouchKind,
-    channel: TouchChannel | null,
-    body: string
-  ): Promise<boolean> {
-    const { data, error: e } = await supabase.rpc(
-      "admin_outreach_person_touch_add",
-      { p_id: p.id, p_kind: kind, p_channel: channel, p_body: body }
-    );
-    if (e || !data?.[0]) {
-      setError(e?.message ?? "The entry did not save.");
-      return false;
-    }
-    const added = data[0] as TouchRow;
-    setTouches((ts) => [added, ...ts]);
-    patchPerson(p.id, bumpAfterTouch(p, kind, added.at));
-    return true;
-  }
-
-  async function deleteTouch(touch: TouchRow) {
-    const before = touches;
-    setTouches((ts) => ts.filter((t) => t.id !== touch.id));
-    const { error: e } = await supabase.rpc("admin_outreach_touch_delete", {
-      p_id: touch.id,
+  const deleteTouch = (t: TouchRow) =>
+    void mutate("admin_outreach_touch_delete", { p_id: t.id });
+  const historySummary = (r: UnifiedOutreachRow) =>
+    touchLine({
+      last_outreach_at:
+        r.touches.find((t) => t.kind === "outreach")?.at ?? null,
+      last_feedback_at:
+        r.touches.find((t) => t.kind === "feedback")?.at ?? null,
     });
-    if (e) {
-      setTouches(before);
-      setError(e.message);
-      return;
-    }
-    if (touch.user_id) {
-      const row = rows?.find((r) => r.user_id === touch.user_id);
-      if (row) patch(touch.user_id, { touches: Math.max(0, row.touches - 1) });
-    } else if (touch.person_id) {
-      const p = people.find((x) => x.id === touch.person_id);
-      if (p) patchPerson(p.id, { touches: Math.max(0, p.touches - 1) });
-    }
-  }
-
-  async function addPerson(name: string, email: string): Promise<boolean> {
-    const { data, error: e } = await supabase.rpc(
-      "admin_outreach_person_add",
-      { p_name: name, p_email: email || null }
+  const renderPerson = (
+    r: UnifiedOutreachRow,
+    section: string,
+    meta?: string,
+  ) => {
+    const opened =
+      open === section + ":" + r.key ||
+      ((section === "everyone" || section === "hidden") &&
+        open === "beta-link:" + r.beta?.id);
+    const controls = {
+      touches: r.touches,
+      onStatus: (s: OutreachStatus) => void action(r, "status", s),
+      onFollowUp: (on: string | null) => void action(r, "follow_up", null, on),
+      onAdd: (kind: TouchKind, channel: TouchChannel | null, body: string) =>
+        action(r, "touch", kind, null, channel, body),
+      onDeleteTouch: deleteTouch,
+    };
+    const extra = (
+      <>
+        {r.ambiguous && (
+          <p className="mt-3 text-sm text-amber-300">
+            More than one manual contact uses this email.
+          </p>
+        )}
+        {r.followUps.length > 1 && (
+          <p className="mt-3 text-sm text-zinc-400">
+            {r.followUps
+              .map((f) => f.source + ": " + dateLabel(f.on))
+              .join(" · ")}
+          </p>
+        )}
+        {r.people
+          .filter((p) => p.status !== r.status)
+          .map((p) => (
+            <p key={p.id} className="mt-2 text-sm text-zinc-400">
+              Manual contact: {STATUS_COPY[p.status]}
+            </p>
+          ))}
+        {r.beta && r.beta.status !== r.status && (
+          <p className="mt-2 text-sm text-zinc-400">
+            Beta contact: {STATUS_COPY[r.beta.status]}
+          </p>
+        )}
+        {r.beta && (
+          <BetaDetail
+            beta={r.beta}
+            onRefresh={async () => {
+              await load();
+            }}
+            onCorrection={(role, interests, choice, channels, note) =>
+              mutate("admin_beta_feedback_correct", {
+                p_id: r.beta!.id,
+                p_role: role,
+                p_interests: interests,
+                p_choice: choice,
+                p_channels: channels,
+                p_note: note,
+              })
+            }
+          />
+        )}
+      </>
     );
-    if (e || !data?.[0]) {
-      setError(e?.message ?? "The person did not save.");
-      return false;
-    }
-    const added = data[0] as PersonRow;
-    setPeople((ps) => [
-      {
-        ...added,
-        last_outreach_at: null,
-        last_feedback_at: null,
-        touches: 0,
-      },
-      ...ps,
-    ]);
-    return true;
-  }
-
-  const editPerson = (p: PersonRow, name: string, email: string) =>
-    act(
-      () => patchPerson(p.id, { name, email: email || null }),
-      () => patchPerson(p.id, { name: p.name, email: p.email }),
-      () =>
-        supabase.rpc("admin_outreach_person_edit", {
-          p_id: p.id,
-          p_name: name,
-          p_email: email || null,
-        })
-    );
-
-  async function deletePerson(p: PersonRow) {
-    const beforePeople = people;
-    const beforeTouches = touches;
-    setPeople((ps) => ps.filter((x) => x.id !== p.id));
-    setTouches((ts) => ts.filter((t) => t.person_id !== p.id));
-    setOpen(null);
-    const { error: e } = await supabase.rpc("admin_outreach_person_delete", {
-      p_id: p.id,
-    });
-    if (e) {
-      setPeople(beforePeople);
-      setTouches(beforeTouches);
-      setError(e.message);
-    }
-  }
-
-  if (error && rows === null) {
-    return <p className="text-sm text-red-400">{error}</p>;
-  }
-  if (rows === null) {
     return (
+      <ExpandableRow
+        key={section + ":" + r.key}
+        title={r.beta?.email ?? r.name}
+        identity={r.beta ? (r.name !== r.beta.email ? r.name : null) : (r.email !== r.name ? r.email : null)}
+        status={r.status}
+        meta={
+          meta ??
+          (r.beta && (betaOnly || section === "pending")
+            ? "iPhone beta · " + invitationLabel(r.beta, now) + (outreachKind(r) === "team" ? " · Team" : outreachKind(r) === "test" ? " · Test" : "")
+            : r.account
+            ? "Signed up " +
+              dateLabel(r.account.signed_up) +
+              " · " +
+              activityLine(r.account)
+            : r.beta
+              ? "iPhone beta · " + invitationLabel(r.beta, now)
+              : "Added " + dateLabel(r.person!.created_at))
+        }
+        side={historySummary(r)}
+        open={opened}
+        onToggle={() => setOpen(opened ? null : section + ":" + r.key)}
+      >
+        <fieldset disabled={busy} className="min-w-0">
+          {r.account ? (
+            <UserDetail
+              {...controls}
+              extra={extra}
+              row={{
+                ...r.account,
+                status: r.status,
+                follow_up_on: r.follow_up_on,
+              }}
+              onHidden={(h) =>
+                void mutate("admin_outreach_hidden_set", {
+                  p_user_id: r.account!.user_id,
+                  p_hidden: h,
+                })
+              }
+              onKind={(k) =>
+                void mutate("admin_player_kind_set", {
+                  p_user_id: r.account!.user_id,
+                  p_kind: k,
+                })
+              }
+            />
+          ) : r.person ? (
+            <PersonDetail
+              {...controls}
+              extra={extra}
+              person={{
+                ...r.person,
+                status: r.status,
+                follow_up_on: r.follow_up_on,
+              }}
+              onEdit={(name, email) =>
+                void mutate("admin_outreach_person_edit", {
+                  p_id: r.person!.id,
+                  p_name: name,
+                  p_email: email || null,
+                })
+              }
+              onDelete={() =>
+                void mutate("admin_outreach_person_delete", {
+                  p_id: r.person!.id,
+                })
+              }
+            />
+          ) : (
+            <div className="border-t border-edge/60 bg-surface-2/20 px-4 py-4">
+              {extra}
+              <ContactControls
+                {...controls}
+                status={r.status}
+                followUpOn={r.follow_up_on}
+              />
+            </div>
+          )}
+        </fieldset>
+      </ExpandableRow>
+    );
+  };
+  const list = (items: UnifiedOutreachRow[], section: string) => (
+    <ul className="mt-3 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
+      {items.map((r) =>
+        renderPerson(
+          r,
+          section,
+          r.account &&
+            QUEUE_ORDER.includes(section as (typeof QUEUE_ORDER)[number])
+            ? queueReason(
+                {
+                  ...r.account,
+                  status: r.status,
+                  follow_up_on: r.follow_up_on,
+                },
+                section as (typeof QUEUE_ORDER)[number],
+              )
+            : undefined,
+        ),
+      )}
+    </ul>
+  );
+
+  if (rows === null)
+    return error ? (
+      <p role="alert" className="text-sm text-red-400">
+        {error}
+      </p>
+    ) : (
       <div className="h-40 animate-pulse rounded-2xl border border-edge bg-surface" />
     );
-  }
-
-  const visible = rows.filter((r) => !r.hidden);
-  const hiddenRows = rows.filter((r) => r.hidden);
-  const now = new Date();
-  const queues = buildQueues(rows, now);
-  const personQueues = buildPersonQueues(people, now);
   const feedback = touches.filter((t) => t.kind === "feedback");
-  const nameOf = (t: TouchRow) => {
-    if (t.user_id) {
-      const row = rows.find((r) => r.user_id === t.user_id);
-      return row ? row.name || row.email : "Removed account";
-    }
-    const p = people.find((x) => x.id === t.person_id);
-    return p ? p.name : "Removed entry";
-  };
-
-  const toggle = (id: string) => setOpen(open === id ? null : id);
-
-  const userItem = (row: OutreachRow, section: string, meta: string) => (
-    <ExpandableRow
-      key={`${section}:${row.user_id}`}
-      title={row.name || row.email}
-      status={row.status}
-      meta={meta}
-      side={touchLine(row)}
-      open={open === `${section}:${row.user_id}`}
-      onToggle={() => toggle(`${section}:${row.user_id}`)}
-    >
-      <UserDetail
-        row={row}
-        touches={touches.filter((t) => t.user_id === row.user_id)}
-        onStatus={(s) => void setStatus(row, s)}
-        onFollowUp={(on) => void setFollowUp(row, on)}
-        onHidden={(h) => void setHidden(row, h)}
-        onAdd={(kind, channel, body) => addTouch(row, kind, channel, body)}
-        onDeleteTouch={deleteTouch}
-      />
-    </ExpandableRow>
-  );
-
-  const personItem = (p: PersonRow, section: string, meta: string) => (
-    <ExpandableRow
-      key={`${section}:p:${p.id}`}
-      title={p.name}
-      status={p.status}
-      meta={meta}
-      side={touchLine(p)}
-      open={open === `${section}:p:${p.id}`}
-      onToggle={() => toggle(`${section}:p:${p.id}`)}
-    >
-      <PersonDetail
-        person={p}
-        touches={touches.filter((t) => t.person_id === p.id)}
-        onStatus={(s) => void setPersonStatus(p, s)}
-        onFollowUp={(on) => void setPersonFollowUp(p, on)}
-        onEdit={(name, email) => void editPerson(p, name, email)}
-        onDelete={() => void deletePerson(p)}
-        onAdd={(kind, channel, body) => addPersonTouch(p, kind, channel, body)}
-        onDeleteTouch={deleteTouch}
-      />
-    </ExpandableRow>
-  );
-
   return (
     <>
-      {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
-
-      <div className="flex gap-2">
-        {(["players", "feedback"] as const).map((t) => (
+      {error && (
+        <p role="alert" className="mb-4 text-sm text-red-400">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-2">
+          {(["players", "feedback"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={
+                "rounded-full border px-4 py-1.5 text-sm " +
+                (tab === t
+                  ? "border-cyan-glow/50 text-cyan-glow"
+                  : "border-edge text-zinc-400")
+              }
+            >
+              {t === "players"
+                ? countLabel(visible.length, "player")
+                : "Feedback (" + feedback.length + ")"}
+            </button>
+          ))}
           <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`rounded-full border px-4 py-1.5 text-sm transition-colors ${
-              tab === t
+            aria-pressed={betaOnly}
+            onClick={() => {
+              setBetaOnly(!betaOnly);
+              setTab("players");
+            }}
+            className={
+              "rounded-full border px-4 py-1.5 text-sm " +
+              (betaOnly
                 ? "border-cyan-glow/50 text-cyan-glow"
-                : "border-edge text-zinc-400 hover:text-zinc-200"
-            }`}
+                : "border-edge text-zinc-400")
+            }
           >
-            {t === "players"
-              ? countLabel(visible.length + people.length, "player")
-              : `Feedback (${feedback.length})`}
+            iPhone beta
           </button>
-        ))}
+        </div>
+        <button
+          className={OUTREACH_ACTION}
+          disabled={refreshing}
+          onClick={() => void refresh()}
+        >
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </button>
       </div>
-
+      {tab === "players" && (
+        <>
+          <div className="mt-3 flex gap-1 overflow-x-auto">
+            {(["real", "team", "test", "all"] as const).map((k) => (
+              <button
+                key={k}
+                aria-pressed={kindFilter === k}
+                onClick={() => setKindFilter(k)}
+                className={
+                  "shrink-0 rounded-full px-3 py-1.5 text-sm " +
+                  (kindFilter === k
+                    ? "bg-surface-2 text-white"
+                    : "text-zinc-500")
+                }
+              >
+                {k[0].toUpperCase() + k.slice(1)}{" "}
+                <span className="text-zinc-600">{kindCounts[k]}</span>
+              </button>
+            ))}
+          </div>
+          {betaOnly && (
+            <button
+              className={OUTREACH_ACTION + " mt-3 sm:hidden"}
+              aria-label="Filters"
+              aria-expanded={showFilters}
+              aria-controls="beta-outreach-filters"
+              onClick={() => setShowFilters(!showFilters)}
+            >
+              Filters
+              {[roleFilter, interestFilter, inviteFilter, channelFilter].filter(
+                Boolean,
+              ).length > 0
+                ? ` (${[roleFilter, interestFilter, inviteFilter, channelFilter].filter(Boolean).length})`
+                : ""}
+            </button>
+          )}
+          {betaOnly && (
+            <div
+              id="beta-outreach-filters"
+              className={
+                "mt-3 grid-cols-1 gap-2 sm:grid-cols-2 " +
+                (showFilters ? "grid" : "hidden sm:grid")
+              }
+            >
+              <label className="text-xs text-zinc-500">
+                Role
+                <select
+                  aria-label="Filter role"
+                  className={INPUT_CLS + " mt-1 min-h-11 w-full"}
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value)}
+                >
+                  <option value="">All roles</option>
+                  <option value="player">Player</option>
+                  <option value="coach">Coach</option>
+                  <option value="both">Both</option>
+                </select>
+              </label>
+              <label className="min-w-0 text-xs text-zinc-500">
+                Interest
+                <select
+                  aria-label="Filter interest"
+                  className={INPUT_CLS + " mt-1 min-h-11 w-full"}
+                  value={interestFilter}
+                  onChange={(e) => setInterestFilter(e.target.value)}
+                >
+                  <option value="">All interests</option>
+                  {[...PLAYER_INTERESTS, ...COACH_INTERESTS].map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs text-zinc-500">
+                Invitation
+                <select
+                  aria-label="Filter invitation"
+                  className={INPUT_CLS + " mt-1 min-h-11 w-full"}
+                  value={inviteFilter}
+                  onChange={(e) => setInviteFilter(e.target.value)}
+                >
+                  <option value="">All invitation states</option>
+                  {[
+                    "pending",
+                    "scheduled",
+                    "sending",
+                    "sent",
+                    "delivered",
+                    "unknown",
+                    "failed",
+                    "needs_attention",
+                    "suppressed",
+                    "bounced",
+                    "complained",
+                    "canceled",
+                  ].map((s) => (
+                    <option key={s} value={s}>
+                      {s === "needs_attention"
+                        ? "Needs attention"
+                        : s[0].toUpperCase() + s.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-xs text-zinc-500">
+                Contact method
+                <select
+                  aria-label="Filter contact method"
+                  className={INPUT_CLS + " mt-1 min-h-11 w-full"}
+                  value={channelFilter}
+                  onChange={(e) => setChannelFilter(e.target.value)}
+                >
+                  <option value="">All contact methods</option>
+                  {FEEDBACK_OPTIONS.filter((o) => o.value !== "not_now").map(
+                    (o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </label>
+            </div>
+          )}
+        </>
+      )}
       {tab === "feedback" ? (
         <div className="mt-6">
-          {feedback.length === 0 ? (
-            <p className="text-sm text-zinc-500">No feedback logged yet.</p>
-          ) : (
+          {feedback.length ? (
             <ul className="space-y-3">
               {feedback.map((t) => (
                 <li
                   key={t.id}
                   className="rounded-2xl border border-edge bg-surface p-4"
                 >
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p className="text-sm font-medium text-zinc-200">
-                      {nameOf(t)}
-                    </p>
-                    <p className="shrink-0 text-xs text-zinc-600">
-                      {dateLabel(t.at)}
-                    </p>
-                  </div>
+                  <p className="text-sm font-medium text-zinc-200">
+                    {unified.find((r) => r.touches.some((h) => h.id === t.id))
+                      ?.name ?? "Removed entry"}
+                  </p>
                   <p className="mt-2 whitespace-pre-wrap text-sm text-zinc-300">
                     {t.body}
                   </p>
-                  <p className="mt-2 text-xs text-zinc-600">
-                    {t.channel ? `${CHANNEL_COPY[t.channel]} · ` : ""}
-                    logged by {t.author}
+                  <p className="mt-2 text-xs text-zinc-500">
+                    {t.channel ? CHANNEL_COPY[t.channel] + " · " : ""}
+                    {dateLabel(t.at)} · {t.author}
                   </p>
                 </li>
               ))}
             </ul>
+          ) : (
+            <p className="text-sm text-zinc-500">No feedback logged yet.</p>
           )}
         </div>
       ) : (
         <>
+          {pending.length > 0 && (
+            <section className="mt-8">
+              <h2 className="text-sm font-semibold text-zinc-200">
+                Pending invitations{" "}
+                <span className="ml-2 text-zinc-600">{pending.length}</span>
+              </h2>
+              {list(pending, "pending")}
+            </section>
+          )}
           {QUEUE_ORDER.map((key) => {
-            const queuedUsers = queues[key];
-            const queuedPeople = personQueues[key];
-            const total = queuedUsers.length + queuedPeople.length;
-            if (total === 0) return null;
-            return (
+            const items = visible
+              .filter((r) => unifiedQueueFor(r, now) === key)
+              .sort((a, b) =>
+                (a.follow_up_on ?? "").localeCompare(b.follow_up_on ?? ""),
+              );
+            return items.length ? (
               <section key={key} className="mt-8">
                 <h2 className="text-sm font-semibold text-zinc-200">
-                  {QUEUE_COPY[key]}
-                  <span className="ml-2 font-normal text-zinc-600">
-                    {total}
-                  </span>
+                  {QUEUE_COPY[key]}{" "}
+                  <span className="ml-2 text-zinc-600">{items.length}</span>
                 </h2>
-                <ul className="mt-3 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-                  {queuedUsers.map((row) =>
-                    userItem(row, key, queueReason(row, key))
-                  )}
-                  {queuedPeople.map((p) =>
-                    personItem(
-                      p,
-                      key,
-                      key === "due"
-                        ? `Follow up planned for ${dateLabel(p.follow_up_on)}`
-                        : `Added by hand ${dateLabel(p.created_at)}`
-                    )
-                  )}
-                </ul>
+                {list(items, key)}
               </section>
-            );
+            ) : null;
           })}
-
           <section className="mt-8">
             <h2 className="text-sm font-semibold text-zinc-200">Everyone</h2>
-            {visible.length === 0 ? (
-              <p className="mt-3 text-sm text-zinc-500">No real players yet.</p>
+            {visible.length ? (
+              list(visible, "everyone")
             ) : (
-              <ul className="mt-3 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-                {visible.map((row) =>
-                  userItem(
-                    row,
-                    "all",
-                    `Signed up ${dateLabel(row.signed_up)} · ${activityLine(row)}`
-                  )
-                )}
-              </ul>
+              <p className="mt-3 text-sm text-zinc-500">No matching people.</p>
             )}
           </section>
-
-          <AddedByHand
-            people={people}
-            renderPerson={(p) =>
-              personItem(
-                p,
-                "hand",
-                `Added ${dateLabel(p.created_at)}${p.email ? ` · ${p.email}` : ""}`
-              )
-            }
-            onAdd={addPerson}
-          />
-
-          {hiddenRows.length > 0 && (
+          {!betaOnly && (
+            <AddedByHand
+              people={[]}
+              renderPerson={() => null}
+              onAdd={(name, email) =>
+                mutate("admin_outreach_person_add", {
+                  p_name: name,
+                  p_email: email || null,
+                })
+              }
+            />
+          )}
+          {hidden.length > 0 && (
             <section className="mt-8">
               <button
+                className={OUTREACH_ACTION}
                 onClick={() => setShowHidden(!showHidden)}
-                className="text-sm text-zinc-500 transition-colors hover:text-zinc-300"
               >
-                {showHidden ? "Hide" : "Show"} the accounts marked not real (
-                {hiddenRows.length})
+                {showHidden ? "Hide" : "Show"} hidden accounts ({hidden.length})
               </button>
-              {showHidden && (
-                <ul className="mt-3 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface opacity-70">
-                  {hiddenRows.map((row) => (
-                    <li
-                      key={row.user_id}
-                      className="flex items-center justify-between gap-3 px-4 py-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm text-zinc-300">
-                          {row.name || row.email}
-                        </p>
-                        <p className="truncate text-xs text-zinc-600">
-                          {row.email}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => void setHidden(row, false)}
-                        className="shrink-0 rounded-full border border-edge px-3 py-1 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-cyan-glow"
-                      >
-                        Treat as real
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {showHidden && list(hidden, "hidden")}
             </section>
           )}
         </>
@@ -544,13 +711,10 @@ function AddedByHand({
 
   return (
     <section className="mt-8">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h2 className="text-sm font-semibold text-zinc-200">Added by hand</h2>
         {!adding && (
-          <button
-            onClick={() => setAdding(true)}
-            className="rounded-full border border-edge px-3 py-1 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/40 hover:text-cyan-glow"
-          >
+          <button onClick={() => setAdding(true)} className={OUTREACH_ACTION}>
             Add someone
           </button>
         )}
@@ -574,23 +738,16 @@ function AddedByHand({
           <button
             onClick={() => void submit()}
             disabled={!name.trim() || saving}
-            className="rounded-full border border-edge px-4 py-1 text-sm text-zinc-200 transition-colors enabled:hover:border-cyan-glow/40 enabled:hover:text-cyan-glow disabled:text-zinc-600"
+            className={OUTREACH_ACTION}
           >
             {saving ? "Saving…" : "Add"}
           </button>
-          <button
-            onClick={() => setAdding(false)}
-            className="rounded-full border border-edge px-3 py-1 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
-          >
+          <button onClick={() => setAdding(false)} className={OUTREACH_ACTION}>
             Cancel
           </button>
         </div>
       )}
-      {people.length === 0 ? (
-        !adding && (
-          <p className="mt-3 text-sm text-zinc-500">No one added yet.</p>
-        )
-      ) : (
+      {people.length > 0 && (
         <ul className="mt-3 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
           {people.map(renderPerson)}
         </ul>
@@ -601,6 +758,7 @@ function AddedByHand({
 
 function ExpandableRow({
   title,
+  identity,
   status,
   meta,
   side,
@@ -609,6 +767,7 @@ function ExpandableRow({
   children,
 }: {
   title: string;
+  identity?: string | null;
   status: OutreachStatus;
   meta: string;
   side: string;
@@ -622,8 +781,8 @@ function ExpandableRow({
         onClick={onToggle}
         className="w-full px-4 py-3 text-left transition-colors hover:bg-surface-2/40"
       >
-        <div className="flex items-baseline justify-between gap-3">
-          <p className="min-w-0 truncate text-sm font-medium text-zinc-200">
+        <div className="flex items-start justify-between gap-3">
+          <p className="min-w-0 [overflow-wrap:anywhere] text-sm font-medium text-zinc-200">
             {title}
           </p>
           <span
@@ -632,8 +791,9 @@ function ExpandableRow({
             {STATUS_COPY[status]}
           </span>
         </div>
-        <div className="mt-1 flex items-baseline justify-between gap-3">
-          <p className="min-w-0 truncate text-xs text-zinc-500">{meta}</p>
+        {identity && <p className="mt-1 [overflow-wrap:anywhere] text-sm text-zinc-400">{identity}</p>}
+        <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+          <p className="min-w-0 text-xs text-zinc-500">{meta}</p>
           <p className="shrink-0 text-xs text-zinc-600">{side}</p>
         </div>
       </button>
@@ -661,7 +821,7 @@ function ContactControls({
   onAdd: (
     kind: TouchKind,
     channel: TouchChannel | null,
-    body: string
+    body: string,
   ) => Promise<boolean>;
   onDeleteTouch: (t: TouchRow) => void;
 }) {
@@ -718,14 +878,14 @@ function ContactControls({
           {followUpOn ? (
             <button
               onClick={() => onFollowUp(null)}
-              className="rounded-full border border-edge px-3 py-1 text-sm text-zinc-400 transition-colors hover:border-amber-400/40 hover:text-amber-300"
+              className={OUTREACH_ACTION}
             >
               Clear
             </button>
           ) : (
             <button
               onClick={() => onFollowUp(inAWeek)}
-              className="rounded-full border border-edge px-3 py-1 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
+              className={OUTREACH_ACTION}
             >
               In a week
             </button>
@@ -783,7 +943,7 @@ function ContactControls({
         <button
           onClick={() => void submit()}
           disabled={!canAdd}
-          className="mt-2 rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-200 transition-colors enabled:hover:border-cyan-glow/40 enabled:hover:text-cyan-glow disabled:text-zinc-600"
+          className={"mt-2 " + OUTREACH_ACTION}
         >
           {saving ? "Saving…" : "Add to the log"}
         </button>
@@ -823,23 +983,27 @@ function ContactControls({
 }
 
 function UserDetail({
+  extra,
   row,
   touches,
   onStatus,
   onFollowUp,
   onHidden,
+  onKind,
   onAdd,
   onDeleteTouch,
 }: {
+  extra?: React.ReactNode;
   row: OutreachRow;
   touches: TouchRow[];
   onStatus: (s: OutreachStatus) => void;
   onFollowUp: (on: string | null) => void;
   onHidden: (h: boolean) => void;
+  onKind: (k: PlayerKind) => void;
   onAdd: (
     kind: TouchKind,
     channel: TouchChannel | null,
-    body: string
+    body: string,
   ) => Promise<boolean>;
   onDeleteTouch: (t: TouchRow) => void;
 }) {
@@ -877,6 +1041,7 @@ function UserDetail({
         Open in Players
       </Link>
 
+      {extra}
       <ContactControls
         status={row.status}
         followUpOn={row.follow_up_on}
@@ -887,19 +1052,37 @@ function UserDetail({
         onDeleteTouch={onDeleteTouch}
       />
 
-      {!row.hidden && (
-        <button
-          onClick={() => onHidden(true)}
-          className="mt-4 rounded-full border border-edge px-3 py-1 text-sm text-zinc-400 transition-colors hover:border-amber-400/40 hover:text-amber-300"
-        >
-          Hide from outreach
-        </button>
-      )}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        {/* Marking somebody writes the same row the Players page reads.
+            Hiding is different and stays: it takes ONE person out of the
+            queue without saying they are not a user. */}
+        <label className="flex items-center gap-2 text-sm text-zinc-500">
+          Kind
+          <select
+            value={row.kind}
+            onChange={(e) => onKind(e.target.value as PlayerKind)}
+            className="rounded-full border border-edge bg-surface-2 px-2.5 py-1 text-xs text-zinc-300 focus:border-cyan-glow/60 focus:outline-none"
+          >
+            <option value="real">Real</option>
+            <option value="team">Team</option>
+            <option value="test">Test</option>
+          </select>
+        </label>
+        {
+          <button
+            onClick={() => onHidden(!row.hidden)}
+            className={OUTREACH_ACTION}
+          >
+            {row.hidden ? "Show in outreach" : "Hide from outreach"}
+          </button>
+        }
+      </div>
     </div>
   );
 }
 
 function PersonDetail({
+  extra,
   person,
   touches,
   onStatus,
@@ -909,6 +1092,7 @@ function PersonDetail({
   onAdd,
   onDeleteTouch,
 }: {
+  extra?: React.ReactNode;
   person: PersonRow;
   touches: TouchRow[];
   onStatus: (s: OutreachStatus) => void;
@@ -918,7 +1102,7 @@ function PersonDetail({
   onAdd: (
     kind: TouchKind,
     channel: TouchChannel | null,
-    body: string
+    body: string,
   ) => Promise<boolean>;
   onDeleteTouch: (t: TouchRow) => void;
 }) {
@@ -950,7 +1134,7 @@ function PersonDetail({
               setEditing(false);
             }}
             disabled={!name.trim()}
-            className="rounded-full border border-edge px-3 py-1 text-sm text-zinc-200 transition-colors enabled:hover:border-cyan-glow/40 enabled:hover:text-cyan-glow disabled:text-zinc-600"
+            className={OUTREACH_ACTION}
           >
             Save
           </button>
@@ -960,7 +1144,7 @@ function PersonDetail({
               setEmail(person.email ?? "");
               setEditing(false);
             }}
-            className="rounded-full border border-edge px-3 py-1 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
+            className={OUTREACH_ACTION}
           >
             Cancel
           </button>
@@ -973,15 +1157,13 @@ function PersonDetail({
           <p className="text-xs text-zinc-600">
             Added {dateLabel(person.created_at)} by {person.created_by}
           </p>
-          <button
-            onClick={() => setEditing(true)}
-            className="rounded-full border border-edge px-3 py-1 text-sm text-zinc-400 transition-colors hover:text-zinc-200"
-          >
+          <button onClick={() => setEditing(true)} className={OUTREACH_ACTION}>
             Edit
           </button>
         </div>
       )}
 
+      {extra}
       <ContactControls
         status={person.status}
         followUpOn={person.follow_up_on}
@@ -992,10 +1174,7 @@ function PersonDetail({
         onDeleteTouch={onDeleteTouch}
       />
 
-      <button
-        onClick={onDelete}
-        className="mt-4 rounded-full border border-edge px-3 py-1 text-sm text-zinc-400 transition-colors hover:border-amber-400/40 hover:text-amber-300"
-      >
+      <button onClick={onDelete} className={"mt-4 " + OUTREACH_ACTION}>
         Remove this person
       </button>
     </div>
@@ -1006,7 +1185,7 @@ function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs text-zinc-500">{label}</dt>
-      <dd className="truncate text-zinc-200">{value}</dd>
+      <dd className="[overflow-wrap:anywhere] text-zinc-200">{value}</dd>
     </div>
   );
 }

@@ -1,6 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { EntryImage } from "@/components/entryPhoto";
+import { LinkedText } from "@/components/LinkedText";
+import { entryThemes, recapIdOf } from "@/lib/lessonVideo/entries";
+import { RecapPreview } from "./RecapPreview";
 
 /**
  * Entries a coach shared with this player. Live documents: the RPC reads
@@ -16,14 +20,20 @@ interface Takeaways {
 
 export interface SharedEntry {
   entry_id: string;
+  /** The coach's lesson row, which is what signs the photo (163). */
+  lesson_id: string;
   coach_id: string;
   coach_name: string;
   transcript: string;
   takeaways: Takeaways | null;
   entry_kind: string;
+  /** Pinned to the coach's own folder by the RPC; null when there is none. */
+  image_path: string | null;
   match_id: string | null;
   shared_at: string;
   updated_at: string;
+  /** The recap behind the entry, when the coach shared a lesson video. */
+  lesson_video_id?: string | null;
 }
 
 function entryTitle(entry: SharedEntry): string {
@@ -46,26 +56,56 @@ function day(iso: string): string {
 
 /**
  * One shared entry as a feed card. The journal renders these among its
- * own entries under All and under the From your coach tab (Adil,
+ * own entries under All and under the From Coaches tab (Adil,
  * 2026-09-02) — they used to sit in a section of their own above the
  * tabs, which read as a second journal.
  */
-export function SharedEntryCard({ entry }: { entry: SharedEntry }) {
-  const [expanded, setExpanded] = useState(false);
-  const themes = entry.takeaways?.themes ?? [];
+export function SharedEntryCard({
+  entry,
+  defaultOpen = false,
+}: {
+  entry: SharedEntry;
+  /** Opened already, for the one the bell was tapped on. A notification
+   *  that lands you beside the thing it was about, still shut, has made
+   *  you find it twice. */
+  defaultOpen?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultOpen);
+  // A lesson video shared with this player. The entry's own text is only
+  // a link to it, written for app versions that cannot show more; here
+  // the recap itself is the body, and that text stays out of the way.
+  const recapId = recapIdOf(entry);
+  const themes = entryThemes(entry.takeaways?.themes, !!recapId);
   return (
     <div className="rounded-2xl border border-edge bg-surface p-4">
       <button
         type="button"
-        className="flex w-full items-baseline justify-between gap-3 text-left"
+        className="flex w-full items-start justify-between gap-3 text-left"
         onClick={() => setExpanded((v) => !v)}
       >
-        <span className="min-w-0">
-          <span className="block text-xs font-semibold uppercase tracking-wider text-cyan-glow">
-            {entry.coach_name}
-          </span>
-          <span className="mt-1 block text-sm font-medium text-zinc-100">
-            {entryTitle(entry)}
+        <span className="flex min-w-0 items-start gap-3">
+          {entry.image_path && (
+            <EntryImage
+              lessonId={entry.lesson_id}
+              className="h-11 w-11 shrink-0 rounded-lg border border-edge object-cover"
+            />
+          )}
+          <span className="min-w-0">
+            <span className="block text-xs font-semibold uppercase tracking-wider text-cyan-glow">
+              {entry.coach_name}
+            </span>
+            <span className="mt-1 block text-sm font-medium text-zinc-100">
+              {entryTitle(entry)}
+            </span>
+            {recapId && (
+              <span className="mt-1 flex items-center gap-1.5 text-xs text-zinc-400">
+                <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-cyan-glow" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m10 9.5 5 2.5-5 2.5v-5Z" />
+                </svg>
+                Lesson recap
+              </span>
+            )}
           </span>
         </span>
         <span className="shrink-0 text-xs text-zinc-500">
@@ -74,7 +114,8 @@ export function SharedEntryCard({ entry }: { entry: SharedEntry }) {
       </button>
       {expanded && (
         <div className="mt-3 space-y-4">
-          {themes.length > 0 ? (
+          {recapId && <RecapPreview id={recapId} />}
+          {recapId && themes.length === 0 ? null : themes.length > 0 ? (
             <>
               {themes.map((theme) => (
                 <div key={theme.name}>
@@ -85,26 +126,31 @@ export function SharedEntryCard({ entry }: { entry: SharedEntry }) {
                     {theme.points.map((point) => (
                       <li key={point} className="flex gap-2 text-sm text-zinc-200">
                         <span className="mt-[0.55rem] h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
-                        <span className="leading-relaxed">{point}</span>
+                        <span className="leading-relaxed">
+                          <LinkedText text={point} />
+                        </span>
                       </li>
                     ))}
                   </ul>
                 </div>
               ))}
-              <details className="text-sm text-zinc-400">
-                <summary className="cursor-pointer select-none">
-                  Transcript
-                </summary>
-                <p className="mt-2 whitespace-pre-wrap leading-relaxed text-zinc-300">
-                  {entry.transcript}
-                </p>
-              </details>
+              {!recapId && (
+                <details className="text-sm text-zinc-400">
+                  <summary className="cursor-pointer select-none">
+                    Transcript
+                  </summary>
+                  <p className="mt-2 whitespace-pre-wrap leading-relaxed text-zinc-300">
+                    <LinkedText text={entry.transcript} />
+                  </p>
+                </details>
+              )}
             </>
           ) : (
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
-              {entry.transcript}
+              <LinkedText text={entry.transcript} />
             </p>
           )}
+          {entry.image_path && <EntryImage lessonId={entry.lesson_id} />}
           <p className="text-xs text-zinc-500">
             Something wrong with this?{" "}
             <a

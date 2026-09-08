@@ -3,7 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { Lesson, LessonTakeaways } from "@/lib/types";
 import { AutoTextarea } from "@/components/AutoTextarea";
+import { CoachPicker } from "./CoachPicker";
+import type { PlayerCoach } from "@/lib/coaches/playerCoaches";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import {
+  EntryImage,
+  forgetEntryImage,
+  shrinkImage,
+} from "@/components/entryPhoto";
 
 /**
  * Editing an entry means editing the NOTE, not the speech-to-text it came
@@ -19,10 +26,21 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
  *   takeaways == null  there is no note, so the words ARE the note and a
  *                      single field holds them
  *
+ * A coach correcting an entry about a student opens this same overlay,
+ * from their student's page. Nothing here is player-specific: the coach's
+ * name field belongs to a lesson somebody was given, and a coach entry is
+ * not one.
+ *
+ * The photo is editable in BOTH shapes, and sits below whichever one is
+ * on screen. It belongs to the entry rather than to the note or to the
+ * words, so "which editor am I in" is the wrong question to ask about
+ * it — and an entry whose photo could never be changed or removed was
+ * the obvious gap the moment photos shipped.
+ *
  * Two things the capture sheet has are deliberately absent from both
  * shapes. The Practice/Lesson tab, because an entry's kind is decided
  * when it is written and flipping it here would quietly rewrite what the
- * entry is. And "Condense and summarize", because condensing reads the
+ * entry is. And "Improve with AI", because improving reads the
  * transcript, and editing a note never changes the transcript.
  */
 
@@ -53,6 +71,13 @@ function draftThemes(takeaways: LessonTakeaways | null): DraftTheme[] {
 /** What "unsaved changes" compares. Blank points and emptied themes are
  *  dropped first, because they are exactly what the save drops too: an
  *  added-then-abandoned empty line is not a change worth guarding. */
+/** The coach half of the dirty check: who, and whether they can read it.
+ *  Both have to count, or turning sharing on and pressing Save would do
+ *  nothing and say nothing. */
+function coachKey(refId: string | null, share: boolean): string {
+  return `${refId ?? ""}:${share ? "1" : "0"}`;
+}
+
 function snapshot(
   title: string,
   coach: string,
@@ -119,14 +144,20 @@ const LABEL =
 
 export function NoteEditor({
   lesson,
-  coachNames = [],
+  coaches = [],
+  // Defaulted, because this overlay also edits COACH entries on the
+  // coaching side (kind 'coach'), and those have no coach of their own —
+  // the picker below never renders for them.
+  createCoach = async () => null,
   onClose,
   onSaved,
 }: {
   /** The entry being edited. Null closes the overlay. */
   lesson: Lesson | null;
-  /** Coaches already named in this journal, for the suggestion list. */
-  coachNames?: string[];
+  /** The player's own coaches (164), for the picker. */
+  coaches?: PlayerCoach[];
+  /** Find-or-create a coach by name. */
+  createCoach?: (name: string) => Promise<PlayerCoach | null>;
   onClose: () => void;
   /** The saved row, for the feed to repaint without a reload. */
   onSaved: (lesson: Lesson) => void;
@@ -137,7 +168,8 @@ export function NoteEditor({
   const [title, setTitle] = useState("");
   const [themes, setThemes] = useState<DraftTheme[]>([]);
   const [words, setWords] = useState("");
-  const [coachName, setCoachName] = useState("");
+  const [coachRefId, setCoachRefId] = useState<string | null>(null);
+  const [shareWithCoach, setShareWithCoach] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showTranscript, setShowTranscript] = useState(false);
@@ -146,6 +178,14 @@ export function NoteEditor({
   // A line added by hand should be ready to type into. The id is claimed
   // here and spent by the field's ref the moment it mounts.
   const [focusId, setFocusId] = useState<string | null>(null);
+  // The photo as it will be saved: null means "no photo". `preview` is a
+  // local object URL for one attached in this session, which is what gets
+  // drawn until the entry owns it. Anything uploaded here and then
+  // abandoned is deleted on the way out.
+  const [photoPath, setPhotoPath] = useState<string | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const box = useVisibleBox(open);
   const originalRef = useRef<string>("");
@@ -165,20 +205,43 @@ export function NoteEditor({
     setTitle(t?.title ?? "");
     setThemes(seedThemes);
     setWords(t ? "" : lesson.transcript);
-    setCoachName(lesson.coach_name ?? "");
+    setCoachRefId(lesson.coach_ref_id ?? null);
+    setShareWithCoach(lesson.shared_with_coach_at != null);
     setError(null);
     setShowTranscript(false);
     setFocusId(null);
+    setPhotoPath(lesson.image_path ?? null);
+    setPhotoPreview(null);
+    setPhotoBusy(false);
     originalRef.current = snapshot(
       t?.title ?? "",
-      lesson.coach_name ?? "",
+      coachKey(lesson.coach_ref_id ?? null, lesson.shared_with_coach_at != null),
       seedThemes,
       t ? "" : lesson.transcript
     );
   }, [lesson]);
 
+  const photoChanged =
+    open && photoPath !== ((lesson?.image_path ?? null) as string | null);
+
   const dirty =
-    open && snapshot(title, coachName, themes, words) !== originalRef.current;
+    open &&
+    (snapshot(title, coachKey(coachRefId, shareWithCoach), themes, words) !==
+      originalRef.current ||
+      photoChanged);
+
+  /** A photo uploaded here and then abandoned belongs to nobody. */
+  const dropUnsavedPhoto = () => {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    if (photoPath && photoPath !== (lesson?.image_path ?? null)) {
+      void fetch("/api/entry-image", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imagePath: photoPath }),
+        keepalive: true,
+      });
+    }
+  };
 
   const attemptClose = () => {
     if (saving) return;
@@ -186,7 +249,49 @@ export function NoteEditor({
       setConfirmDiscard(true);
       return;
     }
+    dropUnsavedPhoto();
     onClose();
+  };
+
+  const replacePhoto = async (file: File) => {
+    if (photoBusy) return;
+    setPhotoBusy(true);
+    setError(null);
+    const previous = { path: photoPath, preview: photoPreview };
+    const preview = URL.createObjectURL(file);
+    try {
+      const form = new FormData();
+      form.append("image", await shrinkImage(file), "photo.jpg");
+      const res = await fetch("/api/entry-image", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.image_path) {
+        URL.revokeObjectURL(preview);
+        setError(data?.error ?? "Couldn't add that photo.");
+        return;
+      }
+      // The one it replaced, when that one was also uploaded here. The
+      // entry's own photo is left alone until Save — cancelling has to
+      // put it back.
+      if (previous.preview) URL.revokeObjectURL(previous.preview);
+      if (previous.path && previous.path !== (lesson?.image_path ?? null)) {
+        void fetch("/api/entry-image", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imagePath: previous.path }),
+          keepalive: true,
+        });
+      }
+      setPhotoPath(data.image_path);
+      setPhotoPreview(preview);
+    } catch {
+      URL.revokeObjectURL(preview);
+      setError("Couldn't add that photo.");
+    } finally {
+      setPhotoBusy(false);
+    }
   };
 
   // Escape closes, through the same guard as the X and the backdrop. No
@@ -275,10 +380,20 @@ export function NoteEditor({
 
   const save = async () => {
     if (!lesson || saving) return;
-    // Only a lesson has a coach, and this overlay cannot change an
-    // entry's kind, so practice entries never carry a name through.
-    const coach =
-      lesson.kind === "lesson" ? coachName.trim().slice(0, 80) || null : null;
+    // Only a lesson has a coach. A plain note is your own reflection and
+    // an entry a coach wrote (kind 'coach') has no coach of its own, so
+    // neither shows the picker and neither may gain one here.
+    const isLesson = lesson.kind === "lesson";
+    const refId = isLesson ? coachRefId : null;
+    const share = isLesson && shareWithCoach && refId !== null;
+    const coachRow = coaches.find((c) => c.id === refId) ?? null;
+    // What the row will read afterwards, for the card the feed repaints.
+    const savedName = coachRow?.display_name ?? (refId ? lesson.coach_name ?? null : null);
+    const savedShareAt = share
+      ? lesson.coach_ref_id === refId && lesson.shared_with_coach_at
+        ? lesson.shared_with_coach_at
+        : new Date().toISOString()
+      : null;
 
     if (hasNote) {
       const cleaned = themes
@@ -302,7 +417,11 @@ export function NoteEditor({
           body: JSON.stringify({
             lessonId: lesson.id,
             takeaways: { title: title.trim(), themes: cleaned },
-            coachName: coach,
+            coachRefId: refId,
+            shareWithCoach: share,
+            // Only when it changed: the field's absence is what tells the
+            // route to leave the photo alone.
+            ...(photoChanged ? { imagePath: photoPath } : {}),
           }),
         });
         const data = await res.json().catch(() => null);
@@ -315,10 +434,15 @@ export function NoteEditor({
         // The card is repainted from the stored note, not from the draft:
         // the server trims and caps, and a card drawn from the draft
         // would disagree with the row until the next reload.
+        if (photoPreview) URL.revokeObjectURL(photoPreview);
+        if (photoChanged) forgetEntryImage(lesson.id);
         onSaved({
           ...lesson,
           takeaways: data.takeaways as LessonTakeaways,
-          coach_name: coach,
+          coach_name: savedName,
+          coach_ref_id: refId,
+          shared_with_coach_at: savedShareAt,
+          image_path: photoPath,
         });
         onClose();
       } catch {
@@ -343,12 +467,13 @@ export function NoteEditor({
         body: JSON.stringify({
           lessonId: lesson.id,
           transcript,
-          kind: lesson.kind,
-          coachName: coach,
-          // This entry has no note, so its words are the note. Condensing
+          coachRefId: refId,
+          shareWithCoach: share,
+          ...(photoChanged ? { imagePath: photoPath } : {}),
+          // This entry has no note, so its words are the note. Improving
           // is a choice made when an entry is written; offering it again
-          // here would grow a summary out of an edit nobody asked to
-          // summarize.
+          // here would grow points out of an edit nobody asked to
+          // improve.
           summarize: false,
         }),
       });
@@ -359,12 +484,17 @@ export function NoteEditor({
         );
         return;
       }
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+      if (photoChanged) forgetEntryImage(lesson.id);
       onSaved({
         ...lesson,
         transcript,
         takeaways: null,
         status: "ready",
-        coach_name: coach,
+        coach_name: savedName,
+        coach_ref_id: refId,
+        shared_with_coach_at: savedShareAt,
+        image_path: photoPath,
       });
       onClose();
     } catch {
@@ -426,27 +556,22 @@ export function NoteEditor({
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
               {lesson.kind === "lesson" && (
                 <div className="mb-4">
-                  <label className={LABEL} htmlFor="note-coach">
-                    Coach
-                  </label>
-                  <input
-                    id="note-coach"
-                    type="text"
-                    value={coachName}
-                    onChange={(e) => setCoachName(e.target.value.slice(0, 80))}
-                    list="note-coach-names"
-                    maxLength={80}
-                    placeholder="Who taught it?"
-                    autoComplete="off"
-                    className={`mt-2 ${FIELD}`}
+                  {/* The picker, not a text field (164). Correcting an
+                      entry is where a journal full of spellings gets
+                      cleaned up, so this is the surface that has to make
+                      moving one onto a real coach easy. */}
+                  <CoachPicker
+                    coaches={coaches}
+                    value={coachRefId}
+                    share={shareWithCoach}
+                    disabled={saving}
+                    onChange={(id, share) => {
+                      setCoachRefId(id);
+                      setShareWithCoach(share);
+                    }}
+                    onCreate={createCoach}
+                    shareNoun="this lesson"
                   />
-                  {coachNames.length > 0 && (
-                    <datalist id="note-coach-names">
-                      {coachNames.map((n) => (
-                        <option key={n} value={n} />
-                      ))}
-                    </datalist>
-                  )}
                 </div>
               )}
 
@@ -640,14 +765,92 @@ export function NoteEditor({
                     onChange={(e) => setWords(e.target.value)}
                     rows={6}
                     placeholder={
-                      lesson.kind === "lesson"
-                        ? "What your coach gave you"
+                      lesson.kind === "coach"
+                        ? "What you worked on, what to fix, what comes next"
                         : "What you worked on"
                     }
                     className={`mt-2 ${FIELD} leading-relaxed`}
                   />
                 </>
               )}
+
+              {/* The photo belongs to the entry, so it sits below both
+                  shapes rather than inside either one. */}
+              <div className="mt-5">
+                <p className={LABEL}>Photo</p>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) void replacePhoto(file);
+                  }}
+                />
+                {photoPath ? (
+                  <div className="mt-2 flex items-start gap-3">
+                    {photoPreview ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={photoPreview}
+                        alt="Photo on this entry"
+                        className={`h-20 w-20 rounded-xl border border-edge object-cover ${
+                          photoBusy ? "opacity-50" : ""
+                        }`}
+                      />
+                    ) : (
+                      <EntryImage
+                        lessonId={lesson.id}
+                        className="h-20 w-20 shrink-0 rounded-xl border border-edge object-cover"
+                      />
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={photoBusy || saving}
+                        onClick={() => photoInputRef.current?.click()}
+                        className="rounded-full border border-edge px-3.5 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50"
+                      >
+                        {photoBusy ? "Checking…" : "Replace"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={photoBusy || saving}
+                        onClick={() => {
+                          if (photoPreview) URL.revokeObjectURL(photoPreview);
+                          if (
+                            photoPath &&
+                            photoPath !== (lesson.image_path ?? null)
+                          ) {
+                            void fetch("/api/entry-image", {
+                              method: "DELETE",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ imagePath: photoPath }),
+                              keepalive: true,
+                            });
+                          }
+                          setPhotoPreview(null);
+                          setPhotoPath(null);
+                        }}
+                        className="rounded-full border border-edge px-3.5 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={photoBusy || saving}
+                    onClick={() => photoInputRef.current?.click()}
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-dashed border-edge px-3.5 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-zinc-200 disabled:opacity-50"
+                  >
+                    {photoBusy ? "Checking the photo…" : "Add a photo"}
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="shrink-0 border-t border-edge px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-5">
@@ -685,6 +888,7 @@ export function NoteEditor({
         onCancel={() => setConfirmDiscard(false)}
         onConfirm={() => {
           setConfirmDiscard(false);
+          dropUnsavedPhoto();
           onClose();
         }}
       />

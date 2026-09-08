@@ -10,9 +10,10 @@ export const runtime = "nodejs";
  *
  *   { matchId }             -> the match's cut video
  *   { matchId, pointId }    -> one point's clip
- *   { matchId, raw: true }  -> the ORIGINAL upload (30-day retention;
- *                              HEAD-checked so an expired raw says so
- *                              instead of handing out a dead link)
+ *   { matchId, raw: true }  -> the ORIGINAL upload (kept for the life of
+ *                              the match; HEAD-checked so a legacy match
+ *                              whose raw is gone says so instead of
+ *                              handing out a dead link)
  *
  * Access control lives in the RPCs (admin_match_cut_path 068,
  * admin_point_clip_path 069): each re-checks is_admin() before handing
@@ -71,7 +72,7 @@ export async function POST(req: Request) {
   }
   if (raw && !(await headObject(loc.bucket, loc.key))) {
     return NextResponse.json(
-      { error: "The original upload has expired (raw files are kept 30 days)." },
+      { error: "The original upload is no longer stored for this match." },
       { status: 404 }
     );
   }

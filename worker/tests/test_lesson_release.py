@@ -1,0 +1,105 @@
+import json
+import os
+import ast
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+from worker.lesson_release.package import LINUX_FFMPEG_ARTIFACT_SHA256, LINUX_FFMPEG_BINARY_SHA256, LINUX_FFPROBE_BINARY_SHA256, LINUX_FFMPEG_VERSION, linux_media_install_commands, seal, verify, verify_linux_media_tools, worker_release_id, launch_agent, load_runtime_env
+
+class LessonReleaseTests(unittest.TestCase):
+    def fixture(self, root):
+        for name in ['lesson_video.py','lesson-video-requirements.txt','cost_meter.py','lesson-font.ttf','lesson_deletion.py','lesson_cloud_dispatch.py']:
+            (root/name).write_text(name)
+    def test_sealed_payload_refuses_tampering_and_undeclared_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);stage=root/'stage';stage.mkdir();self.fixture(stage)
+            sealed=seal(stage,root/'dist')
+            self.assertEqual(verify(sealed)['worker_release_id'],worker_release_id(sealed))
+            (sealed/'extra.py').write_text('bad')
+            with self.assertRaises(ValueError):verify(sealed)
+            (sealed/'extra.py').unlink();(sealed/'cost_meter.py').write_text('changed')
+            with self.assertRaises(ValueError):verify(sealed)
+    def test_default_agent_is_separate_disabled_and_uses_exact_release(self):
+        p=launch_agent(Path('/tmp/lesson/releases/abc/payload'),Path('/tmp/lesson/releases/abc/venv/bin/python'),Path('/tmp/lesson/runtime.json'),Path('/tmp/lesson/runtime'))
+        self.assertTrue(p['Disabled']);self.assertFalse(p['RunAtLoad']);self.assertFalse(p['KeepAlive'])
+        self.assertEqual(p['Label'],'com.adil.ponglens-lesson-video-worker')
+        self.assertIn('/tmp/lesson/releases/abc/payload/runner.py',p['ProgramArguments'])
+        self.assertNotIn('com.adil.ponglens-worker',json.dumps(p))
+    def test_runtime_secrets_require_private_file_and_reject_code_environment(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'secrets.json';p.write_text('{"OPENAI_API_KEY":"not-a-real-secret"}');p.chmod(0o644)
+            with self.assertRaises(ValueError):load_runtime_env(p)
+            p.chmod(0o600);self.assertEqual(load_runtime_env(p)['OPENAI_API_KEY'],'not-a-real-secret')
+            p.write_text('{"PYTHONPATH":"/untrusted"}')
+            with self.assertRaises(ValueError):load_runtime_env(p)
+            p.write_text('{}');s=Path(d)/'link';s.symlink_to(p)
+            with self.assertRaises(ValueError):load_runtime_env(s)
+    def test_linux_media_tools_require_the_pinned_artifact_and_lesson_filters(self):
+        commands=[]
+        def output(command,**kwargs):
+            commands.append(command)
+            if '-filters' in command: return ' ... zscale ...\n'
+            if '-encoders' in command: return ' V.... libx264\n A.... aac\n'
+            if command[0].endswith('/ffmpeg'): return 'ffmpeg version '+LINUX_FFMPEG_VERSION+'\n'
+            return 'ffprobe version '+LINUX_FFMPEG_VERSION+'\n'
+        with patch('worker.lesson_release.package.sha',side_effect=[LINUX_FFMPEG_BINARY_SHA256,LINUX_FFPROBE_BINARY_SHA256]),patch('worker.lesson_release.package.subprocess.check_output',side_effect=output):
+            verify_linux_media_tools()
+        self.assertTrue(any(command[0].endswith('/ffprobe') and command[1]=='-version' for command in commands))
+    def test_modal_media_install_checks_immutable_artifact_before_extracting(self):
+        commands='\n'.join(linux_media_install_commands())
+        self.assertIn(LINUX_FFMPEG_ARTIFACT_SHA256,commands)
+        self.assertIn('sha256sum -c -',commands)
+        self.assertIn('releases/assets/',commands)
+    def test_modal_uses_default_ephemeral_disk_quota(self):
+        source=(Path(__file__).parents[1]/'lesson_release'/'modal_app.py').read_text()
+        self.assertNotIn('ephemeral_disk=',source)
+    def test_modal_schedules_only_the_small_dispatcher(self):
+        source=(Path(__file__).parents[1]/'lesson_release'/'modal_app.py').read_text()
+        tree=ast.parse(source)
+        functions={node.name:node for node in tree.body if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef))}
+        self.assertIn('dispatch_once',functions)
+        self.assertIn('run_cloud_job',functions)
+        dispatch=ast.get_source_segment(source,functions['dispatch_once']) or ''
+        heavy=ast.get_source_segment(source,functions['run_cloud_job']) or ''
+        self.assertIn('run_cloud_job.spawn()',dispatch)
+        decorators='\n'.join(ast.get_source_segment(source,d) or '' for d in functions['dispatch_once'].decorator_list)
+        self.assertIn('schedule=modal.Period(minutes=5)',decorators)
+        self.assertIn('cpu=0.125',decorators)
+        self.assertIn('memory=128',decorators)
+        self.assertIn('scaledown_window=2',decorators)
+        heavy_decorators='\n'.join(ast.get_source_segment(source,d) or '' for d in functions['run_cloud_job'].decorator_list)
+        self.assertNotIn('schedule=',heavy_decorators)
+        self.assertIn('cpu=4',heavy_decorators)
+        self.assertIn('memory=8192',heavy_decorators)
+    def test_modal_container_imports_and_verifies_the_mounted_payload(self):
+        source=(Path(__file__).parents[1]/'lesson_release'/'modal_app.py').read_text()
+        self.assertLess(source.index("sys.path.insert(0,REMOTE)"),source.index('from package import'))
+        self.assertIn('manifest=verify(PAYLOAD)',source)
+        self.assertIn("os.environ.get('PONGLENS_LESSON_BUNDLE_ID'",source)
+    def test_modal_exposes_a_secret_free_media_parity_fixture(self):
+        source=(Path(__file__).parents[1]/'lesson_release'/'modal_app.py').read_text()
+        fixture=source[source.index('def verify_media_parity():'):]
+        self.assertIn("for name,transfer in (('sdr','bt709'),('hdr','arib-std-b67'))",fixture)
+        self.assertNotIn('ponglens-lesson-video-runtime',fixture)
+if __name__=='__main__':unittest.main()
+
+
+class ReleaseIdentityTests(unittest.TestCase):
+ """The worker and the packaging tool must agree on what a release is.
+
+ They stamp it from separate lists: package.py writes the manifest from
+ WORKER_FILES, the worker reports its own from RELEASE_FILES, and
+ claim_lesson_video hands work only to a worker whose id matches the
+ enabled one. So a difference between the lists does not fail anything
+ loudly. It produces a worker that starts, beats, and claims nothing.
+
+ That is exactly what happened: the cloud dispatcher was added to
+ WORKER_FILES and not to the worker's list, and the first release cut
+ afterwards ran happily against a database that had never heard of it.
+ """
+ def test_both_lists_name_the_same_files(self):
+  from worker.lesson_video import RELEASE_FILES
+  from worker.lesson_release.package import WORKER_FILES
+  self.assertEqual(tuple(RELEASE_FILES),tuple(WORKER_FILES))
+

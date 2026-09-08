@@ -48,13 +48,17 @@ class RawSweepCursor:
         if normalized.startswith(
             "select raw_path from public.matches"
         ):
-            # Commerce (096): raws referenced by a live library row never
-            # age out; only rows whose match was deleted expire.
-            self.rows = [
-                (path,)
-                for path in paths
-                if path in self.connection.library_paths
-            ]
+            # A raw referenced by any live match never ages out: by
+            # matches.raw_path (uploads since commerce, 096) or by the
+            # source job of a legacy match. Only unreferenced raws expire.
+            if "union" not in normalized or "j.input_path" not in normalized:
+                raise AssertionError(
+                    f"raw protection must also cover job-referenced raws: {normalized}"
+                )
+            if len(params) != 2 or params[1] is not paths:
+                raise AssertionError("union query must receive the paths twice")
+            protected = self.connection.library_paths | self.connection.job_referenced_paths
+            self.rows = [(path,) for path in paths if path in protected]
             return
         raise AssertionError(f"unexpected SQL: {normalized}")
 
@@ -63,10 +67,14 @@ class RawSweepCursor:
 
 
 class RawSweepConnection:
-    def __init__(self, source_jobs, upload_ledger=None, library_paths=None):
+    def __init__(self, source_jobs, upload_ledger=None, library_paths=None,
+                 job_referenced_paths=None):
         self.source_jobs = source_jobs
         self.upload_ledger = upload_ledger or {}
         self.library_paths = library_paths or set()
+        # Raws whose source job belongs to a live match row that predates
+        # matches.raw_path (legacy uploads, YouTube imports before 096).
+        self.job_referenced_paths = job_referenced_paths or set()
         self.queries = []
 
     def cursor(self):
@@ -110,10 +118,15 @@ class PlacementExpiryCursor:
         normalized = " ".join(query.split())
         if "where placement_status = 'retry_available'" not in normalized:
             raise AssertionError(f"unexpected SQL: {normalized}")
+        if "and raw_path is null" not in normalized:
+            raise AssertionError(
+                f"expiry must skip matches whose original is kept: {normalized}"
+            )
         now = datetime.now(timezone.utc)
         for match in self.connection.matches:
             if (
                 match["placement_status"] == "retry_available"
+                and match.get("raw_path") is None
                 and match["placement_retry_expires_at"] <= now
             ):
                 match["placement_status"] = "final_failed"
@@ -130,8 +143,12 @@ class PlacementExpiryConnection:
 
 
 class RawRetentionTests(unittest.TestCase):
-    def test_raw_uploads_are_retained_for_thirty_days(self):
-        self.assertEqual(worker.R2_RAW_RETENTION_DAYS, 30)
+    def test_only_unreferenced_raws_have_a_thirty_day_clock(self):
+        # The clock is for orphans. A raw any live match references is
+        # never swept (see the two protection tests below).
+        self.assertEqual(worker.ORPHAN_RAW_DAYS, 30)
+        self.assertEqual(worker.ORPHAN_CUT_DAYS, 30)
+        self.assertFalse(hasattr(worker, "R2_RAW_RETENTION_DAYS"))
 
     def test_raw_sweep_uses_source_job_created_at_not_object_last_modified(self):
         now = datetime.now(timezone.utc)
@@ -189,7 +206,7 @@ class RawRetentionTests(unittest.TestCase):
                 connection,
                 worker.R2_RAW_BUCKET,
                 "",
-                worker.R2_RAW_RETENTION_DAYS,
+                worker.ORPHAN_RAW_DAYS,
             )
 
         deleted_keys = [key for _, key in client.deleted]
@@ -236,11 +253,57 @@ class RawRetentionTests(unittest.TestCase):
                 connection,
                 worker.R2_RAW_BUCKET,
                 "",
-                worker.R2_RAW_RETENTION_DAYS,
+                worker.ORPHAN_RAW_DAYS,
             )
 
         deleted_keys = [key for _, key in client.deleted]
         self.assertEqual(deleted_keys, [deleted_key])
+
+    def test_legacy_raws_referenced_only_by_their_job_never_age_out(self):
+        # Matches processed before 096 have no raw_path; their raw is
+        # reached through the source job. That row is just as live.
+        now = datetime.now(timezone.utc)
+        legacy_key = "owner/legacy-upload.mp4"
+        orphan_key = "owner/orphan.mp4"
+        legacy_path = f"r2://{worker.R2_RAW_BUCKET}/{legacy_key}"
+        source_jobs = {
+            legacy_path: [now - timedelta(days=200)],
+            f"r2://{worker.R2_RAW_BUCKET}/{orphan_key}": [
+                now - timedelta(days=200)
+            ],
+        }
+        connection = RawSweepConnection(
+            source_jobs, job_referenced_paths={legacy_path}
+        )
+        client = RawSweepR2(
+            [
+                {"Key": legacy_key, "LastModified": now - timedelta(days=200)},
+                {"Key": orphan_key, "LastModified": now - timedelta(days=200)},
+            ]
+        )
+
+        with patch.object(worker, "r2", return_value=client), patch.object(
+            worker, "ledger_negate_keys"
+        ):
+            worker.r2_sweep_prefix(
+                connection, worker.R2_RAW_BUCKET, "", worker.ORPHAN_RAW_DAYS
+            )
+
+        self.assertEqual([key for _, key in client.deleted], [orphan_key])
+
+    def test_kept_original_never_expires_its_placement_retry(self):
+        match = {
+            "placement_status": "retry_available",
+            "placement_retry_expires_at": datetime.now(timezone.utc)
+            - timedelta(days=400),
+            "placement_failure_code": None,
+            "raw_path": "r2://ponglens-raw/owner/kept.mp4",
+        }
+
+        worker.expire_placement_retries(PlacementExpiryConnection([match]))
+
+        self.assertEqual(match["placement_status"], "retry_available")
+        self.assertIsNone(match["placement_failure_code"])
 
     def test_expired_not_requested_match_is_not_normalized_to_failed(self):
         match = {

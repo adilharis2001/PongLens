@@ -52,7 +52,26 @@ struct CoachEntryScreen: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $editOpen) {
-            if let entry { CoachEntryEditSheet(entry: entry, initial: lesson?.transcript ?? "") }
+            // The player's own editor, pointed at the coach's store. An
+            // entry that came back as points is corrected point by point;
+            // one that never had any has its words edited instead. That
+            // rule lives in the editor, so it cannot disagree between the
+            // two sides of one lesson.
+            if let entry, let lesson {
+                JournalNoteEditor(
+                    lesson: lesson,
+                    onSaveNote: { takeaways, _, photo in
+                        await workspace.saveNote(
+                            entry, takeaways: takeaways, photo: photo
+                        )
+                    },
+                    onSaveWords: { words, _, photo in
+                        await workspace.saveWords(
+                            entry, transcript: words, photo: photo
+                        )
+                    }
+                )
+            }
         }
         .sheet(isPresented: $matchPickerOpen) {
             if let entry { matchPicker(entry) }
@@ -131,37 +150,14 @@ struct CoachEntryScreen: View {
     @ViewBuilder
     private func shareGroup(_ entry: CoachEntryRow, _ student: CoachStudentRow) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            if student.linked {
-                if entry.sharedAt != nil {
-                    HStack(spacing: 10) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 16))
-                            .foregroundStyle(PL.cyan)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Shared with \(student.displayName)")
-                                .font(.plRowTitle)
-                                .foregroundStyle(PL.text100)
-                            Text("Edits show on their side.")
-                                .font(.plCaption)
-                                .foregroundStyle(PL.text500)
-                        }
-                        Spacer()
-                    }
-                } else {
-                    Button {
-                        Task {
-                            sharing = true
-                            _ = await workspace.setShared(entry, shared: true)
-                            sharing = false
-                        }
-                    } label: {
-                        Text(sharing ? "Sharing…" : "Share with \(student.displayName)")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(PLPrimaryButtonStyle())
-                    .disabled(sharing)
-                }
-            } else {
+            // A student who has not joined used to get this sentence and
+            // no control at all — a dead end at the exact moment the
+            // coach had just written something for them (Adil,
+            // 2026-09-04). The entry can now be marked, and lands the day
+            // they join. Safe by the database's own rules: every reader of
+            // a shared entry keys on the student's account id, so a mark
+            // with nobody behind it matches nobody.
+            if !student.linked {
                 Text("\(student.displayName) isn't on PongLens. Send the link below; it opens without an account, and joining from it connects you.")
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
@@ -169,37 +165,99 @@ struct CoachEntryScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            HStack(spacing: 16) {
+            if entry.sharedAt != nil {
+                HStack(spacing: 10) {
+                    Image(systemName: student.linked ? "checkmark.circle.fill" : "clock")
+                        .font(.system(size: 16))
+                        .foregroundStyle(student.linked ? PL.cyan : PL.text500)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(student.linked
+                             ? "Shared with \(student.displayName)"
+                             : "Waiting for \(student.displayName)")
+                            .font(.plRowTitle)
+                            .foregroundStyle(PL.text100)
+                        Text(student.linked
+                             ? "Edits show on their side."
+                             : "They get it the day they join.")
+                            .font(.plCaption)
+                            .foregroundStyle(PL.text500)
+                    }
+                    Spacer()
+                }
+            } else {
+                Button {
+                    Task {
+                        sharing = true
+                        errorLine = nil
+                        let ok = await workspace.setShared(entry, shared: true)
+                        sharing = false
+                        if !ok {
+                            errorLine = "Couldn't share it. Try again."
+                        }
+                    }
+                } label: {
+                    Text(sharing
+                         ? "Sharing…"
+                         : student.linked
+                            ? "Share with \(student.displayName)"
+                            : "Share when \(student.displayName) joins")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PLPrimaryButtonStyle())
+                .disabled(sharing)
+            }
+
+            // Pills, not bare text.
+            //
+            // These were `Button("Stop sharing")` with `.buttonStyle(.plain)`
+            // and no padding, which makes the tap target the LETTERS —
+            // about 20 points tall, with no pressed state. Hit it and it
+            // works; miss it by a few points and absolutely nothing
+            // happens, which is indistinguishable from a broken button.
+            // Reported as "I keep pressing it and it doesn't work"
+            // (2026-09-03), and it is the rule this project already has:
+            // a real action gets a real button.
+            FlowLayout(spacing: 8) {
                 if let linkURL {
                     ShareLink(item: linkURL) {
                         Text("Send link")
                     }
+                    .buttonStyle(PLSecondaryButtonStyle())
                     Button(linkCopied ? "Copied" : "Copy link") {
                         UIPasteboard.general.string = linkURL.absoluteString
                         linkCopied = true
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { linkCopied = false }
                     }
+                    .buttonStyle(PLSecondaryButtonStyle())
                 } else {
                     Button(mintingLink ? "Getting the link…" : "Get a link") {
                         Task { await mintLink(entry) }
                     }
+                    .buttonStyle(PLSecondaryButtonStyle())
                     .disabled(mintingLink)
                 }
-                Spacer()
-                if student.linked, entry.sharedAt != nil {
-                    Button("Stop sharing") {
+                // Anchored on the mark, not on the account: a Waiting
+                // mark has to be takeable back too.
+                if entry.sharedAt != nil {
+                    // Says what it is doing, and says when it failed. It
+                    // used to do neither: the label never changed, so a
+                    // press that worked and a press that did nothing
+                    // looked exactly alike.
+                    Button(sharing ? "Stopping…" : "Stop sharing") {
                         Task {
                             sharing = true
-                            _ = await workspace.setShared(entry, shared: false)
+                            errorLine = nil
+                            let ok = await workspace.setShared(entry, shared: false)
                             sharing = false
+                            if !ok {
+                                errorLine = "Couldn't stop sharing. Try again."
+                            }
                         }
                     }
+                    .buttonStyle(PLSoftDestructiveButtonStyle())
                     .disabled(sharing)
                 }
             }
-            .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(PL.text400)
-            .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
@@ -234,10 +292,7 @@ struct CoachEntryScreen: View {
                             HStack(alignment: .top, spacing: 8) {
                                 Circle().fill(PL.text600).frame(width: 4, height: 4)
                                     .padding(.top, 7)
-                                Text(point)
-                                    .font(.plBody)
-                                    .foregroundStyle(PL.text200)
-                                    .lineSpacing(3)
+                                EntryText(text: point)
                                 Spacer(minLength: 0)
                             }
                         }
@@ -249,33 +304,35 @@ struct CoachEntryScreen: View {
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
             } else {
-                Text(lesson?.transcript ?? "")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text200)
-                    .lineSpacing(3)
+                EntryText(text: lesson?.transcript ?? "")
             }
 
-            HStack(spacing: 16) {
+            if let lesson, lesson.imagePath != nil {
+                EntryPhotoView(lessonId: lesson.id)
+            }
+
+            // Pills here too, for the same reason as the card above.
+            FlowLayout(spacing: 8) {
                 if lesson?.takeaways != nil {
                     Button(transcriptOpen ? "Hide transcript" : "Transcript") {
                         withAnimation { transcriptOpen.toggle() }
                     }
+                    .buttonStyle(PLSecondaryButtonStyle())
                 }
-                if lesson?.takeaways == nil {
-                    Button("Edit") { editOpen = true }
-                }
-                Spacer()
+                // Always, not only when there is nothing written up. An
+                // improved entry was the one you could NOT correct, which
+                // is the entry most likely to need it.
+                Button("Edit") { editOpen = true }
+                    .buttonStyle(PLSecondaryButtonStyle())
+                    .disabled(lesson == nil)
                 Button("Delete") { deleteAsk = true }
+                    .buttonStyle(PLSoftDestructiveButtonStyle())
             }
-            .font(.system(size: 14, weight: .medium))
-            .foregroundStyle(PL.text400)
-            .buttonStyle(.plain)
 
             if transcriptOpen {
-                Text(lesson?.transcript ?? "")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text400)
-                    .lineSpacing(3)
+                EntryText(
+                    text: lesson?.transcript ?? "", font: .plCaption, color: PL.text400
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -300,58 +357,5 @@ struct CoachEntryScreen: View {
             }
         }
         .presentationDetents([.medium, .large])
-    }
-}
-
-/// Correcting the words of an entry that has no distilled note: the same
-/// sheet chrome as the journal's editors, Save top right.
-struct CoachEntryEditSheet: View {
-    let entry: CoachEntryRow
-    let initial: String
-
-    @Environment(\.dismiss) private var dismiss
-    @Environment(CoachWorkspaceStore.self) private var workspace
-
-    @State private var draft: String
-    @State private var saving = false
-    @State private var errorMessage: String?
-
-    init(entry: CoachEntryRow, initial: String) {
-        self.entry = entry
-        self.initial = initial
-        _draft = State(initialValue: initial)
-    }
-
-    var body: some View {
-        PLSheetScaffold(
-            title: "Edit entry",
-            doneLabel: saving ? "Saving…" : "Save",
-            doneDisabled: saving || draft.trimmingCharacters(in: .whitespaces).isEmpty || draft == initial,
-            onDone: {
-                Task {
-                    saving = true
-                    errorMessage = await workspace.saveWords(
-                        entry, transcript: draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                    )
-                    saving = false
-                    if errorMessage == nil { dismiss() }
-                }
-            }
-        ) {
-            Form {
-                Section {
-                    TextField("The entry", text: $draft, axis: .vertical)
-                        .lineLimit(8...24)
-                }
-                if let errorMessage {
-                    Section {
-                        Text(errorMessage)
-                            .font(.plBody)
-                            .foregroundStyle(PL.dangerText)
-                    }
-                }
-            }
-            .plKeyboardDismiss()
-        }
     }
 }

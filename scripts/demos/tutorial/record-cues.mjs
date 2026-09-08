@@ -176,7 +176,7 @@ export function makeCueRecorder(rawDir) {
           const b = el.getBoundingClientRect();
           return { x: b.x, y: b.y, w: b.width, h: b.height };
         }, spec);
-        if (!r) throw new Error("cue target not found");
+        if (!r) throw new Error(`cue target not found: ${JSON.stringify(spec)}`);
         return r;
       },
     };

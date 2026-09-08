@@ -25,13 +25,17 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
  * lives once at the page level and covers both. Dismiss by tapping the
  * backdrop, the close button, "Got it", or pressing Escape.
  *
+ * This is the manual sheet, and only that. It used to open on its own for
+ * a new account; the recording brief (RecordingBrief.tsx) does that job
+ * now, and the two say the same things — when a rule is added here it is
+ * added there, and to the Learn guide, on both platforms.
+ *
  * The gentle ball rally is a CSS animation (`cam-rally`); the sheet's entrance
  * is `cg-sheet`. The global prefers-reduced-motion rule tames both.
  */
 export function CameraGuide({
   className = "",
   variant = "link",
-  autoOpen = false,
 }: {
   className?: string;
   /**
@@ -44,20 +48,8 @@ export function CameraGuide({
    * meets it on the way past.
    */
   variant?: "link" | "row";
-  /**
-   * Open without being asked. CameraGuideFirstRun decides this — it owns
-   * the counting, so this component stays what it has always been: a
-   * trigger and a sheet, with no opinion about who has seen it.
-   *
-   * Flips false → true one frame after mount, never the other way, so a
-   * re-render while somebody is reading cannot close the sheet under them.
-   */
-  autoOpen?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (autoOpen) setOpen(true);
-  }, [autoOpen]);
   const titleId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -201,6 +193,8 @@ export function CameraGuide({
                 "On the side you do not serve from. A right-hander serving pendulum stands near their backhand corner, so the camera goes on the forehand side.",
                 "The whole table in frame, with the ball clearly visible where it lands on both halves.",
                 "Neither player standing between the camera and the table, on either half.",
+                "On a tripod or something that does not move, for the whole match.",
+                "Other tables out of the frame where you can.",
               ].map((line) => (
                 <li key={line} className="flex items-start gap-2.5 text-sm text-zinc-300">
                   <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-cyan-glow" />

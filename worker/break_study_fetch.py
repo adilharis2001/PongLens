@@ -4,8 +4,9 @@
 The changeover detector has only ever read the per-point clips. The
 break between two rallies — which is where a changeover physically
 happens — is in the source file and nowhere else, so this study needs
-the raws. They are swept at 30 days, so this is also a snapshot: 23 of
-the 38 judged matches still had one on 2026-08-28.
+the raws. Legacy raws were swept at 30 days back then (live matches now
+keep theirs for good), so this is also a snapshot: 23 of the 38 judged
+matches still had one on 2026-08-28.
 """
 from __future__ import annotations
 

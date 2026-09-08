@@ -2,19 +2,19 @@ import StoreKit
 import SwiftUI
 import Supabase
 
+
 struct AccountScreen: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(AppState.self) private var app
     @Environment(CoachingStore.self) private var coaching
     @Environment(CoachWorkspaceStore.self) private var coachWorkspace
+    @Environment(Router.self) private var router
     @State private var store = AccountStore()
     @State private var purchases = PurchaseStore()
     @State private var editingName = false
     @State private var nameDraft = ""
     @State private var linksOpen = false
-    @State private var coachesOpen = false
-    @State private var coachInviteOpen = false
     @State private var profileOpen = false
     @State private var deleteOpen = false
     @State private var recollectSaving = false
@@ -115,7 +115,10 @@ struct AccountScreen: View {
                     group("Support") {
                         linkRow("How-to guides", value: "learn")
                         rowDivider
-                        linkRow("Tutorial videos", value: "learn-videos")
+                        linkRow(
+                            "Tutorial videos",
+                            value: LearnVideosRoute(LearnAudience(workspace: app.workspace))
+                        )
                         rowDivider
                         linkRow("Feedback", value: "feedback")
                         rowDivider
@@ -174,18 +177,6 @@ struct AccountScreen: View {
         }
         .sheet(isPresented: $linksOpen) {
             ShareLinksManager(store: store)
-                .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $coachesOpen) {
-            CoachLinksManager()
-                .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $coachInviteOpen) {
-            AllMatchesCoachInvite()
                 .presentationDetents([.medium, .large])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
@@ -360,14 +351,14 @@ struct AccountScreen: View {
                         .foregroundStyle(PL.text500)
                 }
                 Spacer()
-                if !coaching.coachLinks.isEmpty {
-                    Button("Manage") { coachesOpen = true }
-                        .buttonStyle(PLSecondaryButtonStyle())
-                }
             }
             .padding(16)
             rowDivider
-            navRow("Add a coach") { coachInviteOpen = true }
+            // One row, and it opens the tab. Everything about a coach now
+            // lives there: what they have shared, what you have shared
+            // back, and what they can see. Two places to manage the same
+            // relationship is how the two drift.
+            navRow("Your coaches") { router.tab = .coaching; dismiss() }
         }
     }
 
@@ -394,6 +385,10 @@ struct AccountScreen: View {
             }
             .padding(16)
             packRows(purchases.minutePacks)
+            if !store.purchasesEnabled {
+                AllowanceRequestRow(resource: "minutes")
+                    .padding(16)
+            }
         }
     }
 
@@ -403,7 +398,7 @@ struct AccountScreen: View {
     /// cannot work.
     @ViewBuilder
     private func packRows(_ packs: [BuyablePack]) -> some View {
-        ForEach(packs) { pack in
+        ForEach(purchases.enabled ? packs : []) { pack in
             if let product = purchases.products[pack.productId] {
                 rowDivider
                 HStack(spacing: 12) {
@@ -462,6 +457,10 @@ struct AccountScreen: View {
             }
             .padding(16)
             packRows(purchases.storagePacks)
+            if !store.purchasesEnabled {
+                AllowanceRequestRow(resource: "storage")
+                    .padding(16)
+            }
         }
     }
 
@@ -483,7 +482,7 @@ struct AccountScreen: View {
         Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1).padding(.leading, 16)
     }
 
-    private func linkRow(_ label: String, value: String) -> some View {
+    private func linkRow<Value: Hashable>(_ label: String, value: Value) -> some View {
         NavigationLink(value: value) {
             HStack {
                 Text(label)

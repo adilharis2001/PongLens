@@ -548,16 +548,34 @@ export interface Lesson {
   transcript: string;
   takeaways: LessonTakeaways | null;
   status: "queued" | "ready" | "failed";
-  // 'lesson' = coaching content; 'practice' = the player's own journal.
-  kind: "lesson" | "practice";
+  // 'lesson' = coaching content; 'practice' = the player's own journal;
+  // 'coach' = an entry a coach wrote about a student (156), which lives
+  // under coach_entries and is filtered out of the author's own feeds.
+  // The column has allowed all three since 156; leaving the type at two
+  // meant the coach's own editors had to lie about what they were holding.
+  kind: "lesson" | "practice" | "coach";
   // Who taught it, as the player typed it (085). Free text: a coach here
   // is often not a PongLens user. Null on practice entries and on lessons
   // saved before the field existed. This is what lets Ask answer "my last
   // lesson with Jonathan" from structure instead of hoping the name
   // survived speech-to-text inside the transcript.
   coach_name?: string | null;
+  // The player_coaches row this entry is attributed to (164). The real
+  // relationship, where coach_name is only the words. Null on practice
+  // entries, on coach entries, and on anything attributed by name alone.
+  // coach_name is kept in step with it by a trigger, so every reader that
+  // predates this keeps working.
+  coach_ref_id?: string | null;
+  // When the author let that coach read it (164). Null means attributed
+  // but private, which is the default. The coach reads through
+  // student_shared_lessons(), never from this table.
+  shared_with_coach_at?: string | null;
   // Attached photo (047): r2://…/entry/<user_id>/… — moderated on upload.
   image_path?: string | null;
+  // The lesson video this entry is the journal side of, when the lesson
+  // was filmed rather than written. The entry's transcript is only a link
+  // to it; the teaching itself lives in lesson_videos.edit.
+  lesson_video_id?: string | null;
   created_at: string;
 }
 
@@ -584,6 +602,8 @@ export interface NoteFeedRow {
 }
 
 export type NotificationKind =
+  | "allowance_request"
+  | "allowance_decided"
   | "note"
   | "match_ready"
   | "match_failed"
@@ -607,7 +627,18 @@ export type NotificationKind =
   | "sponsored_claimed"
   // Featured-sample consent handshake (078).
   | "sample_requested"
-  | "sample_responded";
+  | "sample_responded"
+  // Coach workspace (156): a coach shared an entry or a lesson recap with
+  // the student; a student joined a coach's roster; a student's match is
+  // ready for the coach. Allowed by the DB since 156, missing here until
+  // 2026-09-06, so the bell drew them with the generic tick.
+  | "coach_entry"
+  | "student_joined"
+  | "student_match_ready"
+  // The player's coaching workspace (2026-09-07). The mirror of
+  // `coach_entry`: a student shared a lesson they recorded with the coach
+  // they took it from, so this one goes to the coach.
+  | "student_lesson";
 
 // Named AppNotification so it never shadows the DOM's Notification global.
 // Copy is denormalised server-side (see migration 031) — the bell renders

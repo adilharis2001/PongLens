@@ -1,73 +1,124 @@
 import SwiftUI
 
-/// Every String route the app pushes, resolved in one place.
-///
-/// This used to be written once per root. The playing side's copy had ten
-/// cases; the coaching side's had one, and everything else fell through to
-/// `EmptyView`. Account is shared by both sides, so its Support rows —
-/// How-to guides, Tutorial videos, Feedback — pushed onto a stack that had
-/// never heard of them and landed on a blank screen. No error, no crash,
-/// nothing to search for: the row just took you somewhere empty.
-///
-/// So the table is stated once and both roots register it. Whether a side
-/// should OFFER a route is decided where the row is drawn — Account
-/// already hides the playing side's rooms behind `workspace != .coach` —
-/// never by quietly leaving the route unresolvable.
-struct AppRoute: View {
-    let route: String
+/// The destination behind every String route that either app workspace can
+/// push. Keeping the resolution independent from SwiftUI makes the route
+/// contract testable: a missing coach-side case must fail before it becomes
+/// an `EmptyView` on a device.
+enum AppRouteDestination: Equatable {
+    case account
+    case lessonVideo(UUID)
+    case stats
+    case statsTactics
+    case starred
+    case learn
+    case tutorialVideos(LearnAudience)
+    case feedback(matchId: UUID?)
+    case coachOrders
+    case coachOfferings
+    case coachProfile
+    case coachSponsored
+    case guide(LearnGuide)
+    case unknown
 
-    var body: some View {
+    static func resolve(
+        _ route: String,
+        workspace: AppState.Workspace,
+        catalog: LearnCatalogStore = .bundled
+    ) -> AppRouteDestination {
         switch route {
-        case "account": AccountScreen()
-        case "stats": StatsScreen()
-        case "stats-tactics": StatsScreen(initialTab: "Tactics")
-        case "starred": StarredScreen()
-        case "learn": LearnScreen()
-        case "learn-videos": TutorialVideosScreen()
-        case "feedback": FeedbackScreen()
-        // Marketplace screens: only the Coaching tab pushes these, and the
-        // tab is gated on the same flag — a second fence around the same
-        // boundary, not a separate decision.
-        case "coach-orders": if AppConfig.coachMarketplace { CoachOrdersScreen() }
-        case "coach-offerings": if AppConfig.coachMarketplace { CoachOfferingsScreen() }
-        case "coach-profile": if AppConfig.coachMarketplace { CoachProfileScreen() }
-        case "coach-sponsored": if AppConfig.coachMarketplace { CoachSponsoredScreen() }
+        case "account": return .account
+        case "stats": return .stats
+        case "stats-tactics": return .statsTactics
+        case "starred": return .starred
+        case "learn": return .learn
+        case "learn-videos":
+            return .tutorialVideos(LearnAudience(workspace: workspace))
+        case "feedback": return .feedback(matchId: nil)
+        case "coach-orders": return .coachOrders
+        case "coach-offerings": return .coachOfferings
+        case "coach-profile": return .coachProfile
+        case "coach-sponsored": return .coachSponsored
         default:
-            // "guide:<slug>" opens one Learn guide directly. It is resolved
-            // HERE rather than pushing a GuideData, because the destination
-            // for that type is declared inside LearnScreen — reachable only
-            // once Learn is already on the stack, which is exactly not the
-            // case when the first-steps checklist links to a guide from
-            // Home.
-            //
-            // "feedback:<matchId>" opens the feedback board with that match
-            // pre-selected — the match pages' "Report an issue" rows, so the
-            // report arrives with context.
+            if route.hasPrefix("lesson-video:"),
+               let id = UUID(uuidString: String(route.dropFirst("lesson-video:".count))) {
+                return .lessonVideo(id)
+            }
             if route.hasPrefix("feedback:"),
                let id = UUID(uuidString: String(route.dropFirst(9))) {
-                FeedbackScreen(matchId: id)
-            } else if route.hasPrefix("guide:"),
-                      let guide = GuideLibrary.shared.guides.first(
-                          where: { $0.slug == String(route.dropFirst(6)) }
-                      ) {
-                GuideDetailScreen(guide: guide)
-            } else {
-                EmptyView()
+                return .feedback(matchId: id)
             }
+            if route.hasPrefix("guide:"),
+               let guide = catalog.guides(for: LearnAudience(workspace: workspace)).first(
+                   where: { $0.slug == String(route.dropFirst(6)) }
+               ) {
+                return .guide(guide)
+            }
+            return .unknown
+        }
+    }
+}
+
+/// Render the shared String-route contract. What a workspace offers is still
+/// decided where its links are shown; once a shared screen offers a link,
+/// both navigation roots must be able to resolve it.
+private struct AppRoute: View {
+    let route: String
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        destination(
+            AppRouteDestination.resolve(route, workspace: app.workspace)
+        )
+    }
+
+    @ViewBuilder
+    private func destination(_ destination: AppRouteDestination) -> some View {
+        switch destination {
+        case .account:
+            AccountScreen()
+        case .lessonVideo(let id):
+            LessonVideoDetailScreen(id: id)
+        case .stats:
+            StatsScreen()
+        case .statsTactics:
+            StatsScreen(initialTab: "Tactics")
+        case .starred:
+            StarredScreen()
+        case .learn:
+            LearnScreen()
+        case .tutorialVideos(let audience):
+            TutorialVideosScreen(audience: audience)
+        case .feedback(let matchId):
+            FeedbackScreen(matchId: matchId)
+        case .coachOrders:
+            if AppConfig.coachMarketplace { CoachOrdersScreen() }
+        case .coachOfferings:
+            if AppConfig.coachMarketplace { CoachOfferingsScreen() }
+        case .coachProfile:
+            if AppConfig.coachMarketplace { CoachProfileScreen() }
+        case .coachSponsored:
+            if AppConfig.coachMarketplace { CoachSponsoredScreen() }
+        case .guide(let guide):
+            GuideDetailScreen(guide: guide)
+        case .unknown:
+            EmptyView()
         }
     }
 }
 
 extension View {
-    /// Register the shared String routes on a navigation stack.
-    ///
-    /// Any stack that can reach a screen shared between the two sides needs
-    /// this. A stack without it does not fail loudly — it pushes an empty
-    /// view — so the rule is: if a root has a `NavigationStack` and a tab
-    /// bar, it calls this.
-    func appStringRoutes() -> some View {
+    /// Register every route that can leave a screen shared by the playing
+    /// and coaching workspaces. Both root navigation stacks call this one
+    /// registrar so adding a support destination cannot update only one side.
+    func appRoutes() -> some View {
         navigationDestination(for: String.self) { route in
             AppRoute(route: route)
+        }
+        .navigationDestination(for: LearnVideosRoute.self) { route in
+            TutorialVideosScreen(audience: route.audience)
+        }
+        .navigationDestination(for: LearnGuide.self) { guide in
+            GuideDetailScreen(guide: guide)
         }
     }
 }

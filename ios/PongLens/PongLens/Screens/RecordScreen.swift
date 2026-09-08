@@ -475,6 +475,12 @@ struct RecordScreen: View {
 
     private var queue: RecordingQueue { RecordingQueue.shared }
 
+    #if DEBUG
+    private var tutorialCaptureActive: Bool {
+        TutorialCaptureScenario.current == .playerRecord
+    }
+    #endif
+
     var body: some View {
         GeometryReader { geo in
             let portrait = geo.size.height > geo.size.width
@@ -597,6 +603,12 @@ struct RecordScreen: View {
             reveal()
         }
         .task {
+            #if DEBUG
+            if tutorialCaptureActive {
+                await runTutorialCapture()
+                return
+            }
+            #endif
             recorder.onSegment = { url, duration in
                 queue.enqueue(
                     fileURL: url, durationS: duration, sessionId: sessionId,
@@ -653,6 +665,9 @@ struct RecordScreen: View {
             if settings.callOutScore, hearsScores { await listener.prepare() }
         }
         .onChange(of: recorder.state) { _, newState in
+            #if DEBUG
+            guard !tutorialCaptureActive else { return }
+            #endif
             if newState == .recording {
                 startListening()
             } else {
@@ -669,6 +684,9 @@ struct RecordScreen: View {
         // user is still looking at a settings screen, rather than at the
         // moment they press record.
         .onChange(of: settings.callOutScore) { _, on in
+            #if DEBUG
+            guard !tutorialCaptureActive else { return }
+            #endif
             if on, hearsScores { Task { await listener.prepare() } }
         }
         .onDisappear {
@@ -678,6 +696,9 @@ struct RecordScreen: View {
             RecordOrientation.release(heldSideways: level.sideways)
             level.stop()
             recorder.teardown()
+            #if DEBUG
+            guard !tutorialCaptureActive else { return }
+            #endif
             // Never leave a completion hold behind; releasing twice is
             // harmless, leaking once strands the upload short of register.
             queue.releaseCompletion(sessionId: sessionId)
@@ -715,8 +736,16 @@ struct RecordScreen: View {
             )
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
-            .onAppear { queue.holdCompletion(sessionId: sessionId) }
+            .onAppear {
+                #if DEBUG
+                guard !tutorialCaptureActive else { return }
+                #endif
+                queue.holdCompletion(sessionId: sessionId)
+            }
             .onDisappear {
+                #if DEBUG
+                guard !tutorialCaptureActive else { return }
+                #endif
                 queue.releaseCompletion(sessionId: sessionId)
                 // The details sheet closing on a live session is the end
                 // of this errand, the same as the upload flow: land in the
@@ -767,7 +796,7 @@ struct RecordScreen: View {
             }
             .padding(.horizontal, 16)
 
-            if recorder.state == .ready, !queue.active.isEmpty {
+            if recorder.state == .ready, hasVisibleUploads {
                 uploadsShelf.padding(.horizontal, 16)
             }
 
@@ -787,7 +816,7 @@ struct RecordScreen: View {
                 Spacer()
                 scoreBoard
                     .padding(.bottom, 4)
-                if recorder.state == .ready, !queue.active.isEmpty {
+                if recorder.state == .ready, hasVisibleUploads {
                     uploadsShelf
                         .frame(maxWidth: 420)
                         .padding(.bottom, 16)
@@ -824,6 +853,13 @@ struct RecordScreen: View {
     /// the zoom pill grows with the number of lenses and the shutter must
     /// stay in the middle of the screen regardless.
     private static let slotWidth: CGFloat = 132
+
+    private var hasVisibleUploads: Bool {
+        #if DEBUG
+        if tutorialCaptureActive { return false }
+        #endif
+        return !queue.active.isEmpty
+    }
 
     /// The slot beside the shutter: zoom while idle, pause while recording.
     @ViewBuilder
@@ -1262,6 +1298,73 @@ struct RecordScreen: View {
         return String(format: "%d:%02d", s / 60, s % 60)
     }
 
+    #if DEBUG
+    /// Runs the shipping recorder UI through the states needed by the
+    /// tutorial insert without starting AVCapture, creating files, touching
+    /// the upload queue, or registering a match.
+    private func runTutorialCapture() async {
+        guard tutorialCaptureActive else { return }
+        await RecordOrientation.pinLandscape(attempts: 14)
+        await applyTutorialCapture(.ready)
+        print(TutorialCaptureScenario.playerRecord.readinessMarker)
+
+        for transition in TutorialCaptureScenario.playerRecord.transitions {
+            try? await Task.sleep(
+                nanoseconds: UInt64(transition.after * 1_000_000_000)
+            )
+            guard !Task.isCancelled else { return }
+            await applyTutorialCapture(transition.phase)
+        }
+    }
+
+    private func applyTutorialCapture(
+        _ phase: TutorialCaptureScenario.Phase
+    ) async {
+        switch phase {
+        case .ready:
+            recorder.state = .ready
+            recorder.elapsed = 0
+            recorder.sessionElapsed = 0
+            recorder.isPaused = false
+            settingsOpen = false
+            metadataOpen = false
+            overlay = .ghost
+            revealed = true
+            settings.fps = 30
+            settings.callOutScore = true
+            draft = RecordingMetadata(
+                opponent: "Training partner",
+                venue: "Club session",
+                matchType: kind.defaultType,
+                userSide: "near",
+                firstServer: "user",
+                spokenScores: [SpokenGameScore(game: 1, you: 11, them: 7)]
+            )
+        case .settings:
+            recorder.state = .ready
+            settingsOpen = true
+        case .recording:
+            settingsOpen = false
+            recorder.elapsed = 14
+            recorder.sessionElapsed = 14
+            recorder.isPaused = false
+            recorder.state = .recording
+        case .paused:
+            recorder.elapsed = 22
+            recorder.sessionElapsed = 22
+            recorder.isPaused = true
+        case .handoff:
+            recorder.state = .ready
+            recorder.isPaused = false
+            revealed = false
+            await RecordOrientation.pinPortrait()
+            metadataOpen = true
+        case .writingUp, .transcriptReview, .review:
+            break
+        }
+    }
+    #endif
+
     // MARK: - Uploads shelf
 
     private var uploadsShelf: some View {
@@ -1295,10 +1398,13 @@ struct RecordScreen: View {
 struct RecordingUploadRow: View {
     let item: QueuedRecording
     var compact = false
+    @State private var storageOptionsOpen = false
 
     private var queue: RecordingQueue { RecordingQueue.shared }
+    private var storageBlocked: Bool { item.state == .failed && AllowanceLimit.isStorage(item.errorMessage) }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
         HStack(spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 13))
@@ -1313,7 +1419,7 @@ struct RecordingUploadRow: View {
                     .foregroundStyle(tint)
             }
             Spacer()
-            if item.state == .failed {
+            if item.state == .failed && !storageBlocked {
                 Button("Retry") { queue.retry(item.id) }
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(PL.cyan)
@@ -1325,6 +1431,19 @@ struct RecordingUploadRow: View {
                     .foregroundStyle(PL.text400)
             }
         }
+        if storageBlocked {
+            if compact {
+                Button { storageOptionsOpen = true } label: {
+                    Text("Storage options").frame(maxWidth: .infinity, minHeight: 28)
+                }
+                    .buttonStyle(PLSecondaryButtonStyle())
+            } else {
+            AllowanceRecoveryView(resource: "storage", retryLabel: "Try upload again") {
+                queue.retry(item.id)
+            }
+            }
+        }
+        }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(
@@ -1335,6 +1454,18 @@ struct RecordingUploadRow: View {
             if !compact {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(PL.edge, lineWidth: 1)
+            }
+        }
+        .sheet(isPresented: $storageOptionsOpen) {
+            PLSheetScaffold(title: "Storage") {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("There isn't enough storage. Your video is safe on this phone.")
+                        .font(.plBody).foregroundStyle(PL.text300)
+                    AllowanceRecoveryView(resource: "storage", retryLabel: "Try upload again") {
+                        queue.retry(item.id)
+                        storageOptionsOpen = false
+                    }
+                }.padding(20)
             }
         }
     }
@@ -1361,7 +1492,7 @@ struct RecordingUploadRow: View {
         case .preparing: "Getting ready to upload"
         case .uploading: "Uploading. It keeps going with the app closed."
         case .finishing: "Almost there"
-        case .failed: item.errorMessage ?? "Upload failed. The footage is safe on this phone."
+        case .failed: storageBlocked ? "There isn't enough storage. Your video is safe on this phone." : item.errorMessage ?? "Upload failed. The footage is safe on this phone."
         case .done: "Uploaded"
         }
     }
@@ -1553,6 +1684,27 @@ struct MatchDetailsSheet: View {
                     Text(processingFootnote)
                 }
 
+                if processOn, let minutesBalance,
+                   queue.items.filter({ $0.sessionId == sessionId }).reduce(0, { $0 + max(1, Int(ceil($1.durationS / 60))) }) > minutesBalance {
+                    Section {
+                        Text("Your video can upload, but it needs more minutes to process.")
+                            .font(.plBody).foregroundStyle(PL.warningText)
+                        AllowanceRecoveryView(resource: "minutes", retryLabel: "Check minutes") {
+                            await loadMinutes()
+                        }
+                    }
+                }
+
+                ForEach(queue.items.filter { $0.sessionId == sessionId && $0.state == .failed && AllowanceLimit.isStorage($0.errorMessage) }) { item in
+                    Section {
+                        Text("There isn't enough storage. Your video is safe on this phone.")
+                            .font(.plBody).foregroundStyle(PL.warningText)
+                        AllowanceRecoveryView(resource: "storage", retryLabel: "Try upload again") {
+                            queue.retry(item.id)
+                        }
+                    }
+                }
+
                 // Only once there is a length to draw against, and only
                 // when the bar could actually keep a window inside it. The
                 // threshold is the bar's own floor rather than a number
@@ -1640,15 +1792,17 @@ struct MatchDetailsSheet: View {
         .sheet(item: $spokenEdit) { target in
             spokenEditorSheet(target)
         }
-        .task { await loadPoster() }
         .task {
-            struct ProcessingRow: Decodable {
-                let minutesBalance: Double?
-                enum CodingKeys: String, CodingKey { case minutesBalance = "minutes_balance" }
-            }
-            let rows: [ProcessingRow]? = try? await supa
-                .rpc("my_processing_state").execute().value
-            minutesBalance = rows?.first?.minutesBalance.map(Int.init)
+            #if DEBUG
+            guard TutorialCaptureScenario.current != .playerRecord else { return }
+            #endif
+            await loadPoster()
+        }
+        .task {
+            #if DEBUG
+            guard TutorialCaptureScenario.current != .playerRecord else { return }
+            #endif
+            await loadMinutes()
         }
         .onChange(of: processOn) { pushProcessing() }
         .onChange(of: placementOn) { pushProcessing() }
@@ -1729,7 +1883,10 @@ struct MatchDetailsSheet: View {
     }
 
     private var sessionCount: Int {
-        queue.items.count { $0.sessionId == sessionId }
+        #if DEBUG
+        if TutorialCaptureScenario.current == .playerRecord { return 0 }
+        #endif
+        return queue.items.count { $0.sessionId == sessionId }
     }
 
     // MARK: - Trim
@@ -1859,6 +2016,11 @@ struct MatchDetailsSheet: View {
     }
 
     private var processingFootnote: String {
+        #if DEBUG
+        if TutorialCaptureScenario.current == .playerRecord {
+            return "The video will upload when you close this form."
+        }
+        #endif
         if !processOn {
             return "The video just lands in your library. You can process it any time from the match page."
         }
@@ -1885,6 +2047,14 @@ struct MatchDetailsSheet: View {
             text += " Placement maps show where every ball landed and add processing time."
         }
         return text
+    }
+
+    private func loadMinutes() async {
+        struct Row: Decodable {
+            let minutes_balance: Double?
+        }
+        let rows: [Row]? = try? await supa.rpc("my_processing_state").execute().value
+        minutesBalance = rows?.first?.minutes_balance.map(Int.init)
     }
 
     /// Which spoken game the editor is open for; nil game means adding.
@@ -1915,6 +2085,9 @@ struct MatchDetailsSheet: View {
     }
 
     private func pushProcessing() {
+        #if DEBUG
+        guard TutorialCaptureScenario.current != .playerRecord else { return }
+        #endif
         queue.updateProcessing(sessionId: sessionId, process: processOn, placement: placementOn && processOn)
     }
 
@@ -1978,6 +2151,25 @@ struct MatchDetailsSheet: View {
 
     @ViewBuilder
     private var progressRow: some View {
+        #if DEBUG
+        if TutorialCaptureScenario.current == .playerRecord {
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(PL.successText)
+                Text("Recording ready")
+                    .font(.plBody)
+                    .foregroundStyle(PL.text300)
+            }
+        } else {
+            queuedProgressRow
+        }
+        #else
+        queuedProgressRow
+        #endif
+    }
+
+    @ViewBuilder
+    private var queuedProgressRow: some View {
         let session = queue.items.filter { $0.sessionId == sessionId }
         if session.isEmpty {
             HStack(spacing: 12) {
@@ -2107,6 +2299,9 @@ struct MatchDetailsSheet: View {
     }
 
     private func pushDraft() {
+        #if DEBUG
+        guard TutorialCaptureScenario.current != .playerRecord else { return }
+        #endif
         queue.updateMetadata(sessionId: sessionId, draft)
     }
 

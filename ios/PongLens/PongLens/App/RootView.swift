@@ -20,6 +20,7 @@ struct RootView: View {
 
     @State private var gate: OnboardingGate = .checking
     @State private var splashDone = false
+    @State private var lessonVideoLink: LessonVideoLink?
 
     var body: some View {
         #if DEBUG
@@ -60,11 +61,25 @@ struct RootView: View {
                     // One account, two workspaces. The remembered choice
                     // decides which side of the app stands up; Account
                     // switches it, and the whole tree swaps.
+                    #if DEBUG
+                    if router.tutorialCapture == .coachAudioLesson {
+                        LessonRecordScreen(
+                            hideAuthorField: true,
+                            saveAs: { _ in false },
+                            onSaved: {}
+                        )
+                    } else if app.workspace == .coach {
+                        CoachTabView()
+                    } else {
+                        MainTabView()
+                    }
+                    #else
                     if app.workspace == .coach {
                         CoachTabView()
                     } else {
                         MainTabView()
                     }
+                    #endif
                 }
             }
         }
@@ -77,6 +92,21 @@ struct RootView: View {
         .environment(coaching)
         .environment(coach)
         .environment(coachWorkspace)
+        .environment(\.openURL, OpenURLAction { url in
+            guard app.userId != nil, let link = LessonVideoLink(url: url) else { return .systemAction }
+            lessonVideoLink = link
+            return .handled
+        })
+        .sheet(item: $lessonVideoLink) { link in
+            NavigationStack {
+                LessonVideoDetailScreen(id: link.id)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") { lessonVideoLink = nil }
+                        }
+                    }
+            }
+        }
         .overlay {
             if !splashDone {
                 SplashScreen()
@@ -96,7 +126,17 @@ struct RootView: View {
                     .requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
             }
             #if DEBUG
-            await devSignInIfRequested()
+            // The auth-state listener must exist before the simulator hook
+            // verifies its one-time token. Starting it afterwards can miss
+            // the signed-in event and leave a successfully authenticated
+            // screenshot run on the login screen.
+            if ProcessInfo.processInfo.arguments.contains("--dev-token-hash") {
+                Task { await app.start() }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                await devSignInIfRequested()
+                await app.refreshAdmin()
+                return
+            }
             #endif
             await app.start()
             await app.refreshAdmin()
@@ -115,7 +155,8 @@ struct RootView: View {
         }
         .onChange(of: app.userId) { previous, next in
             guard previous != next else { return }
-            Task { await app.refreshAdmin() }
+            lessonVideoLink = nil
+            Task { await app.refreshAdmin(); await LessonVideoQueue.shared.resume() }
             // A different account (or none) owns the screen now. Stores
             // are process-lifetime objects, so without this the next
             // account inherits the last one's rendered data — that is
@@ -138,6 +179,21 @@ struct RootView: View {
     /// The web's middleware gate: onboarding when the display name is empty
     /// OR there is no player_profiles row.
     private func checkOnboarding() async {
+        #if DEBUG
+        if let tutorialCapture = router.tutorialCapture {
+            // Capture must not persist a workspace preference or update the
+            // signed-in account's metadata. The direct assignment lasts for
+            // this process only.
+            app.workspace = tutorialCapture == .coachAudioLesson ? .coach : .player
+            gate = .done
+            return
+        }
+        if ProcessInfo.processInfo.arguments.contains("--dev-coach-record") {
+            app.setWorkspace(.coach)
+            gate = .done
+            return
+        }
+        #endif
         guard case .signedIn(let session) = app.phase else { return }
         app.loadWorkspace()
         let uid = session.user.id.uuidString.lowercased()

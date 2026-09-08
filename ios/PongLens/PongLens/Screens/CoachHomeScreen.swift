@@ -50,9 +50,22 @@ struct CoachHomeScreen: View {
                 if workspace.loadFailed && !workspace.loaded {
                     loadFailedState
                 } else if workspace.loaded && workspace.activeStudents.isEmpty {
+                    // The checklist goes BELOW the card while there is
+                    // nobody on the roster. Seven rows fill a phone on
+                    // their own, and above the card they put the one
+                    // thing a new coach came here to do — add somebody —
+                    // under the fold (Adil, 2026-09-05, on the web twin).
+                    // The checklist is reference; the card is the door,
+                    // and the door goes first.
                     firstStudentCard
+                    CoachFirstSteps(sharedMatch: studentMatches.first)
+                    CoachLessonVideosSection()
                 } else if workspace.loaded {
+                    CoachFirstSteps(sharedMatch: studentMatches.first)
+
                     studentsGroup
+
+                    CoachLessonVideosSection()
 
                     if !studentMatches.isEmpty {
                         CoachGroup("From your students") {
@@ -78,7 +91,8 @@ struct CoachHomeScreen: View {
                                         entry: entry,
                                         lesson: workspace.lesson(for: entry),
                                         studentName: student?.displayName,
-                                        shareWith: student?.linked == true ? student?.displayName : nil,
+                                        shareWith: student?.displayName,
+                                        studentLinked: student?.linked == true,
                                         sharing: sharingId == entry.id,
                                         onShare: {
                                             sharingId = entry.id

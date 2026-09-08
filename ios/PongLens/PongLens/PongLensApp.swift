@@ -28,6 +28,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         handleEventsForBackgroundURLSession identifier: String,
         completionHandler: @escaping () -> Void
     ) {
+        if identifier == LessonVideoQueue.sessionIdentifier {
+            LessonVideoQueue.shared.handleBackgroundSessionEvents(completionHandler: completionHandler)
+            return
+        }
         guard identifier == RecordingQueue.sessionIdentifier else {
             completionHandler()
             return
@@ -38,12 +42,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
 @main
 struct PongLensApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {
         // Wake the queue at launch: it reattaches to in-flight background
         // uploads and resumes anything the last run left unfinished.
         _ = RecordingQueue.shared
+        _ = LessonVideoQueue.shared
     }
 
     var body: some Scene {
@@ -51,6 +57,9 @@ struct PongLensApp: App {
             ContentView()
                 .preferredColorScheme(.dark)
                 .tint(PL.cyan)
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { Task { await LessonVideoQueue.shared.resume() } }
+                }
         }
     }
 }

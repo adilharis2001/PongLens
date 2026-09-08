@@ -38,6 +38,7 @@ final class MatchDetailModel {
     var error: String?
     var job: MatchJob?
     var minutesBalance: Int?
+    var needsMoreMinutes = false
 
     var jobRunning: Bool { job?.running ?? false }
 
@@ -56,6 +57,10 @@ final class MatchDetailModel {
     var hasPendingClips: Bool { points.contains { $0.edited && !$0.deleted } }
 
     private var clipPoll: Task<Void, Never>?
+    /// The on-device re-cut loop (DeviceReclip.swift): one pass at a time,
+    /// with one more queued if an edit lands while it runs.
+    var deviceRecutRunning = false
+    var deviceRecutAgain = false
 
     /// While clips regenerate, poll so "updating" resolves into the fresh
     /// clip without a manual refresh. t0/t1 truth lives in Postgres; the
@@ -82,24 +87,33 @@ final class MatchDetailModel {
         clipPoll = nil
     }
 
+    /// Fetches the new file's path and the cut anchor as well as the
+    /// timing: without clip_path a re-cut stayed invisible until the match
+    /// was reopened (Share said the rally had no video, Starred stayed
+    /// blank), and without cut_t0 an Adjust made on another device kept
+    /// the old anchor here.
     private func refreshClipState(_ matchId: UUID) async {
         struct ClipRow: Decodable {
             let id: UUID
             let t0: Double?
             let t1: Double?
+            let cutT0: Double?
+            let clipPath: String?
             let edited: Bool
             let deleted: Bool
             let tightStart: Bool
             let tightEnd: Bool
             enum CodingKeys: String, CodingKey {
                 case id, t0, t1, edited, deleted
+                case cutT0 = "cut_t0"
+                case clipPath = "clip_path"
                 case tightStart = "tight_start"
                 case tightEnd = "tight_end"
             }
         }
         let fresh: [ClipRow]? = try? await supa
             .from("points")
-            .select("id, t0, t1, edited, deleted, tight_start, tight_end")
+            .select("id, t0, t1, cut_t0, clip_path, edited, deleted, tight_start, tight_end")
             .eq("match_id", value: matchId.uuidString.lowercased())
             .execute()
             .value
@@ -109,6 +123,8 @@ final class MatchDetailModel {
             guard let row = byId[points[i].id] else { continue }
             points[i].t0 = row.t0
             points[i].t1 = row.t1
+            points[i].cutT0 = row.cutT0
+            points[i].clipPath = row.clipPath
             points[i].edited = row.edited
             points[i].deleted = row.deleted
             points[i].tightStart = row.tightStart
@@ -214,6 +230,14 @@ final class MatchDetailModel {
         }
     }
 
+    func refreshMinutes() async throws {
+        struct Row: Decodable { let minutes_balance: Double }
+        let rows: [Row] = try await supa.rpc("my_processing_state").execute().value
+        guard let row = rows.first else { throw URLError(.badServerResponse) }
+        minutesBalance = Int(row.minutes_balance)
+        needsMoreMinutes = false
+    }
+
     func refetchMatch(_ id: UUID) async -> MatchRow? {
         try? await supa
             .from("matches")
@@ -259,6 +283,7 @@ final class MatchDetailModel {
             }
             return nil
         } catch let APIError.http(_, code) {
+            if code == "insufficient_minutes" { needsMoreMinutes = true }
             return switch code {
             case "insufficient_minutes": "Not enough minutes for this video."
             case "queue_full": "Your queue is full. Wait for a video to finish."
@@ -1324,10 +1349,11 @@ struct MatchDetailScreen: View {
     /// and its process card on the same condition.
     /// Is there an original upload left to watch? raw_path is set at
     /// upload and never cleared on the success path, and r2_raw_sweep
-    /// skips any object a live library row points at — so for anything
+    /// skips any object a live match references — so for anything
     /// uploaded since the commerce flip this is simply true, for good.
-    /// Rows older than that read null; their originals are on the ordinary
-    /// 30-day clock and mostly gone already.
+    /// A legacy row reads null only if its raw was swept before commerce
+    /// (worker/backfill_raw_path.py fills the column where the file
+    /// survived).
     private var hasOriginal: Bool {
         current.rawPath?.hasPrefix("r2://ponglens-raw/") == true
     }
@@ -1581,6 +1607,12 @@ struct MatchDetailScreen: View {
                             .font(.plCaption)
                             .foregroundStyle(enoughMinutes ? PL.text500 : PL.warningText)
                         }
+                        if !enoughMinutes {
+                            AllowanceRecoveryView(resource: "minutes", retryLabel: "Check minutes") {
+                                try await model.refreshMinutes()
+                                processError = nil
+                            }
+                        }
                     }
                     .padding(.top, 2)
                 }
@@ -1613,6 +1645,7 @@ struct MatchDetailScreen: View {
     }
 
     private var enoughMinutes: Bool {
+        if model.needsMoreMinutes { return false }
         guard let charge = minutesCharge, let balance = model.minutesBalance else { return true }
         return balance >= charge
     }
@@ -1625,6 +1658,7 @@ struct MatchDetailScreen: View {
             trimEnd: trimmed ? trimEnd : nil,
             strictness: strictness
         )
+        if processError != nil { try? await model.refreshMinutes() }
         if processError == nil {
             if let fresh = await model.refetchMatch(current.id) {
                 live = fresh

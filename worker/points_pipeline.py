@@ -40,6 +40,102 @@ import sys
 from pathlib import Path
 
 import points_endon
+import points_v2
+
+
+def build_highlight_evidence(card, evidence, n_hits, route,
+                             unavailable_reason=None):
+    """Distill one card's reviewable rally receipts in source seconds.
+
+    A count below the product threshold is still a measured, ``ready``
+    answer.  Only an absent measurement is unavailable; the pure selector
+    owns the threshold and fails closed later.
+    """
+    observed_end = card.get("end_evidence_s") if card else None
+    end_source = "observed" if observed_end is not None else None
+    reasons = []
+    if unavailable_reason:
+        reasons.append(str(unavailable_reason))
+    if evidence is None and not reasons:
+        reasons.append("no_candidates")
+    crossing_chain = []
+    table_bounces = None
+    alternating_landings = None
+    alternating_end = None
+    if evidence is not None and card is not None:
+        start, end = float(card["t0"]), float(card["t1"])
+        crossings = sorted(float(t) for t in evidence.cross
+                           if start <= float(t) <= end)
+        groups = []
+        for crossing in crossings:
+            if not groups or crossing - groups[-1][-1] > points_v2.CROSS_GAP_S:
+                groups.append([crossing])
+            else:
+                groups[-1].append(crossing)
+        if groups:
+            crossing_chain = max(groups, key=lambda group: len(group))
+        table_bounces = sum(
+            1 for t in evidence.bt_table if start <= float(t) <= end
+        )
+
+        landings = [
+            (float(t), str(side))
+            for t, side in getattr(evidence, "bt_table_landings", [])
+            if start <= float(t) <= end
+        ]
+        longest = []
+        current = []
+        for landing in sorted(landings):
+            connected = (
+                current
+                and landing[0] - current[-1][0] <= points_v2.CROSS_GAP_S
+            )
+            if not current or (connected and landing[1] != current[-1][1]):
+                current.append(landing)
+            else:
+                current = [landing]
+            if len(current) > len(longest):
+                longest = list(current)
+        alternating_landings = len(longest)
+        alternating_end = longest[-1][0] if longest else None
+
+        if observed_end is None:
+            if len(crossing_chain) >= 2:
+                chain_end = crossing_chain[-1]
+                trailing_bounces = [
+                    float(t) for t in evidence.bt_table
+                    if crossing_chain[0] <= float(t) <= min(end, chain_end + 2.0)
+                ]
+                observed_end = max([chain_end, *trailing_bounces])
+                end_source = "event_chain"
+            elif alternating_landings >= 3 and alternating_end is not None:
+                observed_end = alternating_end
+                end_source = "event_chain"
+
+    if evidence is not None and observed_end is None:
+        reasons.append("no_rally_end")
+
+    gaps = [b - a for a, b in zip(crossing_chain, crossing_chain[1:])]
+    return {
+        "v": 2,
+        "status": "unavailable" if reasons else "ready",
+        "route": route,
+        "n_hits": int(n_hits) if n_hits is not None else None,
+        "connected_crossings": (len(crossing_chain)
+                                if evidence is not None else None),
+        "table_bounces": table_bounces,
+        "alternating_table_landings": alternating_landings,
+        "first_crossing_s": (round(crossing_chain[0], 2)
+                             if crossing_chain else None),
+        "last_crossing_s": (round(crossing_chain[-1], 2)
+                            if crossing_chain else None),
+        "max_crossing_gap_s": (round(max(gaps), 2) if gaps else 0.0
+                               if crossing_chain else None),
+        "observed_end_s": (round(float(observed_end), 2)
+                           if observed_end is not None else None),
+        "end_source": end_source,
+        "reasons": reasons,
+    }
 
 
 def _runs(mask, tick):
@@ -106,8 +202,6 @@ def write_evidence_dump(path, E, cards, calib, meta, fps, route, rate, notes):
         json.dump(blob, fh, separators=(",", ":"))
     print(f"evidence dump: {len(track)} track pts, {len(blob['cards'])} "
           f"cards -> {path}")
-
-import points_v2
 
 try:
     from .placement_reconstruction import reconstruct_placement
@@ -195,8 +289,8 @@ CLIP_PADS = {
 # 'plays' mode assembles the cut from the play windows instead. Segments
 # are built from the PRE-VETO play list on purpose: a window the in-gate
 # or micro veto drops is not emitted as a point, but its footage stays in
-# the video, so a wrongly vetoed rally is still watchable (and the raw
-# source only lives 30 days). Everything that never looked like play at
+# the video, so a wrongly vetoed rally is still watchable without a trip
+# back to the original. Everything that never looked like play at
 # the user's table is what disappears.
 #
 # INVARIANT: every clip window must exist inside the cut. Per-point clips
@@ -2606,7 +2700,13 @@ def cmd_points(args):
     # Missing either, the match processes exactly as v1 with a note — the
     # failure mode is the old behaviour, never a worse one.
     v2_cards = None
+    v2_E = None
+    v2_route = None
+    v2_unavailable_reason = (
+        "pipeline_v1" if getattr(args, "pipeline", "v1") != "v2" else None
+    )
     v2_serves = {}
+    v2_card_by_start = {}
     # Where each v2 card's rally was last actually observed, keyed the same
     # way as v2_serves. t1 pads this by TAIL_AFTER_BOUNCE so a winner tap
     # lands inside the clip; an unscored match has no tap to catch, so
@@ -2675,6 +2775,7 @@ def cmd_points(args):
                     else:
                         notes.append("end-on assembler produced no cards; "
                                      "kept the serve-anchored ones")
+            v2_route = route
             # The tolerances go in the note for the same reason the serve
             # rate does: when a match is argued about weeks later, the
             # settings it was built under have to be readable off the match
@@ -2694,6 +2795,9 @@ def cmd_points(args):
                 write_evidence_dump(args.evidence_dump, v2_E, v2_cards,
                                     calib, meta, fps, route, v2_rate, notes)
         else:
+            v2_unavailable_reason = (
+                "no_table" if calib is None else "no_candidates"
+            )
             notes.append(f"points v2 requested but fell back to v1: "
                          f"{why_not}")
             print(f"points v2 unavailable ({why_not}) — falling back to v1")
@@ -2710,6 +2814,7 @@ def cmd_points(args):
         for c in v2_cards:
             a, b = int(c["t0"] * fps), int(c["t1"] * fps)
             plays.append((a, b, nearest_span(c["t0"])))
+            v2_card_by_start[a] = c
             if c.get("serve_s") is not None:
                 v2_serves[a] = round(float(c["serve_s"]), 2)
             if c.get("end_evidence_s") is not None:
@@ -2922,10 +3027,12 @@ def cmd_points(args):
         # suggestion + placement roles only, never surfaced
         srv_side = track.get("serve_side") if track else None
         suggestion = None
+        highlight_n_hits = None
         placement = None
         if track and track["segments"] and srv_side:
             try:
                 cls = classify_play(det, H, e, track, srv_side, fps, px)
+                highlight_n_hits = cls.get("n_hits")
                 if cls["winner_side"]:
                     suggestion = {
                         "winner": side_name[cls["winner_side"]],
@@ -3026,6 +3133,18 @@ def cmd_points(args):
             # a missing ending must never read as an early one.
             "rally_end_s": rally_end_s,
             "rally_end_cut_s": rally_end_cut_s,
+            "highlight_evidence": build_highlight_evidence(
+                v2_card_by_start.get(a) or {
+                    "t0": t0,
+                    "t1": t1,
+                    "end_evidence_s": rally_end_s,
+                },
+                v2_E if a in v2_card_by_start else None,
+                highlight_n_hits,
+                v2_route,
+                unavailable_reason=(None if a in v2_card_by_start
+                                    else v2_unavailable_reason),
+            ),
             "suggestion": suggestion,
             "placement": placement,
         })

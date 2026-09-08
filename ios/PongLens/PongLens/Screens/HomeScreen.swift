@@ -77,12 +77,20 @@ struct HomeScreen: View {
 
                     nextAction
 
-                    // A coach's entry, only while it is new: opening the
-                    // Journal marks it seen and the card goes. Adil's call
-                    // over a fourth tab — what a coach sends arrives here.
+                    // A coach's entry, only while it is new: reading it
+                    // marks it seen and the card goes. There is a Coaching
+                    // tab now, so the card says where the rest of them
+                    // live rather than being the only door to them.
                     if let fresh = journal.unseenCoachShare(userId: app.userId) {
                         VStack(alignment: .leading, spacing: 10) {
-                            SectionHeading("From your coach")
+                            HStack {
+                                SectionHeading("From Coaches")
+                                Spacer()
+                                Button("Open Coaching") { router.tab = .coaching }
+                                    .font(.plCaption)
+                                    .foregroundStyle(PL.text400)
+                                    .buttonStyle(.plain)
+                            }
                             Button {
                                 coachEntryOpen = fresh
                             } label: {
@@ -304,8 +312,9 @@ struct HomeScreen: View {
         /// The "+ New match" chooser — iOS's door to /upload.
         case newMatch
         case tab(MainTab)
-        /// A pushed String route ("learn-videos", "guide:score-keeper", …).
+        /// A pushed String route ("guide:score-keeper", …).
         case route(String)
+        case tutorial(LearnAudience)
         case match(MatchRow)
     }
 
@@ -342,8 +351,15 @@ struct HomeScreen: View {
                  go: onMatch("share-a-link")),
             Step(label: "Share a match with your coach", done: homeStore.coachLinksCount > 0,
                  go: onMatch("invite-a-coach")),
-            Step(label: "Watch the tutorial videos", done: app.metadataFlag("tutorial_started"),
-                 go: .route("learn-videos")),
+            Step(
+                label: "Watch the tutorial videos",
+                done: LearnAudience.player.started(in: [
+                    LearnAudience.player.progressKey:
+                        app.metadataFlag(LearnAudience.player.progressKey),
+                    "tutorial_started": app.metadataFlag("tutorial_started"),
+                ]),
+                go: .tutorial(.player)
+            ),
         ]
     }
 
@@ -376,6 +392,8 @@ struct HomeScreen: View {
             switch step.go {
             case .route(let route):
                 NavigationLink(value: route) { content }.buttonStyle(.plain)
+            case .tutorial(let audience):
+                NavigationLink(value: LearnVideosRoute(audience)) { content }.buttonStyle(.plain)
             case .match(let match):
                 NavigationLink(value: match) { content }.buttonStyle(.plain)
             case .newMatch:

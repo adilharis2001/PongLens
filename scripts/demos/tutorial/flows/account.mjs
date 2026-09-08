@@ -26,12 +26,22 @@ const need = (name, why) => {
   return v;
 };
 
-/** The account whose real matches the chapters are shot from. */
-export const account = need(
-  "TUTORIAL_ACCOUNT",
-  "the account whose matches the capture runs against"
-);
+/** The account whose real matches the player chapters are shot from.
+ *
+ * Keep this named string export for every existing player flow, but do not
+ * fail while a coach-only module is being imported. The capture driver owns
+ * the player fallback/requirement; coach modules never consume this value.
+ */
+export const account = process.env.TUTORIAL_ACCOUNT;
 
 /** The coach side of chapter 8, which is captured from both ends. */
 export const coach = () =>
   need("TUTORIAL_COACH", "the coach account chapter 8 signs in as");
+
+/** The roster owner used by every coach-course browser chapter. */
+export const coachAccount = () =>
+  need("TUTORIAL_COACH", "the staged coach whose workspace is captured");
+
+/** The connected player shown from the coach's roster. */
+export const student = () =>
+  need("TUTORIAL_STUDENT", "the staged student connected to the tutorial coach");

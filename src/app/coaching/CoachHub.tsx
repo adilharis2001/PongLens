@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { SharingSection } from "@/components/SharingSection";
 import { useWorkspace } from "@/lib/workspace";
 import type { Workspace } from "@/lib/workspaceModel";
+import { LessonVideosSection } from "./LessonVideosSection";
+import { PlayerCoaching } from "./PlayerCoaching";
 import { StudentsCard } from "./StudentsCard";
 import { CoachFirstSteps, type CoachFirstStepsState } from "./CoachFirstSteps";
 import { formatUsd } from "@/lib/reviews/money";
@@ -265,6 +266,12 @@ export function CoachHub({
     (payoutsReady ? 1 : 0) +
     (profile?.published ? 1 : 0);
 
+  /** A coach with an empty roster, which is the only state where the
+   *  order of this page matters: the card that adds somebody has to come
+   *  before the eight-row checklist rather than after it. Read from the
+   *  server's own count so the two do not disagree for a frame. */
+  const noStudents = !!firstSteps && firstSteps.studentCount === 0;
+
   const orderSummary = (() => {
     const parts: string[] = [];
     if (counts.toStart > 0) parts.push(`${counts.toStart} to start`);
@@ -287,7 +294,14 @@ export function CoachHub({
       {/* ---- the coaching side ---- */}
 
       {/* First steps: the new-coach checklist. Gone once the roster is
-          established, every step is done, or it was hidden. */}
+          established, every step is done, or it was hidden.
+          BELOW the card while there are no students. Eight rows fill a
+          660px phone on their own, which put the one thing a new coach
+          came here to do — add somebody — under the fold and out of
+          sight (Adil, 2026-09-05). The checklist is reference; the card
+          is the door, and the door goes first. */}
+      {coachWorkspace && noStudents && <StudentsCard />}
+
       {coachWorkspace && firstSteps && firstSteps.studentCount < 5 && (
         <CoachFirstSteps state={firstSteps} />
       )}
@@ -316,173 +330,24 @@ export function CoachHub({
         </div>
       )}
 
-      {coachWorkspace && <StudentsCard />}
+      {coachWorkspace && !noStudents && <StudentsCard />}
+
+      {coachWorkspace && <LessonVideosSection />}
 
       {/* ---- the player's side of coaching ---- */}
 
-      {showPlayer && <FromYourCoaches notes={coachNotes} />}
-
-      {showPlayer && studentOrders.length > 0 && (
-        <div className="mt-8">
-          <SectionLabel>Reviews you bought</SectionLabel>
-          <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-            {studentOrders.slice(0, 3).map((o) => (
-              <Link
-                key={o.id}
-                href={`/orders/${o.id}`}
-                className="flex items-center justify-between gap-3 px-5 py-4 transition-colors hover:bg-surface-2"
-              >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-zinc-200">
-                    {o.offering_title}
-                    <span className="text-zinc-500"> · {o.coach_name}</span>
-                  </p>
-                  <p className="mt-0.5 text-xs text-zinc-500">
-                    {orderStatusLabel(o.status, "student")}
-                  </p>
-                </div>
-                <span className="shrink-0 text-sm tabular-nums text-zinc-400">
-                  {formatUsd(o.price_cents)}
-                </span>
-              </Link>
-            ))}
-            {studentOrders.length > 3 && (
-              <RowLink href="/orders" label="All your reviews" />
-            )}
-          </div>
-        </div>
-      )}
-
+      {/* One feed of everything between this player and their coaches,
+          narrowed by coach. It replaces three sections that each answered
+          part of the question and none of it in order: what a coach said
+          on a match, the reviews you bought, and the list of coaches. */}
       {showPlayer && (
-        <div className="mt-8">
-          <SharingSection userId={userId} />
-        </div>
+        <PlayerCoaching
+          userId={userId}
+          coachNotes={coachNotes}
+          studentOrders={studentOrders}
+        />
       )}
 
     </>
-  );
-}
-
-function noteAge(iso: string): string {
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
-  if (days === 0) return "today";
-  if (days === 1) return "yesterday";
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function noteMatchLabel(n: NoteFeedRow): string {
-  const parts: string[] = [];
-  if (n.opponent_name) parts.push(`vs ${n.opponent_name}`);
-  parts.push(
-    new Date(n.played_at).toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-    }),
-  );
-  if (n.venue) parts.push(n.venue);
-  return parts.join(" · ");
-}
-
-/**
- * What your coaches have said lately, grouped by match — the coaching
- * lens over the notes feed. The Journal keeps the full archive; this
- * answers "what did they tell me, and where" and jumps to the exact
- * point. Hidden entirely when there is nothing to show.
- */
-function FromYourCoaches({ notes }: { notes: NoteFeedRow[] }) {
-  if (notes.length === 0) return null;
-
-  const byMatch = new Map<string, NoteFeedRow[]>();
-  for (const n of notes) {
-    const list = byMatch.get(n.match_id) ?? [];
-    if (list.length < 2) list.push(n);
-    byMatch.set(n.match_id, list);
-  }
-  const groups = [...byMatch.entries()].slice(0, 3);
-
-  return (
-    <div className="mt-8">
-      <SectionLabel>From your coaches</SectionLabel>
-      <div className="space-y-4">
-        {groups.map(([matchId, list]) => {
-          const newest = list[0];
-          const href = newest.point_id
-            ? `/match/${matchId}?p=${newest.point_id}`
-            : `/match/${matchId}`;
-          return (
-            <div
-              key={matchId}
-              className="rounded-2xl border border-edge bg-surface"
-            >
-              <div className="flex items-center justify-between gap-3 border-b border-edge/60 px-5 py-3">
-                <p className="truncate text-xs font-medium text-zinc-400">
-                  {noteMatchLabel(newest)}
-                </p>
-                <Link
-                  href={href}
-                  className="shrink-0 text-sm text-zinc-400 hover:text-cyan-glow"
-                >
-                  Open the match
-                </Link>
-              </div>
-              <div className="divide-y divide-edge/40">
-                {list.map((n) => (
-                  <div key={n.id} className="px-5 py-3">
-                    <p className="text-xs font-medium text-amber-400">
-                      {n.author_name ?? "Coach"}
-                      <span className="ml-2 font-normal text-zinc-600">
-                        {noteAge(n.created_at)}
-                      </span>
-                    </p>
-                    <p className="mt-1 flex items-start gap-1.5 text-sm text-zinc-300">
-                      {n.audio_path && (
-                        <svg
-                          viewBox="0 0 24 24"
-                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-500"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          aria-hidden="true"
-                        >
-                          <rect x="9" y="3" width="6" height="11" rx="3" />
-                          <path
-                            strokeLinecap="round"
-                            d="M5 11a7 7 0 0 0 14 0M12 18v3"
-                          />
-                        </svg>
-                      )}
-                      {n.image_path && (
-                        <svg
-                          viewBox="0 0 24 24"
-                          className="mt-0.5 h-3.5 w-3.5 shrink-0 text-zinc-500"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          aria-hidden="true"
-                        >
-                          <rect x="3" y="5" width="18" height="14" rx="2" />
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="m6 16 4-4 3 3 2.5-2.5L19 16"
-                          />
-                        </svg>
-                      )}
-                      <span className="line-clamp-2 min-w-0">
-                        {n.body || (n.audio_path ? "Voice note" : "Drawing")}
-                      </span>
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
   );
 }

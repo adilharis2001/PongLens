@@ -107,27 +107,16 @@ struct CoachAccessList: View {
                 .font(.plCaption)
                 .foregroundStyle(PL.text400)
 
-            if !group.watchesAll && !group.matchLinks.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(Array(group.matchLinks.enumerated()), id: \.element.id) { i, link in
-                        HStack {
-                            Text(link.scopeMatchId.map(matchTitle) ?? "Match")
-                                .font(.system(size: 15))
-                                .foregroundStyle(PL.text200)
-                                .lineLimit(1)
-                            Spacer()
-                            Button("Remove") {
-                                Task { await coaching.revokeLink(link, onlyThis: true) }
-                            }
-                            .buttonStyle(PLSoftDestructiveButtonStyle())
-                        }
-                        .padding(.vertical, 8)
-                        if i < group.matchLinks.count - 1 {
-                            Rectangle().fill(PL.edge.opacity(0.5)).frame(height: 1)
-                        }
-                    }
-                }
-            }
+            // Matches AND journal entries, each removable. The matches
+            // were already listed here; the journal was not listed at all,
+            // on either platform.
+            CoachSharedWith(
+                coachRefId: coaching.playerCoaches
+                    .first { $0.coachId == group.id }?.id,
+                inviteId: nil,
+                matchLinks: group.matchLinks,
+                allMatches: group.watchesAll
+            )
 
             Button("Remove coach") {
                 if let first = group.links.first {
@@ -141,11 +130,32 @@ struct CoachAccessList: View {
     }
 
     private func pendingRow(_ link: CoachLinkRow) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            pendingHeader(link)
+            // What is already lined up for them (166). Invisible from the
+            // moment the invite was sent until now.
+            CoachSharedWith(
+                coachRefId: coaching.playerCoaches
+                    .first { $0.inviteId == link.id }?.id,
+                inviteId: link.id,
+                matchLinks: link.scopeMatchId != nil ? [link] : [],
+                allMatches: link.scopeMatchId == nil && link.allMatches
+            )
+        }
+        .plInnerRow()
+    }
+
+    private func pendingHeader(_ link: CoachLinkRow) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Invite pending")
+                // The name, when the invite was created with one (164).
+                // "Invite pending" over three waiting invites tells you
+                // nothing about which is which.
+                Text(coaching.invitedNames[link.id] ?? CoachingStore.unnamedInvite)
                     .font(.plRowTitle)
-                    .foregroundStyle(PL.text100)
+                    .foregroundStyle(
+                        coaching.invitedNames[link.id] == nil ? PL.text500 : PL.text100
+                    )
                 Text(link.scopeMatchId != nil
                      ? "One match"
                      : link.allMatches ? "All matches" : "Only matches you share")
@@ -169,6 +179,5 @@ struct CoachAccessList: View {
             }
             .buttonStyle(PLSoftDestructiveButtonStyle())
         }
-        .plInnerRow()
     }
 }

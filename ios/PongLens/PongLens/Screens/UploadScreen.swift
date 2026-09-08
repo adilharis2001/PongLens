@@ -35,6 +35,11 @@ struct UploadScreen: View {
     @State private var placementOn = false
     @State private var youtubeURL = ""
     @State private var youtubeState: YouTubeState = .idle
+    @State private var youtubeJobID: UUID?
+    private var youtubeStorageBlocked: Bool {
+        if case .failed(let message) = youtubeState { return AllowanceLimit.isStorage(message) }
+        return false
+    }
 
     enum ImportStage: Equatable {
         case idle
@@ -165,6 +170,9 @@ struct UploadScreen: View {
     private var uploadsShelf: some View {
         VStack(spacing: 8) {
             ForEach(queue.active) { item in
+                if item.state == .failed && AllowanceLimit.isStorage(item.errorMessage) {
+                    RecordingUploadRow(item: item)
+                } else {
                 Button {
                     if item.sessionId == sessionId || openableSession(item.sessionId) {
                         sessionId = item.sessionId
@@ -175,6 +183,7 @@ struct UploadScreen: View {
                     RecordingUploadRow(item: item)
                 }
                 .buttonStyle(.plain)
+                }
             }
         }
     }
@@ -375,11 +384,16 @@ struct UploadScreen: View {
 
             switch youtubeState {
             case .queued:
+                if let youtubeJobID {
+                    ImportedVideoStatusView(jobID: youtubeJobID)
+                } else {
                 Text("Queued. It shows up in your library once the download finishes.")
                     .font(.plBody)
                     .foregroundStyle(PL.successText)
+                }
                 Button("Import another") {
                     youtubeURL = ""
+                    youtubeJobID = nil
                     youtubeState = .idle
                 }
                 .buttonStyle(PLSecondaryButtonStyle())
@@ -398,10 +412,16 @@ struct UploadScreen: View {
                     .buttonStyle(PLSecondaryButtonStyle())
                 }
                 if case .failed(let message) = youtubeState {
-                    Text(message)
+                    Text(AllowanceLimit.isStorage(message) ? "There isn't enough storage to import this video. Your link is still here." : message)
                         .font(.plCaption)
                         .foregroundStyle(PL.dangerText)
+                    if AllowanceLimit.isStorage(message) {
+                        AllowanceRecoveryView(resource: "storage", retryLabel: "Try import again") {
+                            await importFromYouTube()
+                        }
+                    }
                 }
+                if !youtubeStorageBlocked {
                 Button(youtubeState == .sending ? "Importing…" : "Import") {
                     Task { await importFromYouTube() }
                 }
@@ -411,6 +431,7 @@ struct UploadScreen: View {
                     youtubeState == .sending
                         || youtubeURL.trimmingCharacters(in: .whitespaces).isEmpty
                 )
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -424,13 +445,14 @@ struct UploadScreen: View {
             let points: Bool
             let placement: Bool
         }
-        struct Res: Decodable { let ok: Bool? }
+        struct Res: Decodable { let ok: Bool?; let jobId: UUID? }
         do {
-            let _: Res = try await API.post("api/import-url", Req(
+            let result: Res = try await API.post("api/import-url", Req(
                 url: youtubeURL.trimmingCharacters(in: .whitespacesAndNewlines),
                 points: true,
                 placement: false
             ))
+            youtubeJobID = result.jobId
             youtubeState = .queued
         } catch {
             youtubeState = .failed(
@@ -555,8 +577,14 @@ private struct VideoPicker: UIViewControllerRepresentable {
 // MARK: - Camera placement guidance
 
 /// "Where to place the camera" — the web's sheet: the top-down diagram,
-/// the three checks that make footage processable, and the landscape note.
+/// the checks that make footage processable, and the landscape note.
 /// Dressed on the shared sheet scaffold, the same chrome as match details.
+///
+/// This is the manual sheet, behind "How to record" on Home and Upload. It
+/// used to open on its own for a new account; the recording brief
+/// (RecordingBriefSheet) does that job now, and the two say the same
+/// things — a rule added here is added there, and to the Learn guide, on
+/// both platforms.
 struct CameraPlacementSheet: View {
     /// Which door raised it. Only the closing note changes: "Record a
     /// match and the camera screen draws the table" is nonsense read one
@@ -589,6 +617,8 @@ struct CameraPlacementSheet: View {
                     checkRow("On the side you do not serve from. A right-hander serving pendulum stands near their backhand corner, so the camera goes on the forehand side.")
                     checkRow("The whole table in frame, with the ball clearly visible where it lands on both halves.")
                     checkRow("Neither player standing between the camera and the table, on either half.")
+                    checkRow("On a tripod or something that does not move, for the whole match.")
+                    checkRow("Other tables out of the frame where you can.")
                 }
 
                 Section {
@@ -631,11 +661,10 @@ struct CameraPlacementSheet: View {
             // — so the closing note sat permanently behind the button,
             // unreachable at any scroll position. Reserved explicitly.
             .contentMargins(.bottom, 76, for: .scrollContent)
-            // Pinned, not the last row of the form. The sheet opens
-            // unasked for the first two occasions an account meets it
-            // (CameraGuideGate), and a way out that has to be scrolled
-            // down to — past the diagram, four rules, a landscape note
-            // and three photographs — reads as a trap rather than an exit.
+            // Pinned, not the last row of the form. A way out that has to
+            // be scrolled down to — past the diagram, six rules, a
+            // landscape note and three photographs — reads as a trap
+            // rather than an exit.
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 0) {
                     Divider().overlay(PL.edge)

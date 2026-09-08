@@ -257,6 +257,103 @@ cp /Users/adil/Desktop/Projects/PongLens/worker/com.adil.ponglens-worker.plist ~
 launchctl load ~/Library/LaunchAgents/com.adil.ponglens-worker.plist
 ```
 
+## Saying what we are doing (`/admin/processing`)
+
+Every worker process beats once every 15 seconds into `worker_pulse`, from
+its own daemon thread on its own connection (`start_pulse_monitor`). The
+admin page at **https://www.ponglens.com/admin/processing** is the only
+reader.
+
+**Why it exists.** The job row cannot always answer "is the worker alive".
+How much it tells you depends on the kind: a `deadspace_cut` advances
+`jobs.progress` about every twenty seconds, but `placement_generate` writes
+5, then 20, then 100, and `jobs.updated_at` only moves when a column does.
+So a placement job that is running perfectly reads 20% with a timestamp
+three hours old, and a worker that crashed at the first milestone looks
+exactly the same. Only the process itself can tell those apart.
+
+**Until a worker is restarted onto code that beats, it does not appear
+here, and the page says so honestly.** A worker with no row has never
+reported, which is not the same as having stopped, so the page reads
+"Status unknown" in grey rather than raising an alarm. It falls back to the
+job rows for evidence: a job advancing its progress, or one just finished,
+proves a worker is running even though this table is empty. That fallback
+is one-directional — movement proves life, stillness proves nothing — and
+the page must never be changed to read it the other way. The full rule is
+in `CLAUDE.md`, "Never report a fault you have not got evidence for".
+
+**What a beat carries:** the lane, the pid, the commit the daemon loaded,
+when the process started, the job and its kind, the stage, the counter
+under it (`frame 57000/65807  6.1 fps`, taken from the line blurball has
+always printed), and the machine's load average with its core count. The
+load is there because the Mac Studio is shared: a research script holding
+1700% CPU is why a forty-minute job takes three hours, and nothing else
+reports it.
+
+**Setting the stage** from anywhere in a job's path:
+
+```python
+pulse_stage("ball")                     # which part is running
+pulse_note("frame 57000/65807", 87)     # a counter under it
+```
+
+Both are best-effort and neither can raise. A failed beat logs a warning
+and is forgotten — monitoring must never fail a job.
+
+**Adding a job kind or a stage is not finished until the page names it.**
+See "The processing page has to keep up with the worker" in the repo's
+`CLAUDE.md`. An unlabelled kind renders as its raw name with a marker, so
+the gap shows up on that kind's first job.
+
+**Checking it by hand:**
+
+```sql
+select worker_id, lane, pid, beat_at, stage, stage_note, stage_pct,
+       host_load_1m, host_cpu_count
+from public.worker_pulse order by worker_id;
+```
+
+A row older than 90 seconds means that process is not running. **No row at
+all means the same thing** — the page renders a missing worker as an
+outage rather than as blank space, which is the whole point.
+
+**A worker only pulses once it is restarted onto code that has the pulse.**
+Until then the page shows it as *Not reporting* with the in-flight job
+named underneath, which is honest and is exactly what a dead worker would
+look like. Restart between jobs, never mid-job.
+
+## Fast lane (second process)
+
+Re-cuts and vertical share renders are the jobs a person is holding the
+phone through. They used to share one queue with forty-minute uploads,
+first in first out. A second worker process reads only the `jobs_fast`
+queue (`--lane fast`); the main process keeps everything else and all the
+housekeeping (retention sweep, digests, cost alerts), which must run in
+exactly one process.
+
+Build its runner as an exact copy of the main one's script with the lane
+flag added. Read the main script first (`osadecompile
+~/Applications/PongLensWorker.app`) rather than trusting this page: it
+must use the worker's own `venv` from inside `worker/`, because the
+system `python3` has none of the dependencies and a runner built on it
+crash-loops every 30 seconds with `No module named 'psycopg2'`.
+
+```bash
+osacompile -e 'do shell script "export HOME=/Users/adil; export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin; cd /Users/adil/Desktop/Projects/PongLens/worker; ./venv/bin/python worker.py --lane fast >>/Users/adil/Desktop/Projects/PongLens/worker/worker-fast.log 2>&1"' -o ~/Applications/PongLensWorkerFast.app
+cp /Users/adil/Desktop/Projects/PongLens/worker/com.adil.ponglens-worker-fast.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.adil.ponglens-worker-fast.plist
+```
+
+Grant `PongLensWorkerFast.app` Full Disk Access like the main runner. Its
+log is `worker-fast.log`. Then, and only then, flip the routing:
+
+```sql
+update public.app_config set value = 'fast' where key = 'reclip_lane';
+```
+
+Setting it back to `'main'` is the rollback; anything already sitting in
+`jobs_fast` is drained by the fast process, so stop that one last.
+
 Because the plist has `KeepAlive`, the worker starts immediately, restarts
 if it crashes, and comes back after reboots (once you log in).
 
@@ -305,7 +402,8 @@ reported individually and do not create partial database updates.
 When initial match processing cannot produce any reliable placement maps,
 the match still finishes successfully with
 `placement_status = 'retry_available'`. Its owner can queue exactly one
-`placement_retry` job during the raw video's 30-day retention window.
+`placement_retry` job while the original video exists, which for every
+live match is always (originals are kept for the life of the match).
 The retry regenerates only placement calibration and reconstruction; it
 does not regenerate clips, points, scores, notes, or other match metadata.
 
@@ -361,15 +459,23 @@ Binary storage is Cloudflare R2; Supabase keeps auth/Postgres/queue only.
   (`uploads` / `results` buckets) — do not delete that code until the last
   legacy rows have aged out.
 
-A daily sweep in the worker enforces retention:
+A daily sweep in the worker enforces retention. **Nothing a live match
+references is ever deleted**: the original upload and the cut video stay
+for the life of the match (policy since the commerce flip in 2026-08; the
+Privacy Policy and Terms promise it). The timed tiers below are for
+orphans and for media with its own promised lifetime:
 
 | Tier | Location | Retention |
 | --- | --- | --- |
-| Raw uploads | `ponglens-raw` | 30 days |
-| Cut videos | `ponglens-media/results/` | 30 days |
+| Raw uploads referenced by a match | `ponglens-raw` | life of the match (never swept) |
+| Cut videos referenced by a match | `ponglens-media/results/` | life of the match (never swept) |
+| Unreferenced raws and cuts (deleted or rejected matches, abandoned uploads) | same | 30 days |
 | Point clips + match.json | `ponglens-media/points/` | while account active (not swept) |
-| Voice audio | `ponglens-media` (future phase) | 90 days |
+| Voice audio | `ponglens-media/voice/` | 90 days |
+| Share renders (`v:*` reels) | `ponglens-media` | 7 days |
 | Legacy Supabase `uploads` | Supabase Storage | 30 days |
 
-The future tiers are documented here so the sweep in `retention_sweep()`
-gets extended (not replaced) when point clips and voice notes ship.
+A legacy match (processed before commerce) has no `matches.raw_path`; the
+sweep protects its raw through the match's source job instead, and
+`backfill_raw_path.py` fills the column where the file survived. Only
+legacy matches whose raw was swept before 2026-08 have lost theirs.

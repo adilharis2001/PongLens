@@ -62,6 +62,20 @@ const serveFollowupExport = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
+const qualityFirstHighlights = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20260906040000_quality_first_highlights.sql",
+    import.meta.url,
+  ),
+  "utf8",
+).toLowerCase();
+const qualityFirstHighlightLets = readFileSync(
+  new URL(
+    "../../../supabase/migrations/20260906041000_quality_first_highlight_lets.sql",
+    import.meta.url,
+  ),
+  "utf8",
+).toLowerCase();
 
 test("research migration enables RLS on every exposed research table", () => {
   for (const table of [
@@ -227,5 +241,35 @@ test("serve follow-up export includes evidence while retaining the admin gate", 
   assert.match(
     serveFollowupExport,
     /grant execute on function public\.research_export_batch\(uuid\)[\s\S]*to authenticated/,
+  );
+});
+
+test("quality-first highlights keep evidence private and fail closed", () => {
+  assert.match(
+    qualityFirstHighlights,
+    /add column if not exists highlight_evidence jsonb/,
+  );
+  assert.match(qualityFirstHighlights, /'highlights'::text/);
+  assert.match(qualityFirstHighlights, /'empty'::text/);
+  assert.match(qualityFirstHighlights, /automatic_highlights/);
+  assert.match(
+    qualityFirstHighlights,
+    /create or replace function public\.points_invalidate_highlight_evidence\(\)/,
+  );
+  assert.match(
+    qualityFirstHighlights,
+    /before update of t0, t1, cut_t0, clip_path, deleted, edited/,
+  );
+  assert.doesNotMatch(
+    qualityFirstHighlights,
+    /app_config_public_keys[\s\S]*automatic_highlights/,
+  );
+});
+
+test("marking a rally skipped invalidates its highlight evidence", () => {
+  assert.match(qualityFirstHighlightLets, /new\.is_let is distinct from old\.is_let/);
+  assert.match(
+    qualityFirstHighlightLets,
+    /before update of t0, t1, cut_t0, clip_path, deleted, edited, is_let/,
   );
 });

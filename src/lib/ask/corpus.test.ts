@@ -7,6 +7,8 @@ import {
   approxTokens,
   buildAtCoverage,
   buildCorpus,
+  recapFromEdit,
+  type AskRecap,
   type CorpusInput,
 } from "./corpus.ts";
 
@@ -25,6 +27,23 @@ function lesson(over: Partial<Lesson> = {}): Lesson {
     created_at: "2026-08-01T00:00:00.000Z",
     ...over,
   } as Lesson;
+}
+
+function recap(over: Partial<AskRecap> = {}): AskRecap {
+  return {
+    videoId: "33333333-3333-3333-3333-333333333333",
+    title: "Serve and third ball",
+    chapters: [
+      {
+        title: "Contact point",
+        cues: ["Take the ball in front of the hip", "Brush, do not hit"],
+      },
+    ],
+    coachName: "Jonathan",
+    fromCoach: false,
+    when: "2026-08-03T00:00:00.000Z",
+    ...over,
+  };
 }
 
 function note(over: Partial<NoteFeedRow> = {}): NoteFeedRow {
@@ -115,7 +134,7 @@ test("the profile is citable, so 'am I right-handed' can be answered", () => {
 });
 
 test("every bracketed id in the text resolves to a source", () => {
-  const built = buildCorpus(input());
+  const built = buildCorpus(input({ recaps: [recap()] }));
   const ids = new Set(built.sources.map((s) => s.id));
   const cited = [...built.text.matchAll(/\[([a-z]\d+)\]/g)].map((m) => m[1]);
   assert.ok(cited.length > 0, "corpus should label its material");
@@ -166,6 +185,62 @@ test("a lesson carries its coach through to the corpus", () => {
     input({ lessons: [lesson({ coach_name: "Jonathan" })] }),
   );
   assert.match(built.text, /Lesson · with Jonathan/);
+});
+
+test("a recap's cue is findable, and cites the recap it came from", () => {
+  // The defect this exists for: a filmed lesson reaches the journal as one
+  // line of URL, so everything it taught used to be outside the corpus and
+  // "what did Jonathan tell me to work on" could not reach it.
+  const built = buildCorpus(input({ recaps: [recap()] }));
+  assert.match(built.text, /Take the ball in front of the hip/);
+  assert.match(built.text, /Contact point:/);
+  const source = built.sources.find((s) => s.kind === "lesson_recap");
+  assert.ok(source, "a recap must be citable");
+  assert.equal(
+    source.href,
+    "/lesson-video/33333333-3333-3333-3333-333333333333",
+  );
+  assert.equal(source.title, "Serve and third ball");
+  // The id in the text and the id on the card have to be the same one, or
+  // the citation validator drops every sentence that used the recap.
+  assert.match(built.text, new RegExp(`\\[${source.id}\\] · Lesson recap`));
+  assert.match(built.text, /Lesson recap · with Jonathan/);
+});
+
+test("a recap a coach shared says the coach shared it", () => {
+  const built = buildCorpus(
+    input({ recaps: [recap({ coachName: "Emily", fromCoach: true })] }),
+  );
+  assert.match(built.text, /Lesson recap your coach Emily shared/);
+  assert.doesNotMatch(built.text, /with Emily/);
+});
+
+test("recap chapters survive the tier that drops transcripts", () => {
+  // Dropping transcripts first works because takeaways are the same lesson
+  // already distilled. A recap's chapters ARE that distillation and it has
+  // no transcript to give up instead, so cutting them would leave a filmed
+  // lesson saying nothing at all.
+  const light = buildAtCoverage(input({ recaps: [recap()] }), "takeaways");
+  assert.match(light.text, /Brush, do not hit/);
+});
+
+test("recapFromEdit reads a stored edit and steps over a broken chapter", () => {
+  const read = recapFromEdit({
+    title: "Backhand block",
+    chapters: [
+      { title: "Angle", cues: ["Close the bat early"], start_s: 0, end_s: 40 },
+      { title: 17, cues: null },
+      { title: "Recovery", cues: ["Back to ready", ""] },
+    ],
+    themes: [{ name: "Backhand", points: ["Stay compact"] }],
+  });
+  assert.equal(read?.title, "Backhand block");
+  assert.deepEqual(read?.chapters, [
+    { title: "Angle", cues: ["Close the bat early"] },
+    { title: "Recovery", cues: ["Back to ready"] },
+  ]);
+  assert.equal(recapFromEdit(null), null);
+  assert.equal(recapFromEdit({ chapters: [] }), null);
 });
 
 test("full coverage keeps transcripts; takeaways coverage drops them", () => {

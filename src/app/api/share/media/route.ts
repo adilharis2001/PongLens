@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { presignGet } from "@/lib/r2";
+import { MEDIA_BUCKET, presignGet } from "@/lib/r2";
+import { highlightShareMediaKey } from "../highlightShare";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,7 @@ export const runtime = "nodejs";
  *
  *   ?token=...              point link   -> its clip
  *                           match link   -> the cut video
+ *                           highlights   -> the current automatic reel
  *   ?token=...&pointId=...  match link   -> that point's clip
  *                           starred link -> that clip, but ONLY if the
  *                           point is CURRENTLY starred and visible —
@@ -83,6 +85,25 @@ export async function GET(req: Request) {
   }
 
   try {
+    // Highlight links are live: the same token follows the match's current
+    // automatic reel after an owner-requested regeneration. The resolver
+    // returns no row if the link was revoked or the reel has no file.
+    if (link.kind === "highlights") {
+      const { data: rows } = await supabase.rpc("resolve_share_highlights", {
+        p_token: token,
+      });
+      const highlight = rows?.[0];
+      const key = highlightShareMediaKey(link.match_id, highlight ?? null);
+      if (!key) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      const signed = await presignGet(MEDIA_BUCKET, key, {
+        expiresSeconds: TTL_SECONDS,
+        disposition: "inline",
+      });
+      return NextResponse.json({ url: signed });
+    }
+
     // Point link: only its own clip, ever.
     if (link.kind === "point") {
       const loc = parseR2(link.point_clip_path);

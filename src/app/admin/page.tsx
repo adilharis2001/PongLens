@@ -10,6 +10,7 @@ import {
   type OutreachCounts,
   type PortalCounts,
 } from "./adminPageView";
+import type { ProcessingCounts } from "./processing/processingView";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -23,20 +24,26 @@ export const metadata: Metadata = {
  */
 export default async function AdminPage() {
   const { supabase, avatarUrl } = await requireAdmin();
-  const [{ data }, { count: backlogOpen }, { data: outreachData }] =
-    await Promise.all([
-      supabase.rpc("admin_portal_counts"),
-      supabase
-        .from("backlog_items")
-        .select("id", { count: "exact", head: true })
-        .neq("lane", "done"),
-      supabase.rpc("admin_outreach_counts"),
-    ]);
+  const [
+    { data },
+    { count: backlogOpen },
+    { data: outreachData },
+    { data: processingData },
+  ] = await Promise.all([
+    supabase.rpc("admin_portal_counts"),
+    supabase
+      .from("backlog_items")
+      .select("id", { count: "exact", head: true })
+      .neq("lane", "done"),
+    supabase.rpc("admin_outreach_counts"),
+    supabase.rpc("admin_processing_counts"),
+  ]);
   const counts = (data as PortalCounts | null) ?? null;
   const outreach =
     ((outreachData as OutreachCounts[] | null)?.[0] as
       | OutreachCounts
       | undefined) ?? null;
+  const processing = (processingData as ProcessingCounts | null) ?? null;
 
   return (
     <AppShell avatarUrl={avatarUrl}>
@@ -44,7 +51,7 @@ export default async function AdminPage() {
 
       <ul className="mt-8 grid gap-3 sm:grid-cols-2">
         {ADMIN_PAGES.map((page) => {
-          const detail = hubDetail(page.key, counts, backlogOpen, outreach);
+          const detail = hubDetail(page.key, counts, backlogOpen, outreach, processing);
           return (
             <li key={page.key}>
               <Link
@@ -87,14 +94,37 @@ export default async function AdminPage() {
 
       <SectionHeading className="mt-10">Workspaces</SectionHeading>
       <ul className="mt-3 grid gap-3 sm:grid-cols-2">
-        {ADMIN_WORKSPACES.map((workspace) => (
+        {ADMIN_WORKSPACES.map((workspace) => {
+          // A workspace carries a detail line too. Outreach moved down
+          // here and "15 to contact" is the whole reason to glance at the
+          // hub; losing it in the move would have made the move a
+          // downgrade.
+          const detail = hubDetail(
+            workspace.key,
+            counts,
+            backlogOpen,
+            outreach,
+            processing,
+          );
+          return (
           <li key={workspace.key}>
             <Link
               href={workspace.href}
               className="group flex h-full items-center justify-between gap-3 rounded-2xl border border-edge bg-surface p-5 transition-colors hover:border-cyan-glow/40"
             >
-              <span className="block text-base font-semibold text-zinc-100">
-                {workspace.title}
+              <span className="min-w-0">
+                <span className="block text-base font-semibold text-zinc-100">
+                  {workspace.title}
+                </span>
+                {detail && (
+                  <span
+                    className={`mt-1 block truncate text-sm ${
+                      detail.attention ? "text-cyan-glow" : "text-zinc-500"
+                    }`}
+                  >
+                    {detail.text}
+                  </span>
+                )}
               </span>
               <svg
                 viewBox="0 0 24 24"
@@ -112,7 +142,8 @@ export default async function AdminPage() {
               </svg>
             </Link>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </AppShell>
   );

@@ -14,10 +14,7 @@ import type {
 } from "@/lib/types";
 import { LessonCard } from "./LessonCard";
 import { useFocusPoints } from "./useFocusPoints";
-import {
-  WorkingOn,
-  type FocusPoint,
-} from "./WorkingOn";
+import { WorkingOn } from "./WorkingOn";
 import { deriveMatchTitleParts, shortDate } from "@/lib/matchTitle";
 import { NoteItem } from "@/app/match/[id]/Notes";
 import { TagGlyph } from "@/app/match/[id]/Tags";
@@ -25,19 +22,24 @@ import { FabButton } from "@/components/Fab";
 import { journalTagsForOwner } from "@/lib/journal/tags";
 import { JournalEditor } from "./JournalEditor";
 import { NoteEditor } from "./NoteEditor";
+import { type PlayerCoach } from "@/lib/coaches/playerCoaches";
 import { SharedEntryCard, type SharedEntry } from "./CoachShared";
 import { AskPanel, MAX_QUESTION_CHARS, askable } from "./AskPanel";
 import { askExamples, topOpponentFromNotes } from "@/lib/ask/examples";
 import { Recollect } from "./Recollect";
+import { JournalStats } from "./JournalStats";
 import type { RecollectSource } from "@/lib/recollect/types";
 
-type Section =
-  | "all"
-  | "matches"
-  | "lessons"
-  | "practice"
-  | "coach"
-  | "recollect";
+/* Fixed tabs, always in this order, so the journal reads the same on
+   every visit and on every device. All is everything you can read;
+   Matches is the notes born in matches, grouped; Coaches is your lessons
+   and what a coach has shared with you; Stats is the numbers a journal
+   was always going to be asked for. Recollect appears only when it is
+   switched on — it is the one tab that is a setting.
+
+   There is no "Notes" tab any more. Your own written entries were never
+   a category anybody asked for; they are simply part of All. */
+type Section = "all" | "matches" | "coaches" | "stats" | "recollect";
 
 /**
  * Export a tag's points as ONE video across every match (042). Request →
@@ -186,6 +188,7 @@ export function NotesFeed({
   userId,
   accountName,
   initialMatch = null,
+  initialSection = null,
   initialRecollectEnabled = true,
 }: {
   userId: string;
@@ -193,11 +196,14 @@ export function NotesFeed({
   accountName: string | null;
   /** ?match= deep link: open pre-filtered to this match's notes. */
   initialMatch?: string | null;
+  /** Which tab to open on. Nothing sends one today: a student who has
+   *  just connected lands on the Coaching tab, not here. */
+  initialSection?: Section | null;
   initialRecollectEnabled?: boolean;
 }) {
   const [rows, setRows] = useState<NoteFeedRow[] | null>(null);
   const [section, setSection] = useState<Section>(
-    initialMatch ? "matches" : "all"
+    initialMatch ? "matches" : (initialSection ?? "all")
   );
   const [matchFilter, setMatchFilter] = useState<string | null>(initialMatch);
   const [query, setQuery] = useState("");
@@ -227,6 +233,11 @@ export function NotesFeed({
   // Same tags as points — the vocabulary is one list (RLS scopes both).
   const [vocab, setVocab] = useState<Tag[]>([]);
   const [entryTags, setEntryTags] = useState<EntryTag[]>([]);
+  // The player's own coaches (164) — the list the editors pick from and
+  // the filter runs on. Counts come from the RPC rather than from the
+  // lessons in hand, because the feed is capped and a coach with forty
+  // entries would otherwise report however many happened to be loaded.
+  const [coaches, setCoaches] = useState<PlayerCoach[]>([]);
   // Working on cues (active + retired). The hook owns loading and every
   // server-confirmed write; it lives here so lesson takeaways and
   // Recollect file cues into the same list the pinned card renders.
@@ -239,6 +250,26 @@ export function NotesFeed({
     mergeCue,
   } = useFocusPoints(userId);
   const [recollectEnabled] = useState(initialRecollectEnabled);
+
+  const loadCoaches = useCallback(async () => {
+    const supabase = createClient();
+    const { data } = await supabase.rpc("player_coaches_list");
+    setCoaches((data as PlayerCoach[]) ?? []);
+  }, []);
+
+  useEffect(() => {
+    void loadCoaches();
+  }, [loadCoaches]);
+
+  /* Re-read whenever a coach is about to be picked. The list changes on
+     OTHER pages — an invite created in Coaching, one revoked there — and
+     without this the composer kept whatever it loaded when the journal
+     first rendered. Adil hit exactly that: he revoked an invite, made a
+     new one, and the picker still showed the old coach (2026-09-04).
+     Cheap: one RPC, and only when a sheet opens. */
+  useEffect(() => {
+    if (composeOpen || noteEditing) void loadCoaches();
+  }, [composeOpen, noteEditing, loadCoaches]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -530,8 +561,9 @@ export function NotesFeed({
     [rows, userId]
   );
 
-  // Coaches already named in this journal, most recently taught first, so
-  // the editor can offer them and the spelling stays one spelling.
+  // Coach names still in this journal as plain text, most recent first.
+  // Only Ask's example questions use them now: the editors pick a real
+  // coach row (164), which is what stopped one person being two of them.
   const coachNames = useMemo(() => {
     const seen = new Set<string>();
     const names: string[] = [];
@@ -545,6 +577,42 @@ export function NotesFeed({
     }
     return names;
   }, [lessons]);
+
+  /** Find-or-create one of the player's own coaches by name (164). The
+   *  same shape as createTag above, and for the same reason: typing a
+   *  name that already exists has to resolve to that row, or the list
+   *  grows the duplicates this feature exists to remove. */
+  const createCoach = useCallback(
+    async (name: string): Promise<PlayerCoach | null> => {
+      const clean = name.trim().replace(/\s+/gu, " ").slice(0, 80);
+      if (!clean) return null;
+      const existing = coaches.find(
+        (c) => c.display_name.trim().toLowerCase() === clean.toLowerCase(),
+      );
+      if (existing) return existing;
+      const supabase = createClient();
+      const { data } = await supabase
+        .from("player_coaches")
+        .insert({ player_id: userId, display_name: clean })
+        .select("id")
+        .maybeSingle();
+      const id = (data as { id: string } | null)?.id;
+      if (!id) return null;
+      const row: PlayerCoach = {
+        id,
+        coach_id: null,
+        display_name: clean,
+        coach_email: null,
+        invite_id: null,
+        status: "offline",
+        entry_count: 0,
+        shared_count: 0,
+      };
+      setCoaches((cs) => [row, ...cs]);
+      return row;
+    },
+    [coaches, userId],
+  );
 
   // The rail: every tag with any reach — points (tag_stats) or entries.
   const railTags = useMemo(() => {
@@ -582,21 +650,22 @@ export function NotesFeed({
         ? x.lesson.created_at
         : x.entry.shared_at;
   const feedItems: FeedItem[] = [
-    ...(section === "all" || section === "matches"
+    // Match and point notes are part of All. They are also the whole of
+    // Matches, but that tab groups them itself and never reads this list.
+    ...(section === "all"
       ? filteredNotes.map((n) => ({ type: "note" as const, note: n }))
       : []),
+    // Coaches holds the lessons — the entries that name a coach, made in
+    // the coaching workspace. A plain note is a reflection and stays in
+    // All only.
     ...(section === "all"
       ? filteredLessons.map((l) => ({ type: "lesson" as const, lesson: l }))
-      : section === "lessons"
+      : section === "coaches"
         ? filteredLessons
-            .filter((l) => l.kind !== "practice")
+            .filter((l) => l.kind === "lesson")
             .map((l) => ({ type: "lesson" as const, lesson: l }))
-        : section === "practice"
-          ? filteredLessons
-              .filter((l) => l.kind === "practice")
-              .map((l) => ({ type: "lesson" as const, lesson: l }))
-          : []),
-    ...(section === "all" || section === "coach"
+        : []),
+    ...(section === "all" || section === "coaches"
       ? filteredShared.map((e) => ({ type: "shared" as const, entry: e }))
       : []),
   ].sort((a, b) => feedStamp(b).localeCompare(feedStamp(a)));
@@ -652,7 +721,19 @@ export function NotesFeed({
         if (matchFilter) clearMatchFilter();
       }}
       aria-pressed={section === value}
-      className={`shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors ${
+      /* Equal segments across the row, never a sideways scroll: a primary
+         navigation row you have to drag is one you miss options in, and
+         until now the fifth tab was off the edge of a 393px phone. The
+         height, which is what a thumb actually needs, is unchanged.
+
+         The horizontal padding is almost nothing below sm and it costs
+         nothing to look at: flex-1 makes the button the whole cell, so the
+         pill is the same width either way and the padding only decides how
+         much room the word has inside it. At 393px five cells are 69px
+         each and "Recollect" needs about 64, which is the reason it is
+         0.5 here and 3 from sm up. `truncate` is the honest fallback on a
+         narrower phone than any we test. */
+      className={`min-w-0 flex-1 truncate rounded-full px-0.5 py-1.5 text-[13px] font-medium transition-colors sm:px-3 ${
         section === value
           ? "bg-surface-2 text-white"
           : "text-zinc-500 hover:text-zinc-300"
@@ -717,7 +798,7 @@ export function NotesFeed({
     );
   };
 
-  const lessonItem = (l: Lesson) => (
+  const lessonCard = (l: Lesson) => (
     <LessonCard
       key={l.id}
       lesson={l}
@@ -734,11 +815,13 @@ export function NotesFeed({
     />
   );
 
+  const lessonItem = (l: Lesson) => lessonCard(l);
+
   const openRecollectSource = useCallback((source: RecollectSource) => {
     setActiveTag(null);
     setQuery("");
     setMatchFilter(null);
-    setSection(source.kind === "practice" ? "practice" : "lessons");
+    setSection("all");
     window.history.replaceState(null, "", "/journal");
     window.setTimeout(() => {
       document
@@ -770,10 +853,12 @@ export function NotesFeed({
         onClose={() => setComposeOpen(false)}
         userId={userId}
         vocab={sortedVocab}
-        coachNames={coachNames}
+        coaches={coaches}
+        createCoach={createCoach}
         createTag={createTag}
         onSaved={(lesson, tags) => {
           setLessons((ls) => [lesson, ...ls]);
+          if (lesson.coach_ref_id) void loadCoaches();
           if (tags.length > 0) {
             const now = new Date().toISOString();
             setEntryTags((ets) => [
@@ -790,13 +875,14 @@ export function NotesFeed({
       />
       <NoteEditor
         lesson={noteEditing}
-        coachNames={coachNames}
+        coaches={coaches}
+        createCoach={createCoach}
         onClose={() => setNoteEditing(null)}
-        onSaved={(lesson) =>
-          setLessons((ls) => ls.map((x) => (x.id === lesson.id ? lesson : x)))
-        }
+        onSaved={(lesson) => {
+          setLessons((ls) => ls.map((x) => (x.id === lesson.id ? lesson : x)));
+          void loadCoaches();
+        }}
       />
-
       {/* One search across everything the journal holds — and the same
           words, on request, as a question. Typing only ever filters; the
           Ask row below is the deliberate second step. */}
@@ -936,15 +1022,15 @@ export function NotesFeed({
         />
       )}
 
-      {!activeTag &&
-        rows !== null &&
-        (!empty || recollectEnabled) && (
-        <div className="flex gap-1 overflow-x-auto border-b border-edge/60 pb-2">
+      {/* Always the same tabs, whether or not anything has been written
+          yet — an empty journal still has stats to read and a coach to
+          hear from. */}
+      {!activeTag && rows !== null && (
+        <div className="flex gap-0.5 border-b border-edge/60 pb-2 sm:gap-1">
           {sectionTab("all", "All")}
           {sectionTab("matches", "Matches")}
-          {sectionTab("lessons", "Lessons")}
-          {sectionTab("practice", "Practice")}
-          {shared.length > 0 && sectionTab("coach", "From your coach")}
+          {sectionTab("coaches", "Coaches")}
+          {sectionTab("stats", "Stats")}
           {recollectEnabled && sectionTab("recollect", "Recollect")}
         </div>
       )}
@@ -1079,6 +1165,11 @@ export function NotesFeed({
           onOpenSource={openRecollectSource}
           onFocusPointAdded={acceptRecollectFocus}
         />
+      ) : section === "stats" ? (
+        /* Mounted only here, so opening the Journal never waits on the
+           points walk. The walk is shared with /stats and Home, which is
+           why coming back to this tab does not count them again. */
+        <JournalStats userId={userId} accountName={accountName} />
       ) : rows === null ? (
         <div className="mt-4 space-y-3">
           {[0, 1, 2].map((i) => (
@@ -1095,8 +1186,8 @@ export function NotesFeed({
             Your journal starts here
           </p>
           <p className="mx-auto mt-1 max-w-sm text-sm leading-relaxed text-zinc-500">
-            Notes from your matches collect here on their own. Add a lesson
-            or a practice entry. Type it, speak it, or paste it.
+            Notes from your matches collect here on their own. Add a note
+            of your own. Type it, speak it, or paste it.
           </p>
           {/* The floating New sits in a far corner on a wide screen; the
               empty state offers the same action where the eye already is,
@@ -1171,13 +1262,9 @@ export function NotesFeed({
         </>
       ) : feedItems.length === 0 ? (
         <p className="mt-4 text-sm text-zinc-500">
-          {section === "practice"
-            ? "No practice entries yet. New starts one."
-            : section === "lessons"
-              ? "No lessons yet. New saves your first."
-              : section === "coach"
-                ? "Nothing from a coach yet."
-                : "Nothing found."}
+          {section === "coaches"
+            ? "No lessons yet. Record one in Coaching."
+            : "Nothing found."}
         </p>
       ) : (
         <>

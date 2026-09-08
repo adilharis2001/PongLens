@@ -274,7 +274,9 @@ struct RecollectSection: View {
 
     private func sourceTitle(_ source: RecollectSource) -> String {
         if let title = source.title, !title.isEmpty { return title }
-        let kind = source.kind == "practice" ? "Practice" : "Lesson"
+        // One word for both: the entry's kind is no longer something the
+        // player chose, and this source carries no coach to name instead.
+        let kind = "Note"
         return "\(kind) · \(monthDay(source.createdAt))"
     }
 

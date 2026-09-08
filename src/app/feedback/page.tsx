@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { AppShell } from "@/components/AppShell";
-import { FeedbackForm } from "./FeedbackForm";
+import { FeedbackPanels } from "./FeedbackPanels";
 
 export const metadata: Metadata = {
   title: "Feedback",
@@ -36,8 +36,12 @@ export default async function FeedbackPage({
     supabase.rpc("is_qa"),
   ]);
 
+  // `wide` because the page lays out side by side on a laptop now: the
+  // composer keeps a fixed column and the board takes the rest. At the
+  // default width the board — the part everyone reads — came out narrower
+  // than the form beside it.
   return (
-    <AppShell avatarUrl={avatarUrl}>
+    <AppShell avatarUrl={avatarUrl} wide>
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
         Feedback
       </h1>
@@ -47,14 +51,12 @@ export default async function FeedbackPage({
           : "Bugs, ideas, anything off. It lands on the board so others can vote."}
       </p>
 
-      <div className="mt-8 max-w-xl">
-        <FeedbackForm
-          userId={user.id}
-          isAdmin={isAdmin === true}
-          isQa={isQa === true}
-          initialMatchId={matchId ?? null}
-        />
-      </div>
+      <FeedbackPanels
+        userId={user.id}
+        isAdmin={isAdmin === true}
+        isQa={isQa === true}
+        initialMatchId={matchId ?? null}
+      />
     </AppShell>
   );
 }

@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
-import { AppShell } from "@/components/AppShell";
+import { redirect } from "next/navigation";
 import { requireAdmin } from "../requireAdmin";
-import { AdminHeader } from "../AdminHeader";
-import { StorageAdminSection } from "../StorageAdminSection";
 
 export const metadata: Metadata = {
   title: "Storage",
@@ -10,13 +8,6 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminStoragePage() {
-  const { avatarUrl } = await requireAdmin();
-  return (
-    <AppShell avatarUrl={avatarUrl}>
-      <AdminHeader title="Storage" />
-      <div className="mt-6">
-        <StorageAdminSection />
-      </div>
-    </AppShell>
-  );
+  await requireAdmin();
+  redirect("/admin/commerce#requests");
 }

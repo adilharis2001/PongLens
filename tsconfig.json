@@ -40,7 +40,9 @@
   "exclude": [
     "node_modules",
     "scripts/demos/tutorial/remotion",
+    "supabase/functions",
     "ios",
-    "docs"
+    "docs",
+    "build"
   ]
 }

@@ -7,19 +7,18 @@ struct JournalScreen: View {
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
     @Environment(JournalStore.self) private var store
+    @Environment(ScoresStore.self) private var scores
     @State private var query = ""
     @State private var tab = "All"
     @State private var selectedTag: TagStatRow?
-    @State private var newEntryOpen = false
-    @State private var entryChoice: NewEntryChoice?
-    @State private var lessonRecordOpen = false
+
 
     /// Everything the composer needs, in one value. Presenting on a flag
-    /// while the kind and text sat in their own @State meant the sheet
-    /// could be built before those landed.
+    /// while the text sat in its own @State meant the sheet could be
+    /// built before it landed. The kind used to ride along here too; it
+    /// is derived on save now (2026-09-04).
     struct ComposerRequest: Identifiable {
         let id = UUID()
-        var kind = "practice"
         var text = ""
     }
     @State private var composerRequest: ComposerRequest?
@@ -70,6 +69,26 @@ struct JournalScreen: View {
                                 RecollectSection(journal: store) { source in
                                     revealSource(source, proxy: proxy)
                                 }
+                            } else if tab == "Stats" {
+                                // The numbers a journal was always going
+                                // to be asked for, on the page they were
+                                // going to be looked for on. The walk is
+                                // already running at launch, so the tab
+                                // says so rather than pausing on nothing.
+                                //
+                                // One or the other, never both: the
+                                // sections draw their own "nothing to
+                                // count yet" from a half-finished walk,
+                                // which under a line saying it is still
+                                // counting reads as two answers to one
+                                // question.
+                                if scores.loaded {
+                                    StatsScreen(embedded: true)
+                                } else {
+                                    Text("Counting points…")
+                                        .font(.plBody)
+                                        .foregroundStyle(PL.text500)
+                                }
                             } else {
                                 feed
                             }
@@ -84,8 +103,11 @@ struct JournalScreen: View {
                 .refreshable { await store.load(userId: app.userId) }
             }
 
+            // One button, one thing: the Journal writes notes. Recording
+            // a lesson and importing one moved to Coaching, which is
+            // where the coach they belong to lives.
             PLFab(label: "New entry", systemImage: "plus") {
-                newEntryOpen = true
+                composerRequest = ComposerRequest()
             }
             .padding(20)
         }
@@ -113,42 +135,13 @@ struct JournalScreen: View {
         .onChange(of: store.recollectEnabled) { _, enabled in
             if !enabled, tab == "Recollect" { tab = "All" }
         }
-        // Handed off on dismissal rather than presented from inside: a
-        // second sheet raised while the first is still up races it, and
-        // one of the two is dropped.
-        .sheet(isPresented: $newEntryOpen, onDismiss: {
-            switch entryChoice {
-            case .practice:
-                composerRequest = ComposerRequest(kind: "practice")
-            case .lesson:
-                composerRequest = ComposerRequest(kind: "lesson")
-            case .record:
-                lessonRecordOpen = true
-            case nil:
-                break
-            }
-            entryChoice = nil
-        }) {
-            NewEntrySheet { choice in
-                entryChoice = choice
-                newEntryOpen = false
-            }
-            .presentationDetents([.height(348)])
-            .presentationBackground(PL.surface)
-            .presentationDragIndicator(.visible)
-        }
-        .fullScreenCover(isPresented: $lessonRecordOpen) {
-            LessonRecordScreen {
-                Task { await store.load(userId: app.userId) }
-            }
-        }
         // sheet(item:) rather than a flag beside separate @State. The kind
         // and the text travel WITH the presentation, so the composer cannot
         // be built from values that have not landed yet — which is how a
         // recorded lesson opened as an empty practice note.
         .sheet(item: $composerRequest) { request in
             JournalComposer(
-                store: store, initialKind: request.kind, initialText: request.text
+                store: store, initialText: request.text
             ) {
                 Task { await store.load(userId: app.userId) }
             }
@@ -184,7 +177,7 @@ struct JournalScreen: View {
     private func revealSource(_ source: RecollectSource, proxy: ScrollViewProxy) {
         selectedTag = nil
         query = ""
-        tab = source.kind == "practice" ? "Practice" : "Lessons"
+        tab = "Notes"
         if let i = feedItems.firstIndex(where: { $0.id == source.lessonId }), i >= feedCap {
             showAll = true
         }
@@ -343,25 +336,29 @@ struct JournalScreen: View {
     // MARK: - Tabs + feed
 
     private var tabs: some View {
-        // "From your coach" is a filter, not a tab bar item: it appears
-        // once a coach has shared something, the same way Recollect appears
-        // when it is on. Its entries also sit under All, the way the web's
-        // journal reads (Adil, 2026-09-02) — no section of their own.
-        let names = ["All", "Matches", "Lessons", "Practice"]
-            + (store.coachShared.isEmpty ? [] : ["From your coach"])
+        // Fixed, always in this order, and never a sideways scroll: a
+        // primary navigation row you have to drag is one you miss options
+        // in, and the fifth was off the edge of a 393pt phone. Equal
+        // segments across the width, so the row is the same shape whether
+        // Recollect is on or off. The web twin is NotesFeed.tsx.
+        //
+        // There is no "Notes" tab. Your own written entries were never a
+        // category anybody asked for; they are part of All. Coaches holds
+        // the lessons and what a coach has shared with you.
+        let names = ["All", "Matches", "Coaches", "Stats"]
             + (store.recollectEnabled ? ["Recollect"] : [])
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(names, id: \.self) { name in
-                    let active = tab == name
-                    Button(name) { tab = name }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(active ? .white : PL.text500)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(active ? PL.surface2 : .clear, in: Capsule())
-                        .buttonStyle(.plain)
-                }
+        return HStack(spacing: 2) {
+            ForEach(names, id: \.self) { name in
+                let active = tab == name
+                Button(name) { tab = name }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(active ? .white : PL.text500)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .background(active ? PL.surface2 : .clear, in: Capsule())
+                    .buttonStyle(.plain)
             }
         }
         .overlay(alignment: .bottom) {
@@ -396,19 +393,16 @@ struct JournalScreen: View {
         if tab == "All" || tab == "Matches" {
             items += store.notes.map { .note($0) }
         }
-        if tab == "All" || tab == "From your coach" {
+        if tab == "All" || tab == "Coaches" {
             items += store.coachShared.map { .coach($0) }
         }
-        if tab != "Matches", tab != "From your coach" {
-            items += store.lessons
-                .filter { lesson in
-                    switch tab {
-                    case "Lessons": lesson.kind == "lesson"
-                    case "Practice": lesson.kind == "practice"
-                    default: true
-                    }
-                }
-                .map { .lesson($0) }
+        // Coaches holds the lessons — the entries that name a coach, made
+        // in the coaching workspace. A plain note is your own reflection
+        // and belongs to All only.
+        if tab == "All" {
+            items += store.lessons.map { .lesson($0) }
+        } else if tab == "Coaches" {
+            items += store.lessons.filter { $0.kind == "lesson" }.map { .lesson($0) }
         }
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         if !q.isEmpty, !askable(query) {
@@ -456,7 +450,7 @@ struct JournalScreen: View {
                 Text("Your journal starts here")
                     .font(.plCardTitle)
                     .foregroundStyle(PL.text100)
-                Text("Notes from your matches collect here on their own. Add a lesson or a practice entry with New. Type it, speak it, or paste it.")
+                Text("Notes from your matches collect here on their own. Add a note of your own with New. Type it, speak it, or paste it.")
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
                     .multilineTextAlignment(.center)
@@ -498,9 +492,7 @@ struct JournalScreen: View {
 
     private var emptyLine: String {
         switch tab {
-        case "Lessons": "No lessons yet. New saves your first."
-        case "Practice": "No practice entries yet. New starts one."
-        case "From your coach": "Nothing from a coach yet."
+        case "Coaches": "No lessons yet. Record one in Coaching."
         default: "Nothing found."
         }
     }
@@ -561,9 +553,7 @@ struct NoteCardView: View {
                         deleteError = nil
                         deleteAsk = true
                     }
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(PL.text400)
-                    .buttonStyle(.plain)
+                    .buttonStyle(PLSoftDestructiveButtonStyle())
                     .disabled(deleting)
                 }
             }
@@ -839,6 +829,7 @@ struct AskPanelView: View {
     private enum SourceTarget {
         case match(MatchRow, pointId: UUID?)
         case entry(UUID)
+        case recap(UUID)
         case journal
         case account
         case none
@@ -859,6 +850,12 @@ struct AskPanelView: View {
             }
             return .match(match, pointId: pointId)
         }
+        // An answer that came from a filmed lesson opens the recap, which
+        // is where the coach actually said it.
+        if href.hasPrefix("/lesson-video/"),
+           let id = UUID(uuidString: String(href.dropFirst("/lesson-video/".count))) {
+            return .recap(id)
+        }
         if let range = href.range(of: "#journal-entry-"),
            let entryId = UUID(uuidString: String(href[range.upperBound...])) {
             return .entry(entryId)
@@ -878,6 +875,13 @@ struct AskPanelView: View {
             .buttonStyle(.plain)
         case .entry(let entryId):
             Button { onOpenEntry(entryId) } label: {
+                sourceRowBody(source, number: number)
+            }
+            .buttonStyle(.plain)
+        case .recap(let id):
+            NavigationLink {
+                LessonVideoDetailScreen(id: id)
+            } label: {
                 sourceRowBody(source, number: number)
             }
             .buttonStyle(.plain)
@@ -938,9 +942,14 @@ struct AskPanelView: View {
 
     private func kindLabel(_ kind: String) -> String {
         switch kind {
-        case "note": "Note"
-        case "lesson": "Lesson"
-        case "practice": "Practice"
+        // Practice and Lesson both read "Note" now; a match note keeps
+        // its own label because it is anchored to footage.
+        case "note": "Match note"
+        case "lesson": "Note"
+        // A filmed lesson keeps its own label: the answer came from what
+        // the coach said on camera, and the row opens the recap.
+        case "lesson_recap": "Lesson recap"
+        case "practice": "Note"
         case "match": "Match"
         case "working_on": "Working on"
         case "tags": "Tags"
@@ -1098,15 +1107,31 @@ struct LessonCardView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 4) {
-                if lesson.kind == "lesson" {
+                // Derived from the coach, not from kind. Practice and
+                // Lesson stopped being a choice (2026-09-04), and an entry
+                // that gains a coach later keeps whatever kind it was
+                // written with — so reading kind here would label it
+                // wrongly.
+                if let coachName = lesson.coachName, !coachName.isEmpty {
                     (Text("Lesson with ").foregroundColor(PL.text500)
-                        + Text(lesson.coachName ?? "your coach").foregroundColor(PL.text200).fontWeight(.semibold)
+                        + Text(coachName).foregroundColor(PL.text200).fontWeight(.semibold)
                         + Text(" · \(PGDate.shortDate(lesson.createdAt))").foregroundColor(PL.text500))
                         .font(.system(size: 13))
                 } else {
-                    Text("Practice · \(PGDate.shortDate(lesson.createdAt))")
+                    Text("Note · \(PGDate.shortDate(lesson.createdAt))")
                         .font(.system(size: 13))
                         .foregroundStyle(PL.text500)
+                }
+                // Whether the coach can read it (164). Only ever shown
+                // when they can: an entry that says nothing is private,
+                // which is the default and the common case, and a
+                // "Private" badge on every card would be noise on a
+                // journal that is private by nature.
+                if lesson.sharedWithCoachAt != nil, let name = lesson.coachName {
+                    Text("· Shared with \(name)")
+                        .font(.system(size: 13))
+                        .foregroundStyle(PL.cyan)
+                        .lineLimit(1)
                 }
                 Spacer()
             }
@@ -1132,10 +1157,7 @@ struct LessonCardView: View {
                             HStack(alignment: .top, spacing: 8) {
                                 Circle().fill(PL.text600).frame(width: 4, height: 4)
                                     .padding(.top, 7)
-                                Text(point)
-                                    .font(.plBody)
-                                    .foregroundStyle(PL.text200)
-                                    .lineSpacing(3)
+                                EntryText(text: point)
                                 Spacer(minLength: 0)
                                 Button {
                                     Task {
@@ -1159,43 +1181,46 @@ struct LessonCardView: View {
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
             } else {
-                Text(lesson.transcript)
-                    .font(.plBody)
-                    .foregroundStyle(PL.text200)
+                EntryText(text: lesson.transcript)
                     .lineLimit(6)
             }
 
-            HStack(spacing: 16) {
+            // The photo the entry was saved with. It has been on the web
+            // since the journal grew photos and invisible here the whole
+            // time, which is the kind of gap only somebody using both ever
+            // finds.
+            if lesson.imagePath != nil {
+                EntryPhotoView(lessonId: lesson.id)
+            }
+
+            // Pills rather than bare text. A `Button` with a plain Text
+            // label and no padding is tappable only on the letters, about
+            // 20 points of it, with no pressed state — hit it and it
+            // works, miss and nothing happens at all. That is what made
+            // the coach's sharing buttons read as broken (2026-09-03),
+            // and this card had the identical shape.
+            FlowLayout(spacing: 8) {
                 if lesson.takeaways != nil {
                     Button(transcriptOpen ? "Hide transcript" : "Transcript") {
                         withAnimation { transcriptOpen.toggle() }
                     }
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(PL.text400)
-                    .buttonStyle(.plain)
+                    .buttonStyle(PLSecondaryButtonStyle())
                 }
                 Button("Edit") { onEdit() }
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(PL.text400)
-                    .buttonStyle(.plain)
-                Spacer()
+                    .buttonStyle(PLSecondaryButtonStyle())
                 // Share sits beside Delete: a public read-only link to
                 // this entry, minted in the sheet it opens. Hidden while
                 // queued, same as the web card — the entry is not its
                 // final self yet.
                 if lesson.status != "queued" {
                     Button("Share") { shareOpen = true }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(PL.text400)
-                        .buttonStyle(.plain)
+                        .buttonStyle(PLSecondaryButtonStyle())
                 }
                 Button("Delete") {
                     deleteError = nil
                     deleteAsk = true
                 }
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(PL.text400)
-                .buttonStyle(.plain)
+                .buttonStyle(PLSoftDestructiveButtonStyle())
                 .disabled(deleting)
             }
 
@@ -1206,10 +1231,7 @@ struct LessonCardView: View {
             }
 
             if transcriptOpen {
-                Text(lesson.transcript)
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text400)
-                    .lineSpacing(3)
+                EntryText(text: lesson.transcript, font: .plCaption, color: PL.text400)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1344,9 +1366,7 @@ struct EntryShareSheet: View {
         // The entry's current headline rides along and is stored on the
         // link, so the Account list can tell shared entries apart.
         // Re-sharing refreshes it (the route patches the title on reuse).
-        let kindLine = lesson.kind == "practice"
-            ? "Practice"
-            : lesson.coachName.map { "Lesson with \($0)" } ?? "Lesson"
+        let kindLine = lesson.coachName.map { "Lesson with \($0)" } ?? "Note"
         let title = lesson.takeaways?.title
             ?? "\(kindLine) · \(PGDate.shortDate(lesson.createdAt))"
         struct Req: Encodable {
@@ -1384,67 +1404,41 @@ struct EntryShareSheet: View {
 
 // MARK: - Composer
 
-enum NewEntryChoice {
-    case practice
-    case lesson
-    case record
-}
-
-/// What the journal's create button opens. Practice and lesson are the
-/// same editor with a different frame around it, which is exactly the
-/// thing a chooser is for: the decision is made once, up front, instead
-/// of as a pair of pills inside a form.
-///
-/// Recording the lesson outright is the third: the phone sits by the net,
-/// the coach talks, and the words come back written up.
-struct NewEntrySheet: View {
-    let onChoose: (NewEntryChoice) -> Void
-
-    var body: some View {
-        PLChooserSheet(title: "New entry") {
-            PLChooserRow(
-                icon: "figure.table.tennis",
-                title: "Practice note",
-                detail: "Drills, reflections, anything worth keeping."
-            ) { onChoose(.practice) }
-            PLChooserRow(
-                icon: "text.bubble",
-                title: "Lesson",
-                detail: "What your coach gave you. Type it, speak it, or paste it."
-            ) { onChoose(.lesson) }
-            PLChooserRow(
-                icon: "waveform",
-                title: "Audio record a lesson",
-                detail: "Put your phone near the net. Your notes are prepared automatically."
-            ) { onChoose(.record) }
-        }
-    }
-}
-
 /// The sheet that makes a new entry. Correcting one that already exists
 /// is `JournalNoteEditor`: it edits the written-up note rather than the
 /// raw words, so this no longer has an editing mode at all.
 struct JournalComposer: View {
+    /// Where the entry was made, which is what decides its kind.
+    ///
+    /// A note is the Journal's own: your reflection, nobody attached, saved
+    /// as `practice`. A lesson is made in the coaching workspace: it names
+    /// who taught it, will not save until that is answered, and is saved as
+    /// `lesson`. Deriving the kind from whether a coach happened to be
+    /// named is what let a note about your own practice become a lesson
+    /// because you mentioned somebody in it.
+    enum Mode { case note, lesson }
+
     let store: JournalStore
+    var mode: Mode = .note
     let onSaved: () -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var kind: String
-    @State private var coachName: String
+    /// Which of the player's own coaches taught it, and whether they may
+    /// read it (164). A pick, not a typed name: two spellings of one
+    /// person is the defect that replaced.
+    @State private var coachRefId: UUID?
+    @State private var noCoach = false
+    @State private var shareWithCoach = false
     @State private var body_: String
     @State private var summarize = true
     @State private var saving = false
     @State private var errorMessage: String?
 
-    // Dictation, the point-note composer's mic flow: record, transcribe
-    // via /api/transcribe, drop the words into the draft. Entries keep
-    // only the text, so the audio itself is thrown away.
-    @State private var recState: RecState = .idle
-    @State private var elapsed = 0
-    @State private var recorder: AVAudioRecorder?
-    @State private var timer: Timer?
-
-    enum RecState { case idle, recording, transcribing }
+    // Dictation and one attached photo, both shared with the coach's
+    // entry composer (`EntryComposerParts.swift`). Entries keep only the
+    // text of a dictation, so the audio itself is thrown away.
+    @State private var dictation = Dictation()
+    @State private var photo = EntryPhotoDraft()
 
     // Scan pages: photographs of a paper notebook, read into the same
     // draft field the dictation writes to. The photos are never stored —
@@ -1461,14 +1455,13 @@ struct JournalComposer: View {
 
     init(
         store: JournalStore,
-        initialKind: String = "practice",
+        mode: Mode = .note,
         initialText: String = "",
         onSaved: @escaping () -> Void
     ) {
         self.store = store
+        self.mode = mode
         self.onSaved = onSaved
-        _kind = State(initialValue: initialKind)
-        _coachName = State(initialValue: "")
         _body_ = State(initialValue: initialText)
     }
 
@@ -1483,44 +1476,58 @@ struct JournalComposer: View {
         PLSheetScaffold(
             title: title,
             doneLabel: saving ? "Saving…" : "Save",
-            doneDisabled: saving || recState != .idle || scanning
+            doneDisabled: saving || dictation.isBusy || photo.isBusy || scanning
+                || !coachAnswered
                 || body_.trimmingCharacters(in: .whitespaces).isEmpty,
             onDone: { Task { await save() } }
         ) {
             Form {
-                if kind == "lesson" {
+                // Who taught it — on a lesson, and only on a lesson. A
+                // note written in the Journal is your own reflection and
+                // has nobody to attribute.
+                if mode == .lesson {
                     Section {
-                        TextField("Who taught it?", text: $coachName)
+                        CoachPickerRow(
+                            coaches: store.playerCoaches,
+                            coachRefId: $coachRefId,
+                            shareWithCoach: $shareWithCoach,
+                            noCoach: $noCoach,
+                            requireAnswer: true,
+                            shareNoun: "this lesson",
+                            onCreate: { await store.createCoach(named: $0) },
+                            onAppearReload: { await store.loadCoaches() }
+                        )
                     }
                 }
 
                 Section {
                     TextField(
-                        kind == "lesson"
-                            ? "Paste the transcript, or start writing"
-                            : "What did you work on today?",
+                        "What did you work on today?",
                         text: $body_, axis: .vertical
                     )
                     .lineLimit(8...20)
                 }
 
                 Section {
-                    dictationRow
+                    DictationRow(dictation: dictation, disabled: saving || scanning) { words in
+                        append(words)
+                    }
                     scanRow
+                    EntryPhotoRow(draft: photo, disabled: saving || scanning || dictation.isBusy)
                 } footer: {
-                    Text(scanNote ?? "Speak it, or photograph pages from a paper notebook. Both come back as text you can edit.")
+                    Text(scanNote ?? "Speak it, or photograph pages from a paper notebook; both come back as text you can edit. A photo you add is kept with the entry.")
                         .foregroundStyle(scanNote == nil ? PL.text500 : PL.warningText)
                 }
 
                 Section {
-                    Toggle("Condense and summarize", isOn: $summarize)
+                    Toggle("Improve with AI", isOn: $summarize)
                 } footer: {
-                    Text("Summarizing reads the whole entry through, so saving takes a few seconds longer.")
+                    Text("Your rough notes become clear, simple points. You can edit them afterwards.")
                 }
 
-                if let errorMessage {
+                if let line = errorMessage ?? dictation.errorMessage ?? photo.errorMessage {
                     Section {
-                        Text(errorMessage)
+                        Text(line)
                             .font(.plBody)
                             .foregroundStyle(PL.dangerText)
                     }
@@ -1560,21 +1567,19 @@ struct JournalComposer: View {
             }
         }
         .onDisappear {
-            // Swiping the sheet away mid-recording: stop the hardware,
-            // skip the transcription nobody is waiting for.
-            timer?.invalidate()
-            if let recorder {
-                recorder.stop()
-                try? FileManager.default.removeItem(at: recorder.url)
-                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            }
+            // Swiped away mid-recording, or with a photo attached to an
+            // entry that will never exist.
+            dictation.cancel()
+            photo.discard()
         }
     }
 
-    /// The kind is settled before this opens, so the bar says which one
-    /// this is instead of asking again.
-    private var title: String {
-        kind == "lesson" ? "New lesson" : "New practice note"
+    private var title: String { mode == .lesson ? "New lesson" : "New note" }
+    /// A lesson has to say who taught it, even when the answer is nobody.
+    /// "Not answered yet" and "answered: no coach" are different states and
+    /// only one of them may save.
+    private var coachAnswered: Bool {
+        mode == .note || coachRefId != nil || noCoach
     }
 
     /// Photographed pages, in the same section as dictation because they
@@ -1604,11 +1609,11 @@ struct JournalComposer: View {
             } label: {
                 scanLabel
             }
-            .disabled(saving || recState != .idle)
+            .disabled(saving || dictation.isBusy)
         } else {
             // No camera to offer, so nothing to ask about.
             Button { libraryOpen = true } label: { scanLabel }
-                .disabled(saving || recState != .idle)
+                .disabled(saving || dictation.isBusy)
         }
     }
 
@@ -1673,121 +1678,31 @@ struct JournalComposer: View {
         body_ = existing.isEmpty ? text : existing + "\n\n" + text
     }
 
-    /// Dictation as a row rather than a floating circle. Inside a form the
-    /// thing people press is a row, and the circle had to invent its own
-    /// recording banner beside it; a row can just say what it is doing.
-    private var dictationRow: some View {
-        Button {
-            if recState == .recording {
-                stopRecording()
-            } else if recState == .idle {
-                Task { await startRecording() }
-            }
-        } label: {
-            HStack(spacing: 12) {
-                if recState == .transcribing {
-                    ProgressView().tint(PL.cyan)
-                    Text("Writing it down…")
-                } else {
-                    Image(systemName: recState == .recording ? "stop.fill" : "mic")
-                        .foregroundStyle(recState == .recording ? PL.dangerText : PL.cyan)
-                    Text(recState == .recording ? "Stop and write it down" : "Dictate it")
-                }
-                Spacer()
-                if recState == .recording {
-                    Text(String(format: "%d:%02d", elapsed / 60, elapsed % 60))
-                        .monospacedDigit()
-                        .foregroundStyle(PL.text400)
-                }
-            }
-        }
-        .disabled(recState == .transcribing || saving)
-    }
-
-    // MARK: - Dictation
-
-    private func startRecording() async {
-        errorMessage = nil
-        let granted = await AVAudioApplication.requestRecordPermission()
-        guard granted else {
-            errorMessage = "Microphone access was blocked. Check Settings."
-            return
-        }
-        let session = AVAudioSession.sharedInstance()
-        do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
-            try session.setActive(true)
-        } catch {
-            errorMessage = "Couldn't start recording. Try again."
-            return
-        }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("journal-\(UUID().uuidString).m4a")
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: 44_100,
-            AVNumberOfChannelsKey: 1,
-            AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue,
-        ]
-        do {
-            let rec = try AVAudioRecorder(url: url, settings: settings)
-            rec.record()
-            recorder = rec
-            elapsed = 0
-            recState = .recording
-            timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-                Task { @MainActor in elapsed += 1 }
-            }
-        } catch {
-            errorMessage = "Couldn't start recording. Try again."
-        }
-    }
-
-    private func stopRecording() {
-        timer?.invalidate()
-        timer = nil
-        guard let recorder else {
-            recState = .idle
-            return
-        }
-        let url = recorder.url
-        recorder.stop()
-        self.recorder = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        recState = .transcribing
-        Task {
-            defer { recState = .idle }
-            guard let data = try? Data(contentsOf: url), !data.isEmpty else {
-                errorMessage = "Nothing was recorded. Try again."
-                return
-            }
-            guard data.count <= 10 * 1024 * 1024 else {
-                errorMessage = "That recording is too long. Break it into shorter takes."
-                return
-            }
-            do {
-                let result = try await NoteMedia.transcribe(audio: data)
-                let transcript = (result.transcript ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                if !transcript.isEmpty { append(transcript) }
-            } catch {
-                errorMessage = "Couldn't transcribe that. Try again."
-            }
-            try? FileManager.default.removeItem(at: url)
-        }
-    }
-
     private func save() async {
         saving = true
         errorMessage = nil
+        // The kind is where the entry was made, not whether a coach was
+        // named. Coaching writes 'lesson', the Journal writes 'practice',
+        // a coach writes 'coach'. The labels a reader sees still come from
+        // the coach's name. The web twin is JournalEditor.tsx.
+        let refId = mode == .lesson ? coachRefId : nil
+        let named = refId.flatMap { id in
+            store.playerCoaches.first(where: { $0.id == id })?.displayName
+        }
         let ok = await store.saveEntry(
             transcript: body_.trimmingCharacters(in: .whitespacesAndNewlines),
-            kind: kind,
-            coachName: kind == "lesson" && !coachName.trimmingCharacters(in: .whitespaces).isEmpty
-                ? coachName.trimmingCharacters(in: .whitespaces) : nil,
-            summarize: summarize
+            kind: mode == .lesson ? "lesson" : "practice",
+            coachName: named,
+            summarize: summarize,
+            imagePath: photo.path,
+            coachRefId: refId,
+            shareWithCoach: shareWithCoach && refId != nil
         )
         saving = false
         if ok {
+            // The entry owns the photo now: let go of it rather than
+            // deleting it on the way out.
+            photo.release()
             onSaved()
             dismiss()
         } else {

@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { matchShareKind } from "./shareTarget";
+import { highlightShareCanBeCreated } from "./highlightShare";
 
 export const runtime = "nodejs";
 
@@ -11,6 +13,7 @@ export const runtime = "nodejs";
  *   { matchId, pointId }           -> link to one point
  *   { matchId, kind: 'starred' }   -> link to the currently-starred points
  *                                     (live: resolved at view time)
+ *   { matchId, kind: 'highlights'} -> link to the current automatic reel
  *   { lessonId }                   -> link to one journal entry (154).
  *                                     Live the same way: the page shows
  *                                     the entry as it currently reads,
@@ -167,12 +170,7 @@ export async function POST(req: Request) {
     !UUID_RE.test(matchId) ||
     (pointId && !UUID_RE.test(pointId)) ||
     (tagId && !UUID_RE.test(tagId)) ||
-    (requestedKind &&
-      !["point", "match", "starred", "tag"].includes(requestedKind)) ||
-    (requestedKind === "starred" && pointId) ||
-    (requestedKind === "point" && !pointId) ||
-    (requestedKind === "tag") !== Boolean(tagId) ||
-    (tagId && pointId)
+    !matchShareKind({ pointId, tagId, requestedKind })
   ) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
@@ -212,13 +210,26 @@ export async function POST(req: Request) {
     }
   }
 
-  const kind = pointId
-    ? "point"
-    : tagId
-      ? "tag"
-      : requestedKind === "starred"
-        ? "starred"
-        : "match";
+  const kind = matchShareKind({ pointId, tagId, requestedKind });
+  if (!kind) {
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+
+  if (kind === "highlights") {
+    const { data: highlights } = await supabase
+      .from("match_reels")
+      .select("status,r2_key")
+      .eq("match_id", matchId)
+      .eq("scope", "highlights")
+      .eq("status", "ready")
+      .maybeSingle();
+    if (!highlightShareCanBeCreated(highlights)) {
+      return NextResponse.json(
+        { error: "Highlights are not ready" },
+        { status: 409 },
+      );
+    }
+  }
 
   // Return the existing active link when there is one; a provided title
   // renames it (re-sharing is how the owner edits the headline).

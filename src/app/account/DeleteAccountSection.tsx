@@ -17,10 +17,16 @@ type Preview = {
 };
 
 /**
- * Closing the account, beside sign out where the settings screen keeps its
- * exits. Two steps on purpose: the button asks the server what would go and
+ * Closing the account, as the last row of the Support group, where the iOS
+ * app keeps it (Adil, 2026-09-05); it used to be a card of its own under
+ * Sign out. Two steps on purpose: the row asks the server what would go and
  * only then opens the dialog, so the confirmation names real numbers instead
  * of a generic warning nobody reads.
+ *
+ * Drawn like every other row in the group, in the ordinary text colour, as
+ * the iOS row is; the confirmation is where the weight of the action is
+ * carried (Adil, 2026-09-05). Rendered as one block so the card's divide-y
+ * draws a single rule above it, error line included.
  */
 export function DeleteAccountSection() {
   const router = useRouter();
@@ -86,16 +92,29 @@ export function DeleteAccountSection() {
 
   return (
     <>
-      <button
-        onClick={begin}
-        disabled={busy}
-        className="w-full rounded-2xl border border-edge bg-surface px-5 py-4 text-center text-sm font-medium text-red-400 transition-colors hover:border-red-500/40 hover:bg-red-500/10 disabled:opacity-50"
-      >
-        {busy && !open ? "Checking…" : "Delete account"}
-      </button>
-      {error && !open && (
-        <p className="mt-2 text-center text-sm text-red-400">{error}</p>
-      )}
+      <div>
+        <button
+          type="button"
+          onClick={begin}
+          disabled={busy}
+          className="flex w-full items-center justify-between px-5 py-4 text-left text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2 disabled:opacity-50"
+        >
+          {busy && !open ? "Checking…" : "Delete account"}
+          <svg
+            viewBox="0 0 24 24"
+            className="h-4 w-4 text-zinc-500"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+          </svg>
+        </button>
+        {error && !open && (
+          <p className="px-5 pb-3 text-sm text-red-400">{error}</p>
+        )}
+      </div>
 
       <ConfirmDialog
         open={open}

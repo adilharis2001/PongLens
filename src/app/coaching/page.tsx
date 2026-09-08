@@ -10,6 +10,7 @@ import type {
 import type { NoteFeedRow } from "@/lib/types";
 import { CoachHub } from "./CoachHub";
 import type { CoachFirstStepsState } from "./CoachFirstSteps";
+import { tutorialWasStarted } from "../learn/tutorialProgress";
 import { rememberedWorkspace } from "@/lib/workspaceServer";
 
 export const metadata: Metadata = {
@@ -101,12 +102,14 @@ export default async function CoachingPage() {
       anyShared: entries.some((e) => e.shared_at !== null),
       sharedMatchId: (sharedRes.data?.[0] as { id: string } | undefined)?.id ?? null,
       hasPage: !!profile,
-      watched: user.user_metadata?.tutorial_started === true,
+      watched: tutorialWasStarted(user.user_metadata, "coach"),
     };
   }
 
   return (
-    <AppShell avatarUrl={avatarUrl}>
+    // The playing side floats "New lesson", so the content column needs
+    // the same bottom clearance the Journal's New button gets.
+    <AppShell avatarUrl={avatarUrl} hasFab={workspace !== "coach"}>
       <CoachHub
         workspace={workspace}
         profile={(profile as CoachProfileRow | null) ?? null}

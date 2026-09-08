@@ -16,11 +16,14 @@ On failure: mark failed with the error; archive the message once it has been
 attempted 3 times (poison-message guard), otherwise leave it to reappear
 after the visibility timeout.
 
-Daily retention sweep (SPEC.md §7; keep the Privacy Policy in step):
-  - R2 ponglens-raw: raw uploads older than 30 days -> delete
-  - R2 ponglens-media results/: cut videos older than 30 days -> delete
-  - Later phases add tiers for point clips + match.json (keep while account
-    active) and voice audio (90 days); wire them in here when they exist.
+Daily retention sweep (keep the Privacy Policy and Terms in step):
+  - Nothing a live match references is ever deleted. The original upload
+    and the cut video stay for the life of the match (policy since the
+    commerce flip, 2026-08; the Privacy Policy and Terms promise it). The
+    only 30-day clocks left are for ORPHANS: raws and cuts no match row
+    points at (rejected uploads, deleted matches, abandoned uploads).
+  - Point clips + match.json: kept while the account is active.
+  - Voice audio: 90 days. Orphaned sketches and Journal images: 2 days.
   - Legacy Supabase 'uploads' bucket: older than 30 days -> delete (until
     the last legacy rows age out, then this can go)
 
@@ -60,6 +63,16 @@ try:
         deliver_cost_alerts,
     )
     from worker.cost_meter import CostMeter, stable_key
+    from worker.email_templates import (
+        RenderedEmail,
+        admin_job_failure_message,
+        export_ready_message,
+        feedback_digest_message,
+        match_ready_message,
+        qa_digest_message,
+        render_email,
+        upload_failed_message,
+    )
     from worker.cost_reconcile import (
         record_r2_storage_snapshot,
         run_daily_reconciliation,
@@ -67,6 +80,16 @@ try:
 except ModuleNotFoundError:  # direct `python worker/worker.py` execution
     from cost_alerts import PostgresCostAlertStore, deliver_cost_alerts
     from cost_meter import CostMeter, stable_key
+    from email_templates import (
+        RenderedEmail,
+        admin_job_failure_message,
+        export_ready_message,
+        feedback_digest_message,
+        match_ready_message,
+        qa_digest_message,
+        render_email,
+        upload_failed_message,
+    )
     from cost_reconcile import (
         record_r2_storage_snapshot,
         run_daily_reconciliation,
@@ -289,17 +312,38 @@ CLEANUP_EVERY_S = 24 * 3600
 COST_ALERT_CHECK_EVERY_S = 60
 LEGACY_UPLOAD_RETENTION_DAYS = 30   # Supabase 'uploads' bucket (legacy rows)
 
-# R2 storage (SPEC.md §7)
+# R2 storage
 R2_RAW_BUCKET = "ponglens-raw"
 R2_MEDIA_BUCKET = "ponglens-media"
-R2_RAW_RETENTION_DAYS = 30          # raw uploads
-R2_RESULTS_RETENTION_DAYS = 30      # cut videos under results/
+# ORPHANS ONLY. A raw or cut that any live match references is never
+# swept, whatever its age (r2_raw_sweep, _referenced_cut_paths). These
+# clocks apply to objects no match row points at: rejected uploads,
+# deleted matches, uploads that never registered. There is no 30-day
+# retention of a player's video; do not reintroduce one, and do not write
+# copy that says an original "expires".
+ORPHAN_RAW_DAYS = 30                # unreferenced raw uploads
+ORPHAN_CUT_DAYS = 30                # unreferenced cut videos under results/
 R2_VOICE_RETENTION_DAYS = 90        # voice note audio under voice/
 ENTRY_ORPHAN_GRACE_DAYS = 2         # staged Journal images under entry/
                                     # (transcripts live in Postgres forever)
 
 WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
-LOG_PATH = os.path.join(WORKER_DIR, "worker.log")
+# Which queue this process serves (spec 2026-09-06, step 3). The main lane
+# is the one process that has always run: uploads, imports, placement,
+# highlights, and the housekeeping (retention sweep, digests, cost
+# alerts). The fast lane is a second process on the same machine that
+# reads only 'jobs_fast' — re-cuts and share renders, the jobs a person
+# is holding the phone through — so a five-second re-cut never queues
+# behind a forty-minute upload. Routing is enqueue_job's, switched by
+# app_config.reclip_lane; a lane with no process reading it is a queue
+# nobody drains, so the switch flips only after the second process runs.
+#   python3 worker.py --lane fast       or       WORKER_LANE=fast
+LANE = "fast" if "--lane" in sys.argv and \
+    sys.argv[sys.argv.index("--lane") + 1:][:1] == ["fast"] \
+    else os.environ.get("WORKER_LANE", "main")
+QUEUE_NAME = "jobs_fast" if LANE == "fast" else "jobs"
+LOG_PATH = os.path.join(
+    WORKER_DIR, "worker-fast.log" if LANE == "fast" else "worker.log")
 
 # Under launchd the wrapper already appends stdout to worker.log, so a
 # stdout handler there would double every line. The stream handler is for
@@ -494,7 +538,7 @@ RESEND_API_KEY = os.environ.get("PONGLENS_RESEND_KEY") or keychain(
 # OpenAI key for the upfront content check. Optional: if missing, the check
 # is skipped (fail open) — it must never block job processing.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY") or keychain("openai-api-key")
-EMAIL_FROM = "PongLens <noreply@ponglens.com>"
+EMAIL_FROM = "PongLens <support@ponglens.com>"
 # Replies land in the Fastmail support mailbox instead of dying at noreply@.
 EMAIL_REPLY_TO = "support@ponglens.com"
 ADMIN_EMAIL = "adilharis2001@gmail.com"
@@ -513,18 +557,19 @@ def connect():
 
 
 def read_message(conn):
-    """Read one message from the pgmq 'jobs' queue, or None."""
+    """Read one message from this lane's pgmq queue, or None."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            "select msg_id, read_ct, message from pgmq.read('jobs', %s, %s)",
-            (VISIBILITY_S, 1),
+            "select msg_id, read_ct, message from pgmq.read(%s, %s, %s)",
+            (QUEUE_NAME, VISIBILITY_S, 1),
         )
         return cur.fetchone()
 
 
 def archive_message(conn, msg_id: int):
     with conn.cursor() as cur:
-        cur.execute("select pgmq.archive('jobs', %s::bigint)", (msg_id,))
+        cur.execute("select pgmq.archive(%s, %s::bigint)",
+                    (QUEUE_NAME, msg_id))
 
 
 def update_job(conn, job_id: str, **fields):
@@ -640,15 +685,19 @@ def address_suppressed(to: str) -> bool:
 
 def send_email(
     to: str,
-    subject: str,
-    html_body: str,
+    subject: str | RenderedEmail,
+    html_body: str | None = None,
     bcc: str | list[str] | None = None,
     *,
     idempotency_key: str | None = None,
     cost_meter: CostMeter | None = None,
 ):
+    rendered = subject if isinstance(subject, RenderedEmail) else None
+    subject_text = rendered.subject if rendered else subject
+    if rendered is None and html_body is None:
+        raise ValueError("legacy email delivery requires an HTML body")
     if not RESEND_API_KEY:
-        log.warning("email skipped (no Resend key in Keychain): %s", subject)
+        log.warning("email skipped (no Resend key in Keychain): %s", subject_text)
         return
     if address_suppressed(to):
         log.info("email skipped (address suppressed): %s", subject)
@@ -664,9 +713,15 @@ def send_email(
         "from": EMAIL_FROM,
         "to": [to],
         "reply_to": EMAIL_REPLY_TO,
-        "subject": subject,
-        "html": html_body,
+        "subject": subject_text,
+        "html": rendered.html if rendered else html_body,
     }
+    if rendered:
+        payload["text"] = rendered.text
+        payload["headers"] = {
+            "X-PongLens-Template-Id": rendered.template_id,
+            "X-PongLens-Template-Version": str(rendered.template_version),
+        }
     if bcc_list:
         payload["bcc"] = bcc_list
     r = requests.post(
@@ -698,7 +753,7 @@ def send_email(
     ])
     log.info(
         "  email sent: %r -> %s%s",
-        subject,
+        subject_text,
         to,
         f" (bcc {', '.join(bcc_list)})" if bcc_list else "",
     )
@@ -832,13 +887,10 @@ def done_email_html(original_name: str, match_id: str | None = None) -> str:
     video they had just been told was ready. Falls back to the dashboard
     only when the match cannot be resolved, which is the old behaviour and
     still better than a dead link."""
-    return email_card_html(
-        "Your match is ready",
-        f"We finished processing {original_name}. Open PongLens to review "
-        "the match point by point, add notes, and share it with your coach.",
-        "Review your match",
+    return render_email(match_ready_message(
+        original_name,
         f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL,
-    )
+    )).html
 
 
 # PLACEMENT SENDS NO EMAIL, in either direction.
@@ -863,15 +915,18 @@ def notify_job_done(conn, job_id: str, user_id: str):
     """Email the uploader that their video is ready. Never raises."""
     try:
         original_name = get_job_original_name(conn, job_id) or "your match video"
-        body = done_email_html(original_name, get_job_match_id(conn, job_id))
-        subject = "Your match is ready to review"
+        match_id = get_job_match_id(conn, job_id)
+        message = render_email(match_ready_message(
+            original_name,
+            f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL,
+        ))
         to = get_user_email(conn, user_id)
         if to:
-            send_email(to, subject, body, bcc=ADMIN_EMAIL)
+            send_email(to, message)
         else:
             log.warning("  no email found for user %s; notifying admin only",
                         user_id)
-            send_email(ADMIN_EMAIL, subject, body)
+            send_email(ADMIN_EMAIL, message)
     except Exception as e:
         log.warning("  done email failed (non-fatal): %s", e)
 
@@ -882,19 +937,12 @@ def notify_job_failed(conn, job_id: str, error: str):
     is exactly who QA is. Never raises.
     """
     try:
-        body = (
-            "<div style=\"font-family:monospace;font-size:13px;\">"
-            f"<p>PongLens job failed.</p>"
-            f"<p><strong>Job:</strong> {html.escape(job_id)}</p>"
-            f"<p><strong>Error:</strong> {html.escape(error[:1000])}</p>"
-            "</div>"
-        )
-        send_email(
-            ADMIN_EMAIL,
-            f"PongLens job failed: {job_id[:8]}",
-            body,
-            bcc=failure_watchers(conn, exclude=ADMIN_EMAIL),
-        )
+        message = render_email(admin_job_failure_message(
+            job_id,
+            error,
+            f"{APP_URL}/admin/uploads",
+        ))
+        send_email(ADMIN_EMAIL, message)
     except Exception as e:
         log.warning("  failure email failed (non-fatal): %s", e)
 
@@ -915,17 +963,14 @@ def notify_upload_failed(conn, user_id: str, kind: str,
     try:
         if not user_id:
             return False
-        what = "Import failed" if kind == "youtube_import" else "Upload failed"
-        body = email_card_html(
-            what,
+        source = "youtube" if kind == "youtube_import" else "upload"
+        rendered = render_email(upload_failed_message(
+            source,
             message or "We couldn't process this video.",
-            "Try another video",
-            f"{APP_URL}/upload",
-        )
+        ))
         to = get_user_email(conn, user_id)
         if to:
-            send_email(to, what, body,
-                       bcc=failure_watchers(conn, exclude=to))
+            send_email(to, rendered)
             return True
         return False
     except Exception as e:
@@ -1008,6 +1053,19 @@ def get_config(conn, key: str) -> str | None:
                     (key,))
         row = cur.fetchone()
     return row[0] if row else None
+
+
+def automatic_highlights_enabled(value: str | None, user_id: str) -> bool:
+    """Allow a global rollout or backward-compatible user canaries."""
+    if value == "on" or value == f"user:{user_id}":
+        return True
+    if not value or not value.startswith("users:"):
+        return False
+    return user_id in {
+        candidate.strip()
+        for candidate in value.removeprefix("users:").split(",")
+        if candidate.strip()
+    }
 
 
 def set_config(conn, key: str, value: str):
@@ -1217,10 +1275,13 @@ def maybe_send_feedback_digest(conn):
             to = (get_config(conn, "digest_recipient") or "").strip() \
                 or ADMIN_EMAIL
             n = len(new_items)
+            message = render_email(feedback_digest_message(
+                new_items,
+                leaderboard,
+            ))
             send_email(
                 to,
-                f"PongLens feedback: {n} new item{'s' if n != 1 else ''}",
-                feedback_digest_html(new_items, leaderboard),
+                message,
             )
             log.info("feedback digest sent to %s (%d new item(s))", to, n)
         else:
@@ -1323,12 +1384,8 @@ def qa_digest_subject(n_closed: int, n_comments: int) -> str:
     """What the inbox line says. Both counts when both happened, because a
     mail titled "7 reports closed" that also holds two replies buries the
     half somebody is waiting on."""
-    parts = []
-    if n_comments:
-        parts.append(f"{n_comments} repl{'ies' if n_comments != 1 else 'y'}")
-    if n_closed:
-        parts.append(f"{n_closed} report{'s' if n_closed != 1 else ''} closed")
-    return "PongLens: " + " and ".join(parts)
+    count = n_closed + n_comments
+    return f"{count} update{'s' if count != 1 else ''} to your PongLens reports"
 
 
 def qa_closed_digest_html(
@@ -1510,10 +1567,14 @@ def maybe_send_qa_closed_digest(conn):
             n = len(items)
             c = len(convo)
             try:
+                message = render_email(qa_digest_message(
+                    items,
+                    first_name,
+                    convo,
+                ))
                 send_email(
                     email,
-                    qa_digest_subject(n, c),
-                    qa_closed_digest_html(items, first_name, convo),
+                    message,
                 )
             except Exception as e:
                 # Unstamped, so tomorrow's run picks the same rows back up.
@@ -1601,6 +1662,16 @@ def run_blurball(
                 if line:
                     print(line, flush=True)
                 match = BLURBALL_FRAME_RE.match(line)
+                if match:
+                    # The line the log has printed all along, written
+                    # where /admin/processing can read it. This is the
+                    # only signal that separates a slow job from a dead
+                    # one while inference is running.
+                    frames, all_frames = int(match.group(1)), int(match.group(2))
+                    pulse_note(
+                        line[:200],
+                        round(100 * frames / all_frames) if all_frames else None,
+                    )
                 if match and on_progress:
                     done, total = int(match.group(1)), int(match.group(2))
                     if total > 0:
@@ -1797,6 +1868,10 @@ class BackfillResult:
 
 class BackfillConsistencyError(RuntimeError):
     """A post-mutation failure that must halt the entire rollout."""
+
+
+class HighlightRefreshObsoleteError(BackfillConsistencyError):
+    """The match changed, so this explicit refresh must not retry later."""
 
 
 def run_blurball_only(
@@ -2694,8 +2769,12 @@ def load_placement_attempt_record(
             "m.placement_generation_job_id::text as "
             "placement_generation_job_id, "
             "m.placement_retry_job_id::text as placement_retry_job_id, "
-            "(m.placement_retry_expires_at is null or "
-            " m.placement_retry_expires_at <= now()) as source_expired, "
+            # A live match keeps its original for good, so its retry never
+            # expires; the deadline only means something on a legacy row
+            # (raw_path null) whose raw was on the old 30-day clock.
+            "(m.raw_path is null and "
+            " (m.placement_retry_expires_at is null or "
+            "  m.placement_retry_expires_at <= now())) as source_expired, "
             "j.input_path, j.options as job_options, m.match_json_path "
             "from public.matches m "
             "left join public.jobs j on j.id = m.job_id "
@@ -3617,8 +3696,20 @@ def claim_processing_for(conn, user_id: str, match_id: str,
     (098). The import finishes on the worker with no browser left to make
     the claim, so the service role makes it — same function, same rules.
     A refusal (no minutes, queue full) is not an error: the video simply
-    waits in the library, which is what the import UI promises."""
+    waits in the library, which is what the import UI promises.
+
+    THE CLAIM MUST BE ONE TRANSACTION. `claim_processing` only lets a
+    caller act for someone else when auth.role() is service_role, and that
+    role is carried by `request.jwt.claims`, set LOCAL — meaning it lives
+    until the end of the current transaction and no longer. This
+    connection is autocommit, so each statement is its own transaction:
+    set the claim in one statement and the setting is already gone by the
+    next, the function sees an anonymous caller trying to act for another
+    user, and refuses. Every auto-process since the feature shipped failed
+    that way, silently, because the refusal is logged as ordinary."""
+    original_autocommit = conn.autocommit
     try:
+        conn.autocommit = False
         with conn.cursor() as cur:
             cur.execute(
                 "select set_config('request.jwt.claims', %s, true)",
@@ -3628,14 +3719,27 @@ def claim_processing_for(conn, user_id: str, match_id: str,
                 "%s, null, %s)",
                 (match_id, placement, strictness, user_id))
             claim = cur.fetchone()[0]
-            cur.execute("select set_config('request.jwt.claims', '', true)")
+        conn.commit()
         log.info("  auto-process claimed: %s minute(s), job %s",
                  claim.get("charged_minutes"), claim.get("job_id"))
         return True
     except psycopg2.Error as e:
-        log.info("  auto-process not started (%s) — the video is in the "
-                 "library", str(e).strip().splitlines()[0])
+        conn.rollback()
+        first = str(e).strip().splitlines()[0]
+        # 42501 is "not authorized"/"not authenticated" — never a thing the
+        # uploader did, always this code failing to prove who it is. It
+        # gets a warning so the next regression is visible in a day rather
+        # than in three weeks of imports quietly not starting.
+        if getattr(e, "pgcode", None) == "42501":
+            log.warning("  auto-process REFUSED AUTH (%s) — the worker could "
+                        "not act for the uploader; the video is in the "
+                        "library", first)
+        else:
+            log.info("  auto-process not started (%s) — the video is in the "
+                     "library", first)
         return False
+    finally:
+        conn.autocommit = original_autocommit
 
 
 def refund_processing_spend_direct(conn, job_id: str):
@@ -3773,8 +3877,12 @@ def finish_match(conn, match_id: str, status: str,
             "then placement_failure_code else %s end, "
             "placement_retry_expires_at = case "
             "when %s in ('not_requested', 'retry_available') then "
-            "(select j.created_at + interval '30 days' "
-            " from public.jobs j where j.id = public.matches.job_id) "
+            # No deadline for a match whose original is kept (raw_path
+            # set); the 30-day clock survives only for legacy rows.
+            "(case when public.matches.raw_path is not null then null "
+            " else (select j.created_at + interval '30 days' "
+            "       from public.jobs j where j.id = public.matches.job_id) "
+            " end) "
             "when %s is not null then null "
             "else placement_retry_expires_at end "
             "where id = %s",
@@ -4047,19 +4155,33 @@ def insert_points(
             cur.execute(
                 "insert into public.points (id, match_id, idx, t0, t1, "
                 "clip_path, server, placement, suggestion, cut_t0, "
-                "rally_end_cut_s) "
-                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "rally_end_cut_s, highlight_evidence) "
+                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (point_id, match_id, p["idx"], p["t0"], p["t1"],
                  f"{prefix}/{p['clip']}", p.get("server"),
                  json.dumps(p["placement"]) if p.get("placement") else None,
                  json.dumps(p["suggestion"]) if p.get("suggestion")
                  else None,
-                 p.get("cut_t0"), p.get("rally_end_cut_s")),
+                 p.get("cut_t0"), p.get("rally_end_cut_s"),
+                 json.dumps(p["highlight_evidence"])
+                 if p.get("highlight_evidence") else None),
             )
             inserted[int(p["idx"])] = {
                 "id": point_id,
+                "idx": int(p["idx"]),
                 "t0": float(p["t0"]),
                 "t1": float(p["t1"]),
+                "cut_t0": (float(p["cut_t0"])
+                           if p.get("cut_t0") is not None else None),
+                "rally_end_cut_s": (
+                    float(p["rally_end_cut_s"])
+                    if p.get("rally_end_cut_s") is not None else None
+                ),
+                "clip_path": f"{prefix}/{p['clip']}",
+                "deleted": False,
+                "edited": False,
+                "is_let": False,
+                "highlight_evidence": p.get("highlight_evidence"),
             }
     return inserted
 
@@ -4570,6 +4692,7 @@ def run_points_stage(
     played_at: str | None = None,
     *,
     attempt_key: str = "manual",
+    cut_local_path: str | None = None,
 ):
     """Break the original video into points. Failure here never fails the
     job (the cut already shipped): the match row is marked failed.
@@ -4783,6 +4906,25 @@ def run_points_stage(
             mapped_points=mapped,
             calibration=match_json.get("calibration"),
         )
+
+        # The cut and every detector receipt are still local here. Rendering
+        # now avoids another R2 download and means a newly-ready match never
+        # exposes a half-prepared highlight. This stage is deliberately
+        # fail-soft inside prepare_auto_highlights.
+        if cut_local_path:
+            with COST_METER.timed_stage(
+                    "automatic_highlight_encoding", attempt_key):
+                prepare_auto_highlights(
+                    conn,
+                    user_id,
+                    match_id,
+                    list(inserted_points.values()),
+                    cut_local_path,
+                    workdir,
+                    enabled=automatic_highlights_enabled(
+                        get_config(conn, "automatic_highlights"), user_id
+                    ),
+                )
 
         finish_match(
             conn,
@@ -5159,6 +5301,115 @@ CLIP_PADDING = {"tight": (0.5, 1.0), "normal": (1.0, 1.6), "loose": (1.6, 2.4)}
 TIGHT_PAD = 0.3
 
 
+# ---------------------------------------------------------------------------
+# Re-cuts (spec 2026-09-06, step 2): by URL and byte range, from the cut
+# video wherever it holds the footage, from the original otherwise.
+#
+# A re-cut used to download the ENTIRE original upload — gigabytes, for a
+# rally nudged half a second — and cut from that. ffmpeg range-seeks over
+# https (render_story has done this for share renders since 135), so a
+# presigned link plus `-ss` fetches a few megabytes around the window.
+# The cut video is the better source where it can be: smaller, and the
+# same file every player streams. match.json records exactly which source
+# seconds the cut kept (cut_segments on plays-mode matches; each original
+# point's own clip window on the older spans-mode ones), so "does the cut
+# hold this window" is a lookup, never a guess — a window that reaches into
+# removed dead space goes to the original. app_config.reclip_source =
+# 'raw' turns the cut source off without a deploy.
+# ---------------------------------------------------------------------------
+RECLIP_SOURCE_KEY = "reclip_source"        # 'cut_first' (default) | 'raw'
+# points_pipeline's tail rule, mirrored for points born after processing.
+RECLIP_DYN_POST_MAX_S = 2.0
+RECLIP_DYN_GAP_KEEP_S = 0.2
+_RECUT_KEY_RE = re.compile(
+    r"^r2://" + re.escape(R2_MEDIA_BUCKET)
+    + r"/points/[^/]+/[^/]+/\d{2}-[0-9a-f]{8}\.mp4$")
+
+
+def _presigned_get(path: str | None, expires_s: int = 6 * 3600) -> str | None:
+    """A signed GET for an r2:// path that ffmpeg can range-seek, or None
+    for a legacy Supabase-Storage path."""
+    loc = parse_r2_path(path or "")
+    if not loc:
+        return None
+    try:
+        return r2().generate_presigned_url(
+            "get_object",
+            Params={"Bucket": loc[0], "Key": loc[1]},
+            ExpiresIn=expires_s,
+        )
+    except Exception as e:                                      # noqa: BLE001
+        log.warning("  could not sign %s (%s)", path, e)
+        return None
+
+
+class _CutMap:
+    """Which source seconds the cut video kept, and where they landed.
+
+    Plays-mode matches carry cut_segments: the exact list of kept source
+    spans, in order, so the cut position of any kept second is the
+    segment's offset plus the distance into it (points_pipeline
+    cut_position). Older spans-mode matches recorded only each original
+    point's own clip window and its cut_t0, which is enough to place a
+    window that stays inside that clip. Anything else is not provably in
+    the cut and goes to the original.
+    """
+
+    def __init__(self, mj: dict | None):
+        segs = (mj or {}).get("cut_segments") or []
+        self.segments = [(float(a), float(b)) for a, b in segs]
+        self.offsets: list[float] = []
+        acc = 0.0
+        for s0, s1 in self.segments:
+            self.offsets.append(acc)
+            acc += s1 - s0
+        # idx -> (clip_t0, clip_t1, cut_t0, t1) at birth
+        self.born: dict[int, tuple[float, float, float, float]] = {}
+        for p in (mj or {}).get("points") or []:
+            try:
+                self.born[int(p["idx"])] = (
+                    float(p["clip_t0"]), float(p["clip_t1"]),
+                    float(p["cut_t0"]), float(p["t1"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+        self.dynamic_tails = bool(mj) and (mj or {}).get("pipeline") != "v2"
+
+    def locate(self, idx: int, c0: float, c1: float) -> float | None:
+        """Cut second where the source window [c0, c1] starts, or None
+        when the cut does not hold all of it."""
+        for (s0, s1), off in zip(self.segments, self.offsets):
+            if c0 >= s0 - 0.01 and c1 <= s1 + 0.01:
+                return off + (max(c0, s0) - s0)
+        if not self.segments:
+            b = self.born.get(idx)
+            if b and c0 >= b[0] - 0.01 and c1 <= b[1] + 0.01:
+                return b[2] + (max(c0, b[0]) - b[0])
+        return None
+
+    def born_post(self, idx: int) -> float | None:
+        """The tail the pipeline cut this point with, in seconds past t1."""
+        b = self.born.get(idx)
+        return (b[1] - b[3]) if b else None
+
+
+def _load_match_json(conn, match_id: str, workdir: str) -> dict | None:
+    with conn.cursor() as cur:
+        cur.execute("select match_json_path from public.matches where id = %s",
+                    (match_id,))
+        row = cur.fetchone()
+    loc = parse_r2_path((row[0] if row else None) or "")
+    if not loc:
+        return None
+    local = os.path.join(workdir, "match.json")
+    try:
+        r2().download_file(loc[0], loc[1], local)
+        with open(local) as fh:
+            return json.load(fh)
+    except Exception as e:                                      # noqa: BLE001
+        log.warning("  reclip: match.json unreadable (%s)", e)
+        return None
+
+
 def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
     options = get_job_options(conn, job_id, payload)
     match_id = options.get("match_id")
@@ -5196,7 +5447,7 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
 
     with conn.cursor() as cur:
         cur.execute(
-            "select id, idx, t0, t1, tight_start, tight_end "
+            "select id, idx, t0, t1, tight_start, tight_end, clip_path "
             "from public.points "
             "where match_id = %s and edited and not deleted "
             "and t0 is not null and t1 is not null order by idx",
@@ -5206,80 +5457,191 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
     if not targets:
         log.info("  reclip: nothing to do for match %s", match_id)
         return
+    # Every visible point's start, for the tail room of a point born after
+    # processing (split children, inserted cards) — see p_post below.
+    with conn.cursor() as cur:
+        cur.execute(
+            "select t0 from public.points where match_id = %s "
+            "and not deleted and t0 is not null order by t0",
+            (match_id,),
+        )
+        starts = [float(r[0]) for r in cur.fetchall()]
 
     update_job(conn, job_id, progress=10)
     workdir = tempfile.mkdtemp(prefix=f"ponglens-reclip-{str(job_id)[:8]}-")
     try:
-        local_input = os.path.join(workdir, "source.mp4")
-        source_ok = False
-        try:
-            r2_input = parse_r2_path(input_path or "")
-            if r2_input:
-                log.info("  reclip: downloading r2://%s/%s", *r2_input)
-                r2().download_file(r2_input[0], r2_input[1], local_input)
-            elif input_path:
-                log.info("  reclip: downloading uploads/%s (legacy)", input_path)
-                storage_download("uploads", input_path, local_input)
-            source_ok = bool(input_path) and os.path.exists(local_input) \
-                and os.path.getsize(local_input) > 0
-        except Exception as e:
-            log.warning("  reclip: raw source unavailable: %s", e)
-
-        if source_ok:
-            # Library sources: cut the claimed window so t0/t1 line up.
-            local_input = apply_source_trim(local_input, workdir, src_options)
-
-        if not source_ok:
-            # Raw gone (30-day retention) and no original->cut mapping stored:
-            # keep the timing edits, mark the clips unavailable.
-            with conn.cursor() as cur:
-                for pid, _idx, t0, t1, _ts, _te in targets:
-                    cur.execute(
-                        "update public.points set clip_path = null, "
-                        "edited = false where id = %s and t0 = %s and t1 = %s",
-                        (pid, t0, t1),
-                    )
-            log.info("  reclip: source gone; marked %d clip(s) unavailable",
-                     len(targets))
-            return
+        # Sources, by URL. Nothing is downloaded whole.
+        prefer_cut = (get_config(conn, RECLIP_SOURCE_KEY) or "cut_first") != "raw"
+        cut_map = _CutMap(_load_match_json(conn, match_id, workdir)) \
+            if prefer_cut else None
+        cut_url = _cut_video_url(conn, match_id, 6 * 3600) if prefer_cut else None
+        raw_url = _presigned_get(input_path)
+        raw_local: str | None = None
+        if raw_url is None and input_path:
+            # Legacy Supabase-Storage source (pre-R2 rows): the one case
+            # that still needs a local copy.
+            try:
+                raw_local = os.path.join(workdir, "source.mp4")
+                storage_download("uploads", input_path, raw_local)
+                raw_local = apply_source_trim(raw_local, workdir, src_options)
+            except Exception as e:                              # noqa: BLE001
+                log.warning("  reclip: legacy source unavailable: %s", e)
+                raw_local = None
+        # A library upload processed inside a trim window: every t0/t1 is
+        # measured from trim_start_s INTO the original, so a seek on the
+        # original adds it (apply_source_trim's rule, without the remux).
+        trim_start = 0.0
+        if isinstance(src_options, dict) \
+                and src_options.get("match_id") is not None \
+                and src_options.get("trim_end_s") is not None:
+            trim_start = float(src_options.get("trim_start_s") or 0.0)
+        if raw_url is not None:
+            # A gone original (a legacy match whose raw was swept before
+            # commerce) must be found out now, not once per clip.
+            try:
+                _ffprobe_streams(raw_url)
+            except Exception as e:                              # noqa: BLE001
+                log.warning("  reclip: original unreadable (%s)", e)
+                raw_url = None
+        log.info("  reclip: sources cut=%s raw=%s legacy=%s",
+                 bool(cut_url), bool(raw_url), bool(raw_local))
 
         update_job(conn, job_id, progress=30)
         key_prefix = f"points/{owner_id}/{match_id}"
         done = 0
-        for pid, idx, t0, t1, tight_start, tight_end in targets:
+        kept = 0
+        failed: list[str] = []
+        for pid, idx, t0, t1, tight_start, tight_end, old_path in targets:
             p_pre = min(pre, TIGHT_PAD) if tight_start else pre
-            p_post = min(post, TIGHT_PAD) if tight_end else post
+            if tight_end:
+                p_post = min(post, TIGHT_PAD)
+            else:
+                # The tail this point was cut with. An original point keeps
+                # the tail its birth record shows (the pipeline stretches a
+                # tail toward DYN_POST_MAX_S where the next play leaves
+                # room, and an edited point must not lose 0.7s of it); a
+                # point born after processing gets the same rule, or the
+                # flat pad where the pipeline used flat tails.
+                born = cut_map.born_post(int(idx)) if cut_map else None
+                if born is not None:
+                    p_post = max(post, min(RECLIP_DYN_POST_MAX_S, born))
+                elif cut_map is not None and cut_map.dynamic_tails:
+                    nxt = next((s for s in starts if s > float(t1) + 0.01), None)
+                    room = (nxt - float(t1) - pre - RECLIP_DYN_GAP_KEEP_S) \
+                        if nxt is not None else RECLIP_DYN_POST_MAX_S
+                    p_post = max(post, min(RECLIP_DYN_POST_MAX_S, room))
+                else:
+                    p_post = post
             c0 = max(0.0, float(t0) - p_pre)
-            span = (float(t1) + p_post) - c0
+            c1 = float(t1) + p_post
+            span = c1 - c0
+            cut_at = cut_map.locate(int(idx), c0, c1) \
+                if (cut_map is not None and cut_url) else None
+            if cut_at is not None:
+                src, seek, src_kind = cut_url, cut_at, "cut"
+            elif raw_url is not None:
+                src, seek, src_kind = raw_url, trim_start + c0, "raw"
+            elif raw_local is not None:
+                src, seek, src_kind = raw_local, c0, "raw-local"
+            else:
+                # No source holds this window. Keep the previous file (a
+                # stale clip with a label beats no clip; the apps label it)
+                # and clear the flag so nothing spins for a file that can
+                # never come.
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "update public.points set edited = false "
+                        "where id = %s and t0 = %s and t1 = %s",
+                        (pid, t0, t1),
+                    )
+                kept += 1
+                continue
             out = os.path.join(workdir, f"clip_{idx}.mp4")
-            subprocess.run(
-                ["ffmpeg", "-y", "-v", "error", "-ss", f"{c0:.2f}",
-                 "-i", local_input, "-t", f"{span:.2f}",
-                 "-vf", "scale=720:-2",
-                 "-c:v", "libx264", "-preset", "medium", "-crf", "23",
-                 "-c:a", "aac", "-b:a", "96k",
-                 "-movflags", "+faststart", out],
-                check=True, timeout=1800,
-            )
-            # fresh key per cut so stale CDN/browser caches never win
-            key = f"{key_prefix}/{int(idx):02d}-{uuid.uuid4().hex[:8]}.mp4"
-            r2().upload_file(out, R2_MEDIA_BUCKET, key,
-                             ExtraArgs={"ContentType": "video/mp4"})
-            ledger_append(conn, str(owner_id), "clip", os.path.getsize(out),
-                          f"r2://{R2_MEDIA_BUCKET}/{key}", match_id)
+            started = time.monotonic()
+            # One clip failing must not abandon the rest of the match: a
+            # loop that raised on clip k left every point after it flagged
+            # forever, with no bell (jobs_notify_failed ignores reclips).
+            try:
+                # The Mac's video hardware, like the reels and stories use,
+                # with the software encoder as the fallback (step 4). The
+                # bitrate matches what crf 23 produced at 720 wide; the
+                # output stays H.264 8-bit + AAC with the index in front,
+                # so every reader is unaffected.
+                encoder = _run_ffmpeg_encoded(
+                    ["-ss", f"{seek:.2f}", "-i", src, "-t", f"{span:.2f}",
+                     "-vf", "scale=720:-2"],
+                    ["-c:v", "h264_videotoolbox", "-b:v", "2500k",
+                     "-allow_sw", "1", "-pix_fmt", "yuv420p"],
+                    ["-c:v", "libx264", "-preset", "medium", "-crf", "23",
+                     "-pix_fmt", "yuv420p"],
+                    ["-c:a", "aac", "-b:a", "96k",
+                     "-movflags", "+faststart", out],
+                )
+                # fresh key per cut so stale CDN/browser caches never win
+                key = f"{key_prefix}/{int(idx):02d}-{uuid.uuid4().hex[:8]}.mp4"
+                r2().upload_file(out, R2_MEDIA_BUCKET, key,
+                                 ExtraArgs={"ContentType": "video/mp4"})
+                ledger_append(conn, str(owner_id), "clip",
+                              os.path.getsize(out),
+                              f"r2://{R2_MEDIA_BUCKET}/{key}", match_id)
+            except Exception as e:  # noqa: BLE001 — logged, next clip
+                failed.append(str(pid))
+                log.warning("  reclip: point %s (idx %s) failed: %s",
+                            pid, idx, e)
+                continue
             # claim the edit only if t0/t1 didn't change while we were
-            # cutting; if they did, a follow-up reclip will redo this point
+            # cutting; if they did, the trigger has already queued a
+            # follow-up job that redoes this point
             with conn.cursor() as cur:
                 cur.execute(
                     "update public.points set clip_path = %s, edited = false "
                     "where id = %s and t0 = %s and t1 = %s",
                     (f"r2://{R2_MEDIA_BUCKET}/{key}", pid, t0, t1),
                 )
+                claimed = cur.rowcount == 1
+            # The previous re-cut object is dead weight the moment the new
+            # one is claimed: delete it and give its bytes back. An
+            # ORIGINAL clip (NN.mp4) stays — its bytes were booked under
+            # the match prefix as one row and cannot be netted out alone.
+            if claimed and old_path and _RECUT_KEY_RE.match(old_path):
+                loc = parse_r2_path(old_path)
+                try:
+                    if loc:
+                        r2().delete_object(Bucket=loc[0], Key=loc[1])
+                    ledger_negate_keys(conn, [old_path])
+                except Exception as e:                          # noqa: BLE001
+                    log.warning("  reclip: old clip not removed (%s)", e)
             done += 1
+            log.info("  reclip: point idx %s cut from %s with %s in %.1fs "
+                     "(%.1fs of video)", idx, src_kind, encoder,
+                     time.monotonic() - started, span)
             update_job(conn, job_id,
                        progress=30 + int(60 * done / len(targets)))
-        log.info("  reclip: regenerated %d clip(s) for match %s",
-                 done, match_id)
+        log.info("  reclip: regenerated %d clip(s) for match %s "
+                 "(%d kept as they were, %d failed)",
+                 done, match_id, kept, len(failed))
+        # Anything still flagged that this run did not fail on was edited
+        # while we were cutting (the claim above refused it): ask for
+        # another pass through the same door the apps use. A point that
+        # failed here is left for the retry the queue already gives a
+        # failed job, not re-requested in a loop.
+        with conn.cursor() as cur:
+            cur.execute(
+                "select count(*) from public.points "
+                "where match_id = %s and edited and not deleted "
+                "and t0 is not null and t1 is not null "
+                "and not (id::text = any(%s))",
+                (match_id, failed),
+            )
+            (pending,) = cur.fetchone()
+        if pending:
+            log.info("  reclip: %d point(s) changed mid-run; requesting "
+                     "another pass", pending)
+            with conn.cursor() as cur:
+                cur.execute("select public.request_reclip(%s)", (match_id,))
+        if failed and not done:
+            raise RuntimeError(
+                f"reclip: every clip failed ({len(failed)}) for {match_id}")
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -5294,8 +5656,9 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
 # downloaded once): each point carries cut-timeline bounds (seg_start /
 # seg_end, clamped here against the cut's real duration) and ffmpeg extracts
 # the segment at source resolution. Points without bounds — and whole
-# matches whose cut video is gone (30-day retention) — fall back to the
-# 720p preview clips, scaled/padded to the target frame.
+# matches whose cut video is gone (a deleted match mid-render, or a legacy
+# match whose cut was swept before commerce) — fall back to the 720p
+# preview clips, scaled/padded to the target frame.
 #
 # Overlays are Pillow PNGs designed against a 1080p frame and scaled by
 # height/1080: a PongLens watermark bottom-RIGHT on every segment and, when
@@ -5771,6 +6134,238 @@ def _run_ffmpeg_encoded(args_before_codec: list[str], vt_args: list[str],
     raise RuntimeError(f"ffmpeg encode failed: {(proc.stderr or '')[-400:]}")
 
 
+def render_auto_highlights(manifest: dict, cut_local: str,
+                           workdir: str) -> tuple[str, dict]:
+    """Render qualified cut-clock segments as one continuous stored asset."""
+    from highlights import XFADE_S
+
+    points = manifest.get("points") if isinstance(manifest, dict) else None
+    if not isinstance(points, list) or not points:
+        raise ValueError("automatic highlights have no points")
+    if not os.path.isfile(cut_local):
+        raise FileNotFoundError(cut_local)
+
+    fmt = _ffprobe_streams(cut_local)
+    video = next((s for s in fmt.get("streams", [])
+                  if s.get("codec_type") == "video"), None)
+    if video is None:
+        raise RuntimeError("automatic highlights source has no video")
+    tw, th = int(video["width"]), int(video["height"])
+    tw += tw % 2
+    th += th % 2
+    rate = video.get("avg_frame_rate") or video.get("r_frame_rate") or "30/1"
+    try:
+        num, den = rate.split("/")
+        fps = float(num) / float(den)
+    except (AttributeError, ValueError, ZeroDivisionError):
+        fps = 30.0
+    fps = min(60.0, max(24.0, fps if math.isfinite(fps) else 30.0))
+    gop = max(1, round(fps))
+    has_audio = any(s.get("codec_type") == "audio"
+                    for s in fmt.get("streams", []))
+
+    bitrate = int(9_000_000 * (tw * th) / (1920 * 1080) * (fps / 30.0))
+    bitrate = max(2_000_000, min(bitrate, 24_000_000))
+    vt = ["-c:v", "h264_videotoolbox", "-b:v", str(bitrate),
+          "-allow_sw", "1", "-pix_fmt", "yuv420p", "-g", str(gop)]
+    x264 = ["-c:v", "libx264", "-preset", "medium", "-crf", "19",
+            "-pix_fmt", "yuv420p", "-g", str(gop),
+            "-keyint_min", str(gop), "-sc_threshold", "0"]
+    for codec_args in (vt, x264):
+        codec_args += ["-force_key_frames", "expr:gte(t,n_forced*1)"]
+    audio_args = ["-c:a", "aac", "-b:a", "128k", "-ar", "48000",
+                  "-ac", "2"]
+
+    segments = []
+    for index, point in enumerate(points):
+        start = float(point["cut_start_s"])
+        end = float(point["cut_end_s"])
+        duration = end - start
+        if start < 0 or duration < 0.5:
+            raise ValueError(
+                f"automatic highlight point {point.get('point_id')} has "
+                "invalid cut bounds"
+            )
+        segment = os.path.join(workdir, f"auto_highlight_{index:03d}.mp4")
+        inputs = ["-ss", f"{start:.3f}", "-t", f"{duration:.3f}",
+                  "-i", cut_local]
+        if has_audio:
+            audio_in = "0:a"
+        else:
+            inputs += ["-f", "lavfi", "-t", f"{duration:.3f}",
+                       "-i", "anullsrc=r=48000:cl=stereo"]
+            audio_in = "1:a"
+        filters = (
+            f"[0:v]scale={tw}:{th}:force_original_aspect_ratio=decrease,"
+            f"pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
+            f"fps={fps:.5f},format=yuv420p,setpts=PTS-STARTPTS[v];"
+            f"[{audio_in}]aresample=48000,"
+            "aformat=sample_fmts=fltp:channel_layouts=stereo,"
+            "asetpts=PTS-STARTPTS[a]"
+        )
+        _run_ffmpeg_encoded(
+            [*inputs, "-filter_complex", filters,
+             "-map", "[v]", "-map", "[a]", "-shortest"],
+            vt, x264,
+            [*audio_args, "-movflags", "+faststart", segment],
+        )
+        segments.append(segment)
+
+    durations = [float(_ffprobe_streams(path)["format"]["duration"])
+                 for path in segments]
+    out_path = os.path.join(workdir, "automatic-highlights.mp4")
+    if len(segments) == 1:
+        shutil.copyfile(segments[0], out_path)
+    else:
+        inputs = []
+        for segment in segments:
+            inputs += ["-i", segment]
+        chains = []
+        video_in = "0:v"
+        audio_in = "0:a"
+        offset = 0.0
+        for index in range(1, len(segments)):
+            offset += durations[index - 1] - XFADE_S
+            video_out = (f"v{index}" if index < len(segments) - 1
+                         else "vout")
+            audio_out = (f"a{index}" if index < len(segments) - 1
+                         else "aout")
+            chains.append(
+                f"[{video_in}][{index}:v]xfade=transition=fade:"
+                f"duration={XFADE_S}:offset={offset:.4f}[{video_out}]"
+            )
+            chains.append(
+                f"[{audio_in}][{index}:a]acrossfade=d={XFADE_S}"
+                f"[{audio_out}]"
+            )
+            video_in, audio_in = video_out, audio_out
+        _run_ffmpeg_encoded(
+            [*inputs, "-filter_complex", ";".join(chains),
+             "-map", "[vout]", "-map", "[aout]"],
+            vt, x264,
+            [*audio_args, "-movflags", "+faststart", out_path],
+        )
+
+    rendered = copy.deepcopy(manifest)
+    cursor = 0.0
+    for index, (point, duration) in enumerate(
+            zip(rendered["points"], durations)):
+        if index:
+            cursor -= XFADE_S
+        point["output_start_s"] = round(cursor, 3)
+        cursor += duration
+        point["output_end_s"] = round(cursor, 3)
+    actual_duration = float(_ffprobe_streams(out_path)["format"]["duration"])
+    rendered["duration_s"] = round(actual_duration, 3)
+    if rendered["points"]:
+        rendered["points"][-1]["output_end_s"] = round(actual_duration, 3)
+    log.info("  automatic highlights: %d rallies, %.1fs, %dx%d %.2ffps",
+             len(points), actual_duration, tw, th, fps)
+    return out_path, rendered
+
+
+def _write_auto_highlight_state(conn, match_id: str, status: str,
+                                manifest: dict, *, r2_key=None,
+                                duration_s=None, size_bytes=None,
+                                error=None):
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into public.match_reels "
+            "(match_id, scope, status, show_score, manifest, r2_key, "
+            "duration_s, size_bytes, error) "
+            "values (%s, %s, %s, false, %s, %s, %s, %s, %s) "
+            "on conflict (match_id, scope) do update set "
+            "status = excluded.status, show_score = false, "
+            "manifest = excluded.manifest, r2_key = excluded.r2_key, "
+            "duration_s = excluded.duration_s, "
+            "size_bytes = excluded.size_bytes, error = excluded.error",
+            (match_id, "highlights", status, json.dumps(manifest), r2_key,
+             duration_s, size_bytes, error),
+        )
+
+
+def _delete_auto_highlight_object(conn, key: str | None):
+    if not key:
+        return
+    try:
+        r2().delete_object(Bucket=R2_MEDIA_BUCKET, Key=key)
+        ledger_negate_keys(conn, [f"r2://{R2_MEDIA_BUCKET}/{key}"])
+    except Exception as exc:  # retention remains the final safety net
+        log.warning("  automatic highlight old revision cleanup failed: %s",
+                    exc)
+
+
+def prepare_auto_highlights(conn, user_id: str, match_id: str,
+                            points: list[dict], cut_local: str, workdir: str,
+                            *, enabled: bool) -> str:
+    """Select, render, and store highlights without ever failing the match."""
+    if not enabled:
+        return "off"
+
+    from highlights import build_manifest
+
+    old_key = None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "select r2_key from public.match_reels "
+                "where match_id = %s and scope = 'highlights'",
+                (match_id,),
+            )
+            row = cur.fetchone()
+            old_key = row[0] if row else None
+
+        manifest = build_manifest(points)
+        if not manifest["points"]:
+            _write_auto_highlight_state(
+                conn, match_id, "empty", manifest, r2_key=None
+            )
+            _delete_auto_highlight_object(conn, old_key)
+            log.info("  automatic highlights: no qualifying rallies")
+            return "empty"
+
+        _write_auto_highlight_state(conn, match_id, "rendering", manifest)
+        output, rendered_manifest = render_auto_highlights(
+            manifest, cut_local, workdir
+        )
+        revision = rendered_manifest["points_revision"][:16]
+        key = f"reels/{match_id}-highlights-{revision}.mp4"
+        size = os.path.getsize(output)
+        r2().upload_file(
+            output, R2_MEDIA_BUCKET, key,
+            ExtraArgs={"ContentType": "video/mp4"},
+        )
+        uri = f"r2://{R2_MEDIA_BUCKET}/{key}"
+        ledger_append(conn, user_id, "reel", size, uri, match_id)
+        _write_auto_highlight_state(
+            conn, match_id, "ready", rendered_manifest,
+            r2_key=key,
+            duration_s=round(float(rendered_manifest["duration_s"]), 2),
+            size_bytes=size,
+        )
+        if old_key and old_key != key:
+            _delete_auto_highlight_object(conn, old_key)
+        return "ready"
+    except Exception as exc:  # fail-soft by product contract
+        log.exception("  automatic highlights failed for match %s", match_id)
+        try:
+            failed_manifest = locals().get("manifest") or {
+                "v": 2,
+                "rule": "quality-first-v2",
+                "max_seconds": 150.0,
+                "points_revision": "",
+                "duration_s": 0.0,
+                "points": [],
+            }
+            _write_auto_highlight_state(
+                conn, match_id, "failed", failed_manifest,
+                error=str(exc)[:500],
+            )
+        except Exception:
+            log.exception("  failed to record automatic highlight failure")
+        return "failed"
+
+
 def render_reel(manifest: dict, show_score: bool, workdir: str,
                 cut_local: str | None = None) -> str:
     """Render the reel mp4 from the manifest. Returns the output path.
@@ -5778,8 +6373,8 @@ def render_reel(manifest: dict, show_score: bool, workdir: str,
     cut_local: local path to the match's full-resolution cut video. Points
     with seg_start/seg_end bounds are extracted from it at source
     resolution; points without bounds — and everything when it is None
-    (pre-v2 manifests, cut lost to 30-day retention) — fall back to their
-    720p preview clips."""
+    (pre-v2 manifests, a legacy cut swept before commerce) — fall back to
+    their 720p preview clips."""
     points = manifest["points"]
     you = (manifest.get("you_name") or "Player").strip() or "Player"
     them = (manifest.get("them_name") or "Opponent").strip() or "Opponent"
@@ -6179,49 +6774,22 @@ def render_story(manifest: dict, show_score: bool, workdir: str,
 
 
 def reel_email_html(match_url: str) -> str:
-    return f"""\
-<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">Your shareable match video is ready.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0;padding:0;background-color:#f4f5f7;">
-  <tr>
-    <td align="center" style="padding:48px 16px;background-color:#f4f5f7;">
-      <table role="presentation" width="480" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;width:100%;background-color:#ffffff;border:1px solid #e4e4e7;border-radius:16px;">
-        <tr>
-          <td align="center" style="padding:40px 32px 36px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-            <img src="https://www.ponglens.com/img/email-logo.png" width="180" height="44" alt="PongLens" style="display:block;width:180px;height:44px;border:0;margin:0 auto 28px;">
-            <h1 style="margin:0 0 14px;font-size:22px;line-height:1.3;font-weight:700;color:#0f172a;">Your export is ready</h1>
-            <p style="margin:0 0 28px;font-size:14px;line-height:1.6;color:#475569;">
-              Your shareable match video has finished rendering. Open the
-              match to save it or share it anywhere.
-            </p>
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;">
-              <tr>
-                <td align="center" style="background-color:#0891b2;border-radius:999px;">
-                  <a href="{match_url}" style="display:inline-block;padding:13px 30px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;line-height:1;color:#ffffff;text-decoration:none;border-radius:999px;">Open your match</a>
-                </td>
-              </tr>
-            </table>
-            <p style="margin:32px 0 0;font-size:12px;line-height:1.5;color:#94a3b8;">Sent by PongLens &middot; ponglens.com</p>
-          </td>
-        </tr>
-      </table>
-    </td>
-  </tr>
-</table>
-"""
+    return render_email(export_ready_message(match_url)).html
 
 
 def notify_reel_done(conn, user_id: str, match_id: str):
     """Email the owner that their reel is ready. Never raises."""
     try:
         to = get_user_email(conn, user_id)
-        body = reel_email_html(f"https://www.ponglens.com/match/{match_id}")
+        message = render_email(export_ready_message(
+            f"https://www.ponglens.com/match/{match_id}"
+        ))
         if to:
-            send_email(to, "Your match export is ready", body,
-                       bcc=ADMIN_EMAIL)
+            send_email(to, message)
         else:
             log.warning("  no email for user %s; notifying admin only",
                         user_id)
-            send_email(ADMIN_EMAIL, "Your match export is ready", body)
+            send_email(ADMIN_EMAIL, message)
     except Exception as e:
         log.warning("  reel email failed (non-fatal): %s", e)
 
@@ -6269,9 +6837,9 @@ def _cut_video_url(conn, match_id: str, expires_s: int = 3600) -> str | None:
 def _fetch_cut_video(conn, match_id: str, workdir: str) -> str | None:
     """Download the match's full-resolution cut video ONCE per render —
     matches.cut_path, falling back to the source job's result path exactly
-    like /api/media-url does. Returns the local path, or None (the 30-day
-    results retention may have deleted it) — the caller then falls back to
-    the 720p preview clips."""
+    like /api/media-url does. Returns the local path, or None (a legacy
+    cut swept before commerce; live matches keep theirs) — the caller then
+    falls back to the 720p preview clips."""
     with conn.cursor() as cur:
         cur.execute(
             "select m.cut_path, j.result_path, j.status "
@@ -6373,6 +6941,92 @@ def process_tag_reel(conn, job_id: str, user_id: str, tag_id: str) -> None:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def _load_highlight_points(conn, match_id: str) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "select id, idx, t0, t1, cut_t0, scored_at_cut_s, "
+            "rally_end_cut_s, "
+            "clip_path, deleted, edited, is_let, highlight_evidence "
+            "from public.points where match_id = %s order by idx, id",
+            (match_id,),
+        )
+        return [
+            dict(zip(("id", "idx", "t0", "t1", "cut_t0",
+                      "scored_at_cut_s", "rally_end_cut_s", "clip_path",
+                      "deleted", "edited", "is_let", "highlight_evidence"),
+                     values))
+            for values in cur.fetchall()
+        ]
+
+
+def _wait_for_highlight_points(conn, match_id: str) -> list[dict]:
+    """Let the lightweight reclip finish before spending on a new reel."""
+    from highlight_backfill import highlight_points_are_updating
+    deadline = time.monotonic() + 120
+    while True:
+        points = _load_highlight_points(conn, match_id)
+        if not highlight_points_are_updating(points):
+            return points
+        if time.monotonic() >= deadline:
+            raise HighlightRefreshObsoleteError(
+                "highlight rally clips did not finish updating"
+            )
+        time.sleep(1)
+
+
+def _prepare_automatic_highlight_manifest(
+    conn,
+    match_id: str,
+    requested_refresh: bool,
+    job_id: str,
+) -> dict:
+    from highlight_backfill import (
+        highlight_evidence_refresh_needed,
+        highlight_revision_is_current,
+        refresh_match_evidence_for_render,
+    )
+    from highlights import build_manifest
+
+    last_error: Exception | None = None
+    for _attempt in range(2):
+        try:
+            points = _wait_for_highlight_points(conn, match_id)
+            if requested_refresh or highlight_evidence_refresh_needed(points):
+                refresh_match_evidence_for_render(conn, match_id)
+                requested_refresh = False
+                update_job(conn, job_id, progress=12)
+                points = _wait_for_highlight_points(conn, match_id)
+            manifest = build_manifest(points)
+            current = _load_highlight_points(conn, match_id)
+            if highlight_revision_is_current(
+                manifest["points_revision"], current
+            ):
+                return manifest
+            last_error = BackfillConsistencyError(
+                f"match {match_id} changed during highlight preparation"
+            )
+        except HighlightRefreshObsoleteError:
+            raise
+        except BackfillConsistencyError as error:
+            last_error = error
+        time.sleep(0.25)
+    raise HighlightRefreshObsoleteError(
+        f"match {match_id} did not hold a stable highlight snapshot"
+    ) from last_error
+
+
+def _mark_reel_failed(conn, match_id: str, scope: str, error: Exception) -> None:
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "update public.match_reels set status = 'failed', "
+                "error = %s where match_id = %s and scope = %s",
+                (str(error)[:500], match_id, scope),
+            )
+    except Exception:
+        log.exception("  failed to mark reel failed")
+
+
 def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     options = get_job_options(conn, job_id, payload)
     match_id = options.get("match_id")
@@ -6395,7 +7049,7 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     # manifest; only the canvas differs.
     scope = options.get("scope") or "starred"
     _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-    if (scope not in ("starred", "full", "v:starred",
+    if (scope not in ("starred", "full", "highlights", "v:starred",
                       "v:hl:story", "v:hl:reel", "v:hl:long")
             and not re.fullmatch(rf"tag:{_UUID}", scope)
             and not re.fullmatch(rf"v:point:{_UUID}", scope)):
@@ -6404,7 +7058,8 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
 
     with conn.cursor() as cur:
         cur.execute(
-            "select m.user_id, r.show_score, r.manifest, m.story_crop "
+            "select m.user_id, r.show_score, r.manifest, m.story_crop, "
+            "r.r2_key "
             "from public.match_reels r "
             "join public.matches m on m.id = r.match_id "
             "where r.match_id = %s and r.scope = %s",
@@ -6413,27 +7068,49 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         row = cur.fetchone()
     if not row:
         raise RuntimeError(f"reel: no match_reels row for {match_id}/{scope}")
-    owner_id, show_score, manifest, story_crop = row
+    owner_id, show_score, manifest, story_crop, old_key = row
     # options.match_id is client-influenced: never render a match the job's
     # creator doesn't own.
     if str(owner_id) != str(user_id):
         raise RuntimeError("reel: job user does not own the match")
-    if not isinstance(manifest, dict) or not manifest.get("points"):
+    automatic = scope == "highlights"
+    if automatic:
+        requested_refresh = (
+            isinstance(manifest, dict)
+            and manifest.get("refresh_evidence") is True
+        )
+        try:
+            manifest = _prepare_automatic_highlight_manifest(
+                conn, str(match_id), requested_refresh, job_id
+            )
+        except Exception as error:
+            _mark_reel_failed(conn, str(match_id), scope, error)
+            raise
+        if not manifest["points"]:
+            _write_auto_highlight_state(conn, match_id, "empty", manifest)
+            _delete_auto_highlight_object(conn, old_key)
+            return
+    elif not isinstance(manifest, dict) or not manifest.get("points"):
         raise RuntimeError("reel: empty manifest")
 
     with conn.cursor() as cur:
         cur.execute(
-            "update public.match_reels set status = 'rendering' "
+            "update public.match_reels set status = 'rendering', "
+            "manifest = %s, error = null "
             "where match_id = %s and scope = %s",
-            (match_id, scope),
+            (json.dumps(manifest), match_id, scope),
         )
     update_job(conn, job_id, progress=15)
 
     workdir = tempfile.mkdtemp(prefix=f"ponglens-reel-{str(job_id)[:8]}-")
     try:
         t0 = time.time()
-        cut_local = None
-        if any(isinstance(p, dict) and p.get("seg_start") is not None
+        cut_local = _fetch_cut_video(conn, match_id, workdir) \
+            if automatic else None
+        if automatic and cut_local is None:
+            raise RuntimeError("automatic highlights cut is unavailable")
+        if not automatic and any(
+               isinstance(p, dict) and p.get("seg_start") is not None
                for p in manifest["points"]):
             # A share is rendered while its owner waits, and a vertical
             # render reads seconds out of the cut, not the whole thing —
@@ -6443,7 +7120,19 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
                          else _fetch_cut_video(conn, match_id, workdir))
             if vertical and cut_local is None:
                 cut_local = _fetch_cut_video(conn, match_id, workdir)
-        if vertical:
+        if automatic:
+            out, manifest = render_auto_highlights(
+                manifest, cut_local, workdir
+            )
+            from highlight_backfill import highlight_revision_is_current
+            current_points = _load_highlight_points(conn, str(match_id))
+            if not highlight_revision_is_current(
+                manifest["points_revision"], current_points
+            ):
+                raise HighlightRefreshObsoleteError(
+                    f"match {match_id} changed while highlights rendered"
+                )
+        elif vertical:
             out = render_story(manifest, bool(show_score), workdir,
                                cut_local, story_crop)
         else:
@@ -6455,7 +7144,9 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         # alongside it (tag:<uuid> -> -tag-<uuid>). Vertical share renders
         # get a v- prefix, which is also what the retention sweep matches
         # on — they are regenerable in seconds and must not accumulate.
-        key = (f"reels/{match_id}.mp4" if scope == "starred"
+        key = (f"reels/{match_id}-highlights-"
+               f"{manifest['points_revision'][:16]}.mp4" if automatic
+               else f"reels/{match_id}.mp4" if scope == "starred"
                else f"reels/{match_id}-full.mp4" if scope == "full"
                else f"reels/v-{match_id}-{scope.replace(':', '-')}.mp4"
                if vertical
@@ -6474,9 +7165,13 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
             cur.execute(
                 "update public.match_reels set status = 'ready', "
                 "r2_key = %s, duration_s = %s, size_bytes = %s, "
-                "error = null where match_id = %s and scope = %s",
-                (key, round(duration, 2), size, match_id, scope),
+                "manifest = %s, error = null "
+                "where match_id = %s and scope = %s",
+                (key, round(duration, 2), size, json.dumps(manifest),
+                 match_id, scope),
             )
+        if automatic and old_key and old_key != key:
+            _delete_auto_highlight_object(conn, old_key)
         log.info("  reel ready: %s (scope=%s, %.1fs video, %d KB, rendered "
                  "in %.0fs)",
                  r2_uri, scope, duration, size // 1024, time.time() - t0)
@@ -6484,18 +7179,10 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
         # waiting for it, and an "export is ready" message arriving after
         # they have already posted to Instagram is noise. The bell is
         # suppressed for the same reason, in match_reels_notify (135).
-        if not vertical:
+        if not vertical and not automatic:
             notify_reel_done(conn, str(owner_id), match_id)
     except Exception as e:
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "update public.match_reels set status = 'failed', "
-                    "error = %s where match_id = %s and scope = %s",
-                    (str(e)[:500], match_id, scope),
-                )
-        except Exception:
-            log.exception("  failed to mark reel failed")
+        _mark_reel_failed(conn, str(match_id), scope, e)
         raise
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -6823,7 +7510,7 @@ def reject_checked_match(conn, match_id: str, input_path: str | None):
     to carry it.
 
     Only the bytes go. The raw object is removed now rather than at the
-    30-day sweep, and its ledger rows are netted out by the same helper
+    orphan sweep, and its ledger rows are netted out by the same helper
     the import path uses — safe against the delete trigger doing it again
     later, which skips anything already summing to zero. raw_path goes
     null because a path that presigns to a 404 renders as a broken
@@ -6843,7 +7530,7 @@ def reject_checked_match(conn, match_id: str, input_path: str | None):
 
 def delete_rejected_raw(conn, input_path: str | None):
     """Rejected upload: remove the raw object immediately (don't wait for
-    the 30-day sweep) and net out its storage_ledger rows. Best-effort —
+    the orphan sweep) and net out its storage_ledger rows. Best-effort —
     retention catches anything we miss."""
     if not input_path:
         return
@@ -6901,7 +7588,10 @@ def process_job(conn, msg) -> None:
         archive_message(conn, msg["msg_id"])
         return
 
+    pulse_job(job_id, kind)
+
     if kind == "placement_generate":
+        pulse_stage("placement")
         update_job(conn, job_id, status="processing", progress=5, error=None)
         try:
             with COST_METER.timed_stage(
@@ -6942,6 +7632,7 @@ def process_job(conn, msg) -> None:
         return
 
     if kind == "placement_retry":
+        pulse_stage("placement")
         update_job(conn, job_id, status="processing", progress=5, error=None)
         with COST_METER.timed_stage("placement_retry_compute", attempt_key):
             result = process_placement_retry(conn, job_id, user_id, payload)
@@ -6957,6 +7648,7 @@ def process_job(conn, msg) -> None:
 
     if kind == "reclip":
         # lightweight path: no blurball pipeline, just ffmpeg re-cuts
+        pulse_stage("reclip")
         update_job(conn, job_id, status="processing", progress=5, error=None)
         with COST_METER.timed_stage("point_reclip_encoding", attempt_key):
             process_reclip(conn, job_id, user_id, payload)
@@ -6967,9 +7659,21 @@ def process_job(conn, msg) -> None:
 
     if kind == "reel":
         # render the starred-points highlight reel (no blurball pipeline)
+        pulse_stage("reel")
         update_job(conn, job_id, status="processing", progress=5, error=None)
-        with COST_METER.timed_stage("reel_encoding", attempt_key):
-            process_reel(conn, job_id, user_id, payload)
+        try:
+            with COST_METER.timed_stage("reel_encoding", attempt_key):
+                process_reel(conn, job_id, user_id, payload)
+        except HighlightRefreshObsoleteError as error:
+            # A player changed the source rallies after asking for this reel.
+            # The failed reel exposes Update needed. Archive this exact queue
+            # message so it cannot wake later and duplicate a newer request.
+            update_job(
+                conn, job_id, status="failed", error=str(error)[:500]
+            )
+            archive_message(conn, msg["msg_id"])
+            log.info("  reel job %s became stale and was archived", job_id)
+            return
         update_job(conn, job_id, status="done", progress=100)
         archive_message(conn, msg["msg_id"])
         log.info("  reel done: job %s", job_id)
@@ -6983,6 +7687,7 @@ def process_job(conn, msg) -> None:
         # message — bell and email ride the existing failure machinery.
         # Everything else fails open; the processing-time gate remains
         # the backstop.
+        pulse_stage("content_check")
         update_job(conn, job_id, status="processing", progress=10, error=None)
         options = get_job_options(conn, job_id, payload)
         check_match_id = options.get("match_id")
@@ -7081,6 +7786,7 @@ def process_job(conn, msg) -> None:
         # imports, the file's creation_time tag for uploads, else now().
         played_at: str | None = None
         if kind == "youtube_import":
+            pulse_stage("import")
             # yt-dlp fetch -> R2 raw bucket; from here on the job is
             # indistinguishable from a direct upload.
             local_input, input_path, yt_title, played_at = fetch_youtube(
@@ -7143,6 +7849,7 @@ def process_job(conn, msg) -> None:
                 log.info("  library import done: %s", input_path)
                 return
         else:
+            pulse_stage("download")
             ext = os.path.splitext(input_path)[1] or ".mp4"
             local_input = os.path.join(workdir, f"input{ext}")
 
@@ -7184,6 +7891,7 @@ def process_job(conn, msg) -> None:
             if t1 is not None:
                 real = probe_duration_s(local_input)
                 if t0 > 0.5 or (real is not None and float(t1) < real - 0.5):
+                    pulse_stage("trim")
                     local_input = apply_trim(local_input, workdir,
                                              t0, float(t1))
 
@@ -7192,6 +7900,7 @@ def process_job(conn, msg) -> None:
         # a user-facing message, archive the queue message (no retries).
         # Skip the gate when the upload-time check (097) already cleared
         # this video; it stays as the backstop for anything unchecked.
+        pulse_stage("content_check")
         already_checked = False
         if options.get("match_id") is not None:
             with conn.cursor() as cur:
@@ -7244,6 +7953,7 @@ def process_job(conn, msg) -> None:
                     and all(isinstance(v, (list, tuple)) and len(v) == 2
                             for v in crop_corners.values())):
                 crop_corners = None
+            pulse_stage("ball")
             blurball_out = detect_ball(local_input, workdir,
                                        attempt_key=attempt_key,
                                        on_progress=blurball_progress,
@@ -7252,6 +7962,7 @@ def process_job(conn, msg) -> None:
             update_job(conn, job_id, progress=45)
             segments_json = None
             try:
+                pulse_stage("points")
                 serve_pad, serve_merge = serve_motif_settings(conn)
                 outdir = run_points_subprocess(
                     local_input, blurball_out, workdir, options,
@@ -7270,6 +7981,7 @@ def process_job(conn, msg) -> None:
                             "falling back to the span cut", e)
                 shutil.rmtree(os.path.join(workdir, "points_out"),
                               ignore_errors=True)
+            pulse_stage("cut")
             result = run_cut(local_input, workdir, blurball_out,
                              strictness, segments_json=segments_json,
                              attempt_key=attempt_key)
@@ -7284,6 +7996,7 @@ def process_job(conn, msg) -> None:
                     last_pct[0] = pct
                     update_job(conn, job_id, progress=pct)
 
+            pulse_stage("ball")
             result, blurball_out = run_pipeline(
                 local_input,
                 workdir,
@@ -7293,6 +8006,7 @@ def process_job(conn, msg) -> None:
             )
         update_job(conn, job_id, progress=60 if options.get("points") else 85)
 
+        pulse_stage("upload")
         if r2_input:
             result_key = f"results/{user_id}/{job_id}.mp4"
             result_path = f"r2://{R2_MEDIA_BUCKET}/{result_key}"
@@ -7315,11 +8029,13 @@ def process_job(conn, msg) -> None:
         points_match_id = None
         if options.get("points"):
             update_job(conn, job_id, progress=70)
+            pulse_stage("publish")
             points_match_id = run_points_stage(
                 conn, job_id, user_id, local_input,
                 blurball_out, workdir, options, result_path,
                 played_at=played_at,
-                attempt_key=attempt_key)
+                attempt_key=attempt_key,
+                cut_local_path=result)
 
         update_job(conn, job_id, status="done", result_path=result_path,
                    progress=100)
@@ -7363,13 +8079,16 @@ def cleanup_legacy_uploads(conn):
 
 
 def expire_placement_retries(conn):
-    """Normalize retry buttons before their retained raw source is swept."""
+    """Normalize retry buttons on LEGACY rows whose raw was on the old
+    30-day clock. A match with raw_path set keeps its original for good and
+    its retry never expires, whatever the deadline column says."""
     with conn.cursor() as cur:
         cur.execute(
             "update public.matches "
             "set placement_status = 'final_failed', "
             "placement_failure_code = 'source_expired' "
             "where placement_status = 'retry_available' "
+            "and raw_path is null "
             "and placement_retry_expires_at <= now()"
         )
         expired = cur.rowcount
@@ -7413,13 +8132,21 @@ def r2_raw_sweep(conn, older_than_days: int):
                 (paths,),
             )
             upload_created_at = dict(cur.fetchall())
-            # Commerce (096): a raw referenced by a live library row is the
-            # user's stored video — it never ages out. A deleted match
-            # leaves no row, so its raw expires here on the normal clock.
+            # A raw referenced by ANY live match is the user's stored video
+            # and never ages out: by matches.raw_path (every upload since
+            # commerce, 096) or by the source job of a legacy match whose
+            # row predates the column. Only a raw no match row reaches
+            # (deleted match, rejected or abandoned upload) expires here.
             cur.execute(
                 "select raw_path from public.matches "
-                "where raw_path = any(%s)",
-                (paths,),
+                "where raw_path = any(%s) "
+                "union "
+                "select j.input_path from public.jobs j "
+                "where j.input_path = any(%s) "
+                "and exists (select 1 from public.matches m "
+                "            where m.job_id = j.id "
+                "            or m.id::text = j.options->>'match_id')",
+                (paths, paths),
             )
             library_paths = {row[0] for row in cur.fetchall()}
         expired = []
@@ -7549,20 +8276,25 @@ def entry_image_sweep(conn):
              R2_MEDIA_BUCKET, deleted)
 
 
-def _live_cut_paths(conn) -> set[str]:
-    """Cut videos referenced by a live match, in commerce mode (096): the
-    cut counts toward the owner's storage, so it persists with the match.
-    Pre-flip this returns empty and the 30-day results sweep is unchanged.
-    Cuts of DELETED matches have no row and expire on the normal clock."""
-    if not commerce_enabled(conn):
-        return set()
+def _referenced_cut_paths(conn) -> set[str]:
+    """Cut videos any live match references: matches.cut_path, plus the
+    result of the match's source job for rows that predate the column.
+    These persist with the match, whatever their age and whatever the
+    commerce flag says — a flag flip must never start deleting a player's
+    video. Only cuts of DELETED matches (no row) expire on the orphan
+    clock."""
     with conn.cursor() as cur:
         cur.execute(
             "select cut_path from public.matches "
-            "where cut_path like %s",
-            (f"r2://{R2_MEDIA_BUCKET}/results/%",),
+            "where cut_path like %s "
+            "union "
+            "select j.result_path from public.jobs j "
+            "join public.matches m on m.job_id = j.id "
+            "where j.result_path like %s",
+            (f"r2://{R2_MEDIA_BUCKET}/results/%",
+             f"r2://{R2_MEDIA_BUCKET}/results/%"),
         )
-        return {row[0] for row in cur.fetchall()}
+        return {row[0] for row in cur.fetchall() if row[0]}
 
 
 SHARE_RENDER_RETENTION_DAYS = 7
@@ -7619,13 +8351,16 @@ def share_render_sweep(conn):
 def retention_sweep(conn):
     """Run all retention tiers. Each tier is independent and best-effort.
 
-    Current tiers (SPEC.md §7):
-      raw uploads (ponglens-raw)              30 days
-      cut videos  (ponglens-media results/)   30 days
-      voice audio (ponglens-media voice/)     90 days
-      orphaned sketches (sketch/, unreferenced by notes)  2 days
+    Nothing a live match references is ever deleted: originals and cut
+    videos stay for the life of the match. The timed tiers are for
+    orphans and for media with its own promised lifetime:
+      unreferenced raw uploads (ponglens-raw)              30 days
+      unreferenced cut videos  (ponglens-media results/)   30 days
+      voice audio (ponglens-media voice/)                  90 days
+      orphaned sketches (sketch/, unreferenced by notes)    2 days
       orphaned Journal images (entry/, unreferenced by lessons)  2 days
-    Remaining tier, kept while the account is active (no sweep):
+      share renders (v:* reels)                             7 days
+    Kept while the account is active (no sweep):
       point clips + match.json (points/), transcripts (Postgres),
       note-referenced sketches (sketch/), entry-referenced images (entry/)
     """
@@ -7633,10 +8368,10 @@ def retention_sweep(conn):
         ("placement-retry-expiry", lambda: expire_placement_retries(conn)),
         ("legacy-supabase-uploads", lambda: cleanup_legacy_uploads(conn)),
         ("r2-raw", lambda: r2_sweep_prefix(
-            conn, R2_RAW_BUCKET, "", R2_RAW_RETENTION_DAYS)),
+            conn, R2_RAW_BUCKET, "", ORPHAN_RAW_DAYS)),
         ("r2-results", lambda: r2_sweep_prefix(
-            conn, R2_MEDIA_BUCKET, "results/", R2_RESULTS_RETENTION_DAYS,
-            protect_keys=_live_cut_paths(conn))),
+            conn, R2_MEDIA_BUCKET, "results/", ORPHAN_CUT_DAYS,
+            protect_keys=_referenced_cut_paths(conn))),
         ("r2-voice", lambda: r2_sweep_prefix(
             conn, R2_MEDIA_BUCKET, "voice/", R2_VOICE_RETENTION_DAYS)),
         ("r2-sketch-orphans", lambda: sketch_sweep(conn)),
@@ -7731,15 +8466,13 @@ def maybe_send_cost_alerts():
 
         def send_threshold_email(
             to: str,
-            subject: str,
-            body: str,
+            message: RenderedEmail,
             *,
             idempotency_key: str,
         ):
             return send_email(
                 to,
-                subject,
-                body,
+                message,
                 idempotency_key=idempotency_key,
                 cost_meter=alert_meter,
             )
@@ -7810,26 +8543,148 @@ def _ytdlp_version() -> str:
         return "missing"
 
 
+
+# ---------------------------------------------------------------------------
+# Saying what we are doing (spec 2026-09-06, /admin/processing)
+#
+# The job row cannot answer "is the worker alive". `progress` is written
+# at a handful of milestones and `updated_at` only moves when a column
+# does, so a placement job reads 20% with a frozen timestamp for three
+# hours of perfectly healthy work — and a worker that died at the first
+# milestone looks exactly the same. The only cure is for the process to
+# say so itself, on a timer, from a thread that is not inside the job.
+#
+# Every part of this is best-effort. Monitoring must never fail a job:
+# same rule as the storage ledger and the cost meter.
+# ---------------------------------------------------------------------------
+WORKER_ID = f"mac:{LANE}"
+WORKER_HOST = "mac"
+PULSE_EVERY_S = 15
+PROCESS_STARTED_AT = datetime.now(timezone.utc)
+# Read once. The commit cannot change under a running process, and this
+# shells out to git — not something to do every fifteen seconds forever.
+_PULSE_CODE_VERSION: str | None = None
+
+_pulse_lock = threading.Lock()
+_pulse_state: dict = {
+    "job_id": None, "job_kind": None, "stage": None,
+    "stage_note": None, "stage_pct": None,
+}
+
+
+def pulse_job(job_id: str | None, kind: str | None) -> None:
+    """Claiming or releasing a job."""
+    with _pulse_lock:
+        _pulse_state.update(job_id=job_id, job_kind=kind, stage=None,
+                            stage_note=None, stage_pct=None)
+
+
+def pulse_stage(stage: str | None, note: str | None = None,
+                pct: int | None = None) -> None:
+    """Which part of the job is running.
+
+    The name is stored and rendered exactly as written. There is no
+    allow-list, on purpose: a stage the page has not been taught about has
+    to appear as itself so somebody notices, rather than being folded into
+    'unknown' and disappearing. See CLAUDE.md, "The processing page has to
+    keep up with the worker"."""
+    with _pulse_lock:
+        _pulse_state.update(stage=stage, stage_note=note, stage_pct=pct)
+
+
+def pulse_note(note: str | None, pct: int | None = None) -> None:
+    """A counter under the current stage, without changing the stage."""
+    with _pulse_lock:
+        _pulse_state.update(stage_note=note, stage_pct=pct)
+
+
+def _pulse_once(conn) -> None:
+    with _pulse_lock:
+        state = dict(_pulse_state)
+    # How busy the MACHINE is, which is the other half of "why is this
+    # slow". The Mac Studio is shared with research scripts and other
+    # sessions; on the day this was written three of them held 1700% CPU
+    # and ball detection was running at a fifth of its usual speed, with
+    # nothing anywhere saying so.
+    try:
+        load = os.getloadavg()[0]
+    except Exception:
+        load = None
+    with conn.cursor() as cur:
+        cur.execute(
+            "select public.record_worker_pulse("
+            "%s, %s, %s, %s, %s, %s, %s, %s, null, %s, %s, %s, %s, %s)",
+            (WORKER_ID, LANE, WORKER_HOST, os.getpid(), _PULSE_CODE_VERSION,
+             PROCESS_STARTED_AT, state["job_id"], state["job_kind"],
+             state["stage"], state["stage_note"], state["stage_pct"],
+             load, os.cpu_count()),
+        )
+
+
+def _pulse_monitor() -> None:
+    """Its own connection, deliberately. The main one spends hours inside
+    a job's work, and a heartbeat that waits behind the thing it is
+    reporting on is not a heartbeat."""
+    conn = None
+    while True:
+        try:
+            if conn is None:
+                conn = psycopg2.connect(DATABASE_URL)
+                conn.autocommit = True
+            _pulse_once(conn)
+        except Exception as e:
+            log.warning("pulse failed (non-fatal): %s", e)
+            try:
+                if conn is not None:
+                    conn.close()
+            except Exception:
+                pass
+            conn = None
+        time.sleep(PULSE_EVERY_S)
+
+
+def start_pulse_monitor():
+    global _PULSE_CODE_VERSION
+    _PULSE_CODE_VERSION = _code_version()
+    monitor = threading.Thread(
+        target=_pulse_monitor, name="ponglens-pulse", daemon=True)
+    monitor.start()
+    return monitor
+
+
 def main():
-    log.info("PongLens worker starting (supabase=%s, code=%s, "
-             "yt-dlp=%s at %s)",
-             SUPABASE_URL, _code_version(), _ytdlp_version(), YTDLP)
+    log.info("PongLens worker starting (lane=%s queue=%s supabase=%s, "
+             "code=%s, yt-dlp=%s at %s)",
+             LANE, QUEUE_NAME, SUPABASE_URL, _code_version(),
+             _ytdlp_version(), YTDLP)
     conn = connect()
-    start_cost_alert_monitor()
+    # Both lanes pulse. A lane that is running and a lane that is not must
+    # be distinguishable on /admin/processing, and only the process itself
+    # can say which it is.
+    start_pulse_monitor()
+    # Housekeeping belongs to the main lane alone: the digests' last-sent
+    # markers in app_config are not atomic across processes, the sweep
+    # need not run twice a day, and one cost monitor is one too many.
+    housekeeping = LANE == "main"
+    if housekeeping:
+        start_cost_alert_monitor()
     last_cleanup = 0.0
     last_digest_check = 0.0
 
     while True:
         try:
-            if time.time() - last_cleanup > CLEANUP_EVERY_S or last_cleanup == 0:
+            if housekeeping and (
+                    time.time() - last_cleanup > CLEANUP_EVERY_S
+                    or last_cleanup == 0):
                 try:
                     retention_sweep(conn)
                 except Exception as e:  # cleanup must never kill the loop
                     log.warning("cleanup failed: %s", e)
                 last_cleanup = time.time()
 
-            if time.time() - last_digest_check > DIGEST_CHECK_EVERY_S \
-                    or last_digest_check == 0:
+            if housekeeping and (
+                    time.time() - last_digest_check > DIGEST_CHECK_EVERY_S
+                    or last_digest_check == 0):
                 maybe_send_feedback_digest(conn)     # never raises
                 maybe_send_qa_closed_digest(conn)    # never raises
                 last_digest_check = time.time()
@@ -7840,7 +8695,13 @@ def main():
                 continue
 
             try:
-                process_job(conn, msg)
+                try:
+                    process_job(conn, msg)
+                finally:
+                    # Every exit, including the failures below: a finished
+                    # job must never leave the page claiming it is still
+                    # running.
+                    pulse_job(None, None)
             except Exception as e:
                 log.exception("job failed: %s", e)
                 payload = msg["message"]

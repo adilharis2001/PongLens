@@ -10,6 +10,144 @@ struct CountRow: Codable, Hashable {
     let count: Int
 }
 
+enum AutomaticHighlightAction: Hashable {
+    case play
+    case instagram
+    case shareLink
+    case saveVideo
+}
+
+func automaticHighlightActions(
+    includePlay: Bool, sharingEnabled: Bool
+) -> [AutomaticHighlightAction] {
+    var actions: [AutomaticHighlightAction] = []
+    if includePlay { actions.append(.play) }
+    if sharingEnabled { actions.append(.instagram) }
+    actions.append(.shareLink)
+    actions.append(.saveVideo)
+    return actions
+}
+
+func automaticHighlightsSheetHeight(hasActions: Bool) -> Double {
+    hasActions ? 570 : 250
+}
+
+struct AutomaticHighlightsRequestView: Hashable {
+    let title: String
+    let body: String
+    let actionLabel: String?
+    let running: Bool
+}
+
+func automaticHighlightsRequestView(status: String) -> AutomaticHighlightsRequestView? {
+    switch status {
+    case "needs_generation":
+        AutomaticHighlightsRequestView(
+            title: "Generate highlights?",
+            body: "Highlights haven't been generated for this match. You can generate them from Tools.",
+            actionLabel: "Generate highlights",
+            running: false
+        )
+    case "needs_update":
+        AutomaticHighlightsRequestView(
+            title: "Update highlights",
+            body: "This match changed after these highlights were prepared. Update them to use your latest rally edits.",
+            actionLabel: "Update highlights",
+            running: false
+        )
+    case "updating":
+        AutomaticHighlightsRequestView(
+            title: "Highlights",
+            body: "Your rally clips are still updating. You can update highlights when they’re ready.",
+            actionLabel: nil,
+            running: true
+        )
+    default: nil
+    }
+}
+
+/// The worker-authored automatic highlight. Clients render this contract;
+/// they never reinterpret the underlying ball evidence or choose rallies.
+struct AutomaticHighlightsResponse: Codable, Hashable {
+    let status: String
+    let url: URL?
+    let durationS: Double?
+    let manifest: AutomaticHighlightManifest?
+
+    var summary: String {
+        switch status {
+        case "ready":
+            guard let manifest, !manifest.points.isEmpty else {
+                return "Highlights unavailable"
+            }
+            let n = manifest.points.count
+            let seconds = Int((durationS ?? manifest.durationS).rounded())
+            return "\(n) \(n == 1 ? "rally" : "rallies") · "
+                + String(format: "%d:%02d", seconds / 60, seconds % 60)
+        case "rendering": return "Preparing highlights"
+        case "needs_generation": return "Generate"
+        case "needs_update": return "Update needed"
+        case "updating": return "Updating rally clips"
+        case "empty", "unavailable": return "No highlight rallies"
+        default: return "Highlights unavailable"
+        }
+    }
+}
+
+struct AutomaticHighlightManifest: Codable, Hashable {
+    let v: Int
+    let rule: String
+    let maxSeconds: Double
+    let pointsRevision: String
+    let durationS: Double
+    let points: [AutomaticHighlightPoint]
+
+    enum CodingKeys: String, CodingKey {
+        case v, rule, points
+        case maxSeconds = "max_seconds"
+        case pointsRevision = "points_revision"
+        case durationS = "duration_s"
+    }
+
+    /// During the 0.3-second dissolve the incoming rally owns the overlap.
+    func pointId(at seconds: Double) -> UUID? {
+        var answer: UUID?
+        for point in points {
+            if seconds < point.outputStartS { break }
+            if seconds <= point.outputEndS + 0.01 { answer = point.pointId }
+        }
+        return answer
+    }
+
+    func outputStart(for pointId: UUID) -> Double? {
+        points.first { $0.pointId == pointId }?.outputStartS
+    }
+}
+
+struct AutomaticHighlightPoint: Codable, Hashable {
+    let pointId: UUID
+    let cutStartS: Double
+    let cutEndS: Double
+    let outputStartS: Double
+    let outputEndS: Double
+    let nHits: Int?
+    let connectedCrossings: Int?
+    let tableBounces: Int
+    let alternatingTableLandings: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case pointId = "point_id"
+        case cutStartS = "cut_start_s"
+        case cutEndS = "cut_end_s"
+        case outputStartS = "output_start_s"
+        case outputEndS = "output_end_s"
+        case nHits = "n_hits"
+        case connectedCrossings = "connected_crossings"
+        case tableBounces = "table_bounces"
+        case alternatingTableLandings = "alternating_table_landings"
+    }
+}
+
 /// The slice of matches.match_structure (051) the app reads.
 ///
 /// Mirrors src/lib/types.ts MatchStructureEvidence, cut down to what a
@@ -124,7 +262,9 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     let idx: Int
     var t0: Double?
     var t1: Double?
-    let cutT0: Double?
+    /// Mutable so an Adjust can move it with the start edge (adjust_point
+    /// re-anchors it; runAdjust mirrors that).
+    var cutT0: Double?
     let server: Winner?
     var serverOverride: Winner?
     var isLet: Bool
@@ -173,7 +313,9 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     /// one visible point in twelve has none (the pipeline dropped it), and
     /// a Share row that offers a video which does not exist is worse than
     /// one that says so.
-    let clipPath: String?
+    /// Mutable so the pending-clip refresh can learn a new file without the
+    /// match being reopened (the worker writes a fresh key per re-cut).
+    var clipPath: String?
     let placement: PlacementData?
     /// The umpire suggestion, read ONLY for its hit count — the highlight
     /// picker's receipt that a "long rally" actually contained rallying.

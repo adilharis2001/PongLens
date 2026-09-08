@@ -2,7 +2,11 @@ import Link from "next/link";
 import { Logo } from "./Logo";
 import { getSupportEmail } from "@/lib/config";
 
-export async function SiteFooter() {
+export async function SiteFooter({
+  audience = "players",
+}: {
+  audience?: "players" | "coaches";
+}) {
   const supportEmail = await getSupportEmail();
   return (
     <footer className="border-t border-edge/70 bg-ink">
@@ -16,10 +20,10 @@ export async function SiteFooter() {
         <div className="flex flex-col items-center gap-3 sm:items-end">
           <nav className="flex items-center gap-6 text-sm text-zinc-400">
             <Link
-              href="/coaches"
+              href={audience === "coaches" ? "/" : "/coaches"}
               className="transition-colors hover:text-white"
             >
-              For coaches
+              {audience === "coaches" ? "For players" : "For coaches"}
             </Link>
             <Link href="/terms" className="transition-colors hover:text-white">
               Terms

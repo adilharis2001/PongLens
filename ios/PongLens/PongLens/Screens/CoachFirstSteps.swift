@@ -67,7 +67,7 @@ struct CoachFirstSteps: View {
                  done: !students.isEmpty,
                  go: .addStudent),
             Step(label: "Send a student their invite link",
-                 done: workspace.anyInvite || students.contains { $0.playerId != nil },
+                 done: workspace.inviteCount > 0 || students.contains { $0.playerId != nil },
                  go: studentDoor),
             Step(label: "Write your first entry",
                  done: !workspace.entries.isEmpty,

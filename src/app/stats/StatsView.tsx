@@ -130,7 +130,9 @@ function Hero({ label, children }: { label: string; children: React.ReactNode })
 
 /* -------------------------------------------------------------- my stats */
 
-function MyStats({ agg }: { agg: AggregateStats }) {
+/** The "My stats" panel on its own, so the Journal's Stats tab renders
+ *  the same sections rather than a second reading of them. */
+export function MyStats({ agg }: { agg: AggregateStats }) {
   const [showAll, setShowAll] = useState(false);
   const matchesWon = agg.results.filter((r) => r.gamesYou > r.gamesThem).length;
   const matchesLost = agg.results.filter(

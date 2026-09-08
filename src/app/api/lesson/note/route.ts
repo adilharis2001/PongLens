@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { coachRefUpdate } from "@/lib/journal/coachRef";
+import { entryImageEdit } from "@/lib/journal/entryImage";
+import { releaseEntryImage } from "@/lib/journal/releaseEntryImage";
 import type { LessonTakeaways } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -13,9 +16,11 @@ export const runtime = "nodejs";
  * forty-minute lesson and regenerating all sixteen points from it. Nobody
  * did that, so wrong points stood forever. This edits the notes directly.
  *
- * It writes takeaways, and coach_name when a name is sent, and nothing
- * else. The transcript is the record of what was actually said, so it is
- * never touched here; kind and status are settled when the entry is saved
+ * It writes takeaways, coach_name when a name is sent, and the attached
+ * photo when the edit mentions one — the photo belongs to the entry, not
+ * to the words, so both editors can change it and a photo that stops
+ * being attached is dropped from storage. Nothing else. The transcript is
+ * the record of what was actually said, so it is never touched here; kind and status are settled when the entry is saved
  * and are not the note's business. Nothing is re-distilled and Recollect
  * is not re-enqueued, for the same reason in both cases: those derive from
  * the transcript, and the transcript did not change.
@@ -188,7 +193,13 @@ export async function PATCH(req: Request) {
     );
   }
 
-  let body: { lessonId?: unknown; takeaways?: unknown; coachName?: unknown };
+  let body: {
+    lessonId?: unknown;
+    takeaways?: unknown;
+    coachName?: unknown;
+    coachRefId?: unknown;
+    shareWithCoach?: unknown;
+  };
   try {
     body = await req.json();
   } catch {
@@ -211,7 +222,7 @@ export async function PATCH(req: Request) {
   // never a hint that it exists.
   const { data: row } = await supabase
     .from("lessons")
-    .select("id, kind, takeaways")
+    .select("id, kind, takeaways, image_path, coach_ref_id, shared_with_coach_at")
     .eq("id", lessonId)
     .maybeSingle();
   if (!row) {
@@ -238,14 +249,44 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: result.error }, { status: 400 });
   }
 
-  const update: { takeaways: LessonTakeaways; coach_name?: string | null } = {
+  const photo = entryImageEdit(body as Record<string, unknown>, user.id);
+  if (photo.kind === "invalid") {
+    return NextResponse.json({ error: "Invalid image" }, { status: 400 });
+  }
+
+  const update: {
+    takeaways: LessonTakeaways;
+    coach_name?: string | null;
+    coach_ref_id?: string | null;
+    shared_with_coach_at?: string | null;
+    image_path?: string | null;
+  } = {
     takeaways: result.takeaways,
   };
+  if (photo.kind === "set") update.image_path = photo.imagePath;
   // Who taught it (085). Only a lesson has one, so a practice entry
   // ignores the field rather than growing a coach. An absent field means
   // leave the name alone; an empty one means clear it.
   if (row.kind === "lesson" && "coachName" in body) {
     update.coach_name = line(body.coachName, MAX_COACH_NAME) || null;
+  }
+  // Which coach, as a row (164), and whether they may read it. Same
+  // absent-means-leave-it rule as the name above, so a caller that has
+  // never heard of coaches cannot clear an attribution by omission —
+  // which is exactly what the iOS app does until it ships this.
+  //
+  // Whose row it is stays the database's question: lessons_coach_normalise
+  // refuses one that is not the author's own, for every writer at once.
+  if (row.kind === "lesson" && "coachRefId" in body) {
+    Object.assign(
+      update,
+      coachRefUpdate({
+        coachRefId: body.coachRefId,
+        shareWithCoach: body.shareWithCoach,
+        currentRefId: row.coach_ref_id as string | null,
+        currentSharedAt: row.shared_with_coach_at as string | null,
+      }),
+    );
   }
 
   // The row is read back on the way out. An update that matches nothing
@@ -263,6 +304,13 @@ export async function PATCH(req: Request) {
       { error: "Couldn't save it. Try again." },
       { status: 500 },
     );
+  }
+
+  // The photo the entry used to carry, now that the row has stopped
+  // pointing at it. After the write, so a failed save never strands the
+  // entry pointing at an object that is already gone.
+  if (photo.kind === "set" && photo.imagePath !== row.image_path) {
+    await releaseEntryImage(supabase, row.image_path, user.id);
   }
 
   return NextResponse.json({ id: saved.id, takeaways: saved.takeaways });

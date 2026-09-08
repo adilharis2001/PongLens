@@ -76,6 +76,10 @@ struct ModifySheet: View {
     @State private var joinCount = 1
     @State private var joinWinner: WinnerOrSkip = .user
     @State private var joinArmed = false
+    /// Backwards by default. You notice two cards are one rally by watching
+    /// the second and realising it began in the first, so the join you want
+    /// is with the point you just left. Falls forward when nothing precedes.
+    @State private var joinDirection: JoinDirection = .previous
 
     // Adjust: edited t0/t1 in SOURCE seconds.
     @State private var adjT0: Double = 0
@@ -130,25 +134,35 @@ struct ModifySheet: View {
         return geo.markerHi - geo.markerLo > minGapS
     }
 
-    /// The visible points this one could swallow — at most two.
-    private var nextPoints: [MatchPoint] {
-        guard let i = model.visible.firstIndex(where: { $0.id == point.id }) else { return [] }
-        return Array(
-            model.visible.dropFirst(i + 1)
-                .filter { $0.cutT0 != nil && $0.t0 != nil && $0.t1 != nil }
-                .prefix(2)
-        )
+    /// The visible points this one could swallow either way — at most two
+    /// per side, nearest first.
+    private var prevPoints: [MatchPoint] { model.joinNeighbours(point, direction: .previous) }
+    private var nextPoints: [MatchPoint] { model.joinNeighbours(point, direction: .next) }
+
+    /// The chosen direction, corrected for a side that has nothing on it.
+    private var joinDir: JoinDirection {
+        switch joinDirection {
+        case .previous: return prevPoints.isEmpty ? .next : .previous
+        case .next: return nextPoints.isEmpty ? .previous : .next
+        }
     }
+    private var joinPool: [MatchPoint] { joinDir == .previous ? prevPoints : nextPoints }
+    private var maxJoin: Int { joinPool.count }
+    private var canJoin: Bool { !prevPoints.isEmpty || !nextPoints.isEmpty }
 
-    private var maxJoin: Int { nextPoints.count }
-
-    /// What the video covers: the point's clip, extended through the last
-    /// joined point while the Join tab is up.
+    /// What the video covers: the point's clip, extended through the far
+    /// end of the run while the Join tab is up — forward to the last joined
+    /// point's end, or back to the earliest one's start.
     private var videoSpan: (start: Double, end: Double)? {
         guard let geo else { return nil }
-        if tab == .join, joinCount >= 1, nextPoints.count >= joinCount,
-           let end = paddedEnd(nextPoints[joinCount - 1], pad) {
-            return (geo.spanStart, end)
+        if tab == .join, joinCount >= 1, joinPool.count >= joinCount {
+            let far = joinPool[joinCount - 1]
+            switch joinDir {
+            case .next:
+                if let end = paddedEnd(far, pad) { return (geo.spanStart, end) }
+            case .previous:
+                if let start = far.cutT0 { return (start, geo.spanEnd) }
+            }
         }
         return (geo.spanStart, geo.spanEnd)
     }
@@ -209,13 +223,39 @@ struct ModifySheet: View {
         tab == .adjust ? adjustSpan : videoSpan
     }
 
-    /// True when an edge has been taken outside the footage this clip holds.
-    private var adjustBeyondClip: Bool {
-        cutOf(adjT0) < adjLoCut - 0.05 || cutOf(adjT1) > adjHiCut + 0.05
+    /// How far the cut video runs CONTIGUOUS with this point's own span,
+    /// on each side. InsertGeometry's seam rule answers it (55% of seams
+    /// are continuous, and the neighbour's own kept footage is real on
+    /// every seam): where it does, the Adjust preview follows a handle into
+    /// that footage instead of freezing at the clip's edge; where the
+    /// cutter removed time, the picture holds at the span's edge and the
+    /// caption says so. Port of ModifyClip.tsx playableBounds.
+    private var playableBounds: (lo: Double, hi: Double)? {
+        contiguousCutBounds(for: point, in: model.visible, pad: pad)
     }
-    /// A reclip is already in flight: editing timing on top of a clip that
-    /// no longer matches t0/t1 would be editing blind.
-    private var adjustLocked: Bool { point.edited }
+
+    /// True when a draft edge lies past the footage the cut video holds
+    /// here: the file will carry it (the re-cut reads the original), the
+    /// preview cannot.
+    private var adjustBeyondClip: Bool {
+        guard let b = playableBounds else { return false }
+        return cutOf(adjT0) < b.lo - 0.05 || cutOf(adjT1) > b.hi + 0.05
+    }
+
+    /// What PLAYS on the Adjust tab: the draft point with its pads, clamped
+    /// to the footage the cut holds, so pressing play after a drag shows
+    /// exactly what the point will keep. Split and Join play the span.
+    private var playSpan: (start: Double, end: Double)? {
+        guard let span = videoSpan else { return nil }
+        guard tab == .adjust, let b = playableBounds else { return span }
+        let eff = effectivePad(
+            pad,
+            tightStart: point.tightStart && adjT0 == point.t0,
+            tightEnd: point.tightEnd && adjT1 == point.t1)
+        let start = min(b.hi, max(b.lo, cutOf(adjT0) - eff.pre))
+        let end = min(b.hi, max(b.lo, cutOf(adjT1) + eff.post))
+        return end > start ? (start, end) : span
+    }
 
     private var youLabel: String { "Me" }
     private var themLabel: String { match.opponentName ?? "Them" }
@@ -281,6 +321,10 @@ struct ModifySheet: View {
             joinArmed = false
             seekToSpanStart()
         }
+        .onChange(of: joinDirection) { _, _ in
+            joinArmed = false
+            joinCount = min(max(1, joinCount), max(1, maxJoin))
+        }
         .onChange(of: joinCount) { _, _ in
             joinArmed = false
             seekToSpanStart()
@@ -324,8 +368,8 @@ struct ModifySheet: View {
     private var tabPicker: some View {
         HStack(spacing: 6) {
             tabCard(.split, "one point → 2-3", enabled: true)
-            tabCard(.join, maxJoin < 1 ? "no next point" : "merge with next",
-                    enabled: maxJoin >= 1)
+            tabCard(.join, canJoin ? "merge neighbours" : "nothing beside it",
+                    enabled: canJoin)
             tabCard(.adjust, "fix start / end", enabled: point.t0 != nil)
         }
         .padding(.horizontal, 12)
@@ -412,15 +456,16 @@ struct ModifySheet: View {
                     Capsule().fill(Color.white.opacity(0.08))
                     if let geo, let span = trackSpan {
                         // On Adjust the track reaches past the clip, so the
-                        // stretch the clip actually covers is drawn lighter.
+                        // stretch the cut video holds here is drawn lighter.
                         // Without it the margins read as more of the same
                         // footage rather than as somewhere the picture
-                        // cannot go yet.
+                        // cannot go.
                         if tab == .adjust {
+                            let lit = playableBounds ?? (geo.spanStart, geo.spanEnd)
                             Rectangle()
                                 .fill(Color.white.opacity(0.16))
-                                .frame(width: max(0, (frac(geo.spanEnd, span) - frac(geo.spanStart, span)) * width))
-                                .offset(x: frac(geo.spanStart, span) * width)
+                                .frame(width: max(0, (frac(lit.hi, span) - frac(lit.lo, span)) * width))
+                                .offset(x: frac(lit.lo, span) * width)
                         }
                         let lo = tab == .adjust ? cutOf(adjT0) : geo.rallyStart
                         let hi = tab == .adjust ? cutOf(adjT1) : geo.rallyEnd
@@ -537,8 +582,14 @@ struct ModifySheet: View {
         .accessibilityLabel(label)
     }
 
-    /// A cut time the video can actually show: inside the clip's own span.
+    /// A cut time the video can actually show. On Adjust that is every
+    /// second the cut holds contiguous with this point (a handle dragged
+    /// into the neighbour's footage shows that footage); on Split and Join
+    /// it is the span itself.
     private func playable(_ t: Double) -> Double {
+        if tab == .adjust, let b = playableBounds {
+            return min(b.hi, max(b.lo, t))
+        }
         guard let span = videoSpan else { return t }
         return min(span.end, max(span.start, t))
     }
@@ -659,8 +710,16 @@ struct ModifySheet: View {
 
     @ViewBuilder
     private var joinBody: some View {
+        // Which way: the point(s) before this one, or after.
+        HStack(spacing: 6) {
+            directionPill("← Previous", .previous, count: prevPoints.count)
+            directionPill("Next →", .next, count: nextPoints.count)
+        }
+        .padding(.top, 4)
+
         stepper(
-            "Join with next", value: joinCount, range: 1...max(1, maxJoin),
+            joinDir == .previous ? "Points before" : "Points after",
+            value: joinCount, range: 1...max(1, maxJoin),
             format: { "\($0) point\($0 == 1 ? "" : "s")" },
             set: { joinCount = $0 }
         )
@@ -714,22 +773,14 @@ struct ModifySheet: View {
             .padding(.vertical, 4)
 
         Text(adjustBeyondClip
-             ? "The band now runs past this clip's own footage. That part arrives when the clip updates."
-             : "The lighter stretch is what this clip holds. Drag or step an edge past it to take in more of the match.")
+             ? "That stretch was cut from the match video. The clip will still include it."
+             : "The lighter stretch is the footage the match video holds here. Drag or step an edge to take in more of the point.")
             .font(.system(size: 11))
             .foregroundStyle(PL.text500)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
 
-        if adjustLocked {
-            Text("This clip is still updating from an earlier change — try again in a moment.")
-                .font(.system(size: 11))
-                .foregroundStyle(PL.warningText.opacity(0.8))
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 4)
-        }
     }
 
     /// One edge's readout and its two step buttons.
@@ -755,8 +806,8 @@ struct ModifySheet: View {
                 .monospacedDigit()
                 .foregroundStyle(abs(delta) < 0.001 ? PL.text500 : PL.cyan)
             Spacer()
-            stepPill("−1s", enabled: !adjustLocked) { nudge(start: start, by: -1) }
-            stepPill("+1s", enabled: !adjustLocked) { nudge(start: start, by: 1) }
+            stepPill("−1s", enabled: true) { nudge(start: start, by: -1) }
+            stepPill("+1s", enabled: true) { nudge(start: start, by: 1) }
         }
         .padding(.vertical, 6)
     }
@@ -832,6 +883,30 @@ struct ModifySheet: View {
         .accessibilityLabel(icon == "minus" ? "Fewer points" : "More points")
     }
 
+    private func directionPill(_ label: String, _ value: JoinDirection, count: Int) -> some View {
+        let on = joinDir == value
+        return Button { joinDirection = value } label: {
+            Text(label)
+                .font(.system(size: 14, weight: .semibold))
+                .lineLimit(1)
+                .foregroundStyle(on ? PL.cyan : PL.text400)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
+                        .fill(on ? PL.cyan.opacity(0.2) : PL.ink.opacity(0.4))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: PL.rSmall, style: .continuous)
+                        .strokeBorder(on ? PL.cyan : PL.edge, lineWidth: 1)
+                )
+                .opacity(count < 1 ? 0.3 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(count < 1)
+        .accessibilityLabel(value == .previous ? "Join with the previous point" : "Join with the next point")
+    }
+
     private func dispositionRow(
         selected: WinnerOrSkip, big: Bool = false,
         _ set: @escaping (WinnerOrSkip) -> Void
@@ -897,7 +972,7 @@ struct ModifySheet: View {
                     }
                 case .adjust:
                     cta(busy ? "Saving…" : "Save timing",
-                        enabled: adjDirty && !busy && !adjustLocked) {
+                        enabled: adjDirty && !busy) {
                         Task { await doAdjust() }
                     }
                 }
@@ -985,12 +1060,19 @@ struct ModifySheet: View {
                 guard let t0 = $0.t0 else { return false }
                 return t0 >= rootT0 - 0.001 && t0 < originalT1 - 0.001
             }
+            // The outcomes are written without waiting: each is a round trip,
+            // three of them in a row held the sheet open for a second or two
+            // on a slow connection after the split itself had already
+            // landed. setOutcome applies locally first, so the pad is right
+            // the moment it resumes and the rows catch up behind it — the
+            // web's own order.
             for (i, disposition) in plan.enumerated() where i < segPoints.count {
-                await model.setOutcome(segPoints[i], disposition)
+                let p = segPoints[i]
+                Task { await model.setOutcome(p, disposition) }
             }
             finish(ModifyOutcome(
                 landing: landing, play: true,
-                flash: "Split into \(max(parts, segPoints.count)) · updating clips"
+                flash: "Split into \(max(parts, segPoints.count))"
             ))
         } else {
             failed = true
@@ -1008,18 +1090,20 @@ struct ModifySheet: View {
         failed = false
         // Past the whole merged range, not back onto the survivor: it is
         // already scored, so landing on it would replay a point that has
-        // just been answered.
-        let landing = nextPoints.count >= joinCount
-            ? landingAfter(nextPoints[joinCount - 1])
-            : nil
-        let ok = await model.runJoin(point, count: joinCount)
-        if ok {
-            if let survivor = model.points.first(where: { $0.id == point.id }) {
-                await model.setOutcome(survivor, joinWinner)
-            }
+        // just been answered. Forward, the run ends at the last neighbour;
+        // backward, it ends at this point. Read before the write, while
+        // every row of the run still exists.
+        let dir = joinDir
+        let pool = joinPool
+        guard pool.count >= joinCount else { busy = false; return }
+        let landing = landingAfter(dir == .next ? pool[joinCount - 1] : point)
+        if let survivor = await model.runJoin(point, pad: pad, count: joinCount, direction: dir) {
+            // Written without waiting, as the split's outcomes are.
+            let winner = joinWinner
+            Task { await model.setOutcome(survivor, winner) }
             finish(ModifyOutcome(
                 landing: landing, play: true,
-                flash: "Joined \(joinCount + 1) points · updating clip"
+                flash: "Joined \(joinCount + 1) points"
             ))
         } else {
             failed = true
@@ -1028,15 +1112,21 @@ struct ModifySheet: View {
     }
 
     private func doAdjust() async {
-        guard adjDirty, !busy, !adjustLocked else { return }
+        guard adjDirty, !busy else { return }
         busy = true
         failed = false
-        let ok = await model.runAdjust(point, t0New: adjT0, t1New: adjT1)
+        let ok = await model.runAdjust(point, pad: pad, t0New: adjT0, t1New: adjT1)
         if ok {
-            // No landing: the point is still the point, it just has different
-            // edges. Moving the playhead would be answering a question nobody
-            // asked.
-            finish(ModifyOutcome(landing: nil, play: false, flash: "Timing saved · updating clip"))
+            // Land on the point's NEW padded start and play it. The whole
+            // reason to adjust is to check the window, and handing back no
+            // landing left the pad paused wherever it was, so the change only
+            // showed on a replay while Split and Join moved on and played.
+            // runAdjust has re-anchored cutT0 by the time it returns.
+            let after = model.points.first(where: { $0.id == point.id })
+            finish(ModifyOutcome(
+                landing: after?.cutT0, play: after?.cutT0 != nil,
+                flash: "Timing saved"
+            ))
         } else {
             failed = true
         }
@@ -1077,7 +1167,7 @@ struct ModifySheet: View {
                 paused = player.rate == 0
                 guard dragging == nil, !scrubbing, !seeking, pendingSeek == nil else { return }
                 playhead = time.seconds
-                if let span = videoSpan, player.rate > 0, time.seconds >= span.end {
+                if let span = playSpan, player.rate > 0, time.seconds >= span.end {
                     player.pause()
                     playhead = span.end
                     paused = true
@@ -1096,7 +1186,7 @@ struct ModifySheet: View {
             player.pause()
             paused = true
         } else {
-            if let span = videoSpan, playhead >= span.end - 0.05 {
+            if let span = playSpan, playhead >= span.end - 0.05 || playhead < span.start {
                 seek(to: span.start)
             }
             player.play()

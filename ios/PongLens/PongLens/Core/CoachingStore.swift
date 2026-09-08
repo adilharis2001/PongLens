@@ -52,26 +52,37 @@ final class CoachingStore {
     /// Someone's accepted coach, regardless of having a marketplace page.
     /// One leg of "does the coaching workspace offer itself".
     var coachesAnyone = false
+    /// Always true. Kept as a property rather than removed at every call
+    /// site so the tab has one name to be switched off by, if it ever is.
     var showTab: Bool
     var coachLinks: [CoachLinkRow] = []
+    /// Invite id -> what the player calls that coach (164), so a waiting
+    /// invite can say a name instead of "Invite sent". The web has said a
+    /// name since 164 shipped; the phone said nothing, which is also why
+    /// an invited coach never reached the journal's picker there.
+    var invitedNames: [UUID: String] = [:]
+    /// The same rows behind invitedNames, kept whole (2026-09-04). The
+    /// "what they can see" list needs the player_coaches id to find the
+    /// entries attributed to a coach, and a name-only dictionary threw it
+    /// away. One call already fetches them.
+    var playerCoaches: [PlayerCoach] = []
+
+    /// What a waiting invite is called when nobody named it. Never a
+    /// person's name and never something that reads like one: it sits
+    /// exactly where a coach's name goes, and "Invite sent" there looks
+    /// like a coach called Invite Sent (Adil, 2026-09-04). Saying it is
+    /// unnamed is also the prompt to name it.
+    static let unnamedInvite = "Unnamed invite"
     var orders: [StudentOrderRow] = []
     var loaded = false
 
-    /// The no-pop-in cache is per account — two people share a phone, and
-    /// one being a coach must not flash the tab at the other.
-    static func tabCacheKey(_ userId: UUID) -> String {
-        "pl-coach-tab-\(userId.uuidString.lowercased())"
-    }
-
     init() {
-        // With the marketplace web-only, the Coaching tab never shows: the
-        // free half of coaching lives on Account (your coaches) and in
-        // Matches (shared with you) instead.
-        if AppConfig.coachMarketplace, let uid = supa.auth.currentSession?.user.id {
-            showTab = UserDefaults.standard.bool(forKey: Self.tabCacheKey(uid))
-        } else {
-            showTab = false
-        }
+        // Permanent. A player with no coach yet still opens the tab to add
+        // one or to record a lesson of their own, and a tab that appears
+        // only once somebody else acts is a tab nobody learns. It used to
+        // be conditional, cached per account so it would not pop in; there
+        // is nothing left to cache when the answer is always yes.
+        showTab = true
     }
 
     func load(userId: UUID?) async {
@@ -95,13 +106,70 @@ final class CoachingStore {
         coachesAnyone = (asCoach?.count ?? 0) > 0
         coachLinks = (links ?? []).filter { $0.status != "revoked" }
         orders = orderRows ?? []
-        showTab = AppConfig.coachMarketplace
-            && (isCoach
-                || (asCoach?.count ?? 0) > 0
-                || !coachLinks.isEmpty
-                || !orders.isEmpty)
-        UserDefaults.standard.set(showTab, forKey: Self.tabCacheKey(userId))
+        let named: [PlayerCoach]? = try? await supa
+            .rpc("player_coaches_list").execute().value
+        playerCoaches = named ?? []
+        invitedNames = Dictionary(
+            playerCoaches.compactMap { row in
+                row.inviteId.map { ($0, row.displayName) }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         loaded = true
+    }
+
+    /// Put a name on an invite you just created (164).
+    ///
+    /// Find-or-create, never a blind insert: a player who already has
+    /// "Jonathan" in their journal and then invites Jonathan must end up
+    /// with ONE of him, or this makes the duplicate the whole feature
+    /// exists to remove. A row already bound to an account is never
+    /// reused — hanging a fresh invite off somebody's account would be
+    /// wrong, and that is what the coach_id check is for.
+    ///
+    /// The web twin is createLink() in ShareWithCoach.tsx; keep them in
+    /// step. A failure here loses the name, never the invite: the link is
+    /// what was asked for, and the row can be made again from the journal
+    /// or by the accept itself.
+    func nameInvite(playerId: UUID, inviteId: UUID, name: String) async {
+        let clean = name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .prefix(80)
+        guard !clean.isEmpty else { return }
+
+        let mine: [PlayerCoach]? = try? await supa
+            .rpc("player_coaches_list").execute().value
+        let existing = (mine ?? []).first {
+            $0.coachId == nil
+                && $0.displayName.trimmingCharacters(in: .whitespaces)
+                    .caseInsensitiveCompare(String(clean)) == .orderedSame
+        }
+
+        if let existing {
+            _ = try? await supa
+                .from("player_coaches")
+                .update(["invite_id": AnyJSON.string(inviteId.uuidString.lowercased())])
+                .eq("id", value: existing.id.uuidString.lowercased())
+                .execute()
+            invitedNames[inviteId] = existing.displayName
+            return
+        }
+
+        struct NewCoach: Encodable {
+            let player_id: String
+            let display_name: String
+            let invite_id: String
+        }
+        _ = try? await supa
+            .from("player_coaches")
+            .insert(NewCoach(
+                player_id: playerId.uuidString.lowercased(),
+                display_name: String(clean),
+                invite_id: inviteId.uuidString.lowercased()
+            ))
+            .execute()
+        invitedNames[inviteId] = String(clean)
     }
 
     /// The per-coach setting (161): all matches, or only the ones shared
@@ -168,5 +236,287 @@ func studentOrderStatusLabel(_ status: String?) -> String {
     case "declined": "Declined"
     case "cancelled": "Cancelled"
     default: status ?? ""
+    }
+}
+
+// MARK: - What one coach can see
+
+/// Everything one coach has of yours, in one list (Adil, 2026-09-04).
+///
+/// Two different things wear the same sentence here, deliberately, because
+/// from the player's side they are one question — what does this person
+/// have?
+///
+///   - a match already shared, which is a coach_links row;
+///   - a match QUEUED against an invite nobody has opened yet (166),
+///     which becomes a link only on accept.
+///
+/// Journal entries come in both states too, and the unshared ones are
+/// shown rather than hidden: an entry can be attributed to a coach without
+/// being readable by them, and that is exactly why a coach cannot see a
+/// journal the player believes they sent. Hiding it would leave the list
+/// saying "nothing" while the journal shows their name.
+struct CoachShare: Identifiable, Hashable {
+    enum Kind: Hashable { case match, queuedMatch, entry, unsharedEntry }
+    let id: String
+    let kind: Kind
+    let title: String
+    /// coach_links.id for a shared match; nil for a queued one.
+    let linkId: UUID?
+    let matchId: UUID?
+}
+
+extension CoachingStore {
+    private struct QueuedMatch: Decodable {
+        let matchId: UUID
+        enum CodingKeys: String, CodingKey { case matchId = "match_id" }
+    }
+
+    private struct AttributedEntry: Decodable {
+        let id: UUID
+        let transcript: String
+        let takeaways: LessonTakeaways?
+        let sharedWithCoachAt: String?
+        enum CodingKeys: String, CodingKey {
+            case id, transcript, takeaways
+            case sharedWithCoachAt = "shared_with_coach_at"
+        }
+    }
+
+    /// The matches an invite is carrying, and every entry attributed to a
+    /// coach. Matches already linked are passed in by the caller, which
+    /// already holds them.
+    func sharedWith(coachRefId: UUID?, inviteId: UUID?) async -> [CoachShare] {
+        var out: [CoachShare] = []
+
+        if let inviteId {
+            let queued: [QueuedMatch]? = try? await supa
+                .from("coach_invite_matches")
+                .select("match_id")
+                .eq("invite_id", value: inviteId.uuidString.lowercased())
+                .execute().value
+            for row in queued ?? [] {
+                out.append(CoachShare(
+                    id: "q:\(row.matchId.uuidString)", kind: .queuedMatch,
+                    title: "", linkId: nil, matchId: row.matchId
+                ))
+            }
+        }
+
+        if let coachRefId {
+            let rows: [AttributedEntry]? = try? await supa
+                .from("lessons")
+                .select("id,transcript,takeaways,shared_with_coach_at")
+                .eq("coach_ref_id", value: coachRefId.uuidString.lowercased())
+                .order("created_at", ascending: false)
+                .execute().value
+            for row in rows ?? [] {
+                let words = row.transcript
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let note = row.takeaways?.title?.trimmingCharacters(in: .whitespaces)
+                let title = (note?.isEmpty == false ? note! : nil)
+                    ?? (words.isEmpty
+                        ? "Entry"
+                        : (words.count > 64 ? String(words.prefix(64)) + "…" : words))
+                out.append(CoachShare(
+                    id: row.id.uuidString,
+                    kind: row.sharedWithCoachAt == nil ? .unsharedEntry : .entry,
+                    title: title, linkId: nil, matchId: nil
+                ))
+            }
+        }
+        return out
+    }
+
+    /// Take a queued match back off an invite that has not been accepted.
+    func unqueueMatch(inviteId: UUID, matchId: UUID) async -> Bool {
+        do {
+            try await supa.from("coach_invite_matches").delete()
+                .eq("invite_id", value: inviteId.uuidString.lowercased())
+                .eq("match_id", value: matchId.uuidString.lowercased())
+                .execute()
+            return true
+        } catch { return false }
+    }
+
+    /// Grant or withdraw one entry. The grant moves; the attribution does
+    /// not, so the entry still says who taught it either way.
+    func setEntryShared(_ entryId: UUID, shared: Bool) async -> Bool {
+        // AnyJSON.null, never an Encodable struct with an optional: the
+        // synthesised encoder uses encodeIfPresent, so a nil would OMIT
+        // the column and the unshare would silently do nothing.
+        let at: AnyJSON = shared
+            ? .string(ISO8601DateFormatter().string(from: Date()))
+            : .null
+        do {
+            try await supa.from("lessons")
+                .update(["shared_with_coach_at": at])
+                .eq("id", value: entryId.uuidString.lowercased())
+                .execute()
+            return true
+        } catch { return false }
+    }
+}
+
+// MARK: - One coach's page
+
+/// What a single coach's page asks for that the list of coaches never did:
+/// rename them, fold a duplicate row into them, set a waiting invite's
+/// scope, hand them several matches in one go, and read the lessons taken
+/// with them.
+///
+/// Every write here is one the product already makes somewhere else. What
+/// is new is making it from the coach's side rather than the match's, so
+/// the twins are SharingSection.tsx in focus mode and ShareMatches.tsx;
+/// keep them in step.
+extension CoachingStore {
+    /// What YOU call this coach, which is not always what their account
+    /// says (164). Adil's own case: the account reads "Jonatan Mcdonald"
+    /// and he has always written "Jonathan". The name is on every journal
+    /// entry attributed to them and a trigger carries a rename to all of
+    /// them, so this is the one place it can be put right. Their own
+    /// account is untouched: this is a label, not their identity.
+    func renameCoach(userId: UUID, coachRefId: UUID, name: String) async -> Bool {
+        let clean = name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .prefix(80)
+        guard !clean.isEmpty else { return false }
+        do {
+            try await supa
+                .from("player_coaches")
+                .update([
+                    "display_name": AnyJSON.string(String(clean)),
+                    // The player typed it, so the name stops following the
+                    // account. Same rule as the coach's roster (161).
+                    "name_from_account": AnyJSON.bool(false),
+                ])
+                .eq("id", value: coachRefId.uuidString.lowercased())
+                .execute()
+        } catch { return false }
+        await load(userId: userId)
+        return true
+    }
+
+    /// Fold one coach row into another (164), because a name typed before
+    /// an account arrives will not match the name on it: "Jonathan" and
+    /// "Jonatan Mcdonald" are one man and two rows.
+    ///
+    /// `into` survives and keeps its name; the entries and the recordings
+    /// move to it. The RPC refuses a pair of bound accounts — those are two
+    /// different people, and folding them would hand one coach the other's
+    /// entries — so the caller offers only rows nobody has claimed.
+    func mergeCoaches(userId: UUID, into: UUID, from: UUID) async -> Bool {
+        struct Params: Encodable {
+            let p_into: String
+            let p_from: String
+        }
+        do {
+            try await supa
+                .rpc("merge_player_coaches", params: Params(
+                    p_into: into.uuidString.lowercased(),
+                    p_from: from.uuidString.lowercased()
+                ))
+                .execute()
+        } catch { return false }
+        await load(userId: userId)
+        return true
+    }
+
+    /// The scope of an invite nobody has accepted yet (164).
+    ///
+    /// set_coach_access refuses a pending link — it needs an accepted one
+    /// to hang the connection off — so this writes the flag straight onto
+    /// the row, which the player's own policy on coach_links already
+    /// allows. Without it the only way down from "all matches" before an
+    /// invite is accepted is to revoke it and send a fresh link.
+    func setInviteAccess(userId: UUID, inviteId: UUID, allMatches: Bool) async -> Bool {
+        do {
+            try await supa
+                .from("coach_links")
+                .update(["all_matches": AnyJSON.bool(allMatches)])
+                .eq("id", value: inviteId.uuidString.lowercased())
+                .execute()
+        } catch { return false }
+        await load(userId: userId)
+        return true
+    }
+
+    /// Hand several matches to one coach at once.
+    ///
+    /// Nothing new is written: a connected coach gets the accepted,
+    /// match-scoped coach_links rows the match page's sheet writes one at a
+    /// time, and a coach who has not accepted yet gets the
+    /// coach_invite_matches rows that become access only when they do
+    /// (166). Matches they already hold are left out by the caller rather
+    /// than granted twice — the queue's key is (invite, match), so one
+    /// repeat would fail the whole insert and lose the others with it.
+    func shareMatches(
+        userId: UUID, coachId: UUID?, inviteId: UUID?, matchIds: [UUID]
+    ) async -> Bool {
+        guard !matchIds.isEmpty else { return false }
+        do {
+            if let coachId {
+                struct Grant: Encodable {
+                    let player_id: String
+                    let coach_id: String
+                    let scope_match_id: String
+                    let status: String
+                }
+                try await supa
+                    .from("coach_links")
+                    .insert(matchIds.map {
+                        Grant(
+                            player_id: userId.uuidString.lowercased(),
+                            coach_id: coachId.uuidString.lowercased(),
+                            scope_match_id: $0.uuidString.lowercased(),
+                            status: "accepted"
+                        )
+                    })
+                    .execute()
+            } else if let inviteId {
+                struct Queue: Encodable {
+                    let invite_id: String
+                    let match_id: String
+                }
+                try await supa
+                    .from("coach_invite_matches")
+                    .insert(matchIds.map {
+                        Queue(
+                            invite_id: inviteId.uuidString.lowercased(),
+                            match_id: $0.uuidString.lowercased()
+                        )
+                    })
+                    .execute()
+            } else {
+                // A coach the player only wrote down has neither an account
+                // to grant to nor an invite to queue against, so there is
+                // nothing this could write. The page keeps the control off
+                // them; this is the second lock.
+                return false
+            }
+        } catch { return false }
+        await load(userId: userId)
+        return true
+    }
+
+    /// The lessons taken with one coach, newest first.
+    ///
+    /// Its own query rather than a filter over the journal's list, because
+    /// the journal never selects lesson_video_id: read from there, a filmed
+    /// lesson cannot be told from a written one and would be drawn as its
+    /// transcript instead of as the recap it is.
+    func lessonsWith(coachRefId: UUID) async -> [LessonRow] {
+        let rows: [LessonRow]? = try? await supa
+            .from("lessons")
+            .select(
+                "id,user_id,transcript,takeaways,status,kind,coach_name,coach_ref_id,shared_with_coach_at,image_path,lesson_video_id,created_at"
+            )
+            .eq("coach_ref_id", value: coachRefId.uuidString.lowercased())
+            .eq("kind", value: "lesson")
+            .order("created_at", ascending: false)
+            .execute().value
+        return rows ?? []
     }
 }

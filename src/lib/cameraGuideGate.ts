@@ -1,23 +1,19 @@
 /**
- * How often a first-run account is shown "Where to place the camera"
- * without asking for it.
+ * How often a first-run account is shown camera advice without asking for
+ * it.
  *
- * Where the camera goes decides whether the pipeline finds any points at
- * all, so the sheet now opens on its own at the doors into recording and
- * uploading. Twice, then never again — long enough to be read, short
- * enough that it never becomes the thing you swipe away on the way to
- * somewhere else.
+ * Two things ride on this rule. The "Where to place the camera" sheet was
+ * the first: it opened on its own, twice, at the doors into recording and
+ * uploading. The recording brief replaced that automatic showing in
+ * September: five pages, once, with no way out except through them. The
+ * sheet itself is still there behind every "How to record" link, and a
+ * manual open never counts against anything.
  *
  * Twin of CameraGuideGate.swift. The same question has to get the same
  * answer on both platforms, and both are checked against the same table of
  * cases (cameraGuideGate.test.ts / CameraGuideGateTests.swift) rather than
  * each being read against the prose separately — this project has shipped
  * one rule written twice and wrong the same way in both.
- *
- * Manual opens are deliberately NOT counted. The "How to record" trigger
- * stays on every screen it is on today and spends nothing, because the two
- * automatic showings are worth saving for the moment somebody is standing
- * at a table about to film.
  */
 
 export const CAMERA_GUIDE_MAX_SHOWINGS = 2;
@@ -76,30 +72,33 @@ export type CameraGuideDecision = {
  * @param seen             readSeenCount(), null when never recorded
  * @param hasAnyMatch      does the account already have footage in it
  * @param shownThisSession has one already opened this launch / this tab
+ * @param max              how many automatic showings an account gets
  */
 export function cameraGuideGate({
   seen,
   hasAnyMatch,
   shownThisSession,
+  max = CAMERA_GUIDE_MAX_SHOWINGS,
 }: {
   seen: number | null;
   hasAnyMatch: boolean;
   shownThisSession: boolean;
+  max?: number;
 }): CameraGuideDecision {
   let effective = seen;
   let seed: number | null = null;
 
   // Back-fill. Nobody has a counter on the day this ships, so without this
-  // every existing account gets interrupted twice — including accounts
-  // with forty matches that plainly know where the camera goes.
+  // every existing account gets interrupted — including accounts with
+  // forty matches that plainly know where the camera goes.
   //
   // Keyed on ABSENT, never on zero. A genuinely new account that has just
   // recorded its first match sits at 1 and must still get its second
   // showing, so "already has footage" can only be asked once, before the
   // counter exists.
   if (seen === null && hasAnyMatch) {
-    effective = CAMERA_GUIDE_MAX_SHOWINGS;
-    seed = CAMERA_GUIDE_MAX_SHOWINGS;
+    effective = max;
+    seed = max;
   }
 
   // At most one automatic showing per launch. Without it, tapping Record
@@ -110,8 +109,65 @@ export function cameraGuideGate({
   if (shownThisSession) return { show: false, persist: seed };
 
   const count = effective ?? 0;
-  if (count < CAMERA_GUIDE_MAX_SHOWINGS) {
+  if (count < max) {
     return { show: true, persist: count + 1 };
   }
   return { show: false, persist: seed };
+}
+
+// ---------------------------------------------------------------------------
+// The recording brief
+// ---------------------------------------------------------------------------
+
+/**
+ * Once. Five pages twice would be a chore, and stepping through them is
+ * what makes them land, so one walk is the whole budget.
+ */
+export const RECORDING_BRIEF_MAX_SHOWINGS = 1;
+
+/** Beside camera_guide_seen. The old key is left exactly as it was. */
+export const RECORDING_BRIEF_METADATA_KEY = "recording_brief_seen";
+
+/** What both copies hold once the last page's button has been tapped. */
+export const RECORDING_BRIEF_DONE = 1;
+
+export function recordingBriefStorageKey(userId: string): string {
+  return `pl-recording-brief-seen:${userId}`;
+}
+
+export type RecordingBriefDecision = {
+  /** Open the brief now, at page one. */
+  show: boolean;
+  /**
+   * Write this to both copies right now, or null. Only ever the back-fill:
+   * the brief counts itself as seen when it is FINISHED, not when it opens,
+   * so that quitting halfway brings it back from page one next time. That
+   * write is RECORDING_BRIEF_DONE and belongs to the caller's completion
+   * handler, never to this decision.
+   */
+  seed: number | null;
+};
+
+/**
+ * @param seen        readSeenCount() over the brief's two copies
+ * @param hasAnyMatch does the account already have footage in it
+ */
+export function recordingBriefGate({
+  seen,
+  hasAnyMatch,
+}: {
+  seen: number | null;
+  hasAnyMatch: boolean;
+}): RecordingBriefDecision {
+  // No per-launch clause: with a budget of one there is nothing left to
+  // space out, and an abandoned walk is meant to return.
+  const d = cameraGuideGate({
+    seen,
+    hasAnyMatch,
+    shownThisSession: false,
+    max: RECORDING_BRIEF_MAX_SHOWINGS,
+  });
+  // When the answer is "show", persist is the completion value, which is
+  // not written until the walk is finished. Only a no-show carries a seed.
+  return { show: d.show, seed: d.show ? null : d.persist };
 }

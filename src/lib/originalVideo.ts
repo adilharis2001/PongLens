@@ -17,16 +17,17 @@
  * layout.
  *
  * WHAT WE DELIBERATELY DO NOT DO is fall back to the source job's
- * input_path the way the Export sheet's DOWNLOAD does. It looks like free
- * coverage — 27 processed matches read null here while their file is still
- * in R2 — but the two are not the same kind of answer. raw_path means the
- * sweep is protecting the file; input_path only means a job once pointed
- * there, and those files are on the ordinary 30-day clock. Wiring the
- * fallback put an Original pill on all three demo matches, and every one of
- * them opened on "The original is no longer available", because their July
- * jobs had already been swept. A button that does nothing is worse than no
- * button. Making it honest would need an R2 HEAD on every match page load,
- * to serve a set that empties itself around 2026-09-12.
+ * input_path the way the Export sheet's DOWNLOAD does. Some legacy raws
+ * were swept before commerce, so a job pointing at a path is not proof the
+ * file exists. Wiring the fallback put an Original pill on all three demo
+ * matches, and every one of them opened on "The original is no longer
+ * available", because their July jobs had already been swept. A button
+ * that does nothing is worse than no button.
+ *
+ * Since 2026-09 the sweep also protects raws reached only through a live
+ * match's source job, and worker/backfill_raw_path.py fills this column
+ * for every legacy row whose file survived (HEAD-checked). So the column
+ * stays the one signal, and it is complete.
  *
  * The Export sheet keeps its own fallback, because a download that turns
  * out to be unavailable has somewhere to say so and this pill does not.

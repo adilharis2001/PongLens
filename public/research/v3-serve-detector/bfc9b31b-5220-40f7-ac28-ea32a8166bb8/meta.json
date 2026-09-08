@@ -1,0 +1,25 @@
+{
+ "match": "bfc9b31b",
+ "matchId": "bfc9b31b-5220-40f7-ac28-ea32a8166bb8",
+ "title": "Anton",
+ "venue": "PingPod W37",
+ "crop": [
+  358.0,
+  162.0,
+  1058.0,
+  596.0
+ ],
+ "rawOffsetS": 0.0,
+ "offsetErr": 1.293,
+ "cards": 93,
+ "points": 91,
+ "ok": 84,
+ "srvAgree": 72,
+ "srvDisagree": 16,
+ "missed": 3,
+ "fused": 0,
+ "extra": 4,
+ "onDeleted": 0,
+ "nowhere": 1,
+ "short": 3
+}

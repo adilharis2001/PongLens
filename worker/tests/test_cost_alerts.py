@@ -35,8 +35,8 @@ class CostAlertDeliveryTests(unittest.TestCase):
         store = FakeStore([alert("one", 100, 215), alert("two", 200, 215)])
         messages = []
 
-        def send_email(to, subject, body, *, idempotency_key):
-            messages.append((to, subject, body, idempotency_key))
+        def send_email(to, message, *, idempotency_key):
+            messages.append((to, message, idempotency_key))
 
         delivered = deliver_cost_alerts(
             store,
@@ -50,10 +50,10 @@ class CostAlertDeliveryTests(unittest.TestCase):
         self.assertEqual(store.sent, ["one", "two"])
         self.assertEqual(store.released, [])
         self.assertEqual(len(messages), 2)
-        self.assertIn("$100", messages[0][1])
-        self.assertIn("$200", messages[1][1])
+        self.assertIn("$100", messages[0][1].subject)
+        self.assertIn("$200", messages[1][1].subject)
         self.assertEqual(
-            messages[0][3],
+            messages[0][2],
             "ponglens-cost/2026-07-01/100",
         )
 
@@ -96,8 +96,8 @@ class CostAlertDeliveryTests(unittest.TestCase):
         )
         messages = []
 
-        def send_email(to, subject, body, *, idempotency_key):
-            messages.append(body)
+        def send_email(to, message, *, idempotency_key):
+            messages.append(message)
 
         deliver_cost_alerts(
             store,
@@ -107,13 +107,13 @@ class CostAlertDeliveryTests(unittest.TestCase):
             Logger(),
         )
 
-        body = messages[0]
-        self.assertIn("$123.46", body)
-        self.assertIn("OpenAI", body)
-        self.assertIn("$80.25", body)
-        self.assertIn("Cloudflare", body)
-        self.assertIn("https://www.ponglens.com/admin", body)
-        self.assertIn("July 2026", body)
+        message = messages[0]
+        self.assertIn("$123.46", message.text)
+        self.assertIn("OpenAI", message.text)
+        self.assertIn("$80.25", message.text)
+        self.assertIn("Cloudflare", message.text)
+        self.assertIn("https://www.ponglens.com/admin", message.text)
+        self.assertIn("July 2026", message.text)
 
     def test_worker_checks_alerts_every_minute_without_blocking_jobs(self):
         source = (

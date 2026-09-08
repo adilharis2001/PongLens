@@ -13,11 +13,6 @@ import {
   getUnscoredRallyEnd,
   getUnscoredRallyEndBufferS,
 } from "@/lib/config";
-import {
-  HIGHLIGHT_BUDGETS_S,
-  pickHighlights,
-  type HighlightKind,
-} from "@/app/match/[id]/highlights";
 import type { Point } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -74,6 +69,83 @@ const MANIFEST_VERSION = 2;
  * surface reachable through the share handover will accept it.
  */
 const VERTICAL_MAX_S = 60;
+const HIGHLIGHT_CEILINGS_S = { story: 20, reel: 60, long: 150 } as const;
+type HighlightKind = keyof typeof HIGHLIGHT_CEILINGS_S;
+
+type CanonicalHighlightPoint = {
+  point_id: string;
+  cut_start_s: number;
+  cut_end_s: number;
+  n_hits: number | null;
+  connected_crossings: number | null;
+  table_bounces: number;
+  alternating_table_landings: number | null;
+};
+
+function canonicalHighlightPoints(value: unknown): CanonicalHighlightPoint[] | null {
+  if (!value || typeof value !== "object") return null;
+  const manifest = value as Record<string, unknown>;
+  if (
+    manifest.v !== 2 ||
+    manifest.rule !== "quality-first-v2" ||
+    !Array.isArray(manifest.points)
+  ) {
+    return null;
+  }
+  const points = manifest.points as CanonicalHighlightPoint[];
+  return points.every(
+    (point) =>
+      typeof point.point_id === "string" &&
+      Number.isFinite(point.cut_start_s) &&
+      Number.isFinite(point.cut_end_s) &&
+      point.cut_end_s > point.cut_start_s &&
+      (point.n_hits === null || Number.isFinite(point.n_hits)) &&
+      (point.connected_crossings === null ||
+        Number.isFinite(point.connected_crossings)) &&
+      Number.isFinite(point.table_bounces) &&
+      (point.alternating_table_landings === null ||
+        Number.isFinite(point.alternating_table_landings)),
+  )
+    ? points
+    : null;
+}
+
+/** Build a shorter derivative from the worker's already-qualified pool. */
+function fitQualifiedHighlights(
+  points: CanonicalHighlightPoint[],
+  ceilingS: number,
+): CanonicalHighlightPoint[] {
+  let usedS = 0;
+  return points
+    .map((point, timelineIndex) => ({ point, timelineIndex }))
+    .sort((a, b) => {
+      const aCrossings = a.point.connected_crossings ?? 0;
+      const bCrossings = b.point.connected_crossings ?? 0;
+      const aLandings = a.point.alternating_table_landings ?? 0;
+      const bLandings = b.point.alternating_table_landings ?? 0;
+      const aHits =
+        aCrossings >= 2 || aLandings >= 3 ? (a.point.n_hits ?? 0) : 0;
+      const bHits =
+        bCrossings >= 2 || bLandings >= 3 ? (b.point.n_hits ?? 0) : 0;
+      const aExchanges = Math.max(aCrossings, aLandings, aHits);
+      const bExchanges = Math.max(bCrossings, bLandings, bHits);
+      return (
+        bExchanges - aExchanges ||
+        bCrossings - aCrossings ||
+        bLandings - aLandings ||
+        b.point.table_bounces - a.point.table_bounces ||
+        a.timelineIndex - b.timelineIndex
+      );
+    })
+    .filter(({ point }) => {
+      const durationS = point.cut_end_s - point.cut_start_s;
+      if (usedS + durationS > ceilingS + 0.001) return false;
+      usedS += durationS;
+      return true;
+    })
+    .sort((a, b) => a.timelineIndex - b.timelineIndex)
+    .map(({ point }) => point);
+}
 
 interface ManifestPoint {
   point_id: string;
@@ -180,7 +252,7 @@ export async function POST(req: Request) {
     !UUID_RE.test(matchId) ||
     (tagId && !UUID_RE.test(tagId)) ||
     (pointId && !UUID_RE.test(pointId)) ||
-    (highlight && !(highlight in HIGHLIGHT_BUDGETS_S))
+    (highlight && !(highlight in HIGHLIGHT_CEILINGS_S))
   ) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
@@ -256,17 +328,34 @@ export async function POST(req: Request) {
     },
   };
 
-  // Automatic highlights: the picker decides membership, everything after
-  // this treats the picks like any other included set.
+  // Automatic highlights are worker-authoritative. Older clients can still
+  // ask for shorter vertical derivatives, but their pool comes only from
+  // the canonical continuous highlight manifest.
   const hlIds = new Set<string>();
+  const hlBounds = new Map<string, CanonicalHighlightPoint>();
   if (hlKind) {
-    for (const p of pickHighlights(
-      ordered,
-      pad,
-      HIGHLIGHT_BUDGETS_S[hlKind],
-      ends
-    ).picks) {
-      hlIds.add(p.id);
+    const { data: automatic } = await supabase
+      .from("match_reels")
+      .select("status,manifest")
+      .eq("match_id", matchId)
+      .eq("scope", "highlights")
+      .maybeSingle();
+    const qualified = canonicalHighlightPoints(automatic?.manifest);
+    if (automatic?.status !== "ready" || !qualified) {
+      return NextResponse.json(
+        {
+          error: "Highlights are still being prepared. Try again shortly.",
+          code: "highlights_not_ready",
+        },
+        { status: 409 },
+      );
+    }
+    for (const point of fitQualifiedHighlights(
+      qualified,
+      HIGHLIGHT_CEILINGS_S[hlKind],
+    )) {
+      hlIds.add(point.point_id);
+      hlBounds.set(point.point_id, point);
     }
   }
 
@@ -336,7 +425,11 @@ export async function POST(req: Request) {
       // rule-identical.
       let segStart: number | null = null;
       let segEnd: number | null = null;
-      if (p.cut_t0 !== null && p.t0 !== null && p.t1 !== null) {
+      const automaticBounds = hlBounds.get(p.id);
+      if (automaticBounds) {
+        segStart = round2(automaticBounds.cut_start_s);
+        segEnd = round2(automaticBounds.cut_end_s);
+      } else if (p.cut_t0 !== null && p.t0 !== null && p.t1 !== null) {
         segStart = round2(Math.max(0, Number(p.cut_t0)));
         const end = effectiveEnd(p, pad, ends);
         segEnd = end === null ? null : round2(end);
@@ -401,7 +494,7 @@ export async function POST(req: Request) {
   if (vertical) {
     // Highlight scopes carry their own ceiling (the picker already fills
     // to it; this is the backstop). Everything else keeps the Reel cap.
-    const capS = hlKind ? HIGHLIGHT_BUDGETS_S[hlKind] : VERTICAL_MAX_S;
+    const capS = hlKind ? HIGHLIGHT_CEILINGS_S[hlKind] : VERTICAL_MAX_S;
     const seconds = manifestPoints.reduce(
       (total, p) =>
         total +

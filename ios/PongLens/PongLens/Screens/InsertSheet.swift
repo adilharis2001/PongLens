@@ -16,8 +16,9 @@ import SwiftUI
 /// trim_start_s into the raw file. The route returns that offset; adding it
 /// is what makes the footage the right footage.
 ///
-/// The cut video stays as the fallback for matches whose raw has expired,
-/// and only there does the hatched "not available" band appear.
+/// The cut video stays as the fallback for legacy matches whose raw was
+/// swept before commerce (live matches keep theirs for good), and only
+/// there does the hatched "not available" band appear.
 struct InsertSheet: View {
     let match: MatchRow
     let model: MatchDetailModel
@@ -49,6 +50,17 @@ struct InsertSheet: View {
     @State private var seam: Seam?
     @State private var source: Source?
     @State private var observer: Any?
+    /// At most one seek in flight (the Modify sheet's rule): a drag fires
+    /// dozens of samples a second, and an exact seek on the ORIGINAL — the
+    /// largest, longest-GOP file in the system — queued dozens of full
+    /// decodes over the network. Newest request wins; tolerant while a
+    /// finger is down, exact when it lifts.
+    @State private var seeking = false
+    @State private var pendingSeek: Double?
+    @State private var dragging = false
+    /// The file's real length in source seconds (the original only), so a
+    /// head or tail insert cannot be dragged past footage that exists.
+    @State private var fileEnd: Double?
 
     private var themLabel: String { match.opponentName ?? "Them" }
 
@@ -112,7 +124,7 @@ struct InsertSheet: View {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(PL.ink.opacity(0.78))
                     .overlay(
-                        Text("The original video for this match has expired, so this stretch can't be shown. You can still add the rally.")
+                        Text("The original video for this match is no longer stored, so this stretch can't be shown. You can still add the rally.")
                             .font(.system(size: 11))
                             .foregroundStyle(PL.text300)
                             .multilineTextAlignment(.center)
@@ -249,10 +261,18 @@ struct InsertSheet: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
                         player.pause()
+                        playing = false
+                        dragging = true
                         let frac = min(1, max(0, g.location.x / max(1, width)))
-                        let s = seam.from + frac * (seam.to - seam.from)
+                        var s = seam.from + frac * (seam.to - seam.from)
+                        if let fileEnd { s = min(s, fileEnd) }
                         win = moveInsertHandle(seam, win, edge: edge, to: s)
                         seek(seam, s)
+                    }
+                    .onEnded { _ in
+                        dragging = false
+                        // The exact frame, once, where it matters.
+                        seek(seam, edge == .start ? win.t0 : win.t1)
                     }
             )
             .accessibilityLabel(edge == .start
@@ -303,10 +323,18 @@ struct InsertSheet: View {
     private func caption(_ seam: Seam) -> String {
         let len = win.t1 - win.t0
         let missing = missingInside(seam)
-        let head = missing > 0.25
+        var parts = [missing > 0.25
             ? String(format: "%.1fs · %.0fs not available", len, missing)
-            : String(format: "%.1fs", len)
-        return head + " · drag the handles to where the rally starts and ends"
+            : String(format: "%.1fs", len)]
+        // What the new card takes from its neighbours, said before Add.
+        if let prev, let pt1 = prev.t1, pt1 > win.t0 + 0.05, let n = prevNumber {
+            parts.append(String(format: "Card %d ends %.1fs earlier", n, pt1 - win.t0))
+        }
+        if let next, let nt0 = next.t0, nt0 < win.t1 - 0.05, let n = nextNumber {
+            parts.append(String(format: "Card %d starts %.1fs later", n, win.t1 - nt0))
+        }
+        parts.append("drag the handles to where the rally starts and ends")
+        return parts.joined(separator: " · ")
     }
 
     @ViewBuilder
@@ -345,9 +373,30 @@ struct InsertSheet: View {
 
     private func seek(_ seam: Seam, _ s: Double) {
         playhead = s
+        request(videoTime(seam, s), exact: !dragging)
+    }
+
+    private func request(_ t: Double, exact: Bool) {
+        guard t.isFinite else { return }
+        guard !seeking else {
+            pendingSeek = t
+            return
+        }
+        seeking = true
+        let tolerance: CMTime = exact
+            ? .zero
+            : CMTime(seconds: 0.15, preferredTimescale: 600)
         player.seek(
-            to: CMTime(seconds: videoTime(seam, s), preferredTimescale: 600),
-            toleranceBefore: .zero, toleranceAfter: .zero)
+            to: CMTime(seconds: max(0, t), preferredTimescale: 600),
+            toleranceBefore: tolerance, toleranceAfter: tolerance
+        ) { _ in
+            Task { @MainActor in
+                seeking = false
+                guard let next = pendingSeek else { return }
+                pendingSeek = nil
+                request(next, exact: !dragging)
+            }
+        }
     }
 
     private func togglePlay() {
@@ -379,23 +428,34 @@ struct InsertSheet: View {
             let trimStartS: Double?
         }
         let id = match.id.uuidString.lowercased()
-        if let res: RawRes = try? await API.post(
+        struct CutReq: Encodable { let matchId: String; let preview: Bool }
+        struct CutRes: Decodable { let url: String? }
+        func cutSource() async -> Source? {
+            guard let res: CutRes = try? await API.post(
+                "api/media-url", CutReq(matchId: id, preview: true)),
+                  let u = res.url.flatMap(URL.init) else { return nil }
+            return Source(kind: .cut, url: u, offset: 0)
+        }
+        // A continuous seam (55% of them) is entirely in the cut video:
+        // open on it and never touch the original. Only a seam the cutter
+        // removed time from needs the original to show what is in the hole.
+        if built.continuous, let cut = await cutSource() {
+            source = cut
+        } else if let res: RawRes = try? await API.post(
             "api/media-url", RawReq(matchId: id, rawPreview: true)),
-           res.available == true, let u = res.url.flatMap(URL.init) {
+            res.available == true, let u = res.url.flatMap(URL.init) {
             source = Source(kind: .raw, url: u, offset: res.trimStartS ?? 0)
         } else {
-            struct CutReq: Encodable { let matchId: String; let preview: Bool }
-            struct CutRes: Decodable { let url: String? }
-            if let res: CutRes = try? await API.post(
-                "api/media-url", CutReq(matchId: id, preview: true)),
-               let u = res.url.flatMap(URL.init) {
-                source = Source(kind: .cut, url: u, offset: 0)
-            }
+            source = await cutSource()
         }
         loading = false
         guard let source else { return }
         player.replaceCurrentItem(with: AVPlayerItem(url: source.url))
         player.isMuted = true
+        if source.kind == .raw, let asset = player.currentItem?.asset,
+           let d = try? await asset.load(.duration), d.seconds.isFinite {
+            fileEnd = d.seconds - source.offset
+        }
         seek(built, win.t0)
         // Play it straight away. The whole reason to open this sheet is to
         // see what is in the gap; making that a second tap asks for the one
@@ -407,10 +467,21 @@ struct InsertSheet: View {
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
             queue: .main
         ) { time in
-            guard source.kind == .raw else { return }
-            let s = time.seconds - source.offset
-            playhead = s
-            if playing, s >= win.t1 {
+            // The playhead in source seconds: the file's clock less the
+            // trim on the original; a linear map on a continuous seam;
+            // held by the handles across a removed seam, where the map
+            // has no inverse. The stop compares the FILE's clock — a held
+            // playhead against win.t1 never fired on the cut.
+            if dragging || seeking || pendingSeek != nil { return }
+            if source.kind == .raw {
+                playhead = time.seconds - source.offset
+            } else if built.continuous {
+                playhead = cutToSourceLinear(built, time.seconds)
+            }
+            let endT = source.kind == .raw
+                ? win.t1 + source.offset
+                : sourceToCut(built, win.t1)
+            if playing, time.seconds >= endT {
                 player.pause()
                 playing = false
             }
@@ -424,7 +495,7 @@ struct InsertSheet: View {
         player.pause()
         let w = clampInsertWindow(seam, win)
         let ok = await model.runInsert(
-            prev: prev, next: next,
+            prev: prev, next: next, pad: pad,
             t0: w.t0, t1: w.t1,
             cutT0: insertCutT0(seam, w, pad: pad),
             winner: winner)

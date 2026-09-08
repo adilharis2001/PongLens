@@ -32,6 +32,7 @@ import { ShareEntry } from "./ShareEntry";
 import {
   playersLine,
   pointContextLine,
+  highlightContextLine,
   sharePlayers,
   sharePointsAsPoints,
   starredContextLine,
@@ -221,6 +222,9 @@ export async function generateMetadata({
     const tagged = await resolveTagged(token);
     title = custom ?? tagContextLine(link.tag_label, tagged.length, names);
     description = "Watch these table tennis points on PongLens.";
+  } else if (link.kind === "highlights") {
+    title = custom ?? highlightContextLine(names);
+    description = "Watch these table tennis highlights on PongLens.";
   } else {
     title = custom ?? names ?? "Match";
     description = "Watch this table tennis match on PongLens.";
@@ -425,6 +429,7 @@ export default async function SharePage({
   const isPoint = link.kind === "point";
   const isStarred = link.kind === "starred";
   const isTag = link.kind === "tag";
+  const isHighlights = link.kind === "highlights";
   const isMatch = link.kind === "match";
   const isCollection = isStarred || isTag;
 
@@ -482,6 +487,8 @@ export default async function SharePage({
       ? starredContextLine(clips.length, names)
       : isTag
         ? tagContextLine(link.tag_label, clips.length, names)
+        : isHighlights
+          ? highlightContextLine(names)
         : (names ?? "Match");
   const customTitle = link.title?.trim() || null;
   const heading = customTitle ?? machineLine;
@@ -532,7 +539,9 @@ export default async function SharePage({
           ) : (
             <ShareView
               token={token}
-              kind={isPoint ? "point" : "match"}
+              kind={
+                isPoint ? "point" : isHighlights ? "highlights" : "match"
+              }
               matchId={link.match_id}
               points={points}
               skipSpans={deadSpans}

@@ -14,6 +14,7 @@ import {
   type PlacementRequestIdentity,
 } from "@/lib/placement/placementRetry";
 import { createClient } from "@/lib/supabase/client";
+import { hasOriginalVideo } from "@/lib/originalVideo";
 import type { MatchPlacementStatus } from "@/lib/types";
 
 interface PlacementLifecycleRow {
@@ -21,6 +22,7 @@ interface PlacementLifecycleRow {
   placement_retry_count: 0 | 1;
   placement_retry_expires_at: string | null;
   placement_failure_code: string | null;
+  raw_path?: string | null;
 }
 
 export interface PlacementLifecycleController {
@@ -41,18 +43,23 @@ export function usePlacementLifecycle({
   initialRetryCount,
   initialExpiresAt,
   initialFailureCode,
+  initialHasOriginal = false,
 }: {
   matchId: string;
   initialStatus: MatchPlacementStatus;
   initialRetryCount: 0 | 1;
   initialExpiresAt: string | null;
   initialFailureCode: string | null;
+  /** matches.raw_path is set: the original is kept for the life of the
+   *  match, so the deadline never applies (see placementActionAvailability). */
+  initialHasOriginal?: boolean;
 }): PlacementLifecycleController {
   const router = useRouter();
   const [status, setStatus] = useState(initialStatus);
   const [retryCount, setRetryCount] = useState(initialRetryCount);
   const [expiresAt, setExpiresAt] = useState(initialExpiresAt);
   const [failureCode, setFailureCode] = useState(initialFailureCode);
+  const [hasOriginal, setHasOriginal] = useState(initialHasOriginal);
   const [viewNow, setViewNow] = useState(() => new Date());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +76,7 @@ export function usePlacementLifecycle({
     setRetryCount(initialRetryCount);
     setExpiresAt(initialExpiresAt);
     setFailureCode(initialFailureCode);
+    setHasOriginal(initialHasOriginal);
     setViewNow(new Date());
     setSubmitting(false);
     setError(null);
@@ -81,6 +89,7 @@ export function usePlacementLifecycle({
     initialRetryCount,
     initialExpiresAt,
     initialFailureCode,
+    initialHasOriginal,
   ]);
 
   const view = placementLifecycleView(
@@ -89,6 +98,7 @@ export function usePlacementLifecycle({
     expiresAt,
     viewNow,
     failureCode,
+    hasOriginal,
   );
 
   const updateLifecycle = useCallback(
@@ -97,6 +107,9 @@ export function usePlacementLifecycle({
       setRetryCount(row.placement_retry_count);
       setExpiresAt(row.placement_retry_expires_at);
       setFailureCode(row.placement_failure_code);
+      if (row.raw_path !== undefined) {
+        setHasOriginal(hasOriginalVideo(row.raw_path));
+      }
 
       if (isPlacementTerminal(row.placement_status)) {
         if (refreshedTerminal.current !== row.placement_status) {
@@ -115,7 +128,7 @@ export function usePlacementLifecycle({
     const { data } = await supabase
       .from("matches")
       .select(
-        "placement_status,placement_retry_count,placement_retry_expires_at,placement_failure_code",
+        "placement_status,placement_retry_count,placement_retry_expires_at,placement_failure_code,raw_path",
       )
       .eq("id", matchId)
       .single();

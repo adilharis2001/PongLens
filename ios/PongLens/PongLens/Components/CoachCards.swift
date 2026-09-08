@@ -10,11 +10,22 @@ struct CoachEntryCard: View {
     /// Named on Home, where the list crosses students; a student's own
     /// page passes nil and the line reads "Entry · Sep 2".
     var studentName: String?
-    /// The one-tap share at the card's foot. A coach writing in a
-    /// student's folder assumes the student reads it, and nothing said
-    /// otherwise until the entry was opened. Passed for a student who is
-    /// on PongLens; the card drops it once the entry is shared.
+    /// The one-tap share, in the corner where the Shared badge lands. A
+    /// coach writing in a student's folder assumes the student reads it,
+    /// and nothing said otherwise until the entry was opened. The name
+    /// itself is no longer drawn, so this reads as "there is somebody to
+    /// share with"; the card drops the control once the entry is shared.
     var shareWith: String? = nil
+    /// Whether that student has a PongLens account behind them, which is
+    /// the difference between Shared and Waiting.
+    ///
+    /// DELIBERATELY WITHOUT A DEFAULT. This used to be folded into
+    /// shareWith, which meant two things at once — the name, and whether
+    /// they had joined — and splitting them is the whole point. A default
+    /// of true here would let a call site that was never updated keep the
+    /// old behaviour silently; with none, the compiler names every one of
+    /// them.
+    let studentLinked: Bool
     var sharing = false
     var onShare: (() -> Void)? = nil
 
@@ -43,44 +54,73 @@ struct CoachEntryCard: View {
                 }
                 Spacer()
                 if entry.sharedAt != nil {
-                    Text("Shared")
+                    // "Shared" over an entry nobody can read yet would be
+                    // a lie the coach could act on (2026-09-04). A coach
+                    // can now mark an entry for a student who has not
+                    // joined; it lands the day they do, and says so until
+                    // then.
+                    Text(studentLinked ? "Shared" : "Waiting")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(PL.cyan)
+                        .foregroundStyle(studentLinked ? PL.cyan : PL.text500)
+                } else if shareWith != nil, let onShare {
+                    // In the corner the Shared badge would occupy, sized
+                    // against it, but ringed and filled so it reads as a
+                    // control rather than another status word. It was a
+                    // full-width cyan bar under the entry, which shouted
+                    // beside a badge that whispers (Adil, 2026-09-04).
+                    // The name lives in the page title above; "Share"
+                    // alone is what fits a badge-sized control.
+                    Button(action: onShare) {
+                        Text(sharing ? "Sharing…" : "Share")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PL.cyan)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(PL.cyan.opacity(0.12), in: Capsule())
+                            .overlay(Capsule().strokeBorder(PL.cyan.opacity(0.6), lineWidth: 1))
+                            // The whole pill takes the tap, not only the
+                            // letters: a bare Text button has bitten this
+                            // app twice.
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(sharing)
                 } else if lesson?.status == "queued" {
                     Text("Writing up…")
                         .font(.system(size: 12))
                         .foregroundStyle(PL.text500)
                 }
             }
-            if let title {
-                Text(title)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(PL.text100)
-                    .multilineTextAlignment(.leading)
-                if !words.isEmpty {
-                    Text(words)
-                        .font(.plBody)
-                        .foregroundStyle(PL.text400)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+            // The photo beside the words, not only inside the entry. It
+            // is half of what a card like "camera setup, see the photo"
+            // is saying, and a row that hides it makes the words read as
+            // a mistake.
+            HStack(alignment: .top, spacing: 12) {
+                if let lesson, lesson.imagePath != nil {
+                    EntryPhotoThumb(lessonId: lesson.id)
                 }
-            } else {
-                Text(words.isEmpty ? "Empty entry" : words)
-                    .font(.plBody)
-                    .foregroundStyle(PL.text200)
-                    .lineLimit(4)
-                    .multilineTextAlignment(.leading)
-            }
-            if entry.sharedAt == nil, let shareWith, let onShare {
-                HStack {
-                    Button(action: onShare) {
-                        Text(sharing ? "Sharing…" : "Share with \(shareWith)")
+                VStack(alignment: .leading, spacing: 6) {
+                    if let title {
+                        Text(title)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(PL.text100)
+                            .multilineTextAlignment(.leading)
+                        if !words.isEmpty {
+                            Text(words)
+                                .font(.plBody)
+                                .foregroundStyle(PL.text400)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                        }
+                    } else {
+                        Text(words.isEmpty ? "Empty entry" : words)
+                            .font(.plBody)
+                            .foregroundStyle(PL.text200)
+                            .lineLimit(4)
+                            .multilineTextAlignment(.leading)
                     }
-                    .buttonStyle(PLCyanGhostButtonStyle())
-                    .disabled(sharing)
-                    Spacer()
                 }
-                .padding(.top, 2)
+                Spacer(minLength: 0)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -22,6 +22,7 @@ struct ShareLinkRow: Codable, Identifiable, Hashable {
         if let title, !title.isEmpty { return title }
         switch kind {
         case "starred": return "Starred points"
+        case "highlights": return "Highlights"
         case "tag": return "Tagged points"
         case "entry": return "Journal entry"
         default: return pointId == nil ? "This match" : "This point"
@@ -54,6 +55,7 @@ final class AccountStore {
     var storage: StorageState?
     var processing: ProcessingState?
     var commerceEnabled = false
+    var purchasesEnabled = false
     var supportEmail = "support@ponglens.com"
     /// No preference row means enabled, the same reading the web makes.
     var recollectEnabled = true
@@ -68,7 +70,7 @@ final class AccountStore {
         async let configQ: [ConfigRow]? = try? supa
             .from("app_config")
             .select("key,value")
-            .in("key", values: ["commerce_enabled", "support_email"])
+            .in("key", values: ["commerce_enabled", "purchases_enabled", "support_email"])
             .execute().value
         async let storageQ: [StorageState]? = try? supa
             .rpc("my_storage_state").execute().value
@@ -89,8 +91,9 @@ final class AccountStore {
 
         let (config, s, p, links, recollect) = await (configQ, storageQ, processingQ, linksQ, recollectQ)
         for row in config ?? [] {
+            if row.key == "purchases_enabled" { purchasesEnabled = row.value == "true" }
             if row.key == "commerce_enabled" {
-                commerceEnabled = (row.value ?? "").contains("true")
+                commerceEnabled = row.value == "true"
             }
             if row.key == "support_email", let v = row.value, !v.isEmpty {
                 supportEmail = v.replacingOccurrences(of: "\"", with: "")
@@ -176,10 +179,13 @@ final class NotificationsStore {
     private var kinds: [String] {
         var list = [
             "note", "match_ready", "match_failed", "upload_failed",
+            "allowance_request", "allowance_decided",
             "reel_ready", "reel_failed", "coach_joined",
             // Coach workspace (156): an entry shared with you, a student
-            // joining, a student's match turning ready.
+            // joining, a student's match turning ready, and — the other
+            // direction — a student sharing a lesson they recorded.
             "coach_entry", "student_joined", "student_match_ready",
+            "student_lesson",
         ]
         if AppConfig.coachMarketplace {
             list += [

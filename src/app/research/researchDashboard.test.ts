@@ -14,6 +14,10 @@ test("the research catalog contains every current research page", () => {
   assert.deepEqual(
     RESEARCH_PAGES.map(({ title, href }) => ({ title, href })),
     [
+      { title: "V3 serve detector", href: "/research/v3-serve-detector" },
+      { title: "Body detector", href: "/research/body-detector" },
+      { title: "V3 across matches", href: "/research/v3-serve-detector/across" },
+      { title: "Active ball", href: "/research/active-ball" },
       { title: "Audio impacts", href: "/research/audio-impacts" },
       { title: "Serve spin", href: "/research/spin" },
       { title: "Fused labeling", href: "/research/fused-labeling" },
@@ -48,7 +52,7 @@ test("the research catalog contains every current research page", () => {
       { title: "Theme analysis", href: "/research/themes" },
     ],
   );
-  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 20);
+  assert.equal(new Set(RESEARCH_PAGES.map((page) => page.href)).size, 24);
   for (const page of RESEARCH_PAGES) {
     assert.ok(page.category.length > 0);
     assert.ok(page.description.length > 0);

@@ -13,6 +13,7 @@ import { DeleteAccountSection } from "./DeleteAccountSection";
 import {
   isAdminEmail,
   getCommerceEnabled,
+  getPurchasesEnabled,
   getMinutePacks,
   getStoragePacks,
   getSupportEmail,
@@ -81,6 +82,7 @@ export default async function AccountPage() {
   const isQa = qa === true;
   const supportEmail = await getSupportEmail();
   const commerceEnabled = await getCommerceEnabled();
+  const purchasesEnabled = commerceEnabled && await getPurchasesEnabled();
   const { workspace } = await rememberedWorkspace();
   const coachSide = workspace === "coach";
   // The Profile type row's label: the coach flag, or any coach data — a
@@ -109,7 +111,7 @@ export default async function AccountPage() {
         .limit(1)
         .maybeSingle(),
     ]).then((rows) => rows.some((r) => Boolean(r.data))));
-  const [minutePacks, storagePacks] = commerceEnabled
+  const [minutePacks, storagePacks] = purchasesEnabled
     ? await Promise.all([getMinutePacks(), getStoragePacks()])
     : [[], []];
   const { data: recollectPreference } = await supabase
@@ -183,27 +185,42 @@ export default async function AccountPage() {
         </div>
       )}
 
-      {/* 4 — the whole coaching world (your coaches, bought reviews,
-          the coach workspace) lives on the Coaching tab now */}
+      {/* 4 — public share links: the safety switch for anything a
+          stranger can open. Day-to-day management stays in each match's
+          Share sheet. */}
       <div className="mt-8">
         <ShareLinksSection />
       </div>
 
-      {/* 5 — resource management sits mid-low; playing-side only */}
+      {/* 5 — the coaching world (your coaches, the lessons you record
+          with them, bought reviews) lives on the Coaching tab, and
+          Account keeps the one door to it. Playing-side only, like Your
+          game: from the coaching side the tab is already under you. iOS
+          Account has the same group in the same place. */}
+      {!coachSide && (
+        <div className="mt-8">
+          <SectionLabel>Coaching</SectionLabel>
+          <div className="overflow-hidden rounded-2xl border border-edge bg-surface">
+            <RowLink href="/coaching" label="Your coaches" />
+          </div>
+        </div>
+      )}
+
+      {/* 6 — resource management sits mid-low; playing-side only */}
       {commerceEnabled && !coachSide && (
         <div id="minutes" className="mt-8 scroll-mt-20">
           <SectionLabel>Processing minutes</SectionLabel>
-          <MinutesSection packs={minutePacks} />
+          <MinutesSection packs={minutePacks} purchasesEnabled={purchasesEnabled} />
         </div>
       )}
       {!coachSide && (
         <div id="storage" className="mt-8 scroll-mt-20">
           <SectionLabel>Storage</SectionLabel>
-          <StorageSection packs={commerceEnabled ? storagePacks : []} />
+          <StorageSection packs={storagePacks} purchasesEnabled={purchasesEnabled} />
         </div>
       )}
 
-      {/* 6 — the two sides of the account, in one place on both sides.
+      {/* 7 — the two sides of the account, in one place on both sides.
           It used to sit at the foot of "Your game" on the playing side
           and under its own "Workspace" label on the coaching side, so
           the same row had two homes and two names (Adil, 2026-09-02).
@@ -220,7 +237,8 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 7 — support block, just above legal */}
+      {/* 8 — support block, just above legal. Closing the account is its
+          last row, where the iOS app keeps it (Adil, 2026-09-05). */}
       <div className="mt-8">
         <SectionLabel>Support</SectionLabel>
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
@@ -247,10 +265,11 @@ export default async function AccountPage() {
               />
             </svg>
           </a>
+          <DeleteAccountSection />
         </div>
       </div>
 
-      {/* 8 — legal, last among the links */}
+      {/* 9 — legal, last among the links */}
       <div className="mt-8">
         <SectionLabel>Legal</SectionLabel>
         <div className="divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
@@ -259,13 +278,9 @@ export default async function AccountPage() {
         </div>
       </div>
 
-      {/* 9 — the exits, alone at the very bottom. Closing the account sits
-          under signing out, quieter than it but reachable without asking
-          anyone: Apple requires it in the app, and it is the right thing
-          regardless. */}
-      <div className="mt-10 flex flex-col gap-3">
+      {/* 10 — the exit, alone at the very bottom. */}
+      <div className="mt-10">
         <SignOutRow />
-        <DeleteAccountSection />
       </div>
     </AppShell>
   );

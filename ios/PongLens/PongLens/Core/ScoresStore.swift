@@ -43,6 +43,11 @@ final class ScoresStore {
 
     private(set) var aggregate = Aggregate()
     private(set) var scores: [UUID: Entry] = [:]
+    /// Whether the walk has finished at least once. The Journal's Stats
+    /// tab shows the sections it has and one line until it has, because
+    /// half-counted numbers presented as finished ones are worse than
+    /// saying they are still being counted.
+    private(set) var loaded = false
     private var loading = false
 
     func load(for matches: [MatchRow]) async {
@@ -52,35 +57,65 @@ final class ScoresStore {
                 ($0.id, $0.firstServer.flatMap(Winner.init(rawValue:)))
             }
         )
-        guard !loading, !matchIds.isEmpty else { return }
+        // Nothing to walk is a finished walk. Returning here without
+        // saying so left the Journal's Stats tab counting for ever on an
+        // account with no matches, which is the account most likely to
+        // open it first.
+        if matchIds.isEmpty { loaded = true; return }
+        guard !loading else { return }
         loading = true
-        defer { loading = false }
+        defer { loading = false; loaded = true }
 
-        var byMatch: [UUID: [PointRow]] = [:]
+        var chunks: [[UUID]] = []
         var start = 0
         while start < matchIds.count {
-            let chunk = Array(matchIds[start..<min(start + 50, matchIds.count)])
+            chunks.append(Array(matchIds[start..<min(start + 50, matchIds.count)]))
             start += 50
-            var page = 0
-            while true {
-                do {
-                    let rows: [PointRow] = try await supa
-                        .from("points")
-                        .select(PointRow.scoreSelect)
-                        .in("match_id", values: chunk.map { $0.uuidString.lowercased() })
-                        .order("match_id")
-                        .order("idx")
-                        .range(from: page * 1000, to: page * 1000 + 999)
-                        .execute()
-                        .value
-                    for row in rows {
-                        byMatch[row.matchId, default: []].append(row)
+        }
+
+        // The chunks run TOGETHER. They are independent queries against
+        // different matches, and walking them one after another was most of
+        // the wait: on an account of 115 matches and 7,800 points that is
+        // three chunks of three pages each, ten round trips end to end,
+        // every one waiting for the last. The database answers each in
+        // about three milliseconds; the time was almost all queueing.
+        // Pages within a chunk stay sequential, because a page only knows
+        // it is the last one by coming back short. The web twin is
+        // useAggregate.ts.
+        var byMatch: [UUID: [PointRow]] = [:]
+        let fetched: [[PointRow]] = await withTaskGroup(of: [PointRow].self) { group in
+            for chunk in chunks {
+                group.addTask {
+                    var rows: [PointRow] = []
+                    var page = 0
+                    while true {
+                        do {
+                            let batch: [PointRow] = try await supa
+                                .from("points")
+                                .select(PointRow.scoreSelect)
+                                .in("match_id", values: chunk.map { $0.uuidString.lowercased() })
+                                .order("match_id")
+                                .order("idx")
+                                .range(from: page * 1000, to: page * 1000 + 999)
+                                .execute()
+                                .value
+                            rows.append(contentsOf: batch)
+                            if batch.count < 1000 { break }
+                            page += 1
+                        } catch {
+                            break
+                        }
                     }
-                    if rows.count < 1000 { break }
-                    page += 1
-                } catch {
-                    break
+                    return rows
                 }
+            }
+            var out: [[PointRow]] = []
+            for await rows in group { out.append(rows) }
+            return out
+        }
+        for rows in fetched {
+            for row in rows {
+                byMatch[row.matchId, default: []].append(row)
             }
         }
 

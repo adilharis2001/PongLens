@@ -63,6 +63,37 @@ struct StudentInviteRow: Codable, Identifiable, Hashable {
     }
 }
 
+/// A journal entry a STUDENT attributed to this coach and chose to share
+/// (164), as student_shared_lessons() returns it. Read-only: it is their
+/// journal, and it stays theirs. The web twin is `SharedFromStudent` in
+/// StudentView.tsx.
+struct StudentSharedLesson: Codable, Identifiable, Hashable {
+    let lessonId: UUID
+    /// The student's auth id, which is what a roster row's playerId holds.
+    let studentId: UUID
+    let studentName: String
+    let transcript: String
+    let takeaways: LessonTakeaways?
+    /// Pinned to the student's own folder by the RPC; nil when there is none.
+    let imagePath: String?
+    let matchId: UUID?
+    let sharedAt: String
+    let createdAt: String
+
+    var id: UUID { lessonId }
+
+    enum CodingKeys: String, CodingKey {
+        case transcript, takeaways
+        case lessonId = "lesson_id"
+        case studentId = "student_id"
+        case studentName = "student_name"
+        case imagePath = "image_path"
+        case matchId = "match_id"
+        case sharedAt = "shared_at"
+        case createdAt = "created_at"
+    }
+}
+
 /// The coaching workspace's data: roster, entries, and the lesson rows
 /// behind them. Loaded when the workspace opens, refreshed after writes.
 /// Matches shared by students stay in LibraryStore — RLS already delivers
@@ -73,12 +104,17 @@ final class CoachWorkspaceStore {
     var entries: [CoachEntryRow] = []
     /// Lesson content keyed by lesson id, for the entries above only.
     var lessons: [UUID: LessonRow] = [:]
-    /// Whether this coach has ever minted an invite link. Only ever asked
-    /// by the first-steps checklist, which counts "sent a student their
-    /// invite link" as done if a link exists OR a student is already
-    /// linked to an account — the same two halves the web checks, because
-    /// a coach who was joined through the general link never minted one.
-    var anyInvite = false
+    /// What students shared FROM their own journals (164). The other
+    /// direction from `entries`, and kept apart from them on purpose:
+    /// what you wrote about someone and what they showed you must never
+    /// look like one pile.
+    var fromStudents: [StudentSharedLesson] = []
+    /// Invite links this coach has ever minted, revoked ones included.
+    /// Home's first steps is the only reader: "Send a student their invite
+    /// link" is done the moment a link exists, and turning a link off
+    /// afterwards does not un-send it. Counted here rather than in the
+    /// screen so the checklist never runs a query of its own.
+    var inviteCount = 0
     var loaded = false
     /// The roster query itself failed (offline, expired session). Screens
     /// say so rather than showing "No students yet." over a network error.
@@ -88,12 +124,27 @@ final class CoachWorkspaceStore {
         students.filter { $0.archivedAt == nil }
     }
 
+    /// The oldest student still on the roster, which is where a new
+    /// coach's first steps happen: the invite, the first entry and the
+    /// first share all live on one student's page. The roster arrives
+    /// newest first, so the oldest is the last of it. The web reads the
+    /// same student by ordering its query the other way round.
+    var firstStudent: CoachStudentRow? { activeStudents.last }
+
     func student(_ id: UUID) -> CoachStudentRow? {
         students.first { $0.id == id }
     }
 
     func entries(for studentId: UUID) -> [CoachEntryRow] {
         entries.filter { $0.studentId == studentId }
+    }
+
+    /// Their shared entries, for a roster row that has an account behind
+    /// it. Keyed on the player id, because the RPC answers in terms of
+    /// accounts and the roster in terms of rows.
+    func shared(from student: CoachStudentRow) -> [StudentSharedLesson] {
+        guard let playerId = student.playerId else { return [] }
+        return fromStudents.filter { $0.studentId == playerId }
     }
 
     func lesson(for entry: CoachEntryRow) -> LessonRow? {
@@ -122,23 +173,28 @@ final class CoachWorkspaceStore {
             .eq("kind", value: "coach")
             .order("created_at", ascending: false)
             .execute().value
-
-        async let invitesQ: [StudentInviteRow]? = try? await supa
-            .from("coach_student_invites")
-            .select("id,coach_id,student_id,token,created_at,revoked_at")
-            .limit(1)
+        async let sharedQ: [StudentSharedLesson]? = try? await supa
+            .rpc("student_shared_lessons")
             .execute().value
+        // A head request. Nothing reads an invite row here, only whether
+        // one exists, so the rows never need to come back.
+        async let invitesQ = try? await supa
+            .from("coach_student_invites")
+            .select("id", head: true, count: .exact)
+            .eq("coach_id", value: uid)
+            .execute()
 
-        let (s, e, l, i) = await (studentsQ, entriesQ, lessonsQ, invitesQ)
+        let (s, e, l) = await (studentsQ, entriesQ, lessonsQ)
+        fromStudents = (await sharedQ) ?? []
         guard let s else {
             loadFailed = true
             return
         }
         loadFailed = false
+        inviteCount = (await invitesQ)?.count ?? 0
         students = s
         entries = e ?? []
         lessons = Dictionary(uniqueKeysWithValues: (l ?? []).map { ($0.id, $0) })
-        anyInvite = !(i ?? []).isEmpty
         loaded = true
     }
 
@@ -175,7 +231,9 @@ final class CoachWorkspaceStore {
                 .eq("id", value: student.id.uuidString.lowercased())
                 .execute()
         } catch { return false }
-        if let i = students.firstIndex(of: student) {
+        // By id, not by value: a row whose other fields have moved on is
+        // still the same row. See setShared for what value-matching cost.
+        if let i = students.firstIndex(where: { $0.id == student.id }) {
             students[i].displayName = clean
         }
         return true
@@ -291,16 +349,21 @@ final class CoachWorkspaceStore {
         studentId: UUID,
         transcript: String,
         summarize: Bool,
+        imagePath: String? = nil,
         matchId: UUID? = nil
     ) async -> CoachEntryRow? {
         struct Req: Encodable {
             let transcript: String
             let kind = "coach"
             let summarize: Bool
+            // Already uploaded and checked by /api/entry-image; the route
+            // re-checks it sits under this caller's own entry folder.
+            let imagePath: String?
         }
         struct Res: Decodable { let id: String? }
         let res: Res? = try? await API.post(
-            "api/lesson", Req(transcript: transcript, summarize: summarize)
+            "api/lesson",
+            Req(transcript: transcript, summarize: summarize, imagePath: imagePath)
         )
         guard let idString = res?.id, let lessonId = UUID(uuidString: idString) else {
             return nil
@@ -345,23 +408,64 @@ final class CoachWorkspaceStore {
 
     /// Flip sharing. Sharing is a live grant: the student reads the
     /// current words, and edits after sharing show.
+    /// Share an entry with the student, or stop.
+    ///
+    /// Two things here were wrong and made "Stop sharing" look broken.
+    ///
+    /// The row came back rebuilt by hand rather than read back, so the
+    /// copy in memory carried the OLD updated_at while the table's own
+    /// touch trigger had moved it on. And the row to replace was found
+    /// with `firstIndex(of:)`, which compares every field — so the moment
+    /// those two disagreed the lookup found nothing, the write landed in
+    /// the database, and the screen went on saying "Shared". Pressing it
+    /// again did the same thing again.
+    ///
+    /// Now the update returns the stored row and it is matched by id.
+    /// An id is what identifies a row; the rest of its fields are just
+    /// its contents, and they are allowed to change under us.
+    /// Mark every unshared entry in one folder, in a single statement
+    /// (2026-09-04). The head start for a student who has not joined:
+    /// one update over the ids rather than a loop, so a half-shared
+    /// folder cannot happen. The web twin is shareAllWaiting() in
+    /// StudentView.tsx.
+    func shareAll(studentId: UUID) async -> Bool {
+        let ids = entries
+            .filter { $0.studentId == studentId && $0.sharedAt == nil }
+            .map { $0.id.uuidString.lowercased() }
+        guard !ids.isEmpty else { return true }
+        let stamp = AnyJSON.string(ISO8601DateFormatter().string(from: Date()))
+        let saved: [CoachEntryRow]
+        do {
+            saved = try await supa
+                .from("coach_entries")
+                .update(["shared_at": stamp])
+                .in("id", values: ids)
+                .select("id,coach_id,student_id,lesson_id,shared_at,created_at,updated_at")
+                .execute().value
+        } catch { return false }
+        for row in saved {
+            if let i = entries.firstIndex(where: { $0.id == row.id }) {
+                entries[i] = row
+            }
+        }
+        return true
+    }
+
     func setShared(_ entry: CoachEntryRow, shared: Bool) async -> Bool {
         let stamp = shared ? AnyJSON.string(ISO8601DateFormatter().string(from: Date()))
                            : AnyJSON.null
+        let saved: CoachEntryRow
         do {
-            try await supa
+            saved = try await supa
                 .from("coach_entries")
                 .update(["shared_at": stamp])
                 .eq("id", value: entry.id.uuidString.lowercased())
-                .execute()
+                .select("id,coach_id,student_id,lesson_id,shared_at,created_at,updated_at")
+                .single()
+                .execute().value
         } catch { return false }
-        if let i = entries.firstIndex(of: entry) {
-            entries[i] = CoachEntryRow(
-                id: entry.id, coachId: entry.coachId, studentId: entry.studentId,
-                lessonId: entry.lessonId,
-                sharedAt: shared ? ISO8601DateFormatter().string(from: Date()) : nil,
-                createdAt: entry.createdAt, updatedAt: entry.updatedAt
-            )
+        if let i = entries.firstIndex(where: { $0.id == saved.id }) {
+            entries[i] = saved
         }
         return true
     }
@@ -384,12 +488,29 @@ final class CoachWorkspaceStore {
 
     /// Correct the words of an entry, through the same route the journal
     /// uses so trimming and caps match. Distillation is left alone.
-    func saveWords(_ entry: CoachEntryRow, transcript: String) async -> String? {
+    func saveWords(
+        _ entry: CoachEntryRow, transcript: String,
+        photo: EntryPhotoSave = .unchanged
+    ) async -> String? {
         struct Req: Encodable {
             let lessonId: String
             let transcript: String
-            let kind = "coach"
             let summarize = false
+            let photo: EntryPhotoSave
+
+            enum CodingKeys: String, CodingKey {
+                case lessonId, transcript, summarize, imagePath
+            }
+
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(lessonId, forKey: .lessonId)
+                try c.encode(transcript, forKey: .transcript)
+                try c.encode(summarize, forKey: .summarize)
+                if case .set(let path) = photo {
+                    try c.encode(path, forKey: .imagePath)
+                }
+            }
         }
         struct Res: Decodable { let id: String? }
         do {
@@ -397,12 +518,56 @@ final class CoachWorkspaceStore {
                 "api/lesson", method: "PATCH",
                 body: Req(
                     lessonId: entry.lessonId.uuidString.lowercased(),
-                    transcript: transcript
+                    transcript: transcript, photo: photo
                 )
             )
         } catch {
             return (error as? APIError)?.errorDescription
                 ?? "Couldn't save it. Your words are still here, so try again."
+        }
+        await reloadLesson(entry.lessonId)
+        return nil
+    }
+
+    /// Correct the written-up note on an entry, one line at a time.
+    ///
+    /// The same route the player's journal uses, and the same reason it
+    /// exists: an entry that came back as points is corrected by editing
+    /// those points, never by re-reading the words and having every point
+    /// rewritten. The words are left exactly as they are.
+    func saveNote(
+        _ entry: CoachEntryRow, takeaways: LessonTakeaways,
+        photo: EntryPhotoSave = .unchanged
+    ) async -> String? {
+        struct Req: Encodable {
+            let lessonId: String
+            let takeaways: LessonTakeaways
+            let photo: EntryPhotoSave
+
+            enum CodingKeys: String, CodingKey { case lessonId, takeaways, imagePath }
+
+            func encode(to encoder: Encoder) throws {
+                var c = encoder.container(keyedBy: CodingKeys.self)
+                try c.encode(lessonId, forKey: .lessonId)
+                try c.encode(takeaways, forKey: .takeaways)
+                // Absent means "not what I am changing"; see JournalStore.
+                if case .set(let path) = photo {
+                    try c.encode(path, forKey: .imagePath)
+                }
+            }
+        }
+        struct Res: Decodable { let id: String }
+        do {
+            let _: Res = try await API.request(
+                "api/lesson/note", method: "PATCH",
+                body: Req(
+                    lessonId: entry.lessonId.uuidString.lowercased(),
+                    takeaways: takeaways, photo: photo
+                )
+            )
+        } catch {
+            return (error as? APIError)?.errorDescription
+                ?? "Couldn't save it. Your changes are still here, so try again."
         }
         await reloadLesson(entry.lessonId)
         return nil

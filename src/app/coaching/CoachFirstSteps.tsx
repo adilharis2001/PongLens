@@ -33,7 +33,7 @@ export interface CoachFirstStepsState {
   /** A match a student shared, if one exists. */
   sharedMatchId: string | null;
   hasPage: boolean;
-  /** user_metadata.tutorial_started, set the first time a chapter plays. */
+  /** user_metadata.coach_tutorial_started, set the first time a chapter plays. */
   watched: boolean;
 }
 
@@ -72,7 +72,7 @@ export function CoachFirstSteps({ state }: { state: CoachFirstStepsState }) {
       done: state.sharedMatchId !== null,
       href: state.sharedMatchId
         ? `/match/${state.sharedMatchId}`
-        : "/learn/for-coaches",
+        : "/learn/review-student-match?audience=coach",
     },
     {
       label: "Offer paid reviews",
@@ -82,7 +82,7 @@ export function CoachFirstSteps({ state }: { state: CoachFirstStepsState }) {
     {
       label: "Watch the tutorial videos",
       done: state.watched,
-      href: "/learn/videos",
+      href: "/learn/videos?audience=coach",
     },
   ];
 
@@ -189,7 +189,7 @@ export function CoachFirstSteps({ state }: { state: CoachFirstStepsState }) {
       <p className="mt-3 border-t border-edge/60 pt-3 text-xs text-zinc-500">
         How coaching works, step by step, in{" "}
         <Link
-          href="/learn/for-coaches"
+          href="/learn/review-student-match?audience=coach"
           className="font-medium text-cyan-glow transition-colors hover:text-white"
         >
           Learn

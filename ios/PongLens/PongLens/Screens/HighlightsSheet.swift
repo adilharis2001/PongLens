@@ -1,99 +1,177 @@
 import SwiftUI
 
-/// The match's automatic highlights: two cuts, watched in the real watch
-/// player, shared from inside it.
-///
-/// The hierarchy (Adil, 2026-08-25): a SHORT highlight and a LONG one,
-/// each named with its own rally count so the two never blur together.
-/// Tapping one opens PlayerTakeover in highlights mode — the full watch
-/// experience the app already has (seeker, pause, zoom, rotate, the
-/// prev/next flanks, landscape) playing only the picked rallies, with a
-/// Share pill in its chrome. No second player interface.
-///
-/// Nothing here re-decides anything: Core/Highlights.swift picks the
-/// rallies (parity-tested against the server's picker), and the share
-/// actions ride the same render pipeline as every other vertical.
+/// One worker-rendered highlight video. Rally membership and timing come
+/// from the server manifest; the phone never recreates the selection rule.
 struct HighlightsSheet: View {
     let match: MatchRow
     let model: MatchDetailModel
+    let onChanged: (AutomaticHighlightsResponse) -> Void
 
-    static var detentHeight: CGFloat { 330 }
-
-    @State private var playCut: HighlightCut?
-    @Environment(AppState.self) private var app
-
-    private var pad: ClipPad {
-        clipPad(strictness: nil, stored: match.clipPads)
-    }
-    private var reel: Highlights.Picks {
-        Highlights.pick(model.visible, pad: pad, budgetS: Highlights.reelBudgetS,
-                        ends: app.endOptions)
-    }
-    private var long: Highlights.Picks {
-        Highlights.pick(model.visible, pad: pad, budgetS: Highlights.longBudgetS,
-                        ends: app.endOptions)
-    }
-    /// The long cut earns its row only when it actually shows more.
-    private var longWorthIt: Bool {
-        long.totalS > reel.totalS + 1
-    }
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @State private var response: AutomaticHighlightsResponse?
+    @State private var playing = false
+    @State private var submitting = false
+    @State private var errorMessage: String?
 
     var body: some View {
-        PLChooserSheet(title: "Highlights") {
-            if reel.points.isEmpty || model.videoURL == nil {
-                Text("No rallies to pick from yet.")
-                    .font(.plBody)
-                    .foregroundStyle(PL.text500)
-            } else {
-                PLChooserRow(
-                    icon: "play.fill",
-                    title: "Short highlight",
-                    detail: Highlights.summary(reel) ?? ""
-                ) {
-                    playCut = HighlightCut(kind: .short)
-                }
-                if longWorthIt {
-                    PLChooserRow(
-                        icon: "play.fill",
-                        title: "Long highlight",
-                        detail: Highlights.summary(long) ?? ""
-                    ) {
-                        playCut = HighlightCut(kind: .long)
+        Group {
+            if let requestView {
+                NavigationStack {
+                    Form {
+                        Section {
+                            if requestView.running {
+                                HStack(spacing: 10) {
+                                    ProgressView().tint(PL.cyan)
+                                    Text("Updating rally clips…")
+                                        .font(.plBody)
+                                        .foregroundStyle(PL.text300)
+                                }
+                            } else if let actionLabel = requestView.actionLabel {
+                                Button(submitting ? "Starting…" : actionLabel) {
+                                    Task { await requestUpdate() }
+                                }
+                                .disabled(submitting)
+                            }
+                            if let errorMessage {
+                                Text(errorMessage)
+                                    .font(.plCaption)
+                                    .foregroundStyle(PL.dangerText)
+                            }
+                        } footer: {
+                            Text(requestView.body)
+                        }
+                    }
+                    .tint(PL.cyan)
+                    .navigationTitle(requestView.title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { dismiss() }
+                                .fontWeight(.semibold)
+                        }
                     }
                 }
+                .preferredColorScheme(.dark)
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    PLChooserSheet(title: "Highlights") {
+                        switch response?.status {
+                        case "ready":
+                            if hasActions {
+                                AutomaticHighlightActions(
+                                    match: match,
+                                    includePlay: true,
+                                    playDetail: response?.summary ?? "",
+                                    onPlay: { playing = true }
+                                )
+                            } else {
+                                stateText("Highlights unavailable")
+                            }
+                        case "empty", "unavailable":
+                            stateText("No highlight rallies")
+                        case "failed":
+                            stateText("Highlights unavailable")
+                        default:
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small).tint(PL.text300)
+                                stateText("Preparing highlights")
+                            }
+                        }
+                    }
+                }
+                .scrollBounceBehavior(.basedOnSize)
             }
         }
-        .fullScreenCover(item: $playCut) { cut in
-            if let url = model.videoURL {
+        .presentationDetents(detents)
+        .task(id: match.id) { await loadUntilSettled() }
+        .fullScreenCover(isPresented: $playing) {
+            if let response, let url = response.url, let manifest = response.manifest {
                 HighlightsTakeover(
-                    match: match,
-                    model: model,
-                    pad: pad,
-                    videoURL: url,
-                    kind: cut.kind,
-                    picks: cut.kind == .short ? reel.points : long.points
+                    match: match, model: model, videoURL: url, manifest: manifest
                 )
             }
         }
     }
+
+    private var hasActions: Bool {
+        response?.status == "ready" && response?.url != nil && response?.manifest != nil
+    }
+
+    private var requestView: AutomaticHighlightsRequestView? {
+        automaticHighlightsRequestView(status: response?.status ?? "")
+    }
+
+    private var detents: Set<PresentationDetent> {
+        if requestView != nil { return [.medium] }
+        if hasActions && verticalSizeClass == .compact { return [.large] }
+        let height = automaticHighlightsSheetHeight(hasActions: hasActions)
+        return [.height(CGFloat(height))]
+    }
+
+    private func stateText(_ value: String) -> some View {
+        Text(value)
+            .font(.plBody)
+            .foregroundStyle(PL.text500)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func loadUntilSettled() async {
+        while !Task.isCancelled {
+            do {
+                response = try await API.get(
+                    "api/highlights",
+                    query: ["matchId": match.id.uuidString.lowercased()]
+                )
+            } catch {
+                response = AutomaticHighlightsResponse(
+                    status: "failed", url: nil, durationS: nil, manifest: nil
+                )
+            }
+            if let response { onChanged(response) }
+            guard response?.status == "rendering" || response?.status == "updating" else {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(1800))
+        }
+    }
+
+    private func requestUpdate() async {
+        submitting = true
+        errorMessage = nil
+        struct Req: Encodable { let matchId: String }
+        do {
+            let next: AutomaticHighlightsResponse = try await API.post(
+                "api/highlights",
+                Req(matchId: match.id.uuidString.lowercased())
+            )
+            response = next
+            onChanged(next)
+            submitting = false
+            await loadUntilSettled()
+        } catch let APIError.http(_, code) {
+            if code == "highlights_current" || code == "rally_clips_updating" {
+                submitting = false
+                await loadUntilSettled()
+                return
+            }
+            errorMessage = code == "render_queue_full"
+                ? "Three videos are already being prepared. Try again when one is finished."
+                : "Couldn't prepare highlights. Try again."
+            submitting = false
+        } catch {
+            errorMessage = "Couldn't prepare highlights. Try again."
+            submitting = false
+        }
+    }
 }
 
-struct HighlightCut: Identifiable {
-    enum Kind { case short, long }
-    let kind: Kind
-    var id: Bool { kind == .short }
-}
-
-/// The watch player in highlights mode, plus the share sheet its Share
-/// pill opens. A wrapper rather than state inside PlayerTakeover, so the
-/// takeover stays a player and sharing stays this feature's business.
+/// The existing match player, but with one continuous highlight AVPlayerItem.
 private struct HighlightsTakeover: View {
     let match: MatchRow
     let model: MatchDetailModel
-    let pad: ClipPad
     let videoURL: URL
-    let kind: HighlightCut.Kind
-    let picks: [MatchPoint]
+    let manifest: AutomaticHighlightManifest
 
     @State private var shareOpen = false
 
@@ -101,15 +179,16 @@ private struct HighlightsTakeover: View {
         PlayerTakeover(
             match: match,
             model: model,
-            pad: pad,
+            pad: clipPad(strictness: nil, stored: match.clipPads),
             videoURL: videoURL,
-            startAt: picks.first?.cutT0,
+            startAt: 0,
             mode: .watch,
-            highlightPicks: picks,
+            source: .cut,
+            highlightManifest: manifest,
             onShareHighlight: { shareOpen = true }
         )
         .sheet(isPresented: $shareOpen) {
-            HighlightsShareSheet(match: match, points: model.visible, kind: kind)
+            HighlightsShareSheet(match: match)
                 .presentationDetents([.height(HighlightsShareSheet.detentHeight)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
@@ -117,96 +196,97 @@ private struct HighlightsTakeover: View {
     }
 }
 
-// MARK: - Sharing a cut
-
-/// What Share offers: Instagram Story, Instagram Reel, Save the video.
-/// The Instagram rows always render their own fitting cut (a Story takes
-/// 20 seconds, a Reel a minute); Save renders the cut being watched. The
-/// rows are always offered — a phone without Instagram is told so on tap
-/// rather than shown a sheet with the whole point of the feature missing.
+/// Vertical sharing remains a separate render, but the server derives each
+/// duration from the same already-qualified canonical pool.
 struct HighlightsShareSheet: View {
     let match: MatchRow
-    let points: [MatchPoint]
-    let kind: HighlightCut.Kind
 
     static var detentHeight: CGFloat { 470 }
+
+    var body: some View {
+        PLChooserSheet(title: "Share this highlight") {
+            AutomaticHighlightActions(
+                match: match,
+                includePlay: false,
+                playDetail: "",
+                onPlay: {}
+            )
+        }
+    }
+}
+
+/// One implementation of the automatic-highlight actions, used both before
+/// playback and by the player's Share shortcut so the two sheets cannot drift.
+private struct AutomaticHighlightActions: View {
+    let match: MatchRow
+    let includePlay: Bool
+    let playDetail: String
+    let onPlay: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var model = StoryShareModel()
     @State private var shareItem: URL?
-    /// The emergency switch (136); an unreadable row answers "on".
     @State private var sharingOn = true
-    @Environment(AppState.self) private var app
-    /// Which row is working, so only it animates.
     @State private var busyAction: String?
+    @State private var instagramOpen = false
     @AppStorage("shareShowNames") private var showNames = true
     @AppStorage("shareShowScore") private var showScore = true
     @AppStorage("shareShowLogo") private var showLogo = true
 
-    private var story: Highlights.Picks {
-        Highlights.pick(points,
-                        pad: clipPad(strictness: nil, stored: match.clipPads),
-                        budgetS: Highlights.storyBudgetS,
-                        ends: app.endOptions)
-    }
-
     var body: some View {
-        PLChooserSheet(title: "Share this highlight") {
-            if sharingOn, !story.points.isEmpty {
-                PLChooserRow(
-                    icon: "camera.aperture",
-                    title: busyAction == "story"
-                        ? "Preparing…" : "Instagram Story",
-                    detail: busyAction == "story"
-                        ? model.progressLine : storyDetail,
-                    pending: model.busy && busyAction != "story",
-                    busy: busyAction == "story"
-                ) {
-                    Task { await run("story", to: .story) }
+        Group {
+            ForEach(
+                automaticHighlightActions(
+                    includePlay: includePlay, sharingEnabled: sharingOn
+                ),
+                id: \.self
+            ) { action in
+                switch action {
+                case .play:
+                    PLChooserRow(
+                        icon: "play.fill",
+                        title: "Play highlights",
+                        detail: playDetail,
+                        pending: busyAction != nil,
+                        action: onPlay
+                    )
+                case .instagram:
+                    PLChooserRow(
+                        icon: "camera.aperture",
+                        title: "Instagram",
+                        detail: "Share as a Story or Reel.",
+                        pending: busyAction != nil
+                    ) {
+                        instagramOpen = true
+                    }
+                case .shareLink:
+                    PLChooserRow(
+                        icon: "link",
+                        title: busyAction == "link" ? "Creating…" : "Share a link",
+                        detail: "Anyone with the link can watch. You can revoke it anytime from your account.",
+                        pending: busyAction != nil && busyAction != "link",
+                        busy: busyAction == "link"
+                    ) {
+                        Task { await shareHighlightLink() }
+                    }
+                case .saveVideo:
+                    shareRow(
+                        action: "save",
+                        title: "Save the video",
+                        detail: "The full highlight as one video, to save or send anywhere.",
+                        destination: nil
+                    )
                 }
-            }
-            if sharingOn {
-                PLChooserRow(
-                    icon: "camera.aperture",
-                    title: busyAction == "reel"
-                        ? "Preparing…" : "Instagram Reel",
-                    detail: busyAction == "reel"
-                        ? model.progressLine
-                        : "Your best rallies inside a minute. "
-                            + "Opens Instagram ready to post.",
-                    pending: model.busy && busyAction != "reel",
-                    busy: busyAction == "reel"
-                ) {
-                    Task { await run("reel", to: .reel) }
-                }
-            }
-            PLChooserRow(
-                icon: "square.and.arrow.down",
-                title: busyAction == "save"
-                    ? "Preparing…" : "Save the video",
-                detail: busyAction == "save"
-                    ? model.progressLine
-                    : "This highlight as one vertical video, "
-                        + "to save or send anywhere.",
-                pending: model.busy && busyAction != "save",
-                busy: busyAction == "save"
-            ) {
-                Task { await run(kind == .short ? "reel" : "long",
-                                 to: nil, action: "save") }
             }
 
             Toggle("Include names", isOn: $showNames)
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
-                .tint(PL.cyan.opacity(0.5))
-                .padding(.top, 4)
+                .font(.plBody).foregroundStyle(PL.text200)
+                .tint(PL.cyan.opacity(0.5)).padding(.top, 4)
             Toggle("Include score", isOn: $showScore)
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
+                .font(.plBody).foregroundStyle(PL.text200)
                 .tint(PL.cyan.opacity(0.5))
             Toggle("Include logo", isOn: $showLogo)
-                .font(.plBody)
-                .foregroundStyle(PL.text200)
+                .font(.plBody).foregroundStyle(PL.text200)
                 .tint(PL.cyan.opacity(0.5))
 
             if let message = model.errorMessage {
@@ -218,41 +298,95 @@ struct HighlightsShareSheet: View {
             }
         }
         .sheet(item: $shareItem) { url in
-            ActivityView(items: [url])
-                .presentationDetents([.medium])
+            ActivityView(items: [url]).presentationDetents([.medium])
+        }
+        .sheet(isPresented: $instagramOpen) {
+            PLChooserSheet(title: "Instagram") {
+                shareRow(
+                    action: "story",
+                    title: "Story",
+                    detail: "Your best qualifying rally inside 20 seconds.",
+                    destination: .story
+                )
+                shareRow(
+                    action: "reel",
+                    title: "Reel",
+                    detail: "Your best qualifying rallies inside a minute.",
+                    destination: .reel
+                )
+            }
+            .presentationDetents([.height(300)])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
         }
         .task { sharingOn = await StoryShareModel.sharingEnabled() }
     }
 
-    private var storyDetail: String {
-        let n = story.points.count
-        let s = Int(story.totalS.rounded())
-        return n == 1
-            ? "Your best rally, \(s) seconds. Opens Instagram ready to post."
-            : "Your best \(n) rallies, \(s) seconds. Opens Instagram ready to post."
+    private func shareRow(
+        action: String,
+        title: String,
+        detail: String,
+        destination: InstagramShare.Destination?
+    ) -> some View {
+        PLChooserRow(
+            icon: destination == nil ? "square.and.arrow.down" : "camera.aperture",
+            title: busyAction == action ? "Preparing…" : title,
+            detail: busyAction == action ? model.progressLine : detail,
+            pending: busyAction != nil && busyAction != action,
+            busy: busyAction == action
+        ) {
+            Task { await run(action, to: destination) }
+        }
     }
 
-    private func run(_ apiKind: String,
-                     to destination: InstagramShare.Destination?,
-                     action: String? = nil) async {
-        busyAction = action ?? apiKind
+    private func shareHighlightLink() async {
+        guard busyAction == nil else { return }
+        busyAction = "link"
+        model.errorMessage = nil
+        defer { busyAction = nil }
+        struct Req: Encodable {
+            let matchId: String
+            let kind: String
+        }
+        struct Res: Decodable { let url: String }
+        do {
+            let response: Res = try await API.post(
+                "api/share",
+                Req(
+                    matchId: match.id.uuidString.lowercased(),
+                    kind: "highlights"
+                )
+            )
+            guard let url = URL(string: response.url) else {
+                throw URLError(.badURL)
+            }
+            shareItem = url
+        } catch {
+            model.errorMessage = "Couldn't create the link. Try again."
+        }
+    }
+
+    private func run(
+        _ action: String, to destination: InstagramShare.Destination?
+    ) async {
+        busyAction = action
         defer { busyAction = nil }
         if let destination, !InstagramShare.isAvailable(destination) {
-            model.errorMessage = InstagramShare.ShareError
-                .notInstalled.errorDescription
+            model.errorMessage = InstagramShare.ShareError.notInstalled.errorDescription
             return
         }
+        let kind = action == "save" ? "long" : action
         guard let url = await model.prepareAuto(
-            match: match, kind: apiKind,
-            showNames: showNames, showScore: showScore,
-            showLogo: showLogo)
-        else { return }
+            match: match, kind: kind,
+            showNames: showNames, showScore: showScore, showLogo: showLogo
+        ) else { return }
         if let destination {
             do {
                 try InstagramShare.share(url, to: destination)
+                instagramOpen = false
                 dismiss()
             } catch {
-                model.errorMessage = error.localizedDescription
+                model.errorMessage = UserFacingError.message(error)
             }
         } else {
             shareItem = url

@@ -33,7 +33,7 @@ import { WALKTHROUGH } from "./walkthrough";
  *   ffprobe -v error -show_entries format=duration \
  *     -of default=nw=1:nk=1 public/demo/coach-desktop.mp4
  */
-export const COACH_LENGTH = "2:26";
+export const COACH_LENGTH = "1:16";
 
 /**
  * The introduction's runtime. Same reasoning as COACH_LENGTH above: typed
@@ -79,7 +79,7 @@ export const SHARE_VIDEOS: ShareVideo[] = [
     slug: "coaches",
     title: "PongLens for coaches",
     blurb:
-      "Setting up what you sell, taking an order, reviewing a match point by point, and getting paid.",
+      "A complete workspace for your coach profile, students, lesson journals, review orders and payouts.",
     length: COACH_LENGTH,
     cuts: COACH_CUTS,
   },

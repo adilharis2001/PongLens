@@ -64,7 +64,10 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
     "aria-hidden": true,
   } as const;
 
-  if (kind === "note") {
+  // A lesson a student shared reads the same way round as a note from a
+  // coach, so it takes the same speech bubble rather than a glyph of its
+  // own: both are one person handing the other something to read.
+  if (kind === "note" || kind === "coach_entry" || kind === "student_lesson") {
     return (
       <svg {...common}>
         <path
@@ -75,7 +78,7 @@ function KindIcon({ kind }: { kind: NotificationKind }) {
       </svg>
     );
   }
-  if (kind === "coach_joined") {
+  if (kind === "coach_joined" || kind === "student_joined") {
     return (
       <svg {...common}>
         <circle cx="12" cy="8" r="3.5" />
@@ -190,7 +193,15 @@ export function NotificationBell() {
 
   useEffect(() => {
     void load();
-    const timer = setInterval(() => void load(), POLL_MS);
+    // Only while somebody is looking. A hidden tab has nobody to tell,
+    // and the listener below re-reads the moment it comes back, so
+    // nothing is missed by staying quiet. Left running, every tab anyone
+    // leaves open polls all day: this account had 25,000 notification
+    // reads in twenty-four hours, which is roughly eighteen pollers, and
+    // almost all of them were behind other windows.
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, POLL_MS);
     const onFocus = () => {
       if (document.visibilityState === "visible") void load();
     };

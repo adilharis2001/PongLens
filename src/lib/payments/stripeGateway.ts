@@ -34,6 +34,12 @@ function stripe(): Stripe {
 }
 
 export const stripeGateway: PaymentGateway = {
+  async expirePlatformCheckout(sessionId) {
+    const session = await stripe().checkout.sessions.retrieve(sessionId);
+    if (session.status === "open") {
+      await stripe().checkout.sessions.expire(sessionId);
+    }
+  },
   async createConnectAccount(email, country, storefrontUrl) {
     const account = await stripe().accounts.create({
       // Permanent. Stripe will not change an account's country afterwards,
