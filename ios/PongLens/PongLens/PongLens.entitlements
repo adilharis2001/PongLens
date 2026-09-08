@@ -6,5 +6,15 @@
     <array>
         <string>Default</string>
     </array>
+    <!-- Universal Links for the two invite pages, matched against the
+         apple-app-site-association file the website serves. www only:
+         the apex redirects, which Apple does not follow, and every link
+         the product mints uses www. The ?mode=developer suffix lets a
+         development-signed build read the file straight from the site
+         instead of through Apple's cache; distribution builds ignore it. -->
+    <key>com.apple.developer.associated-domains</key>
+    <array>
+        <string>applinks:www.ponglens.com?mode=developer</string>
+    </array>
 </dict>
 </plist>

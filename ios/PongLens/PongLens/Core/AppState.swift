@@ -164,6 +164,13 @@ final class AppState {
 
     var workspace: Workspace = .player
 
+    /// Where the coaching side should stand the next time it appears.
+    /// Set by the invite sheet after a coach invite is accepted: the
+    /// workspace flips to coach, the whole tree swaps, and CoachTabView
+    /// reads this on its first load to land on the roster rather than
+    /// the home. Consumed once.
+    var pendingCoachTab: CoachTab?
+
     /// The playing questions were never answered or skipped (159): the
     /// coach path of onboarding leaves the profile row unstamped. Home
     /// offers the setup once while this is true.

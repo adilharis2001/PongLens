@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { coachInviteCopy } from "@/lib/coaches/invitePreviewData";
 import { Logo } from "@/components/Logo";
+import { SignedInAs } from "@/components/SignedInAs";
 import { AcceptInvite } from "./AcceptInvite";
 
 /**
@@ -178,6 +179,13 @@ export default async function CoachInvitePage({
             ? "They will share matches with you one at a time. You can watch each one, point by point, and leave coach notes."
             : "You can watch this match, point by point, and leave coach notes."}
       </p>
+      {/* Which account is about to accept, before the button that does it:
+          accepting puts this account on the coaching side and hands it
+          the player's matches, and until 2026-09-07 it happened on
+          arrival, for whichever account the browser happened to hold. */}
+      {user.email && (
+        <SignedInAs email={user.email} next={`/coach-invite/${token}`} />
+      )}
       <AcceptInvite token={token} />
     </Shell>
   );

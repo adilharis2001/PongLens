@@ -3,16 +3,12 @@ import "server-only";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { resolvePendingCoachInviteDestination } from "./coachInvite";
 import { safeNextPath } from "./paths";
-import {
-  WORKSPACE_COOKIE,
-  WORKSPACE_COOKIE_MAX_AGE,
-  formatWorkspaceCookie,
-  signInDestination,
-} from "@/lib/workspaceModel";
+import { WORKSPACE_COOKIE, signInDestination } from "@/lib/workspaceModel";
 
 type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+
+const UUID_RE = /^[0-9a-f-]{36}$/i;
 
 export async function completeSignIn(
   request: Request,
@@ -23,53 +19,19 @@ export async function completeSignIn(
   const pendingInvite = cookieStore.get("pending_coach_invite")?.value;
   const pendingJoin = cookieStore.get("pending_student_invite")?.value;
   const fallbackDestination = safeNextPath(next);
-  // Whether THIS sign-in accepted a coach invite, read off the RPC rather
-  // than off the destination: a coach who signed in with ?next=/coaching
-  // and a pending invite would otherwise look like a plain sign-in.
-  let acceptedCoachInvite = false;
-  let destination = await resolvePendingCoachInviteDestination(
-    pendingInvite,
-    fallbackDestination,
-    {
-      acceptInvite: async (token) => {
-        const { data, error } = await supabase.rpc("accept_coach_invite", {
-          token,
-        });
-        const linkId = !error && typeof data === "string" ? data : null;
-        if (linkId) acceptedCoachInvite = true;
-        return linkId;
-      },
-      findAcceptedLink: async (linkId) => {
-        const { data, error } = await supabase
-          .from("coach_links")
-          .select("scope_match_id, player_id")
-          .eq("id", linkId)
-          .maybeSingle();
-        return error ? null : data;
-      },
-      findRosterRow: async (playerId) => {
-        // RLS scopes coach_students to the caller's own roster, so this
-        // can only ever find the row this coach just gained.
-        const { data } = await supabase
-          .from("coach_students")
-          .select("id")
-          .eq("player_id", playerId)
-          .is("archived_at", null)
-          .maybeSingle();
-        return (data as { id: string } | null)?.id ?? null;
-      },
-    },
-  );
+  let destination = fallbackDestination;
 
-  // A stashed join link routes the fresh session back to the join page —
-  // never auto-accepted here, because joining grants the coach access to
-  // this player's matches and the page asks first. The coach-invite path
-  // above wins when both are somehow present.
-  if (
-    destination === fallbackDestination &&
-    pendingJoin &&
-    /^[0-9a-f-]{36}$/i.test(pendingJoin)
-  ) {
+  // A stashed invite routes the fresh session back to its page. Neither
+  // kind is accepted here any more. Joining a coach never was: it hands
+  // the coach access to this player's matches and the page asks first.
+  // Accepting a coach invite used to happen right here, on the way
+  // through sign-in, which meant it could land in whichever account the
+  // browser signed into without anyone seeing whose (2026-09-07); the
+  // page now names the account and waits for the tap. The coach-invite
+  // path wins when both are somehow present.
+  if (pendingInvite && UUID_RE.test(pendingInvite)) {
+    destination = `/coach-invite/${pendingInvite}`;
+  } else if (pendingJoin && UUID_RE.test(pendingJoin)) {
     destination = `/join/${pendingJoin}`;
   }
 
@@ -96,25 +58,6 @@ export async function completeSignIn(
       ? `https://${forwardedHost}`
       : origin;
   const response = NextResponse.redirect(`${base}${destination}`);
-  // Accepting a coach invite puts this account on the coaching side and
-  // keeps it there. The accept RPC stamps is_coach on the account, but
-  // this session's token was minted before that, so without the cookie
-  // the nav reads the stale flag and draws the player bar — and /coaching
-  // itself, which is shared ground, would render the PLAYER's view of
-  // coaching ("Add a coach", to a coach). Switching back is one tap in
-  // Account.
-  if (acceptedCoachInvite && user) {
-    response.cookies.set(
-      WORKSPACE_COOKIE,
-      formatWorkspaceCookie(user.id, "coach"),
-      {
-        path: "/",
-        sameSite: "lax",
-        maxAge: WORKSPACE_COOKIE_MAX_AGE,
-        secure: process.env.NODE_ENV === "production",
-      },
-    );
-  }
   response.cookies.delete("pending_coach_invite");
   response.cookies.delete("pending_student_invite");
   return response;

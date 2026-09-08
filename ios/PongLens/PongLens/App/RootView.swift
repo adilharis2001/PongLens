@@ -21,6 +21,15 @@ struct RootView: View {
     @State private var gate: OnboardingGate = .checking
     @State private var splashDone = false
     @State private var lessonVideoLink: LessonVideoLink?
+    /// An invite that opened the app (a Universal Link on /join or
+    /// /coach-invite). Lives here, not on the router: the router is
+    /// rebuilt on every account change, and a link that arrives signed
+    /// out has to survive the sign-in and onboarding it causes. Presented
+    /// once the account is in and onboarding is done; cleared when the
+    /// sheet is closed or the invite accepted, never by a sign-out.
+    @State private var pendingInvite: InviteLink?
+    /// The sign-in screen's one extra line while an invite waits.
+    @State private var pendingInviteLine: String?
 
     var body: some View {
         #if DEBUG
@@ -46,7 +55,7 @@ struct RootView: View {
                     ProgressView().tint(PL.cyan)
                 }
             case .signedOut:
-                LoginScreen()
+                LoginScreen(inviteLine: pendingInvite == nil ? nil : pendingInviteLine)
             case .signedIn:
                 switch gate {
                 case .checking:
@@ -107,6 +116,26 @@ struct RootView: View {
                     }
             }
         }
+        // A Universal Link reaches the app both ways depending on how it
+        // was opened; both land in the same place. Only the invite paths
+        // are claimed in the site's association file, so anything else
+        // here is not ours and is left alone.
+        .onOpenURL { url in receive(url) }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL { receive(url) }
+        }
+        .sheet(item: presentedInvite) { link in
+            InviteAcceptSheet(
+                link: link,
+                onSwitchAccount: {
+                    // This device only, and the invite stays pending:
+                    // the sign-in screen comes up with its line, and the
+                    // next account lands straight back on the sheet.
+                    Task { await app.signOut() }
+                },
+                onFinished: { pendingInvite = nil }
+            )
+        }
         .overlay {
             if !splashDone {
                 SplashScreen()
@@ -155,6 +184,8 @@ struct RootView: View {
         }
         .onChange(of: app.userId) { previous, next in
             guard previous != next else { return }
+            // pendingInvite deliberately survives this: it is the reason
+            // the account just changed.
             lessonVideoLink = nil
             Task { await app.refreshAdmin(); await LessonVideoQueue.shared.resume() }
             // A different account (or none) owns the screen now. Stores
@@ -174,6 +205,45 @@ struct RootView: View {
             coachWorkspace = CoachWorkspaceStore()
             gate = .checking
         }
+    }
+
+    /// The invite sheet shows only once there is an account to accept
+    /// with and onboarding is out of the way. Closing it drops the
+    /// invite; a sign-out collapses it without dropping anything, because
+    /// the sheet is what the next sign-in is for.
+    private var presentedInvite: Binding<InviteLink?> {
+        Binding(
+            get: { app.userId != nil && gate == .done ? pendingInvite : nil },
+            set: { value in
+                if value == nil, app.userId != nil { pendingInvite = nil }
+            }
+        )
+    }
+
+    private func receive(_ url: URL) {
+        guard let link = InviteLink(url: url) else { return }
+        pendingInvite = link
+        pendingInviteLine = "Sign in to accept the invite."
+        Task { pendingInviteLine = await inviteLine(for: link) }
+    }
+
+    /// The name on the invite, for the sign-in screen's line. The preview
+    /// functions are the ones the website's link previews call, open to
+    /// anyone holding the token, so this needs no session.
+    private func inviteLine(for link: InviteLink) async -> String {
+        struct Row: Decodable { let inviter_name: String? }
+        struct Params: Encodable { let p_token: String }
+        let function = switch link {
+        case .student: "student_invite_preview"
+        case .coach: "coach_invite_preview"
+        }
+        let rows: [Row]? = try? await supa
+            .rpc(function, params: Params(p_token: link.token.uuidString.lowercased()))
+            .execute().value
+        let name = rows?.first?.inviter_name?.trimmingCharacters(in: .whitespaces) ?? ""
+        return name.isEmpty
+            ? "Sign in to accept the invite."
+            : "Sign in to accept the invite from \(name)."
     }
 
     /// The web's middleware gate: onboarding when the display name is empty

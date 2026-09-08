@@ -14,6 +14,11 @@ import Supabase
 /// mostly confused people, and the malformed redirect below meant the
 /// link it asked for was broken in exactly the emails this screen sends.
 struct LoginScreen: View {
+    /// Why this screen is up, when an invite link opened the app signed
+    /// out: "Sign in to accept the invite from Anton." The invite itself
+    /// waits in RootView and presents once the sign-in lands.
+    var inviteLine: String? = nil
+
     @State private var email = ""
     @State private var sending = false
     @State private var sent = false
@@ -136,6 +141,13 @@ struct LoginScreen: View {
                     .font(.system(size: 15))
                     .foregroundStyle(PL.text400)
                     .multilineTextAlignment(.center)
+                if let inviteLine {
+                    Text(inviteLine)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(PL.text100)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 6)
+                }
             }
         }
         .frame(maxWidth: .infinity)
