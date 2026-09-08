@@ -584,6 +584,7 @@ export function MatchView({
   const [shareTarget, setShareTarget] = useState<{ pointId?: string } | null>(
     null
   );
+  const [highlightsReady, setHighlightsReady] = useState(false);
   // Coach-invite sheet, opened from the Tools "Coach" row.
   const [coachOpen, setCoachOpen] = useState(false);
 
@@ -3133,14 +3134,40 @@ export function MatchView({
                 onPlay={(asset, onDownload) =>
                   playerRef.current?.openHighlights(asset, onDownload)
                 }
+                onStateChange={(state) =>
+                  setHighlightsReady(state?.status === "ready")
+                }
               />
             )}
+            {scored && (
+              <button
+                type="button"
+                onClick={() => scrollToSection(matchStatsRef)}
+                className={TOOL_ROW_CLASS}
+              >
+                <span className="text-sm font-semibold">Match analysis</span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span
+                    className={`shrink-0 text-xs ${
+                      stats.hasData ? "text-zinc-400" : "text-zinc-500"
+                    }`}
+                  >
+                    {statsRowSummary(stats)}
+                  </span>
+                  <ToolRowChevron />
+                </span>
+              </button>
+            )}
+            <PlacementToolsRow
+              controller={placement}
+              onReady={() => scrollToReadyPlacement(document)}
+            />
             <button
               type="button"
               onClick={() => setShareTarget({})}
               className={TOOL_ROW_CLASS}
             >
-              <span className="text-sm font-semibold">Share</span>
+              <span className="text-sm font-semibold">Share a link</span>
               <span className="flex shrink-0 items-center gap-2">
                 {shareLinkCount !== null && (
                   <span
@@ -3182,35 +3209,6 @@ export function MatchView({
                 canScore={score.confirmedCount > 0}
                 tagOptions={tagShareOptions}
               />
-            )}
-            <PlacementToolsRow
-              controller={placement}
-              onReady={() => scrollToReadyPlacement(document)}
-            />
-            {/* Placement owns its lifecycle row above; this remains the one
-                jump for the rest of the analysis area. Visible for the owner
-                on scored types because the section carries its own teaching
-                states; absent for practice, whose section it would jump to
-                does not exist — every number in it derives from a confirmed
-                score, and a practice never has one. */}
-            {scored && (
-              <button
-                type="button"
-                onClick={() => scrollToSection(matchStatsRef)}
-                className={TOOL_ROW_CLASS}
-              >
-                <span className="text-sm font-semibold">Match analysis</span>
-                <span className="flex shrink-0 items-center gap-2">
-                  <span
-                    className={`shrink-0 text-xs ${
-                      stats.hasData ? "text-zinc-400" : "text-zinc-500"
-                    }`}
-                  >
-                    {statsRowSummary(stats)}
-                  </span>
-                  <ToolRowChevron />
-                </span>
-              </button>
             )}
             {/* Jump to the overall notes at the bottom — saves the long
                 scroll past every point on mobile. */}
@@ -4613,9 +4611,7 @@ export function MatchView({
         />
       )}
 
-      {/* public-link share sheet (match, starred set, or single point);
-          the coach invite lives inside it too — the sheet is the single
-          share entry on the match page */}
+      {/* Public-link sheet only. Coach access has its own Tools row. */}
       {isOwner && (
         <ShareSheet
           open={shareTarget !== null}
@@ -4633,9 +4629,9 @@ export function MatchView({
               : undefined
           }
           starredCount={visiblePoints.filter((p) => p.starred).length}
-          userId={userId}
           names={shareNames}
           scored={score.confirmedCount > 0}
+          highlightsReady={highlightsReady}
         />
       )}
 

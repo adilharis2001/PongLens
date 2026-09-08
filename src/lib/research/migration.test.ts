@@ -76,6 +76,13 @@ const qualityFirstHighlightLets = readFileSync(
   ),
   "utf8",
 ).toLowerCase();
+const highlightShareScoreUrl = new URL(
+  "../../../supabase/migrations/20260907180000_highlight_share_score_and_stats.sql",
+  import.meta.url,
+);
+const highlightShareScore = existsSync(highlightShareScoreUrl)
+  ? readFileSync(highlightShareScoreUrl, "utf8").toLowerCase()
+  : "";
 
 test("research migration enables RLS on every exposed research table", () => {
   for (const table of [
@@ -272,4 +279,22 @@ test("marking a rally skipped invalidates its highlight evidence", () => {
     qualityFirstHighlightLets,
     /before update of t0, t1, cut_t0, clip_path, deleted, edited, is_let/,
   );
+});
+
+test("highlight links expose only the timeline and scored match context", () => {
+  assert.match(
+    highlightShareScore,
+    /resolve_share_highlight_timeline\s*\(p_token text\)/,
+  );
+  assert.match(highlightShareScore, /output_start_s/);
+  assert.match(highlightShareScore, /output_end_s/);
+  assert.match(
+    highlightShareScore,
+    /sl\.kind in \('match', 'highlights'\)/,
+  );
+  assert.match(
+    highlightShareScore,
+    /revoke execute on function public\.resolve_share_highlight_timeline\(text\)\s+from public/,
+  );
+  assert.doesNotMatch(highlightShareScore, /grant\s+select\s+on\s+public\./);
 });

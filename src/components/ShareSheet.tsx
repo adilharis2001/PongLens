@@ -1,22 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { ShareQR } from "@/components/ShareQR";
 import { TagGlyph } from "@/app/match/[id]/Tags";
 
 /** Which link a row creates: the context link, the starred set, or one
  *  tag's point collection ("tag:<uuid>"). */
-type ShareTarget = "link" | "starred" | `tag:${string}`;
+export type ShareTarget =
+  | "link"
+  | "highlights"
+  | "starred"
+  | `tag:${string}`;
 
 /**
- * Share bottom sheet (public links, Share mode). Controlled: the match
+ * Share a link bottom sheet. Controlled: the match
  * header and point views own the trigger buttons and pass open/onClose.
  *
  * Rows (links only — nothing here produces a file):
  *   match context — "Starred points (N)" (a muted non-creating teaching
- *                   line when none starred), "This match", "With your
- *                   coach"
+ *                   line when none starred), "This match", "Highlights"
  *   point context — "This point" (public link)
  *
  * A link row swaps the sheet to a one-field title step: an input prefilled
@@ -24,9 +26,7 @@ type ShareTarget = "link" | "starred" | `tag:${string}`;
  * single Share button. Share creates (or reuses) the link via POST
  * /api/share — the title rides along, so re-sharing renames an existing
  * link — then hands it to navigator.share when available, else copies it
- * with a "Copied" flash. "With your coach" swaps to the existing
- * ShareWithCoachSheet — same invite flow as everywhere else. Minimal words
- * throughout.
+ * with a "Copied" flash. Coach access stays in its own Tools row.
  *
  * Files live elsewhere: the cut-video download is the ↓ button on the
  * video card, and every rendered/downloadable artifact (full match,
@@ -40,11 +40,12 @@ export function ShareSheet({
   pointId,
   pointNumber,
   starredCount,
-  userId,
   names,
   tagOptions,
   scored = false,
   processed = true,
+  initialTarget,
+  highlightsReady = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -55,7 +56,7 @@ export function ShareSheet({
   pointNumber?: number;
   /** currently starred visible points; 0/absent = muted teaching row */
   starredCount?: number;
-  /** owner's id; enables the "With your coach" row when present */
+  /** Kept for call-site compatibility; coach access has its own Tools row. */
   userId?: string;
   /** "Adil vs Marco" | "vs Marco" | null — for the default title */
   names?: string | null;
@@ -67,6 +68,9 @@ export function ShareSheet({
    *  exist to star; on an unprocessed match they don't, so the row is
    *  not teaching, it is noise. */
   processed?: boolean;
+  initialTarget?: ShareTarget;
+  /** Read-only lifecycle state. Opening this sheet never starts a render. */
+  highlightsReady?: boolean;
   /** this match's tags with tagged-point counts; rows for count > 0 */
   tagOptions?: { id: string; label: string; count: number }[];
 }) {
@@ -74,7 +78,6 @@ export function ShareSheet({
   const [copied, setCopied] = useState(false);
   const [link, setLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [coachOpen, setCoachOpen] = useState(false);
   // Which link kind the title step is naming; null = the row list.
   const [naming, setNaming] = useState<ShareTarget | null>(null);
   const [title, setTitle] = useState("");
@@ -86,11 +89,14 @@ export function ShareSheet({
     setCopied(false);
     setLink(null);
     setError(null);
-    setCoachOpen(false);
-    setNaming(null);
+    setNaming(
+      initialTarget === "highlights" && !highlightsReady
+        ? null
+        : (initialTarget ?? null),
+    );
     setTitle("");
     setShowScore(true);
-  }, [open]);
+  }, [highlightsReady, initialTarget, open]);
 
   const defaultTitle = useCallback(
     (which: ShareTarget) => {
@@ -105,10 +111,19 @@ export function ShareSheet({
         const base = pointNumber && pointNumber > 0 ? `Point ${pointNumber}` : "Point";
         return pair ? `${base} · ${pair}` : base;
       }
+      if (which === "highlights") {
+        return pair ? `Highlights · ${pair}` : "Highlights";
+      }
       return pair || "My match";
     },
     [names, pointId, pointNumber, tagOptions]
   );
+
+  useEffect(() => {
+    if (!open || !initialTarget) return;
+    if (initialTarget === "highlights" && !highlightsReady) return;
+    setTitle(defaultTitle(initialTarget));
+  }, [defaultTitle, highlightsReady, initialTarget, open]);
 
   const openNaming = useCallback(
     (which: ShareTarget) => {
@@ -131,6 +146,8 @@ export function ShareSheet({
           ? { matchId, kind: "tag", tagId: which.slice(4) }
           : which === "starred"
             ? { matchId, kind: "starred" }
+            : which === "highlights"
+              ? { matchId, kind: "highlights" }
             : pointId
               ? { matchId, pointId }
               : { matchId };
@@ -178,18 +195,6 @@ export function ShareSheet({
   }, [link]);
 
   if (!open) return null;
-
-  // Coach flow: the existing invite sheet, unchanged, in place of this one.
-  if (coachOpen && userId) {
-    return (
-      <ShareWithCoachSheet
-        open
-        onClose={onClose}
-        userId={userId}
-        matchId={matchId}
-      />
-    );
-  }
 
   const rowClass =
     "flex w-full items-center gap-3 rounded-xl border border-edge bg-ink/40 p-3.5 text-left transition-colors hover:border-cyan-glow/40 disabled:opacity-60";
@@ -245,7 +250,7 @@ export function ShareSheet({
                 </svg>
               </button>
             )}
-            <h2 className="text-base font-semibold">Share</h2>
+            <h2 className="text-base font-semibold">Share a link</h2>
           </div>
           <button
             type="button"
@@ -295,25 +300,26 @@ export function ShareSheet({
                 it are the same fact told three ways, so splitting them
                 into three controls would only be three ways to ask the
                 same question. */}
-            {naming === "link" && !pointId && scored && (
-              <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-edge bg-surface-2/40 px-4 py-3">
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold text-zinc-100">
-                    Include score and stats
+            {((naming === "link" && !pointId) || naming === "highlights") &&
+              scored && (
+                <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-edge bg-surface-2/40 px-4 py-3">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-zinc-100">
+                      Include score and stats
+                    </span>
+                    <span className="mt-0.5 block text-xs text-zinc-500">
+                      The running score over the video, plus the result and
+                      the placement maps.
+                    </span>
                   </span>
-                  <span className="mt-0.5 block text-xs text-zinc-500">
-                    The running score over the video, plus the result and
-                    the placement maps
-                  </span>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={showScore}
-                  onChange={() => setShowScore((v) => !v)}
-                  className="h-5 w-5 shrink-0 accent-cyan-glow"
-                />
-              </label>
-            )}
+                  <input
+                    type="checkbox"
+                    checked={showScore}
+                    onChange={() => setShowScore((v) => !v)}
+                    className="h-5 w-5 shrink-0 accent-cyan-glow"
+                  />
+                </label>
+              )}
             <button
               type="button"
               disabled={busy !== null}
@@ -326,15 +332,68 @@ export function ShareSheet({
         )}
 
         {!naming && (
-        <div className="mt-4 space-y-2">
+          <div className="mt-4 space-y-2">
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => openNaming("link")}
+              className={rowClass}
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-glow/40 bg-cyan-glow/10 text-cyan-glow">
+                {linkIcon}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-zinc-100">
+                  {pointId ? "This point" : "This match"}
+                </span>
+                <span className="mt-0.5 block text-xs text-zinc-500">
+                  Public link
+                </span>
+              </span>
+            </button>
+
+            {!pointId && highlightsReady && (
+              <button
+                type="button"
+                disabled={busy !== null}
+                onClick={() => openNaming("highlights")}
+                className={rowClass}
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-glow/40 bg-cyan-glow/10 text-cyan-glow">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="m9 7 8 5-8 5V7Z"
+                    />
+                  </svg>
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-zinc-100">
+                    Highlights
+                  </span>
+                  <span className="mt-0.5 block text-xs text-zinc-500">
+                    Your best qualifying rallies
+                  </span>
+                </span>
+              </button>
+            )}
+
           {/* starred points — match context only. Zero starred: the row
               stays as a muted teaching line (non-creating) instead of
               disappearing, so the feature is never invisible. Before
               processing there are no points to star, so the row is
               absent rather than teaching the impossible. */}
-          {!pointId &&
-            processed &&
-            ((starredCount ?? 0) > 0 ? (
+            {!pointId &&
+              processed &&
+              ((starredCount ?? 0) > 0 ? (
               <button
                 type="button"
                 disabled={busy !== null}
@@ -393,15 +452,15 @@ export function ShareSheet({
                   </span>
                 </span>
               </div>
-            ))}
+              ))}
 
           {/* tag collections — one row per tag with tagged points. Live
               links like starred: tagging/untagging updates what viewers
               see. No teaching rows; tags are taught in the point views. */}
-          {!pointId &&
-            (tagOptions ?? [])
-              .filter((t) => t.count > 0)
-              .map((t) => (
+            {!pointId &&
+              (tagOptions ?? [])
+                .filter((t) => t.count > 0)
+                .map((t) => (
                 <button
                   key={t.id}
                   type="button"
@@ -421,62 +480,8 @@ export function ShareSheet({
                     </span>
                   </span>
                 </button>
-              ))}
-
-          <button
-            type="button"
-            disabled={busy !== null}
-            onClick={() => openNaming("link")}
-            className={rowClass}
-          >
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-glow/40 bg-cyan-glow/10 text-cyan-glow">
-              {linkIcon}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold text-zinc-100">
-                {pointId ? "This point" : "This match"}
-              </span>
-              <span className="mt-0.5 block text-xs text-zinc-500">
-                Public link
-              </span>
-            </span>
-          </button>
-
-          {/* coach invite — the existing flow, one tap away */}
-          {!pointId && userId && (
-            <button
-              type="button"
-              disabled={busy !== null}
-              onClick={() => setCoachOpen(true)}
-              className={rowClass}
-            >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-edge bg-ink/60 text-zinc-300">
-                <svg
-                  viewBox="0 0 24 24"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M16 19v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 17.5V19m16 0v-1.5a3.5 3.5 0 0 0-2.5-3.35M14.5 4.15a3.5 3.5 0 0 1 0 6.7M13.5 7.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
-                  />
-                </svg>
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold text-zinc-100">
-                  With your coach
-                </span>
-                <span className="mt-0.5 block text-xs text-zinc-500">
-                  Private invite · they can add notes
-                </span>
-              </span>
-            </button>
-          )}
-        </div>
+                ))}
+          </div>
         )}
 
         {link && (

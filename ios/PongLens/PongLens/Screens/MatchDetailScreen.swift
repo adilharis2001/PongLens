@@ -748,6 +748,9 @@ struct MatchDetailScreen: View {
                                     onScrollToNotes: {
                                         withAnimation { proxy.scrollTo("overall-notes", anchor: .top) }
                                     },
+                                    onScrollToAnalysis: {
+                                        withAnimation { proxy.scrollTo("match-analysis", anchor: .top) }
+                                    },
                                     onScrollToPlacement: {
                                         withAnimation { proxy.scrollTo("placement-maps", anchor: .top) }
                                     },
@@ -767,12 +770,8 @@ struct MatchDetailScreen: View {
                                 )
                             }
                             pointsSection(proxy: proxy)
-                            // The owner opens the analysis from Tools. A
-                            // coach reads it on the page (Adil, 2026-09-03),
-                            // like the maps below and like the web's coach
-                            // view; behind a row it went unnoticed.
-                            if !isOwner && tracksServe {
-                                coachAnalysisSection
+                            if tracksServe {
+                                analysisSection(coachView: !isOwner)
                             }
                             if showPlacementAggregate {
                                 PlacementAggregateSection(
@@ -1721,16 +1720,17 @@ struct MatchDetailScreen: View {
         .id("overall-notes")
     }
 
-    // MARK: - Match analysis (coach)
+    // MARK: - Match analysis
 
-    private var coachAnalysisSection: some View {
+    private func analysisSection(coachView: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeading("Match analysis")
             AnalysisCards(
                 bundle: MatchAnalysisBundle(match: current, model: model, score: score),
-                coachView: true
+                coachView: coachView
             )
         }
+        .id("match-analysis")
     }
 
     // MARK: - Points

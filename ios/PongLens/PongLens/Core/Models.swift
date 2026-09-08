@@ -10,6 +10,38 @@ struct CountRow: Codable, Hashable {
     let count: Int
 }
 
+enum ShareLinkTarget: String, CaseIterable, Hashable {
+    case match
+    case highlights
+    case starred
+}
+
+func shareLinkTargets(
+    processed: Bool,
+    highlightsReady: Bool
+) -> [ShareLinkTarget] {
+    var targets: [ShareLinkTarget] = [.match]
+    if highlightsReady { targets.append(.highlights) }
+    if processed { targets.append(.starred) }
+    return targets
+}
+
+enum CoachInviteCreationStep: Hashable {
+    case identity
+    case access
+    case starterPack
+    case explanation
+    case createLink
+}
+
+let coachInviteCreationOrder: [CoachInviteCreationStep] = [
+    .identity,
+    .access,
+    .starterPack,
+    .explanation,
+    .createLink,
+]
+
 enum AutomaticHighlightAction: Hashable {
     case play
     case instagram
