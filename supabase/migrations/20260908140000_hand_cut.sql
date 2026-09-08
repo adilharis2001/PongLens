@@ -340,6 +340,59 @@ as $$
   from public.matches m left join public.jobs j on j.id=m.job_id where m.id=p_match_id
 $$;
 
+-- ------------------------------------------------------------ its own lane
+--
+-- A hand cut is the one job kind the main worker must never read: that
+-- process can be running code from before this kind existed, and an
+-- unknown kind fails there. So hand_cut jobs go to their own queue,
+-- drained by a third worker process (`worker.py --lane hand`), the way
+-- re-cuts have theirs. enqueue_job is recreated from 20260906174730 with
+-- the one route added; the delays are unchanged.
+
+do $$
+begin
+  if not exists (select 1 from pgmq.list_queues() where queue_name = 'jobs_hand') then
+    perform pgmq.create('jobs_hand');
+  end if;
+end $$;
+
+create or replace function public.enqueue_job()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pgmq
+as $$
+declare
+  v_queue text := 'jobs';
+  v_lane text;
+begin
+  if new.kind = 'reclip'
+     or (new.kind = 'reel' and coalesce(new.options->>'scope', '') like 'v:%')
+  then
+    select value into v_lane from public.app_config where key = 'reclip_lane';
+    if v_lane = 'fast' then
+      v_queue := 'jobs_fast';
+    end if;
+  elsif new.kind = 'hand_cut' then
+    v_queue := 'jobs_hand';
+  end if;
+  perform pgmq.send(
+    v_queue,
+    jsonb_build_object(
+      'job_id', new.id,
+      'user_id', new.user_id,
+      'kind', new.kind,
+      'input_path', new.input_path,
+      'options', new.options
+    ),
+    case when new.kind in ('deadspace_cut', 'youtube_import') then 60
+         when new.kind = 'reclip' then 5
+         else 0 end
+  );
+  return new;
+end;
+$$;
+
 -- --------------------------------------------------- placement refusals
 --
 -- Both functions are recreated from their current definitions

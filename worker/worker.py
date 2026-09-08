@@ -340,12 +340,19 @@ WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
 # app_config.reclip_lane; a lane with no process reading it is a queue
 # nobody drains, so the switch flips only after the second process runs.
 #   python3 worker.py --lane fast       or       WORKER_LANE=fast
-LANE = "fast" if "--lane" in sys.argv and \
-    sys.argv[sys.argv.index("--lane") + 1:][:1] == ["fast"] \
-    else os.environ.get("WORKER_LANE", "main")
-QUEUE_NAME = "jobs_fast" if LANE == "fast" else "jobs"
+# The hand-cut lane (20260908140000) is a third process reading only
+# 'jobs_hand': a match cut from the owner's own marks, no detector. It has
+# its own queue so the main lane, which may be running code from before
+# that kind existed, never reads a job it cannot run.
+#   python3 worker.py --lane hand       or       WORKER_LANE=hand
+_LANE_ARG = (sys.argv[sys.argv.index("--lane") + 1:][:1] or [None])[0] \
+    if "--lane" in sys.argv else None
+LANE = _LANE_ARG or os.environ.get("WORKER_LANE", "main")
+if LANE not in ("main", "fast", "hand"):
+    LANE = "main"
+QUEUE_NAME = {"fast": "jobs_fast", "hand": "jobs_hand"}.get(LANE, "jobs")
 LOG_PATH = os.path.join(
-    WORKER_DIR, "worker-fast.log" if LANE == "fast" else "worker.log")
+    WORKER_DIR, "worker.log" if LANE == "main" else f"worker-{LANE}.log")
 
 # Under launchd the wrapper already appends stdout to worker.log, so a
 # stdout handler there would double every line. The stream handler is for

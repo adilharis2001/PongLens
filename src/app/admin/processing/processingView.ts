@@ -550,6 +550,19 @@ export function buildWorkerRows(
     }),
   );
 
+  // The hand-cut lane (20260908140000) drains 'jobs_hand' alone, so the
+  // main lane, which may run older code, never reads a job kind it cannot
+  // run. Until the migration creates that queue there is nothing to drain
+  // and the lane is Off by decision; once the queue exists, its silence is
+  // as real as the fast lane's.
+  rows.push(
+    fromPulse("mac:hand", "Mac Studio · hand-cut lane", {
+      off:
+        !(doc.queue ?? []).some((q) => q.queue_name === "jobs_hand")
+        && !pulses.has("mac:hand"),
+    }),
+  );
+
   // Anything else that pulsed. A new lane appears here on its first beat
   // without this file being edited, which is the point.
   for (const p of pulses.values()) {

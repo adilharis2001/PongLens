@@ -155,6 +155,7 @@ test("every expected process gets a row, spoken for or not", () => {
   assert.deepEqual(keys, [
     "mac:main",
     "mac:fast",
+    "mac:hand",
     "lesson:mac",
     "lesson:cloud",
     "modal:main",
@@ -186,6 +187,24 @@ test("a routed fast lane with nothing draining it is an outage, not off", () => 
 test("a routed fast lane on a silent machine is unconfirmed, not an outage", () => {
   const rows = buildWorkerRows(overview({ reclip_lane: "fast" }), NOW);
   assert.equal(rows.find((r) => r.key === "mac:fast")?.state, "unconfirmed");
+});
+
+// The hand-cut lane has no switch; its queue existing is the switch. Before
+// the migration there is nothing to drain and nothing to report.
+test("the hand-cut lane is off until its queue exists", () => {
+  const rows = buildWorkerRows(overview({ queue: [] }), NOW);
+  assert.equal(rows.find((r) => r.key === "mac:hand")?.state, "off");
+});
+
+test("a hand-cut queue with nothing draining it is an outage once the machine reports", () => {
+  const rows = buildWorkerRows(
+    overview({
+      queue: [{ queue_name: "jobs_hand", queue_length: 1, oldest_msg_age_sec: 20 }],
+      workers: [pulse({ worker_id: "mac:main" })],
+    }),
+    NOW,
+  );
+  assert.equal(rows.find((r) => r.key === "mac:hand")?.state, "not-running");
 });
 
 // A new lane has to appear on its own first beat, without this file being
