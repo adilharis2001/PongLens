@@ -34,8 +34,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ClipPlayer, type PictureBox } from "./ClipPlayer";
 import { computeMatchScore } from "./gameScore";
-import { SPEEDS as RATE_TUPLE } from "./SpeedMenu";
-import { SpeedRail } from "./SpeedRail";
+import { SpeedMenu } from "./SpeedMenu";
 import { computeServing, type MatchServer } from "./serving";
 import type { Point } from "@/lib/types";
 import {
@@ -83,9 +82,6 @@ const REDO_LEAD_S = 3;
 
 const PAD_WIDTH = 380;
 const PAD_POS_KEY = "ponglens:mark-pad-pos";
-
-/** The app's six rates as a plain list; the export is a readonly tuple. */
-const SPEED_STOPS: number[] = [...RATE_TUPLE];
 
 let markSeq = 0;
 const nextId = () => `m${++markSeq}-${Math.random().toString(36).slice(2, 8)}`;
@@ -686,18 +682,6 @@ export function MarkPoints({
           e.preventDefault();
           tapAnswer("let");
           return;
-        case "[":
-          e.preventDefault();
-          chooseSpeed(SPEED_STOPS[Math.max(0, SPEED_STOPS.indexOf(speed) - 1)]);
-          return;
-        case "]":
-          e.preventDefault();
-          chooseSpeed(
-            SPEED_STOPS[
-              Math.min(SPEED_STOPS.length - 1, SPEED_STOPS.indexOf(speed) + 1)
-            ]
-          );
-          return;
         case "u":
         case "U":
           e.preventDefault();
@@ -1002,10 +986,15 @@ export function MarkPoints({
       />
       <Util label="-10s" onClick={() => seekBy(-10)} />
       <Util label="+10s" onClick={() => seekBy(10)} />
+      <SpeedMenu
+        value={speed}
+        onChange={chooseSpeed}
+        drop="up"
+        containerClassName="relative flex-1"
+        className="flex h-10 w-full items-center justify-center rounded-lg border border-edge bg-surface text-[11px] font-semibold tabular-nums text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-zinc-100"
+      />
     </div>
   );
-
-  const speedRail = <SpeedRail value={speed} onChange={chooseSpeed} />;
 
   const legend = (
     <div className="hidden shrink-0 flex-wrap gap-x-3 gap-y-1 text-[10px] text-zinc-500 lg:flex">
@@ -1016,7 +1005,6 @@ export function MarkPoints({
             ["U", "Undo"],
             ["T", "Star"],
             ["Space", "Play"],
-            ["[ ]", "Speed"],
           ]
         : [
             ["S", open ? "Reset" : "Begin"],
@@ -1027,7 +1015,6 @@ export function MarkPoints({
             ["U", "Undo"],
             ["T", "Star"],
             ["Space", "Play"],
-            ["[ ]", "Speed"],
           ]
       ).map(([k, v]) => (
         <span key={k} className="flex items-center gap-1">
@@ -1203,19 +1190,6 @@ export function MarkPoints({
             </>
           )}
 
-          {/* Speed sits bottom-centre, just above the transport. The
-              columns own the edges and the middle of the frame is the
-              table, but the strip immediately above the scrubber is floor
-              in every recording this product sees. */}
-          {started && (
-            <div
-              className="pointer-events-auto absolute"
-              style={{ left: 120, right: 120, bottom: picture.chromeFloor + 4 }}
-            >
-              <SpeedRail value={speed} onChange={chooseSpeed} compact />
-            </div>
-          )}
-
           {refusal && (
             <p
               role="status"
@@ -1275,7 +1249,6 @@ export function MarkPoints({
             {rhythmPair}
             {mode !== "cut" && answerRow}
             {utilRow}
-            {speedRail}
           </>
         )}
         <div className="flex shrink-0 items-center justify-between gap-2">
