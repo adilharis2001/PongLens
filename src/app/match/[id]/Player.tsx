@@ -6406,7 +6406,7 @@ export const Player = forwardRef<
               <span className="h-1 w-9 rounded-full bg-white/20" />
             </div>
           )}
-          {/* ticker: score + games pill on the left, the serve toggle on
+          {/* ticker: score + games pill on the left, the serve switch on
               the right. (The point chip lives top-center over the video;
               the prev/next chevrons flank the video itself.) Edge layout: a thin
               translucent band along the top, inset past the ?-and-✕
@@ -6453,70 +6453,59 @@ export const Player = forwardRef<
               )}
             </span>
             <span className="flex-1" />
-            {/* Who serves, as one control with two cells: the server's cell
-                is lit in their colour with the ball, the other is dim.
-                Pressing the dim cell hands the serve over and re-anchors
-                the rotation; pressing the lit one is a no-op (setServerTo).
-                Two cells with a border, not a capsule, and not text alone:
-                it has to look pressable without a word of instruction.
-                Me left, opponent right, the same order as the answer
-                pads below. */}
+            {/* Who serves, as a switch: a track with a knob that slides.
+                Knob on the left, Me serves; knob on the right, the
+                opponent does. The knob carries the glowing ball and the
+                track takes the server's colour, and the two names flank
+                it with the serving side lit — so the picture reads with
+                no instruction. One press anywhere on it flips the serve
+                and re-anchors the rotation; the flash says so. It is
+                the height of the old serve balls, so the row does not
+                grow. */}
             {server !== null && (
-              <span
-                role="group"
-                aria-label="Serving"
-                className="flex shrink-0 overflow-hidden rounded-lg border border-edge bg-surface"
+              <button
+                type="button"
+                role="switch"
+                aria-checked={server === "opponent"}
+                onClick={() => setServerTo(server === "user" ? "opponent" : "user")}
+                aria-label={
+                  server === "user"
+                    ? `${youLabel === "Me" ? "I" : youLabel} served this point. Press to give the serve to ${themLabel}.`
+                    : `${themLabel} served this point. Press to give the serve to ${youLabel === "Me" ? "me" : youLabel}.`
+                }
+                className="flex shrink-0 items-center gap-2 rounded-lg px-1 py-0.5 text-sm font-semibold"
               >
-                <button
-                  type="button"
-                  onClick={() => setServerTo("user")}
-                  aria-pressed={server === "user"}
-                  aria-label={
+                <span
+                  className={`max-w-[5.5rem] truncate ${
+                    server === "user" ? "text-cyan-glow" : "text-zinc-500"
+                  }`}
+                >
+                  {youLabel}
+                </span>
+                <span
+                  aria-hidden="true"
+                  className={`relative block h-[30px] w-14 shrink-0 rounded-full border transition-colors ${
                     server === "user"
-                      ? `${youLabel === "Me" ? "I" : youLabel} served this point`
-                      : `Give the serve to ${youLabel === "Me" ? "me" : youLabel}`
-                  }
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-semibold ${
-                    server === "user"
-                      ? "bg-cyan-glow/15 text-cyan-glow"
-                      : "text-zinc-500"
+                      ? "border-cyan-glow/40 bg-cyan-glow/20"
+                      : "border-magenta-soft/40 bg-magenta-soft/20"
                   }`}
                 >
                   <span
-                    className={
+                    className={`absolute top-[3px] block h-6 w-6 rounded-full ring-2 ring-white/70 transition-transform ${
                       server === "user"
-                        ? "serve-ball-you block h-3 w-3 rounded-full"
-                        : "block h-3 w-3 rounded-full border border-zinc-600 opacity-60"
-                    }
+                        ? "serve-ball-you left-[3px]"
+                        : "serve-ball-them left-[3px] translate-x-[26px]"
+                    }`}
                   />
-                  <span className="max-w-[5.5rem] truncate">{youLabel}</span>
-                </button>
-                <span className="w-px self-stretch bg-edge" aria-hidden="true" />
-                <button
-                  type="button"
-                  onClick={() => setServerTo("opponent")}
-                  aria-pressed={server === "opponent"}
-                  aria-label={
-                    server === "opponent"
-                      ? `${themLabel} served this point`
-                      : `Give the serve to ${themLabel}`
-                  }
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-semibold ${
-                    server === "opponent"
-                      ? "bg-magenta-soft/15 text-magenta-soft"
-                      : "text-zinc-500"
+                </span>
+                <span
+                  className={`max-w-[5.5rem] truncate ${
+                    server === "opponent" ? "text-magenta-soft" : "text-zinc-500"
                   }`}
                 >
-                  <span
-                    className={
-                      server === "opponent"
-                        ? "serve-ball-them block h-3 w-3 rounded-full"
-                        : "block h-3 w-3 rounded-full border border-zinc-600 opacity-60"
-                    }
-                  />
-                  <span className="max-w-[5.5rem] truncate">{themLabel}</span>
-                </button>
-              </span>
+                  {themLabel}
+                </span>
+              </button>
             )}
           </div>
 
