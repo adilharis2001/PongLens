@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { coachInviteCopy } from "@/lib/coaches/invitePreviewData";
 import { Logo } from "@/components/Logo";
 import { SignedInAs } from "@/components/SignedInAs";
+import { GetTheApp } from "@/components/GetTheApp";
 import { AcceptInvite } from "./AcceptInvite";
 
 /**
@@ -187,6 +188,7 @@ export default async function CoachInvitePage({
         <SignedInAs email={user.email} next={`/coach-invite/${token}`} />
       )}
       <AcceptInvite token={token} />
+      <GetTheApp />
     </Shell>
   );
 }

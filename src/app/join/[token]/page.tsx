@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { studentInviteCopy } from "@/lib/coaches/invitePreviewData";
 import { Logo } from "@/components/Logo";
 import { SignedInAs } from "@/components/SignedInAs";
+import { GetTheApp } from "@/components/GetTheApp";
 import { JoinCoach } from "./JoinCoach";
 
 /**
@@ -192,6 +193,7 @@ export default async function JoinPage({
         coachName={info.coach_name}
         needsName={needsName}
       />
+      <GetTheApp />
     </Shell>
   );
 }

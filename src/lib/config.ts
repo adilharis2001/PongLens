@@ -16,6 +16,16 @@ import { cache } from "react";
 const FALLBACK_SUPPORT_EMAIL = "support@ponglens.com";
 
 /**
+ * The public TestFlight link for the iPhone app while it is in beta
+ * (Adil, 2026-09-07). A constant rather than an app_config row: it is
+ * public, it changes only if the app leaves TestFlight, and a config
+ * key would have to be added to the anon allow-list (107) to be read.
+ * Shown on the invite pages, which are where a phone without the app
+ * lands when a coach's or player's link is opened.
+ */
+export const TESTFLIGHT_URL = "https://testflight.apple.com/join/H9XdnySg";
+
+/**
  * Who may reach the admin pages. Deliberately a constant rather than an
  * app_config row: is_admin() (migration 010) compares against this same
  * literal and is the real boundary, since every admin RPC re-checks it.
