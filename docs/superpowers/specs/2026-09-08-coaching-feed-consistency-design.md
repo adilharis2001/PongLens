@@ -145,17 +145,22 @@ Rule 1 the card is the way in.
 - The "Lesson video" theme in the stored takeaways: older app versions
   still need the link, so it is hidden, not removed.
 
-## 5. Decisions to confirm
+## 5. Decisions (Adil, 2026-09-08)
 
-1. **Preview depth.** Four bullets, across themes in order, plus the
-   title. Five reads long on a 393-wide phone with a coach line above
-   it. Say if you want five.
-2. **Home.** The latest shared entry on Home follows Rule 1 when it is a
-   recap. Yes unless you say otherwise; the alternative is two
-   behaviours for one card.
-3. **Text entries in Coaching.** Rule 2 collapses them; it does not
-   change how they open (the same card, in place). If you want a tap on
-   the preview to jump to the Journal instead, say so.
+1. **Preview depth: four bullets**, across themes in order, plus the
+   title.
+2. **Home follows Rule 1.** The latest shared entry on Home opens the
+   recap page when it is a recap, the same as everywhere else.
+3. **A tap on a collapsed entry jumps to the Journal**, landing on that
+   entry. The preview is a doorway, not a card that opens in place: on
+   the phone the Journal tab is selected and scrolled to the entry, on
+   the web `/journal?entry=<id>` does the same, at both widths.
+
+One rule for the preview lives in one place per surface, tested on both:
+the first four points across the visible themes in order, with the link
+theme already gone. `previewPoints` in `Core/LessonPreview.swift` and
+`src/lib/journal/preview.ts` are twins, and their tests carry the same
+cases.
 
 ## 6. Size
 

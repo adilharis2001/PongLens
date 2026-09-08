@@ -91,12 +91,24 @@ struct HomeScreen: View {
                                     .foregroundStyle(PL.text400)
                                     .buttonStyle(.plain)
                             }
-                            Button {
-                                coachEntryOpen = fresh
-                            } label: {
-                                CoachSharedEntryCard(entry: fresh)
+                            // A recap is one thing everywhere: the card opens
+                            // the recap page. A written entry keeps its sheet,
+                            // where the linked match and Report live.
+                            if let recapId = fresh.recapId {
+                                NavigationLink {
+                                    LessonVideoDetailScreen(id: recapId)
+                                } label: {
+                                    CoachSharedEntryCard(entry: fresh)
+                                }
+                                .buttonStyle(.plain)
+                            } else {
+                                Button {
+                                    coachEntryOpen = fresh
+                                } label: {
+                                    CoachSharedEntryCard(entry: fresh)
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
 

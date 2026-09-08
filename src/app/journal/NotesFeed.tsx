@@ -188,6 +188,7 @@ export function NotesFeed({
   userId,
   accountName,
   initialMatch = null,
+  initialEntry = null,
   initialSection = null,
   initialRecollectEnabled = true,
 }: {
@@ -196,6 +197,9 @@ export function NotesFeed({
   accountName: string | null;
   /** ?match= deep link: open pre-filtered to this match's notes. */
   initialMatch?: string | null;
+  /** An entry to land on: the Coaching feed's collapsed preview is a
+   *  doorway to it. Twin of Router.journalEntryToReveal on iOS. */
+  initialEntry?: string | null;
   /** Which tab to open on. Nothing sends one today: a student who has
    *  just connected lands on the Coaching tab, not here. */
   initialSection?: Section | null;
@@ -816,6 +820,19 @@ export function NotesFeed({
   );
 
   const lessonItem = (l: Lesson) => lessonCard(l);
+
+  // The doorway's other half: scroll to the entry once, then drop the
+  // query so a refresh does not scroll again.
+  useEffect(() => {
+    if (!initialEntry) return;
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById(`journal-entry-${initialEntry}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.history.replaceState(null, "", "/journal");
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [initialEntry]);
 
   const openRecollectSource = useCallback((source: RecollectSource) => {
     setActiveTag(null);

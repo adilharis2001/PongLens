@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import type { Lesson, Tag } from "@/lib/types";
+import { entryThemes, recapIdOf } from "@/lib/lessonVideo/entries";
+import { previewPoints, previewTruncates } from "@/lib/journal/preview";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PointTags } from "@/app/match/[id]/Tags";
 import { ShareEntrySheet } from "./ShareEntrySheet";
@@ -34,6 +36,8 @@ export function LessonCard({
   onUpdated,
   onDeleted,
   onEdit,
+  collapsed = false,
+  onOpen,
 }: {
   lesson: Lesson;
   /** Tags on this entry (same vocabulary as point tags). */
@@ -49,6 +53,13 @@ export function LessonCard({
   onDeleted: (id: string) => void;
   /** Opens the note editor on this entry. */
   onEdit: (lesson: Lesson) => void;
+  /** A preview rather than the whole entry: the top line, the title and
+   *  the first four points, and the whole card is a doorway. The
+   *  Coaching feed shows entries this way; the Journal shows them whole.
+   *  One component with one flag, so the two cannot drift. */
+  collapsed?: boolean;
+  /** Where the doorway leads, when collapsed. */
+  onOpen?: () => void;
 }) {
   const [showTranscript, setShowTranscript] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -61,6 +72,9 @@ export function LessonCard({
   // one-line notice when the list is full.
   const [filed, setFiled] = useState<Set<string>>(new Set());
   const [cueNotice, setCueNotice] = useState<string | null>(null);
+  // A recap's appended link theme is not drawn: the recap card is the way
+  // in now. Twin of LessonRow.visibleThemes on iOS.
+  const visibleThemes = entryThemes(lesson.takeaways?.themes ?? [], !!recapIdOf(lesson));
 
   const fileCue = async (point: string) => {
     if (filed.has(point)) return;
@@ -139,6 +153,57 @@ export function LessonCard({
       lesson.coach_name ? `Lesson with ${lesson.coach_name}` : "Note"
     } · ${shortDateTime(lesson.created_at)}`;
 
+  if (collapsed) {
+    const points = previewPoints(visibleThemes);
+    return (
+      <li className="rounded-2xl border border-edge bg-surface p-4">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="group block w-full text-left"
+          aria-label="Open this entry in the Journal"
+        >
+          <p className="text-xs text-zinc-500">
+            {lesson.coach_name ? (
+              <>
+                {"Lesson with "}
+                <span className="text-zinc-300">{lesson.coach_name}</span>
+              </>
+            ) : (
+              "Note"
+            )}
+            {" · "}
+            {shortDateTime(lesson.created_at)}
+            {lesson.shared_with_coach_at && lesson.coach_name ? (
+              <>
+                {" · "}
+                <span className="text-cyan-glow">Shared with {lesson.coach_name}</span>
+              </>
+            ) : null}
+          </p>
+          {lesson.takeaways?.title ? (
+            <p className="mt-1 text-sm font-semibold text-zinc-100">{lesson.takeaways.title}</p>
+          ) : null}
+          {points.length > 0 ? (
+            <ul className="mt-2 space-y-1">
+              {points.map((p, i) => (
+                <li key={i} className="flex gap-2 text-sm leading-relaxed text-zinc-200">
+                  <span className="mt-[0.55rem] h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
+                  <span className="min-w-0 flex-1">{p}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 line-clamp-4 text-sm leading-relaxed text-zinc-200">{lesson.transcript}</p>
+          )}
+          {previewTruncates(visibleThemes) && (
+            <p className="mt-2 text-xs text-cyan-glow transition-colors group-hover:text-white">More</p>
+          )}
+        </button>
+      </li>
+    );
+  }
+
   return (
     <li
       id={`journal-entry-${lesson.id}`}
@@ -177,7 +242,7 @@ export function LessonCard({
         <>
           <p className="mt-1 text-sm font-semibold text-zinc-100">{t.title}</p>
           <div className="mt-3 space-y-3">
-            {t.themes.map((theme) => (
+            {visibleThemes.map((theme) => (
               <div key={theme.name}>
                 <p className="text-xs font-semibold uppercase tracking-wider text-cyan-glow/80">
                   {theme.name}

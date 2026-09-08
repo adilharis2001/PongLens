@@ -255,9 +255,16 @@ struct EntryText: View {
                 guard scheme == "http" || scheme == "https" || scheme == "mailto" else {
                     return .discarded
                 }
-                return .systemAction
+                // Hand it up, not to the system. RootView installs the
+                // handler that keeps a first-party recap link inside the
+                // app; returning .systemAction here shadowed it, and every
+                // "Video lesson:" line in a journal entry opened Safari.
+                openURL(url)
+                return .handled
             })
     }
+
+    @Environment(\.openURL) private var openURL
 
     private var attributed: AttributedString {
         var out = AttributedString()

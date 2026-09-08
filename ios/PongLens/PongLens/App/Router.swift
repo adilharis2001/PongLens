@@ -3,6 +3,11 @@ import SwiftUI
 @Observable
 final class Router {
     var tab: MainTab = .home
+    /// A journal entry the Journal tab should scroll to when it next
+    /// appears. Set beside `tab = .journal` by a card that is a doorway:
+    /// the collapsed preview in Coaching. Cleared by the Journal once
+    /// it has scrolled.
+    var journalEntryToReveal: UUID?
     var uploadOpen = false
     var recordOpen = false
     /// Which door opened the recorder. The details sheet reads it on stop,
