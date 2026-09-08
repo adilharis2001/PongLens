@@ -46,11 +46,11 @@ final class MatchIssueTests: XCTestCase {
     }
 
     func testOwnerReadyChoicesUseExactServerAmount() throws {
-        XCTAssertEqual(try state().choices, [.positive, .reprocess, .refund])
+        XCTAssertEqual(try state().choices, [.reprocess, .refund])
         XCTAssertEqual(MatchIssueChoice.refund.label(minutes: 24), "Request 24 minutes back")
         XCTAssertEqual(MatchIssueChoice.refund.label(minutes: 1), "Request 1 minute back")
-        XCTAssertEqual(try state(minutes: 0).choices, [.positive, .reprocess])
-        XCTAssertEqual(try state(minutes: nil).choices, [.positive, .reprocess])
+        XCTAssertEqual(try state(minutes: 0).choices, [.reprocess])
+        XCTAssertEqual(try state(minutes: nil).choices, [.reprocess])
     }
 
     func testServerCapabilitiesCanWithdrawEachOwnerChoice() throws {
@@ -58,6 +58,9 @@ final class MatchIssueTests: XCTestCase {
         decoded.canPositive = false
         decoded.canReprocess = false
         decoded.canRefund = false
+        // No remedy left: a plain report, never a sheet with nothing on it.
+        XCTAssertEqual(decoded.choices, [.problem])
+        decoded.canProblem = false
         XCTAssertTrue(decoded.choices.isEmpty)
     }
 

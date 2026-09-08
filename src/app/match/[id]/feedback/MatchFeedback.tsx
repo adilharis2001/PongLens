@@ -10,8 +10,9 @@ import { TOOL_ROW_CLASS, ToolRowChevron } from "../ReelBar";
 import { matchFeedbackPresentation, submissionAttempt } from "./matchFeedbackView";
 
 /*
- * Private feedback about how a match was processed — Looks good, Try
- * processing again, Request minutes back — and the review that follows.
+ * Private feedback about how a match was processed — Try processing again,
+ * Request minutes back, or a plain report when neither applies — and the
+ * review that follows.
  * The public Feedback board is a different thing at /feedback; the match
  * page offers both, one row each, so an idea or a bug never has to be
  * squeezed into a question about one match's cut.
@@ -112,15 +113,15 @@ const eventLabels: Record<string, string> = {
   restored: "Previous version restored", declined: "Request closed",
 };
 
-export function MatchFeedback({ matchId, initialState, isOwner, matchStatus, title, detail, thumbnail }: {
+export function MatchFeedback({ matchId, initialState, isOwner, matchStatus, title, detail, thumbnail, hasOriginal }: {
   matchId: string; initialState: MatchIssueState | null; isOwner: boolean;
-  matchStatus: MatchIssueState["matchStatus"]; title: string; detail: string; thumbnail: string | null;
+  matchStatus: MatchIssueState["matchStatus"]; title: string; detail: string; thumbnail: string | null; hasOriginal: boolean;
 }) {
   const { state, loadError, refresh, saved } = useMatchIssueState(matchId, initialState);
   const fallback: MatchIssueState = { role: isOwner ? "owner" : "coach", matchStatus,
     activeIssue: null, events: [], refundableMinutes: null,
     canPositive: false, canProblem: false, canReprocess: false, canRefund: false };
-  const view = matchFeedbackPresentation(state ?? fallback);
+  const view = matchFeedbackPresentation(state ?? fallback, hasOriginal);
   const [choice, setChoice] = useState<MatchIssueKind | null>(null);
   const selected = choice ?? (view.choices.length === 1 && view.choices[0].kind === "problem" ? "problem" : null);
   const selectedChoice = view.choices.find(c => c.kind === selected);
@@ -148,7 +149,9 @@ export function MatchFeedback({ matchId, initialState, isOwner, matchStatus, tit
         return;
       }
       saved(data.issue);
-      setConfirmation(selectedChoice.kind === "positive" ? "Thanks for the feedback." : "Request sent. We will notify you when it has been reviewed.");
+      setConfirmation(selectedChoice.kind === "positive" ? "Thanks for the feedback."
+        : selectedChoice.kind === "problem" ? "Report sent. We will notify you when it has been reviewed."
+        : "Request sent. We will notify you when it has been reviewed.");
       attempt.current = null;
       setChoice(null); setMessage("");
       await refresh();
@@ -215,6 +218,7 @@ export function MatchFeedback({ matchId, initialState, isOwner, matchStatus, tit
             </label>;
           })}
         </fieldset>}
+        {view.noRemedyNote && <p className="text-sm text-zinc-300">{view.noRemedyNote}</p>}
         {selected && selected !== "positive" && <>
           <label className="block text-sm text-zinc-300">
             {view.fieldLabel}{!view.messageRequired && " (optional)"}

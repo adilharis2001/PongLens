@@ -14,7 +14,7 @@ enum MatchIssueChoice: String, Codable, CaseIterable, Identifiable {
     func label(minutes: Int?) -> String {
         switch self {
         case .positive: "Looks good"
-        case .problem: "Report an issue"
+        case .problem: "Report a problem"
         case .reprocess: "Try processing again"
         case .refund: minutes.map { "Request \($0) \($0 == 1 ? "minute" : "minutes") back" } ?? "Request minutes back"
         }
@@ -90,13 +90,20 @@ struct MatchIssueState: Decodable {
     var isOwner: Bool { role == "owner" }
     var isOwnerCut: Bool { isOwner && matchStatus == .ready }
 
+    /// What the sheet offers. Remedies first — processing again, minutes
+    /// back — each only when the server says it applies to this match. A
+    /// match with no remedy left (the original no longer stored, nothing
+    /// to refund) gets a plain report instead, so there is always a way to
+    /// say something went wrong. Never "Looks good": the row this opens
+    /// from says "Report a problem", and on an old match the positive was
+    /// the only thing on the sheet, with nothing it could lead to.
     var choices: [MatchIssueChoice] {
         if let status = activeIssue?.status, status != "recorded", status != "cancelled" { return [] }
         guard isOwnerCut else { return canProblem ? [.problem] : [] }
         var choices: [MatchIssueChoice] = []
-        if canPositive { choices.append(.positive) }
         if canReprocess { choices.append(.reprocess) }
         if canRefund, (refundableMinutes ?? 0) > 0 { choices.append(.refund) }
+        if choices.isEmpty, canProblem { choices.append(.problem) }
         return choices
     }
 
@@ -265,7 +272,11 @@ final class MatchIssueModel {
         do {
             let issue = try await client.submit(matchId, attempt)
             saved(issue)
-            confirmation = selectedChoice == .positive ? "Thanks for the feedback." : "Request sent. We will notify you when it has been reviewed."
+            confirmation = switch selectedChoice {
+            case .positive: "Thanks for the feedback."
+            case .problem: "Report sent. We will notify you when it has been reviewed."
+            case .reprocess, .refund: "Request sent. We will notify you when it has been reviewed."
+            }
             self.attempt = nil
             choice = nil
             message = ""

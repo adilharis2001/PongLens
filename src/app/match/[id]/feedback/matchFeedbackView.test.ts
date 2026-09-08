@@ -31,10 +31,12 @@ test("ready owners get server-eligible choices and the exact spend amount", () =
   const view = matchFeedbackPresentation(ready);
   assert.equal(view.trailing, "Report a problem");
   assert.deepEqual(view.choices.map(c => [c.kind, c.label]), [
-    ["positive", "Looks good"],
     ["reprocess", "Try processing again"],
     ["refund", "Request 11 minutes back"],
   ]);
+  assert.equal(view.fieldLabel, "What went wrong?");
+  assert.equal(view.messageRequired, false);
+  assert.equal(matchFeedbackPresentation(ready, false).noRemedyNote, null);
 });
 
 for (const matchStatus of ["uploaded", "processing", "failed"] as const) {
@@ -61,7 +63,19 @@ test("zero, absent or server-ineligible refunds never appear", () => {
     assert.equal(matchFeedbackPresentation({ ...ready, refundableMinutes }).choices.some(c => c.kind === "refund"), false);
   }
   const view = matchFeedbackPresentation({ ...ready, canRefund: false, canReprocess: false });
-  assert.deepEqual(view.choices.map(c => c.kind), ["positive"]);
+  assert.deepEqual(view.choices.map(c => c.kind), ["problem"]);
+});
+
+test("a processed match with no remedy left takes a plain report, and says why when the original is gone", () => {
+  const none = { ...ready, canRefund: false, canReprocess: false };
+  const gone = matchFeedbackPresentation(none, false);
+  assert.deepEqual(gone.choices.map(c => c.kind), ["problem"]);
+  assert.equal(gone.messageRequired, true);
+  assert.equal(gone.fieldLabel, "What went wrong?");
+  assert.equal(gone.noRemedyNote, "The original video is no longer stored, so this match cannot be processed again.");
+  assert.equal(matchFeedbackPresentation(none, true).noRemedyNote, null);
+  assert.equal(matchFeedbackPresentation(none).noRemedyNote, null);
+  assert.equal(matchFeedbackPresentation({ ...none, canProblem: false }).choices.length, 0);
 });
 
 for (const [status, title, message, trailing, poll] of [

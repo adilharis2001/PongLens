@@ -5,6 +5,7 @@ import { UpLink } from "@/components/UpLink";
 import { createClient } from "@/lib/supabase/server";
 import { rememberedWorkspace } from "@/lib/workspaceServer";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
+import { hasOriginalVideo } from "@/lib/originalVideo";
 import { presignGet } from "@/lib/r2";
 import type { Match } from "@/lib/types";
 import type { MatchIssueState } from "@/lib/matchIssues/types";
@@ -38,7 +39,7 @@ export default async function MatchFeedbackPage({ params }: { params: Promise<{ 
       <div className="mx-auto max-w-xl">
         <UpLink href={`/match/${id}`} label="Match" />
         <MatchFeedback matchId={id} initialState={(stateResult.data as MatchIssueState | null) ?? null} isOwner={match.user_id === user.id} matchStatus={match.status}
-          title={title.primary} detail={title.secondary} thumbnail={thumbnail} />
+          title={title.primary} detail={title.secondary} thumbnail={thumbnail} hasOriginal={hasOriginalVideo(match.raw_path)} />
       </div>
     </main>
   </>;

@@ -6,7 +6,17 @@ export interface FeedbackChoice {
   description: string;
 }
 
-export function matchFeedbackPresentation(state: MatchIssueState) {
+/**
+ * What the page offers. Remedies first — processing again, minutes back —
+ * each only when the server says it applies to this match. A match with no
+ * remedy left (the original no longer stored, nothing to refund) gets a
+ * plain report instead, so there is always a way to say something went
+ * wrong. Never "Looks good": the row this opens from says "Report a
+ * problem", and on an old match the positive was the only thing on the
+ * page, with nothing it could lead to. `hasOriginal` is only read to say
+ * why a processed match has no remedy; null means not known.
+ */
+export function matchFeedbackPresentation(state: MatchIssueState, hasOriginal: boolean | null = null) {
   const owner = state.role === "owner";
   const cut = owner && state.matchStatus === "ready";
   const issue = state.activeIssue;
@@ -35,13 +45,14 @@ export function matchFeedbackPresentation(state: MatchIssueState) {
   const choices: FeedbackChoice[] = [];
   if (!issue || status === "recorded" || status === "cancelled") {
     if (cut) {
-      if (state.canPositive) choices.push({ kind: "positive", label: "Looks good", description: "The rallies and timing look right." });
       if (state.canReprocess) choices.push({ kind: "reprocess", label: "Try processing again", description: "Some rallies were missed or cut at the wrong time." });
       if (state.canRefund && (state.refundableMinutes ?? 0) > 0) choices.push({ kind: "refund", label: `Request ${state.refundableMinutes} ${state.refundableMinutes === 1 ? "minute" : "minutes"} back`, description: "I do not want this match processed again." });
+      if (choices.length === 0 && state.canProblem) choices.push({ kind: "problem", label: "Report a problem", description: "" });
     } else if (state.canProblem) {
-      choices.push({ kind: "problem", label: owner ? "Report an issue" : "Report a cut problem", description: "" });
+      choices.push({ kind: "problem", label: "Report a problem", description: "" });
     }
   }
+  const reportOnly = choices.length === 1 && choices[0].kind === "problem";
   return {
     // The row's label never changes, so a status appearing in the trailing
     // slot reads as one; with no request open, the slot is the door.
@@ -55,7 +66,14 @@ export function matchFeedbackPresentation(state: MatchIssueState) {
       : null,
     fieldLabel: cut ? "What went wrong?" : "What happened?",
     placeholder: cut ? "Tell us what was missed or cut incorrectly." : "Tell us what went wrong.",
-    messageRequired: !cut,
+    // A report needs words (the server refuses an empty one); a remedy
+    // request does not.
+    messageRequired: reportOnly,
+    // The one reason a processed match has no remedy the owner can do
+    // nothing about, said plainly so the missing "Try processing again" is
+    // not a mystery. "No longer stored", never "expired".
+    noRemedyNote: cut && reportOnly && hasOriginal === false
+      ? "The original video is no longer stored, so this match cannot be processed again." : null,
     canCancel: owner && status === "pending",
     poll: status === "pending" || status === "reprocess_queued" || status === "reprocessing" || status === "candidate_ready",
   };

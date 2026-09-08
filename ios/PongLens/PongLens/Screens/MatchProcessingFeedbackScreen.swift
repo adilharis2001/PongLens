@@ -1,14 +1,15 @@
 import SwiftUI
 
-/// Private feedback about how a match was processed — Looks good, Try
-/// processing again, Request minutes back — and the review that follows.
+/// Private feedback about how a match was processed — Try processing
+/// again, Request minutes back, or a plain report when neither applies —
+/// and the review that follows.
 /// The public Feedback board is a different thing and keeps its own route;
 /// the match page offers both, one row each, so an idea or a bug never has
 /// to be squeezed into a question about one match's cut.
 ///
 /// One panel, two homes. From the match page it is a sheet raised from the
 /// Processing row, like Your side and Match details, because it is a
-/// three-option question and not a destination. It used to be a page that
+/// short question and not a destination. It used to be a page that
 /// re-drew the match's own video card under the choices, so the cut, the
 /// Original button and the download appeared twice, one tap apart; the
 /// video it asks about is on the page underneath, so the sheet carries
@@ -16,6 +17,9 @@ import SwiftUI
 /// same panel, so the review can be read without the match page under it.
 struct MatchIssuePanel: View {
     @Bindable var model: MatchIssueModel
+    /// Whether the original upload is still stored; nil until known. Only
+    /// read when there is no remedy to offer, to say why.
+    var hasOriginal: Bool? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -40,9 +44,16 @@ struct MatchIssuePanel: View {
                                 choiceRow(choice, minutes: state.refundableMinutes)
                             }
                         }
+                    } else if state.isOwnerCut, hasOriginal == false {
+                        // The one reason a processed match has no remedy
+                        // that the owner can do nothing about; said plainly
+                        // so the missing "Try processing again" is not a
+                        // mystery. "No longer stored", never "expired".
+                        Text("The original video is no longer stored, so this match cannot be processed again.")
+                            .font(.plBody).foregroundStyle(PL.text300)
                     }
                     if let selected = model.selectedChoice, selected != .positive {
-                        noteField(cut: state.isOwnerCut)
+                        noteField(for: selected, cut: state.isOwnerCut)
                     }
                     Button { Task { await model.submit() } } label: {
                         Text(model.busy ? "Sending…" : "Send")
@@ -141,9 +152,13 @@ struct MatchIssuePanel: View {
         .accessibilityAddTraits(active ? .isSelected : [])
     }
 
-    private func noteField(cut: Bool) -> some View {
+    /// A report needs words (the server refuses an empty one); a remedy
+    /// request does not, so only the request says "optional".
+    private func noteField(for choice: MatchIssueChoice, cut: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(cut ? "What went wrong? (optional)" : "What happened?")
+            Text(choice == .problem
+                 ? (cut ? "What went wrong?" : "What happened?")
+                 : "What went wrong? (optional)")
                 .font(.plBody).foregroundStyle(PL.text300)
             TextField(
                 cut ? "Tell us what was missed or cut incorrectly." : "Tell us what went wrong.",
@@ -189,6 +204,7 @@ struct MatchIssuePanel: View {
 /// title, then the content, on the surface colour.
 struct MatchProcessingSheet: View {
     let model: MatchIssueModel
+    let hasOriginal: Bool
 
     var body: some View {
         ScrollView {
@@ -196,7 +212,7 @@ struct MatchProcessingSheet: View {
                 Text("Processing")
                     .font(.plCardTitle)
                     .foregroundStyle(PL.text100)
-                MatchIssuePanel(model: model)
+                MatchIssuePanel(model: model, hasOriginal: hasOriginal)
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -255,8 +271,11 @@ struct MatchProcessingFeedbackScreen: View {
                         }
                     }
 
-                    MatchIssuePanel(model: model)
-                        .plCard()
+                    MatchIssuePanel(
+                        model: model,
+                        hasOriginal: match.map { $0.rawPath?.hasPrefix("r2://ponglens-raw/") == true }
+                    )
+                    .plCard()
                 }
                 .padding(20)
                 .padding(.bottom, 60)
@@ -333,7 +352,7 @@ struct ProcessingToolRow: View {
             NotificationCenter.default.post(name: .matchProcessingVersionChanged, object: match.id)
         }
         .sheet(isPresented: $open) {
-            MatchProcessingSheet(model: model)
+            MatchProcessingSheet(model: model, hasOriginal: match.rawPath?.hasPrefix("r2://ponglens-raw/") == true)
                 .presentationDetents([.medium, .large])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
