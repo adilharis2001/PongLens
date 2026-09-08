@@ -20,6 +20,11 @@
  * it is not to touch it. What is shared is shared by IMPORT (ClipPlayer,
  * serving, gameScore), so the ITTF rotation stays one implementation.
  *
+ * TWO MODES, asked once on the way in. "Cut only" wants the rallies as
+ * clips and nothing else, so it never shows a score, a server or an answer
+ * row: a scoreboard nobody is filling in is furniture. "Cut and score"
+ * is the full three-tap loop.
+ *
  * WHAT THIS FILE NEVER COMPUTES: cut_t0, cut segments, or which seconds the
  * cut keeps. The worker does that once, through the same three functions
  * the automatic pipeline uses. See handCut.ts.
@@ -29,6 +34,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ClipPlayer, type PictureBox } from "./ClipPlayer";
 import { computeMatchScore } from "./gameScore";
+import { SpeedMenu } from "./SpeedMenu";
 import { computeServing, type MatchServer } from "./serving";
 import type { Point } from "@/lib/types";
 import {
@@ -38,6 +44,7 @@ import {
   asPoints,
   emptyState,
   endMark,
+  lastClosedEnd,
   openMark,
   selectMark,
   setOutcome,
@@ -197,9 +204,17 @@ export function MarkPoints({
   const [state, setState] = useState<MarkState>(() =>
     initialMarks.length ? { ...emptyState, marks: initialMarks } : emptyState
   );
+  /** Cut only, or cut and score? Asked once, before anything else, so the
+   *  pad can drop the half of itself the answer does not need. */
+  const [mode, setMode] = useState<"cut" | "score" | null>(null);
   /** Has the session started? Until it has, the pad is one button, because
    *  one button is the only thing there is to do. */
   const [started, setStarted] = useState(false);
+  /** The pad's own speed control, mirroring the scorekeeper's. The picture
+   *  gestures (hold left for 0.25x, hold right for 2x) still work, but the
+   *  floating pad covers part of the frame and whichever half it sits on
+   *  loses its gesture, so speed must also be reachable as a control. */
+  const [speed, setSpeed] = useState(1);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [playhead, setPlayhead] = useState(0);
   const [reviewing, setReviewing] = useState(false);
@@ -360,6 +375,12 @@ export function MarkPoints({
     return v && v.playbackRate > 0 ? v.playbackRate : 1;
   }, []);
 
+  const chooseSpeed = useCallback((rate: number) => {
+    setSpeed(rate);
+    const v = videoRef.current;
+    if (v) v.playbackRate = rate;
+  }, []);
+
   const refuse = useCallback((why: string) => {
     setRefusal(why);
     if (refuseTimer.current) window.clearTimeout(refuseTimer.current);
@@ -383,6 +404,24 @@ export function MarkPoints({
   const beginCutting = useCallback(() => {
     setStarted(true);
     playApi.current?.play();
+  }, []);
+
+  /**
+   * Reopening a draft lands where the marking stopped, not at zero.
+   * A refresh in the middle of a 40 minute pass would otherwise mean
+   * scrubbing back by hand to find the place, which is the moment someone
+   * gives up on the feature. Runs once, on the first metadata event.
+   */
+  const resumedRef = useRef(false);
+  const resumeToLastPoint = useCallback(() => {
+    if (resumedRef.current) return;
+    resumedRef.current = true;
+    const last = lastClosedEnd(stateRef.current.marks);
+    const v = videoRef.current;
+    if (last === null || !v) return;
+    const d = Number.isFinite(v.duration) ? v.duration : Infinity;
+    v.currentTime = Math.max(0, Math.min(d - 0.1, last));
+    setPlayhead(v.currentTime);
   }, []);
 
   const tapBegin = useCallback(() => {
@@ -452,18 +491,19 @@ export function MarkPoints({
           return;
         case "ArrowLeft":
           e.preventDefault();
-          if (e.shiftKey) seekBy(-10);
+          if (e.shiftKey || mode === "cut") seekBy(-10);
           else tapAnswer("user");
           return;
         case "ArrowRight":
           e.preventDefault();
-          if (e.shiftKey) seekBy(10);
+          if (e.shiftKey || mode === "cut") seekBy(10);
           else tapAnswer("opponent");
           return;
         case "k":
         case "K":
         case "l":
         case "L":
+          if (mode === "cut") return;
           e.preventDefault();
           tapAnswer("let");
           return;
@@ -486,6 +526,7 @@ export function MarkPoints({
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [
+    mode,
     started,
     beginCutting,
     tapBegin,
@@ -577,22 +618,37 @@ export function MarkPoints({
       style={overlayPad ? { height: 30 } : undefined}
     >
       <span className="flex items-baseline gap-2">
-        <span
-          className={`font-bold tabular-nums tracking-tight ${
-            overlayPad ? "text-base" : "text-2xl"
-          }`}
-        >
-          <span className="text-cyan-glow">{score.current.you}</span>
-          <span className="mx-1 text-zinc-600">-</span>
-          <span className="text-magenta-soft">{score.current.them}</span>
-        </span>
-        {score.gamesYou + score.gamesThem > 0 && (
-          <span className="rounded-full border border-edge bg-surface px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-300">
-            {score.gamesYou}-{score.gamesThem}
+        {mode === "cut" ? (
+          <span
+            className={`font-bold tabular-nums tracking-tight text-zinc-200 ${
+              overlayPad ? "text-base" : "text-2xl"
+            }`}
+          >
+            {sum.total}
+            <span className="ml-1.5 text-[11px] font-medium text-zinc-500">
+              {sum.total === 1 ? "point" : "points"}
+            </span>
           </span>
+        ) : (
+          <>
+            <span
+              className={`font-bold tabular-nums tracking-tight ${
+                overlayPad ? "text-base" : "text-2xl"
+              }`}
+            >
+              <span className="text-cyan-glow">{score.current.you}</span>
+              <span className="mx-1 text-zinc-600">-</span>
+              <span className="text-magenta-soft">{score.current.them}</span>
+            </span>
+            {score.gamesYou + score.gamesThem > 0 && (
+              <span className="rounded-full border border-edge bg-surface px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-300">
+                {score.gamesYou}-{score.gamesThem}
+              </span>
+            )}
+          </>
         )}
       </span>
-      {nextServer && (
+      {mode !== "cut" && nextServer && (
         <span className="ml-auto flex items-center gap-2 text-[11px] text-zinc-400">
           <span
             className={`block h-2.5 w-2.5 rounded-full ${
@@ -707,21 +763,37 @@ export function MarkPoints({
       />
       <Util label="-10s" onClick={() => seekBy(-10)} />
       <Util label="+10s" onClick={() => seekBy(10)} />
+      <SpeedMenu
+        value={speed}
+        onChange={chooseSpeed}
+        drop="up"
+        containerClassName="relative flex-1"
+        className="flex h-10 w-full items-center justify-center rounded-lg border border-edge bg-surface text-[11px] font-semibold tabular-nums text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-zinc-100"
+      />
     </div>
   );
 
   const legend = (
     <div className="hidden shrink-0 flex-wrap gap-x-3 gap-y-1 text-[10px] text-zinc-500 lg:flex">
-      {[
-        ["S", "Begin"],
-        ["E", "End"],
-        ["←", youLabel],
-        ["→", themLabel],
-        ["K", "Let"],
-        ["U", "Undo"],
-        ["T", "Star"],
-        ["Space", "Play"],
-      ].map(([k, v]) => (
+      {(mode === "cut"
+        ? [
+            ["S", "Begin"],
+            ["E", "End"],
+            ["U", "Undo"],
+            ["T", "Star"],
+            ["Space", "Play"],
+          ]
+        : [
+            ["S", "Begin"],
+            ["E", "End"],
+            ["←", youLabel],
+            ["→", themLabel],
+            ["K", "Let"],
+            ["U", "Undo"],
+            ["T", "Star"],
+            ["Space", "Play"],
+          ]
+      ).map(([k, v]) => (
         <span key={k} className="flex items-center gap-1">
           <kbd className="rounded border border-edge bg-surface px-1 py-0.5 font-mono text-[9px] text-zinc-400">
             {k}
@@ -929,13 +1001,17 @@ export function MarkPoints({
         ) : (
           <>
             {rhythmPair}
-            {answerRow}
+            {mode !== "cut" && answerRow}
             {utilRow}
           </>
         )}
         <div className="flex shrink-0 items-center justify-between gap-2">
           <span className="text-[11px] text-zinc-500">
-            {sum.total} {sum.total === 1 ? "point" : "points"}
+            {mode === "cut"
+              ? sum.open
+                ? "One point still open"
+                : ""
+              : `${sum.total} ${sum.total === 1 ? "point" : "points"}`}
           </span>
           {doneButton}
         </div>
@@ -985,6 +1061,7 @@ export function MarkPoints({
             if (el.videoWidth > 0 && el.videoHeight > 0) {
               setAr(el.videoWidth / el.videoHeight);
             }
+            resumeToLastPoint();
           }}
           onClose={onClose}
           overlay={overlayPad ? landscapeBands : undefined}
@@ -1014,13 +1091,55 @@ export function MarkPoints({
           </div>
         ))}
 
+      {/* The one question asked on the way in, in the same dress as the
+          scorekeeper's own setup sheet: bottom-anchored on a phone,
+          centred on a desktop, one card on a dimmed backdrop. */}
+      {mode === null && (
+        <div className="absolute inset-0 z-30 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center">
+          <div className="ks-fade w-full rounded-t-2xl border border-edge bg-surface p-5 pb-8 sm:max-w-sm sm:rounded-2xl sm:pb-5">
+            <h2 className="text-base font-semibold">
+              Cut only, or cut and score?
+            </h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              You can score it later either way.
+            </p>
+            <div className="mt-4 grid grid-cols-1 gap-2">
+              <button
+                type="button"
+                onClick={() => setMode("score")}
+                className="rounded-lg border border-edge bg-ink/40 px-4 py-3 text-left transition-colors hover:border-cyan-glow/40"
+              >
+                <span className="block text-sm font-semibold text-zinc-100">
+                  Cut and score
+                </span>
+                <span className="mt-0.5 block text-xs text-zinc-500">
+                  Say who won each point as you go.
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("cut")}
+                className="rounded-lg border border-edge bg-ink/40 px-4 py-3 text-left transition-colors hover:border-cyan-glow/40"
+              >
+                <span className="block text-sm font-semibold text-zinc-100">
+                  Cut only
+                </span>
+                <span className="mt-0.5 block text-xs text-zinc-500">
+                  Mark where each rally starts and ends.
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {reviewing && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-ink/70 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-2xl border border-edge bg-surface p-6">
             <p className="text-lg font-semibold">
               {sum.total} {sum.total === 1 ? "point" : "points"} marked.
             </p>
-            {sum.unscored > 0 && (
+            {mode !== "cut" && sum.unscored > 0 && (
               <p className="mt-2 text-sm text-zinc-400">
                 {sum.unscored} {sum.unscored === 1 ? "has" : "have"} no winner
                 yet. You can score {sum.unscored === 1 ? "it" : "them"} from the
