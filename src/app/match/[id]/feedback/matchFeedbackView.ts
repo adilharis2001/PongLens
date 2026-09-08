@@ -4,7 +4,6 @@ export interface FeedbackChoice {
   kind: MatchIssueKind;
   label: string;
   description: string;
-  action: string;
 }
 
 export function matchFeedbackPresentation(state: MatchIssueState) {
@@ -36,20 +35,20 @@ export function matchFeedbackPresentation(state: MatchIssueState) {
   const choices: FeedbackChoice[] = [];
   if (!issue || status === "recorded" || status === "cancelled") {
     if (cut) {
-      if (state.canPositive) choices.push({ kind: "positive", label: "Looks good", description: "The rallies and timing look right.", action: "Send feedback" });
-      if (state.canReprocess) choices.push({ kind: "reprocess", label: "Try processing again", description: "Some rallies were missed or cut at the wrong time.", action: "Send request" });
-      if (state.canRefund && (state.refundableMinutes ?? 0) > 0) choices.push({ kind: "refund", label: `Request ${state.refundableMinutes} ${state.refundableMinutes === 1 ? "minute" : "minutes"} back`, description: "I do not want this match processed again.", action: "Send request" });
+      if (state.canPositive) choices.push({ kind: "positive", label: "Looks good", description: "The rallies and timing look right." });
+      if (state.canReprocess) choices.push({ kind: "reprocess", label: "Try processing again", description: "Some rallies were missed or cut at the wrong time." });
+      if (state.canRefund && (state.refundableMinutes ?? 0) > 0) choices.push({ kind: "refund", label: `Request ${state.refundableMinutes} ${state.refundableMinutes === 1 ? "minute" : "minutes"} back`, description: "I do not want this match processed again." });
     } else if (state.canProblem) {
-      choices.push({ kind: "problem", label: owner ? "Report an issue" : "Report a cut problem", description: "", action: "Send report" });
+      choices.push({ kind: "problem", label: owner ? "Report an issue" : "Report a cut problem", description: "" });
     }
   }
   return {
-    label: !owner ? "Report a cut problem" : issue && status !== "recorded" ? "Match issue" : cut ? "How was the cut?" : "Report an issue",
-    title: !owner ? "Report a cut problem" : cut ? "How was the cut?" : "Report an issue",
+    // The row's label never changes, so a status appearing in the trailing
+    // slot reads as one; with no request open, the slot is the door.
     trailing: status === "resolved_refunded" && owner && typeof minutes === "number"
       ? `${minutes} ${minutes === 1 ? "minute" : "minutes"} returned`
       : automaticMinutes !== null ? `${automaticMinutes} ${automaticMinutes === 1 ? "minute" : "minutes"} returned`
-      : status === "reprocess_queued" ? "Reprocessing" : statusLabel ?? (cut ? "Share feedback" : ""),
+      : status === "reprocess_queued" ? "Reprocessing" : statusLabel ?? "Report a problem",
     choices, statusLabel, message,
     automaticRefundMessage: automaticMinutes !== null
       ? `${automaticMinutes} processing ${automaticMinutes === 1 ? "minute was" : "minutes were"} returned automatically after processing failed.`

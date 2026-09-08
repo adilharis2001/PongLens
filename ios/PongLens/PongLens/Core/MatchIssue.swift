@@ -28,14 +28,6 @@ enum MatchIssueChoice: String, Codable, CaseIterable, Identifiable {
         case .refund: "I do not want this match processed again."
         }
     }
-
-    var action: String {
-        switch self {
-        case .positive: "Send feedback"
-        case .problem: "Send report"
-        case .reprocess, .refund: "Send request"
-        }
-    }
 }
 
 struct MatchIssue: Decodable, Identifiable {
@@ -97,7 +89,6 @@ struct MatchIssueState: Decodable {
 
     var isOwner: Bool { role == "owner" }
     var isOwnerCut: Bool { isOwner && matchStatus == .ready }
-    var title: String { !isOwner ? "Report a cut problem" : isOwnerCut ? "How was the cut?" : "Report an issue" }
 
     var choices: [MatchIssueChoice] {
         if let status = activeIssue?.status, status != "recorded", status != "cancelled" { return [] }
@@ -162,11 +153,9 @@ struct MatchIssueState: Decodable {
         }
     }
 
-    var rowLabel: String {
-        if !isOwner { return "Report a cut problem" }
-        if let issue = activeIssue, issue.status != "recorded" { return "Match issue" }
-        return title
-    }
+    /// The Processing row's trailing text: what any request is doing, or
+    /// the door when there is none. The row's own label never changes, so
+    /// a status appearing there reads as one.
     var rowTrailing: String {
         if automaticRefundMessage != nil, let receipt = automaticRefund {
             return "\(receipt.minutes) \(receipt.minutes == 1 ? "minute" : "minutes") returned"
@@ -174,7 +163,7 @@ struct MatchIssueState: Decodable {
         if isOwner, activeIssue?.status == "resolved_refunded", let minutes = activeIssue?.refundableMinutes {
             return "\(minutes) \(minutes == 1 ? "minute" : "minutes") returned"
         }
-        return statusLabel ?? (isOwnerCut ? "Share feedback" : "")
+        return statusLabel ?? "Report a problem"
     }
 }
 

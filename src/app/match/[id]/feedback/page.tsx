@@ -5,13 +5,12 @@ import { UpLink } from "@/components/UpLink";
 import { createClient } from "@/lib/supabase/server";
 import { rememberedWorkspace } from "@/lib/workspaceServer";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
-import { hasOriginalVideo } from "@/lib/originalVideo";
 import { presignGet } from "@/lib/r2";
 import type { Match } from "@/lib/types";
 import type { MatchIssueState } from "@/lib/matchIssues/types";
 import { MatchFeedback } from "./MatchFeedback";
 
-export const metadata: Metadata = { title: "Match feedback", robots: { index: false, follow: false } };
+export const metadata: Metadata = { title: "Processing", robots: { index: false, follow: false } };
 
 export default async function MatchFeedbackPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -36,10 +35,10 @@ export default async function MatchFeedbackPage({ params }: { params: Promise<{ 
   return <>
     <AppNav avatarUrl={avatarUrl} remembered={workspace} />
     <main className="bg-arena flex-1 px-4 pb-28 pt-5 sm:px-6 md:pb-16">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-xl">
         <UpLink href={`/match/${id}`} label="Match" />
         <MatchFeedback matchId={id} initialState={(stateResult.data as MatchIssueState | null) ?? null} isOwner={match.user_id === user.id} matchStatus={match.status}
-          title={title.primary} detail={title.secondary} hasCut={Boolean(match.cut_path)} hasOriginal={hasOriginalVideo(match.raw_path)} thumbnail={thumbnail} />
+          title={title.primary} detail={title.secondary} thumbnail={thumbnail} />
       </div>
     </main>
   </>;

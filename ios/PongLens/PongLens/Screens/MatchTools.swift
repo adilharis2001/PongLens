@@ -76,7 +76,9 @@ struct ToolsSection: View {
                 divider
                 toolRow("Your side", trailing: .text(sideTrailing)) { sideOpen = true }
                 divider
-                MatchFeedbackLink(match: match, isOwner: true)
+                ProcessingToolRow(match: match)
+                divider
+                FeedbackBoardToolRow(match: match)
             }
             .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
             .overlay(
@@ -1513,7 +1515,9 @@ struct RawToolsSection: View {
                 // orients — maps, Me/Them labels — exists only after
                 // processing, where the first-open banner asks anyway.
                 divider
-                MatchFeedbackLink(match: match, isOwner: true)
+                ProcessingToolRow(match: match)
+                divider
+                FeedbackBoardToolRow(match: match)
             }
             .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
             .overlay(

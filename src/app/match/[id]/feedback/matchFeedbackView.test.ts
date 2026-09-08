@@ -15,9 +15,9 @@ test("failed matches show only a real automatic refund receipt, never a zero-bal
   assert.equal(matchFeedbackPresentation({ ...failed, automaticRefund }).automaticRefundMessage,
     "11 processing minutes were returned automatically after processing failed.");
   assert.equal(matchFeedbackPresentation({ ...failed, automaticRefund }).trailing, "11 minutes returned");
-  assert.equal(matchFeedbackPresentation(failed).trailing, "");
+  assert.equal(matchFeedbackPresentation(failed).trailing, "Report a problem");
   assert.equal(matchFeedbackPresentation({ ...failed, role: "coach", automaticRefund }).automaticRefundMessage, null);
-  assert.equal(matchFeedbackPresentation({ ...failed, role: "coach", automaticRefund }).trailing, "");
+  assert.equal(matchFeedbackPresentation({ ...failed, role: "coach", automaticRefund }).trailing, "Report a problem");
 });
 function withIssue(status: MatchIssueStatus): MatchIssueState {
   return { ...ready, refundableMinutes: 0, activeIssue: {
@@ -29,30 +29,27 @@ function withIssue(status: MatchIssueStatus): MatchIssueState {
 
 test("ready owners get server-eligible choices and the exact spend amount", () => {
   const view = matchFeedbackPresentation(ready);
-  assert.equal(view.label, "How was the cut?");
-  assert.equal(view.trailing, "Share feedback");
-  assert.deepEqual(view.choices.map(c => [c.kind, c.label, c.action]), [
-    ["positive", "Looks good", "Send feedback"],
-    ["reprocess", "Try processing again", "Send request"],
-    ["refund", "Request 11 minutes back", "Send request"],
+  assert.equal(view.trailing, "Report a problem");
+  assert.deepEqual(view.choices.map(c => [c.kind, c.label]), [
+    ["positive", "Looks good"],
+    ["reprocess", "Try processing again"],
+    ["refund", "Request 11 minutes back"],
   ]);
 });
 
 for (const matchStatus of ["uploaded", "processing", "failed"] as const) {
   test(`${matchStatus} owners report problems without cut-quality or economic choices`, () => {
     const view = matchFeedbackPresentation({ ...ready, matchStatus });
-    assert.equal(view.label, "Report an issue");
     assert.deepEqual(view.choices.map(c => c.kind), ["problem"]);
     assert.equal(view.fieldLabel, "What happened?");
     assert.equal(view.placeholder, "Tell us what went wrong.");
-    assert.equal(view.choices[0].action, "Send report");
     assert.equal(view.messageRequired, true);
   });
 }
 
 test("coach never gets owner choices or financial copy even if eligibility flags are stale", () => {
   const view = matchFeedbackPresentation({ ...ready, role: "coach" });
-  assert.equal(view.label, "Report a cut problem");
+  assert.equal(view.trailing, "Report a problem");
   assert.deepEqual(view.choices.map(c => c.kind), ["problem"]);
   assert.equal(view.messageRequired, true);
   const refunded = matchFeedbackPresentation({ ...withIssue("resolved_refunded"), role: "coach" });

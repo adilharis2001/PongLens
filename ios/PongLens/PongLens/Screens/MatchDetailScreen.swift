@@ -798,8 +798,19 @@ struct MatchDetailScreen: View {
                             hero
                         }
 
+                        // A coach never sees Tools, so the two rows that
+                        // are not owner actions get their own card here.
                         if !isOwner {
-                            MatchFeedbackLink(match: current, isOwner: false)
+                            VStack(spacing: 0) {
+                                ProcessingToolRow(match: current)
+                                Rectangle().fill(PL.edge.opacity(0.6)).frame(height: 1).padding(.leading, 16)
+                                FeedbackBoardToolRow(match: current)
+                            }
+                            .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
+                                    .strokeBorder(PL.edge, lineWidth: 1)
+                            )
                         }
 
                         if current.status == .ready {

@@ -186,10 +186,10 @@ export const playerGuides: Guide[] = [
         ],
       },
       {
-        heading: "How was the cut?",
+        heading: "Processing",
         steps: [
-          "Open How was the cut? in the match's Tools. Choose Looks good or Request minutes back when it is available. Try processing again appears only while reprocessing requests are open and the original upload is available.",
-          "Describe any missing rallies or incorrect cuts, then send the request. This is a private review, separate from the public Feedback board.",
+          "Open Processing in the match's Tools. Choose Looks good, Try processing again or Request minutes back; the last two appear only when they apply to this match.",
+          "Describe any missing rallies or incorrect cuts, then send. This is a private review. Ideas and bugs go to the Feedback row directly below, which opens the public board.",
           "The minute request shows the exact amount that can be returned for this match. Sending it does not return minutes immediately; you will be notified after review.",
         ],
         paragraphs: [

@@ -135,7 +135,7 @@ export const testCases: TestCase[] = [
     title: "Private cut feedback respects the player's and coach's roles",
     why: "A report about one processed match is private. A coach may report a problem but cannot spend or return a player's minutes.",
     needs: ["A demo ready match with an owner and an accepted coach."],
-    steps: ["As the owner, open How was the cut? in Tools.", "Choose reprocessing or the exact minute request and write a draft.", "Interrupt a submission, then retry.", "Open the same match as its coach and choose Report a cut problem."],
+    steps: ["As the owner, open Processing in Tools.", "Choose reprocessing or the exact minute request and write a draft.", "Interrupt a submission, then retry.", "Open the same match as its coach, open Processing and report a problem."],
     expected: ["Failure keeps the selected outcome and written draft. Retry creates one request.", "The coach has only a required-text report form, with no financial amount or remedy controls.", "The private request does not appear on the public Feedback board.", "Buttons remain reachable at 393×660 with a long title and keyboard space."],
     surfaces: ALL, depth: "smoke",
   },
