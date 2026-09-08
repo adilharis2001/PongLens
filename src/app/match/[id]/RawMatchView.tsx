@@ -115,6 +115,17 @@ export function RawMatchView({
   const [autoOpen, setAutoOpen] = useState(false);
   /** The hand-marking takeover, and whatever marking is already done. */
   const [marking, setMarking] = useState(false);
+  /**
+   * The video URL the marker opened with, held for the life of the session.
+   *
+   * page.tsx re-signs the raw object on EVERY server render, so any
+   * router.refresh() while someone is marking (the job poll does one, and
+   * saving match details does one) hands the player a different-looking
+   * src for the same file. ClipPlayer reloads on a src change, and the
+   * video jumps back to zero mid-session. A presigned link is good for six
+   * hours, so freezing the one we opened with is both safe and the fix.
+   */
+  const [markingUrl, setMarkingUrl] = useState<string | null>(null);
   const [draftMarks, setDraftMarks] = useState<Mark[]>([]);
   const draftCount = draftMarks.filter((m) => m.t1 !== null).length;
   const [spokenOpen, setSpokenOpen] = useState(false);
@@ -577,7 +588,12 @@ export function RawMatchView({
           Sized on the wrapper, never the video: a media element has no
           intrinsic size until metadata arrives. */}
       <div className="overflow-hidden rounded-2xl border border-edge bg-black">
-        {rawUrl && !undecodable ? (
+        {marking ? (
+          // The marker's own player is on screen and streaming this exact
+          // file. A second element on the same source underneath it is
+          // bandwidth spent on a picture nobody can see.
+          <div className="aspect-video w-full" />
+        ) : rawUrl && !undecodable ? (
           <ClipPlayer
             src={rawUrl}
             mode="cut"
@@ -876,7 +892,10 @@ export function RawMatchView({
           )}
           <button
             type="button"
-            onClick={() => setMarking(true)}
+            onClick={() => {
+              setMarkingUrl(rawUrl);
+              setMarking(true);
+            }}
             disabled={!rawUrl || undecodable}
             className="flex w-full items-center gap-3 border-t border-edge/60 p-5 text-left transition-colors hover:bg-ink/20 disabled:opacity-40"
           >
@@ -1189,9 +1208,9 @@ export function RawMatchView({
         </div>
       )}
 
-      {marking && rawUrl && (
+      {marking && markingUrl && (
         <MarkPoints
-          rawUrl={rawUrl}
+          rawUrl={markingUrl}
           durationS={duration}
           firstServer={match.first_server}
           youLabel="Me"
@@ -1199,7 +1218,10 @@ export function RawMatchView({
           initialMarks={draftMarks}
           saveDraft={saveDraft}
           submit={submitHandCut}
-          onClose={() => setMarking(false)}
+          onClose={() => {
+            setMarking(false);
+            setMarkingUrl(null);
+          }}
         />
       )}
     </div>

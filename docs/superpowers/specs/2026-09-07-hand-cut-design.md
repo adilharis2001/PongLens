@@ -89,4 +89,15 @@ to the serve comes round again. Pressing Begin a beat early happens
 constantly, and until this the only way to fix it was to end a rally that
 had never started. Undo brings the open rally back.
 
+**The marking session holds the video URL it opened with.** `page.tsx`
+re-signs the raw object on every server render, so any `router.refresh()`
+during a session (the job poll does one, saving match details does one)
+hands the player a different-looking `src` for the same file. ClipPlayer
+reloads on a src change, and the video jumps back to zero mid-session.
+Measured: a src re-signed every two seconds produced four reloads in seven
+and pinned the picture at zero; frozen, zero reloads. A presigned link is
+good for six hours, so holding the one the session opened with is both safe
+and the fix. The page also stops mounting its own player while the marker
+is open, rather than streaming the same file into two elements at once.
+
 The data model, the worker job and the cut-clock arithmetic are unchanged.
