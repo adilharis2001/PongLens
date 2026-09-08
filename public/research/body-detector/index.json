@@ -75,6 +75,31 @@
   "short": 15
  },
  {
+  "match": "5c90151a",
+  "matchId": "5c90151a-d9be-417a-a450-e16c272fbc8c",
+  "title": "Hugo Ginoux, 22 min",
+  "venue": "PingPod W37",
+  "crop": [
+   510.0,
+   214.0,
+   832.0,
+   468.0
+  ],
+  "rawOffsetS": 1.5,
+  "offsetErr": 1.491,
+  "cards": 78,
+  "points": 94,
+  "ok": 66,
+  "srvAgree": 0,
+  "srvDisagree": 0,
+  "missed": 11,
+  "fused": 12,
+  "extra": 5,
+  "onDeleted": 0,
+  "nowhere": 2,
+  "short": 0
+ },
+ {
   "match": "5fd822ec",
   "matchId": "5fd822ec-bd27-4bf1-9553-eb6d6aef5947",
   "title": "Hugo Ginoux, 11 min",
