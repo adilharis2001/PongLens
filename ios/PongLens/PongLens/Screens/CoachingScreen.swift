@@ -41,6 +41,7 @@ struct CoachingScreen: View {
     /// flag, so the sheet cannot be built before the lesson lands — the
     /// same shape the Journal uses.
     @State private var editRequest: EditRequest?
+    @State private var coachEntryOpen: CoachSharedEntry?
 
     struct EditRequest: Identifiable {
         let id = UUID()
@@ -201,6 +202,9 @@ struct CoachingScreen: View {
         .task { await loadRecaps() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await loadRecaps() } }
+        }
+        .sheet(item: $coachEntryOpen) { entry in
+            CoachSharedEntrySheet(entry: entry)
         }
         .sheet(item: $editRequest) { request in
             JournalNoteEditor(lesson: request.lesson, store: journal)
@@ -364,7 +368,16 @@ struct CoachingScreen: View {
     private func row(_ item: CoachingItem) -> some View {
         switch item.kind {
         case .shared(let entry):
-            CoachSharedEntryCard(entry: entry)
+            // Home and the Journal open a shared entry in its sheet, which
+            // carries the recap's poster and a button to watch it, the
+            // linked match, and Report. This feed dropped the card in bare,
+            // so a shared recap could be seen and not opened.
+            Button {
+                coachEntryOpen = entry
+            } label: {
+                CoachSharedEntryCard(entry: entry)
+            }
+            .buttonStyle(.plain)
         case .note(let note):
             // A coach's remark and the rally it is about stay one tap
             // apart: a point note opens that point, a match note opens
@@ -405,18 +418,7 @@ struct CoachingScreen: View {
                 // the feed already has, so a recap can look like a recap
                 // without a second request per row.
                 HStack(spacing: 14) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                            .fill(PL.cyan.opacity(0.12))
-                        Image(systemName: "play.rectangle.fill")
-                            .font(.system(size: 24))
-                            .foregroundStyle(PL.cyan)
-                    }
-                    .frame(width: 104, height: 64)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
-                            .strokeBorder(PL.edge, lineWidth: 1)
-                    )
+                    RecapPosterThumb(id: recap.id)
                     VStack(alignment: .leading, spacing: 5) {
                         Text("LESSON RECAP")
                             .font(.system(size: 11, weight: .semibold))

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { RecapPosterThumb } from "@/app/journal/RecapPosterThumb";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -639,16 +640,21 @@ function FeedRow({
   if (item.kind === "recap") {
     return (
       <li className="rounded-2xl border border-edge bg-surface p-4">
-        <Link href={`/lesson-video/${item.recap.id}`} className="group block">
-          <p className="text-xs font-semibold uppercase tracking-wider text-cyan-glow">
-            Lesson recap
-          </p>
-          <p className="mt-1 truncate text-sm font-medium text-zinc-100">
-            {item.recap.edit?.title || "Your lesson"}
-          </p>
-          <p className="mt-1 text-xs text-zinc-500 transition-colors group-hover:text-zinc-300">
-            {recapStanding(item.recap.status)}
-          </p>
+        <Link href={`/lesson-video/${item.recap.id}`} className="group flex items-center gap-4">
+          {/* A recap looks like a recap before it is opened, the way a
+              shared match shows its picture. */}
+          <RecapPosterThumb id={item.recap.id} />
+          <span className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wider text-cyan-glow">
+              Lesson recap
+            </p>
+            <p className="mt-1 truncate text-sm font-medium text-zinc-100">
+              {item.recap.edit?.title || "Your lesson"}
+            </p>
+            <p className="mt-1 text-xs text-zinc-500 transition-colors group-hover:text-zinc-300">
+              {recapStanding(item.recap.status)}
+            </p>
+          </span>
         </Link>
       </li>
     );
