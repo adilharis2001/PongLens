@@ -85,7 +85,7 @@
    832.0,
    468.0
   ],
-  "rawOffsetS": 1.5,
+  "rawOffsetS": 0.001,
   "offsetErr": 1.491,
   "cards": 74,
   "points": 94,
@@ -110,7 +110,7 @@
    810.0,
    456.0
   ],
-  "rawOffsetS": 1.467,
+  "rawOffsetS": -0.016,
   "offsetErr": 1.432,
   "cards": 42,
   "points": 46,
@@ -210,7 +210,7 @@
    920.0,
    518.0
   ],
-  "rawOffsetS": 1.5,
+  "rawOffsetS": 0.001,
   "offsetErr": 1.42,
   "cards": 81,
   "points": 89,
