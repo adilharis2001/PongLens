@@ -135,6 +135,12 @@ struct RootView: View {
                 },
                 onFinished: { pendingInvite = nil }
             )
+            // A sheet presented from here does not see the environment
+            // the modifiers above hand the tree; the first link opened
+            // in the simulator crashed on exactly that. Handed over
+            // explicitly.
+            .environment(app)
+            .environment(router)
         }
         .overlay {
             if !splashDone {

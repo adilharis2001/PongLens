@@ -1,7 +1,11 @@
 # Invite links open in the app
 
 **Date:** 2026-09-07
-**Status:** Ready for implementation, pending two decisions from Adil (listed at the end)
+**Status:** Implemented 2026-09-07 (commits 08611a79 and 4a452305). Web half
+live; iOS half waits for the next TestFlight build. Adil chose the explicit
+Accept on the coach-invite page; the throwaway account was left alone. Part 5
+(the TestFlight line) is not built: there is no public TestFlight link in
+app_config yet.
 
 ## Purpose
 
