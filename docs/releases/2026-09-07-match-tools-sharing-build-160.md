@@ -1,4 +1,4 @@
-# Match tools and sharing: build 160 candidate
+# Match tools and sharing: web release and build 160 candidate
 
 Prepared September 7, 2026 from `codex/match-tools-sharing`, rebased onto
 production `main` at `1fb980db`. Design and implementation plan:
@@ -44,9 +44,11 @@ The real `npm run build` completed successfully on the current production
 base: compilation, type checking, all 157 static pages, and build traces.
 The repository's existing Rushstack/ESLint patch warning remains non-fatal.
 
-Production deployment is pending an explicitly authorized `main` push. The
-release safety gate declined the attempted production push because the request
-to pull a build did not explicitly authorize publishing the default branch.
+The release was rebased again onto `d6de86be`, passed the full build, and was
+fast-forwarded to production `main` at `855e3ee9`. Vercel deployment
+`dpl_9XBscPMszmAiEsmKUGXPtTJTeDcb` reached `READY` and owns the
+`www.ponglens.com`, `ponglens.com`, and `ponglens.vercel.app` aliases. Safe
+HTTP smoke checks returned 200 for the home, login, and invalid-share pages.
 
 ## iOS
 
