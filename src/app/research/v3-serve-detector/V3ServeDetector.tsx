@@ -76,6 +76,16 @@ export function V3ServeDetector({
   heading?: string;
 }) {
   const root = useRef<HTMLDivElement>(null);
+  // The play bar names the cards by page. The Body detector page's own
+  // cards ARE the body cards, so it gets no separate body button and no
+  // green lane; the other two pages read that page's cards beside theirs.
+  const hasBodyLane = dataBase !== "/research/body-detector";
+  const mineLabel =
+    dataBase === "/research/body-detector"
+      ? "Body card"
+      : dataBase === "/research/endon-detector"
+        ? "Reprocessed card"
+        : "V3 card";
 
   useEffect(() => {
     const el = root.current;
@@ -101,6 +111,15 @@ export function V3ServeDetector({
     let selected: HTMLElement | null = null;
     let stopAt: number | null = null;
     let playMode = "both";
+    // What "mine" is called depends on the page: the ball's V3 card here,
+    // the bodies' card on the Body detector page, the worker's reprocessed
+    // card on the End-on page. Said in the play label, not just the button.
+    const mineName =
+      dataBase === "/research/body-detector"
+        ? "the body detector’s card"
+        : dataBase === "/research/endon-detector"
+          ? "the reprocessed card"
+          : "the V3 card";
     let lastPlayed: [any, HTMLElement] | null = null;
     let ovT: Float64Array | null = null;
     let bnT: Float64Array | null = null;
@@ -150,12 +169,31 @@ export function V3ServeDetector({
       return m + ":" + (r < 10 ? "0" : "") + r.toFixed(1);
     }
 
+    /** The Body detector's card(s) over this row, as one span, or null.
+     *  A body card counts when it overlaps the row's own cards by more than
+     *  half a second — a card that merely touches the edge is the
+     *  neighbour's. Null on the Body detector page, where "mine" is it. */
+    function bodySpan(r: any): [number, number] | null {
+      if (!BODY) return null;
+      const ts: number[] = [];
+      for (const m of r.mine) ts.push(m.t0, m.t1);
+      if (r.swall) ts.push(r.swall.t0, r.swall.t1);
+      if (r.prod_t0 != null) ts.push(r.prod_t0, r.prod_t1);
+      if (!ts.length) return null;
+      const ra = Math.min(...ts), rb = Math.max(...ts);
+      const hit = BODY.filter(([t0, t1]) => Math.min(t1, rb) - Math.max(t0, ra) > 0.5);
+      if (!hit.length) return null;
+      return [Math.min(...hit.map((c) => c[0])), Math.max(...hit.map((c) => c[1]))];
+    }
+
     function bounds(r: any): [number, number] {
       const ts: number[] = [];
       for (const m of r.mine) ts.push(m.t0, m.t1);
       if (r.swall) ts.push(r.swall.t0, r.swall.t1);
       if (r.prod_t0 != null) ts.push(r.prod_t0, r.prod_t1);
       if (r.tap != null) ts.push(r.tap, r.tap + 2.5);
+      const bs = bodySpan(r);
+      if (bs) ts.push(bs[0], bs[1]);
       // Every row has at least one of the three above, so this is never
       // empty — Math.min of nothing is Infinity, which once put a marker at
       // left:-150%, outside its own box and over in the first column.
@@ -178,6 +216,7 @@ export function V3ServeDetector({
         return ts.length ? [Math.min(...ts), Math.max(...ts)] : null;
       }
       if (mode === "prod") return r.prod_t0 == null ? null : [r.prod_t0, r.prod_t1];
+      if (mode === "body") return bodySpan(r);
       return null;
     }
 
@@ -195,10 +234,14 @@ export function V3ServeDetector({
           ? "no card of mine here, so this is the whole stretch"
           : playMode === "prod"
             ? "you carded nothing here, so this is the whole stretch"
-            : "both cards, with a second of run-up"
+            : playMode === "body"
+              ? "the body detector has no card here, so this is the whole stretch"
+              : (BODY ? "all three cards" : "both cards") + ", with a second of run-up"
         : playMode === "mine"
-          ? "my card exactly, no run-up"
-          : "your card exactly, no run-up";
+          ? mineName + " exactly, no run-up"
+          : playMode === "body"
+            ? "the body detector’s card exactly, no run-up"
+            : "your card exactly, no run-up";
 
       let tail = "";
       if (r.tap != null)
@@ -1140,9 +1183,14 @@ export function V3ServeDetector({
         </div>
         <div id="playbar">
           <span className="lab">Play</span>
-          <button data-p="mine" aria-pressed="false">My card only</button>
-          <button data-p="prod" aria-pressed="false">Your card only</button>
-          <button data-p="both" aria-pressed="true">Both, with a run-up</button>
+          <button data-p="mine" aria-pressed="false">{mineLabel} only</button>
+          {hasBodyLane ? (
+            <button data-p="body" aria-pressed="false">Body card only</button>
+          ) : null}
+          <button data-p="prod" aria-pressed="false">Production card only</button>
+          <button data-p="both" aria-pressed="true">
+            {hasBodyLane ? "All three, with a run-up" : "Both, with a run-up"}
+          </button>
         </div>
         <div id="vlabel">Click any row to play it.</div>
       </div>
