@@ -4288,14 +4288,27 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
             # handler refunds the minutes and fails the job instead of
             # retrying into the same wall.
             if not hand_cut:
+                # The column arrives with the hand-cut migration, and this
+                # worker can be running before that has happened. Asking
+                # for a column that does not exist aborts the transaction,
+                # which would fail EVERY library job at publish. So the
+                # guard first asks whether it can ask. No column yet means
+                # nothing hand-marked exists to protect.
                 cur.execute(
-                    "select cut_source from public.matches where id = %s",
-                    (match_id,))
-                got = cur.fetchone()
-                if got and got[0] == "manual":
-                    raise UserFacingError(
-                        "This match was marked by hand. Processing it "
-                        "would delete every point you marked.")
+                    "select 1 from information_schema.columns "
+                    "where table_schema = 'public' "
+                    "and table_name = 'matches' "
+                    "and column_name = 'cut_source'")
+                if cur.fetchone():
+                    cur.execute(
+                        "select cut_source from public.matches "
+                        "where id = %s",
+                        (match_id,))
+                    got = cur.fetchone()
+                    if got and got[0] == "manual":
+                        raise UserFacingError(
+                            "This match was marked by hand. Processing it "
+                            "would delete every point you marked.")
             # A re-run after a failed points stage would stack a second
             # set of rows onto the leftovers. Only that attempt's still-
             # unpublished version may be cleared; historical annotations
