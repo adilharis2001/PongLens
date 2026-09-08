@@ -125,6 +125,7 @@ export function V3ServeDetector({
           : "the V3 card";
     };
     let mineName = nameOf("own");
+    const passiveSide = () => (activeIsOwn ? "other" : "own");
     let lastPlayed: [any, HTMLElement] | null = null;
     let ovT: Float64Array | null = null;
     let bnT: Float64Array | null = null;
@@ -143,7 +144,10 @@ export function V3ServeDetector({
     // page. The lane and the play bar always draw the one NOT shown.
     let OWN: any = null;
     let OTHER: any = null;
-    let shown: "own" | "other" = "own";
+    // The rows the list shows. In a single-card play mode they follow THAT
+    // detector's cards, one row each; otherwise they are production's cards.
+    let VIEW: any[] = [];
+    let activeIsOwn = true;
     // ownLabel / otherLabel are the component's; redeclaring them here
     // shadowed them in a temporal dead zone for nameOf("own") above and
     // broke every load (2026-09-08).
@@ -208,24 +212,41 @@ export function V3ServeDetector({
 
     /** Point the page at one detector's rows: the list, the lane (the other
      *  one's cards), the names on the play bar and the table's highlight. */
-    function applyShown() {
-      const active = shown === "own" ? OWN : OTHER;
-      const passive = shown === "own" ? OTHER : OWN;
+    /** One row per card of the detector being played, or production's rows.
+     *  A production card with no card of that kind keeps its row, so a
+     *  missed point is still on the list; a production card with two or
+     *  more of them becomes two or more rows, each playing exactly its
+     *  own card. */
+    function explode(rows: any[]): any[] {
+      const out: any[] = [];
+      for (const r of rows) {
+        if (r.mine.length <= 1) { out.push(r); continue; }
+        r.mine.forEach((m: any, i: number) =>
+          out.push({
+            ...r, mine: [m], swall: null, _part: i + 1, _of: r.mine.length,
+            holds_press: r.tap != null ? m.t1 >= r.tap : r.holds_press,
+          }));
+      }
+      const t0 = (r: any) => (r.mine[0] ? r.mine[0].t0 : r.prod_t0 != null ? r.prod_t0 : r.span0);
+      return out.sort((x, y) => t0(x) - t0(y));
+    }
+
+    /** Point the page at the play mode: which detector's cards the rows
+     *  follow, which one's cards the lane draws, what the labels say. */
+    function applyMode() {
+      const wantOther = playMode === "other" && !!OTHER;
+      const active = wantOther ? OTHER : OWN;
+      const passive = wantOther ? OWN : OTHER;
+      activeIsOwn = !wantOther;
       DATA = active;
       BODY = cardsOf(passive);
-      mineName = nameOf(shown);
+      mineName = nameOf(activeIsOwn ? "own" : "other");
+      VIEW = playMode === "own" || wantOther ? explode(active.rows) : active.rows;
       const pb = $("playbar");
-      const mineBtn = pb.querySelector('button[data-p="mine"]');
-      const otherBtn = pb.querySelector('button[data-p="body"]') as HTMLElement | null;
+      const otherBtn = pb.querySelector('button[data-p="other"]') as HTMLElement | null;
+      if (otherBtn) otherBtn.style.display = OTHER ? "" : "none";
       const bothBtn = pb.querySelector('button[data-p="both"]');
-      if (mineBtn) mineBtn.textContent = (shown === "own" ? ownLabel : otherLabel) + " card only";
-      if (otherBtn) {
-        otherBtn.textContent = (shown === "own" ? otherLabel : ownLabel) + " card only";
-        otherBtn.style.display = BODY ? "" : "none";
-      }
-      if (bothBtn) bothBtn.textContent = BODY ? "All three, with a run-up" : "Both, with a run-up";
-      for (const b of Array.from(host.querySelectorAll("#showbar button")))
-        b.setAttribute("aria-pressed", String((b as HTMLElement).dataset.w === shown));
+      if (bothBtn) bothBtn.textContent = OTHER ? "All three, with a run-up" : "Both, with a run-up";
       buildStats();
       render();
     }
@@ -258,22 +279,23 @@ export function V3ServeDetector({
     }
 
     function name(r: any) {
-      return r.app_no != null
-        ? "card " + r.app_no
-        : r.verdict === "junk_deleted"
-          ? "a card you deleted"
-          : "card " + r.mine[0].n + " of mine";
+      const base =
+        r.app_no != null
+          ? "card " + r.app_no
+          : r.verdict === "junk_deleted"
+            ? "a card you deleted"
+            : "card " + r.mine[0].n + " of mine";
+      return r._part ? base + " \u00b7 my card " + r.mine[0].n : base;
     }
 
     function span(r: any, mode: string): [number, number] | null {
-      if (mode === "mine") {
+      if (mode === "own" || mode === "other") {
         const ts: number[] = [];
         for (const m of r.mine) ts.push(m.t0, m.t1);
         if (!ts.length && r.swall) ts.push(r.swall.t0, r.swall.t1);
         return ts.length ? [Math.min(...ts), Math.max(...ts)] : null;
       }
       if (mode === "prod") return r.prod_t0 == null ? null : [r.prod_t0, r.prod_t1];
-      if (mode === "body") return bodySpan(r);
       return null;
     }
 
@@ -286,19 +308,16 @@ export function V3ServeDetector({
       vid.currentTime = toRaw(a);
       vid.play().catch(() => {});
 
+      const single = playMode === "own" || playMode === "other";
       const who = !exact
-        ? playMode === "mine"
-          ? "no card of mine here, so this is the whole stretch"
+        ? single
+          ? "no " + mineName.replace(/^the /, "") + " here, so this is the whole stretch"
           : playMode === "prod"
             ? "you carded nothing here, so this is the whole stretch"
-            : playMode === "body"
-              ? "the other detector has no card here, so this is the whole stretch"
-              : (BODY ? "all three cards" : "both cards") + ", with a second of run-up"
-        : playMode === "mine"
+            : (BODY ? "all three cards" : "both cards") + ", with a second of run-up"
+        : single
           ? mineName + " exactly, no run-up"
-          : playMode === "body"
-            ? nameOf(shown === "own" ? "other" : "own") + " exactly, no run-up"
-            : "your card exactly, no run-up";
+          : "your card exactly, no run-up";
 
       let tail = "";
       if (r.tap != null)
@@ -353,7 +372,7 @@ export function V3ServeDetector({
           : "") +
         (r.tap != null ? ", the yellow line is where you pressed the winner" : "") +
         ", pink is the ball going dead" +
-        (BODY ? ", the green bars along the bottom are " + nameOf(shown === "own" ? "other" : "own").replace("the ", "the ").replace(" card", " cards") : "") + "</div>";
+        (BODY ? ", the green bars along the bottom are " + nameOf(passiveSide()).replace(" card", " cards") : "") + "</div>";
       return h;
     }
 
@@ -409,8 +428,8 @@ export function V3ServeDetector({
       return c.rows.reduce((n: number, r: any) => n + (keeps(r, f) ? 1 : 0), 0);
     }
     function buildStats() {
-      const cols = shown === "own" ? [OWN, OTHER] : [OTHER, OWN];
-      const heads = shown === "own" ? [ownLabel, otherLabel] : [otherLabel, ownLabel];
+      const cols = [OWN, OTHER];
+      const heads = [ownLabel, otherLabel];
       const both = !!cols[1];
       const pctOf = (num: number, den: number) => (den > 0 ? Math.round((100 * num) / den) : null);
       // The five percentages, in the owner's own order of what matters.
@@ -496,7 +515,7 @@ export function V3ServeDetector({
 
     function render() {
       tbody.replaceChildren();
-      const rows = DATA.rows.filter((r: any) => keeps(r, filter));
+      const rows = VIEW.filter((r: any) => keeps(r, filter));
       for (const r of rows) {
         const tr = document.createElement("tr");
         tr.className = "row" + (r.kind === "junk" ? " junk" : "");
@@ -897,8 +916,8 @@ export function V3ServeDetector({
           ctx.font = "600 12px -apple-system,system-ui,sans-serif";
           ctx.fillText(
             inb
-              ? (shown === "own" ? otherLabel : ownLabel) + " detector: card " + inb[2] + " \u00b7 " + fmt(inb[0]) + "\u2013" + fmt(inb[1])
-              : (shown === "own" ? otherLabel : ownLabel) + " detector: no card here",
+              ? (activeIsOwn ? otherLabel : ownLabel) + " detector: card " + inb[2] + " \u00b7 " + fmt(inb[0]) + "\u2013" + fmt(inb[1])
+              : (activeIsOwn ? otherLabel : ownLabel) + " detector: no card here",
             10,
             eh - 10,
           );
@@ -1073,17 +1092,12 @@ export function V3ServeDetector({
         playMode = (b as HTMLElement).dataset.p!;
         for (const o of Array.from(el.querySelectorAll("#playbar button")))
           o.setAttribute("aria-pressed", String(o === b));
-        // Re-play whatever is on screen in the new mode, so switching is a
-        // comparison rather than a setting you then have to go and apply.
-        if (lastPlayed) play(lastPlayed[0], lastPlayed[1]);
-      });
-    }
-    for (const b of Array.from(el.querySelectorAll("#showbar button"))) {
-      b.addEventListener("click", () => {
-        const w = (b as HTMLElement).dataset.w as "own" | "other";
-        if (w === "other" && !OTHER) return;
-        shown = w;
-        applyShown();
+        // The rows follow the card being played, so the list is rebuilt
+        // and the row that was on screen no longer exists as such.
+        lastPlayed = null;
+        stopAt = null;
+        applyMode();
+        vlabel.textContent = "Click any row to play it.";
       });
     }
 
@@ -1114,7 +1128,6 @@ export function V3ServeDetector({
       if (dead) return;
       OWN = cmp;
       OTHER = otherCmp && Array.isArray(otherCmp.rows) ? otherCmp : null;
-      shown = "own";
       OV = ovj;
       ovT = Float64Array.from(ovj.ball, (r: any) => r[0]);
       bnT = Float64Array.from(ovj.bounces, (r: any) => r[0]);
@@ -1131,7 +1144,7 @@ export function V3ServeDetector({
         0,
       );
 
-      applyShown();
+      applyMode();
       h1.textContent =
         (heading ?? "My cards against your scorekeeper") + " — " + meta.title +
         (meta.venue ? " · " + meta.venue : "");
@@ -1227,10 +1240,7 @@ export function V3ServeDetector({
           <h1>{heading ?? "My cards against your scorekeeper"}</h1>
           <div id="summary" />
           <div id="showbar">
-            <span className="lab">Rows</span>
-            <button data-w="own" aria-pressed="true">{ownLabel} cards</button>
-            <button data-w="other" aria-pressed="false">{otherLabel} cards</button>
-            <span className="lab">click a row of the table to filter</span>
+            <span className="lab">Click a row of the table to filter. The play bar below decides which cards the list follows.</span>
           </div>
           <div id="viewbar">
             <button id="vidtoggle">Hide the video</button>
@@ -1285,8 +1295,8 @@ export function V3ServeDetector({
         </div>
         <div id="playbar">
           <span className="lab">Play</span>
-          <button data-p="mine" aria-pressed="false">{ownLabel} card only</button>
-          <button data-p="body" aria-pressed="false">{otherLabel} card only</button>
+          <button data-p="own" aria-pressed="false">{ownLabel} card only</button>
+          <button data-p="other" aria-pressed="false">{otherLabel} card only</button>
           <button data-p="prod" aria-pressed="false">Production card only</button>
           <button data-p="both" aria-pressed="true">All three, with a run-up</button>
         </div>
