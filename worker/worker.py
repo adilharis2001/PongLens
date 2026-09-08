@@ -4250,7 +4250,8 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
                  played_at: str | None = None, user_side: str | None = None,
                  first_server: str | None = None,
                  placement_requested: bool = False,
-                 existing: bool = False):
+                 existing: bool = False,
+                 hand_cut: bool = False):
     """Insert the match row. played_at is the video's capture date (ISO
     string) when we could read one; NULL/None falls back to now(). user_side
     ('near'/'far') is the end the uploader played from, tagged in the upload
@@ -4277,6 +4278,24 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
              if existing else nullcontext(None))
     with guard as version_id, conn.cursor() as cur:
         if existing:
+            # THE GUARD, and it goes here rather than in claim_processing,
+            # because the jobs INSERT policy is user_id-only by deliberate
+            # decision: a client can create a deadspace_cut job directly,
+            # and an admin re-run does not go through the UI at all. This is
+            # the one place the destruction actually happens.
+            #
+            # UserFacingError rather than a bare raise, so the existing
+            # handler refunds the minutes and fails the job instead of
+            # retrying into the same wall.
+            if not hand_cut:
+                cur.execute(
+                    "select cut_source from public.matches where id = %s",
+                    (match_id,))
+                got = cur.fetchone()
+                if got and got[0] == "manual":
+                    raise UserFacingError(
+                        "This match was marked by hand. Processing it "
+                        "would delete every point you marked.")
             # A re-run after a failed points stage would stack a second
             # set of rows onto the leftovers. Only that attempt's still-
             # unpublished version may be cleared; historical annotations
@@ -5968,6 +5987,300 @@ def _load_match_json(conn, match_id: str, workdir: str,
     except Exception as e:                                      # noqa: BLE001
         log.warning("  reclip: match.json unreadable (%s)", e)
         return None
+
+
+# ---------------------------------------------------------------------------
+# Hand-cut matches (2026-09-07)
+# ---------------------------------------------------------------------------
+# The owner marked the points themselves on the original upload, and the
+# marks are frozen in hand_cut_drafts. This turns them into a normal match:
+# a real cut video built from the marked windows, a clip per point, points
+# rows, and status ready.
+#
+# The whole trick is that the automatic pipeline's BACK HALF never needed
+# the ball. points_pipeline's `cut --segments` reads cut_segments out of a
+# match.json and concatenates ffmpeg range extracts; it does not open the
+# detections file at all. So the same three functions that map a source
+# second onto the cut clock for a detected match do it for a hand-marked
+# one, and a hand-cut match is indistinguishable downstream.
+#
+# Design: docs/superpowers/specs/2026-09-07-hand-cut-design.md
+
+
+def _hand_cut_segments(marks: list[dict], dur: float, pre: float, post: float):
+    """Cut segments and per-mark cut_t0, through the pipeline's own maths.
+
+    Mirrors cmd_points' plays branch exactly: the CLIP pads go inside each
+    window and SEGMENT_PADS (0.15) are the head/tail handed to
+    play_cut_segments. That 0.15 is described in points_pipeline as a
+    rounding whisker, and it is what keeps a clip's anchor INSIDE its
+    segment rather than exactly on the boundary, where an ffmpeg seek can
+    shave the first frames of the pre pad.
+    """
+    sys.path.insert(0, os.path.dirname(POINTS_PIPELINE))
+    from points_pipeline import (  # noqa: E402
+        SEGMENT_PADS, play_cut_segments, segment_cut_offsets, cut_position,
+    )
+    seg_head, seg_tail = SEGMENT_PADS["normal"]
+    windows = [
+        (max(0.0, float(m["t0"]) - pre), min(dur, float(m["t1"]) + post))
+        for m in marks
+    ]
+    segments = play_cut_segments(windows, dur, seg_head, seg_tail)
+    offsets = segment_cut_offsets(segments)
+    anchors = [
+        round(cut_position(segments, offsets,
+                           max(0.0, float(m["t0"]) - pre)), 2)
+        for m in marks
+    ]
+    return segments, offsets, anchors
+
+
+def process_hand_cut(conn, job_id: str, user_id: str, payload: dict):
+    """Build a match from the owner's own marks."""
+    match_id = (payload.get("options") or {}).get("match_id")
+    if not match_id:
+        raise RuntimeError("hand_cut job missing options.match_id")
+
+    pulse_stage("marks")
+    with conn.cursor() as cur:
+        cur.execute(
+            "select m.user_id, m.raw_path, m.duration_s, m.played_at, "
+            "       d.marks, d.submitted_at "
+            "from public.matches m "
+            "join public.hand_cut_drafts d on d.match_id = m.id "
+            "where m.id = %s",
+            (match_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise UserFacingError("The marks for this match could not be found.")
+    owner_id, raw_path, duration_s, played_at, marks, submitted_at = row
+    # options.match_id is client-writable JSON: never touch a match the
+    # job's creator does not own.
+    if str(owner_id) != str(user_id):
+        raise RuntimeError("hand_cut: job user does not own the match")
+    if submitted_at is None:
+        raise RuntimeError("hand_cut: draft was never submitted")
+    with conn.cursor() as cur:
+        cur.execute("select 1 from public.points where match_id = %s limit 1",
+                    (match_id,))
+        if cur.fetchone():
+            raise UserFacingError("This match already has points.")
+
+    marks = [m for m in (marks or []) if m.get("t0") is not None
+             and m.get("t1") is not None]
+    marks.sort(key=lambda m: float(m["t0"]))
+    if not marks:
+        raise UserFacingError("No points were marked.")
+
+    pre, post = 1.2, 1.3
+    workdir = tempfile.mkdtemp(prefix=f"ponglens-handcut-{str(job_id)[:8]}-")
+    try:
+        pulse_stage("download")
+        update_job(conn, job_id, status="processing", progress=8, error=None)
+        raw_url = _presigned_get(raw_path)
+        if not raw_url:
+            raise UserFacingError("The original video is no longer available.")
+        local_raw = os.path.join(workdir, "source.mp4")
+        subprocess.run(["curl", "-sSL", "-o", local_raw, raw_url],
+                       check=True, timeout=3 * 3600)
+        dur = probe_duration_s(local_raw) or float(duration_s or 0)
+        if not dur or dur <= 0:
+            raise UserFacingError("The original video could not be read.")
+        marks = [m for m in marks if float(m["t0"]) < dur]
+        for m in marks:
+            m["t1"] = min(float(m["t1"]), dur)
+
+        pulse_stage("cut")
+        update_job(conn, job_id, progress=20)
+        segments, offsets, anchors = _hand_cut_segments(marks, dur, pre, post)
+
+        outdir = os.path.join(workdir, "points_out")
+        os.makedirs(os.path.join(outdir, "points"), exist_ok=True)
+        points = []
+        for i, (m, cut_t0) in enumerate(zip(marks, anchors), start=1):
+            t0, t1 = float(m["t0"]), float(m["t1"])
+            points.append({
+                "idx": i,
+                "t0": round(t0, 2),
+                "t1": round(t1, 2),
+                # clip_t0/clip_t1/cut_t0/t1 are what _CutMap.born reads, so
+                # every later re-cut takes the flat-pad branch instead of
+                # consulting the dynamic tail for a point no detector saw.
+                "clip_t0": round(max(0.0, t0 - pre), 2),
+                "clip_t1": round(min(dur, t1 + post), 2),
+                "cut_t0": cut_t0,
+                "clip": f"points/{i:02d}.mp4",
+                "server": None,
+                "placement": None,
+                "suggestion": None,
+            })
+        kept = sum(b - a for a, b in segments)
+        match_json = {
+            "version": 3,
+            # NOT "v2". Labelling it v2 would switch off the dynamic tail,
+            # but it would also make the admin uploads page count serve
+            # marks, find none, and report that the end-on assembler ran on
+            # a match no detector ever touched.
+            "pipeline": "hand-v1",
+            "source": {"duration": round(dur, 2)},
+            "options": {"clip_pads": {"pre": pre, "post": post}},
+            "cut_mode": "plays",
+            "cut_segments": [[round(a, 2), round(b, 2)] for a, b in segments],
+            "notes": [
+                f"hand cut v1: {len(points)} points marked by the owner, "
+                f"keeping {kept:.1f}s of {dur:.1f}s",
+                "detections: none (marked by hand)",
+            ],
+            "points": points,
+        }
+        mj_path = os.path.join(outdir, "match.json")
+        with open(mj_path, "w") as fh:
+            json.dump(match_json, fh)
+
+        cut_local = os.path.join(workdir, "result.mp4")
+        with COST_METER.timed_stage("hand_cut_encoding", str(job_id)):
+            subprocess.run(
+                [VENV_PY, POINTS_PIPELINE, "cut",
+                 "--video", local_raw, "--out", cut_local,
+                 "--segments", mj_path],
+                check=True, cwd=workdir, timeout=3 * 3600)
+        if not os.path.exists(cut_local) or os.path.getsize(cut_local) == 0:
+            raise RuntimeError("hand cut produced no video")
+
+        # A second, independent read of the same arithmetic before anything
+        # is published. _CutMap.locate is what every later re-cut uses, so
+        # if the two disagree the match would play every chip at the wrong
+        # second and nothing would error. Fail with the draft intact.
+        probe_cut = probe_duration_s(cut_local) or 0.0
+        if abs(probe_cut - kept) > 2.0:
+            raise RuntimeError(
+                f"hand cut length {probe_cut:.1f}s does not match the "
+                f"segments' {kept:.1f}s")
+        verify = _CutMap(match_json)
+        for p in points:
+            got = verify.locate(int(p["idx"]), p["clip_t0"], p["clip_t1"])
+            if got is None or abs(got - float(p["cut_t0"])) > 0.05:
+                raise RuntimeError(
+                    f"cut_t0 disagreement on point {p['idx']}: "
+                    f"{p['cut_t0']} vs {got}")
+
+        pulse_stage("upload")
+        update_job(conn, job_id, progress=40)
+        result_key = f"results/{user_id}/{job_id}.mp4"
+        result_path = f"r2://{R2_MEDIA_BUCKET}/{result_key}"
+        r2().upload_file(cut_local, R2_MEDIA_BUCKET, result_key,
+                         ExtraArgs={"ContentType": "video/mp4"})
+        ledger_append(conn, user_id, "cut", os.path.getsize(cut_local),
+                      result_path, match_id)
+
+        pulse_stage("points")
+        # Clips come off the finished cut by range, with process_reclip's
+        # own encode ladder. Named NN.mp4, NOT the hex form: _RECUT_KEY_RE
+        # matches only the hex form and process_reclip deletes and
+        # ledger-negates anything matching it, so an original clip must stay
+        # outside that regex.
+        cut_url = _presigned_get(result_path)
+        key_prefix = f"points/{user_id}/{match_id}"
+        clip_bytes = 0
+        for n, p in enumerate(points, start=1):
+            c0 = verify.locate(int(p["idx"]), p["clip_t0"], p["clip_t1"])
+            span = float(p["clip_t1"]) - float(p["clip_t0"])
+            local_clip = os.path.join(outdir, p["clip"])
+            ok = _encode_clip(cut_url or cut_local, c0 or 0.0, span, local_clip)
+            if not ok:
+                log.warning("  hand cut: clip %s failed to encode", p["idx"])
+                p["clip"] = None
+                continue
+            clip_bytes += os.path.getsize(local_clip)
+            r2().upload_file(
+                local_clip, R2_MEDIA_BUCKET,
+                f"{key_prefix}/{n:02d}.mp4",
+                ExtraArgs={"ContentType": "video/mp4"})
+            p["clip"] = f"{n:02d}.mp4"
+            update_job(conn, job_id,
+                       progress=40 + int(45 * n / max(len(points), 1)))
+        if clip_bytes:
+            ledger_append(conn, user_id, "clip", clip_bytes,
+                          f"r2://{R2_MEDIA_BUCKET}/{key_prefix}/", match_id)
+
+        with open(mj_path, "w") as fh:
+            json.dump(match_json, fh)
+        r2().upload_file(mj_path, R2_MEDIA_BUCKET,
+                         f"{key_prefix}/match.json",
+                         ExtraArgs={"ContentType": "application/json"})
+
+        pulse_stage("publish")
+        update_job(conn, job_id, progress=90)
+        create_match(conn, match_id, user_id, job_id, result_path,
+                     played_at=played_at, existing=True,
+                     hand_cut=True)
+        r2_prefix = f"r2://{R2_MEDIA_BUCKET}/{key_prefix}"
+        insertable = [p for p in points if p.get("clip")]
+        for p in insertable:
+            p["rally_end_cut_s"] = None
+            p["highlight_evidence"] = None
+        inserted = insert_points(conn, match_id, insertable, r2_prefix)
+        # The answers, and a clip that failed to encode left marked so the
+        # existing reclip trigger picks it up as the RETRY.
+        with conn.cursor() as cur:
+            for p, m in zip(points, marks):
+                row_id = (inserted.get(int(p["idx"])) or {}).get("id")
+                if not row_id:
+                    continue
+                is_let = bool(m.get("let"))
+                winner = None if is_let else m.get("w")
+                cur.execute(
+                    "update public.points set confirmed_winner = %s, "
+                    "is_let = %s, confirmed_how = %s, starred = %s "
+                    "where id = %s",
+                    (winner, is_let, "let" if is_let else None,
+                     bool(m.get("star")), row_id),
+                )
+            cur.execute(
+                "update public.matches set clip_pads = %s where id = %s",
+                (json.dumps({"pre": pre, "post": post}), match_id),
+            )
+        finish_match(conn, match_id, "ready", f"{r2_prefix}/match.json")
+        log.info("  hand cut published: match %s, %d points",
+                 match_id, len(insertable))
+    except Exception:
+        # Undo what was written and hand the marks back, so Try again
+        # re-submits the same draft rather than starting over.
+        try:
+            with conn.cursor() as cur:
+                cur.execute("delete from public.points where match_id = %s",
+                            (match_id,))
+                cur.execute(
+                    "update public.matches set cut_source = 'auto', "
+                    "status = 'uploaded', cut_path = null, job_id = null "
+                    "where id = %s", (match_id,))
+                cur.execute(
+                    "update public.hand_cut_drafts set submitted_at = null "
+                    "where match_id = %s", (match_id,))
+        except Exception:
+            log.warning("  hand cut: rollback failed for %s", match_id,
+                        exc_info=True)
+        raise
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _encode_clip(src: str, seek: float, span: float, out: str) -> bool:
+    """One point clip, by range. Same ladder process_reclip uses."""
+    base = ["ffmpeg", "-y", "-v", "error", "-ss", f"{seek:.2f}",
+            "-i", src, "-t", f"{span:.2f}", "-vf", "scale=720:-2"]
+    tail = ["-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", out]
+    for vcodec in (["-c:v", "h264_videotoolbox", "-b:v", "2500k"],
+                   ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"]):
+        try:
+            subprocess.run(base + vcodec + tail, check=True, timeout=900)
+            if os.path.exists(out) and os.path.getsize(out) > 0:
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
@@ -8664,6 +8977,16 @@ def process_job(conn, msg) -> None:
             result.succeeded,
             result.mapped_points,
         )
+        return
+
+    if kind == "hand_cut":
+        # The owner marked the points themselves; no detector runs at all.
+        pulse_stage("marks")
+        update_job(conn, job_id, status="processing", progress=5, error=None)
+        process_hand_cut(conn, job_id, user_id, payload)
+        update_job(conn, job_id, status="done", progress=100)
+        archive_message(conn, msg["msg_id"])
+        log.info("  hand cut done: job %s", job_id)
         return
 
     if kind == "reclip":

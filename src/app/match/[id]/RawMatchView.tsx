@@ -36,6 +36,8 @@ import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { TrimBar } from "@/components/TrimBar";
 import { ClipPlayer } from "./ClipPlayer";
 import { MatchFeedbackLink } from "./feedback/MatchFeedback";
+import { MarkPoints } from "./MarkPoints";
+import { submittable, type Mark } from "./handCut";
 import { RawExportRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 
 const MATCH_TYPES = ["drills", "practice", "match", "league", "tournament"] as const;
@@ -108,6 +110,13 @@ export function RawMatchView({
    *  opens itself, because its reason and its retry are why anyone is
    *  looking at this screen. */
   const [processOpen, setProcessOpen] = useState(match.status === "failed");
+  /** Which of the two ways is open. Neither, until the reader picks one:
+   *  the card's job is to show that there IS a choice. */
+  const [autoOpen, setAutoOpen] = useState(false);
+  /** The hand-marking takeover, and whatever marking is already done. */
+  const [marking, setMarking] = useState(false);
+  const [draftMarks, setDraftMarks] = useState<Mark[]>([]);
+  const draftCount = draftMarks.filter((m) => m.t1 !== null).length;
   const [spokenOpen, setSpokenOpen] = useState(false);
   const spokenRows = cleanSpoken(match.spoken_scores);
   /** The browser refused the raw file (usually HEVC in a .mov). */
@@ -274,6 +283,74 @@ export function RawMatchView({
     }, 8000);
     return () => clearInterval(timer);
   }, [job, router]);
+
+  // Marking already done on this match, so re-opening resumes rather than
+  // starting over. A missing table (the migration has not run yet) is not
+  // an error the player should be shown: it simply means no draft.
+  useEffect(() => {
+    if (!isOwner) return;
+    const supabase = createClient();
+    void supabase
+      .from("hand_cut_drafts")
+      .select("marks")
+      .eq("match_id", match.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        const rows = (data as { marks?: Mark[] } | null)?.marks;
+        if (Array.isArray(rows)) setDraftMarks(rows);
+      });
+  }, [isOwner, match.id]);
+
+  const saveDraft = useCallback(
+    async (marks: Mark[]) => {
+      setDraftMarks(marks);
+      const supabase = createClient();
+      await supabase.from("hand_cut_drafts").upsert(
+        {
+          match_id: match.id,
+          user_id: userId,
+          marks,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "match_id" },
+      );
+    },
+    [match.id, userId],
+  );
+
+  const submitHandCut = useCallback(
+    async (marks: Mark[]): Promise<string | null> => {
+      const supabase = createClient();
+      const { data, error: rpcError } = await supabase.rpc("claim_hand_cut", {
+        p_match_id: match.id,
+        p_marks: submittable(marks),
+      });
+      if (rpcError) {
+        const m = rpcError.message || "";
+        if (m.includes("already_cut")) return "This match already has points.";
+        if (m.includes("already_processing"))
+          return "Something is already running on this match.";
+        if (m.includes("queue_full"))
+          return "Your queue is full. Wait for a video to finish.";
+        if (m.includes("check_pending"))
+          return "Still checking the video. Try again in a moment.";
+        if (m.includes("invalid_marks"))
+          return "Some marks are not valid. Check for very short points.";
+        return "That didn't send. Check your connection and try again.";
+      }
+      const jobId = (data as { job_id?: string } | null)?.job_id ?? null;
+      setJob({
+        id: jobId ?? "pending",
+        status: "queued",
+        progress: 0,
+        user_message: null,
+        kind: "hand_cut",
+      });
+      router.refresh();
+      return null;
+    },
+    [match.id, router],
+  );
 
   const stampStart = () => {
     const t = videoRef.current?.currentTime ?? 0;
@@ -603,11 +680,6 @@ export function RawMatchView({
                 Every rally as its own clip
               </span>
             </span>
-            {charge != null && (
-              <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-300">
-                {charge} min
-              </span>
-            )}
             <svg
               viewBox="0 0 24 24"
               className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${
@@ -630,6 +702,45 @@ export function RawMatchView({
           )}
 
           {processOpen && (
+          <div className="border-t border-edge/60">
+          {/* Two ways to do this, stated as two rows rather than hidden
+              behind a setting. The automatic one carries the price and the
+              trim, because a charge is computed from the window it will
+              process; marking by hand has neither, so offering a trim there
+              would be a control that changes nothing. */}
+          <button
+            type="button"
+            onClick={() => setAutoOpen((v) => !v)}
+            aria-expanded={autoOpen}
+            className="flex w-full items-center gap-3 p-5 text-left transition-colors hover:bg-ink/20"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-zinc-100">
+                Automatically
+              </span>
+              <span className="mt-0.5 block text-xs text-zinc-500">
+                We find the rallies and cut them for you.
+              </span>
+            </span>
+            {charge != null && (
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-zinc-300">
+                {charge} min
+              </span>
+            )}
+            <svg
+              viewBox="0 0 24 24"
+              className={`h-4 w-4 shrink-0 text-zinc-500 transition-transform ${
+                autoOpen ? "rotate-180" : ""
+              }`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden="true"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+          {autoOpen && (
           <div className="border-t border-edge/60 p-5">
           {duration == null ? (
             <p className="text-sm text-zinc-400">
@@ -761,6 +872,29 @@ export function RawMatchView({
             </>
           )}
           {error && <p className="mt-3 text-sm text-amber-300/90">{error}</p>}
+          </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setMarking(true)}
+            disabled={!rawUrl || undecodable}
+            className="flex w-full items-center gap-3 border-t border-edge/60 p-5 text-left transition-colors hover:bg-ink/20 disabled:opacity-40"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-zinc-100">
+                Mark the points yourself
+              </span>
+              <span className="mt-0.5 block text-xs text-zinc-500">
+                You tap where each point starts and who won.
+              </span>
+            </span>
+            <span className="shrink-0 text-sm font-semibold text-zinc-300">
+              {draftCount > 0
+                ? `${draftCount} marked`
+                : "Free"}
+            </span>
+            <ToolRowChevron />
+          </button>
           </div>
           )}
         </section>
@@ -1053,6 +1187,21 @@ export function RawMatchView({
             </div>
           </div>
         </div>
+      )}
+
+      {marking && rawUrl && (
+        <MarkPoints
+          matchId={match.id}
+          rawUrl={rawUrl}
+          durationS={duration}
+          firstServer={match.first_server}
+          youLabel="Me"
+          themLabel={(opponent.trim().split(/\s+/)[0] || "Them").slice(0, 12)}
+          initialMarks={draftMarks}
+          saveDraft={saveDraft}
+          submit={submitHandCut}
+          onClose={() => setMarking(false)}
+        />
       )}
     </div>
   );

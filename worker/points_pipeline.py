@@ -1004,6 +1004,8 @@ def cmd_cut(args):
               f"({100 * kept / max(meta['duration'], 1e-6):.0f}%) "
               f"[from {args.segments}]")
     else:
+        if not args.blurball:
+            raise SystemExit("--blurball is required without --segments")
         pre, post, merge = STRICTNESS[args.strictness]
         det = load_detections(args.blurball)
         # same gate as cmd_points — the two stages MUST produce the same
@@ -3209,7 +3211,10 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("cut")
-    c.add_argument("--blurball", required=True)
+    # Not required with --segments: that path reads the kept windows out of
+    # a match.json and never opens the detections at all, which is what
+    # lets a hand-marked match be cut with no ball data.
+    c.add_argument("--blurball", default=None)
     c.add_argument("--video", required=True)
     c.add_argument("--out", required=True)
     c.add_argument("--strictness", default="normal",
