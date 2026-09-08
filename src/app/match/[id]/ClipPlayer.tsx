@@ -233,6 +233,12 @@ export function ClipPlayer({
   speedRef?: React.MutableRefObject<{
     hold: (target: number) => void;
     release: () => void;
+    /** Set the rate and keep it. The hold pair is for a press that ends;
+     *  a host with its own speed control needs the lasting kind, and it
+     *  has to come through here rather than by writing playbackRate on the
+     *  element: this component owns the rate, re-applies its own on every
+     *  load, and would quietly overwrite anything set behind its back. */
+    set: (rate: number) => void;
   } | null>;
   /** Filled with play/pause the way this player starts a clip itself —
    *  sound first, muted as the fallback autoplay policy allows, paused
@@ -534,6 +540,11 @@ export function ClipPlayer({
         if (heldFrom.current === null) return;
         setSpeed(heldFrom.current);
         heldFrom.current = null;
+      },
+      set: (rate: number) => {
+        // A deliberate choice outranks a press still in progress.
+        heldFrom.current = null;
+        setSpeed(rate);
       },
     };
   }

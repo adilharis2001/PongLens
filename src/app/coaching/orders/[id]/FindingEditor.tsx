@@ -97,6 +97,7 @@ function CutPlayer({
   const speedRef = useRef<{
     hold: (target: number) => void;
     release: () => void;
+    set: (rate: number) => void;
   } | null>(null);
 
   // Seekable points in cut order. cut_t0 is the PADDED clip start (the

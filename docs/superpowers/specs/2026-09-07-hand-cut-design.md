@@ -67,4 +67,19 @@ handle. The sheet also carries "Mark it again", which drops the point and
 puts the playhead three seconds before it began, never back inside the
 previous rally.
 
+**Speed is a rail, not a menu.** A menu costs two deliberate acts, and
+during a pass the speed is something you lean on and let go of. The rail
+(`SpeedRail.tsx`) is pressed anywhere to jump there and followed with the
+finger to keep changing, with the app's own six rates as evenly spaced
+detents and the knob carrying the value so no separate readout is needed.
+It is the same gesture with a mouse, a finger or a stylus, because it is
+all one pointer.
+
+That change required a small addition to the shared player: `ClipPlayer`
+owns the playback rate and re-applies its own on every load, so a host
+writing `playbackRate` on the element had it silently reverted on the next
+render. Its `speedRef` now exposes `set` alongside `hold` and `release`,
+and the rail drives that, which also keeps the player's own speed pill in
+step.
+
 The data model, the worker job and the cut-clock arithmetic are unchanged.
