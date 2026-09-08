@@ -1,4 +1,4 @@
--- Migrations 20260907130000 and 20260907140000 adapt established RPCs with
+-- Migrations 20260907212000 and 20260907213000 adapt established RPCs with
 -- pg_get_functiondef so each deployed database keeps its exact signature and
 -- grants. Those rewrites deliberately fail here if an older environment had a
 -- different function body and therefore missed a required safety boundary.
@@ -26,6 +26,9 @@ begin
       ('resolve_share_link(text)', 'match_processing_versions pv'),
       ('match_issue_state(uuid)', 'match_reprocessing_enabled'),
       ('sync_active_match_processing_version()', 'v_sync_provenance'),
+      ('my_match_point_fingerprints()', 'p.processing_version_id = m.active_processing_version_id'),
+      ('activate_match_processing_version(uuid,uuid)', 'r2_key=null'),
+      ('guard_match_reprocess_job_rollout()', 'current_user'),
       ('admin_upload_detail(uuid)', 'active_match_points'),
       ('admin_match_points(uuid)', 'active_match_points'),
       ('admin_point_evidence(uuid)', 'active_match_points'),
@@ -48,6 +51,10 @@ do $$
 declare
   definition text;
 begin
+  if (select prosecdef from pg_proc where oid='public.guard_match_reprocess_job_rollout()'::regprocedure) then
+    raise exception 'match version migration postcondition failed: worker role boundary';
+  end if;
+
   definition := pg_get_functiondef('public.admin_match_issue_list(text)'::regprocedure);
   if position('_match_issue_refundable_minutes' in definition) = 0 then
     raise exception 'match admin migration postcondition failed: list amount';

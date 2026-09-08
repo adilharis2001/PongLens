@@ -69,12 +69,39 @@ for each row execute function public.guard_match_reprocess_issue_rollout();
 create or replace function public.guard_match_reprocess_job_rollout()
 returns trigger
 language plpgsql
-security definer
+security invoker
 set search_path = public
 as $$
 begin
-  if new.kind = 'match_reprocess'
+  if (new.kind = 'match_reprocess'
+    or (tg_op='UPDATE' and old.kind='match_reprocess'))
     and not public.match_reprocessing_enabled(new.user_id) then
+    -- The Mac worker uses a direct database connection, without a JWT. An
+    -- already-approved QA job still has to report progress and finish while
+    -- owner submission is disabled. Do not make this function SECURITY
+    -- DEFINER: that would make every caller appear to be the table owner.
+    if tg_op='UPDATE'
+      and coalesce(auth.role(),'')=''
+      and (current_user='service_role' or current_user=(
+        select pg_get_userbyid(relowner) from pg_class where oid='public.jobs'::regclass
+      ))
+      and old.kind='match_reprocess' and old.status in ('queued','processing')
+      and (to_jsonb(new)-array['status','progress','result_path','error','user_message','updated_at'])
+        = (to_jsonb(old)-array['status','progress','result_path','error','user_message','updated_at'])
+      and exists (
+        select 1 from public.match_processing_feedback i
+        join public.match_processing_versions v on v.id=i.replacement_version_id
+        join public.matches m on m.id=i.match_id
+        where i.replacement_job_id=old.id and v.job_id=old.id
+          and v.issue_id=i.id and v.match_id=m.id and m.user_id=old.user_id and i.owner_id=old.user_id
+          and v.source_version_id=i.source_version_id and m.active_processing_version_id=v.source_version_id
+          and v.id::text=old.options->>'processing_version_id'
+          and i.id::text=old.options->>'issue_id' and m.id::text=old.options->>'match_id'
+          and v.status in ('candidate','ready','failed')
+          and i.status in ('reprocess_queued','reprocessing','candidate_ready','execution_failed')
+      ) then
+      return new;
+    end if;
     raise exception 'match reprocessing is not enabled' using errcode = 'P0001';
   end if;
   return new;

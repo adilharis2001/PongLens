@@ -94,7 +94,7 @@ test("only service role can claim sends or apply provider receipts", { skip: !lo
 });
 
 test("the complete additive migration preserves accepted mail and quarantines legacy ambiguous attempts", { skip: !local }, () => {
-  const migration = readFileSync(new URL("../../../supabase/migrations/20260907190000_match_issue_email_delivery.sql", import.meta.url), "utf8");
+  const migration = readFileSync(new URL("../../../supabase/migrations/20260907222000_match_issue_email_delivery.sql", import.meta.url), "utf8");
   const out = sql(`begin; ${fixture()} ${delivery()}
     drop function claim_match_issue_email_delivery(uuid,text),finish_match_issue_email_attempt(uuid,text,text,text),apply_resend_event(text,jsonb);
     drop index match_issue_email_provider_id_idx;

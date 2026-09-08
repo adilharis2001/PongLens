@@ -5,7 +5,7 @@ import test from "node:test";
 
 const enabled = process.env.MATCH_ISSUES_LOCAL_DB_TEST === "1";
 const container = process.env.MATCH_ISSUES_DB_CONTAINER ?? "supabase_db_match-processing-feedback";
-const migration = readFileSync("supabase/migrations/20260907120000_match_processing_feedback.sql", "utf8");
+const migration = readFileSync("supabase/migrations/20260907210000_match_processing_feedback.sql", "utf8");
 // Execute the shipped migration statements against a transaction-local copy of
 // the real ledger schema. Only its namespace changes; no live ledger is reset.
 const backfill = migration.slice(0, migration.indexOf("create table public.match_processing_feedback ("))
@@ -14,6 +14,11 @@ const workerRefund = migration.slice(migration.indexOf("create or replace functi
   migration.indexOf("revoke all on function public.refund_processing_spend("))
   .replaceAll("public.refund_processing_spend", "pg_temp.refund_processing_spend")
   .replaceAll("public.processing_ledger", "pg_temp.processing_ledger");
+const queuedCancel = migration.slice(migration.indexOf("create or replace function public.cancel_queued_processing("),
+  migration.indexOf("revoke all on function public.cancel_queued_processing("))
+  .replaceAll("public.cancel_queued_processing", "pg_temp.cancel_queued_processing")
+  .replaceAll("public.processing_ledger", "pg_temp.processing_ledger")
+  .replaceAll("public.jobs", "pg_temp.jobs");
 const owner = "11111111-1111-4111-8111-111111111101";
 const job = "55555555-5555-4555-8555-555555555505";
 const match = "66666666-6666-4666-8666-666666666606";
@@ -92,6 +97,33 @@ test("historical refunds with a retained job can match a deleted match and exact
     { id: 202, minutes: 4, kind: "refund", orderId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", purchaseId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" },
   ])} ${backfill} ${pairs}`);
   assert.equal(result, "201:101,202:102");
+});
+
+test("Apple purchase refunds are not mistaken for processing reversals", { skip: !enabled }, () => {
+  const purchase = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const result = sql(`${fixture([
+    { id: 101, minutes: -11, kind: "spend" },
+    { id: 201, minutes: -20, kind: "refund", jobId: null, matchId: null, purchaseId: purchase },
+  ])} ${backfill}
+    select id||':'||coalesce(reverses_id::text,'purchase')
+      from pg_temp.processing_ledger where kind='refund' order by id;`);
+  assert.equal(result, "201:purchase");
+});
+
+test("queued cancellation and worker failure cannot refund one spend twice", { skip: !enabled }, () => {
+  const result = sql(`${fixture([{ id: 101, minutes: -11, kind: "spend" }])} ${backfill}
+    create temp table jobs (like public.jobs including defaults including constraints);
+    insert into pg_temp.jobs(id,user_id,status,kind,options)
+      values('${job}','${owner}','queued','deadspace_cut','{}');
+    ${queuedCancel}
+    do $$ begin perform set_config('request.jwt.claims','${JSON.stringify({ sub: owner, role: "authenticated" })}',true); end $$;
+    select pg_temp.cancel_queued_processing('${job}')->>'refunded_minutes';
+    ${workerRefund}
+    do $$ begin perform set_config('request.jwt.claims','{"role":"service_role"}',true); end $$;
+    select pg_temp.refund_processing_spend('${job}');
+    select count(*)||'|'||sum(minutes)||'|'||count(distinct reverses_id)
+      from pg_temp.processing_ledger where kind='refund';`);
+  assert.deepEqual(result.split("\n").filter(Boolean), ["11", "1|11|1"]);
 });
 
 const ambiguous: { name: string; rows: Row[] }[] = [

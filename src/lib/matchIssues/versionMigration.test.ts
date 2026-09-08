@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
-const path = "supabase/migrations/20260907130000_match_processing_versions.sql";
+const path = "supabase/migrations/20260907212000_match_processing_versions.sql";
 const sql = existsSync(path) ? readFileSync(path, "utf8") : "";
 test("version migration installs the version identities and admin lifecycle boundaries", () => {
   for (const name of ["match_processing_versions", "active_processing_version_id", "processing_version_id", "admin_start_match_reprocess", "admin_publish_match_version", "admin_keep_current_match_version", "admin_restore_match_version"]) assert.ok(sql.includes(name), name);

@@ -46,7 +46,8 @@ begin
   where refund.id = historical.id;
 
   select * into v_unmatched from public.processing_ledger
-    where kind = 'refund' and reverses_id is null order by created_at, id limit 1;
+    where kind = 'refund' and minutes > 0 and reverses_id is null
+    order by created_at, id limit 1;
   if found then
     raise exception 'cannot backfill processing refund %: no exact unreversed spend (job %)',
       v_unmatched.id, coalesce(v_unmatched.job_id::text, 'missing')
@@ -745,3 +746,64 @@ $$;
 revoke all on function public.refund_processing_spend(uuid)
   from public, anon, authenticated;
 grant execute on function public.refund_processing_spend(uuid) to service_role;
+
+-- Cancelling before a worker claims the job is another reversal of the same
+-- processing spend. Record that spend identity too, so a later failure retry
+-- cannot credit the same minutes a second time.
+create or replace function public.cancel_queued_processing(p_job_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_me uuid := auth.uid();
+  v_job public.jobs%rowtype;
+  v_minutes integer := 0;
+begin
+  if v_me is null then
+    raise exception 'not authenticated' using errcode = '42501';
+  end if;
+
+  select * into v_job from public.jobs
+  where id = p_job_id and user_id = v_me
+  for update;
+  if not found then
+    raise exception 'not_found' using errcode = 'P0002';
+  end if;
+  if v_job.kind <> 'deadspace_cut' then
+    raise exception 'invalid_input' using errcode = '23514';
+  end if;
+  if v_job.status <> 'queued' then
+    raise exception 'bad_state' using errcode = 'P0001';
+  end if;
+  if coalesce(v_job.options ->> 'funding', 'personal') <> 'personal' then
+    raise exception 'bad_state' using errcode = 'P0001';
+  end if;
+
+  update public.jobs set status = 'cancelled', updated_at = now()
+  where id = p_job_id;
+
+  insert into public.processing_ledger (
+    user_id, minutes, kind, funding, billing_mode,
+    match_id, job_id, order_id, purchase_id, note, reverses_id
+  )
+  select spend.user_id, -spend.minutes, 'refund', spend.funding,
+    spend.billing_mode, spend.match_id, spend.job_id, spend.order_id,
+    spend.purchase_id, 'cancelled before processing', spend.id
+  from public.processing_ledger spend
+  where spend.job_id = p_job_id
+    and spend.kind = 'spend'
+    and spend.funding = 'personal'
+  on conflict (reverses_id) where kind = 'refund' do nothing;
+
+  select coalesce(sum(minutes), 0)::integer into v_minutes
+  from public.processing_ledger
+  where job_id = p_job_id and kind = 'refund';
+
+  return jsonb_build_object('job_id', p_job_id, 'refunded_minutes', v_minutes);
+end;
+$function$;
+
+revoke all on function public.cancel_queued_processing(uuid) from public, anon;
+grant execute on function public.cancel_queued_processing(uuid) to authenticated;

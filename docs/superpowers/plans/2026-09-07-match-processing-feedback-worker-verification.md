@@ -34,7 +34,7 @@ The race fixture marks an in-flight derived job cancelled before publishing. Thi
 | --- | --- |
 | `unittest`: match reprocess, placement retry/generation, placement reconstruction, raw retention, reclip source suites | **107 passed**, 0 failures/errors/skips; exit 0 |
 | `pytest`: worker automatic-highlight, highlight backfill, backfill runner, highlights, automatic render suites | **44 passed**, exit 0 |
-| Apply `20260907185000_derived_job_versions.sql` to local disposable feature DB | **Passed**: function, revoke, trigger created; recovery update matched 0 existing jobs |
+| Apply `20260907221000_derived_job_versions.sql` to local disposable feature DB | **Passed**: function, revoke, trigger created; recovery update matched 0 existing jobs |
 | `git diff --check` | **Passed**, exit 0 |
 | Full web build, Xcode, fresh full migration-chain replay | **Not rerun in this worker-only correction**; coordinator owns integrated verification. Earlier documented release blockers are not declared resolved. |
 | Staging/production lifecycle, real R2, detector/model execution, real ffmpeg encoding | **Not run** |
@@ -66,7 +66,7 @@ The suites use two existing import conventions. Combining the package-style recl
 - `worker/placement_backfill.py`: preserve the existing rally-end timeline field.
 - `worker/tests/test_match_reprocess.py`: real multi-version database and deterministic race/provenance regressions.
 - `worker/tests/test_placement_retry_job.py`, `worker/tests/test_worker.py`: explicit-version and claim fixtures; existing behavior assertions retained.
-- `supabase/migrations/20260907185000_derived_job_versions.sql`: enqueue identity and conservative queued-attempt recovery.
+- `supabase/migrations/20260907221000_derived_job_versions.sql`: enqueue identity and conservative queued-attempt recovery.
 
 Apply the additive migration before deploying the worker. Do not infer a release from source history when startup identity is unavailable. Do not remove the existing unfinished-derived-work activation gate as part of this correction. Real processing/provider parity remains a separate release check.
 

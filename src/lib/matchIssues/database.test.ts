@@ -23,7 +23,7 @@ const TAG = "99999999-9999-4999-8999-999999999909";
 test("failed match state exposes exact automatic refund ledger receipts only to its owner", { skip: !local }, () => {
   const output = execFileSync("docker", ["exec", "-i", container, "psql", "-q", "-U", "postgres", "-d", "postgres", "-At", "-v", "ON_ERROR_STOP=1"], {
     encoding: "utf8", input: `begin;
-      ${readFileSync("supabase/migrations/20260907160000_match_issue_refresh_receipt.sql", "utf8")}
+      ${readFileSync("supabase/migrations/20260907215000_match_issue_refresh_receipt.sql", "utf8")}
       ${baseFixture()}
       update matches set status='failed' where id='${MATCH}';
       ${claims(OWNER, "issue-owner@example.com")}

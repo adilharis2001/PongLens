@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const path =
-  "supabase/migrations/20260907200000_match_version_postconditions.sql";
+  "supabase/migrations/20260907223000_match_version_postconditions.sql";
 const sql = existsSync(path) ? readFileSync(path, "utf8") : "";
 
 test("version migration rewrites have explicit deployment postconditions", () => {

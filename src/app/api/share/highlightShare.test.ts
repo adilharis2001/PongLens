@@ -46,6 +46,20 @@ test("a public token can sign only its match's automatic highlight file", () => 
   );
 });
 
+test("versioned highlight attempts remain shareable without widening the match boundary", () => {
+  const otherMatch = "00000000-0000-0000-0000-000000000002";
+  for (const version of ["40000000-0000-4000-8000-000000000004", "4000000000004000"]) {
+    const suffix = `v-${version}-highlights-abcdef0123456789-0123456789abcdef0123456789abcdef.mp4`;
+    const key = `reels/${matchId}-${suffix}`;
+    assert.equal(highlightShare.highlightShareMediaKey(matchId, { match_id: matchId, r2_key: key }), key);
+    assert.equal(highlightShare.highlightShareMediaKey(matchId, { match_id: otherMatch, r2_key: key }), null);
+    assert.equal(highlightShare.highlightShareMediaKey(matchId, { match_id: matchId, r2_key: `reels/${otherMatch}-${suffix}` }), null);
+    for (const malformed of [key + ".bak", key.replace(".mp4", ".mov"), key.replace("-highlights-", "-full-"), key.replace(version, "../other")]) {
+      assert.equal(highlightShare.highlightShareMediaKey(matchId, { match_id: matchId, r2_key: malformed }), null);
+    }
+  }
+});
+
 test("a public highlight timeline accepts only safe ordered rows", () => {
   const pointId = "00000000-0000-0000-0000-000000000001";
   assert.deepEqual(

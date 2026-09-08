@@ -433,9 +433,14 @@ begin
   if exists(select 1 from public.jobs where status in ('queued','processing') and options->>'match_id'=m.id::text and kind<>'match_reprocess') then raise exception 'match has unfinished derived work' using errcode='P0001'; end if;
   perform 1 from public.match_processing_versions where id=m.active_processing_version_id for update;
   insert into public.match_processing_version_reels(version_id,scope,record)
-  select m.active_processing_version_id,r.scope,to_jsonb(r) from public.match_reels r where r.match_id=m.id
+  select m.active_processing_version_id,r.scope,to_jsonb(r) from public.match_reels r
+    where r.match_id=m.id and r.r2_key is not null
   on conflict(version_id,scope) do update set record=excluded.record;
-  update public.match_reels set status='failed',error='Match version changed.' where match_id=m.id;
+  -- The public highlight resolver intentionally keeps serving a retained key
+  -- during same-version refreshes. After publication that key is no longer
+  -- current: keep it only in the version archive, never beside new scores.
+  update public.match_reels set status='failed',error='Match version changed.',
+    r2_key=null,duration_s=null,size_bytes=null where match_id=m.id;
   update public.match_processing_versions set status='superseded',superseded_at=now() where id=m.active_processing_version_id;
   update public.match_processing_versions set status='active',activated_at=now(),superseded_at=null where id=v.id;
   s:=v.match_state;
@@ -447,6 +452,7 @@ begin
     spoken_scores=s->'spoken_scores',first_server=s->>'first_server',first_server_source=s->>'first_server_source'
   where id=m.id;
 end $$;
+
 revoke all on function public.activate_match_processing_version(uuid,uuid) from public,anon,authenticated;
 
 create function public.admin_publish_match_version(p_issue_id uuid,p_player_note text,p_internal_note text) returns jsonb
@@ -536,4 +542,20 @@ begin
     definition:=pg_get_functiondef(r.oid);
     execute regexp_replace(definition,'\m(from|join)\s+public\.points\M','\1 public.active_match_points','gi');
   end loop;
+end $$;
+
+-- Current statistics use exactly the active point set. Hashing all retained
+-- versions would leave the cache unchanged when publication changes only the
+-- active pointer, pairing old cached points with the new match projection.
+do $$
+declare
+  definition text;
+  needle text := 'and p.deleted = false';
+  replacement text := E'and p.processing_version_id = m.active_processing_version_id\n     and p.deleted = false';
+begin
+  definition:=pg_get_functiondef('public.my_match_point_fingerprints()'::regprocedure);
+  if (length(definition)-length(replace(definition,needle,'')))/length(needle)<>1 then
+    raise exception 'unexpected match point fingerprint definition';
+  end if;
+  execute replace(definition,needle,replacement);
 end $$;

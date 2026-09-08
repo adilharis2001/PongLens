@@ -47,7 +47,7 @@ function ready() {
 }
 
 function syncVersionDefinition() {
-  const migration = readFileSync("supabase/migrations/20260907130000_match_processing_versions.sql", "utf8");
+  const migration = readFileSync("supabase/migrations/20260907212000_match_processing_versions.sql", "utf8");
   return migration.slice(migration.indexOf("create function public.sync_active_match_processing_version()"),
     migration.indexOf("create trigger matches_sync_processing_version"))
     .replace("create function", "create or replace function");
@@ -129,8 +129,19 @@ test("ordinary active processing synchronizes queue changes until completion wit
 });
 
 test("deployment postconditions reject a synchronization function that lost its provenance boundary", { skip: !enabled }, () => {
-  const postconditions = readFileSync("supabase/migrations/20260907200000_match_version_postconditions.sql", "utf8");
-  assert.equal(sql(`begin; ${syncVersionDefinition()} ${postconditions} select 'valid provenance synchronization'; rollback;`), "valid provenance synchronization");
+  const postconditions = readFileSync("supabase/migrations/20260907223000_match_version_postconditions.sql", "utf8");
+  // The disposable DB predates production's statistics reader. Install the
+  // current reader plus this release's lifecycle definitions in the same
+  // rollback-only transaction before testing the complete deployment guard.
+  const versions = readFileSync("supabase/migrations/20260907212000_match_processing_versions.sql", "utf8");
+  const rollout = readFileSync("supabase/migrations/20260907220000_match_reprocess_rollout_gate.sql", "utf8");
+  const boundaries = readFileSync("supabase/migrations/20260907154448_match_point_fingerprints.sql", "utf8")
+    + versions.slice(versions.indexOf("-- Current statistics use exactly the active point set."))
+    + versions.slice(versions.indexOf("create function public.activate_match_processing_version("),
+      versions.indexOf("create function public.admin_publish_match_version(")).replace("create function", "create or replace function")
+    + rollout.slice(rollout.indexOf("create or replace function public.guard_match_reprocess_job_rollout()"),
+      rollout.indexOf("create trigger jobs_guard_reprocess_rollout"));
+  assert.equal(sql(`begin; ${syncVersionDefinition()} ${boundaries} ${postconditions} select 'valid provenance synchronization'; rollback;`), "valid provenance synchronization");
   assert.throws(() => sql(`begin;
     create or replace function public.sync_active_match_processing_version() returns trigger
       language plpgsql security definer set search_path=public as $$ begin return new; end $$;
@@ -266,7 +277,7 @@ test("same-match deferred constraints and active pointer invariants reject corru
   assert.throws(()=>sql(`begin; ${fixture()} ${candidate()} update points set processing_version_id=current_setting('task6.candidate_id')::uuid where id='${P}'; rollback;`),/point version is immutable/);
 });
 test("migration backfill preserves existing points and media rather than manufacturing new identities", { skip: !enabled }, () => {
-  const migration=readFileSync("supabase/migrations/20260907130000_match_processing_versions.sql","utf8");
+  const migration=readFileSync("supabase/migrations/20260907212000_match_processing_versions.sql","utf8");
   const from=migration.indexOf("insert into public.match_processing_versions(match_id,source_job_id");
   const to=migration.indexOf("alter table public.points alter column processing_version_id set not null",from);
   const out=sql(`begin; ${fixture()}
@@ -400,9 +411,9 @@ test("queue shows live refundable spend and detail keeps original job provenance
   assert.match(out,/\n11\n/); assert.match(out,new RegExp(`\\n${J}\\n11$`));
 });
 test("the exact additive review migration replays from the prior action contracts",{skip:!enabled},()=>{
-  const issueMigration=readFileSync("supabase/migrations/20260907120000_match_processing_feedback.sql","utf8");
-  const versionMigration=readFileSync("supabase/migrations/20260907130000_match_processing_versions.sql","utf8");
-  const reviewMigration=readFileSync("supabase/migrations/20260907140000_match_issue_admin_review.sql","utf8");
+  const issueMigration=readFileSync("supabase/migrations/20260907210000_match_processing_feedback.sql","utf8");
+  const versionMigration=readFileSync("supabase/migrations/20260907212000_match_processing_versions.sql","utf8");
+  const reviewMigration=readFileSync("supabase/migrations/20260907213000_match_issue_admin_review.sql","utf8");
   const oldRefund=issueMigration.slice(issueMigration.indexOf("create or replace function public.admin_refund_match_issue("),issueMigration.indexOf("revoke all on function public.admin_refund_match_issue("));
   const oldStart=versionMigration.slice(versionMigration.indexOf("create function public.admin_start_match_reprocess("),versionMigration.indexOf("create function public.activate_match_processing_version(")).replace("create function","create or replace function");
   const out=sql(`begin; ${fixture()} drop function public.admin_match_version_facts(uuid),public.admin_close_match_issue(uuid,text,text),public.admin_restore_match_issue_version(uuid,text); ${oldRefund} ${oldStart} ${reviewMigration} ${actor(A)} select admin_close_match_issue(current_setting('task6.issue_id')::uuid,'Reviewed.','')->'issue'->>'status'; ${reset} rollback;`);

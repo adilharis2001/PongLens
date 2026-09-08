@@ -350,10 +350,13 @@ struct MatchProcessingFeedbackScreen: View {
         guard !openingOriginal else { return }
         openingOriginal = true
         defer { openingOriginal = false }
-        if let url = await media.originalURL(match) {
+        switch await media.originalLink(match) {
+        case .url(let url):
             playerRequest = .init(url: url, startAt: nil, mode: .watch, source: .original)
-        } else {
-            mediaError = "Could not open the original video. You can try again."
+        case .gone:
+            mediaError = "The original video is no longer available."
+        case .failed:
+            mediaError = "Could not open the original video. Check your connection and try again."
         }
     }
 }

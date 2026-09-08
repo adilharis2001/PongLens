@@ -5,7 +5,7 @@ import test from "node:test";
 
 const migrationPath = join(
   process.cwd(),
-  "supabase/migrations/20260907120000_match_processing_feedback.sql",
+  "supabase/migrations/20260907210000_match_processing_feedback.sql",
 );
 
 const sql = existsSync(migrationPath) ? readFileSync(migrationPath, "utf8") : "";
@@ -27,6 +27,7 @@ test("the private match issue lifecycle is installed", () => {
     "admin_match_issue_detail",
     "admin_refund_match_issue",
     "finish_match_issue_email_delivery",
+    "cancel_queued_processing",
   ]) {
     assert.match(
       sql,
@@ -34,6 +35,13 @@ test("the private match issue lifecycle is installed", () => {
       fn,
     );
   }
+});
+
+test("queued cancellation and worker failure share the spend reversal identity", () => {
+  const cancel = sql.slice(sql.indexOf("create or replace function public.cancel_queued_processing("));
+  assert.match(cancel, /purchase_id, note, reverses_id/);
+  assert.match(cancel, /'cancelled before processing', spend\.id/);
+  assert.match(cancel, /on conflict \(reverses_id\) where kind = 'refund' do nothing/);
 });
 
 test("clients cannot choose protected ownership or refund facts", () => {

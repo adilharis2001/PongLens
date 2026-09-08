@@ -10,8 +10,12 @@ export function highlightShareMediaKey(
 ): string | null {
   if (row?.match_id !== matchId || !row.r2_key) return null;
   const escapedMatchId = matchId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Ordinary preparation uses the full version UUID; queued renders use
+  // its 16-hex prefix. Both append an immutable attempt ID. Keep legacy
+  // reels readable without accepting another match or another reel scope.
+  const version = "(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{16})";
   const pattern = new RegExp(
-    `^reels/${escapedMatchId}-highlights-[0-9a-f]{16}\\.mp4$`,
+    `^reels/${escapedMatchId}-(?:highlights-[0-9a-f]{16}|v-${version}-highlights-[0-9a-f]{16}-[0-9a-f]{32})\\.mp4$`,
   );
   return pattern.test(row.r2_key) ? row.r2_key : null;
 }

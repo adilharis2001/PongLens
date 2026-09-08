@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
 const path =
-  "supabase/migrations/20260907180000_match_reprocess_rollout_gate.sql";
+  "supabase/migrations/20260907220000_match_reprocess_rollout_gate.sql";
 const sql = existsSync(path) ? readFileSync(path, "utf8") : "";
 
 test("match reprocessing is default-off with a server-owned QA path", () => {

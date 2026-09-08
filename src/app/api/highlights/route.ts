@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MEDIA_BUCKET, presignGet } from "@/lib/r2";
 import { automaticHighlightsEnabled } from "./access";
+import { highlightShareMediaKey } from "../share/highlightShare";
 import {
   automaticHighlightEvidenceRefreshNeeded,
   automaticHighlightReadDecision,
@@ -152,8 +153,7 @@ export async function GET(req: Request) {
       if (
         !reel?.r2_key ||
         !manifest ||
-        !reel.r2_key.startsWith(`reels/${matchId}-highlights-`) ||
-        !reel.r2_key.endsWith(".mp4")
+        !highlightShareMediaKey(matchId, { match_id: matchId, r2_key: reel.r2_key })
       ) {
         return response({ status: "needs_update" });
       }
