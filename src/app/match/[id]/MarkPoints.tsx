@@ -36,6 +36,7 @@ import { ClipPlayer, type PictureBox } from "./ClipPlayer";
 import { computeMatchScore } from "./gameScore";
 import { SpeedMenu } from "./SpeedMenu";
 import { computeServing, type MatchServer } from "./serving";
+import { tracksServe } from "@/lib/matchTitle";
 import type { Point } from "@/lib/types";
 import {
   type Mark,
@@ -196,7 +197,9 @@ function MarkChip({
 export function MarkPoints({
   rawUrl,
   durationS,
-  firstServer,
+  firstServer: initialFirstServer,
+  matchType,
+  onFirstServer,
   youLabel,
   themLabel,
   initialMarks,
@@ -207,6 +210,11 @@ export function MarkPoints({
   rawUrl: string;
   durationS: number | null;
   firstServer: MatchServer | null;
+  /** drills | practice | match | league | tournament, or null. Decides
+   *  whether a serve rotation exists to ask about (tracksServe). */
+  matchType: string | null;
+  /** The answer to "Who served first?", saved onto the match row. */
+  onFirstServer: (server: MatchServer) => void | Promise<void>;
   youLabel: string;
   themLabel: string;
   initialMarks: Mark[];
@@ -222,6 +230,16 @@ export function MarkPoints({
   /** Cut only, or cut and score? Asked once, before anything else, so the
    *  pad can drop the half of itself the answer does not need. */
   const [mode, setMode] = useState<"cut" | "score" | null>(null);
+  /** Who served first, if known. Comes in from the match row and is set
+   *  here the moment the player answers, so the rotation shows at once. */
+  const [firstServer, setFirstServer] = useState<MatchServer | null>(
+    initialFirstServer
+  );
+  useEffect(() => {
+    if (initialFirstServer) setFirstServer(initialFirstServer);
+  }, [initialFirstServer]);
+  /** The second question on the way in, where a rotation exists. */
+  const [serveStep, setServeStep] = useState(false);
   /** Has the session started? Until it has, the pad is one button, because
    *  one button is the only thing there is to do. */
   const [started, setStarted] = useState(false);
@@ -451,6 +469,48 @@ export function MarkPoints({
    *  and because a browser only lets a video play from a real user tap. */
   const beginCutting = useCallback(() => {
     setStarted(true);
+    playApi.current?.play();
+  }, []);
+
+  /**
+   * Who served first is asked on the way into scoring, and only where a
+   * rotation exists: a match, a league, a tournament (tracksServe), never
+   * a practice. The answer is on the tape, so the card leaves the video
+   * playable and offers the start of it. "Not sure yet" leaves the
+   * question to the match page, which asks it after the cut the way it
+   * does for an automatic one.
+   */
+  const chooseScore = useCallback(() => {
+    setMode("score");
+    if (tracksServe(matchType) && firstServer === null) setServeStep(true);
+  }, [matchType, firstServer]);
+  const closeServeStep = useCallback(() => {
+    setServeStep(false);
+    // Begin Cutting is what starts playback; the preview must not leave
+    // the tape running behind a button that says begin. A draft resumes
+    // where marking stopped, and the preview must not move that either.
+    playApi.current?.pause();
+    const last = lastEnd(stateRef.current.marks);
+    const v = videoRef.current;
+    if (last !== null && v) {
+      v.currentTime = Math.max(0, last);
+      setPlayhead(v.currentTime);
+    }
+  }, []);
+  const answerFirstServer = useCallback(
+    (value: MatchServer) => {
+      setFirstServer(value);
+      void onFirstServer(value);
+      closeServeStep();
+    },
+    [onFirstServer, closeServeStep]
+  );
+  const playFromStart = useCallback(() => {
+    const v = videoRef.current;
+    if (v) {
+      v.currentTime = 0;
+      setPlayhead(0);
+    }
     playApi.current?.play();
   }, []);
 
@@ -1490,7 +1550,7 @@ export function MarkPoints({
             <div className="mt-4 grid grid-cols-1 gap-2">
               <button
                 type="button"
-                onClick={() => setMode("score")}
+                onClick={chooseScore}
                 className="rounded-lg border border-edge bg-ink/40 px-4 py-3 text-left transition-colors hover:border-cyan-glow/40"
               >
                 <span className="block text-sm font-semibold text-zinc-100">
@@ -1511,6 +1571,51 @@ export function MarkPoints({
                 <span className="mt-0.5 block text-xs text-zinc-500">
                   Mark where each rally starts and ends.
                 </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {serveStep && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-end justify-center">
+          <div className="ks-fade pointer-events-auto w-full rounded-t-2xl border border-edge bg-surface p-5 pb-8 sm:mb-6 sm:max-w-sm sm:rounded-2xl sm:pb-5">
+            <h2 className="text-base font-semibold">Who served first?</h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Sets the serve rotation for the whole match. Play the start if
+              you need to check.
+            </p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {(
+                [
+                  ["user", youLabel],
+                  ["opponent", themLabel],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => answerFirstServer(value)}
+                  className="truncate rounded-lg border border-edge bg-ink/40 px-4 py-3 text-sm font-semibold text-zinc-300 transition-colors hover:border-cyan-glow/40"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={playFromStart}
+                className="rounded-full border border-edge px-4 py-2 text-xs font-semibold text-zinc-200 transition-colors hover:border-cyan-glow/50"
+              >
+                Play from the start
+              </button>
+              <button
+                type="button"
+                onClick={closeServeStep}
+                className="rounded-full border border-edge px-4 py-2 text-xs font-semibold text-zinc-400 transition-colors hover:border-zinc-500"
+              >
+                Not sure yet
               </button>
             </div>
           </div>

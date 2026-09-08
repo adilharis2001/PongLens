@@ -38,6 +38,8 @@ import { ClipPlayer } from "./ClipPlayer";
 import { MatchFeedbackLink } from "./feedback/MatchFeedback";
 import { MarkPoints } from "./MarkPoints";
 import { submittable, type Mark } from "./handCut";
+import { userFirstServerUpdate } from "./matchStructure";
+import type { MatchServer } from "./serving";
 import { RawExportRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 
 const MATCH_TYPES = ["drills", "practice", "match", "league", "tournament"] as const;
@@ -165,6 +167,24 @@ export function RawMatchView({
   const [opponent, setOpponent] = useState(match.opponent_name ?? "");
   const [venue, setVenue] = useState(match.venue ?? "");
   const [matchType, setMatchType] = useState(match.match_type ?? "");
+  /** Who served first, answered on the pad while marking a scored match
+   *  and saved straight onto the row, the way the match page saves it. */
+  const [firstServer, setFirstServer] = useState<MatchServer | null>(
+    (match.first_server as MatchServer | null) ?? null,
+  );
+  const saveFirstServer = useCallback(
+    async (value: MatchServer) => {
+      const prev = firstServer;
+      setFirstServer(value);
+      const supabase = createClient();
+      const { error: saveError } = await supabase
+        .from("matches")
+        .update(userFirstServerUpdate(value))
+        .eq("id", match.id);
+      if (saveError) setFirstServer(prev);
+    },
+    [firstServer, match.id],
+  );
   const [pastOpponents, setPastOpponents] = useState<string[]>([]);
   const [detailsSaved, setDetailsSaved] = useState(false);
   const savedTimer = useRef<number | null>(null);
@@ -1258,7 +1278,9 @@ export function RawMatchView({
         <MarkPoints
           rawUrl={markingUrl}
           durationS={duration}
-          firstServer={match.first_server}
+          firstServer={firstServer}
+          matchType={matchType || null}
+          onFirstServer={saveFirstServer}
           youLabel="Me"
           themLabel={(opponent.trim().split(/\s+/)[0] || "Them").slice(0, 12)}
           initialMarks={draftMarks}
