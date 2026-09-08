@@ -240,7 +240,13 @@ final class AppState {
     }
 
     func signOut() async {
-        try? await supa.auth.signOut()
+        // This device only. The library default is global, which revokes
+        // the account's session on every device at once — and a device
+        // whose session dies under it does not find out for up to an hour
+        // (a coach's phone, 2026-09-07; the other half of that fix is
+        // API.recoverUnauthorized). Signing out of one phone or one
+        // browser must never reach the others.
+        try? await supa.auth.signOut(scope: .local)
         phase = .signedOut
     }
 }

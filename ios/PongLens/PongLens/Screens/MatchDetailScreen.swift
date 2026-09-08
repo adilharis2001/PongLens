@@ -312,17 +312,34 @@ final class MatchDetailModel {
     /// six-hour presigned URL, and signing one on every open of every
     /// match, for a control most people never press, buys nothing.
     ///
-    /// Nil means the file is genuinely gone — only possible on matches
+    /// `.gone` means the file genuinely is — only possible on matches
     /// processed before mid-August 2026, since the retention sweep never
-    /// expires an original a library row still points at.
-    func originalURL(_ match: MatchRow) async -> URL? {
+    /// expires an original a library row still points at. `.failed` is
+    /// the request itself not getting an answer, which is a different
+    /// sentence: this used to fold both into nil, and a phone with no
+    /// working session was told its original was "no longer available".
+    func originalLink(_ match: MatchRow) async -> OriginalLink {
         struct Req: Encodable { let matchId: String; let rawPreview: Bool }
         struct Res: Decodable { let url: String? }
-        let res: Res? = try? await API.post(
-            "api/media-url",
-            Req(matchId: match.id.uuidString.lowercased(), rawPreview: true)
-        )
-        return res?.url.flatMap(URL.init)
+        do {
+            let res: Res = try await API.post(
+                "api/media-url",
+                Req(matchId: match.id.uuidString.lowercased(), rawPreview: true)
+            )
+            if let url = res.url.flatMap(URL.init) { return .url(url) }
+            return .gone
+        } catch {
+            return .failed
+        }
+    }
+
+    /// What asking for the original upload got back.
+    enum OriginalLink {
+        case url(URL)
+        /// The route answered, and the file is not there any more.
+        case gone
+        /// No answer: offline, signed out, or the server had a bad moment.
+        case failed
     }
 
     /// Optimistic column-scoped patch with rollback — the whole scorer
@@ -486,6 +503,9 @@ struct MatchDetailScreen: View {
     /// processed before mid-August 2026: since then the retention sweep
     /// skips any upload a library row still points at.
     @State private var originalMissing = false
+    /// The request for the original got no answer — a different sentence
+    /// from the file being gone.
+    @State private var originalFailed = false
     @State private var pointSheetOpen = false
     /// Where Keep score should resume when a point opened FROM the pad is
     /// closed. Nil for a point opened from the list, which has no pad to
@@ -850,6 +870,11 @@ struct MatchDetailScreen: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text("This match was processed before we started keeping originals. The full video still plays.")
+        }
+        .alert("Couldn't open the original", isPresented: $originalFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Check your connection and try again.")
         }
         .fullScreenCover(item: $playerRequest) { request in
             PlayerTakeover(
@@ -1364,12 +1389,15 @@ struct MatchDetailScreen: View {
         guard !openingOriginal else { return }
         openingOriginal = true
         defer { openingOriginal = false }
-        if let url = await model.originalURL(current) {
+        switch await model.originalLink(current) {
+        case .url(let url):
             playerRequest = PlayerRequest(
                 url: url, startAt: nil, mode: .watch, source: .original
             )
-        } else {
+        case .gone:
             originalMissing = true
+        case .failed:
+            originalFailed = true
         }
     }
 

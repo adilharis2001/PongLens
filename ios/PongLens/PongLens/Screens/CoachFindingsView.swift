@@ -33,6 +33,7 @@ struct CoachFindingsSection: View {
     @State private var originalURL: URL?
     @State private var originalLoading = false
     @State private var originalMissing = false
+    @State private var originalFailed = false
     @State private var takeoverTagPointId: UUID?
 
     var body: some View {
@@ -154,6 +155,11 @@ struct CoachFindingsSection: View {
         } message: {
             Text("This match was processed before we started keeping originals. The full video still plays.")
         }
+        .alert("Couldn't open the original", isPresented: $originalFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Check your connection and try again.")
+        }
         .onDisappear { player.pause() }
     }
 
@@ -170,13 +176,17 @@ struct CoachFindingsSection: View {
         guard let match = store.match, !originalLoading else { return }
         player.pause()
         originalLoading = true
-        originalURL = await detailModel.originalURL(match)
+        let link = await detailModel.originalLink(match)
         originalLoading = false
-        if originalURL != nil {
+        switch link {
+        case .url(let url):
+            originalURL = url
             takeoverSource = .original
             takeoverOpen = true
-        } else {
+        case .gone:
             originalMissing = true
+        case .failed:
+            originalFailed = true
         }
     }
 
