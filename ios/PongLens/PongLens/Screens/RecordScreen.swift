@@ -1972,6 +1972,11 @@ struct MatchDetailsSheet: View {
         .onChange(of: trimStart) {
             refreshTrimFrame()
             pushTrim(duration: duration)
+            // The side picker's frame follows the trim: the owner has just
+            // said where play begins.
+            Task {
+                if let image = await posterAttempt() { poster = image }
+            }
         }
         .onChange(of: trimOpen) { _, open in if open { refreshTrimFrame() } }
         .onChange(of: trimEnd) { pushTrim(duration: duration) }
@@ -2323,9 +2328,22 @@ struct MatchDetailsSheet: View {
         )
     }
 
-    /// The first frame, fetched with patience: the file may still be
-    /// merging when the sheet opens, and a fragmented HEVC capture needs a
-    /// tolerant, precisely-timed reader before it gives up a frame.
+    /// Where the side-picker frame is taken from. The same rule as the
+    /// web's posterTimeS: a quarter of the way in, no more than four
+    /// minutes, and never before a trim start. The first second of a
+    /// recording is the phone being set down and two people walking to
+    /// the table, which is the board's "very difficult to choose what
+    /// side you are". A quarter in, a match is being played; a trim
+    /// start is the owner saying where play begins, which beats a guess.
+    private var posterTimeS: Double {
+        let d = firstItemDuration ?? 0
+        let guess = min(240, d * 0.25)
+        return max(trimStart > 0.5 ? trimStart : 0, guess)
+    }
+
+    /// The side-picker frame, fetched with patience: the file may still
+    /// be merging when the sheet opens, and a fragmented HEVC capture
+    /// needs a tolerant reader before it gives up a frame.
     private func loadPoster() async {
         for _ in 0..<20 {
             if Task.isCancelled { return }
@@ -2350,7 +2368,9 @@ struct MatchDetailsSheet: View {
         generator.maximumSize = CGSize(width: 900, height: 900)
         generator.requestedTimeToleranceBefore = .positiveInfinity
         generator.requestedTimeToleranceAfter = .positiveInfinity
-        for seconds in [1.0, 0.1] {
+        // The chosen moment first; the opening frames only as a fallback
+        // for a file still merging, which may not yet reach that far.
+        for seconds in [posterTimeS, 1.0, 0.1] {
             if let cg = try? await generator.image(
                 at: CMTime(seconds: seconds, preferredTimescale: 600)
             ).image {

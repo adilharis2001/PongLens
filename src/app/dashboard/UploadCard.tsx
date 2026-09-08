@@ -153,6 +153,23 @@ function formatLength(seconds: number) {
 }
 
 /**
+ * Where the side-picker frame is taken from, in seconds.
+ *
+ * A quarter of the way in, no more than four minutes, and never before a
+ * trim start. The first second of a recording is the phone being set down
+ * and two people walking to the table, and half the video was a minute at
+ * most — both put the frame before anyone was in position, which is the
+ * board's "very difficult to choose what side you are". A quarter in, a
+ * match is being played; four minutes caps it so a long file does not
+ * wait on a seek into its middle; and a trim start is the owner saying
+ * where play begins, which beats any guess.
+ */
+export function posterTimeS(durationS: number, trimStartS: number | null): number {
+  const guess = Math.min(240, durationS * 0.25);
+  return Math.max(trimStartS ?? 0, guess);
+}
+
+/**
  * Read the length and grab one frame, before a single byte moves.
  *
  * Both answers are needed up front now: the length decides whether the
@@ -163,7 +180,8 @@ function formatLength(seconds: number) {
  * be blocked by a thumbnail.
  */
 function probeVideo(
-  url: string
+  url: string,
+  atS: number | null = null
 ): Promise<{ durationS: number | null; poster: string | null }> {
   return new Promise((resolve) => {
     const v = document.createElement("video");
@@ -208,7 +226,7 @@ function probeVideo(
       };
       if (d === null) return finish(null, null);
       try {
-        v.currentTime = Math.max(0, Math.min(60, d * 0.5));
+        v.currentTime = Math.max(0, atS ?? posterTimeS(d, null));
       } catch {
         finish(d, null);
       }
@@ -1446,6 +1464,23 @@ export function UploadCard({
   const keptS =
     durationS != null ? Math.max(0, (trimEnd ?? durationS) - trimStart) : null;
   const quote = keptS != null ? chargeMinutes(keptS) : null;
+  // The side picker's frame follows a trim start. The owner has just said
+  // where play begins, so a frame from before it is one they told us is
+  // warm-up. Only re-read when the trim moves the frame later than the
+  // default; earlier is the default's own guess and already showing.
+  useEffect(() => {
+    if (!localVideoUrl || durationS == null || trimStart <= 0.5) return;
+    const t = posterTimeS(durationS, trimStart);
+    if (t <= posterTimeS(durationS, null)) return;
+    let alive = true;
+    void probeVideo(localVideoUrl, t).then((p) => {
+      if (alive && p.poster) setProbePoster(p.poster);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [localVideoUrl, durationS, trimStart]);
+
   const trimmed =
     durationS != null &&
     (trimStart > 0.5 || (trimEnd != null && trimEnd < durationS - 0.5));
