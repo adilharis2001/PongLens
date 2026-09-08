@@ -30,6 +30,14 @@ export const AREA_PATHS: Record<TestArea, string[]> = {
     "src/components/SiteHeader.tsx",
     "src/components/SiteFooter.tsx",
   ],
+  // The player's Coaching tab and the lesson recaps coaches share.
+  lessons: [
+    "src/app/lesson-video",
+    "src/lib/lessonVideo",
+    "src/app/api/lesson-video",
+    "src/app/journal/CoachShared.tsx",
+  ],
+  learn: ["src/app/learn", "src/app/videos"],
   auth: [
     "src/app/auth",
     "src/app/login",

@@ -22,6 +22,7 @@ import {
   DEPTH_META,
   TEST_AREAS,
   TEST_SURFACES,
+  isNewCase,
   testCaseSearchText,
   testCases,
   type TestArea,
@@ -133,6 +134,10 @@ export function LibraryBrowser({
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [notRun, setNotRun] = useState(false);
+  // Cases added or rewritten in the last few weeks. After a big release
+  // the tester runs these first, rather than re-walking paths that have
+  // not changed since the last sweep.
+  const [newOnly, setNewOnly] = useState(false);
   const [results, setResults] = useState<CaseResult[]>([]);
   /** case id -> when a bug it found was most recently marked fixed. */
   const [fixedAt, setFixedAt] = useState<Map<string, string>>(new Map());
@@ -171,6 +176,10 @@ export function LibraryBrowser({
   const applies = useMemo(
     () => testCases.filter((c) => c.surfaces.includes(surface)),
     [surface],
+  );
+  const newCount = useMemo(
+    () => applies.filter((c) => isNewCase(c, now)).length,
+    [applies, now],
   );
 
   const switchSurface = useCallback((next: TestSurface) => {
@@ -271,10 +280,11 @@ export function LibraryBrowser({
       if (area !== "all" && c.area !== area) return false;
       if (depth !== "all" && c.depth !== depth) return false;
       if (notRun && current.has(c.id)) return false;
+      if (newOnly && !isNewCase(c, now)) return false;
       if (q && !testCaseSearchText(c).includes(q)) return false;
       return true;
     });
-  }, [applies, area, depth, query, notRun, current]);
+  }, [applies, area, depth, query, notRun, newOnly, now, current]);
 
   // Grouped so the list reads as a walk through the product rather than a
   // flat wall of cases.
@@ -353,6 +363,11 @@ export function LibraryBrowser({
           <Pill on={notRun} onClick={() => setNotRun(!notRun)}>
             Still to run
           </Pill>
+          {newCount > 0 && (
+            <Pill on={newOnly} onClick={() => setNewOnly(!newOnly)}>
+              New ({newCount})
+            </Pill>
+          )}
           <span className="mx-1 h-4 w-px bg-edge" aria-hidden="true" />
           <Pill on={area === "all"} onClick={() => setArea("all")}>
             Everything
@@ -481,6 +496,11 @@ export function LibraryBrowser({
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block text-sm font-medium leading-snug text-zinc-100">
+                            {isNewCase(c, now) && (
+                              <span className="mr-2 inline-block rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-2 py-0.5 align-middle text-[10px] font-semibold text-cyan-glow">
+                                New
+                              </span>
+                            )}
                             {c.title}
                           </span>
                           <span className="mt-1 block font-mono text-[11px] text-zinc-600">
