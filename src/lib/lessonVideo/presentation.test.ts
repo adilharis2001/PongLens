@@ -131,9 +131,10 @@ test('a recap that needs another try can be attributed too',()=>{
  assert.equal(lessonCanSetCoach({...unattributed,status:'failed'},true),true);
 });
 
-test('attribution is not offered while the recap is still being made',()=>{
+test('an upload filed against nobody can be fixed while it is still uploading',()=>{
+ // Who taught it does not depend on whether the recap exists yet.
  for(const status of ['uploading','queued','processing'])
-  assert.equal(lessonCanSetCoach({...unattributed,status},true),false,status);
+  assert.equal(lessonCanSetCoach({...unattributed,status},true),true,status);
 });
 
 test('a coach\u2019s own import is never reattributed',()=>{

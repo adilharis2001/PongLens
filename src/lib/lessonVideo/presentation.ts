@@ -101,7 +101,10 @@ export function lessonCanSetCoach(
  video:{status:string;stage?:string|null;student_id?:string|null},
  isOwner:boolean,
 ):boolean {
- return isOwner&&!video.student_id&&video.stage!=='Deleting'&&['review','ready','failed'].includes(video.status);
+ // Any time but deletion. Who taught it does not depend on whether the
+ // recap exists yet, and an upload filed against nobody is most easily
+ // fixed while it is still uploading.
+ return isOwner&&!video.student_id&&video.stage!=='Deleting';
 }
 
 /**

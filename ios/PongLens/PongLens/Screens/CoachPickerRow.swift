@@ -31,6 +31,11 @@ struct CoachPickerRow: View {
     var requireAnswer = false
     /// What the share line calls the thing being shared.
     var shareNoun = "this entry"
+    /// Whether to ask about sharing here at all. The lesson importer does
+    /// not: a recap is shared from its own page once it exists, every
+    /// time, and a toggle on the import that decided nothing would be a
+    /// promise the page then broke.
+    var showShare = true
     /// Find-or-create by name; nil if it failed.
     let onCreate: (String) async -> PlayerCoach?
 
@@ -105,7 +110,7 @@ struct CoachPickerRow: View {
             }
             .disabled(busy)
 
-            if let chosen, chosen.canReceiveEntries {
+            if showShare, let chosen, chosen.canReceiveEntries {
                 Toggle(isOn: $shareWithCoach) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Share \(shareNoun) with \(chosen.displayName)")

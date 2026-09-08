@@ -116,7 +116,10 @@ class LessonVideoTests(unittest.TestCase):
   repair=[json.loads(item['text']) for item in runtime.merge_contents[1] if item.get('type')=='text'][-1]
   self.assertEqual(repair['selection_requirements']['maximum_chapters'],16)
   self.assertIn('18 chapters',repair['selection_validation_error'])
-  self.assertIn('10 to 14',runtime.merge_prompts[1])
+  # The correction is keyed to the outline, not to a chapter count: the
+  # old "10 to 14" was written for a 90-minute lesson and read by every
+  # 60-minute one too.
+  self.assertIn('one chapter per distinct outline topic',runtime.merge_prompts[1])
   self.assertIn('17 chapters',runtime.merge_prompts[2])
   self.assertIn('complete_outline',runtime.merge_contents[1][0]['text'])
   self.assertIn('candidate-6',str(runtime.merge_contents[1]))

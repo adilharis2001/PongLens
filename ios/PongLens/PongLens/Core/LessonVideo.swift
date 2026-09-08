@@ -47,8 +47,10 @@ struct LessonVideo: Codable, Identifiable {
     /// correction, it is a different lesson. Twin of lessonCanSetCoach on
     /// web.
     static func canSetCoach(_ video: LessonVideo, isOwner: Bool) -> Bool {
+        // Any time but deletion. Who taught it does not depend on whether
+        // the recap exists yet, and an upload filed against nobody is most
+        // easily fixed while it is still uploading.
         isOwner && video.student_id == nil && video.stage != "Deleting"
-            && ["review", "ready", "failed"].contains(video.status)
     }
     var statusLabel: String { statusLabel(hasRecap: false) }
     /// One status word, with `hasRecap` saying whether there is already

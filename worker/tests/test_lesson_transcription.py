@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 from worker.lesson_video import (
- ASR_VERSION, Runtime, chunk_ranges, degenerate, merge_segments, section_has_teaching,
+ ASR_VERSION, Runtime, chunk_ranges, degenerate, merge_segments, reusable_sections, section_has_teaching,
  thin_stretches, thin_transcript, transcript_chunk_reusable, transcript_density,
  transcript_words, window_candidates, words_between,
 )
@@ -260,3 +260,34 @@ class SectionRangeTests(unittest.TestCase):
  def test_a_stub_of_a_final_section_joins_the_one_before_it(self):
   ranges=chunk_ranges(1205)
   self.assertEqual(ranges,[(0,1205)])
+
+class ReuseByRangeTests(unittest.TestCase):
+ """A saved section is reused for the time it covers, never for its place in the list.
+
+ Sections went from ten minutes to twenty. Reusing "the third saved
+ section" for "the third wanted section" would lay a 1200-second range
+ over a 600-second one, keep the leftovers at the end, and hand the
+ recap a transcript that both double-counts and skips.
+ """
+ def test_sections_saved_under_the_old_length_are_not_mistaken_for_new_ones(self):
+  old=[chunk(i*600,(i+1)*600,['word ']*600) for i in range(9)]
+  kept=reusable_sections(old,chunk_ranges(5400))
+  # Five 1200-second ranges wanted. None of the 600-second sections
+  # covers the first four, so those are transcribed again. The last one
+  # is 4800 to 5400 under either sectioning, and IS reused: matching is
+  # by the time covered, and that time is covered.
+  self.assertEqual(len(kept),5)
+  self.assertEqual([k is None for k in kept],[True,True,True,True,False])
+  self.assertIs(kept[4],old[8])
+
+ def test_a_section_saved_under_this_length_is_found_by_its_bounds(self):
+  saved=[chunk(1200,2400,['word ']*600)]
+  kept=reusable_sections(saved,chunk_ranges(3600))
+  self.assertEqual([k is not None for k in kept],[False,True,False])
+  self.assertIs(kept[1],saved[0])
+
+ def test_a_fractional_final_bound_still_matches(self):
+  ranges=chunk_ranges(5400.033)
+  saved=[chunk(a,b,['word ']*600) for a,b in ranges]
+  self.assertTrue(all(k is not None for k in reusable_sections(saved,ranges)))
+

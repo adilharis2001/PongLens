@@ -17,9 +17,15 @@ struct LessonVideoScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AppState.self) private var app
     @Environment(CoachWorkspaceStore.self) private var workspace
+    @Environment(JournalStore.self) private var journal
     @State private var queue = LessonVideoQueue.shared
     @State private var studentId: UUID?
     @State private var coachRefId: UUID?
+    /// "No coach" as an answer given, held apart from coachRefId because
+    /// nil alone cannot tell "not asked yet" from "asked, and nobody".
+    /// Three lessons in one day were filed against nobody because the
+    /// old menu started on "No coach" and looked answered.
+    @State private var noCoach = false
     @State private var importCoachRef: UUID?
     @State private var videos: [LessonVideo] = []
     @State private var photosOpen = false
@@ -149,21 +155,35 @@ struct LessonVideoScreen: View {
                     .font(.plBody)
                     .padding(16)
                 } else {
+                if playerImport {
+                    // The same "Who taught it?" the journal and the recorder
+                    // use, so there is one place this question is asked and
+                    // one idea of what an answer is. It starts on "Choose",
+                    // and the import buttons below stay off until it is
+                    // answered, because a picker that starts on "No coach"
+                    // looks answered and is not.
+                    CoachPickerRow(
+                        coaches: journal.playerCoaches,
+                        coachRefId: $coachRefId,
+                        shareWithCoach: .constant(false),
+                        noCoach: $noCoach,
+                        requireAnswer: true,
+                        shareNoun: "this recap",
+                        showShare: false,
+                        onCreate: { await journal.createCoach(named: $0) },
+                        onAppearReload: { await journal.loadCoaches() }
+                    )
+                    .padding(16)
+                    .disabled(importing)
+                } else {
                 Menu {
-                    if let coaches {
-                        Button("No coach") { coachRefId = nil }
-                        ForEach(coaches) { row in
-                            Button(row.displayName) { coachRefId = row.id }
-                        }
-                    } else {
-                        Button("Private lesson") { studentId = nil }
-                        ForEach(workspace.activeStudents) { row in
-                            Button(row.displayName) { studentId = row.id }
-                        }
+                    Button("Private lesson") { studentId = nil }
+                    ForEach(workspace.activeStudents) { row in
+                        Button(row.displayName) { studentId = row.id }
                     }
                 } label: {
                     HStack(spacing: 12) {
-                        Text(playerImport ? "Who taught it?" : "Student")
+                        Text("Student")
                             .foregroundStyle(PL.text400)
                         Spacer(minLength: 12)
                         Text(chosenName)
@@ -178,6 +198,7 @@ struct LessonVideoScreen: View {
                 }
                 .disabled(importing)
                 }
+                }
             }
             VStack(alignment: .leading, spacing: 14) {
                 Text("Record in the Camera app at 1080p, 30 fps, landscape. Place the phone diagonally beside the table, near the coach so their voice is clear.")
@@ -190,13 +211,13 @@ struct LessonVideoScreen: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(PLPrimaryButtonStyle())
-                    .disabled(importing)
+                    .disabled(importing || !answered)
                     Button { beginImport(); filesOpen = true } label: {
                         Label("Files", systemImage: "folder")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(PLSecondaryButtonStyle())
-                    .disabled(importing)
+                    .disabled(importing || !answered)
                 }
                 if importing {
                     HStack(spacing: 10) {
@@ -268,6 +289,12 @@ struct LessonVideoScreen: View {
                 }
             }
         }
+    }
+
+    /// Whether "who taught it?" has been answered. A coach's import names
+    /// a student or is private by choice, and has always been answered.
+    private var answered: Bool {
+        !playerImport || coachRefId != nil || noCoach
     }
 
     /// Whoever the lesson is with, in the picker's own words.
