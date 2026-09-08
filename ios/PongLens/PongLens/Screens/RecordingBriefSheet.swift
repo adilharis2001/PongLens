@@ -40,6 +40,8 @@ struct RecordingBriefSheet: View {
         let image: String
         let title: String
         let body: String
+        /// The three reference photographs, behind a tap (page one only).
+        var showSetups = false
         /// A line under the body that only the record doors get.
         var recordingNote: String? = nil
     }
@@ -48,7 +50,8 @@ struct RecordingBriefSheet: View {
         Page(
             image: "brief-p1",
             title: "Put the camera to the side",
-            body: "Side-on to the table, level with your half, and raised to about head height. Choose the side you do not serve from, so you are never standing between the camera and the table when a point starts. For most right-handers that is the forehand side.",
+            body: "We recommend filming from the side, as close to side-on as you can get, level with your half and raised to about head height. If filming from the side is difficult, a diagonal view works too. Choose the side you do not serve from, so you are never standing between the camera and the table when a point starts. For most right-handers that is the forehand side.",
+            showSetups: true,
             recordingNote: "The next screen draws the table where it should sit. Line the real one up with it before you start."
         ),
         Page(
@@ -181,6 +184,14 @@ struct RecordingBriefSheet: View {
                 .lineSpacing(3)
                 .foregroundStyle(PL.text300)
                 .padding(.top, 8)
+            // The three reference photographs, the same component the
+            // "Where to place the camera" sheet shows. Behind a tap so the
+            // page stays one idea, but on the one walk every new account
+            // takes.
+            if page.showSetups {
+                CameraRealSetups()
+                    .padding(.top, 14)
+            }
             if context == .recording, let note = page.recordingNote {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "viewfinder")
