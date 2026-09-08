@@ -7,21 +7,18 @@ import { createClient } from "@/lib/supabase/client";
 import {
   RUN_STATUS_LABEL,
   RUN_STATUS_PAST,
-  currentResults,
   latestPerSurface,
   otherSurfaces,
   periodFor,
-  periodLabel,
-  progressFor,
   standings,
   type CaseResult,
   type RunStatus,
 } from "@/lib/qa/runs";
 import {
   AREA_TITLE,
-  DEPTH_META,
   TEST_AREAS,
   TEST_SURFACES,
+  isNewCase,
   testCaseSearchText,
   testCases,
   type TestArea,
@@ -29,18 +26,16 @@ import {
   type TestSurface,
 } from "@/lib/qa/testLibrary";
 
-const DEPTHS: { key: TestDepth | "all"; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "smoke", label: DEPTH_META.smoke.filter },
-  { key: "core", label: DEPTH_META.core.filter },
-  { key: "edge", label: DEPTH_META.edge.filter },
-];
-
-const DEPTH_CHIP: Record<TestDepth, string> = {
-  smoke: "border-cyan-glow/40 bg-cyan-glow/10 text-cyan-glow",
-  core: "border-edge bg-surface-2 text-zinc-300",
-  edge: "border-edge bg-surface-2 text-zinc-500",
-};
+/**
+ * What the list is narrowed to. There used to be a cadence here (every
+ * release, weekly, once) and three progress cards counting against it,
+ * and the tester could not tell what any of it wanted from him. The
+ * question he is actually asking is "which ones should I do next", and
+ * the library answers it with when each case was last tested and what
+ * was found. New cases first, then the failing ones, then the ones never
+ * touched; everything else is a date.
+ */
+type View = "new" | "untested" | "failing" | "all";
 
 function Pill({
   on,
@@ -74,7 +69,36 @@ const RUN_CHIP: Record<RunStatus, string> = {
   skipped: "border-edge bg-surface-2 text-zinc-400",
 };
 
-const DEPTHS_IN_ORDER: TestDepth[] = ["smoke", "core", "edge"];
+function shortDate(iso: string) {
+  return new Date(iso).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+/**
+ * The one line under a title that says where a case stands: when it was
+ * last tested here and what was found, or that it never has been.
+ */
+function LastTested({ result }: { result: CaseResult | undefined }) {
+  if (!result) {
+    return <span className="text-zinc-500">Never tested</span>;
+  }
+  const tone =
+    result.status === "pass"
+      ? "text-emerald-400/90"
+      : result.status === "fail"
+        ? "text-red-400/90"
+        : "text-zinc-400";
+  return (
+    <span className="text-zinc-500">
+      Last tested {shortDate(result.updated_at)},{" "}
+      <span className={`font-semibold ${tone}`}>
+        {RUN_STATUS_PAST[result.status]}
+      </span>
+    </span>
+  );
+}
 
 /**
  * How a case's mark on the other surfaces reads. Only surfaces that have
@@ -105,10 +129,7 @@ function Elsewhere({
           >
             {RUN_STATUS_PAST[e.result!.status]}
           </span>{" "}
-          {new Date(e.result!.updated_at).toLocaleDateString(undefined, {
-            day: "numeric",
-            month: "short",
-          })}
+          {shortDate(e.result!.updated_at)}
         </span>
       ))}
     </span>
@@ -124,36 +145,23 @@ export function LibraryBrowser({
 }) {
   const [surface, setSurface] = useState<TestSurface>(initialSurface);
   const [area, setArea] = useState<TestArea | "all">("all");
-  // Anywhere but the desktop browser opens on the release set. A full
-  // weekly sweep of all four surfaces is around 370 marks, and a list that
-  // long on a phone is one nobody starts. One tap widens it.
-  const [depth, setDepth] = useState<TestDepth | "all">(
-    initialSurface === "web-desktop" ? "all" : "smoke",
-  );
+  const [view, setView] = useState<View | null>(null);
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
-  const [notRun, setNotRun] = useState(false);
   const [results, setResults] = useState<CaseResult[]>([]);
   /** case id -> when a bug it found was most recently marked fixed. */
   const [fixedAt, setFixedAt] = useState<Map<string, string>>(new Map());
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  // One clock for the whole render, so a case cannot land in a different
-  // week from the progress bar counting it.
+  // One clock for the whole render.
   const now = useMemo(() => new Date(), []);
   const depthById = useMemo(
     () => new Map(testCases.map((c) => [c.id, c.depth] as const)),
     [],
   );
-  // Two views of the same rows. `current` answers "has this been run in
-  // the period we are tracking", which drives the progress bar and the
-  // "not run" filter. `standing` answers "what did we last find", which is
-  // what a person scanning the list actually wants, and it never goes
-  // blank just because the calendar moved.
-  const current = useMemo(
-    () => currentResults(results, depthById, now, surface),
-    [results, depthById, now, surface],
-  );
+  // The last mark per case on this surface, whatever week it came from.
+  // That is what "last tested" means, and it never goes blank because
+  // the calendar moved.
   const standing = useMemo(
     () => standings(results, depthById, now, surface, fixedAt),
     [results, depthById, now, surface, fixedAt],
@@ -166,17 +174,33 @@ export function LibraryBrowser({
   );
 
   // The cases this surface is about. Everything counted on the page reads
-  // from here rather than from testCases, so a percentage is never quietly
+  // from here rather than from testCases, so a number is never quietly
   // measured against work that was never going to be done here.
   const applies = useMemo(
     () => testCases.filter((c) => c.surfaces.includes(surface)),
     [surface],
   );
+  const counts = useMemo(() => {
+    let fresh = 0;
+    let untested = 0;
+    let failing = 0;
+    for (const c of applies) {
+      if (isNewCase(c, now)) fresh += 1;
+      const result = standing.get(c.id)?.result;
+      if (!result) untested += 1;
+      else if (result.status === "fail") failing += 1;
+    }
+    return { fresh, untested, failing, tested: applies.length - untested };
+  }, [applies, now, standing]);
+
+  // The new cases are the ones to do first, so that is where the page
+  // opens while there are any. One tap widens it.
+  const activeView: View =
+    view ?? (counts.fresh > 0 ? "new" : "all");
 
   const switchSurface = useCallback((next: TestSurface) => {
     setSurface(next);
     setOpenId(null);
-    setDepth(next === "web-desktop" ? "all" : "smoke");
     // An area filter can survive into a surface that has no cases in it —
     // Paid reviews on the app, say — and the list would go empty with no
     // pill lit to explain why.
@@ -223,61 +247,82 @@ export function LibraryBrowser({
     void load();
   }, [load]);
 
+  /**
+   * Record a result for today. Marks are still stored against a period
+   * underneath (the week, or "once"), which is what lets the history keep
+   * every week's answer; the page simply shows the newest one.
+   */
   const mark = useCallback(
-    async (caseId: string, caseDepth: TestDepth, status: RunStatus | null) => {
+    async (caseId: string, caseDepth: TestDepth, status: RunStatus) => {
       const period = periodFor(caseDepth, now);
       setBusyId(caseId);
       const supabase = createClient();
-
-      // Every one of these three has to name the surface. Miss it on the
-      // delete and clearing a mark on the app would clear the web one too.
-      const mine = (r: CaseResult) =>
-        r.case_id === caseId && r.period === period && r.surface === surface;
-
-      if (status === null) {
-        setResults((prev) => prev.filter((r) => !mine(r)));
-        await supabase
-          .from("qa_case_results")
-          .delete()
-          .eq("case_id", caseId)
-          .eq("period", period)
-          .eq("surface", surface);
-      } else {
-        const row: CaseResult = {
-          case_id: caseId,
-          period,
-          surface,
-          status,
-          note: "",
-          marked_by: userId,
-          updated_at: new Date().toISOString(),
-        };
-        setResults((prev) => [...prev.filter((r) => !mine(r)), row]);
-        // Upsert on the composite key: marking the same case twice in a
-        // week is a correction, not a second run.
-        const { error } = await supabase
-          .from("qa_case_results")
-          .upsert(row, { onConflict: "case_id,period,surface" });
-        if (error) await load();
-      }
+      const row: CaseResult = {
+        case_id: caseId,
+        period,
+        surface,
+        status,
+        note: "",
+        marked_by: userId,
+        updated_at: new Date().toISOString(),
+      };
+      setResults((prev) => [
+        ...prev.filter(
+          (r) =>
+            !(r.case_id === caseId && r.period === period && r.surface === surface),
+        ),
+        row,
+      ]);
+      // Upsert on the composite key: marking the same case twice in a
+      // week is a correction, not a second run.
+      const { error } = await supabase
+        .from("qa_case_results")
+        .upsert(row, { onConflict: "case_id,period,surface" });
+      if (error) await load();
       setBusyId(null);
     },
     [now, surface, userId, load],
+  );
+
+  /** Remove the last mark, whichever period it was made in. */
+  const clear = useCallback(
+    async (caseId: string, period: string) => {
+      setBusyId(caseId);
+      const supabase = createClient();
+      // Every one of these has to name the surface. Miss it and clearing
+      // a mark on the app would clear the web one too.
+      setResults((prev) =>
+        prev.filter(
+          (r) =>
+            !(r.case_id === caseId && r.period === period && r.surface === surface),
+        ),
+      );
+      await supabase
+        .from("qa_case_results")
+        .delete()
+        .eq("case_id", caseId)
+        .eq("period", period)
+        .eq("surface", surface);
+      setBusyId(null);
+    },
+    [surface],
   );
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     return applies.filter((c) => {
       if (area !== "all" && c.area !== area) return false;
-      if (depth !== "all" && c.depth !== depth) return false;
-      if (notRun && current.has(c.id)) return false;
+      const result = standing.get(c.id)?.result;
+      if (activeView === "new" && !isNewCase(c, now)) return false;
+      if (activeView === "untested" && result) return false;
+      if (activeView === "failing" && result?.status !== "fail") return false;
       if (q && !testCaseSearchText(c).includes(q)) return false;
       return true;
     });
-  }, [applies, area, depth, query, notRun, current]);
+  }, [applies, area, activeView, now, standing, query]);
 
   // Grouped so the list reads as a walk through the product rather than a
-  // flat wall of cases.
+  // flat wall of cases. New cases come first inside each area.
   const grouped = useMemo(() => {
     const out: {
       area: TestArea;
@@ -287,7 +332,11 @@ export function LibraryBrowser({
       total: number;
     }[] = [];
     for (const a of TEST_AREAS) {
-      const cases = visible.filter((c) => c.area === a.key);
+      const cases = visible
+        .filter((c) => c.area === a.key)
+        .map((c, i) => ({ c, i, fresh: isNewCase(c, now) }))
+        .sort((x, y) => Number(y.fresh) - Number(x.fresh) || x.i - y.i)
+        .map((x) => x.c);
       if (!cases.length) continue;
       out.push({
         area: a.key,
@@ -297,13 +346,20 @@ export function LibraryBrowser({
       });
     }
     return out;
-  }, [visible, applies]);
+  }, [visible, applies, now]);
+
+  const views: { key: View; label: string }[] = [
+    { key: "all", label: "Everything" },
+    { key: "new", label: `New (${counts.fresh})` },
+    { key: "untested", label: `Never tested (${counts.untested})` },
+    { key: "failing", label: `Failing (${counts.failing})` },
+  ];
 
   return (
     <div>
       {/* The switch. It sits above everything because it changes what
           everything below means: which cases are listed, which marks are
-          shown, and what the counters are counting. */}
+          shown, and what the counts are counting. */}
       <div className="mt-6 flex flex-wrap items-center gap-2">
         {TEST_SURFACES.map((s) => {
           const on = surface === s.key;
@@ -335,6 +391,32 @@ export function LibraryBrowser({
         </p>
       )}
 
+      {/* Where to start. New cases are the ones that describe what changed,
+          so they are called out here rather than left to a small chip in a
+          list of a hundred and fifty. */}
+      {counts.fresh > 0 && (
+        <div className="mt-5 rounded-2xl border border-cyan-glow/40 bg-cyan-glow/5 p-4 sm:flex sm:items-center sm:justify-between sm:gap-4">
+          <div>
+            <p className="text-sm font-semibold text-zinc-100">
+              {counts.fresh} new case{counts.fresh === 1 ? "" : "s"} to test
+              first
+            </p>
+            <p className="mt-1 text-sm text-zinc-400">
+              Each one is marked New in the list and covers something that
+              shipped recently. After those, work through anything failing or
+              never tested.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setView(activeView === "new" ? "all" : "new")}
+            className="mt-3 shrink-0 rounded-full border border-cyan-glow/50 bg-cyan-glow/10 px-4 py-1.5 text-sm font-semibold text-cyan-glow transition-colors hover:bg-cyan-glow/20 sm:mt-0"
+          >
+            {activeView === "new" ? "Show everything" : "Show the new cases"}
+          </button>
+        </div>
+      )}
+
       <div className="mt-5 flex flex-col gap-3">
         <input
           type="search"
@@ -344,18 +426,18 @@ export function LibraryBrowser({
           className="w-full rounded-xl border border-edge bg-ink/60 px-4 py-3 text-sm text-zinc-200 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/50"
         />
         <div className="flex flex-wrap items-center gap-2">
-          {DEPTHS.map((d) => (
-            <Pill key={d.key} on={depth === d.key} onClick={() => setDepth(d.key)}>
-              {d.label}
+          {views.map((v) => (
+            <Pill
+              key={v.key}
+              on={activeView === v.key}
+              onClick={() => setView(v.key)}
+            >
+              {v.label}
             </Pill>
           ))}
           <span className="mx-1 h-4 w-px bg-edge" aria-hidden="true" />
-          <Pill on={notRun} onClick={() => setNotRun(!notRun)}>
-            Still to run
-          </Pill>
-          <span className="mx-1 h-4 w-px bg-edge" aria-hidden="true" />
           <Pill on={area === "all"} onClick={() => setArea("all")}>
-            Everything
+            All areas
           </Pill>
           {/* Only areas this surface actually has. Offering "Paid reviews"
               on the app filter row is an invitation to go looking for a
@@ -370,70 +452,19 @@ export function LibraryBrowser({
         </div>
       </div>
 
-      {/* Where each cadence stands this period. This is the answer to
-          "which ones still need testing", so it sits above the list. */}
-      <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        {DEPTHS_IN_ORDER.map((d) => {
-          const ids = applies.filter((c) => c.depth === d).map((c) => c.id);
-          const p = progressFor(ids, current);
-          const done = p.run === p.total;
-          return (
-            <div
-              key={d}
-              className="rounded-2xl border border-edge bg-surface p-4"
-            >
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="text-sm font-medium text-zinc-200">
-                  {DEPTH_META[d].filter}
-                </span>
-                <span
-                  className={`text-sm font-semibold tabular-nums ${
-                    done ? "text-emerald-300" : "text-zinc-100"
-                  }`}
-                >
-                  {p.run}/{p.total}
-                </span>
-              </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
-                <div
-                  className={`h-full rounded-full ${
-                    p.failed > 0 ? "bg-amber-400" : "bg-cyan-glow"
-                  }`}
-                  style={{
-                    width: `${p.total ? (p.run / p.total) * 100 : 0}%`,
-                  }}
-                />
-              </div>
-              <p className="mt-2 text-xs text-zinc-500">
-                {p.failed > 0 && (
-                  <span className="text-red-300">{p.failed} failing · </span>
-                )}
-                {p.total - p.run} still to run ·{" "}
-                {d === "edge" ? "does not reset" : periodLabel(d, now)}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* What the cadence chips mean. Without this the chip says "Release"
-          to someone who has no way of knowing that means every one. */}
-      <div className="mt-5 flex flex-col gap-1.5 text-sm">
-        {(depth === "all"
-          ? (["smoke", "core", "edge"] as TestDepth[])
-          : [depth]
-        ).map((d) => (
-          <p key={d} className="text-zinc-500">
-            <span className="font-medium text-zinc-300">
-              {DEPTH_META[d].filter}.
-            </span>{" "}
-            {DEPTH_META[d].blurb}
-          </p>
-        ))}
-      </div>
-
+      {/* Where things stand on this surface, in one sentence. */}
       <p className="mt-4 text-sm text-zinc-500">
-        {visible.length} case{visible.length === 1 ? "" : "s"}
+        {counts.tested} of {applies.length} tested here
+        {counts.failing > 0 && (
+          <>
+            {" · "}
+            <span className="text-red-300">{counts.failing} failing</span>
+          </>
+        )}
+        {" · "}
+        {counts.untested} never tested
+        {" · "}
+        showing {visible.length}
       </p>
 
       {grouped.length === 0 && (
@@ -456,11 +487,9 @@ export function LibraryBrowser({
             <ul className="mt-3 overflow-hidden rounded-2xl border border-edge bg-surface">
               {group.cases.map((c) => {
                 const open = openId === c.id;
-                // The last mark whatever week it came from, so a sweep in
-                // progress keeps its place. `stale` dims it and says when.
                 const stand = standing.get(c.id);
                 const result = stand?.result;
-                const stale = stand != null && !stand.current;
+                const fresh = isNewCase(c, now);
                 return (
                   <li
                     key={c.id}
@@ -472,34 +501,29 @@ export function LibraryBrowser({
                         onClick={() => setOpenId(open ? null : c.id)}
                         className="flex min-w-0 flex-1 items-start gap-3 text-left"
                       >
-                        <span
-                          className={`mt-0.5 w-16 shrink-0 rounded-full border px-2 py-0.5 text-center text-[10px] font-semibold ${
-                            DEPTH_CHIP[c.depth]
-                          }`}
-                        >
-                          {DEPTH_META[c.depth].chip}
-                        </span>
                         <span className="min-w-0 flex-1">
                           <span className="block text-sm font-medium leading-snug text-zinc-100">
-                            {c.title}
-                          </span>
-                          <span className="mt-1 block font-mono text-[11px] text-zinc-600">
-                            {c.id}
-                            {c.blocked ? " · blocked" : ""}
-                            {stale && result && (
-                              <span className="text-zinc-500">
-                                {" · "}
-                                {RUN_STATUS_LABEL[result.status].toLowerCase()}
-                                {" last time"}
+                            {fresh && (
+                              <span className="mr-2 inline-block rounded-full bg-cyan-glow px-2 py-0.5 align-middle text-[10px] font-bold uppercase tracking-wide text-ink">
+                                New
                               </span>
                             )}
+                            {c.title}
+                          </span>
+                          <span className="mt-1 block text-[11px]">
+                            <LastTested result={result} />
+                            <span className="font-mono text-zinc-600">
+                              {" · "}
+                              {c.id}
+                              {c.blocked ? " · blocked" : ""}
+                            </span>
                           </span>
                           <Elsewhere
                             entries={otherSurfaces(latest, c, surface)}
                           />
                           {stand?.retest && (
                             <span className="mt-1.5 inline-block rounded-full border border-cyan-glow/40 bg-cyan-glow/10 px-2.5 py-0.5 text-[11px] font-semibold text-cyan-glow">
-                              Fixed since you failed it. Worth re-running.
+                              Fixed since you failed it. Worth testing again.
                             </span>
                           )}
                         </span>
@@ -507,16 +531,18 @@ export function LibraryBrowser({
 
                       {/* Pass and Fail sit on the row itself: marking a case
                           is the most frequent action here, and burying it
-                          behind an expand would cost a tap on every case. */}
+                          behind an expand would cost a tap on every case.
+                          The lit one is the last result; pressing it again
+                          records the same result for today. */}
                       <div className="flex shrink-0 items-center gap-1.5">
                         {(["pass", "fail"] as RunStatus[]).map((s) => {
-                          const on = !stale && result?.status === s;
+                          const on = result?.status === s;
                           return (
                             <button
                               key={s}
                               type="button"
                               disabled={busyId === c.id}
-                              onClick={() => void mark(c.id, c.depth, on ? null : s)}
+                              onClick={() => void mark(c.id, c.depth, s)}
                               aria-pressed={on}
                               className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${
                                 on
@@ -528,8 +554,7 @@ export function LibraryBrowser({
                             </button>
                           );
                         })}
-                        {!stale &&
-                          result &&
+                        {result &&
                           result.status !== "pass" &&
                           result.status !== "fail" && (
                             <span
@@ -544,7 +569,7 @@ export function LibraryBrowser({
                     </div>
 
                     {open && (
-                      <div className="px-4 pb-5 pl-[3.9rem]">
+                      <div className="px-4 pb-5">
                         <p className="text-sm leading-relaxed text-zinc-400">
                           {c.why}
                         </p>
@@ -612,15 +637,13 @@ export function LibraryBrowser({
                             case needs somewhere to say so that is not Fail. */}
                         <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-edge/60 pt-4">
                           {(["blocked", "skipped"] as RunStatus[]).map((s) => {
-                            const on = !stale && result?.status === s;
+                            const on = result?.status === s;
                             return (
                               <button
                                 key={s}
                                 type="button"
                                 disabled={busyId === c.id}
-                                onClick={() =>
-                                  void mark(c.id, c.depth, on ? null : s)
-                                }
+                                onClick={() => void mark(c.id, c.depth, s)}
                                 aria-pressed={on}
                                 className={`rounded-full border px-3.5 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${
                                   on
@@ -632,22 +655,20 @@ export function LibraryBrowser({
                               </button>
                             );
                           })}
-                          {!stale && result && (
+                          {result && (
                             <button
                               type="button"
                               disabled={busyId === c.id}
-                              onClick={() => void mark(c.id, c.depth, null)}
+                              onClick={() => void clear(c.id, result.period)}
                               className="rounded-full border border-edge px-3.5 py-1 text-xs font-semibold text-zinc-500 transition-colors hover:text-zinc-200 disabled:opacity-50"
                             >
                               Clear
                             </button>
                           )}
                           <span className="text-xs text-zinc-600">
-                            {result && !stale
-                              ? `Marked ${RUN_STATUS_LABEL[result.status].toLowerCase()} for ${periodLabel(c.depth, now)}`
-                              : result
-                                ? `Last marked ${RUN_STATUS_LABEL[result.status].toLowerCase()} on ${new Date(result.updated_at).toLocaleDateString(undefined, { day: "numeric", month: "short" })}. Not run this ${c.depth === "edge" ? "case" : "week"} yet.`
-                                : `Not run this ${c.depth === "edge" ? "case" : "week"} yet`}
+                            {result
+                              ? `Last tested ${shortDate(result.updated_at)}: ${RUN_STATUS_LABEL[result.status].toLowerCase()}`
+                              : "Never tested on this surface"}
                           </span>
                         </div>
                       </div>

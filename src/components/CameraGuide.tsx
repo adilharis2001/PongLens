@@ -189,7 +189,7 @@ export function CameraGuide({
 
             <ul className="mt-5 space-y-3">
               {[
-                "To the side of the table, level with your half, raised to about head height.",
+                "To the side of your half or diagonally behind your corner, raised to about head height.",
                 "On the side you do not serve from. A right-hander serving pendulum stands near their backhand corner, so the camera goes on the forehand side.",
                 "The whole table in frame, with the ball clearly visible where it lands on both halves.",
                 "Neither player standing between the camera and the table, on either half.",
@@ -263,12 +263,12 @@ export function CameraGuide({
  */
 const SETUPS = [
   {
-    src: "/camera/camera-ref-1.jpg",
-    caption: "9 ft to the side, level with the near end, 3 ft above the table.",
+    src: "/camera/camera-ref-4.jpg",
+    caption: "Diagonal, from behind the next table. The whole table is still in the picture.",
   },
   {
-    src: "/camera/camera-ref-2.jpg",
-    caption: "9 ft to the side, just past the near end, 3 ft up.",
+    src: "/camera/camera-ref-1.jpg",
+    caption: "9 ft to the side, level with the near end, 3 ft above the table.",
   },
   {
     src: "/camera/camera-ref-3.jpg",
@@ -337,21 +337,26 @@ function TableDiagram() {
     <svg
       viewBox="0 0 320 300"
       role="img"
-      aria-label="Top-down view of a table-tennis table. The camera sits to one side, level with your half and on the side you do not serve from, and its view sweeps across the whole table so the ball is visible landing on both halves with neither player in the way."
+      aria-label="Top-down view of a table-tennis table. A band of camera positions sweeps from the side of your half round to diagonally behind your corner, and the camera's view takes in the whole table so the ball is visible landing on both halves."
       className="mx-auto mt-4 block w-full max-w-[320px]"
     >
       <defs>
         <linearGradient
           id="cg-cone"
-          x1="266"
-          y1="190"
-          x2="90"
-          y2="120"
+          x1="238"
+          y1="199"
+          x2="110"
+          y2="115"
           gradientUnits="userSpaceOnUse"
         >
           <stop offset="0" stopColor="#22d3ee" stopOpacity="0.32" />
           <stop offset="1" stopColor="#22d3ee" stopOpacity="0.04" />
         </linearGradient>
+        <radialGradient id="cg-band" cx="168" cy="204" r="94" gradientUnits="userSpaceOnUse">
+          <stop offset="0.42" stopColor="#22d3ee" stopOpacity="0.15" />
+          <stop offset="0.72" stopColor="#22d3ee" stopOpacity="0.12" />
+          <stop offset="1" stopColor="#22d3ee" stopOpacity="0.03" />
+        </radialGradient>
         <radialGradient id="cg-ball" cx="35%" cy="30%" r="70%">
           <stop offset="0" stopColor="#ffedd5" />
           <stop offset="0.4" stopColor="#fdba74" />
@@ -360,58 +365,91 @@ function TableDiagram() {
         </radialGradient>
       </defs>
 
-      {/* Camera field of view. The apex is at the lens, off to the side and
-          level with the near half; the wedge runs past the far edge of the
-          table and is clipped by the viewBox, so it reads as a view rather
-          than as a triangle propped on two corners. */}
-      <polygon points="266,190 81,-381 -243,508" fill="url(#cg-cone)" />
-      {/* Sightlines along the edges of that cone. They run to the corners on
-          the CAMERA's side, which are the angular extremes from here — the
-          far corners sit inside that span. Drawing them to the far corners
-          instead put two lines across the table in an X. */}
-      <line x1="266" y1="190" x2="214" y2="44" stroke="#22d3ee" strokeWidth="1.2" strokeOpacity="0.55" strokeDasharray="4 4" />
-      <line x1="266" y1="190" x2="214" y2="220" stroke="#22d3ee" strokeWidth="1.2" strokeOpacity="0.55" strokeDasharray="4 4" />
+      {/* Camera field of view. The apex is at the lens; the wedge takes in
+          the whole table with margin and runs past its far side, clipped by
+          the viewBox, so it reads as a view rather than as a triangle
+          propped on two corners. */}
+      <polygon points="238,199 69,-199 -183,225" fill="url(#cg-cone)" />
+      {/* Sightlines along the edges of that cone. From a camera in the band
+          the angular extremes are the near-right and far-left reaches of
+          the table (padded a little), so the whole table sits inside. */}
+      <line x1="238" y1="199" x2="165.2" y2="27.6" stroke="#22d3ee" strokeWidth="1.2" strokeOpacity="0.55" strokeDasharray="4 4" />
+      <line x1="238" y1="199" x2="51.7" y2="210.5" stroke="#22d3ee" strokeWidth="1.2" strokeOpacity="0.55" strokeDasharray="4 4" />
+
+      {/* The band of allowed positions: side of your half round to
+          diagonally behind your corner. Its outer edge fades open on
+          purpose — further back is fine; the photos below prove it. */}
+      <path
+        d="M 192.4,165.0 L 217.8,124.3 A 94 94 0 0 1 235.6,269.3 L 201.1,236.0 A 46 46 0 0 0 192.4,165.0 Z"
+        fill="url(#cg-band)"
+      />
+      <path
+        d="M 192.4,165.0 A 46 46 0 0 1 201.1,236.0 M 192.4,165.0 L 210.4,136.2 M 201.1,236.0 L 225.5,259.6"
+        fill="none"
+        stroke="#22d3ee"
+        strokeWidth="1"
+        strokeOpacity="0.5"
+        strokeDasharray="4 4"
+      />
 
       {/* Table — top-down, long axis vertical. Two halves, one on each side of
           the net, are the "both sides" the camera must see. */}
-      <rect x="106" y="44" width="108" height="176" rx="4" fill="#0f2b30" stroke="#22d3ee" strokeWidth="2" strokeOpacity="0.9" />
-      <rect x="106" y="44" width="108" height="88" fill="#22d3ee" fillOpacity="0.05" />
-      <rect x="106" y="132" width="108" height="88" fill="#22d3ee" fillOpacity="0.05" />
+      <rect x="84" y="54" width="84" height="150" rx="4" fill="#0f2b30" stroke="#22d3ee" strokeWidth="2" strokeOpacity="0.9" />
+      <rect x="84" y="54" width="84" height="75" fill="#22d3ee" fillOpacity="0.05" />
+      <rect x="84" y="129" width="84" height="75" fill="#22d3ee" fillOpacity="0.05" />
       {/* Center (doubles) line down the length */}
-      <line x1="160" y1="44" x2="160" y2="220" stroke="#e5f9fd" strokeWidth="1" strokeOpacity="0.5" strokeDasharray="3 5" />
+      <line x1="126" y1="54" x2="126" y2="204" stroke="#e5f9fd" strokeWidth="1" strokeOpacity="0.5" strokeDasharray="3 5" />
       {/* Net across the middle, with a little overhang each side */}
-      <line x1="96" y1="132" x2="224" y2="132" stroke="#e879f9" strokeWidth="2.5" strokeOpacity="0.85" />
+      <line x1="76" y1="129" x2="176" y2="129" stroke="#e879f9" strokeWidth="2.5" strokeOpacity="0.85" />
 
       {/* Bounce marks — where the ball lands on each side */}
-      <circle cx="138" cy="88" r="3" fill="#f97316" fillOpacity="0.35" />
-      <circle cx="182" cy="176" r="3" fill="#f97316" fillOpacity="0.35" />
+      <circle cx="108" cy="90" r="3" fill="#f97316" fillOpacity="0.35" />
+      <circle cx="146" cy="168" r="3" fill="#f97316" fillOpacity="0.35" />
 
       {/* The rallying ball (gentle CSS bounce between the two halves) */}
       <g className="cam-rally" style={{ transformOrigin: "center" }}>
-        <circle cx="182" cy="176" r="5.5" fill="url(#cg-ball)" />
+        <circle cx="146" cy="168" r="5.5" fill="url(#cg-ball)" />
       </g>
 
       {/* Opponent — clear of the far end, not covering the table */}
-      <circle cx="160" cy="24" r="8" fill="#1b1b26" stroke="#52525b" strokeWidth="1.5" />
-      <text x="160" y="12" textAnchor="middle" fontSize="9" fill="#a1a1aa">
+      <circle cx="126" cy="36" r="8" fill="#1b1b26" stroke="#52525b" strokeWidth="1.5" />
+      <text x="126" y="18" textAnchor="middle" fontSize="9" fill="#a1a1aa">
         Opponent
       </text>
 
       {/* You — at the backhand corner, where a right-hander serving pendulum
-          stands. Drawn deliberately on the opposite side from the camera:
-          that is the whole point of the second rule. */}
-      <circle cx="134" cy="248" r="8" fill="#1b1b26" stroke="#71717a" strokeWidth="1.5" />
-      <text x="134" y="272" textAnchor="middle" fontSize="9" fill="#d4d4d8">
+          stands. Drawn deliberately opposite the band: that is the whole
+          point of the serve-side rule. */}
+      <circle cx="106" cy="224" r="8" fill="#1b1b26" stroke="#71717a" strokeWidth="1.5" />
+      <text x="106" y="247" textAnchor="middle" fontSize="9" fill="#d4d4d8">
         You
       </text>
 
-      {/* Camera — to the side, level with the near half, lens facing back
-          across the table */}
-      <rect x="266" y="182" width="26" height="17" rx="3" fill="#22d3ee" />
-      <path d="M266 187 l-9 -4 v13 l9 -4 Z" fill="#22d3ee" />
-      <circle cx="281" cy="190.5" r="4" fill="#0a0a0f" />
-      <circle cx="281" cy="190.5" r="1.6" fill="#22d3ee" />
-      <text x="277" y="216" textAnchor="middle" fontSize="9" fill="#67e8f9">
+      {/* The band's two ends, named */}
+      <circle cx="211.7" cy="151.9" r="3.5" fill="#22d3ee" fillOpacity="0.9" />
+      <text x="224" y="148" fontSize="9" fontWeight="500" fill="#67e8f9">
+        Side
+      </text>
+      <circle cx="216.9" cy="251.2" r="3.5" fill="#22d3ee" fillOpacity="0.9" />
+      <text x="229" y="255" fontSize="9" fontWeight="500" fill="#67e8f9">
+        Diagonal
+      </text>
+      <text x="252" y="170" fontSize="8.5" fill="#67e8f9" fillOpacity="0.9">
+        anywhere in
+      </text>
+      <text x="252" y="181" fontSize="8.5" fill="#67e8f9" fillOpacity="0.9">
+        this band
+      </text>
+      <line x1="249" y1="172" x2="236" y2="178" stroke="#67e8f9" strokeWidth="1" strokeOpacity="0.5" />
+
+      {/* Camera — one example position in the band, lens on the table */}
+      <g transform="translate(238,199) rotate(32)">
+        <rect x="-13" y="-8.5" width="26" height="17" rx="3" fill="#22d3ee" />
+        <path d="M-13 -3.5 l-9 -4 v13 l9 -4 Z" fill="#22d3ee" />
+        <circle cx="2" cy="0" r="4" fill="#0a0a0f" />
+        <circle cx="2" cy="0" r="1.6" fill="#22d3ee" />
+      </g>
+      <text x="246" y="227" textAnchor="middle" fontSize="9" fill="#67e8f9">
         Camera
       </text>
     </svg>

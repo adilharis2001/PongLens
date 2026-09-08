@@ -4,7 +4,7 @@ import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { SectionHeading } from "@/components/SectionHeading";
 import { STATUS_META, type BugStatus } from "@/lib/qa/bugs";
-import { testCases } from "@/lib/qa/testLibrary";
+import { isNewCase, testCases } from "@/lib/qa/testLibrary";
 import { requireTesting } from "./requireTesting";
 
 export const metadata: Metadata = {
@@ -30,14 +30,16 @@ export default async function TestingPage() {
   const yours = isAdmin
     ? n("open") + n("triaged") + n("verified")
     : n("fixed");
-  const smoke = testCases.filter((c) => c.depth === "smoke").length;
+  const fresh = testCases.filter((c) => isNewCase(c)).length;
 
   const cards = [
     {
       href: "/testing/library",
       title: "Test library",
-      detail: `${testCases.length} cases, ${smoke} to run every release`,
-      attention: false,
+      detail: fresh
+        ? `${testCases.length} cases, ${fresh} new to test first`
+        : `${testCases.length} cases, each saying when it was last tested`,
+      attention: fresh > 0,
     },
     {
       href: "/testing/report",

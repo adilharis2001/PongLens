@@ -50,7 +50,6 @@ function libraryCsv(surface: TestSurface | null) {
     [
       "case_id",
       "area",
-      "depth",
       "title",
       "why",
       "needs",
@@ -66,7 +65,6 @@ function libraryCsv(surface: TestSurface | null) {
     cases.map((c) => [
       c.id,
       AREA_TITLE[c.area],
-      c.depth,
       c.title,
       c.why,
       csvList(c.needs),
