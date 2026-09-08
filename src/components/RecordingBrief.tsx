@@ -50,9 +50,9 @@ type Page = {
 export const RECORDING_BRIEF_PAGES: Page[] = [
   {
     src: "/brief/p1.svg",
-    alt: "Seen from above: the camera stands to one side of the table, level with your half, and its view takes in the whole table.",
-    title: "Put the camera to the side",
-    body: "We recommend filming from the side, as close to side-on as you can get, level with your half and raised to about head height. If filming from the side is difficult, a diagonal view works too. Choose the side you do not serve from, so you are never standing between the camera and the table when a point starts. For most right-handers that is the forehand side.",
+    alt: "Seen from above: a band of camera positions sweeps from the side of your half round to diagonally behind your corner, and the camera's view takes in the whole table.",
+    title: "Let the camera see both halves",
+    body: "Put it to the side of your half, or diagonally behind your corner, raised to about head height. Anywhere in that band works, as long as it can see both halves and every corner of the table is in the picture. Never straight behind a player. Choose the side you do not serve from. For most right-handers that is the forehand side.",
     setups: true,
     note: {
       record:

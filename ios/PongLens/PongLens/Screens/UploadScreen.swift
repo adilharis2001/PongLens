@@ -613,7 +613,7 @@ struct CameraPlacementSheet: View {
                 }
 
                 Section {
-                    checkRow("To the side of the table, level with your half, raised to about head height.")
+                    checkRow("To the side of your half or diagonally behind your corner, raised to about head height.")
                     checkRow("On the side you do not serve from. A right-hander serving pendulum stands near their backhand corner, so the camera goes on the forehand side.")
                     checkRow("The whole table in frame, with the ball clearly visible where it lands on both halves.")
                     checkRow("Neither player standing between the camera and the table, on either half.")
@@ -720,99 +720,166 @@ struct CameraPlacementSheet: View {
 struct CameraDiagram: View {
     var body: some View {
         Canvas { context, size in
-            let w = size.width
-            let h = size.height
-            let teal = Color(hex: 0x2DD4BF)
+            // One geometry shared with the web sheet's TableDiagram and the
+            // brief's p1.svg, in a 320×300 design space: the table on the
+            // left, the BAND of allowed camera positions on the right (side
+            // of your half round to diagonally behind your corner), one
+            // example camera in it, and its view cone taking in the whole
+            // table. The band's outer edge fades open on purpose — further
+            // back is fine, and the photos below prove it.
+            let s = min(size.width / 320, size.height / 300)
+            let ox = (size.width - 320 * s) / 2
+            let oy = (size.height - 300 * s) / 2
+            func P(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+                CGPoint(x: ox + x * s, y: oy + y * s)
+            }
+            let cyan = Color(hex: 0x22D3EE)
+            let cam = P(238, 199)
 
-            // Table: a plain rectangle in plan, near end at the bottom.
-            let tx0 = w * 0.34, tx1 = w * 0.66
-            let ty0 = h * 0.16, ty1 = h * 0.80
-            let cam = CGPoint(x: w * 0.86, y: h * 0.60)
+            // View cone: apex at the lens, padded past the table's angular
+            // extremes (near-right and far-left reaches), so the whole
+            // table sits inside with margin.
+            var cone = Path()
+            cone.move(to: cam)
+            cone.addLine(to: P(69, -199))
+            cone.addLine(to: P(-183, 225))
+            cone.closeSubpath()
+            context.fill(cone, with: .linearGradient(
+                Gradient(stops: [
+                    .init(color: cyan.opacity(0.30), location: 0),
+                    .init(color: cyan.opacity(0.02), location: 1),
+                ]),
+                startPoint: cam, endPoint: P(110, 115)
+            ))
+            for end in [P(165.2, 27.6), P(51.7, 210.5)] {
+                var sight = Path()
+                sight.move(to: cam)
+                sight.addLine(to: end)
+                context.stroke(
+                    sight, with: .color(cyan.opacity(0.5)),
+                    style: StrokeStyle(lineWidth: 1, dash: [3, 4])
+                )
+            }
 
-            // The floor wedge the camera sees, faint. Its edges are the rays
-            // to the two corners on the CAMERA's side of the table, which
-            // are the angular extremes from here — the far corners sit
-            // inside that span, not outside it. Running the edges to the far
-            // corners instead drew two lines crossing the table in an X and
-            // a cone that did not contain it.
-            var wedge = Path()
-            wedge.move(to: cam)
-            wedge.addLine(to: CGPoint(x: w * 0.587, y: 0))
-            wedge.addLine(to: .zero)
-            wedge.addLine(to: CGPoint(x: 0, y: h))
-            wedge.addLine(to: CGPoint(x: w * 0.46, y: h))
-            wedge.closeSubpath()
-            context.fill(wedge, with: .color(teal.opacity(0.06)))
-
-            let table = Path(CGRect(x: tx0, y: ty0, width: tx1 - tx0, height: ty1 - ty0))
-            context.fill(table, with: .color(Color(hex: 0x0E3B36).opacity(0.55)))
-            context.stroke(table, with: .color(teal), lineWidth: 2)
-
-            // Centre line, dashed, down the long axis.
-            var centre = Path()
-            centre.move(to: CGPoint(x: (tx0 + tx1) / 2, y: ty0))
-            centre.addLine(to: CGPoint(x: (tx0 + tx1) / 2, y: ty1))
+            // The band: an annular sector around your near corner, from
+            // side (level with your half) round to diagonal.
+            let pivot = P(168, 204)
+            let a0 = Angle.degrees(-58), a1 = Angle.degrees(44)
+            var band = Path()
+            band.move(to: P(192.4, 165.0))
+            band.addLine(to: P(217.8, 124.3))
+            band.addArc(center: pivot, radius: 94 * s, startAngle: a0, endAngle: a1, clockwise: false)
+            band.addLine(to: P(201.1, 236.0))
+            band.addArc(center: pivot, radius: 46 * s, startAngle: a1, endAngle: a0, clockwise: true)
+            band.closeSubpath()
+            context.fill(band, with: .radialGradient(
+                Gradient(stops: [
+                    .init(color: cyan.opacity(0.15), location: 0.42),
+                    .init(color: cyan.opacity(0.12), location: 0.72),
+                    .init(color: cyan.opacity(0.03), location: 1),
+                ]),
+                center: pivot, startRadius: 0, endRadius: 94 * s
+            ))
+            var bandEdge = Path()
+            bandEdge.addArc(center: pivot, radius: 46 * s, startAngle: a0, endAngle: a1, clockwise: false)
+            bandEdge.move(to: P(192.4, 165.0))
+            bandEdge.addLine(to: P(210.4, 136.2))
+            bandEdge.move(to: P(201.1, 236.0))
+            bandEdge.addLine(to: P(225.5, 259.6))
             context.stroke(
-                centre, with: .color(teal.opacity(0.5)),
+                bandEdge, with: .color(cyan.opacity(0.5)),
                 style: StrokeStyle(lineWidth: 1, dash: [4, 4])
             )
 
-            // Net, purple, across the middle and a little proud of the edges.
-            let netY = (ty0 + ty1) / 2
+            // Table, top-down, near end at the bottom.
+            let table = Path(roundedRect: CGRect(x: ox + 84 * s, y: oy + 54 * s, width: 84 * s, height: 150 * s), cornerRadius: 4 * s)
+            context.fill(table, with: .color(Color(hex: 0x0E3B36).opacity(0.55)))
+            context.stroke(table, with: .color(cyan), lineWidth: 2)
+
+            var centre = Path()
+            centre.move(to: P(126, 54))
+            centre.addLine(to: P(126, 204))
+            context.stroke(
+                centre, with: .color(cyan.opacity(0.5)),
+                style: StrokeStyle(lineWidth: 1, dash: [4, 4])
+            )
+
             var net = Path()
-            net.move(to: CGPoint(x: tx0 - w * 0.04, y: netY))
-            net.addLine(to: CGPoint(x: tx1 + w * 0.04, y: netY))
+            net.move(to: P(76, 129))
+            net.addLine(to: P(176, 129))
             context.stroke(net, with: .color(Color(hex: 0xA855F7)), lineWidth: 3)
 
-            // One ball on each half. The whole reason for this position is
-            // that both bounces stay visible, and a single ball cannot say
-            // that.
-            for ball in [CGPoint(x: w * 0.44, y: h * 0.31),
-                         CGPoint(x: w * 0.57, y: h * 0.67)] {
+            // One ball on each half: both bounces stay visible from here.
+            for ball in [P(108, 90), P(146, 168)] {
                 context.fill(
                     Path(ellipseIn: CGRect(x: ball.x - 5, y: ball.y - 5, width: 10, height: 10)),
                     with: .color(Color(hex: 0xF59E0B))
                 )
             }
 
-            // Sight lines along the edges of that cone.
-            for end in [CGPoint(x: tx1, y: ty0), CGPoint(x: tx1, y: ty1)] {
-                var sight = Path()
-                sight.move(to: cam)
-                sight.addLine(to: end)
-                context.stroke(
-                    sight, with: .color(teal.opacity(0.5)),
-                    style: StrokeStyle(lineWidth: 1, dash: [3, 4])
-                )
-            }
-
             // Players: hollow circles with labels.
-            func player(_ point: CGPoint, _ label: String) {
+            func player(_ point: CGPoint, _ label: String, labelBelow: Bool = false) {
                 context.stroke(
                     Path(ellipseIn: CGRect(x: point.x - 8, y: point.y - 8, width: 16, height: 16)),
                     with: .color(Color(hex: 0x9CA3AF)), lineWidth: 1.5
                 )
                 context.draw(
                     Text(label).font(.system(size: 10)).foregroundColor(Color(hex: 0x9CA3AF)),
-                    at: CGPoint(x: point.x, y: point.y - 20)
+                    at: CGPoint(x: point.x, y: point.y + (labelBelow ? 20 : -20))
                 )
             }
-            player(CGPoint(x: w * 0.50, y: h * 0.08), "Opponent")
-            player(CGPoint(x: w * 0.41, y: h * 0.90), "You")
+            player(P(126, 36), "Opponent")
+            player(P(106, 224), "You", labelBelow: true)
 
-            // Camera glyph, lens pointing back across the table.
-            let camBody = CGRect(x: cam.x - 6, y: cam.y - 8, width: 22, height: 16)
-            context.fill(Path(roundedRect: camBody, cornerRadius: 3), with: .color(PL.cyan))
+            // The band's two ends, named, and the depth note.
+            func dot(_ point: CGPoint) {
+                context.fill(
+                    Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)),
+                    with: .color(cyan.opacity(0.9))
+                )
+            }
+            dot(P(211.7, 151.9))
+            context.draw(
+                Text("Side").font(.system(size: 10, weight: .medium)).foregroundColor(Color(hex: 0x67E8F9)),
+                at: P(237, 146)
+            )
+            dot(P(216.9, 251.2))
+            context.draw(
+                Text("Diagonal").font(.system(size: 10, weight: .medium)).foregroundColor(Color(hex: 0x67E8F9)),
+                at: P(251, 253)
+            )
+            context.draw(
+                Text("anywhere in\nthis band").font(.system(size: 9)).foregroundColor(Color(hex: 0x67E8F9).opacity(0.9)),
+                at: P(276, 174)
+            )
+
+            // Camera glyph, one example position in the band, rotated so
+            // the lens points at the table.
+            let rot = CGAffineTransform(translationX: cam.x, y: cam.y)
+                .rotated(by: 32 * .pi / 180)
+            var camBody = Path(roundedRect: CGRect(x: -13 * s, y: -8.5 * s, width: 26 * s, height: 17 * s), cornerRadius: 3 * s)
             var lens = Path()
-            lens.move(to: CGPoint(x: camBody.minX, y: camBody.minY + 3))
-            lens.addLine(to: CGPoint(x: camBody.minX - 8, y: camBody.minY - 1))
-            lens.addLine(to: CGPoint(x: camBody.minX - 8, y: camBody.maxY + 1))
-            lens.addLine(to: CGPoint(x: camBody.minX, y: camBody.maxY - 3))
+            lens.move(to: CGPoint(x: -13 * s, y: -3.5 * s))
+            lens.addLine(to: CGPoint(x: -22 * s, y: -7.5 * s))
+            lens.addLine(to: CGPoint(x: -22 * s, y: 5.5 * s))
+            lens.addLine(to: CGPoint(x: -13 * s, y: 1.5 * s))
             lens.closeSubpath()
+            camBody = camBody.applying(rot)
+            lens = lens.applying(rot)
+            context.fill(camBody, with: .color(PL.cyan))
             context.fill(lens, with: .color(PL.cyan))
+            let eye = CGPoint(x: 2 * s, y: 0).applying(rot)
+            context.fill(
+                Path(ellipseIn: CGRect(x: eye.x - 4 * s, y: eye.y - 4 * s, width: 8 * s, height: 8 * s)),
+                with: .color(Color(hex: 0x0A0A0F))
+            )
+            context.fill(
+                Path(ellipseIn: CGRect(x: eye.x - 1.6 * s, y: eye.y - 1.6 * s, width: 3.2 * s, height: 3.2 * s)),
+                with: .color(PL.cyan)
+            )
             context.draw(
                 Text("Camera").font(.system(size: 10, weight: .medium)).foregroundColor(PL.cyan),
-                at: CGPoint(x: cam.x, y: cam.y + 22)
+                at: P(246, 227)
             )
         }
     }
@@ -835,10 +902,10 @@ struct CameraRealSetups: View {
     @State private var open = false
 
     private static let setups: [(file: String, caption: String)] = [
+        ("camera-ref-4",
+         "Diagonal, from behind the next table. The whole table is still in the picture."),
         ("camera-ref-1",
          "9 ft to the side, level with the near end, 3 ft above the table."),
-        ("camera-ref-2",
-         "9 ft to the side, just past the near end, 3 ft up."),
         ("camera-ref-3",
          "7 ft to the side and a little further back. A busy hall, and the table is still clear."),
     ]

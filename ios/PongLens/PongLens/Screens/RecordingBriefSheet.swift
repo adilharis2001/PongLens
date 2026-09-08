@@ -49,8 +49,8 @@ struct RecordingBriefSheet: View {
     private static let pages: [Page] = [
         Page(
             image: "brief-p1",
-            title: "Put the camera to the side",
-            body: "We recommend filming from the side, as close to side-on as you can get, level with your half and raised to about head height. If filming from the side is difficult, a diagonal view works too. Choose the side you do not serve from, so you are never standing between the camera and the table when a point starts. For most right-handers that is the forehand side.",
+            title: "Let the camera see both halves",
+            body: "Put it to the side of your half, or diagonally behind your corner, raised to about head height. Anywhere in that band works, as long as it can see both halves and every corner of the table is in the picture. Never straight behind a player. Choose the side you do not serve from. For most right-handers that is the forehand side.",
             showSetups: true,
             recordingNote: "The next screen draws the table where it should sit. Line the real one up with it before you start."
         ),
