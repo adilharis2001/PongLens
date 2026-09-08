@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createClient } from "@/lib/supabase/server";
 import { CSS } from "../styles";
+import { callKey, excusedCounts, rowKey, type RowVerdict } from "../rowCalls";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,8 @@ interface Row {
   app_no: number | null;
   prod_t0: number | null;
   prod_t1: number | null;
+  tap?: number | null;
+  holds_press?: boolean | null;
   verdict: string;
   mine?: Card[];
 }
@@ -151,6 +154,26 @@ export default async function V3AcrossMatchesPage() {
   if (!isAdmin) notFound();
 
   const data = await load();
+
+  // Adil's row calls on this page: a flagged row he called "fine" is the
+  // reference's fault, and is shown beside the number rather than in it.
+  const { data: rowVerdicts } = await supabase
+    .from("research_row_verdicts")
+    .select("match_id,row_s,verdict")
+    .eq("page", "v3-serve-detector");
+  const calls = new Map<string, string>();
+  for (const v of (rowVerdicts ?? []) as RowVerdict[]) calls.set(callKey(v.match_id, Number(v.row_s)), v.verdict);
+  const excusedOf = (matchId: string, rows: Row[]) =>
+    excusedCounts(rows, (r) => {
+      const k = rowKey(r);
+      return k == null ? null : calls.get(callKey(matchId, k));
+    });
+  const excused = new Map(data.map((d) => [d.meta.matchId, excusedOf(d.meta.matchId, d.rows)]));
+  const exTotal = { missed: 0, fused: 0, extra: 0, short: 0, junk: 0 };
+  for (const e of excused.values()) {
+    exTotal.missed += e.missed; exTotal.fused += e.fused; exTotal.extra += e.extra; exTotal.short += e.short; exTotal.junk += e.junk;
+  }
+  const fine = (n: number) => (n > 0 ? <span className="muted"> ({n} you called fine)</span> : null);
   const total = data.reduce(
     (a, d) => ({
       points: a.points + d.summary.points,
@@ -217,14 +240,15 @@ export default async function V3AcrossMatchesPage() {
                     </td>
                     <td>{s.points}</td>
                     <td className="good">{s.ok}</td>
-                    <td className="hard">{s.missed}</td>
-                    <td className="hard">{s.fused}</td>
-                    <td className="easy">{s.extra}</td>
+                    <td className="hard">{s.missed}{fine(excused.get(meta.matchId)?.missed ?? 0)}</td>
+                    <td className="hard">{s.fused}{fine(excused.get(meta.matchId)?.fused ?? 0)}</td>
+                    <td className="easy">{s.extra}{fine(excused.get(meta.matchId)?.extra ?? 0)}</td>
                     <td className="easy">
                       {s.on_deleted + s.nowhere}
                       <span className="muted"> ({s.on_deleted} on cards you had deleted)</span>
+                      {fine(excused.get(meta.matchId)?.junk ?? 0)}
                     </td>
-                    <td>{s.short}</td>
+                    <td>{s.short}{fine(excused.get(meta.matchId)?.short ?? 0)}</td>
                     <td>
                       {s.srv_agree}/{s.srv_agree + s.srv_disagree}
                     </td>
@@ -234,14 +258,15 @@ export default async function V3AcrossMatchesPage() {
                   <td>All {data.length} matches</td>
                   <td>{total.points}</td>
                   <td className="good">{total.ok}</td>
-                  <td className="hard">{total.missed}</td>
-                  <td className="hard">{total.fused}</td>
-                  <td className="easy">{total.extra}</td>
+                  <td className="hard">{total.missed}{fine(exTotal.missed)}</td>
+                  <td className="hard">{total.fused}{fine(exTotal.fused)}</td>
+                  <td className="easy">{total.extra}{fine(exTotal.extra)}</td>
                   <td className="easy">
                     {total.del}
                     <span className="muted"> ({total.onDeleted} on cards you had deleted)</span>
+                    {fine(exTotal.junk)}
                   </td>
-                  <td>{total.short}</td>
+                  <td>{total.short}{fine(exTotal.short)}</td>
                   <td>
                     {total.srvA}/{total.srvN}
                   </td>

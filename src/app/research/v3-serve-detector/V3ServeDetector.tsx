@@ -3,6 +3,13 @@
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { CSS } from "./styles";
+import { adjustedStats, callKey, pct, rowKey, type RowVerdict } from "./rowCalls";
+
+export type { RowVerdict } from "./rowCalls";
+
+// A stable empty default: a fresh [] on every render would re-run the whole
+// effect, which tears the page down and rebuilds it.
+const NO_ROW_VERDICTS: RowVerdict[] = [];
 
 export interface MatchMeta {
   match: string;
@@ -52,12 +59,15 @@ export interface Verdict {
 export function V3ServeDetector({
   matches,
   initialVerdicts,
+  initialRowVerdicts = NO_ROW_VERDICTS,
   dataBase = "/research/v3-serve-detector",
   assetBase = dataBase,
   heading,
 }: {
   matches: MatchMeta[];
   initialVerdicts: Verdict[];
+  /** Adil's calls on this page's ROWS (research_row_verdicts), see rowCalls.ts. */
+  initialRowVerdicts?: RowVerdict[];
   /** Where compare.json is read from, per match. */
   dataBase?: string;
   /**
@@ -165,6 +175,16 @@ export function V3ServeDetector({
     const CALLS = new Map<string, string>();
     for (const v of initialVerdicts)
       CALLS.set(`${v.match_id}|${Number(v.serve_s).toFixed(1)}`, v.verdict);
+    // Adil's calls on ROWS: is the flag on this row my mistake or the
+    // reference's? Keyed like CALLS, by the row's reference time. The page
+    // this is (body-detector, v3-serve-detector) is part of the key on the
+    // server, so the map only ever holds this page's calls.
+    const ROWCALLS = new Map<string, { verdict: string; note: string }>();
+    for (const v of initialRowVerdicts)
+      ROWCALLS.set(callKey(v.match_id, Number(v.row_s)), { verdict: v.verdict, note: v.note ?? "" });
+    const PAGE = dataBase.replace(/^\/research\//, "");
+    const esc = (x: string) =>
+      x.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
     const vid = $<HTMLVideoElement>("vid");
     const clip = $<HTMLDivElement>("clip");
@@ -411,6 +431,12 @@ export function V3ServeDetector({
                 ? r.srv === "agree"
                 : f === "called_false"
                   ? CALLS.get(`${META.matchId}|${(verdictKey(r) ?? -1).toFixed(1)}`) === "false"
+                  : f === "called_fine"
+                    ? rowCall(r)?.verdict === "fine"
+                    : f === "called_wrong"
+                      ? rowCall(r)?.verdict === "wrong"
+                      : f === "uncalled"
+                        ? (r.verdict !== "ok" || r.holds_press === false) && !rowCall(r)
                   : f === "bodies"
                     ? r.mine.some((m: any) => m.why && m.why.indexOf("bodies") >= 0)
                     : r.verdict === f;
@@ -435,34 +461,36 @@ export function V3ServeDetector({
       // The five percentages, in the owner's own order of what matters.
       // Each maps to the filter that shows the failures behind it. `good`
       // says whether a high number is good, for the colour.
-      const pcts = (c: any) => {
+      // Each percentage twice: as flagged, and with the rows Adil called
+      // "fine" set aside (rowCalls.ts). Only this page's own cards carry
+      // calls; the other page's column shows the flagged number alone.
+      const pcts = (c: any, own: boolean) => {
         const S = c.summary;
-        const pts = c.rows.filter((r: any) => r.kind === "point");
-        const pressed = pts.filter((r: any) => r.tap != null);
-        const short = pressed.filter((r: any) => r.holds_press === false).length;
-        const missed = pts.filter((r: any) => r.verdict === "missed").length;
+        const st = adjustedStats(c.rows, S, own ? (r: any) => rowCall(r)?.verdict : () => null);
         return [
-          ["Points found", pctOf(pts.length - missed, pts.length), "missed", true],
-          ["Clean", pctOf(S.ok, pts.length), "bad", true],
-          ["Endings hold your press", pctOf(pressed.length - short, pressed.length), "nopress", true],
-          ["Junk", pctOf(S.on_deleted + S.nowhere, S.cards), "junk_deleted", false],
-          ["Server right", pctOf(S.srv_agree, S.srv_agree + S.srv_disagree), "srv_disagree", true],
-        ] as [string, number | null, string, boolean][];
+          ["Points found", pct(st.found.raw), pct(st.found.adjusted), "missed", true],
+          ["Clean", pct(st.clean.raw), pct(st.clean.adjusted), "bad", true],
+          ["Endings hold your press", pct(st.holds.raw), pct(st.holds.adjusted), "nopress", true],
+          ["Junk", pct(st.junk.raw), pct(st.junk.adjusted), "junk_deleted", false],
+          ["Server right", pctOf(S.srv_agree, S.srv_agree + S.srv_disagree), null, "srv_disagree", true],
+        ] as [string, number | null, number | null, string, boolean][];
       };
       const tone = (v: number | null, good: boolean) =>
         v === null ? "" : (good ? v : 100 - v) >= 90 ? "v-ok" : (good ? v : 100 - v) >= 70 ? "v-extra" : "v-missed";
-      const cell = (v: number | null, cls: string) =>
-        "<td><b" + (cls ? ' class="' + cls + '"' : "") + ">" + (v === null ? "\u2014" : v + "%") + "</b></td>";
-      const p0 = pcts(cols[0]);
-      const p1 = both ? pcts(cols[1]) : null;
+      const cell = (v: number | null, cls: string, adj: number | null = null) =>
+        "<td><b" + (cls ? ' class="' + cls + '"' : "") + ">" + (v === null ? "\u2014" : v + "%") + "</b>" +
+        (adj !== null && adj !== v ? ' <span class="adj" title="with the rows you called fine set aside">' + adj + "% after your calls</span>" : "") +
+        "</td>";
+      const p0 = pcts(cols[0], true);
+      const p1 = both ? pcts(cols[1], false) : null;
       const head = (title: string) =>
         '<table class="stat"><thead><tr><th class="ttl">' + title + "</th><th>" + heads[0] + "</th>" +
         (both ? "<th>" + heads[1] + "</th>" : "") + "</tr></thead><tbody>";
       let h = '<div id="stattables">';
       h += head("How good");
-      p0.forEach(([label, v, f, good], i) => {
+      p0.forEach(([label, v, adj, f, good], i) => {
         h += '<tr data-f="' + f + '" class="' + (filter === f ? "sel" : "") + '"><td>' + label + "</td>" +
-          cell(v, tone(v, good)) + (p1 ? cell(p1[i][1], tone(p1[i][1], good)) : "") + "</tr>";
+          cell(v, tone(v, good), adj) + (p1 ? cell(p1[i][1], tone(p1[i][1], good)) : "") + "</tr>";
       });
       h += "</tbody></table>";
       const GROUPS: [string, [string, string, string][]][] = [
@@ -485,6 +513,11 @@ export function V3ServeDetector({
           ["srv_agree", "Right", "v-ok"],
           ["srv_disagree", "Wrong", "v-missed"],
         ]],
+        ["Your calls", [
+          ["called_fine", "Fine as is, the reference is off", "v-ok"],
+          ["called_wrong", "Genuinely wrong", "v-missed"],
+          ["uncalled", "Problems you have not called yet", ""],
+        ]],
       ];
       for (const [title, rows] of GROUPS) {
         h += head(title);
@@ -500,7 +533,14 @@ export function V3ServeDetector({
       }
       h += "</div>";
       const S0 = cols[0].summary;
-      h += '<div id="statdetail">You kept ' + S0.points + " cards and deleted " + S0.deleted + ". " +
+      const nCalls = { fine: 0, wrong: 0, unsure: 0 } as Record<string, number>;
+      for (const r of cols[0].rows) {
+        const c = rowCall(r);
+        if (c && c.verdict in nCalls) nCalls[c.verdict]++;
+      }
+      h += '<div id="statdetail">Your calls on this match: ' + nCalls.fine + " fine as is, " + nCalls.wrong +
+        " genuinely wrong, " + nCalls.unsure + " unsure. " +
+        "You kept " + S0.points + " cards and deleted " + S0.deleted + ". " +
         S0.serves_raw + " serve detections, " + S0.serves_hand + " thrown out as a pass-and-hold; " +
         S0.blind_cards + " cards never saw the ball cross the net; dead-ball split found " + S0.dead_runs + ".</div>";
       $("summary").innerHTML = h;
@@ -511,6 +551,26 @@ export function V3ServeDetector({
             o.classList.toggle("sel", (o as HTMLElement).dataset.f === filter);
           render();
         });
+    }
+
+    function rowCall(r: any): { verdict: string; note: string } | null {
+      const k = rowKey(r);
+      return k == null ? null : (ROWCALLS.get(callKey(META.matchId, k)) ?? null);
+    }
+
+    async function saveRowCall(key: number, verdict: string | null, note: string) {
+      const k = callKey(META.matchId, key);
+      if (verdict === null) ROWCALLS.delete(k);
+      else ROWCALLS.set(k, { verdict, note });
+      try {
+        await fetch("/api/research/row-verdict", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ page: PAGE, matchId: META.matchId, rowS: key, verdict, note }),
+        });
+      } catch {
+        /* the call is already on screen; a failed save is retried by clicking again */
+      }
     }
 
     function render() {
@@ -657,12 +717,68 @@ export function V3ServeDetector({
                 )
                 .join("") +
               "</div>";
+        // Adil's call on the ROW, beside the call on the serve: fine as it
+        // is (the tap or production card is what is off), genuinely wrong,
+        // or unsure, with a note. Every row gets one, so a card that looks
+        // right can be called wrong too.
+        const rk = rowKey(r);
+        const rc = rk == null ? null : (ROWCALLS.get(callKey(META.matchId, rk)) ?? null);
+        const rcHtml =
+          rk == null
+            ? ""
+            : '<div class="vd rc">' +
+              [["fine", "fine as is"], ["wrong", "genuinely wrong"], ["unsure", "unsure"]]
+                .map(
+                  ([v, text]) =>
+                    '<button data-rv="' + v + '" aria-pressed="' + (rc?.verdict === v) + '" title="' +
+                    (v === "fine"
+                      ? "my card is fine here; the tap or production card is what is off, or the flag does not matter"
+                      : v === "wrong"
+                        ? "my card is genuinely wrong here"
+                        : "cannot tell from the footage") +
+                    '">' + text + "</button>",
+                )
+                .join("") +
+              '<input class="rcnote" placeholder="why, if you like" value="' + esc(rc?.note ?? "") + '">' +
+              "</div>";
         tr.innerHTML =
           "<td>" + mine + "</td><td>" + truth + "</td><td>" + srv + "</td>" +
           '<td><span class="chip ' + cls + '">' + label + "</span>" + nopress +
           (r.note ? '<div class="why">' + r.note + "</div>" : "") +
-          timeline(r) + vd + "</td>";
+          timeline(r) + vd + rcHtml + "</td>";
         tr.addEventListener("click", () => play(r, tr));
+        if (rk != null) {
+          const key = rk;
+          const noteEl = tr.querySelector("input.rcnote") as HTMLInputElement | null;
+          const paint = (v: string | null) => {
+            for (const o of Array.from(tr.querySelectorAll(".rc button")))
+              o.setAttribute("aria-pressed", String(v !== null && (o as HTMLElement).dataset.rv === v));
+          };
+          for (const b of Array.from(tr.querySelectorAll(".rc button"))) {
+            b.addEventListener("click", (ev) => {
+              ev.stopPropagation();
+              const v = (b as HTMLElement).dataset.rv!;
+              const now = ROWCALLS.get(callKey(META.matchId, key));
+              const next = now?.verdict === v ? null : v;
+              saveRowCall(key, next, noteEl ? noteEl.value : "");
+              paint(next);
+              buildStats();
+            });
+          }
+          if (noteEl) {
+            // Typing in the note must not seek the video (the row's click
+            // plays it) and a note with no call yet is saved as "unsure".
+            noteEl.addEventListener("click", (ev) => ev.stopPropagation());
+            noteEl.addEventListener("keydown", (ev) => ev.stopPropagation());
+            noteEl.addEventListener("change", () => {
+              const now = ROWCALLS.get(callKey(META.matchId, key));
+              const v = now?.verdict ?? "unsure";
+              saveRowCall(key, v, noteEl.value);
+              paint(v);
+              buildStats();
+            });
+          }
+        }
         if (key != null) {
           for (const b of Array.from(tr.querySelectorAll(".vd button"))) {
             b.addEventListener("click", (ev) => {
@@ -1195,7 +1311,7 @@ export function V3ServeDetector({
       // A <video> removed from the document keeps playing with sound.
       vid.pause();
     };
-  }, [matches, initialVerdicts, dataBase, assetBase, heading]);
+  }, [matches, initialVerdicts, initialRowVerdicts, dataBase, assetBase, heading]);
 
   if (!matches.length) {
     return (

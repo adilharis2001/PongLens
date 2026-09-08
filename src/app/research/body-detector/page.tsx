@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   V3ServeDetector,
   type MatchMeta,
+  type RowVerdict,
   type Verdict,
 } from "../v3-serve-detector/V3ServeDetector";
 
@@ -51,10 +52,19 @@ export default async function BodyDetectorPage() {
     .from("v3_card_verdicts")
     .select("match_id,serve_s,verdict");
 
+  // Adil's calls on this page's rows: which flags are the reference's
+  // fault. Per page, because the body cards and the ball cards over the
+  // same point are different cards.
+  const { data: rowVerdicts } = await supabase
+    .from("research_row_verdicts")
+    .select("match_id,row_s,verdict,note")
+    .eq("page", "body-detector");
+
   return (
     <V3ServeDetector
       matches={matches}
       initialVerdicts={(verdicts ?? []) as Verdict[]}
+      initialRowVerdicts={(rowVerdicts ?? []) as RowVerdict[]}
       dataBase="/research/body-detector"
       // The overlay, the boxes and the keypoints describe the video, which
       // is the same video the serve detector reviews. Read them from there

@@ -162,4 +162,15 @@ export const CSS = `
   border-color:#5d2f2f; }
 .v3 .vd button[aria-pressed="true"][data-v="unsure"] { background:#1d1a12; color:#ffc978;
   border-color:#584526; }
+.v3 .vd.rc { margin-top:5px; flex-wrap:wrap; align-items:center; }
+.v3 .vd button[aria-pressed="true"][data-rv="fine"] { background:#12211a; color:#7fd4a0;
+  border-color:#2c4a3a; }
+.v3 .vd button[aria-pressed="true"][data-rv="wrong"] { background:#1f1213; color:#ff9a9a;
+  border-color:#5d2f2f; }
+.v3 .vd button[aria-pressed="true"][data-rv="unsure"] { background:#1d1a12; color:#ffc978;
+  border-color:#584526; }
+.v3 .vd input.rcnote { font:inherit; font-size:11.5px; padding:2px 9px; border-radius:999px;
+  border:1px solid #2a323d; background:#0f1319; color:#c7d2e0; min-width:150px; flex:1; }
+.v3 .vd input.rcnote::placeholder { color:#5d6773; }
+.v3 table.stat .adj { color:#8b97a7; font-size:11px; font-weight:400; white-space:nowrap; }
 `;

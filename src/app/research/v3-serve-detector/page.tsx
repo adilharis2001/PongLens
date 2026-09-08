@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { createClient } from "@/lib/supabase/server";
-import { V3ServeDetector, type MatchMeta, type Verdict } from "./V3ServeDetector";
+import { V3ServeDetector, type MatchMeta, type RowVerdict, type Verdict } from "./V3ServeDetector";
 
 export const dynamic = "force-dynamic";
 
@@ -43,10 +43,16 @@ export default async function V3ServeDetectorPage() {
     .from("v3_card_verdicts")
     .select("match_id,serve_s,verdict");
 
+  const { data: rowVerdicts } = await supabase
+    .from("research_row_verdicts")
+    .select("match_id,row_s,verdict,note")
+    .eq("page", "v3-serve-detector");
+
   return (
     <V3ServeDetector
       matches={matches}
       initialVerdicts={(verdicts ?? []) as Verdict[]}
+      initialRowVerdicts={(rowVerdicts ?? []) as RowVerdict[]}
     />
   );
 }
