@@ -582,17 +582,25 @@ struct LessonVideoDetailScreen: View {
     private func attribution(_ detail: LessonVideoDetail) -> some View {
         if LessonVideo.canSetCoach(detail.video, isOwner: detail.isOwner) {
             CoachGroup {
+                // The share switch IS the share control. It used to be bound
+                // to a constant, sitting above a second card of Share, Keep
+                // it to myself and Stop sharing buttons: two answers to one
+                // question, and the switch was a fake. Now the switch is the
+                // whole of it, and it is shown once the recap is saved, which
+                // is when there is something to share.
                 CoachPickerRow(
                     coaches: journal.playerCoaches,
                     coachRefId: Binding(get: { coachRefId }, set: { setCoach($0) }),
-                    shareWithCoach: .constant(false),
+                    shareWithCoach: Binding(get: { detail.sharedNow }, set: { setShared($0) }),
                     noCoach: Binding(get: { noCoach }, set: { if $0 { setCoach(nil) } }),
                     requireAnswer: true,
                     shareNoun: "this recap",
+                    showShare: detail.video.status == "ready",
                     onCreate: { await journal.createCoach(named: $0) },
                     onAppearReload: { await journal.loadCoaches() }
                 )
                 .padding(16)
+                .disabled(busy)
             }
         }
     }
@@ -601,10 +609,11 @@ struct LessonVideoDetailScreen: View {
     @ViewBuilder
     private func actions(_ detail: LessonVideoDetail) -> some View {
         let video = detail.video
-        // Older servers do not say; until they do, ready-with-somebody
-        // means shared.
-        let shared = video.shared ?? (video.status == "ready" && video.hasRecipient)
-        let canShare = video.canShare(isOwner: detail.isOwner)
+        let shared = detail.sharedNow
+        // A player's sharing lives on the switch above, beside who taught
+        // it. Only a coach's import, made FOR a student, keeps the button:
+        // they review it before it goes anywhere.
+        let canShare = video.student_id != nil && video.canShare(isOwner: detail.isOwner)
         let canRetry = detail.isOwner && video.status == "failed"
         let hasNotes = video.edit?.chapters.isEmpty == false
         // A coach made it FOR a student; a player made it WITH a coach.
@@ -615,7 +624,7 @@ struct LessonVideoDetailScreen: View {
         let other = forStudent
             ? (studentName ?? "your student")
             : (coachName ?? "your coach")
-        let sharedWith = (detail.isOwner && shared && video.hasRecipient)
+        let sharedWith = (detail.isOwner && shared && video.student_id != nil)
         if canShare || canRetry || hasNotes || sharedWith || !detail.isOwner {
             VStack(alignment: .leading, spacing: 12) {
                 if canShare {
@@ -635,28 +644,12 @@ struct LessonVideoDetailScreen: View {
                 // who wants the recap in their own journal and nowhere
                 // else says so here, rather than finding out later that
                 // pressing the one button sent it.
-                if canShare && withCoach {
-                    Button { perform("share", share: false) } label: {
-                        Text("Keep it to myself").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(PLSecondaryButtonStyle()).disabled(busy)
-                }
-                if detail.isOwner && withCoach && shared && video.status == "ready" {
-                    Button { perform("unshare") } label: {
-                        Text("Stop sharing").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(PLSecondaryButtonStyle()).disabled(busy)
-                }
                 if canRetry {
                     Button { perform("retry") } label: { Text("Retry processing").frame(maxWidth: .infinity) }
                         .buttonStyle(PLSecondaryButtonStyle()).disabled(busy)
                 }
                 if sharedWith && forStudent {
                     Text("Shared with \(other). It is in their journal, and any edit you make here goes to them once you share it again.")
-                        .font(.plBody).foregroundStyle(PL.text400).lineSpacing(4)
-                }
-                if sharedWith && withCoach {
-                    Text("\(other) can read this recap. Stop sharing takes it back.")
                         .font(.plBody).foregroundStyle(PL.text400).lineSpacing(4)
                 }
                 if !detail.isOwner {
@@ -812,6 +805,7 @@ struct LessonVideoDetailScreen: View {
             let value: LessonVideoDetail = try await API.get("api/lesson-video", query: ["id": id.uuidString])
             let changed = detail?.video.revision != value.video.revision || detail?.video.status != value.video.status
             detail = value
+            await saveOnOpen(value)
             // The picker follows the row. "No coach" is only shown as an
             // answer once somebody has given it, so an unattributed recap
             // still reads as a question the first time it is opened.
@@ -826,6 +820,30 @@ struct LessonVideoDetailScreen: View {
             if !hadRecap { self.error = UserFacingError.message(error) }
         }
     }
+    /// The share switch. On is share, off is take it back.
+    private func setShared(_ on: Bool) {
+        if on { perform("share", share: true) } else { perform("unshare") }
+    }
+
+    /// A player's finished recap saves itself to their journal the first
+    /// time they open it, unshared. Adil, 2026-09-07: "the prepared recap
+    /// should just save to my profile, and that's it." There is no review
+    /// step for a lesson somebody had, only for one a coach made for a
+    /// student, and a Save recap button that had to be pressed before the
+    /// share switch meant anything was the button that read as reprocessing.
+    @State private var savedOnOpen = false
+    private func saveOnOpen(_ detail: LessonVideoDetail) async {
+        guard detail.isOwner, detail.video.student_id == nil,
+              detail.video.status == "review", !savedOnOpen else { return }
+        savedOnOpen = true
+        do {
+            let _: LessonVideoOK = try await API.post(
+                "api/lesson-video", LessonVideoAction(action: "share", id: id, share: false)
+            )
+            await load()
+        } catch { self.error = UserFacingError.message(error) }
+    }
+
     /// Record who taught it, and keep the picker showing the answer while
     /// the write is in flight.
     private func setCoach(_ id: UUID?) {

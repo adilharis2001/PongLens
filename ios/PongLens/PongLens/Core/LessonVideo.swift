@@ -102,6 +102,17 @@ struct LessonVideoDetail: Decodable {
     let playbackUrl: String?
     let posterUrl: String?
     let isOwner: Bool
+    /// Whether the other person can see it today. The detail response
+    /// carries this at the top level; the list response tucks it inside
+    /// each video. This screen read only the second place, so on a recap
+    /// page it was always missing and fell back to "ready with a coach
+    /// means shared". A player pressed Stop sharing twice, the call
+    /// succeeded both times, and the page went on saying Shared.
+    let shared: Bool?
+
+    /// One answer, from whichever place the server put it, and never a
+    /// guess: a recap is shared when the server says so.
+    var sharedNow: Bool { shared ?? video.shared ?? false }
 }
 struct LessonVideoList: Decodable { let videos: [LessonVideo] }
 struct LessonVideoAction: Encodable {
