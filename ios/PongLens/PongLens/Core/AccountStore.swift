@@ -154,6 +154,17 @@ struct NotificationRow: Codable, Identifiable, Hashable {
     let readAt: String?
     let createdAt: String
 
+    /// A feedback update opens its private state, not the ordinary match
+    /// page. This does not depend on the library having fetched that match.
+    var matchFeedbackId: UUID? {
+        guard ["match_issue_reported", "match_issue_updated"].contains(kind) else { return nil }
+        return matchId
+    }
+
+    /// Admin issue events are web-only review work. Their server href must
+    /// win over matchId, which otherwise opens the ordinary native match.
+    var opensHrefDirectly: Bool { href.hasPrefix("/admin/") }
+
     enum CodingKeys: String, CodingKey {
         case id, kind, title, body, href
         case matchId = "match_id"
@@ -176,10 +187,11 @@ final class NotificationsStore {
     /// for people using paid coaching on the web — those land in the bell
     /// there, where tapping them goes somewhere. Here they would be a row
     /// that does nothing, so they only come through with the marketplace.
-    private var kinds: [String] {
+    static var supportedKinds: [String] {
         var list = [
             "note", "match_ready", "match_failed", "upload_failed",
             "allowance_request", "allowance_decided",
+            "match_issue_reported", "match_issue_updated", "match_reprocess_ready", "match_reprocess_failed",
             "reel_ready", "reel_failed", "coach_joined",
             // Coach workspace (156): an entry shared with you, a student
             // joining, a student's match turning ready, and — the other
@@ -204,7 +216,7 @@ final class NotificationsStore {
         let fetched: [NotificationRow]? = try? await supa
             .from("notifications")
             .select("id,kind,match_id,title,body,href,group_count,read_at,created_at")
-            .in("kind", values: kinds)
+            .in("kind", values: Self.supportedKinds)
             .order("created_at", ascending: false)
             .limit(30)
             .execute().value

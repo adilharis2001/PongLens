@@ -18,7 +18,7 @@ async function defaultDependencies(): Promise<WebhookDependencies> {
   return {
     secret: process.env.RESEND_WEBHOOK_SECRET,
     apply: (id, event) =>
-      createAdminClient().rpc("apply_resend_beta_event", {
+      createAdminClient().rpc("apply_resend_event", {
         p_event_id: id,
         p_event: event,
       }),
@@ -29,7 +29,7 @@ async function defaultDependencies(): Promise<WebhookDependencies> {
   };
 }
 
-/** Signature, suppression, evidence and dedupe are one retry-safe operation.
+/** Signature, suppression, beta and match-issue receipts share one transaction.
  * SQL preserves the existing permanent-bounce/complaint rules for all mail.
  * Provider cancellation happens after commit and may request a webhook retry.
  */

@@ -23,7 +23,6 @@ import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { SpokenGamesToggle, SpokenLine, cleanSpoken } from "./SpokenScore";
 import { useRouter } from "next/navigation";
 import { AllowanceRecovery } from "@/components/AllowanceRecovery";
-import Link from "next/link";
 import { NoteComposer, NoteItem } from "./Notes";
 
 import { chargeMinutes, formatClock, formatMinutes } from "@/lib/commerce/minutes";
@@ -36,6 +35,7 @@ import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { TrimBar } from "@/components/TrimBar";
 import { ClipPlayer } from "./ClipPlayer";
+import { MatchFeedbackLink } from "./feedback/MatchFeedback";
 import { RawExportRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
 
 const MATCH_TYPES = ["drills", "practice", "match", "league", "tournament"] as const;
@@ -579,6 +579,8 @@ export function RawMatchView({
           the instant the video scrolls off the screen. It sat below the
           details for one release and the scrolling was the first thing
           anyone noticed. */}
+      {!isOwner && <div className="mt-4"><MatchFeedbackLink matchId={match.id} isOwner={false} matchStatus={match.status} activeVersionId={match.active_processing_version_id} /></div>}
+
       {isOwner && !jobRunning && commerceEnabled && !sourceGone && (
         <section className="mt-4 overflow-hidden rounded-2xl border border-edge bg-surface">
           {/* Closed by default. This screen's job is "watch this and
@@ -866,18 +868,7 @@ export function RawMatchView({
                 orients — maps, Me/Them labels — exists only after
                 processing, where the first-open banner asks anyway. A
                 question with no payoff does not belong on this page. */}
-            <Link
-              href={`/feedback?matchId=${match.id}`}
-              className={TOOL_ROW_CLASS}
-            >
-              <span className="text-sm font-semibold">Report an issue</span>
-              <span className="flex shrink-0 items-center gap-2">
-                <span className="shrink-0 text-xs text-zinc-500">
-                  Something look off?
-                </span>
-                <ToolRowChevron />
-              </span>
-            </Link>
+            <MatchFeedbackLink matchId={match.id} isOwner matchStatus={match.status} activeVersionId={match.active_processing_version_id} />
           </div>
         </section>
       )}

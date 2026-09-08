@@ -14,6 +14,13 @@ const COUNTS: PortalCounts = {
   matches: 33,
 };
 
+test("match issues have their own hub entry and waiting count independent of other counts", () => {
+  assert.equal(ADMIN_PAGES.some(p => p.href === "/admin/issues"), true);
+  assert.deepEqual(hubDetail("issues", null, null, null, null, 3), { text: "3 waiting", attention: true });
+  assert.equal(hubDetail("issues", COUNTS, null, null, null, 0), null);
+  assert.equal(hubDetail("issues", COUNTS, null, null, null, null), null);
+});
+
 test("every admin page has a distinct route under /admin", () => {
   const hrefs = ADMIN_PAGES.map((p) => p.href);
   assert.equal(new Set(hrefs).size, hrefs.length);

@@ -22,7 +22,6 @@ import {
   pointFlags,
   readAssembly,
   readTable,
-  retentionPct,
   routeExplanation,
   timelineSegments,
   timelineSummary,
@@ -51,6 +50,7 @@ import { PointCard } from "./PointCard";
 import { ServeMissView } from "./ServeMissView";
 import { TableQuad } from "./TableQuad";
 import { UploadTape } from "./UploadTape";
+import { UploadFact as Fact, UploadProcessingFacts, UploadPlaybackActions } from "../UploadProcessingSummary";
 
 /** Sentinel for "the tape is showing the original, not a card". */
 const RAW_TAPE = "__raw__";
@@ -353,7 +353,6 @@ export function UploadView({
 
   const src = matchJson?.source;
   const fps = fpsLabel(src?.fps);
-  const retention = retentionPct(totals.src_duration_s, totals.cut_duration_s);
   const playable = rows.filter((r) => r.cut_t0 !== null);
 
   return (
@@ -381,14 +380,7 @@ export function UploadView({
           </p>
         </div>
         <div className="shrink-0">
-          <button
-            type="button"
-            onClick={() => void openRaw()}
-            disabled={loadingRaw || !match.raw_available}
-            className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white disabled:opacity-50"
-          >
-            {loadingRaw ? "Loading…" : "Original"}
-          </button>
+          <UploadPlaybackActions onOriginal={() => void openRaw()} loadingOriginal={loadingRaw} hasOriginal={match.raw_available} />
         </div>
       </div>
       {!match.raw_available && (
@@ -469,27 +461,7 @@ export function UploadView({
                 : null
             }
           />
-          <Fact
-            label="Kept"
-            value={retention != null ? `${retention}%` : "—"}
-            detail={
-              formatClock(totals.src_duration_s) && formatClock(totals.cut_duration_s)
-                ? `${formatClock(totals.src_duration_s)} → ${formatClock(totals.cut_duration_s)}`
-                : null
-            }
-          />
-          <Fact
-            label="Cards"
-            value={String(totals.visible)}
-            detail={
-              totals.deleted > 0 ? `${totals.deleted} removed by owner` : null
-            }
-          />
-          <Fact
-            label="Scored"
-            value={`${totals.scored} of ${totals.visible}`}
-            detail={totals.starred > 0 ? `${totals.starred} starred` : null}
-          />
+          <UploadProcessingFacts totals={totals} />
           <Fact
             label="Resolution"
             value={src?.width ? `${src.width}×${src.height}` : "Not recorded"}
@@ -1235,24 +1207,6 @@ function Counted({
         {value}
       </dd>
       {detail && <p className="text-xs text-zinc-600">{detail}</p>}
-    </div>
-  );
-}
-
-function Fact({
-  label,
-  value,
-  detail = null,
-}: {
-  label: string;
-  value: string;
-  detail?: string | null;
-}) {
-  return (
-    <div className="rounded-2xl border border-edge bg-surface p-4">
-      <dt className="text-xs text-zinc-500">{label}</dt>
-      <dd className="mt-1 text-base font-medium text-zinc-100">{value}</dd>
-      {detail && <p className="mt-0.5 text-xs text-zinc-600">{detail}</p>}
     </div>
   );
 }

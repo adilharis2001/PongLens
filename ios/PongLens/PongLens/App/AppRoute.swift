@@ -13,6 +13,7 @@ enum AppRouteDestination: Equatable {
     case learn
     case tutorialVideos(LearnAudience)
     case feedback(matchId: UUID?)
+    case matchFeedback(UUID)
     case coachOrders
     case coachOfferings
     case coachProfile
@@ -39,6 +40,10 @@ enum AppRouteDestination: Equatable {
         case "coach-profile": return .coachProfile
         case "coach-sponsored": return .coachSponsored
         default:
+            if route.hasPrefix("match-feedback:"),
+               let id = UUID(uuidString: String(route.dropFirst("match-feedback:".count))) {
+                return .matchFeedback(id)
+            }
             if route.hasPrefix("lesson-video:"),
                let id = UUID(uuidString: String(route.dropFirst("lesson-video:".count))) {
                 return .lessonVideo(id)
@@ -90,6 +95,8 @@ private struct AppRoute: View {
             TutorialVideosScreen(audience: audience)
         case .feedback(let matchId):
             FeedbackScreen(matchId: matchId)
+        case .matchFeedback(let id):
+            MatchProcessingFeedbackScreen(matchId: id)
         case .coachOrders:
             if AppConfig.coachMarketplace { CoachOrdersScreen() }
         case .coachOfferings:

@@ -10,6 +10,7 @@ import {
  */
 
 export const ADMIN_PAGES = [
+  { key: "issues", href: "/admin/issues", title: "Match issues" },
   { key: "backlog", href: "/admin/backlog", title: "Backlog" },
   { key: "players", href: "/admin/players", title: "Players" },
   { key: "uploads", href: "/admin/uploads", title: "Uploads" },
@@ -100,8 +101,13 @@ export function hubDetail(
   /** admin_processing_counts: the queue and whether anything is beating.
    *  Its own query as well — and the most important one to isolate, since
    *  the case it reports is the platform being down. */
-  processing?: ProcessingCounts | null
+  processing?: ProcessingCounts | null,
+  issuesWaiting?: number | null
 ): HubDetail | null {
+  if (key === "issues") {
+    return typeof issuesWaiting === "number" && issuesWaiting > 0
+      ? { text: `${issuesWaiting} waiting`, attention: true } : null;
+  }
   // Answered before the counts guard — these numbers load separately,
   // and one failing must not blank the other's card.
   if (key === "backlog") {

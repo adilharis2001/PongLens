@@ -1,0 +1,83 @@
+
+> ponglens@0.1.0 test:email
+> node --test --experimental-strip-types src/lib/email/*.test.ts
+
+(node:90747) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/email/betaProvider.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ beta payload uses shared rendered HTML/text and keeps provider schedule and correlation private (2.131958ms)
+✔ create needs a valid provider ID, preserves exact payload/key, and meters accepted scheduling (31.208708ms)
+✔ unconfirmed acceptance stays unknown, explicit rejection is failed, missing configuration makes no network call (0.515291ms)
+✔ retrieve, early update and cancellation operate on the existing provider ID (0.554625ms)
+(node:90748) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/email/catalog.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ admin subjects identify the applicant instead of grouping every beta request together (1.225833ms)
+✔ beta receipt confirms the request without giving access early (0.195583ms)
+✔ beta admin notice describes a request, not an installation or completed invitation (0.212ms)
+✔ fixture catalog covers every TypeScript email state with unique identities (0.989292ms)
+✔ coaching messages are person-first and never leak private questions (0.177417ms)
+✔ purchase variants explain the grant the receipt actually added (0.159209ms)
+✔ the TestFlight sample contains one approved Apple invitation (0.2055ms)
+(node:90749) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/email/iosBetaEmails.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ a failed receipt does not misreport delivered admin notices or resend completed mail (2.764ms)
+✔ delivery keys distinguish the two messages and stay bound to the request (0.071584ms)
+✔ successful delivery stamps each independently completed message (0.147083ms)
+✔ visitor and administrator messages begin together so one provider delay cannot hold the other (2.118166ms)
+✔ visitor delivery failure does not prevent the administrator notification (0.121083ms)
+✔ an unexpected visitor send error is isolated from the administrator message (0.167833ms)
+✔ a failed visitor stamp is retryable and does not block the administrator (0.12175ms)
+✔ a suppressed visitor is stamped once and not represented as delivered (0.099625ms)
+✔ a suppressed administrator notification is also closed out (0.101083ms)
+✔ already completed messages cause no external calls (0.115833ms)
+✔ durable orchestration retries only Anton after a partial admin failure and never POSTs an accepted invite twice (1.558292ms)
+(node:90750) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/email/render.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ renderer preserves the message when images and theme CSS are unavailable (1.3335ms)
+✔ renderer refuses actions and item links outside approved destinations (1.075583ms)
+✔ authored text and action token pairs meet normal-text contrast (0.268542ms)
+(node:90751) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/email/resendWebhook.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ only a signed raw body reaches transactional beta/suppression ingestion (29.401916ms)
+✔ Supabase errors returned as values produce retryable failure, not a poisoned seen-set (0.41ms)
+✔ post-suppression cancellation failure requests webhook retry (0.384667ms)
+✔ signed suppression and replay finish for confirmed failures but retry ambiguous failures (3.630917ms)
+(node:90752) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/email/send.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ delivery sends one complete multipart transactional request (33.016833ms)
+✔ suppression stops customer delivery before the provider call (0.11075ms)
+✔ a provider failure remains best effort and is not metered (0.30725ms)
+✔ invalid idempotency keys and missing credentials never make a request (0.364333ms)
+(node:90753) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/email/svix.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ a correctly signed delivery verifies (1.890625ms)
+✔ a tampered body is rejected (0.156792ms)
+✔ a signature from a different secret is rejected (0.098ms)
+✔ replaying a signature under a different id is rejected (0.1435ms)
+✔ rotation: one matching signature among several passes (0.126541ms)
+✔ a header with no v1 entries is rejected (0.0755ms)
+✔ an empty secret cannot verify anything (0.068542ms)
+✔ timestamps inside the tolerance are fresh (0.092709ms)
+✔ a replayed timestamp outside the tolerance is stale (0.087125ms)
+✔ a non-numeric timestamp is stale (0.1025ms)
+ℹ tests 43
+ℹ suites 0
+ℹ pass 43
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 203.750458

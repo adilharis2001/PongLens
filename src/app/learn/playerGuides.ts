@@ -185,6 +185,17 @@ export const playerGuides: Guide[] = [
           { src: "/learn/original-m.jpg", alt: "The Original video takeover on a phone", kind: "m", phoneTwin: true },
         ],
       },
+      {
+        heading: "How was the cut?",
+        steps: [
+          "Open How was the cut? in the match's Tools. Choose Looks good or Request minutes back when it is available. Try processing again appears only while reprocessing requests are open and the original upload is available.",
+          "Describe any missing rallies or incorrect cuts, then send the request. This is a private review, separate from the public Feedback board.",
+          "The minute request shows the exact amount that can be returned for this match. Sending it does not return minutes immediately; you will be notified after review.",
+        ],
+        paragraphs: [
+          "Your current match stays available while a new version is prepared and reviewed. If a replacement is published, the previous version and its scores, notes, tags, shares, and coach feedback remain recoverable. They are not copied onto different rallies.",
+        ],
+      },
     ],
   },
   {

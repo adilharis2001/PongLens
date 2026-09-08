@@ -1,0 +1,15 @@
+(node:2262) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/match/%5Bid%5D/feedback/refreshInteraction.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ feedback polling preserves its real player and draft; publish and restore replace media (2164.021042ms)
+✔ ready match Tools requests a server refresh only for published or restored active IDs (991.864333ms)
+✔ a publish before signing refreshes canonical feedback state and retries with the new expected ID (491.453833ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4275.388334

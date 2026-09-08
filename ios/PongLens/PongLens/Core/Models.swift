@@ -235,6 +235,7 @@ struct MatchRow: Codable, Identifiable, Hashable {
     let firstServer: String?
     let clipPads: ClipPad?
     let placementStatus: String?
+    var activeProcessingVersionId: UUID? = nil
     /// The game-end detector's evidence (140/146). Optional and defaulted
     /// so every construction of MatchRow in tests and previews stands.
     var matchStructure: MatchStructure? = nil
@@ -262,13 +263,14 @@ struct MatchRow: Codable, Identifiable, Hashable {
         case firstServer = "first_server"
         case clipPads = "clip_pads"
         case placementStatus = "placement_status"
+        case activeProcessingVersionId = "active_processing_version_id"
         case matchStructure = "match_structure"
         case spokenScores = "spoken_scores"
         case createdAt = "created_at"
     }
 
     static let librarySelect =
-        "id,user_id,job_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,first_server,clip_pads,placement_status,spoken_scores,created_at,points(count)"
+        "id,user_id,job_id,opponent_name,venue,match_type,played_at,status,thumb_path,cut_path,raw_path,duration_s,original_name,user_side,first_server,clip_pads,placement_status,active_processing_version_id,spoken_scores,created_at,points(count)"
 
     /// One match, opened. Adds the game-end detector's evidence, which the
     /// library list has no use for — it is a JSONB blob per row and the

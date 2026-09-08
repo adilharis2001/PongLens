@@ -1,0 +1,148 @@
+
+> ponglens@0.1.0 test:tutorial
+> node --test --experimental-strip-types scripts/demos/tutorial/*.test.mjs
+
+✔ every browser coach chapter has a capture flow (8.016084ms)
+(node:90873) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/placement/placementAggregate.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ coach flows schedule every narration beat exactly once (5.71775ms)
+✔ every coach flow selector names accessible or scoped element intent (0.561417ms)
+✔ coach flows that can touch staged data declare the affected guard tables (0.244292ms)
+✔ coach match review stages a real Original and three trusted serve maps (47.41075ms)
+✔ coach match review leaves route time before its split analysis cue (1.384875ms)
+✔ coach media-loading covers stay inside silent narration holds (0.797708ms)
+✔ coach match review and feedback close overlays without reloading the match (0.284916ms)
+✔ coach lesson entry selects the student's real shared match (0.137834ms)
+✔ the coach scene runner can select an accessible match option (0.507666ms)
+✔ coach match routes wait through the signed preview placeholder (0.368ms)
+✔ coach Home and paid review block only automatic review sweeps (0.314041ms)
+✔ coach flow imports need only the coach and connected student accounts (66.187291ms)
+✔ the coach guard exposes an adapter boundary for cleanup testing (6.498792ms)
+✔ a completed coach flow restores changed rows and removes marker rows (0.68875ms)
+✔ a coach flow that throws mid-beat still restores deleted rows and marker rows (0.568792ms)
+✔ the capture guard dispatches coach scopes through the guarded adapter (0.363834ms)
+✔ an interrupted player placement stage restores lifecycle, placement JSON, and its raw object (0.893208ms)
+✔ coach staging owns the complete read-mostly tutorial state (2.138917ms)
+(node:90874) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/learn/catalog.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ importing the publisher has no credential, filesystem, or network side effects (130.646125ms)
+✔ publish plans select only catalog-owned course keys and namespaced outputs (4.526917ms)
+✔ publish CLI accepts one full course and an optional dry-run only (0.32175ms)
+✔ prepared publish manifests verify files and report exact immutable metadata (2.445916ms)
+✔ a failed chapter verifier prevents creation of a publish manifest (2.213125ms)
+✔ publication PUTs verified bytes with fixed metadata and confirms remote size by HEAD (2.709875ms)
+✔ publication rejects a changed local file, an outside key, or a HEAD size mismatch (1.93975ms)
+✔ dry-run prints the exact local manifest without loading R2 credentials (0.241958ms)
+✔ chapter references accept only known courses and path-safe slugs (0.157459ms)
+✔ chapter paths keep player and coach media in separate directories (0.194875ms)
+✔ capture accepts exactly one catalog-owned course and chapter (0.156666ms)
+✔ tts accepts only an optional reuse flag after a catalog chapter (0.197208ms)
+✔ renderer accepts exactly one catalog-owned course and chapter (0.165958ms)
+✔ probe validates its course, account, route, and supported steps (0.304916ms)
+✔ guard recovery accepts only a catalog-owned course and chapter (0.14775ms)
+✔ media production defaults to both complete web course catalogs (0.044625ms)
+✔ explicit platform validation excludes web-only coach media from iOS (0.094667ms)
+✔ every catalog record has a unique course slug and catalog-owned media key (0.1055ms)
+✔ every namespaced player flow still imports the shared account module (3.94525ms)
+(node:90875) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/learn/catalog.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ narration line metadata rejects duplicate and non-sequential identifiers (3.628041ms)
+✔ player narration matches the approved course and catalog (7.0895ms)
+✔ coach narration matches the approved course and catalog (2.2995ms)
+✔ coach narration excludes unavailable recording claims (2.506209ms)
+✔ paid reviews are web-only coach media (0.683959ms)
+(node:90876) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/learn/catalog.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ native capture driver and manifest are executable production inputs (51.911958ms)
+✔ capture arguments reject bad input before credentials are needed (1.224584ms)
+✔ coach capture resolves only the fixed verified demo identity by default (0.193333ms)
+✔ coach capture requires one exact auth user and matching coach profile (0.224875ms)
+✔ simulator selection requires an available iPhone on iOS 26.5 (0.822208ms)
+✔ iOS build products stay outside the web source tree (0.341917ms)
+✔ capture subprocesses receive only the explicit safe environment (70.257209ms)
+✔ capture cleanup stops the recorder and app on success and failure (0.656458ms)
+✔ a failed child command is reported instead of silently ignored (62.177833ms)
+✔ app cleanup still waits for its console when simulator termination fails (0.343333ms)
+✔ recorder shutdown waits for simctl to finalize the movie (21.319833ms)
+✔ recording starts only after the ready screen has cleared its presentation overlay (0.265417ms)
+✔ native inserts are catalog-owned, time bounded, and exclude paid reviews (0.663917ms)
+✔ native video dimensions are discovered before render (72.020542ms)
+✔ capture finalization keeps a static final screen for the requested duration (279.4605ms)
+✔ render preparation stages player inserts and promotes the coach source (206.020167ms)
+(node:90877) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/learn/catalog.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ legacy keep-score recovery restores the scored-at timestamp with the outcome (2.158292ms)
+✔ the player flow set follows the Learn catalog in course order (0.302958ms)
+✔ every player narration beat is scheduled exactly once by its real flow (15.465708ms)
+✔ keep score locates the shipping two-span Skip control by its DOM text (0.327166ms)
+✔ keep score leaves a visible hold before performing the note-panel swipe (0.184458ms)
+✔ keep score does not spend three seconds probing two failed panel dismissals (0.187209ms)
+✔ analysis does not target the hidden shot filter in the serve-only map (0.217542ms)
+✔ analysis jumps to the remounted placement section before measuring it (0.180834ms)
+✔ analysis reveals the staged map on the current match without reloading between beats (0.276209ms)
+✔ export jumps directly to distant point cards before measuring their controls (0.296125ms)
+✔ export targets the visible tag-card number after deleted points are removed (0.225875ms)
+✔ export centers the visible number of its staged starred point (0.218666ms)
+✔ export expands the point list before jumping to a distant tagged card (0.210125ms)
+✔ player coach opens the visible number of the staged feedback point (0.6325ms)
+✔ player coach waits for the signed point clip before cueing it (0.218958ms)
+✔ player coach leaves enough silent transition time to sign in as the coach (1.699416ms)
+✔ player point leaves the clip-loading cover inside a silent hold (0.407833ms)
+✔ capture covers start after the narration boundary settles (0.19625ms)
+✔ player journal types an askable phrase before expecting the Ask row (0.25575ms)
+✔ player journal cues a stable Recollect topic instead of its one-time notice (0.146708ms)
+✔ every player flow that changes staged data declares how it is restored (0.2935ms)
+✔ viewer performs the narrated middle double-tap replay (0.205458ms)
+✔ viewer finishes opening the real player before the recording clock starts (0.140959ms)
+✔ point uses the current serve question instead of the retired how summary (0.214084ms)
+✔ point waits for the signed match preview after closing the point sheet (0.290625ms)
+✔ point reopens its staged rally without reloading the match route (0.2055ms)
+✔ point highlights the current Notes section without waiting on one staged sentence (0.180083ms)
+✔ point scrolls section labels within the point dialog (0.152834ms)
+✔ point scopes visible clip-repair controls to the point dialog (0.160917ms)
+✔ viewer demonstrates real right 2x and left quarter-speed holds (0.177833ms)
+✔ upload opens the real player-side file chooser without selecting a file (0.169834ms)
+✔ upload highlights the shipping page title without requiring a removed subtitle (0.145208ms)
+✔ upload brings How to record on screen before measuring its cue (0.134416ms)
+✔ upload waits for the current camera guide title (0.144583ms)
+✔ upload schedules both match-detail cues long enough after a normal route load (2.027208ms)
+✔ upload visibly opens the shipping Your side picker without changing it (0.229ms)
+✔ upload closes Match details with Done before opening Your side (0.473084ms)
+✔ point opens the genuine missing-rally affordance and sheet (0.208375ms)
+✔ point holds the final missing-rally sheet into the chapter tail (0.171292ms)
+✔ point notes require the verified demo owner and leave cleanup to the player guard (0.223041ms)
+✔ player recovery rejects a note marker outside the vetted owner match and point (0.481333ms)
+✔ disk-backed point recovery removes the exact note left by an interrupted capture (3.440458ms)
+✔ full capture cleanup preserves a pre-existing marker and removes only the staged copy (0.343291ms)
+✔ documented coach staging runs psql only with both required credentials (325.285959ms)
+(node:90879) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/learn/catalog.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ accepts a render whose media, timing, cues, narration, and catalog agree (3.59825ms)
+✔ rejects the wrong video geometry or codecs (2.037417ms)
+✔ rejects a render more than 0.25 seconds away from voice plus bookends (2.087583ms)
+✔ rejects cues outside the 390 by 844 viewport or narration interval (1.898584ms)
+✔ rejects a cue too short to be visible (2.040292ms)
+✔ rejects voice words that differ from the approved manifest (1.690084ms)
+✔ rejects a title that differs from the Learn catalog (2.214291ms)
+✔ rejects output over 60 seconds (1.501083ms)
+✔ rejects forbidden coach recording-roadmap wording in captions (2.673042ms)
+ℹ tests 112
+ℹ suites 0
+ℹ pass 112
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 868.258

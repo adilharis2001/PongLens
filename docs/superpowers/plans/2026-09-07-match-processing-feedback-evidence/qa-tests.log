@@ -1,0 +1,108 @@
+
+> ponglens@0.1.0 test:qa
+> node --test --experimental-strip-types src/lib/qa/*.test.ts
+
+(node:93244) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/qa/areaPaths.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ every mapped path still exists (1.963708ms)
+✔ every area has at least one path (0.0855ms)
+✔ a changed file selects the areas that render it (0.90975ms)
+✔ prefixes match on a path boundary, not on characters (0.1485ms)
+✔ the worker selects processing and email (0.077542ms)
+✔ private processing support selects match and processing verification on either client (0.112125ms)
+✔ paths the map says nothing about are reported, not swallowed (0.186708ms)
+✔ the feedback board is a mapped area (0.07725ms)
+✔ surfaceless paths are quiet, so the warning keeps meaning something (0.117458ms)
+✔ every surfaceless prefix still exists (0.22175ms)
+(node:93245) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/qa/csv.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ plain values are written bare (1.028792ms)
+✔ commas, quotes and newlines are quoted (0.082416ms)
+✔ leading and trailing space survives a round trip (0.062125ms)
+✔ a cell that looks like a formula cannot execute (0.069959ms)
+✔ a formula that also needs quoting keeps the guard inside the quotes (0.093625ms)
+✔ rows join with commas (0.074208ms)
+✔ a document starts with a BOM and uses CRLF between rows (0.091959ms)
+✔ a multiline cell does not break the row count (0.06825ms)
+✔ lists become one readable cell (0.091833ms)
+✔ the download file name is sanitised (0.141541ms)
+✔ a plain document parses into rows (0.89475ms)
+✔ quoted fields keep their commas, quotes and newlines (0.10275ms)
+✔ a quoted newline does not split the record (0.056291ms)
+✔ CRLF, LF and a BOM all parse the same (0.073709ms)
+✔ an empty document is empty rather than one blank row (0.076375ms)
+✔ the formula guard is removed on the way back in (0.071833ms)
+✔ what we write is what we read: a full round trip (0.090542ms)
+✔ records are keyed by a header that may have been title-cased (0.113ms)
+✔ a short row leaves the missing columns empty rather than undefined (0.054417ms)
+(node:93246) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/qa/import.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ a blank id creates and a known id updates (1.560916ms)
+✔ display labels from the export are accepted as well as keys (0.1505ms)
+✔ empty severity, kind and area fall back rather than failing (0.86125ms)
+✔ one bad row does not take the others with it (0.201958ms)
+✔ errors name the line a person sees in the spreadsheet (0.13ms)
+✔ an id nobody can edit is refused rather than silently inserted (0.166167ms)
+✔ a malformed id or match id is caught (0.165708ms)
+✔ a match address in the spreadsheet becomes the match id (0.171125ms)
+✔ a title longer than the column is caught before the database sees it (0.244833ms)
+✔ multiline steps survive the round trip into a plan (0.440458ms)
+✔ a column the importer does not know is reported, not ignored (0.150583ms)
+✔ video_seconds takes a clock reading or a number (0.079875ms)
+✔ an empty file is an empty plan, not an error (0.080292ms)
+(node:93247) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/qa/matchRef.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ nothing typed is not an error (1.599417ms)
+✔ a bare id is taken as written, in either case (1.60625ms)
+✔ the whole address works, which is what people actually copy (0.283625ms)
+✔ a share link is refused by name, not as gibberish (0.189ms)
+✔ the token that started this is refused with instructions (0.108584ms)
+✔ a nearly-right id is still refused (0.071041ms)
+✔ the picker label leads with the date and survives a blank match (31.703917ms)
+✔ a match still processing says so in the label (0.211334ms)
+(node:93248) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/qa/runs.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ ISO weeks start on Monday (2.011875ms)
+✔ a week spanning new year belongs to the year holding its Thursday (0.106583ms)
+✔ the period is fixed for a once-only case and weekly otherwise (0.081ms)
+✔ a mark made last week no longer counts as run (0.1345ms)
+✔ a once-only case stays marked forever (0.080959ms)
+✔ a result for a case that no longer exists is ignored (0.05775ms)
+✔ progress counts what has been run, and how it went (0.913458ms)
+✔ a pass on one surface does not answer for another (0.130166ms)
+✔ the other surfaces are reported for a case, in library order (0.199333ms)
+✔ a surface the case does not apply to is not reported as untested (0.150209ms)
+(node:93249) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/qa/testLibrary.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ case ids are unique and namespaced by area (1.878708ms)
+✔ every case is executable by someone who did not build this (0.3575ms)
+✔ a blocked case says why it cannot be run (0.081333ms)
+✔ every area has cases, and every area has a title (0.171083ms)
+✔ the smoke set is small enough to actually run every deploy (0.090041ms)
+✔ casesAtDepth widens rather than narrows (0.117417ms)
+✔ search text covers the fields the filter box offers (0.079791ms)
+✔ the area vocabulary matches the qa_bugs check constraint (0.612333ms)
+✔ every case names surfaces that exist (0.281084ms)
+✔ iOS and Android carry the same cases (0.996834ms)
+✔ no surface opens with an empty release set (0.109833ms)
+✔ the surface vocabulary matches the qa_case_results check constraint (0.535041ms)
+ℹ tests 72
+ℹ suites 0
+ℹ pass 72
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 187.642291

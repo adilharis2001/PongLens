@@ -271,6 +271,10 @@ struct MainTabView: View {
                         path.append(match)
                     }
                 },
+                onOpenMatchFeedback: { matchId in
+                    bellOpen = false
+                    path.append("match-feedback:\(matchId.uuidString.lowercased())")
+                },
                 onOpenHref: { href in
                     if href.hasPrefix("/admin/"), let url = URL(string: "https://www.ponglens.com" + href) {
                         bellOpen = false

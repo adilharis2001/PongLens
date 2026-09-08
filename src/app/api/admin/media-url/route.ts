@@ -39,16 +39,34 @@ export async function POST(req: Request) {
   let matchId: string;
   let pointId: string;
   let raw: boolean;
+  let versionId: string;
   try {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
     pointId = String(body.pointId ?? "");
     raw = Boolean(body.raw);
+    versionId = String(body.versionId ?? "");
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
   if (!matchId) {
     return NextResponse.json({ error: "Missing matchId" }, { status: 400 });
+  }
+
+  if (versionId) {
+    if (raw || pointId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(versionId)) return NextResponse.json({ error: "Invalid version request" }, { status: 400 });
+    // The explicit admin RPC is the only path to candidate media. Never sign
+    // a client-supplied path or use player/coach media endpoints for versions.
+    const { data, error } = await supabase.rpc("admin_match_version_detail", { p_version_id: versionId });
+    if (error || data?.version?.match_id !== matchId) return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+    const loc = parseR2(data.version.cut_path);
+    if (!loc) return NextResponse.json({ error: "Video not ready" }, { status: 409 });
+    try {
+      const url = await presignGet(loc.bucket, loc.key, { expiresSeconds: 3600, disposition: "inline" });
+      return NextResponse.json({ url }, { headers: { "Cache-Control": "no-store" } });
+    } catch {
+      return NextResponse.json({ error: "Could not create a media link. Try again shortly." }, { status: 500 });
+    }
   }
 
   const { data: path, error } = pointId

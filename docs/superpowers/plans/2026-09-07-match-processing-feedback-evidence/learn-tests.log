@@ -1,0 +1,53 @@
+
+> ponglens@0.1.0 test:learn
+> node --test --experimental-strip-types src/app/learn/guides.test.ts
+
+(node:8819) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/learn/guides.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ cut feedback is discoverable in the correct player and coach guides on both platforms (1.291541ms)
+✔ Learn audience uses only eligible player and coach URL overrides (0.077875ms)
+✔ tutorial video global nav follows the active workspace, not a Learn override (0.276708ms)
+✔ tutorial progress stays separate between player and coach workspaces (0.075583ms)
+✔ dual-role eligibility requires completed player setup and coach evidence (0.08975ms)
+✔ generated iOS catalog stays fresh and excludes web-only coach commerce (2.782291ms)
+✔ catalog selectors filter guides, sections, groups, and related links (0.357042ms)
+✔ catalog selectors find only visible slugs and derive tutorial totals (0.1415ms)
+✔ legacy guide redirects preserve both renamed routes (0.080917ms)
+✔ coach guide relationships stay visible on their platform (0.192458ms)
+✔ legacy guideBySlug defaults to the web catalog (0.086083ms)
+✔ web guide screenshots cover the refreshed player and coach workflows (1.907708ms)
+✔ externally staged Learn states ship as real desktop and mobile captures (0.095583ms)
+✔ guide search helpers retain their legacy behavior (0.082667ms)
+✔ chapter visibility preserves the player course and filters iOS coach paid review (0.06175ms)
+✔ tutorial requests return only the course catalog visible on the requested platform (0.09325ms)
+✔ tutorial requests match slugs only inside the selected catalog (0.063ms)
+✔ tutorial requests reject invalid catalogs and never turn request strings into media keys (0.047833ms)
+✔ tutorial URL route preserves legacy single-chapter requests (31.799041ms)
+✔ tutorial URL route preserves legacy empty-body and empty-object batches (1.637166ms)
+✔ tutorial URL route rejects unknown legacy chapters and arbitrary paths (0.591333ms)
+✔ tutorial URL route rejects malformed and partial new requests without legacy fallback (1.168125ms)
+✔ tutorial URL route signs only catalog media for the new course-platform contract (0.509292ms)
+✔ tutorial URL route requires authentication before signing either contract (0.107792ms)
+✔ tutorial URL failure state clears stale URLs and retry returns to loading (0.836417ms)
+✔ tutorial URL failure names the selected chapter (0.094709ms)
+✔ web tutorial uses one named retry treatment in both responsive players (0.32825ms)
+✔ coach guide curriculum is complete and paid reviews stay web-only (0.113417ms)
+✔ coach lesson recording guide is audio-only and covers the live action (0.081333ms)
+✔ every visible guide opens with at least three quick steps (0.093583ms)
+✔ player curriculum retains established guides and gates recording to iOS (0.15275ms)
+✔ player placement guidance describes the current serve-only maps (0.083875ms)
+✔ Instagram highlight instructions render only for iOS players (0.049834ms)
+✔ tutorial metadata matches the approved player and coach courses (0.131667ms)
+✔ catalog validation accepts the seeded catalog (0.270042ms)
+✔ catalog validation names every invalid relationship (0.147ms)
+✔ catalog validation rejects related guides without shared visibility (0.071667ms)
+ℹ tests 37
+ℹ suites 0
+ℹ pass 37
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 203.359917

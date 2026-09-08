@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import time
+import uuid
 from contextlib import contextmanager
 from typing import Any, Callable, Iterable
 
@@ -56,6 +57,26 @@ def _positive(value: Any) -> float:
 
 def _dict(value: Any) -> dict:
     return value if isinstance(value, dict) else {}
+
+
+@contextmanager
+def sql_savepoint(conn):
+    """Keep a fail-soft SQL operation from aborting its caller's transaction."""
+    if getattr(conn, "autocommit", True):
+        yield
+        return
+    name = f"worker_{uuid.uuid4().hex}"
+    with conn.cursor() as cur:
+        cur.execute(f"savepoint {name}")
+    try:
+        yield
+        with conn.cursor() as cur:
+            cur.execute(f"release savepoint {name}")
+    except Exception:
+        with conn.cursor() as cur:
+            cur.execute(f"rollback to savepoint {name}")
+            cur.execute(f"release savepoint {name}")
+        raise
 
 
 # OpenAI never reports cache WRITES in a usage payload — it reports how many
@@ -150,7 +171,7 @@ class CostMeter:
         if not normalized:
             return
         try:
-            with self.connection.cursor() as cursor:
+            with sql_savepoint(self.connection), self.connection.cursor() as cursor:
                 cursor.execute(
                     "select public.record_cost_usage(%s::jsonb)",
                     (json.dumps(normalized, separators=(",", ":")),),

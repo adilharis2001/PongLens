@@ -1,0 +1,183 @@
+
+> ponglens@0.1.0 test:match-structure
+> node --test --experimental-strip-types 'src/app/match/[[]id[]]/matchStructure.test.ts' 'src/app/match/[[]id[]]/gameScore.test.ts' 'src/app/match/[[]id[]]/serving.test.ts' 'src/app/match/[[]id[]]/insertGeometry.test.ts' 'src/app/match/[[]id[]]/playhead.test.ts' 'src/app/match/[[]id[]]/tapZone.test.ts' src/lib/research/matchStructureMigration.test.ts 'src/app/match/[[]id[]]/highlights.test.ts' 'src/app/match/[[]id[]]/sideChanges.test.ts' 'src/app/match/[[]id[]]/clipEdit.test.ts'
+
+(node:90849) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/match/%5Bid%5D/clipEdit.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ moving the start earlier moves the anchor by the same amount (0.896708ms)
+✔ moving only the end leaves the anchor alone (0.077083ms)
+✔ dissolving a tight start restores the full pad in front (0.084375ms)
+✔ an anchor clamped at the start of the video stays consistent (1.072292ms)
+✔ a legacy point with no anchor keeps none (0.095083ms)
+✔ a round trip through undo is exact (0.08025ms)
+(node:90850) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/match/%5Bid%5D/gameScore.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ gameWinner needs 11 and a clear two (0.924416ms)
+✔ an auto boundary always names a winner (1.03125ms)
+✔ a pinned end on a barely scored game counts for nobody (0.120959ms)
+✔ a pinned end on an entirely unscored game counts for nobody (0.084667ms)
+✔ a pinned end on a finished game still counts (0.07975ms)
+✔ a continue holds the game open past the auto rule (0.067084ms)
+✔ the boundary button names the tap, and every tap has an inverse (0.106458ms)
+✔ every boundary tap is its own undo (0.116083ms)
+✔ an owner-named winner makes an unprovable pinned game count (0.106209ms)
+✔ resolvedGameWinner: the named winner beats the heuristic (0.107667ms)
+✔ runningScoreByPoint: the score once each point was played (0.107916ms)
+✔ runningScoreByPoint: a closing point carries the game's final (0.068334ms)
+✔ runningScoreByPoint: a pinned end closes wherever it lands (0.064083ms)
+✔ runningScoreByPoint agrees with computeMatchScore's boundaries (0.098833ms)
+(node:90851) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/match/%5Bid%5D/highlights.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ decodes only a complete continuous ready asset (1.334375ms)
+✔ passes through non-playable server states (0.891666ms)
+✔ maps an overlap to the incoming rally (0.098541ms)
+✔ web presentation has one row and no tape-seek implementation (1.330708ms)
+(node:90852) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/match/%5Bid%5D/insertGeometry.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ a span is the rally's place in the cut video (0.988917ms)
+✔ a split edge keeps only a sliver of pad (0.080542ms)
+✔ the Jose seam: 24.1s of source, 23.1s of it missing (0.113792ms)
+✔ a continuous seam reports nothing removed (0.071042ms)
+✔ source maps into the cut inside either rally, and holds at the seam (0.110834ms)
+✔ every second of a continuous seam is watchable (0.083375ms)
+✔ the handles open on the gap when there is a real one (0.094083ms)
+✔ a smeared rally opens straddling the seam instead (0.146292ms)
+✔ handles cannot swallow a neighbour whole (0.084083ms)
+✔ dragging one handle leaves the other alone and keeps a rally's length (0.154ms)
+✔ the new card lands between its neighbours in the cut timeline (0.093708ms)
+✔ a card can be added before the first rally or after the last (0.083917ms)
+✔ the offer appears where the video skipped, not between every card (0.098167ms)
+✔ a legacy point with no cut_t0 cannot anchor anything (0.057375ms)
+✔ an insert into a cut-away seam has to play its own clip (0.065917ms)
+✔ a normally cut card is shown by the cut video (0.043167ms)
+✔ an insert into a CONTINUOUS seam stays on the cut video (0.039375ms)
+✔ it cannot tell without both neighbours, and says so (0.057792ms)
+✔ a tail insert past the cut's end needs its own clip (0.0715ms)
+✔ the real first and last cards never trip the edge rules (0.071917ms)
+✔ ownClipIds flags the insert and never its real neighbours (0.916375ms)
+✔ a hand-edited overlap never flags a real card (0.081041ms)
+✔ ownClipIds is quiet on an untouched timeline (0.085583ms)
+✔ cutToSourceLinear inverts sourceToCut across a continuous seam (0.078709ms)
+(node:90853) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/match/%5Bid%5D/matchStructure.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ user first server outranks opposite detection (1.706958ms)
+✔ high-confidence near maps through a far user side (0.089958ms)
+✔ manual scoring ignores a detector-authored first server (0.083541ms)
+✔ manual first-server answers become user authoritative (0.062917ms)
+✔ detected exact boundary suppresses an earlier score boundary (0.662458ms)
+✔ score boundary inside a bracket resolves without moving (0.199417ms)
+✔ explicit user end wins over detected boundary (0.225667ms)
+✔ low coverage withholds boundary application (0.126167ms)
+(node:90854) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/match/%5Bid%5D/playhead.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ the answer freeze sits a full beat after the rally end (1.129875ms)
+✔ the freeze clamps just before an adjacent rally's padded start (0.086875ms)
+✔ a tight_end point keeps its 0.3s sliver (0.065791ms)
+✔ nextCutStart walks to the next visible cut point (0.090583ms)
+✔ the winner tap trims the padded end, plus its half-second guard (0.120666ms)
+✔ a tap near the clip's end never pushes past it (0.064875ms)
+✔ the kill switch restores the padded end exactly (0.06825ms)
+✔ an untapped point keeps its padded end (0.083208ms)
+✔ a hand-edited point keeps its edited end, tap or no tap (0.080584ms)
+✔ a tap before its own clip start is a slip, not a boundary (0.129166ms)
+✔ no cut offsets, no answer — same null as paddedEnd (0.087917ms)
+✔ a deleted card's footage is a span, clamped to the next rally (1.251084ms)
+✔ a tap tail swallows the junk card behind it, one merged span (0.157041ms)
+✔ the last rally's tail stops at its own padded end (0.078584ms)
+✔ an untapped rally leaves no span — its tail plays as it always has (0.084458ms)
+✔ inside a pick the tape stays put (0.097583ms)
+✔ outside a pick the tape jumps straight to the next one — one hop (0.061125ms)
+✔ a boundary fired exactly at a span's end jumps immediately (0.048917ms)
+✔ past the last pick the tape ends (0.041166ms)
+✔ an unscored point ends at its observed rally end plus the buffer (0.087875ms)
+✔ the tap outranks the rally wherever both exist (0.037667ms)
+✔ a slipped tap falls back to the padded end, never to the rally (0.032458ms)
+✔ with the tap flag off, a scored point still refuses the rally (0.03525ms)
+✔ the rally kill switch restores the padded end exactly (0.035458ms)
+✔ a rally end near the clip's end never pushes past it (0.029958ms)
+✔ no observed rally end means today's behaviour, not an early cut (0.039542ms)
+✔ a rally end before its own clip start is refused (0.030541ms)
+✔ a hand-edited point keeps its edited end, rally or no rally (0.044041ms)
+✔ a bigger buffer trims less, and zero is not silently substituted (0.05525ms)
+✔ skipSpans jumps a rally-trimmed tail, not only a tapped one (0.079916ms)
+✔ an ending that cannot explain the point's own end is refused (0.037334ms)
+✔ a run of deleted cards fuses into one jump, not one per card (0.064459ms)
+✔ a merge never spans a rally somebody kept (0.081417ms)
+✔ a gap wider than the tolerance stays two jumps (0.0585ms)
+(node:90855) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/match/%5Bid%5D/serving.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ two serves each, alternating (1.425333ms)
+✔ no first server means no answer at all (0.100917ms)
+✔ one serve each from 10-10 (0.106416ms)
+✔ deuce is judged on the confirmed score, so unscored points hold it (0.071375ms)
+✔ a skipped point is served again and does not advance the rotation (0.07425ms)
+✔ the first server alternates at a game boundary (0.063208ms)
+✔ a correction that agrees with the walk changes nothing (0.084667ms)
+✔ a correction re-anchors every later point (0.209834ms)
+✔ a correction starts a new two-serve block (0.129459ms)
+✔ a correction clears nothing by itself — later ones still win (0.118625ms)
+✔ a correction carries across a game boundary (0.128833ms)
+✔ source names where the answer came from (0.074084ms)
+✔ one correction fixes a rally the cut missed (0.07825ms)
+✔ firstServerGuess reads the detector through user_side (0.102542ms)
+(node:90856) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/match/%5Bid%5D/sideChanges.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ the flag off draws nothing (1.782209ms)
+✔ a practice match draws nothing (0.080916ms)
+✔ withheld evidence draws nothing (0.070042ms)
+✔ no evidence at all draws nothing (0.063875ms)
+✔ an unconfirmed change is diagnostics, never a marker (0.169042ms)
+✔ a confirmed change anchors to its own point (0.099708ms)
+✔ a deleted anchor point is recovered from the gap time (0.125ms)
+✔ a change with nothing to anchor to is dropped, not guessed (0.070791ms)
+✔ a gap before the first rally anchors to nothing (0.077292ms)
+✔ a change after the last rally has no between to sit in (0.115083ms)
+✔ a scored boundary on the same point silences it (0.115791ms)
+✔ a scored boundary three rallies away still silences it (0.11825ms)
+✔ a scored boundary four rallies away does not silence it (0.088ms)
+✔ an owner's pinned end nearby silences it (0.074583ms)
+✔ an owner's 'continue' silences it too, and makes no boundary (0.076167ms)
+✔ dismissing hides that marker and nothing else (0.085125ms)
+✔ an unscored match shows every detection (0.108708ms)
+✔ markers go quiet one at a time as the match gets scored (0.102875ms)
+✔ two detections cannot land on one rally (0.080416ms)
+✔ write the parity fixture (1.881875ms)
+(node:90857) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/match/%5Bid%5D/tapZone.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ the outer thirds keep the meaning halves gave them (0.820166ms)
+✔ the middle third replays (0.071125ms)
+✔ the boundaries sit exactly on the thirds (0.062833ms)
+✔ an unmeasured surface answers replay rather than guessing (0.057ms)
+✔ the split holds at any width (0.079625ms)
+(node:90858) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/research/matchStructureMigration.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ existing first servers become user authoritative (1.068541ms)
+✔ match structure and source values are constrained (0.115458ms)
+ℹ tests 131
+ℹ suites 0
+ℹ pass 131
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 170.392667

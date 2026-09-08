@@ -1,0 +1,47 @@
+iOS 26.2 local simulator teardown finding, 2026-09-07
+
+Destination: iPhone 16e, iOS Simulator 26.2 (23C54), arm64.
+No signed-in account. Actual hosted SwiftUI views; local transport fixtures.
+
+1. MatchIssueTests/testFeedbackScreenFixtureSnapshots()
+   Result: FAILED (process abort after first captured state).
+   Bundle: /tmp/ponglens-task9-native-small.xcresult
+   Exported crash: /tmp/ponglens-task9-native-small-attachments/1B5C862E-3AB6-454D-A771-A35C7A033554.ips
+   Main-thread stack, consecutive relevant frames:
+     ___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED
+     swift::TaskLocal::StopLookupScope::~StopLookupScope()
+     swift_task_deinitOnExecutorImpl(void*, void (void*) swiftcall*, swift::SerialExecutorRef, unsigned long)
+     MatchIssueModel.__deallocating_deinit [MatchIssue.swift]
+     _swift_release_dealloc
+     destroy for StoredLocationBase.Data
+
+2. MatchIssueTests/testBaselineHostedAllowanceAndNotesTeardown()
+   Result: FAILED with the same abort.
+   Uses unchanged NotesStore and AllowanceRequestRow, no MatchIssueModel,
+   no match-feedback screen, no polling or feedback client.
+   Bundle: /tmp/ponglens-task9-native-baseline-teardown.xcresult
+   Exported crash: /tmp/ponglens-task9-native-baseline-teardown-attachments/9E8EF2BD-5CE0-4B0B-A466-8C8F558579C2.ips
+   Main-thread stack, consecutive relevant frames:
+     ___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED
+     swift::TaskLocal::StopLookupScope::~StopLookupScope()
+     swift_task_deinitOnExecutorImpl(void*, void (void*) swiftcall*, swift::SerialExecutorRef, unsigned long)
+     NotesStore.__deallocating_deinit [PointActions.swift]
+     _swift_release_dealloc
+     destroy for StoredLocationBase.Data
+
+3. Same source/tests on iOS Simulator 26.5
+   iPhone 17 Pro: both tests PASSED, whole focused suite 19 passed.
+   Small iPhone 17e: both tests PASSED, whole focused suite 19 passed.
+   Full logs: ios-pro-tests.log and ios-small-tests.log in this directory.
+
+   Later receipt and notification coverage increased the focused suite to
+   24 tests; that final suite also passed on both iOS 26.5 devices.
+
+Inference: the reproduced failure is not unique to MatchIssueModel or its
+polling ownership. It also affects a minimal existing observable store in
+the same hosted refreshable-view teardown on the 26.2 runtime. This does
+not prove its exact compiler/runtime cause or physical-device scope.
+
+No deinit shim, runtime workaround, test skip or build setting change was
+added. The explicit baseline comparison test is retained. iOS 26.2 remains
+unverified/failed for release until this broader issue is resolved.

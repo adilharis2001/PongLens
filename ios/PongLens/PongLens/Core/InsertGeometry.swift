@@ -244,10 +244,9 @@ func gapWorthOffering(
 /// can be presented with `.sheet(item:)`.
 struct InsertSeamPair: Identifiable {
     let id: UUID
-    /// Nil at the start of the match; `next` is nil at the end of it.
+    /// The neighbor is absent when the missing rally is at a match edge.
     let prev: MatchPoint?
     let next: MatchPoint?
-    /// Their numbers on the strip, so the sheet can show the real chips.
     let prevNumber: Int?
     let nextNumber: Int?
 }

@@ -140,6 +140,8 @@ export interface StoryCrop {
 
 export interface Match {
   id: string;
+  /** Omitted by legacy projections; ready detail reads include the active timeline. */
+  active_processing_version_id?: string | null;
   user_id: string;
   job_id: string | null;
   // A PERSON's name only (feeds the scorebug / rotation / search). The
@@ -604,6 +606,10 @@ export interface NoteFeedRow {
 export type NotificationKind =
   | "allowance_request"
   | "allowance_decided"
+  | "match_issue_reported"
+  | "match_issue_updated"
+  | "match_reprocess_ready"
+  | "match_reprocess_failed"
   | "note"
   | "match_ready"
   | "match_failed"

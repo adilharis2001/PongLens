@@ -55,10 +55,14 @@ export const AREA_PATHS: Record<TestArea, string[]> = {
     "src/lib/uploadGuard.ts",
     "src/lib/quota.ts",
   ],
-  // The worker is the whole pipeline: the cut, the point splitting and
-  // the content gate all live there, and nothing in src can break them.
-  processing: ["worker/", "src/app/api/process", "src/lib/costs"],
+  // Worker stages plus the request/version bookkeeping that controls
+  // when a processed result becomes active.
+  processing: ["worker/", "src/app/api/process", "src/lib/costs", "src/lib/matchIssues", "src/app/api/match-issues", "ios/PongLens/PongLens/Core/MatchIssue.swift"],
   match: [
+    "src/lib/matchIssues",
+    "src/app/api/match-issues",
+    "ios/PongLens/PongLens/Core/MatchIssue.swift",
+    "ios/PongLens/PongLens/Screens/MatchProcessingFeedbackScreen.swift",
     "src/app/match",
     "src/app/matches",
     "src/app/api/media-url",

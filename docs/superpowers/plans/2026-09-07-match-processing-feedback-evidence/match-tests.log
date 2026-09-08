@@ -1,0 +1,200 @@
+(node:8988) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/api/match-issues/%5BmatchId%5D/route.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ GET delivers the publication identity and actual failure refund receipt without account-balance inference (31.662667ms)
+✔ signed-out requests fail before match data is read (0.276208ms)
+✔ GET returns the server-owned eligibility and refund amount (0.265792ms)
+✔ invalid match ids and submission bodies never reach the database (0.663833ms)
+✔ database authorization and lifecycle conflicts retain their statuses (0.955417ms)
+✔ a saved submission succeeds even when its notification email fails (0.451375ms)
+✔ DELETE validates and cancels only the named issue (0.337792ms)
+(node:8989) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/match/%5Bid%5D/feedback/matchFeedbackView.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ failed matches show only a real automatic refund receipt, never a zero-balance inference (1.082209ms)
+✔ ready owners get server-eligible choices and the exact spend amount (0.8335ms)
+✔ uploaded owners report problems without cut-quality or economic choices (0.092875ms)
+✔ processing owners report problems without cut-quality or economic choices (0.062083ms)
+✔ failed owners report problems without cut-quality or economic choices (0.069417ms)
+✔ coach never gets owner choices or financial copy even if eligibility flags are stale (0.164333ms)
+✔ zero, absent or server-ineligible refunds never appear (0.089791ms)
+✔ pending presents the saved lifecycle, not job or current balance guesses (0.060417ms)
+✔ reprocess_queued presents the saved lifecycle, not job or current balance guesses (0.054583ms)
+✔ reprocessing presents the saved lifecycle, not job or current balance guesses (0.089667ms)
+✔ candidate_ready presents the saved lifecycle, not job or current balance guesses (0.0485ms)
+✔ resolved_reprocessed presents the saved lifecycle, not job or current balance guesses (0.0515ms)
+✔ resolved_refunded presents the saved lifecycle, not job or current balance guesses (0.032959ms)
+✔ declined presents the saved lifecycle, not job or current balance guesses (0.029625ms)
+✔ execution_failed presents the saved lifecycle, not job or current balance guesses (0.041125ms)
+✔ cancelled presents the saved lifecycle, not job or current balance guesses (0.039833ms)
+✔ positive acknowledgement does not prevent reporting a later problem (0.062583ms)
+✔ restored history describes the previous active version without offering another remedy (0.067916ms)
+✔ retry preserves its idempotency key, but changed content starts a new attempt (0.114875ms)
+(node:8990) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/match/%5Bid%5D/feedback/refreshInteraction.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ feedback polling preserves its real player and draft; publish and restore replace media (1942.05525ms)
+✔ ready match Tools requests a server refresh only for published or restored active IDs (959.559541ms)
+✔ a publish before signing refreshes canonical feedback state and retries with the new expected ID (414.435417ms)
+(node:9079) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/activeVersion.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ publish and restore change the identity that owns all point and signed-media state (3.896958ms)
+✔ unrelated issue updates and legacy responses do not invalidate the current playhead (0.159417ms)
+✔ version-bound preview reports a stale conflict without returning mismatched media (30.463791ms)
+(node:9082) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/activeVersionMedia.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ publish between point read and cut signing refuses stale identity; canonical retry signs the new cut (98.294708ms)
+✔ expected cut identity is strictly validated; older unversioned callers remain compatible (78.558125ms)
+(node:9083) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/adminActions.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ signed-out and non-admin callers cannot reach the refund RPC (30.517375ms)
+✔ invalid ids, absent player explanation, oversized or malformed notes cannot reach refund (1.630417ms)
+✔ successful refund passes only trimmed notes and returns the database's canonical result (1.290792ms)
+✔ repeated action returns saved result, with no client-calculated credit (0.542458ms)
+✔ conflicting decisions return the latest saved detail rather than replaying the action (0.299667ms)
+✔ database authorization is rechecked and delivery failure never undoes a saved refund (0.411833ms)
+(node:9088) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/adminReprocessActions.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ reprocess authenticates before touching the request or RPC (33.057208ms)
+✔ reprocess saves once before best-effort email and returns the canonical decision (0.919625ms)
+✔ reprocess returns saved state after a stale race without emailing (0.363417ms)
+✔ reprocess refuses invalid identity, notes and untrusted fields before saving (1.1105ms)
+✔ reprocess maps database failures without claiming a saved decision (0.466042ms)
+✔ publish authenticates before touching the request or RPC (0.163375ms)
+✔ publish saves once before best-effort email and returns the canonical decision (0.237625ms)
+✔ publish returns saved state after a stale race without emailing (0.124167ms)
+✔ publish refuses invalid identity, notes and untrusted fields before saving (0.354166ms)
+✔ publish maps database failures without claiming a saved decision (0.321125ms)
+✔ keep authenticates before touching the request or RPC (0.211833ms)
+✔ keep saves once before best-effort email and returns the canonical decision (0.387542ms)
+✔ keep returns saved state after a stale race without emailing (0.158875ms)
+✔ keep refuses invalid identity, notes and untrusted fields before saving (0.338792ms)
+✔ keep maps database failures without claiming a saved decision (0.297542ms)
+✔ close authenticates before touching the request or RPC (0.135083ms)
+✔ close saves once before best-effort email and returns the canonical decision (0.145792ms)
+✔ close returns saved state after a stale race without emailing (0.13625ms)
+✔ close refuses invalid identity, notes and untrusted fields before saving (0.25875ms)
+✔ close maps database failures without claiming a saved decision (0.234375ms)
+✔ restore authenticates before touching the request or RPC (0.136375ms)
+✔ restore saves once before best-effort email and returns the canonical decision (0.1255ms)
+✔ restore returns saved state after a stale race without emailing (0.100833ms)
+✔ restore refuses invalid identity, notes and untrusted fields before saving (0.247417ms)
+✔ restore maps database failures without claiming a saved decision (0.20525ms)
+✔ reprocess forwards only supported settings; restore accepts no client match or version (0.256791ms)
+✔ strictness must be a scalar string, never a coercible array (0.094875ms)
+(node:9096) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/adminVersionMedia.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ candidate signing uses only the admin RPC path after authentication and match binding (111.592708ms)
+✔ candidate signing rejects malformed identity or mixed original/point selection before the RPC (19.674ms)
+(node:9098) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/database.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ failed match state exposes exact automatic refund ledger receipts only to its owner (90.151459ms)
+✔ player history exposes only their request events and safe fields (96.200958ms)
+✔ owner eligibility and amounts come from the charged spend (93.998083ms)
+✔ a coach may report a problem but cannot request an owner remedy (87.105041ms)
+✔ ready-only remedies, idempotency, active uniqueness, and cancellation are enforced (99.735166ms)
+✔ order-funded processing offers no personal minute refund (95.707916ms)
+✔ refund returns the exact spend once and preserves match work (78.087541ms)
+✔ submission queues one support email and notifies the admin transactionally (85.529083ms)
+✔ simultaneous refund approvals create one reversal (394.922667ms)
+(node:9118) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/delivery.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ submission delivery uses a stable provider idempotency key (1.816625ms)
+✔ the optional issue filter reaches the durable queue reader (0.102167ms)
+✔ suppression is terminal while provider failure remains retryable (0.157208ms)
+✔ resolution email uses the event amount and player explanation (0.24525ms)
+✔ missing queue context is recorded as a retryable failure (0.128417ms)
+(node:9123) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/email.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ reprocessing requests lead support directly to the private admin issue (1.934542ms)
+✔ untrusted request text is escaped in HTML and remains readable in text (0.177708ms)
+✔ refund resolution states the exact server amount and the match remains available (0.161125ms)
+✔ reprocess, keep-current, decline, and failure use distinct calm outcomes (0.254375ms)
+(node:9126) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/input.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ submission input trims valid choices without changing the server-owned amount (2.078375ms)
+✔ problem reports require a useful message (0.207708ms)
+✔ positive and remedy messages may be empty and stop at 1000 characters (0.106167ms)
+✔ unknown choices and malformed idempotency keys are rejected (0.067792ms)
+✔ cancellation accepts only an issue UUID (0.085042ms)
+(node:9127) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/migration.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ the private match issue lifecycle is installed (0.962917ms)
+✔ clients cannot choose protected ownership or refund facts (0.518458ms)
+✔ one active remedy and one exact reversal survive concurrent admins (1.206375ms)
+✔ existing worker refunds are linked before reversal uniqueness is enforced (0.263292ms)
+✔ request permissions separate owner remedies from coach reports (0.216792ms)
+✔ refund resolution is append-only and preserves match content (0.19275ms)
+✔ submission creates durable admin notification and email work (0.158167ms)
+✔ only the service role can finish retryable email deliveries (0.22125ms)
+✔ tables are private and RPC grants are explicit (0.225333ms)
+(node:9128) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/versionDatabase.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ every existing point has a same-match active version; new legacy-style writes attach automatically (89.550833ms)
+✔ candidate start is admin-only, source-derived, idempotent and uncharged without changing the active match (97.106042ms)
+✔ owner and coach cannot select candidate points; admin uses explicit version detail (94.825875ms)
+✔ publish and restore preserve point identity, dependents and old point links while match links follow active (104.602625ms)
+✔ demo lifecycle preserves scored coach work through publish, restore and an exactly-once refund (132.64425ms)
+✔ inactive point mutation RPCs and dependent edits refuse stale ids (894.468375ms)
+✔ admin upload diagnostics stay on the active version while explicit candidate inspection remains available (112.481209ms)
+✔ null or unsupported reprocessing settings are refused before job creation (600.835625ms)
+✔ publication refuses a candidate whose worker has not completed (92.770083ms)
+✔ restoration refuses unfinished replacement jobs and missing completion evidence (397.5235ms)
+✔ single-point reel scope must name the active point in its single-point manifest (376.314333ms)
+✔ same-match deferred constraints and active pointer invariants reject corrupt version assignments (190.280333ms)
+✔ migration backfill preserves existing points and media rather than manufacturing new identities (90.267291ms)
+✔ missing raw source closes eligibility and rejects candidate creation (165.518333ms)
+✔ keeping current is idempotent and preserves notes, tags and coach drawings (112.389125ms)
+✔ clients cannot forge support jobs or read private candidate records (195.792958ms)
+✔ active point edits still work and queue only a version-bound active reclip (106.632375ms)
+✔ two admins publishing concurrently receive one canonical decision and one notification event (366.110416ms)
+✔ admin close requires player text, handles pending and failed requests once, and refuses running work (455.014625ms)
+✔ refund is exact for reprocess candidates, preserves artifacts and refuses already reversed or running spend (287.472542ms)
+✔ admin version facts and live refundable amount describe the exact active and candidate versions (103.790583ms)
+✔ issue-scoped restoration only restores that published replacement and records one restoration (205.933083ms)
+✔ legacy restore cannot activate an unpublished candidate (98.507125ms)
+✔ failed reprocessing can retry once with the same source and no extra charge (100.338542ms)
+✔ queue shows live refundable spend and detail keeps original job provenance after publication (97.785584ms)
+✔ the exact additive review migration replays from the prior action contracts (107.2295ms)
+✔ admin refund returns every eligible source spend and preserves each reversal's billing facts (91.6605ms)
+✔ an already reversed latest spend does not hide an earlier eligible source spend (94.593333ms)
+✔ simultaneous multi-spend refunds return one canonical total and one resolution (403.638834ms)
+(node:9251) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/versionMigration.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ version migration installs the version identities and admin lifecycle boundaries (0.972917ms)
+✔ version migration covers the existing edit, share and dependent-write entry points (0.418542ms)
+ℹ tests 132
+ℹ suites 0
+ℹ pass 132
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 13871.3695

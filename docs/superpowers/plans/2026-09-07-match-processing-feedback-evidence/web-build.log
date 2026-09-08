@@ -1,0 +1,190 @@
+
+> ponglens@0.1.0 build
+> next build
+
+ ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /Users/adil/package-lock.json as the root directory.
+ To silence this warning, set `outputFileTracingRoot` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/output#caveats for more information.
+ Detected additional lockfiles:
+   * /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package-lock.json
+   * /Users/adil/Desktop/Projects/PongLens/package-lock.json
+
+   ▲ Next.js 15.5.20
+
+   Creating an optimized production build ...
+ ⚠ Compiled with warnings in 4.7s
+
+./src/app/admin/uploads/[matchId]/CardTimeline.tsx
+Attempted import error: 'inferredBounceMarkers' is not exported from '../serveMiss' (imported as 'inferredBounceMarkers').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/CardTimeline.tsx
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+./src/app/admin/uploads/[matchId]/CardTimeline.tsx
+Attempted import error: 'inferredBounceMarkerTitle' is not exported from '../serveMiss' (imported as 'inferredBounceMarkerTitle').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/CardTimeline.tsx
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+Attempted import error: 'inferredBounceMarkers' is not exported from '../serveMiss' (imported as 'inferredBounceMarkers').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+Attempted import error: 'inferredBounceMarkerTitle' is not exported from '../serveMiss' (imported as 'inferredBounceMarkerTitle').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+Attempted import error: 'courtTrajectory' is not exported from '../serveMiss' (imported as 'courtTrajectory').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+Attempted import error: 'tablePathSegments' is not exported from '../serveMiss' (imported as 'tablePathSegments').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+Attempted import error: 'tableTrailAt' is not exported from '../serveMiss' (imported as 'tableTrailAt').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+ ⚠ Compiled with warnings in 2.2s
+
+./src/app/admin/uploads/[matchId]/CardTimeline.tsx
+Attempted import error: 'inferredBounceMarkers' is not exported from '../serveMiss' (imported as 'inferredBounceMarkers').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/CardTimeline.tsx
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+./src/app/admin/uploads/[matchId]/CardTimeline.tsx
+Attempted import error: 'inferredBounceMarkerTitle' is not exported from '../serveMiss' (imported as 'inferredBounceMarkerTitle').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/CardTimeline.tsx
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+Attempted import error: 'inferredBounceMarkers' is not exported from '../serveMiss' (imported as 'inferredBounceMarkers').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+Attempted import error: 'inferredBounceMarkerTitle' is not exported from '../serveMiss' (imported as 'inferredBounceMarkerTitle').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+Attempted import error: 'courtTrajectory' is not exported from '../serveMiss' (imported as 'courtTrajectory').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+Attempted import error: 'tablePathSegments' is not exported from '../serveMiss' (imported as 'tablePathSegments').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+Attempted import error: 'tableTrailAt' is not exported from '../serveMiss' (imported as 'tableTrailAt').
+
+Import trace for requested module:
+./src/app/admin/uploads/[matchId]/ServeMissView.tsx
+./src/app/admin/uploads/[matchId]/UploadView.tsx
+
+ ✓ Compiled successfully in 7.1s
+   Linting and checking validity of types ...
+
+./src/app/admin/reviews/ReviewsAdminSection.tsx
+3:8  Warning: 'Link' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/app/coach/[handle]/opengraph-image.tsx
+108:11  Warning: img elements must have an alt prop, either with meaningful text, or an empty string for decorative images.  jsx-a11y/alt-text
+
+./src/app/coaching/students/[id]/StudentView.tsx
+25:23  Warning: 'Point' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/app/coaching/videos/LessonVideos.tsx
+11:156  Warning: React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/app/journal/NotesFeed.tsx
+19:8  Warning: 'FocusPoint' is defined but never used.  @typescript-eslint/no-unused-vars
+29:3  Warning: 'sortCoaches' is defined but never used.  @typescript-eslint/no-unused-vars
+30:3  Warning: 'statusLabel' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/app/match/[id]/MatchView.tsx
+91:8  Warning: 'SideChangeMarker' is defined but never used.  @typescript-eslint/no-unused-vars
+
+./src/app/match/[id]/Player.tsx
+2600:6  Warning: React Hook useCallback has a missing dependency: 'nowT'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+2960:5  Warning: React Hook useCallback has a missing dependency: 'activeVideo'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3115:5  Warning: React Hook useCallback has a missing dependency: 'nowT'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3132:6  Warning: React Hook useCallback has a missing dependency: 'activeVideo'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3217:5  Warning: React Hook useCallback has a missing dependency: 'activeVideo'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3484:5  Warning: React Hook useCallback has a missing dependency: 'nowT'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3549:6  Warning: React Hook useCallback has a missing dependency: 'pauseBoth'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3587:6  Warning: React Hook useCallback has a missing dependency: 'activeVideo'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3711:6  Warning: React Hook useCallback has a missing dependency: 'pauseBoth'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3806:6  Warning: React Hook useCallback has a missing dependency: 'nowT'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+3891:5  Warning: React Hook useCallback has missing dependencies: 'activeVideo' and 'nowT'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+4013:5  Warning: React Hook useCallback has missing dependencies: 'activeVideo', 'nowT', and 'pauseBoth'. Either include them or remove the dependency array.  react-hooks/exhaustive-deps
+4162:6  Warning: React Hook useCallback has a missing dependency: 'pauseBoth'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+4278:5  Warning: React Hook useCallback has a missing dependency: 'pauseBoth'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+4335:5  Warning: React Hook useCallback has a missing dependency: 'pauseBoth'. Either include it or remove the dependency array.  react-hooks/exhaustive-deps
+
+./src/app/research/active-ball/ActiveBallReview.tsx
+158:31  Warning: Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+./src/app/research/fullmatch/FullMatch.tsx
+747:5  Warning: Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps').
+
+./src/app/research/v3-serve-detector/V3ServeDetector.tsx
+980:14  Warning: Unused eslint-disable directive (no problems were reported from 'jsx-a11y/media-has-caption').
+
+./src/lib/cameraGuideGate.test.ts
+104:14  Warning: '_door' is assigned a value but never used.  @typescript-eslint/no-unused-vars
+
+./src/lib/lessonVideo/presentation.test.ts
+35:64  Warning: '_' is defined but never used.  @typescript-eslint/no-unused-vars
+
+info  - Need to disable some ESLint rules? Learn more here: https://nextjs.org/docs/app/api-reference/config/eslint#disabling-rules
+Failed to compile.
+
+./src/app/admin/uploads/[matchId]/CardTimeline.tsx:7:3
+Type error: Module '"../serveMiss"' has no exported member 'inferredBounceMarkerTitle'.
+
+[0m [90m  5 |[39m   [33mLABEL_TONE[39m[33m,[39m
+ [90m  6 |[39m   bounceLabelCopy[33m,[39m
+[31m[1m>[22m[39m[90m  7 |[39m   inferredBounceMarkerTitle[33m,[39m
+ [90m    |[39m   [31m[1m^[22m[39m
+ [90m  8 |[39m   inferredBounceMarkers[33m,[39m
+ [90m  9 |[39m   labelFor[33m,[39m
+ [90m 10 |[39m   type [33mBounceLabel[39m[33m,[39m[0m
+Next.js build worker exited with code: 1 and signal: null

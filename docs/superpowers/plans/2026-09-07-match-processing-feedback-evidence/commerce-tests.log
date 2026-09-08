@@ -1,0 +1,66 @@
+
+> ponglens@0.1.0 test:commerce
+> node --test --experimental-strip-types src/lib/commerce/*.test.ts
+
+(node:90781) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/commerce/allowanceRecovery.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ storage refusals offer an allowance request, unrelated errors do not (0.7975ms)
+✔ recovery waits for configuration before offering requests or purchases (0.0735ms)
+✔ a finished download needing more minutes is recoverable without reimporting (0.09125ms)
+(node:90782) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/commerce/allowances.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ request validation accepts only the two resources and bounded optional text (1.625083ms)
+✔ admin notice uses shared branding and escapes player text (0.509833ms)
+(node:90783) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/commerce/commerceMigration.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ all five commerce tables exist (1.016ms)
+✔ matches learns the uploaded state and its raw source (0.083708ms)
+✔ clients never write money tables directly (0.084167ms)
+✔ lifecycle RPCs exist (0.158291ms)
+✔ worker and webhook RPCs demand the service role (0.082334ms)
+✔ the charge is whole minutes, rounded up, minimum one (0.0575ms)
+✔ storage counts raw and cut only, minus active-order holds (0.078542ms)
+✔ orders carry their funding; sponsored exits refund the credit (0.077166ms)
+✔ every money row is stamped with its billing mode (0.196625ms)
+✔ kill switch and launch values are seeded (0.119291ms)
+✔ the QA wall guards the sponsored claim (0.076209ms)
+✔ uploads enqueue a content check and remember a pass (0.076042ms)
+✔ check jobs never block the queue (0.078916ms)
+(node:90784) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/commerce/minutes.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ chargeMinutes mirrors the SQL: ceil to the minute, minimum one (0.762417ms)
+✔ chargeMinutes refuses nonsense (0.073583ms)
+✔ formatMinutes and formatGb read as words (0.091958ms)
+✔ formatClock covers both shapes (0.081125ms)
+(node:90785) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/commerce/packs.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ defaults round-trip through their own parser (1.863417ms)
+✔ bad entries are dropped, good ones kept (0.106542ms)
+✔ non-arrays parse to empty, never throw (0.138041ms)
+✔ storage months defaults to 12 when absent (0.099666ms)
+(node:90786) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/commerce/quotaGate.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+quota check failed: { message: 'unavailable' }
+✔ a full account cannot import a video of initially unknown size (0.886584ms)
+✔ uploads fit within the remaining storage allowance (0.086708ms)
+✔ a failed storage lookup cannot grant upload access (0.992833ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 150.57625

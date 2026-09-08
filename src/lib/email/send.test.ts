@@ -6,6 +6,7 @@ import {
   sendTransactionalEmail,
   type EmailDeliveryDependencies,
 } from "./send.ts";
+import * as sender from "./send.ts";
 
 const message = betaInvitationEmail(
   "https://testflight.apple.com/join/H9XdnySg",
@@ -20,7 +21,7 @@ test("delivery sends one complete multipart transactional request", async () => 
       return false;
     },
     async fetch(url, init) {
-      request = { url: String(url), init };
+      request = { url: String(url), init: init ?? {} };
       return new Response(JSON.stringify({ id: "email_123" }), { status: 200 });
     },
     async record(messageId) {
@@ -147,4 +148,37 @@ test("invalid idempotency keys and missing credentials never make a request", as
     ),
     /idempotency key/,
   );
+});
+
+test("accepted provider receipts survive metering failure and carry durable webhook correlation", async () => {
+  assert.equal(typeof sender.sendTransactionalEmailWithReceipt, "function");
+  let payload: Record<string, unknown> = {};
+  const result = await sender.sendTransactionalEmailWithReceipt({
+    to: "player@example.com", message, idempotencyKey: "match-issue-receipt", operation: "test",
+    tags: [{ name: "match_issue_delivery_id", value: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }],
+  }, {
+    apiKey: "re_test", async isSuppressed() { return false; },
+    async fetch(_url, init) {
+      payload = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ id: "accepted-provider-id" }), { status: 200 });
+    },
+    async record() { throw new Error("meter unavailable after provider accepted"); },
+    reportError() {},
+  });
+  assert.deepEqual(result, { state: "sent", providerEmailId: "accepted-provider-id" });
+  assert.deepEqual(payload.tags, [{ name: "match_issue_delivery_id", value: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" }]);
+});
+
+test("a retry sends the frozen provider bytes instead of rerendering a newer message", async () => {
+  const frozen = '{"to":["player@example.com"],"subject":"Previously prepared"}';
+  let bytes = "";
+  const receipt = await sender.sendTransactionalEmailWithReceipt({
+    to: "player@example.com", message, idempotencyKey: "frozen-send", operation: "test", preparedPayload: frozen,
+  }, {
+    apiKey: "re_test", async isSuppressed() { return false; },
+    async fetch(_url, init) { bytes = String(init?.body); return new Response('{"id":"frozen-provider"}'); },
+    async record() {},
+  });
+  assert.equal(bytes, frozen);
+  assert.deepEqual(receipt, { state: "sent", providerEmailId: "frozen-provider" });
 });

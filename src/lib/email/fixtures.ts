@@ -1,6 +1,7 @@
 import { betaAdminNoticeEmail, betaInvitationEmail, betaRequestReceivedEmail, confirmAccountEmail, magicLinkEmail, purchaseReceiptEmail, reviewLifecycleEmail, type ReviewMessageKind } from "./catalog.ts";
 import type { EmailMessage } from "./message.ts";
 import { allowanceRequestEmail } from "../commerce/allowances.ts";
+import { matchIssueResolutionEmail, matchIssueSubmissionEmail } from "./matchIssueEmails.ts";
 
 export type EmailFixture = { id: string; label: string; message: EmailMessage };
 
@@ -33,6 +34,32 @@ export function typescriptEmailFixtures(): EmailFixture[] {
     { id: "billing.receipt-minutes", label: "Processing minutes receipt", message: purchaseReceiptEmail({ kind: "minute_pack", title: "120 processing minutes", amount: "$12", purchaseDate: "September 4, 2026", paymentReference: "pi_preview_minutes", minutes: 120 }) },
     { id: "billing.receipt-storage", label: "Storage receipt", message: purchaseReceiptEmail({ kind: "storage", title: "25 GB storage", amount: "$24", purchaseDate: "September 4, 2026", paymentReference: "pi_preview_storage", gigabytes: 25, months: 12 }) },
     { id: "billing.receipt-review-credits", label: "Sponsored review credits receipt", message: purchaseReceiptEmail({ kind: "review_credits", title: "3 sponsored reviews", amount: "$45", purchaseDate: "September 4, 2026", paymentReference: "pi_preview_reviews", credits: 3 }) },
+  );
+  fixtures.push(
+    {
+      id: "ops.match-issue-submission",
+      label: "Match reprocessing request",
+      message: matchIssueSubmissionEmail({
+        issueId: "preview-issue",
+        matchId: "preview-match",
+        reporterName: "Maya Chen",
+        reporterEmail: "maya.chen@example.com",
+        reporterRole: "owner",
+        kind: "reprocess",
+        message: "The final two rallies are missing from the cut.",
+        adminUrl: "https://www.ponglens.com/admin/issues/preview-issue",
+      }),
+    },
+    {
+      id: "match.issue-resolution",
+      label: "Processing minute refund",
+      message: matchIssueResolutionEmail({
+        kind: "refund",
+        minutes: 11,
+        playerNote: "We reviewed the cut and returned the processing time.",
+        matchUrl: "https://www.ponglens.com/match/preview-match",
+      }),
+    },
   );
   return fixtures;
 }

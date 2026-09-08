@@ -166,6 +166,7 @@ export interface ProcessingOverview {
 const KIND_LABELS: Record<string, string> = {
   content_check: "Content check",
   deadspace_cut: "Match processing",
+  match_reprocess: "Reprocessing a match",
   placement_generate: "Placement map",
   placement_retry: "Placement map, second try",
   reclip: "Clip update",
@@ -193,6 +194,9 @@ const STAGE_LABELS: Record<string, string> = {
   content_check: "Checking what the video is",
   trim: "Trimming to the claimed window",
   ball: "Finding the ball",
+  candidate_prepare: "Preparing candidate video",
+  candidate_points: "Finding candidate points",
+  candidate_save: "Saving candidate version",
   points: "Building the points",
   cut: "Cutting the video",
   upload: "Uploading the result",

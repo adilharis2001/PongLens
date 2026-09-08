@@ -3721,17 +3721,25 @@ struct PlayerTakeover: View {
         struct Req: Encodable {
             let matchId: String
             let preview: Bool
+            let expectedVersionId: UUID?
         }
         struct Res: Decodable { let url: String? }
-        let res: Res? = try? await API.post(
-            "api/media-url",
-            Req(matchId: match.id.uuidString.lowercased(), preview: true))
-        guard let url = res?.url.flatMap(URL.init) else {
+        do {
+            let res: Res = try await API.post(
+                "api/media-url",
+                Req(matchId: match.id.uuidString.lowercased(), preview: true,
+                    expectedVersionId: match.activeProcessingVersionId))
+            guard let url = res.url.flatMap(URL.init) else { loadFailed = true; return }
+            attachCutItem(AVPlayerItem(url: url),
+                          resumeAt: t.isFinite ? t : nil, resumePlaying: playing)
+        } catch {
             loadFailed = true
-            return
+            if case APIError.http(409, _) = error {
+                // The owning screen replaces both match and point state,
+                // closes this stale presentation and retries the new media.
+                NotificationCenter.default.post(name: .matchProcessingVersionChanged, object: match.id)
+            }
         }
-        attachCutItem(AVPlayerItem(url: url),
-                      resumeAt: t.isFinite ? t : nil, resumePlaying: playing)
     }
 
     func loadOwnClips() async {

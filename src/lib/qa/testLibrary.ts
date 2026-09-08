@@ -129,6 +129,36 @@ const WEB_DESKTOP: TestSurface[] = ["web-desktop"];
 const WEB_MOBILE: TestSurface[] = ["web-mobile"];
 
 export const testCases: TestCase[] = [
+  {
+    id: "match-private-cut-review",
+    area: "match",
+    title: "Private cut feedback respects the player's and coach's roles",
+    why: "A report about one processed match is private. A coach may report a problem but cannot spend or return a player's minutes.",
+    needs: ["A demo ready match with an owner and an accepted coach."],
+    steps: ["As the owner, open How was the cut? in Tools.", "Choose reprocessing or the exact minute request and write a draft.", "Interrupt a submission, then retry.", "Open the same match as its coach and choose Report a cut problem."],
+    expected: ["Failure keeps the selected outcome and written draft. Retry creates one request.", "The coach has only a required-text report form, with no financial amount or remedy controls.", "The private request does not appear on the public Feedback board.", "Buttons remain reachable at 393×660 with a long title and keyboard space."],
+    surfaces: ALL, depth: "smoke",
+  },
+  {
+    id: "processing-published-version-refresh",
+    area: "processing",
+    title: "Publish and restore replace the active timeline without losing the old work",
+    why: "New cuts can have different rallies. Copying scores or coaching notes by position would attach them to the wrong footage.",
+    needs: ["A local or staging demo match with a score, note, tag, point share and coach note.", "An approved reprocessing request with a controlled candidate."],
+    steps: ["Leave the match open while the request is reviewed and the candidate is prepared.", "Publish the reviewed candidate, then return the app to the foreground.", "As the admin, inspect the request's retained previous version. Open its existing point link.", "Restore the original version and return to the match."],
+    expected: ["Unrelated request updates do not reset playback or draft text.", "The old cut remains active during processing. Publish switches media and points together.", "New points have no copied scores, notes or tags. The previous version retains its own work and point links.", "Restore returns the original point identities and media on desktop, mobile web and native iOS."],
+    surfaces: ALL, depth: "smoke",
+  },
+  {
+    id: "processing-refund-receipt",
+    area: "processing",
+    title: "Returned minutes have an exact receipt and are returned only once",
+    why: "A zero balance does not prove that a refund happened, and two approvals must not return the same spend twice.",
+    needs: ["A local or staging demo match with an eligible personal processing spend."],
+    steps: ["Approve the refund and repeat the same approval.", "Check the ledger and the match library.", "Open a failed demo match with an automatic refund, then one without any refund receipt."],
+    expected: ["The exact eligible spend is returned once and the match remains in the library.", "Only the owner sees the automatic refund amount backed by its ledger receipt.", "No automatic-return message is invented when a receipt does not exist."],
+    surfaces: ALL, depth: "smoke",
+  },
   // -------------------------------------------------------------------------
   // Landing and public pages
   // -------------------------------------------------------------------------

@@ -248,6 +248,16 @@ export const coachGuides: Guide[] = [
           "The match remains the player's. A coach cannot change scores, clips, match details, analysis answers, or placement results. If the student changes your match access, the list on their page updates to match that choice.",
         ],
       },
+      {
+        heading: "Report a cut problem",
+        steps: [
+          "Open Report a cut problem from the student's match.",
+          "Describe the missing rally or incorrect cut, then choose Send report. This report is private and separate from your coaching notes.",
+        ],
+        paragraphs: [
+          "Reporting a problem does not change the player's match. Coaches cannot request reprocessing or minutes back for a student. The current match stays available while a report is reviewed.",
+        ],
+      },
     ],
   },
   {

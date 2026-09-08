@@ -4,7 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from botocore.exceptions import ClientError
 
@@ -15,6 +15,7 @@ MATCH_ID = "10000000-0000-0000-0000-000000000001"
 JOB_ID = "20000000-0000-0000-0000-000000000002"
 OTHER_JOB_ID = "30000000-0000-0000-0000-000000000003"
 USER_ID = "40000000-0000-0000-0000-000000000004"
+VERSION_ID = "50000000-0000-0000-0000-000000000005"
 
 
 def placement_fixture(*, drawable):
@@ -64,6 +65,8 @@ def placement_fixture(*, drawable):
 def retry_record(**overrides):
     record = {
         "match_id": MATCH_ID,
+        "processing_version_id": VERSION_ID,
+        "job_processing_version_id": VERSION_ID,
         "user_id": USER_ID,
         "status": "ready",
         "placement_status": "retrying",
@@ -128,7 +131,8 @@ class FakeMutationCursor:
     def execute(self, query, params):
         normalized = " ".join(query.split())
         if normalized.startswith("update public.points set placement"):
-            payload, match_id, index = params
+            payload, match_id, index, version_id = params
+            assert version_id == VERSION_ID
             self.connection.point_updates.append((match_id, int(index)))
             self.connection.pending_points[int(index)] = (
                 None if payload is None else json.loads(payload)
@@ -136,9 +140,9 @@ class FakeMutationCursor:
             self.rowcount = 1
             return
         if normalized.startswith("update public.matches set placement_status"):
-            status, mapped, failure, match_id, retry_job_id = params
+            status, mapped, failure, match_id, retry_job_id, version_id = params
             self.rowcount = int(
-                match_id == MATCH_ID and retry_job_id == JOB_ID
+                match_id == MATCH_ID and retry_job_id == JOB_ID and version_id == VERSION_ID
             )
             if self.rowcount:
                 self.connection.pending_lifecycle = {
@@ -791,7 +795,9 @@ class PlacementGenerationDispatchTests(unittest.TestCase):
             ),
             patch("worker.worker.send_email", side_effect=sender),
         ):
-            worker.process_job(Mock(), message)
+            connection = MagicMock()
+            connection.cursor.return_value.__enter__.return_value.fetchone.return_value = (JOB_ID,)
+            worker.process_job(connection, message)
         return meter
 
     def test_process_job_uses_the_generation_cost_stage(self):

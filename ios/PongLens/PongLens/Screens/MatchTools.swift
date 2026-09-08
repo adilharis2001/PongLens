@@ -76,24 +76,7 @@ struct ToolsSection: View {
                 divider
                 toolRow("Your side", trailing: .text(sideTrailing)) { sideOpen = true }
                 divider
-                NavigationLink(value: "feedback:\(match.id.uuidString.lowercased())") {
-                    HStack {
-                        Text("Report an issue")
-                            .font(.system(size: 16))
-                            .foregroundStyle(PL.textBody)
-                        Spacer()
-                        Text("Something look off?")
-                            .font(.plBody)
-                            .foregroundStyle(PL.text500)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(PL.text600)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                MatchFeedbackLink(match: match, isOwner: true)
             }
             .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
             .overlay(
@@ -1530,24 +1513,7 @@ struct RawToolsSection: View {
                 // orients — maps, Me/Them labels — exists only after
                 // processing, where the first-open banner asks anyway.
                 divider
-                NavigationLink(value: "feedback:\(match.id.uuidString.lowercased())") {
-                    HStack {
-                        Text("Report an issue")
-                            .font(.system(size: 16))
-                            .foregroundStyle(PL.textBody)
-                        Spacer()
-                        Text("Something look off?")
-                            .font(.plBody)
-                            .foregroundStyle(PL.text500)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(PL.text600)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                MatchFeedbackLink(match: match, isOwner: true)
             }
             .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
             .overlay(

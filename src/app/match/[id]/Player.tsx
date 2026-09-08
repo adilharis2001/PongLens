@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { activeCutPreview } from "@/lib/matchIssues/activeVersion";
 import type { Note, Point, ServeStartMeta, Tag } from "@/lib/types";
 import { ModifyClip } from "./ModifyClip";
 import { runJoinPlan, runSplitPlan, type JoinDirection } from "./modifyOps";
@@ -620,6 +621,8 @@ export const Player = forwardRef<
   PlayerHandle,
   {
     matchId: string;
+    expectedVersionId?: string | null;
+    onVersionStale?: () => void;
     /** Visible timeline points, in display order. */
     points: Point[];
     /**
@@ -835,6 +838,8 @@ export const Player = forwardRef<
 >(function Player(
   {
     matchId,
+    expectedVersionId,
+    onVersionStale,
     points,
     removedPoints,
     canScore,
@@ -1828,17 +1833,13 @@ export const Player = forwardRef<
     remintedRef.current = true;
     remintT.current = videoRef.current?.currentTime ?? null;
     try {
-      const res = await fetch("/api/media-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId, preview: true }),
-      });
-      const data = res.ok ? await res.json() : null;
-      if (data?.url) setVideoUrl(data.url);
+      const data = await activeCutPreview(matchId, expectedVersionId);
+      if (data.stale) onVersionStale?.();
+      else if (data.url) setVideoUrl(data.url);
     } catch {
       // The element stays on its error; the next open mints again.
     }
-  }, [matchId]);
+  }, [matchId, expectedVersionId, onVersionStale]);
   useEffect(() => {
     const t = remintT.current;
     const v = videoRef.current;
@@ -1854,13 +1855,11 @@ export const Player = forwardRef<
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/media-url", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ matchId, preview: true }),
-        });
-        const data = res.ok ? await res.json() : null;
-        if (data?.url && !cancelled) setVideoUrl(data.url);
+        const data = await activeCutPreview(matchId, expectedVersionId);
+        if (!cancelled) {
+          if (data.stale) onVersionStale?.();
+          else if (data.url) setVideoUrl(data.url);
+        }
       } catch {
         // Poster stays on its loading state.
       }
@@ -1868,7 +1867,7 @@ export const Player = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, [matchId]);
+  }, [matchId, expectedVersionId, onVersionStale]);
 
   // Seeks requested before metadata is in are applied on loadedmetadata.
   const pendingSeek = useRef<number | null>(null);

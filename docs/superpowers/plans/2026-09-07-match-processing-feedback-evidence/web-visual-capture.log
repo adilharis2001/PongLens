@@ -1,0 +1,49 @@
+FIXTURE REQUEST GET ready owner undefined
+FIXTURE REQUEST GET ready owner undefined
+FIXTURE REQUEST GET ready owner undefined
+FIXTURE REQUEST GET ready owner undefined
+FIXTURE REQUEST POST ready owner undefined
+FIXTURE REQUEST GET ready owner undefined
+FIXTURE REQUEST POST ready owner undefined
+FIXTURE REQUEST GET ready owner undefined
+CAPTURE desktop ready-owner
+FIXTURE REQUEST GET ready owner undefined
+CAPTURE mobile ready-owner
+FIXTURE REQUEST GET ready owner undefined
+CAPTURE desktop raw-owner
+FIXTURE REQUEST GET uploaded owner undefined
+CAPTURE mobile raw-owner
+FIXTURE REQUEST GET uploaded owner undefined
+CAPTURE desktop coach-report
+FIXTURE REQUEST GET ready coach undefined
+CAPTURE mobile coach-report
+FIXTURE REQUEST GET ready coach undefined
+CAPTURE desktop pending
+FIXTURE REQUEST GET ready owner pending
+CAPTURE mobile pending
+FIXTURE REQUEST GET ready owner pending
+CAPTURE desktop reprocessing
+FIXTURE REQUEST GET ready owner reprocessing
+CAPTURE mobile reprocessing
+FIXTURE REQUEST GET ready owner reprocessing
+CAPTURE desktop candidate-ready
+FIXTURE REQUEST GET ready owner candidate_ready
+CAPTURE mobile candidate-ready
+FIXTURE REQUEST GET ready owner candidate_ready
+CAPTURE desktop published
+FIXTURE REQUEST GET ready owner resolved_reprocessed
+CAPTURE mobile published
+FIXTURE REQUEST GET ready owner resolved_reprocessed
+CAPTURE desktop restored
+FIXTURE REQUEST GET ready owner resolved_reprocessed
+CAPTURE mobile restored
+FIXTURE REQUEST GET ready owner resolved_reprocessed
+CAPTURE desktop refund
+FIXTURE REQUEST GET ready owner resolved_refunded
+CAPTURE mobile refund
+FIXTURE REQUEST GET ready owner resolved_refunded
+CAPTURE desktop automatic-refund
+FIXTURE REQUEST GET failed owner undefined
+CAPTURE mobile automatic-refund
+FIXTURE REQUEST GET failed owner undefined
+PASS: real feedback player keeps playhead/draft on unrelated polling, refreshes publish/restore media, preserves retry identity, and renders 20 desktop/mobile states. Keyboard check is reduced-viewport simulation only.

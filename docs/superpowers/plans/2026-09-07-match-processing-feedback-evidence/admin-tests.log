@@ -1,0 +1,31 @@
+(node:91186) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/issues/comparisonInteraction.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ version switching preserves one mounted video while changing its source and reuses signed versions (904.133208ms)
+✔ unchanged canonical refresh preserves New version selection, playback and the existing signed URL (1309.026167ms)
+(node:91187) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/issues/issueDetail.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ candidate review renders the exact facts, effects and action order inside the existing decision (21.121167ms)
+✔ upload diagnostics failure preserves source job and recorded refundable evidence (1.6555ms)
+✔ issue review does not add a current-cut launch control (1.786709ms)
+(node:91188) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/issues/issuesView.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ execution failures return to Pending; candidate review stays in Reprocessing (0.854417ms)
+✔ decision order follows the requested remedy and saved availability (1.034375ms)
+✔ version facts preserve unknowns and restoration names only the retained source (0.185083ms)
+✔ Pending is oldest first, outcome filtering is exact and positive feedback adds no work (8.440583ms)
+✔ refund button uses the exact saved amount and never enables unsupported or stale states (0.150625ms)
+✔ queue enriches match identity once per match and preserves rows when identity is unavailable (0.192833ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2710.915916

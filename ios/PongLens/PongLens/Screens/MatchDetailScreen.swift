@@ -26,8 +26,53 @@ struct MatchJob: Decodable, Equatable {
     }
 }
 
-@Observable
+struct MatchDetailSnapshot {
+    let points: [MatchPoint]
+    let videoURL: URL?
+    let matchStructure: MatchStructure?
+}
+
+/// Replace only transport in tests. The model owns version comparison,
+/// coherent snapshot replacement and refusal of stale async responses.
+struct MatchDetailClient {
+    var match: (UUID) async throws -> MatchRow
+    var snapshot: (MatchRow) async throws -> MatchDetailSnapshot
+
+    static let live = MatchDetailClient(
+        match: { id in
+            try await supa.from("matches").select(MatchRow.detailSelect)
+                .eq("id", value: id.uuidString.lowercased()).single().execute().value
+        },
+        snapshot: { match in
+            let query = supa.from("points").select(MatchPoint.matchSelect)
+                .eq("match_id", value: match.id.uuidString.lowercased())
+            if let version = match.activeProcessingVersionId {
+                query.eq("processing_version_id", value: version.uuidString.lowercased())
+            }
+            let points: [MatchPoint] = try await query.order("idx").execute().value
+            struct Request: Encodable { let matchId: String; let preview: Bool?; let rawPreview: Bool?; let expectedVersionId: UUID? }
+            struct Response: Decodable { let url: String? }
+            let ready = match.status == .ready
+            let response: Response = try await API.post("api/media-url", Request(
+                matchId: match.id.uuidString.lowercased(), preview: ready ? true : nil, rawPreview: ready ? nil : true,
+                expectedVersionId: ready ? match.activeProcessingVersionId : nil))
+            return MatchDetailSnapshot(points: points, videoURL: response.url.flatMap(URL.init), matchStructure: match.matchStructure)
+        }
+    )
+}
+
+@MainActor @Observable
 final class MatchDetailModel {
+    @ObservationIgnored private let client: MatchDetailClient
+    @ObservationIgnored private var refreshGeneration = 0
+    /// The row is adopted with its point/media snapshot, never separately by
+    /// a save callback. Same-version metadata can update without reloading it.
+    private(set) var currentMatch: MatchRow?
+    private(set) var loadedVersionId: UUID?
+    private var loadedMatchId: UUID?
+    private var loadedMatchStatus: MatchStatus?
+
+    init(client: MatchDetailClient? = nil) { self.client = client ?? .live }
     var points: [MatchPoint] = []
     var videoURL: URL?
     /// The game-end detector's evidence for this match (140/146), or nil
@@ -93,6 +138,7 @@ final class MatchDetailModel {
     /// blank), and without cut_t0 an Adjust made on another device kept
     /// the old anchor here.
     private func refreshClipState(_ matchId: UUID) async {
+        let generation = refreshGeneration
         struct ClipRow: Decodable {
             let id: UUID
             let t0: Double?
@@ -117,7 +163,7 @@ final class MatchDetailModel {
             .eq("match_id", value: matchId.uuidString.lowercased())
             .execute()
             .value
-        guard let fresh else { return }
+        guard let fresh, generation == refreshGeneration else { return }
         let byId = Dictionary(uniqueKeysWithValues: fresh.map { ($0.id, $0) })
         for i in points.indices {
             guard let row = byId[points[i].id] else { continue }
@@ -132,63 +178,69 @@ final class MatchDetailModel {
         }
     }
 
-    func load(_ match: MatchRow) async {
-        do {
-            points = try await supa
-                .from("points")
-                .select(MatchPoint.matchSelect)
-                .eq("match_id", value: match.id.uuidString.lowercased())
-                .order("idx")
-                .execute()
-                .value
-        } catch {
-            #if DEBUG
-            self.error = String(describing: error)
-            #else
-            self.error = "Couldn't load this match. Try again."
-            #endif
-        }
+    @discardableResult
+    func load(_ match: MatchRow) async -> MatchRow? {
+        await refetchMatch(match.id)
+    }
 
-        struct Req: Encodable {
-            let matchId: String
-            var preview: Bool?
-            var rawPreview: Bool?
-        }
-        struct Res: Decodable { let url: String? }
+    /// No media request or point replacement for ordinary issue polling.
+    /// Publish and restore both replace the whole snapshot, not annotations.
+    @discardableResult
+    func refreshActiveVersion(_ matchId: UUID) async -> MatchRow? {
+        refreshGeneration += 1
+        let generation = refreshGeneration
         do {
-            let ready = match.status == .ready
-            let res: Res = try await API.post(
-                "api/media-url",
-                Req(
-                    matchId: match.id.uuidString.lowercased(),
-                    preview: ready ? true : nil,
-                    rawPreview: ready ? nil : true
-                )
-            )
-            videoURL = res.url.flatMap(URL.init)
+            var fresh = try await client.match(matchId)
+            for _ in 0..<3 {
+                guard generation == refreshGeneration, !Task.isCancelled else { return nil }
+                if loadedMatchId == matchId, loadedVersionId == fresh.activeProcessingVersionId, loadedMatchStatus == fresh.status {
+                    currentMatch = fresh
+                    error = nil
+                    return nil
+                }
+                let snapshot: MatchDetailSnapshot
+                do {
+                    snapshot = try await client.snapshot(fresh)
+                } catch let failure as APIError {
+                    // The signer may see a publication after our point read.
+                    // Refetch the canonical row before retrying; never attach
+                    // that newer cut to the point snapshot already fetched.
+                    if case .http(409, _) = failure {
+                        let latest = try await client.match(matchId)
+                        if latest.activeProcessingVersionId != fresh.activeProcessingVersionId {
+                            fresh = latest
+                            continue
+                        }
+                    }
+                    throw failure
+                }
+                let verified = try await client.match(matchId)
+                guard generation == refreshGeneration, !Task.isCancelled else { return nil }
+                if verified.activeProcessingVersionId != fresh.activeProcessingVersionId {
+                    fresh = verified
+                    continue
+                }
+                stopClipPoll()
+                points = snapshot.points
+                videoURL = snapshot.videoURL
+                matchStructure = snapshot.matchStructure
+                loadedVersionId = fresh.activeProcessingVersionId
+                loadedMatchId = matchId
+                loadedMatchStatus = fresh.status
+                currentMatch = fresh
+                loaded = true
+                error = nil
+                startClipPoll(matchId)
+                return fresh
+            }
+            error = "This match changed while loading. Try again."
         } catch {
-            // Hero stays a poster; playback reports its own error.
+            if generation == refreshGeneration {
+                self.error = "Couldn't load this match. Try again."
+            }
         }
-        // The game-end detector's evidence, read here rather than off the
-        // MatchRow the list handed over: that row comes from librarySelect,
-        // which deliberately leaves this column out (a JSONB blob on every
-        // row of a list that fetches the whole library). Fetched on load
-        // rather than on one of the refetch paths, so a match shows its
-        // markers the moment it opens rather than after the first edit.
-        struct StructureRow: Decodable { let matchStructure: MatchStructure?
-            enum CodingKeys: String, CodingKey {
-                case matchStructure = "match_structure"
-            } }
-        let row: StructureRow? = try? await supa
-            .from("matches")
-            .select("match_structure")
-            .eq("id", value: match.id.uuidString.lowercased())
-            .single()
-            .execute()
-            .value
-        matchStructure = row?.matchStructure
-
         loaded = true
+        return nil
     }
 
     // MARK: - Raw match: job state, balance, processing
@@ -239,13 +291,10 @@ final class MatchDetailModel {
     }
 
     func refetchMatch(_ id: UUID) async -> MatchRow? {
-        try? await supa
-            .from("matches")
-            .select(MatchRow.detailSelect)
-            .eq("id", value: id.uuidString.lowercased())
-            .single()
-            .execute()
-            .value
+        await refreshActiveVersion(id)
+        // If a changed version cannot load, keep returning the coherent
+        // previous row, not the newer row that failed snapshot adoption.
+        return currentMatch?.id == id ? currentMatch : nil
     }
 
     /// Spend minutes on the full video. Returns nil on success (the job is
@@ -475,6 +524,7 @@ struct MatchDetailScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(Router.self) private var router
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
@@ -527,10 +577,6 @@ struct MatchDetailScreen: View {
     @State private var filtersOpen = false
     @State private var winnerFilter: WinnerFilter = .anyone
     @State private var onlyFilter: OnlyFilter = .everything
-    /// The match row, refreshed in place when processing finishes while
-    /// this screen is open — the page flips to the full match view the way
-    /// the web's refresh does.
-    @State private var live: MatchRow?
     @State private var watchKick = 0
     @State private var placementOn = false
     // Trim window in raw-video seconds (web RawMatchView's trimStart /
@@ -552,7 +598,7 @@ struct MatchDetailScreen: View {
 
     private let pointsPreview = 10
 
-    private var current: MatchRow { live ?? match }
+    private var current: MatchRow { model.currentMatch ?? match }
 
     /// Spoken rows to display: the local edit if one happened, else the
     /// row's. Empty array means "had them, all removed".
@@ -752,6 +798,10 @@ struct MatchDetailScreen: View {
                             hero
                         }
 
+                        if !isOwner {
+                            MatchFeedbackLink(match: current, isOwner: false)
+                        }
+
                         if current.status == .ready {
                             // Coach viewers never see Tools — every row is
                             // an owner action, matching the web.
@@ -781,10 +831,7 @@ struct MatchDetailScreen: View {
                                         // the save immediately, then square
                                         // the library list too.
                                         Task {
-                                            if let fresh = await model.refetchMatch(current.id) {
-                                                live = fresh
-                                            }
-                                            await library.load()
+                                            await refreshMatch(refreshLibrary: true)
                                         }
                                     }
                                 )
@@ -866,6 +913,13 @@ struct MatchDetailScreen: View {
             guard watchKick > 0 else { return }
             await watchProcessing()
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await refreshMatch() } }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .matchProcessingVersionChanged)) { notification in
+            guard notification.object as? UUID == match.id else { return }
+            Task { await refreshMatch() }
+        }
         .alert("The original is no longer available", isPresented: $originalMissing) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -900,10 +954,7 @@ struct MatchDetailScreen: View {
                     // pad on a row that still said nobody knew, and the
                     // sheet asked a question that had just been answered.
                     Task {
-                        if let fresh = await model.refetchMatch(current.id) {
-                            live = fresh
-                        }
-                        await library.load()
+                        await refreshMatch(refreshLibrary: true)
                     }
                 },
                 onOpenPoint: { i in
@@ -977,10 +1028,7 @@ struct MatchDetailScreen: View {
         .sheet(isPresented: $detailsOpen) {
             MatchDetailsEditor(match: current) {
                 Task {
-                    if let fresh = await model.refetchMatch(current.id) {
-                        live = fresh
-                    }
-                    await library.load()
+                    await refreshMatch(refreshLibrary: true)
                 }
             }
             .presentationDetents([.large])
@@ -1268,100 +1316,20 @@ struct MatchDetailScreen: View {
     // MARK: - Hero (DownloadCard)
 
     private var hero: some View {
-        VStack(spacing: 0) {
-            Button {
+        MatchVideoHero(
+            match: current, videoAvailable: model.videoURL != nil,
+            hasOriginal: hasOriginal, openingOriginal: openingOriginal,
+            onPlay: {
                 if let url = model.videoURL {
                     playerRequest = PlayerRequest(url: url, startAt: nil, mode: .watch)
                 }
-            } label: {
-                Color.clear
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .overlay(MatchThumb(matchId: match.id))
-                    .overlay {
-                        if model.videoURL != nil {
-                            Circle()
-                                .fill(PL.ink.opacity(0.6))
-                                .frame(width: 96, height: 96)
-                                .overlay(
-                                    Image(systemName: "play.fill")
-                                        .font(.system(size: 34))
-                                        .foregroundStyle(.white)
-                                        .offset(x: 3)
-                                )
-                        }
-                    }
-                    .clipped()
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(model.videoURL == nil)
-
-            Rectangle().fill(PL.edge).frame(height: 1)
-
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(current.status == .ready ? "Full video" : "Original video")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(PL.textBody)
-                    Text(current.status == .ready ? "Playtime only" : "As uploaded")
-                        .font(.plCaption)
-                        .foregroundStyle(PL.text500)
-                }
-                Spacer()
-                // The uncut upload, for when the cut came out poor. Beside
-                // the download rather than in Tools, because Tools is
-                // `if isOwner` and a coach looking at a bad cut wants the
-                // original for the same reason the player does. Labelled
-                // "Original" rather than repeating "Full video", which the
-                // caption two inches left already says about the cut.
-                if current.status == .ready, hasOriginal {
-                    Button {
-                        Task { await openOriginal() }
-                    } label: {
-                        HStack(spacing: 5) {
-                            if openingOriginal {
-                                ProgressView().controlSize(.mini).tint(PL.text300)
-                            } else {
-                                Image(systemName: "play.fill")
-                                    .font(.system(size: 11, weight: .semibold))
-                            }
-                            Text("Original")
-                                .font(.system(size: 14, weight: .medium))
-                        }
-                        .foregroundStyle(PL.text300)
-                        .padding(.horizontal, 14)
-                        .frame(height: 38)
-                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(openingOriginal)
-                    .accessibilityLabel("Watch the original video")
-                }
-                if current.status == .ready {
-                    Button {
-                        Task {
-                            if let url = await model.downloadURL(current) {
-                                openURL(url)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "arrow.down.to.line")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(PL.text300)
-                            .frame(width: 46, height: 38)
-                            .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Download video")
+            },
+            onOriginal: { Task { await openOriginal() } },
+            onDownload: {
+                Task {
+                    if let url = await model.downloadURL(current) { openURL(url) }
                 }
             }
-            .padding(16)
-        }
-        .background(PL.surface, in: RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: PL.rCard, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: PL.rCard, style: .continuous)
-                .strokeBorder(PL.edge, lineWidth: 1)
         )
     }
 
@@ -1687,12 +1655,30 @@ struct MatchDetailScreen: View {
         )
         if processError != nil { try? await model.refreshMinutes() }
         if processError == nil {
-            if let fresh = await model.refetchMatch(current.id) {
-                live = fresh
-            }
+            await refreshMatch(refreshLibrary: true)
             watchKick += 1
         }
         processBusy = false
+    }
+
+    /// Every saved-row, job, foreground and notification refresh goes through
+    /// the same adoption. Only a replaced snapshot closes point-owned UI.
+    private func refreshMatch(refreshLibrary: Bool = false) async {
+        let replacement = await model.refreshActiveVersion(match.id)
+        if let fresh = replacement {
+            scoreReturnPoint = nil
+            pointSheetOpen = false
+            playerRequest = nil
+            tagPickerPoint = nil
+            sideChangeSheet = nil
+            pendingJump = nil
+            // These stores belong to point identities, not to a match position.
+            notesStore = NotesStore()
+            tagsStore = TagsStore()
+            await notesStore.load(matchId: fresh.id)
+            await tagsStore.load(ownerId: fresh.userId, pointIds: model.visible.map(\.id))
+        }
+        if replacement != nil || refreshLibrary { await library.load() }
     }
 
     /// Poll the running job the way the web does, and flip this page to
@@ -1704,12 +1690,7 @@ struct MatchDetailScreen: View {
             await model.refreshJob()
             guard let job = model.job else { return }
             if job.status == "done" || job.status == "failed" {
-                if let fresh = await model.refetchMatch(match.id) {
-                    live = fresh
-                    if fresh.status == .ready {
-                        await model.load(fresh)
-                    }
-                }
+                await refreshMatch(refreshLibrary: true)
                 return
             }
         }

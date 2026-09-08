@@ -1,0 +1,47 @@
+scripts/marketing/notify.test.ts(4,1): error TS2578: Unused '@ts-expect-error' directive.
+src/app/admin/uploads/[matchId]/CardTimeline.tsx(7,3): error TS2305: Module '"../serveMiss"' has no exported member 'inferredBounceMarkerTitle'.
+src/app/admin/uploads/[matchId]/CardTimeline.tsx(8,3): error TS2305: Module '"../serveMiss"' has no exported member 'inferredBounceMarkers'.
+src/app/admin/uploads/[matchId]/CardTimeline.tsx(311,24): error TS7006: Parameter 'marker' implicitly has an 'any' type.
+src/app/admin/uploads/[matchId]/ServeMissView.tsx(14,3): error TS2305: Module '"../serveMiss"' has no exported member 'courtTrajectory'.
+src/app/admin/uploads/[matchId]/ServeMissView.tsx(15,3): error TS2305: Module '"../serveMiss"' has no exported member 'inferredBounceMarkerTitle'.
+src/app/admin/uploads/[matchId]/ServeMissView.tsx(16,3): error TS2305: Module '"../serveMiss"' has no exported member 'inferredBounceMarkers'.
+src/app/admin/uploads/[matchId]/ServeMissView.tsx(19,3): error TS2305: Module '"../serveMiss"' has no exported member 'tablePathSegments'.
+src/app/admin/uploads/[matchId]/ServeMissView.tsx(20,3): error TS2305: Module '"../serveMiss"' has no exported member 'tableTrailAt'.
+src/app/admin/uploads/[matchId]/ServeMissView.tsx(25,8): error TS2305: Module '"../serveMiss"' has no exported member 'TableTrackPoint'.
+src/app/admin/uploads/[matchId]/ServeMissView.tsx(26,8): error TS2305: Module '"../serveMiss"' has no exported member 'TableTrackSegment'.
+src/app/admin/uploads/[matchId]/ServeMissView.tsx(526,44): error TS7006: Parameter 'marker' implicitly has an 'any' type.
+src/app/admin/uploads/[matchId]/ServeMissView.tsx(695,21): error TS7006: Parameter 'point' implicitly has an 'any' type.
+src/app/admin/uploads/[matchId]/ServeMissView.tsx(695,28): error TS7006: Parameter 'index' implicitly has an 'any' type.
+src/app/admin/uploads/serveMiss.test.ts(19,30): error TS2339: Property 'courtTrajectory' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(21,15): error TS2339: Property 'courtTrajectory' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(135,31): error TS2339: Property 'projectTrackToTable' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(144,22): error TS7006: Parameter 'point' implicitly has an 'any' type.
+src/app/admin/uploads/serveMiss.test.ts(144,29): error TS7006: Parameter 'index' implicitly has an 'any' type.
+src/app/admin/uploads/serveMiss.test.ts(151,31): error TS2339: Property 'projectTrackToTable' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(172,20): error TS7006: Parameter 'point' implicitly has an 'any' type.
+src/app/admin/uploads/serveMiss.test.ts(179,15): error TS2339: Property 'projectTrackToTable' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(203,33): error TS2339: Property 'projectTrackToTable' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(217,22): error TS7006: Parameter 'point' implicitly has an 'any' type.
+src/app/admin/uploads/serveMiss.test.ts(263,26): error TS2339: Property 'fps' does not exist on type 'ServeMissData'.
+src/app/admin/uploads/serveMiss.test.ts(358,15): error TS2339: Property 'hydrateServeMissData' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(391,27): error TS2694: Namespace '"/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss"' has no exported member 'TableTrackPoint'.
+src/app/admin/uploads/serveMiss.test.ts(479,30): error TS2339: Property 'inferredBounceMarkers' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(515,15): error TS2339: Property 'inferredBounceMarkers' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(531,30): error TS2339: Property 'inferredBounceMarkers' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(535,29): error TS2339: Property 'inferredBounceMarkers' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(547,15): error TS2339: Property 'inferredBounceMarkerTitle' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(567,15): error TS2339: Property 'inferredBounceMarkerTitle' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/admin/uploads/serveMiss.test.ts(592,15): error TS2339: Property 'inferredBounceMarkerTitle' does not exist on type 'typeof import("/Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/uploads/serveMiss")'.
+src/app/match/[id]/insertGeometry.test.ts(305,28): error TS2345: Argument of type '{ cut_t0: number; t0: number; t1: number; tight_start: boolean; tight_end: boolean; }' is not assignable to parameter of type 'Neighbour'.
+  Property 'id' is missing in type '{ cut_t0: number; t0: number; t1: number; tight_start: boolean; tight_end: boolean; }' but required in type 'Pick<Point, "id" | "t0" | "t1" | "cut_t0" | "tight_start" | "tight_end">'.
+src/app/research/audio-impacts/AudioImpactLabeler.tsx(52,8): error TS2307: Cannot find module './types' or its corresponding type declarations.
+src/app/research/audio-impacts/audioImpactView.test.ts(22,52): error TS2307: Cannot find module './types.ts' or its corresponding type declarations.
+src/app/research/audio-impacts/audioImpactView.ts(10,8): error TS2307: Cannot find module './types' or its corresponding type declarations.
+src/app/research/winner-constrained-endings/winnerConstrainedEndingView.test.ts(62,30): error TS2345: Argument of type '{ server: { player: string; name: string; side: string; }; winner: { player: string; name: string; side: string; }; }' is not assignable to parameter of type 'WinnerConstrainedScoring'.
+  Property 'loser' is missing in type '{ server: { player: string; name: string; side: string; }; winner: { player: string; name: string; side: string; }; }' but required in type 'WinnerConstrainedScoring'.
+src/app/research/winner-constrained-endings/winnerConstrainedEndingView.test.ts(66,39): error TS2345: Argument of type '{ server: { player: string; name: string; side: string; }; winner: { player: string; name: string; side: string; }; }' is not assignable to parameter of type 'WinnerConstrainedScoring'.
+  Property 'loser' is missing in type '{ server: { player: string; name: string; side: string; }; winner: { player: string; name: string; side: string; }; }' but required in type 'WinnerConstrainedScoring'.
+src/lib/email/send.test.ts(23,37): error TS2322: Type 'RequestInit | undefined' is not assignable to type 'RequestInit'.
+  Type 'undefined' is not assignable to type 'RequestInit'.
+src/lib/placement/placementGenerateApi.test.ts(14,68): error TS1501: This regular expression flag is only available when targeting 'es2018' or later.
+src/lib/placement/placementGenerateApi.test.ts(20,71): error TS1501: This regular expression flag is only available when targeting 'es2018' or later.

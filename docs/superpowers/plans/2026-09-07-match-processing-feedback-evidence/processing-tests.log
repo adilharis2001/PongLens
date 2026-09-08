@@ -1,0 +1,65 @@
+
+> ponglens@0.1.0 test:processing
+> node --test --experimental-strip-types src/app/admin/processing/processingView.test.ts src/app/admin/adminPageView.test.ts
+
+(node:90801) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/adminPageView.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ match issues have their own hub entry and waiting count independent of other counts (1.620875ms)
+✔ every admin page has a distinct route under /admin (0.175083ms)
+✔ the private workspaces are linked from the admin hub (0.303791ms)
+✔ pending requests surface on the hub (0.087ms)
+✔ cards stay quiet when there is nothing to do (0.060542ms)
+✔ the hub does not carry a second card for the same place (0.078958ms)
+✔ outreach is a workspace and keeps its count (0.057375ms)
+✔ players card carries the headline counts without urgency (0.062791ms)
+✔ counts that failed to load leave the cards bare (0.079583ms)
+✔ the backlog card counts open items, and stays quiet when empty (0.102292ms)
+✔ the backlog count survives a failed portal-counts load (0.063417ms)
+✔ the outreach card surfaces its queues, due follow-ups with urgency (0.071375ms)
+✔ the processing card carries live worker state (0.151291ms)
+(node:90802) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/app/admin/processing/processingView.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✔ a beating worker with a job is working, without one is idle (1.159584ms)
+✔ silence past the beat window, from a worker that HAS spoken, is not running (0.09625ms)
+✔ a worker that has never spoken is unconfirmed, not an outage (0.068166ms)
+✔ a worker that reported and went quiet mid-job is silent (0.064ms)
+✔ a moving job proves a non-reporting worker is working (0.071583ms)
+✔ off outranks everything and is not an outage (0.059084ms)
+✔ every expected process gets a row, spoken for or not (1.058583ms)
+✔ the unrouted fast lane is off, and the main lane never is (0.130875ms)
+✔ a routed fast lane with nothing draining it is an outage, not off (0.165625ms)
+✔ a routed fast lane on a silent machine is unconfirmed, not an outage (0.151084ms)
+✔ a worker nobody has heard of still gets a row (0.150542ms)
+✔ a working row says the stage, the kind, the player and how long (0.193375ms)
+✔ the lesson recap workers come from their own heartbeat (0.630375ms)
+✔ a disabled lesson cloud worker is off despite historical heartbeats (0.125917ms)
+✔ the lesson workers get the slower beat window (0.091334ms)
+✔ the cloud twin is off while no release is active (0.140417ms)
+✔ an unknown job kind reads as its raw name (0.050417ms)
+✔ an unknown stage reads as its raw name (0.044042ms)
+✔ a placeholder source name is dropped, a real one is kept (0.047791ms)
+✔ durations read the way a person would say them (0.039375ms)
+✔ the queue is oldest first and marks anything past the cloud's own trigger (0.162167ms)
+✔ throughput names failures even when there are none (0.064084ms)
+✔ machine load is only mentioned when it explains something (0.253584ms)
+✔ the hub card says working, waiting, or idle (0.198625ms)
+✔ a moving job reads as Working on the hub even with nothing reporting (0.054583ms)
+✔ a worker that stopped responding raises attention on the hub (0.053042ms)
+✔ a worker that never reported reads as unknown, not as down (0.055459ms)
+✔ a non-reporting worker with a moving job reads as working (0.144916ms)
+✔ a still job leaves a never-reporting worker unconfirmed (0.060167ms)
+✔ the stalled callout ignores jobs that are moving (0.07775ms)
+✔ a recent completion is offered as evidence on an unconfirmed row (0.066ms)
+✔ a cancellation is not evidence that a worker is running (0.057542ms)
+ℹ tests 45
+ℹ suites 0
+ℹ pass 45
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 154.93225

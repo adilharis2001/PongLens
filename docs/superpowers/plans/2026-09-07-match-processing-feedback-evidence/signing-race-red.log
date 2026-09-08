@@ -1,0 +1,52 @@
+(node:98208) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/activeVersionMedia.test.ts is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+✖ publish between point read and cut signing refuses stale identity; canonical retry signs the new cut (100.27675ms)
+✖ expected cut identity is strictly validated; older unversioned callers remain compatible (22.831375ms)
+ℹ tests 2
+ℹ suites 0
+ℹ pass 0
+ℹ fail 2
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 438.151709
+
+✖ failing tests:
+
+test at src/lib/matchIssues/activeVersionMedia.test.ts:40:1
+✖ publish between point read and cut signing refuses stale identity; canonical retry signs the new cut (100.27675ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  200 !== 409
+
+      at TestContext.<anonymous> (file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/activeVersionMedia.test.ts:45:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 409,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src/lib/matchIssues/activeVersionMedia.test.ts:57:1
+✖ expected cut identity is strictly validated; older unversioned callers remain compatible (22.831375ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  200 !== 400
+
+      at TestContext.<anonymous> (file:///Users/adil/Desktop/Projects/PongLens/.worktrees/match-processing-feedback/src/lib/matchIssues/activeVersionMedia.test.ts:60:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 400,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -21,6 +21,7 @@ import {
 } from "@/lib/config";
 import { RAW_BUCKET, presignGet } from "@/lib/r2";
 import { hasOriginalVideo } from "@/lib/originalVideo";
+import { activeMatchVersionKey } from "@/lib/matchIssues/activeVersion";
 import { MatchView } from "./MatchView";
 import { RawMatchView } from "./RawMatchView";
 
@@ -55,14 +56,9 @@ export default async function MatchPage({
   // is_admin gates the serve-start label in Keep score (089). Same RPC the
   // research dashboard uses; false for everyone else, so the control never
   // renders for a normal viewer.
-  const [matchRes, pointsRes, notesRes, authorsRes, adminRes] =
+  const [matchRes, notesRes, authorsRes, adminRes] =
     await Promise.all([
       supabase.from("matches").select("*").eq("id", id).single(),
-      supabase
-        .from("points")
-        .select("*")
-        .eq("match_id", id)
-        .order("idx", { ascending: true }),
       supabase
         .from("notes")
         .select("*")
@@ -75,6 +71,13 @@ export default async function MatchPage({
   if (matchRes.error || !matchRes.data) {
     notFound();
   }
+
+  // Bind the point read to the same published version as the match row.
+  // A publish during loading must never combine old media with new points.
+  const pointQuery = supabase.from("points").select("*").eq("match_id", id);
+  const pointsRes = await (matchRes.data.active_processing_version_id
+    ? pointQuery.eq("processing_version_id", matchRes.data.active_processing_version_id)
+    : pointQuery).order("idx", { ascending: true });
 
   // Commerce (096): a raw library video — uploaded but not processed, mid
   // processing from a claim, or failed with its source still around — gets
@@ -268,6 +271,7 @@ export default async function MatchPage({
       <AppNav avatarUrl={avatarUrl} remembered={workspace} />
       <main className="bg-arena flex-1 pb-28 md:pb-16">
         <MatchView
+          key={activeMatchVersionKey(id, matchRes.data.active_processing_version_id)}
           match={matchRes.data as Match}
           initialPoints={(pointsRes.data ?? []) as Point[]}
           initialNotes={(notesRes.data ?? []) as Note[]}

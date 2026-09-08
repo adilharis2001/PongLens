@@ -5,6 +5,7 @@ import { SectionHeading } from "@/components/SectionHeading";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { activeCutPreview } from "@/lib/matchIssues/activeVersion";
 import { formatBytes } from "@/app/dashboard/shared";
 import type {
   Match,
@@ -21,6 +22,7 @@ import { ShareSheet } from "@/components/ShareSheet";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { CoachCta } from "@/components/reviews/CoachCta";
 import { OriginalVideoButton } from "@/components/OriginalVideo";
+import { MatchFeedbackLink } from "./feedback/MatchFeedback";
 import {
   computeMatchScore,
   sortPoints,
@@ -499,6 +501,11 @@ export function MatchView({
    *  paint instead of appearing a beat later and shifting the layout. */
   hasOriginal?: boolean;
 }) {
+  // MatchPage keys this entire state tree by the active processing version.
+  // Publish/restore starts from that version's rows, never a merge of scores,
+  // notes, tags or signed clip URLs from the previous timeline.
+  const router = useRouter();
+  const refreshActiveSnapshot = useCallback(() => router.refresh(), [router]);
   const [points, setPoints] = useState<Point[]>(initialPoints);
   const [notes, setNotes] = useState<Note[]>(initialNotes);
   const [tagVocab, setTagVocab] = useState<Tag[]>(initialTags);
@@ -1999,13 +2006,11 @@ export function MatchView({
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch("/api/media-url", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ matchId: match.id, preview: true }),
-        });
-        const data = res.ok ? await res.json() : null;
-        if (data?.url && !cancelled) setCutPreviewUrl(data.url);
+        const data = await activeCutPreview(match.id, match.active_processing_version_id);
+        if (!cancelled) {
+          if (data.stale) refreshActiveSnapshot();
+          else if (data.url) setCutPreviewUrl(data.url);
+        }
       } catch {
         // No frame is fine; the picker keeps its Loading state.
       }
@@ -2013,13 +2018,12 @@ export function MatchView({
     return () => {
       cancelled = true;
     };
-  }, [needSidePicker, cutPreviewUrl, match.id]);
+  }, [needSidePicker, cutPreviewUrl, match.id, match.active_processing_version_id, refreshActiveSnapshot]);
 
   // Score placement: lives in the header row while the top of the page is
   // on screen; detaches into the floating pill only once the header (video
   // card area) scrolls away.
   const headerRef = useRef<HTMLDivElement | null>(null);
-  const router = useRouter();
   const [scoreDetached, setScoreDetached] = useState(false);
   /** Per-game breakdown revealed under the games total, in the page header
    *  and in the floating bar independently. */
@@ -3000,6 +3004,8 @@ export function MatchView({
             <Player
               ref={playerRef}
               matchId={match.id}
+              expectedVersionId={match.active_processing_version_id}
+              onVersionStale={refreshActiveSnapshot}
               customReasons={customReasons}
               onCreateCustomReason={createCustomReason}
               points={visiblePoints}
@@ -3090,6 +3096,7 @@ export function MatchView({
             for; one dismissible line, never for the owner. */}
         {!isOwner && (
           <div className="mt-4">
+            <MatchFeedbackLink matchId={match.id} isOwner={false} matchStatus={match.status} activeVersionId={match.active_processing_version_id} />
             <CoachCta compact />
           </div>
         )}
@@ -3276,21 +3283,7 @@ export function MatchView({
                 </span>
               </button>
             )}
-            {/* Report an issue: a proactive path straight to feedback with
-                this match pre-selected, so anything that looks off in the
-                recording or scoring gets back to us with context attached. */}
-            <Link
-              href={`/feedback?matchId=${match.id}`}
-              className={TOOL_ROW_CLASS}
-            >
-              <span className="text-sm font-semibold">Report an issue</span>
-              <span className="flex shrink-0 items-center gap-2">
-                <span className="shrink-0 text-xs text-zinc-500">
-                  Something look off?
-                </span>
-                <ToolRowChevron />
-              </span>
-            </Link>
+            <MatchFeedbackLink matchId={match.id} isOwner matchStatus={match.status} activeVersionId={match.active_processing_version_id} />
           </div>
           </section>
         )}

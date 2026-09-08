@@ -30,6 +30,18 @@ const iosCatalogPath = fileURLToPath(
   new URL("../../../ios/PongLens/PongLens/Resources/learn-catalog.json", import.meta.url),
 );
 
+test("cut feedback is discoverable in the correct player and coach guides on both platforms", () => {
+  for (const platform of ["web", "ios"] as const) {
+    const player = guideBySlug("match-viewer", "player", platform)!;
+    const coach = guideBySlug("review-student-match", "coach", platform)!;
+    assert.match(guideSnippet(player, "private review") ?? "", /private review/i);
+    assert.match(guideSnippet(player, "reprocessing requests are open") ?? "", /reprocessing requests are open/i);
+    assert.match(guideSnippet(coach, "Report a cut problem") ?? "", /Report a cut problem/i);
+    assert.equal(guideBySlug("review-student-match", "player", platform), undefined);
+    assert.equal(guideBySlug("match-viewer", "coach", platform), undefined);
+  }
+});
+
 async function loadIOSLearnSerializer(): Promise<() => string> {
   let serializerModule: { serializeIOSLearnCatalog?: unknown };
   try {

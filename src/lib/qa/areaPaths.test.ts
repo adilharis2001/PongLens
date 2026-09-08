@@ -64,6 +64,13 @@ test("the worker selects processing and email", () => {
   assert.ok(areas.includes("email"));
 });
 
+test("private processing support selects match and processing verification on either client", () => {
+  for (const path of ["src/lib/matchIssues/activeVersion.ts", "ios/PongLens/PongLens/Core/MatchIssue.swift"]) {
+    assert.ok(areasForPaths([path]).includes("processing"));
+    assert.ok(areasForPaths([path]).includes("match"));
+  }
+});
+
 test("paths the map says nothing about are reported, not swallowed", () => {
   // Silence here would read as "nothing to re-test", which is the one
   // answer this tool must never give by accident.

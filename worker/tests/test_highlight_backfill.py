@@ -1,6 +1,10 @@
 import copy
+import sys
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 import highlight_backfill
 from highlight_backfill import (
@@ -213,8 +217,8 @@ def test_render_refresh_preserves_the_queued_reel_row():
         def __exit__(self, *_args):
             return False
 
-        def execute(self, statement, _params):
-            self.statements.append(statement)
+        def execute(self, statement, params):
+            self.statements.append((statement, params))
 
     class Connection:
         autocommit = True
@@ -232,17 +236,142 @@ def test_render_refresh_preserves_the_queued_reel_row():
             pass
 
     connection = Connection()
-    worker = SimpleNamespace(BackfillConsistencyError=RuntimeError)
+    locks = []
+
+    @contextmanager
+    def locked_match_version(conn, match_id, processing_version_id):
+        assert conn.autocommit is False
+        locks.append((match_id, processing_version_id))
+        yield
+
+    worker = SimpleNamespace(
+        BackfillConsistencyError=RuntimeError,
+        locked_match_version=locked_match_version,
+    )
     with patch.object(
         highlight_backfill,
         "_prepare_diagnostic",
-        return_value=(worker, [original], {"p1": receipt}),
-    ), patch.object(
+        return_value=(worker, [original], {"p1": receipt}, "version-a"),
+    ) as prepare, patch.object(
         highlight_backfill,
         "_load_points",
         side_effect=[[stored], [stored]],
-    ):
-        refresh_match_evidence_for_render(connection, "match")
+    ) as load_points:
+        result = refresh_match_evidence_for_render(
+            connection, "match", processing_version_id="version-a"
+        )
 
-    assert any("update public.points" in sql for sql in connection.statements)
-    assert not any("delete from public.match_reels" in sql for sql in connection.statements)
+    assert result.point_count == 1
+    assert locks == [("match", "version-a")]
+    prepare.assert_called_once_with(
+        connection, "match", processing_version_id="version-a"
+    )
+    assert [call.kwargs for call in load_points.call_args_list] == [
+        {"processing_version_id": "version-a", "for_update": True},
+        {"processing_version_id": "version-a"},
+    ]
+    assert any("update public.points" in sql for sql, _params in connection.statements)
+    assert not any("delete from public.match_reels" in sql for sql, _params in connection.statements)
+    update_sql, update_params = connection.statements[0]
+    assert "processing_version_id = %s" in update_sql
+    assert update_params[1:] == ("p1", "match", "version-a")
+    assert connection.autocommit is True
+
+
+def test_diagnostic_rejects_an_obsolete_render_before_media_work():
+    class MatchVersionChanged(RuntimeError):
+        pass
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, _statement, _params):
+            pass
+
+        def fetchone(self):
+            return (
+                "owner", "r2://media/version-b/cut.mp4", None, {},
+                "version-b", "r2://media/version-b/match.json",
+            )
+
+    worker = SimpleNamespace(MatchVersionChanged=MatchVersionChanged)
+    connection = SimpleNamespace(cursor=Cursor)
+    with patch.dict(sys.modules, {"worker": worker}), patch.object(
+        highlight_backfill.tempfile, "mkdtemp"
+    ) as make_workdir:
+        with pytest.raises(MatchVersionChanged):
+            highlight_backfill._prepare_diagnostic(
+                connection, "match", processing_version_id="version-a"
+            )
+    make_workdir.assert_not_called()
+
+
+def test_render_refresh_rejects_publication_before_receipt_write():
+    class MatchVersionChanged(RuntimeError):
+        pass
+
+    @contextmanager
+    def locked_match_version(_conn, _match_id, processing_version_id):
+        assert processing_version_id == "version-a"
+        raise MatchVersionChanged("active version is now version-b")
+        yield
+
+    class Connection:
+        autocommit = True
+        commits = 0
+        rollbacks = 0
+
+        def commit(self):
+            self.commits += 1
+
+        def rollback(self):
+            self.rollbacks += 1
+
+        def cursor(self):
+            raise AssertionError("an obsolete refresh must not write receipts")
+
+    connection = Connection()
+    worker = SimpleNamespace(locked_match_version=locked_match_version)
+    with patch.object(
+        highlight_backfill,
+        "_prepare_diagnostic",
+        return_value=(worker, [point()], {"p1": {"v": 2}}, "version-a"),
+    ):
+        with pytest.raises(MatchVersionChanged):
+            refresh_match_evidence_for_render(
+                connection, "match", processing_version_id="version-a"
+            )
+    assert connection.commits == 0
+    assert connection.rollbacks == 1
+    assert connection.autocommit is True
+
+
+def test_point_loads_are_scoped_to_the_processing_version():
+    statements = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement, params):
+            statements.append((statement, params))
+
+        def fetchall(self):
+            return [{"id": "p1", "processing_version_id": "version-a"}]
+
+    connection = SimpleNamespace(cursor=lambda **_kwargs: Cursor())
+    points = highlight_backfill._load_points(
+        connection, "match", processing_version_id="version-a", for_update=True
+    )
+    assert points == [{"id": "p1", "processing_version_id": "version-a"}]
+    statement, params = statements[0]
+    assert "where match_id = %s and processing_version_id = %s" in statement
+    assert statement.endswith("for update")
+    assert params == ("match", "version-a")

@@ -80,8 +80,14 @@ export async function POST(req: Request) {
   let thumbs: string[];
   let tagReel: string;
   let lessonId: string;
+  let expectedVersionId: string | null | undefined;
   try {
     const body = await req.json();
+    if (body.expectedVersionId !== undefined && body.expectedVersionId !== null &&
+        (typeof body.expectedVersionId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.expectedVersionId))) {
+      return NextResponse.json({ error: "Invalid expectedVersionId" }, { status: 400 });
+    }
+    expectedVersionId = body.expectedVersionId?.toLowerCase() ?? body.expectedVersionId;
     matchId = String(body.matchId ?? "");
     lessonId = String(body.lessonId ?? "");
     pointId = String(body.pointId ?? "");
@@ -238,11 +244,16 @@ export async function POST(req: Request) {
   // RLS select policy == has_match_access(); reading the row is the check.
   const { data: match, error } = await supabase
     .from("matches")
-    .select("id, user_id, job_id, opponent_name, cut_path, raw_path, status")
+    .select("id, user_id, job_id, opponent_name, cut_path, raw_path, status, active_processing_version_id")
     .eq("id", matchId)
     .single();
   if (error || !match) {
     return NextResponse.json({ error: "Match not found" }, { status: 404 });
+  }
+  // The media path and active ID come from this same authorized row. A
+  // publish after the page read must not put the new cut under old points.
+  if (expectedVersionId !== undefined && expectedVersionId !== (match.active_processing_version_id ?? null)) {
+    return NextResponse.json({ error: "Match version changed", code: "active_version_changed" }, { status: 409 });
   }
 
   try {

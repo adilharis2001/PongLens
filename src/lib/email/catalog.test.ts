@@ -36,7 +36,9 @@ test("beta admin notice describes a request, not an installation or completed in
 
 test("fixture catalog covers every TypeScript email state with unique identities", () => {
   const fixtures = typescriptEmailFixtures();
-  assert.equal(fixtures.length, 18);
+  assert.equal(fixtures.length, 20);
+  assert.ok(fixtures.some((fixture) => fixture.id === "ops.match-issue-submission"));
+  assert.ok(fixtures.some((fixture) => fixture.id === "match.issue-resolution"));
   assert.equal(
     new Set(fixtures.map((fixture) => fixture.message.templateId)).size,
     fixtures.length,

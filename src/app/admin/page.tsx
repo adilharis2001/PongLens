@@ -11,6 +11,7 @@ import {
   type PortalCounts,
 } from "./adminPageView";
 import type { ProcessingCounts } from "./processing/processingView";
+import { issueRows, type IssueListRow } from "./issues/issuesView";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -29,6 +30,7 @@ export default async function AdminPage() {
     { count: backlogOpen },
     { data: outreachData },
     { data: processingData },
+    { data: issuesData, error: issuesError },
   ] = await Promise.all([
     supabase.rpc("admin_portal_counts"),
     supabase
@@ -37,6 +39,7 @@ export default async function AdminPage() {
       .neq("lane", "done"),
     supabase.rpc("admin_outreach_counts"),
     supabase.rpc("admin_processing_counts"),
+    supabase.rpc("admin_match_issue_list", { p_status: "" }),
   ]);
   const counts = (data as PortalCounts | null) ?? null;
   const outreach =
@@ -44,6 +47,7 @@ export default async function AdminPage() {
       | OutreachCounts
       | undefined) ?? null;
   const processing = (processingData as ProcessingCounts | null) ?? null;
+  const issuesWaiting = issuesError ? null : issueRows((issuesData as IssueListRow[] | null) ?? [], "pending", "all").length;
 
   return (
     <AppShell avatarUrl={avatarUrl}>
@@ -51,7 +55,7 @@ export default async function AdminPage() {
 
       <ul className="mt-8 grid gap-3 sm:grid-cols-2">
         {ADMIN_PAGES.map((page) => {
-          const detail = hubDetail(page.key, counts, backlogOpen, outreach, processing);
+          const detail = hubDetail(page.key, counts, backlogOpen, outreach, processing, issuesWaiting);
           return (
             <li key={page.key}>
               <Link

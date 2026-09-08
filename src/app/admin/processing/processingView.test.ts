@@ -259,6 +259,37 @@ test("the lesson recap workers come from their own heartbeat", () => {
   assert.equal(cloud?.detail, "Waiting for the Mac fallback rule.");
 });
 
+test("a candidate worker row names its stage without losing the current lane or progress", () => {
+  for (const [stage, label] of [
+    ["candidate_prepare", "Preparing candidate video"],
+    ["candidate_points", "Finding candidate points"],
+    ["candidate_save", "Saving candidate version"],
+  ]) {
+    const rows = buildWorkerRows(
+      overview({
+        workers: [pulse({
+          job_id: "candidate-job",
+          job_kind: "match_reprocess",
+          stage,
+          stage_pct: 42,
+          player: "Mert Ipek",
+          job_created_at: ago(120),
+          match_id: "m1",
+        })],
+      }),
+      NOW,
+    );
+    const main = rows.find((row) => row.key === "mac:main");
+    assert.equal(main?.title, "Mac Studio · main");
+    assert.equal(main?.state, "working");
+    assert.equal(main?.detail, `${label} · Reprocessing a match · Mert Ipek · 2m`);
+    assert.equal(main?.pct, 42);
+    assert.equal(main?.matchId, "m1");
+    assert.equal(main?.caveat, null);
+    assert.equal(isKnownStage(stage), true);
+  }
+});
+
 test("a disabled lesson cloud worker is off despite historical heartbeats", () => {
   const rows = buildWorkerRows(
     overview({
@@ -301,13 +332,18 @@ test("the cloud twin is off while no release is active", () => {
 // sentences is the notice that the page has fallen behind the worker.
 test("an unknown job kind reads as its raw name", () => {
   assert.equal(kindLabel("deadspace_cut"), "Match processing");
+  assert.equal(kindLabel("match_reprocess"), "Reprocessing a match");
   assert.equal(kindLabel("spin_report"), "spin_report");
   assert.equal(isKnownKind("spin_report"), false);
+  assert.equal(isKnownKind("match_reprocess"), true);
   assert.equal(isKnownKind("reel"), true);
 });
 
 test("an unknown stage reads as its raw name", () => {
   assert.equal(stageLabel("ball"), "Finding the ball");
+  assert.equal(stageLabel("candidate_prepare"), "Preparing candidate video");
+  assert.equal(stageLabel("candidate_points"), "Finding candidate points");
+  assert.equal(stageLabel("candidate_save"), "Saving candidate version");
   assert.equal(stageLabel("rtmpose"), "rtmpose");
   assert.equal(stageLabel(null), null);
   assert.equal(isKnownStage("rtmpose"), false);

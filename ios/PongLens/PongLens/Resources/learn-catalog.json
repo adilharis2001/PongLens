@@ -150,6 +150,17 @@
             "Star the current point, share it, or leave a note from the player.",
             "Choose Original if the cut left out footage or you want to see the breaks between rallies."
           ]
+        },
+        {
+          "heading": "How was the cut?",
+          "steps": [
+            "Open How was the cut? in the match's Tools. Choose Looks good or Request minutes back when it is available. Try processing again appears only while reprocessing requests are open and the original upload is available.",
+            "Describe any missing rallies or incorrect cuts, then send the request. This is a private review, separate from the public Feedback board.",
+            "The minute request shows the exact amount that can be returned for this match. Sending it does not return minutes immediately; you will be notified after review."
+          ],
+          "paragraphs": [
+            "Your current match stays available while a new version is prepared and reviewed. If a replacement is published, the previous version and its scores, notes, tags, shares, and coach feedback remain recoverable. They are not copied onto different rallies."
+          ]
         }
       ]
     },
@@ -784,6 +795,16 @@
           "heading": "Know the access boundary",
           "paragraphs": [
             "The match remains the player's. A coach cannot change scores, clips, match details, analysis answers, or placement results. If the student changes your match access, the list on their page updates to match that choice."
+          ]
+        },
+        {
+          "heading": "Report a cut problem",
+          "steps": [
+            "Open Report a cut problem from the student's match.",
+            "Describe the missing rally or incorrect cut, then choose Send report. This report is private and separate from your coaching notes."
+          ],
+          "paragraphs": [
+            "Reporting a problem does not change the player's match. Coaches cannot request reprocessing or minutes back for a student. The current match stays available while a report is reviewed."
           ]
         }
       ]
