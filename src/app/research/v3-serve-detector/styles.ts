@@ -107,16 +107,16 @@ export const CSS = `
            padding:1px 9px; font-size:11.5px; border:1px solid #2a323d; }
 .v3 .tag.agree { color:#7fd4a0; border-color:#2c4a3a; background:#12211a; }
 .v3 .tag.disagree { color:#ff9a9a; border-color:#5d2f2f; background:#1f1213; }
-.v3 .tl { position:relative; height:16px; margin-top:7px; border-radius:3px;
+.v3 .tl { position:relative; height:24px; margin-top:7px; border-radius:3px;
           background:#161b22; border:1px solid #222831; }
-.v3 .tl i { position:absolute; top:2px; bottom:2px; border-radius:2px; background:#3d5a7a; z-index:1; }
-.v3 .tl w { position:absolute; bottom:0; max-height:7px; background:rgba(127,212,160,.55); z-index:0; }
+.v3 .tl i { position:absolute; top:2px; bottom:10px; border-radius:2px; background:#3d5a7a; z-index:1; }
+.v3 .tl g { position:absolute; bottom:0; height:6px; border-radius:2px; background:rgba(127,212,160,.85); z-index:0; }
 .v3 .body { display:block; margin:3px 0 6px; font-size:11px; color:#7fd4a0; }
 .v3 .tl i.hastap { background:#2f6f4f; }
 .v3 .tl u { position:absolute; top:-2px; bottom:-2px; width:2px; background:#ffd479; }
-.v3 .tl s { position:absolute; top:2px; bottom:2px; border-radius:2px;
+.v3 .tl s { position:absolute; top:2px; bottom:10px; border-radius:2px;
             background:#5c3b6b; text-decoration:none; }
-.v3 .tl d { position:absolute; top:0; bottom:0; border-radius:3px;
+.v3 .tl d { position:absolute; top:0; bottom:8px; border-radius:3px;
             border:1px dashed #6c7a8c; }
 .v3 .tl d.del { border-color:#7a5a3a; }
 .v3 .tl q { position:absolute; top:-2px; bottom:-2px; min-width:2px; background:#ff7ab6; }
