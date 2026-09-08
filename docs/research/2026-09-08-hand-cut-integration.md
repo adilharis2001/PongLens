@@ -537,3 +537,37 @@ account, in this order: apply the migration, open an unprocessed match on
 a phone, mark a few points, send, watch the job on `/admin/processing`,
 open the match, confirm no Highlights or Placement rows and no "Try
 processing again", then open Home and the library card.
+
+## 9. Rolled out (2026-09-08, afternoon)
+
+- **Database:** the migration is applied as version `20260908143746`
+  (`hand_cut`), through the Supabase MCP, and the file carries that
+  version. It created the column, the drafts table, the gate function
+  (`off`), the claim, the bell, the reprocess refusal, the `jobs_hand`
+  queue and its route, and the placement refusals. The live site was
+  still on the old web code at that moment and kept working.
+- **Worker:** the hand-cut lane runs from the branch worktree with the
+  main checkout's interpreter (`worker.py --lane hand`, reading only
+  `jobs_hand`), started as a detached process from a terminal session.
+  The durable launcher is prepared and not loaded:
+  `~/Applications/PongLensWorkerHand.app` and
+  `~/Library/LaunchAgents/com.adil.ponglens-worker-hand.plist`. Loading
+  it needs Full Disk Access granted to the app in System Settings first,
+  then `launchctl load` of the plist and the detached process stopped.
+  The two production lanes were never touched.
+- **Web:** the branch is a fast-forward of GitHub's main, built and
+  typechecked, and NOT pushed: the push was blocked by the session's
+  permission classifier. `git push origin hand-cut:main` from the
+  worktree is the remaining step; Vercel deploys from it.
+- **Tested end to end** through a local server on the branch against the
+  live database, with Adil's account, on match `5e432cde…` (Vaibhav ·
+  Pingpod, 10:55): the card showed both ways, the marker opened, three
+  points were marked in cut-and-score mode (one each way and a let), the
+  draft saved, the claim queued the job into `jobs_hand`, the lane
+  published in 34 seconds, the ready email went out, and the match page
+  came back as the match experience with the three points and no
+  Highlights or Placement rows. In the database: `cut_source = manual`,
+  cut and thumbnail and match.json set, `clip_pads` stamped, the active
+  version completed with the job and cut path matching, three points on
+  the active version with the right winners and `cut_t0` anchors, `cut`
+  and `clip` ledger rows, `match_reprocess_source` null, the queue empty.
