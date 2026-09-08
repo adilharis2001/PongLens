@@ -6317,9 +6317,9 @@ export const Player = forwardRef<
               <span className="h-1 w-9 rounded-full bg-white/20" />
             </div>
           )}
-          {/* ticker: serve ball · score + games pill · serve ball.
-              (The point chip lives top-center over the video; the prev/
-              next chevrons flank the video itself.) Edge layout: a thin
+          {/* ticker: score + games pill on the left, the serve toggle on
+              the right. (The point chip lives top-center over the video;
+              the prev/next chevrons flank the video itself.) Edge layout: a thin
               translucent band along the top, inset past the ?-and-✕
               corners. */}
           <div
@@ -6336,82 +6336,99 @@ export const Player = forwardRef<
             }
             style={padOverlay ? { left: 48, right: 48, top: 0 } : undefined}
           >
-            <span className="flex w-8 justify-start">
-              {server !== null && (
+            {/* Score block, left. It was centred between two serve balls;
+                the balls read as status dots, not as anything you could
+                press, and in landscape the lit one sat against the point
+                strip and looked like part of it. Now the score keeps the
+                left and the serve keeps the right, so each end of the
+                strip does one job in both orientations. */}
+            <span className="flex items-baseline gap-2">
+              <span
+                key={`${runningScore.current.you}-${runningScore.current.them}`}
+                className={`ks-pop font-bold tabular-nums tracking-tight ${
+                  padOverlay ? "text-lg" : "text-2xl"
+                }`}
+              >
+                <span className="text-cyan-glow">
+                  {runningScore.current.you}
+                </span>
+                <span className="mx-1 text-zinc-600">-</span>
+                <span className="text-magenta-soft">
+                  {runningScore.current.them}
+                </span>
+              </span>
+              {runningScore.gamesYou + runningScore.gamesThem > 0 && (
+                <span className="rounded-full border border-edge bg-surface px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-300">
+                  {runningScore.gamesYou}-{runningScore.gamesThem}
+                </span>
+              )}
+            </span>
+            <span className="flex-1" />
+            {/* Who serves, as one control with two cells: the server's cell
+                is lit in their colour with the ball, the other is dim.
+                Pressing the dim cell hands the serve over and re-anchors
+                the rotation; pressing the lit one is a no-op (setServerTo).
+                Two cells with a border, not a capsule, and not text alone:
+                it has to look pressable without a word of instruction.
+                Me left, opponent right, the same order as the answer
+                pads below. */}
+            {server !== null && (
+              <span
+                role="group"
+                aria-label="Serving"
+                className="flex shrink-0 overflow-hidden rounded-lg border border-edge bg-surface"
+              >
                 <button
                   type="button"
                   onClick={() => setServerTo("user")}
+                  aria-pressed={server === "user"}
                   aria-label={
                     server === "user"
                       ? `${youLabel === "Me" ? "I" : youLabel} served this point`
                       : `Give the serve to ${youLabel === "Me" ? "me" : youLabel}`
                   }
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-edge bg-surface"
-                >
-                  {server === "user" ? (
-                    <span className="serve-ball-you block h-3.5 w-3.5 rounded-full" />
-                  ) : (
-                    <span className="block h-3.5 w-3.5 rounded-full border border-zinc-600 opacity-50" />
-                  )}
-                </button>
-              )}
-            </span>
-            {/* running score: this moment at the playhead, not the match's
-                final totals (those live in the end summary) */}
-            <span className="flex flex-1 flex-col items-center justify-center">
-              <span className="flex items-baseline justify-center gap-2">
-                <span
-                  key={`${runningScore.current.you}-${runningScore.current.them}`}
-                  className={`ks-pop font-bold tabular-nums tracking-tight ${
-                    padOverlay ? "text-lg" : "text-2xl"
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-semibold ${
+                    server === "user"
+                      ? "bg-cyan-glow/15 text-cyan-glow"
+                      : "text-zinc-500"
                   }`}
                 >
-                  <span className="text-cyan-glow">
-                    {runningScore.current.you}
-                  </span>
-                  <span className="mx-1 text-zinc-600">-</span>
-                  <span className="text-magenta-soft">
-                    {runningScore.current.them}
-                  </span>
-                </span>
-                {runningScore.gamesYou + runningScore.gamesThem > 0 && (
-                  <span className="rounded-full border border-edge bg-surface px-2 py-0.5 text-[11px] font-semibold tabular-nums text-zinc-300">
-                    {runningScore.gamesYou}-{runningScore.gamesThem}
-                  </span>
-                )}
-              </span>
-              {/* Says out loud what the two lit balls mean, so the colour
-                  reads as "this side serves" without anyone guessing. */}
-              {server !== null && (
-                <span className="mt-0.5 text-[10px] leading-none text-zinc-500">
-                  {server === "user"
-                    ? youLabel === "Me"
-                      ? "You serve"
-                      : `${youLabel} serves`
-                    : `${themLabel} serves`}
-                </span>
-              )}
-            </span>
-            <span className="flex w-8 justify-end">
-              {server !== null && (
+                  <span
+                    className={
+                      server === "user"
+                        ? "serve-ball-you block h-3 w-3 rounded-full"
+                        : "block h-3 w-3 rounded-full border border-zinc-600 opacity-60"
+                    }
+                  />
+                  <span className="max-w-[5.5rem] truncate">{youLabel}</span>
+                </button>
+                <span className="w-px self-stretch bg-edge" aria-hidden="true" />
                 <button
                   type="button"
                   onClick={() => setServerTo("opponent")}
+                  aria-pressed={server === "opponent"}
                   aria-label={
                     server === "opponent"
                       ? `${themLabel} served this point`
                       : `Give the serve to ${themLabel}`
                   }
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-edge bg-surface"
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 text-sm font-semibold ${
+                    server === "opponent"
+                      ? "bg-magenta-soft/15 text-magenta-soft"
+                      : "text-zinc-500"
+                  }`}
                 >
-                  {server === "opponent" ? (
-                    <span className="serve-ball-them block h-3.5 w-3.5 rounded-full" />
-                  ) : (
-                    <span className="block h-3.5 w-3.5 rounded-full border border-zinc-600 opacity-50" />
-                  )}
+                  <span
+                    className={
+                      server === "opponent"
+                        ? "serve-ball-them block h-3 w-3 rounded-full"
+                        : "block h-3 w-3 rounded-full border border-zinc-600 opacity-60"
+                    }
+                  />
+                  <span className="max-w-[5.5rem] truncate">{themLabel}</span>
                 </button>
-              )}
-            </span>
+              </span>
+            )}
           </div>
 
           {/* point navigator: a horizontal, auto-centering strip of every

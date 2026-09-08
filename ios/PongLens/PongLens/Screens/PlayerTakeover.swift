@@ -1637,14 +1637,12 @@ struct PlayerTakeover: View {
         let score = runningScore
         let serveInfo = target.flatMap { serving[$0.id] }
         return VStack(spacing: 10) {
-            // Score row: serve balls at the edges, the big pair centered.
-            ZStack {
-                HStack {
-                    serveBall(active: serveInfo?.server == .user)
-                    Spacer()
-                    serveBall(active: serveInfo?.server == .opponent, them: true)
-                }
-                VStack(spacing: 2) {
+            // Score row: the score on the left, the serve toggle on the
+            // right. It was centred between two serve balls, which read
+            // as status dots rather than anything pressable. Each end of
+            // the row now does one job, in both orientations.
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         (Text("\(score.current.you)").foregroundColor(PL.cyan)
                             + Text(" - ").foregroundColor(PL.text600)
@@ -1653,10 +1651,12 @@ struct PlayerTakeover: View {
                             .monospacedDigit()
                         gamesPill(score)
                     }
-                    Text(serveLine(serveInfo))
+                    Text(pointLine)
                         .font(.plBody)
                         .foregroundStyle(PL.text400)
                 }
+                Spacer(minLength: 8)
+                serveToggle(serveInfo)
             }
             .padding(.horizontal, 8)
             .padding(.top, 2)
@@ -1818,7 +1818,6 @@ struct PlayerTakeover: View {
                 player.pause()
                 gesturesOpen = true
             }
-            serveBall(active: serveInfo?.server == .user)
             (Text("\(score.current.you)").foregroundColor(PL.cyan)
                 + Text(" - ").foregroundColor(PL.text600)
                 + Text("\(score.current.them)").foregroundColor(PL.magentaSoft))
@@ -1826,14 +1825,17 @@ struct PlayerTakeover: View {
                 .monospacedDigit()
                 .fixedSize()
             gamesPill(score)
-            Text(serveLine(serveInfo))
+            Text(pointLine)
                 .font(.plCaption)
                 .foregroundStyle(PL.text400)
                 .lineLimit(1)
                 .fixedSize()
-            serveBall(active: serveInfo?.server == .opponent, them: true)
             chipStrip(targetId: target?.id)
                 .frame(maxWidth: .infinity)
+            // The serve sits at the right end of the bar, clear of the
+            // point strip. The lit ball used to land beside the current
+            // point's ring and read as part of the strip.
+            serveToggle(serveInfo)
             if stalled {
                 ProgressView().controlSize(.mini).tint(PL.text300)
             }
@@ -2105,39 +2107,95 @@ struct PlayerTakeover: View {
             : "\(match.opponentName ?? "They") serve. Rotation updated from here.")
     }
 
-    func serveBallFace(active: Bool, them: Bool = false) -> some View {
+    func serveBallFace(active: Bool, them: Bool = false, size: CGFloat = 26) -> some View {
         let tint = them ? PL.magentaSoft : PL.cyan
         return Circle()
             .fill(active ? AnyShapeStyle(
                 RadialGradient(
                     colors: [Color.white.opacity(0.9), tint],
-                    center: .init(x: 0.35, y: 0.3), startRadius: 1, endRadius: 16
+                    center: .init(x: 0.35, y: 0.3), startRadius: 1,
+                    endRadius: size * 0.62
                 )
             ) : AnyShapeStyle(Color.clear))
-            .frame(width: 26, height: 26)
+            .frame(width: size, height: size)
             .overlay {
                 if !active {
-                    Circle().strokeBorder(PL.edge, lineWidth: 2)
+                    Circle().strokeBorder(PL.edge, lineWidth: size > 16 ? 2 : 1.5)
                 }
             }
-            .shadow(color: active ? tint.opacity(0.7) : .clear, radius: 8)
+            .shadow(color: active ? tint.opacity(0.7) : .clear, radius: size * 0.3)
     }
 
-    func serveLine(_ info: ServeInfo?) -> String {
-        let who: String? = switch info?.server {
-        case .user: "You serve"
-        case .opponent: "\(match.opponentName ?? "They") serve\(match.opponentName == nil ? "" : "s")"
-        case nil: nil
+    /// Who serves, as one control with two cells. The server's cell is lit
+    /// in their colour with the ball; the other is dim. Pressing the dim
+    /// cell hands the serve over and re-anchors the rotation; pressing the
+    /// lit one is a no-op (flipServer). Two bordered cells rather than a
+    /// capsule, and never a bare word: it has to look pressable with no
+    /// instruction. Me on the left, opponent on the right, the same order
+    /// as the answer pads. Hidden for footage that has no serve to track.
+    @ViewBuilder
+    func serveToggle(_ info: ServeInfo?) -> some View {
+        if tracksServe {
+            HStack(spacing: 0) {
+                serveCell(side: .user, lit: info?.server == .user)
+                Rectangle().fill(PL.edge).frame(width: 1)
+                serveCell(side: .opponent, lit: info?.server == .opponent)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            .background(PL.surface2, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(PL.edge, lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Serving")
         }
-        // Say WHICH rally you are on, in words. The lit chip alone was not
-        // reading as "you are here": colour on that strip already means who
-        // won, and position is easy to lose in a long match — especially one
-        // with deletions, where the numbers no longer match the strip's
-        // own order. A number here is unambiguous wherever the strip is
-        // scrolled to.
-        guard let n = currentPointNumber else { return who ?? "" }
-        guard let who else { return "Point \(n)" }
-        return "Point \(n) · \(who)"
+    }
+
+    func serveCell(side: Winner, lit: Bool) -> some View {
+        let them = side == .opponent
+        let tint = them ? PL.magentaSoft : PL.cyan
+        let name = them ? (match.opponentName ?? "Them") : "Me"
+        return Button {
+            flipServer(to: side)
+        } label: {
+            HStack(spacing: 5) {
+                serveBallFace(active: lit, them: them, size: 12)
+                Text(name)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .frame(maxWidth: 88)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .foregroundStyle(lit ? tint : PL.text500)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(lit ? tint.opacity(0.14) : Color.clear)
+            // The whole cell, not just the letters (a bare-text Button is
+            // tappable only on the glyphs).
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(displayTarget == nil || app.userId != match.userId)
+        .accessibilityLabel(
+            lit
+                ? "\(them ? (match.opponentName ?? "They") : "I") served this point"
+                : "Give the serve to \(them ? (match.opponentName ?? "them") : "me")"
+        )
+        .accessibilityAddTraits(lit ? .isSelected : [])
+    }
+
+    /// Which rally you are on, in words. The lit chip alone was not
+    /// reading as "you are here": colour on that strip already means who
+    /// won, and position is easy to lose in a long match — especially one
+    /// with deletions, where the numbers no longer match the strip's own
+    /// order. A number here is unambiguous wherever the strip is scrolled
+    /// to. It used to add "· You serve"; the serve toggle says that now,
+    /// and saying it twice was one of the things making the row noisy.
+    var pointLine: String {
+        guard let n = currentPointNumber else { return "" }
+        return "Point \(n)"
     }
 
     /// Where the playhead is, numbered as the strip numbers it.
