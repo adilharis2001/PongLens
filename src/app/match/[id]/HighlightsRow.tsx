@@ -27,9 +27,11 @@ function summary(state: HighlightState | null) {
 export function HighlightsRow({
   matchId,
   onPlay,
+  onStateChange,
 }: {
   matchId: string;
   onPlay: (asset: HighlightAsset, onDownload: () => void) => void;
+  onStateChange?: (state: HighlightState | null) => void;
 }) {
   const [state, setState] = useState<HighlightState | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -41,6 +43,10 @@ export function HighlightsRow({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const requestSheetVisible = highlightRequestSheetIsVisible(sheetOpen, state);
+
+  useEffect(() => {
+    onStateChange?.(state);
+  }, [onStateChange, state]);
 
   useEffect(() => {
     let cancelled = false;

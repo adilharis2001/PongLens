@@ -19,49 +19,8 @@ struct MatchAnalysisBundle {
     var incomplete: Bool { !stats.hasData || stats.detailed < stats.scored }
 }
 
-/// Match analysis: the point differential across the match, the numbers
-/// underneath it, why the lost points were lost, and how the serves went.
-/// Same three cards as the web deck, stacked rather than swiped — a
-/// vertical sheet is what every other sheet in the app does, and a
-/// carousel inside a sheet fights the sheet's own drag.
-struct AnalysisSheet: View {
-    let match: MatchRow
-    let model: MatchDetailModel
-    let score: MatchScore
-    /// The owner's own reason pills, so custom counts read as words.
-    var customReasons: [UUID: String] = [:]
-
-    var body: some View {
-        let bundle = MatchAnalysisBundle(
-            match: match, model: model, score: score, customReasons: customReasons
-        )
-
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Match analysis")
-                        .font(.plCardTitle)
-                        .foregroundStyle(PL.text100)
-                    if bundle.incomplete {
-                        Text("Score the points and answer the follow-ups to fill this in.")
-                            .font(.plCaption)
-                            .foregroundStyle(PL.text500)
-                    }
-                }
-
-                AnalysisCards(bundle: bundle)
-            }
-            .padding(20)
-            .padding(.bottom, 40)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
-/// The three cards themselves. The owner opens them in the sheet above;
-/// a coach reads them on the match page itself (Adil, 2026-09-03), the
-/// way the web's coach view and the placement maps already sit on the
-/// page, so `coachView` turns "you" into "the player" throughout.
+/// The three cards themselves, shown inline on the match page for both
+/// owner and coach. `coachView` turns "you" into "the player" throughout.
 struct AnalysisCards: View {
     let bundle: MatchAnalysisBundle
     var coachView = false

@@ -9,6 +9,7 @@ struct ToolsSection: View {
     let score: MatchScore
     let onOpenPlayer: () -> Void
     let onScrollToNotes: () -> Void
+    let onScrollToAnalysis: () -> Void
     let onScrollToPlacement: () -> Void
     /// Called after a sheet writes to the match row (details, your side).
     /// The screen refetches its own copy — this card renders from a
@@ -21,7 +22,6 @@ struct ToolsSection: View {
     @State private var highlightsOpen = false
     @State private var coachOpen = false
     @State private var exportOpen = false
-    @State private var analysisOpen = false
     @State private var detailsOpen = false
     @State private var sideOpen = false
     @State private var placementOpen = false
@@ -44,12 +44,12 @@ struct ToolsSection: View {
                     highlightsOpen = true
                 }
                 divider
-                toolRow("Share", trailing: .text("Not shared")) { shareOpen = true }
-                divider
-                toolRow("Coach", trailing: .text("Invite your coach")) { coachOpen = true }
-                divider
-                toolRow("Export", trailing: .text(starredCount > 0 ? "★ \(starredCount) starred" : "Video & clips")) { exportOpen = true }
-                divider
+                if MatchTitle.tracksServe(match.matchType) {
+                    toolRow("Match analysis", trailing: .text(analysisTrailing)) {
+                        onScrollToAnalysis()
+                    }
+                    divider
+                }
                 toolRow(
                     app.placementServesOnly ? "Serve placement" : "Placement maps",
                     trailing: .text(placementTrailing), beta: true
@@ -63,14 +63,12 @@ struct ToolsSection: View {
                         placementOpen = true
                     }
                 }
-                // Every number in the analysis derives from a confirmed
-                // score, and practice never collects one — for it the
-                // sheet could only ever say "score a full game", which is
-                // an instruction to do the one thing practice removed.
-                if MatchTitle.tracksServe(match.matchType) {
-                    divider
-                    toolRow("Match analysis", trailing: .text(analysisTrailing)) { analysisOpen = true }
-                }
+                divider
+                toolRow("Share a link", trailing: .text("Not shared")) { shareOpen = true }
+                divider
+                toolRow("Coach", trailing: .text("Invite your coach")) { coachOpen = true }
+                divider
+                toolRow("Export", trailing: .text("Video files")) { exportOpen = true }
                 divider
                 toolRow("Notes", trailing: .text("Add a note")) { onScrollToNotes() }
                 divider
@@ -131,12 +129,6 @@ struct ToolsSection: View {
         .sheet(isPresented: $exportOpen) {
             ExportSheet(match: match, starredCount: starredCount)
                 .presentationDetents([.medium, .large])
-                .presentationBackground(PL.surface)
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $analysisOpen) {
-            AnalysisSheet(match: match, model: model, score: score)
-                .presentationDetents([.large])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }
@@ -814,16 +806,6 @@ struct CoachInviteSheet: View {
                             showQR = false
                         }
                         .foregroundStyle(PL.text400)
-                    } else {
-                        Button(creating ? "Creating…" : "Create invite link") {
-                            Task { await create() }
-                        }
-                        .disabled(creating)
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(.plCaption)
-                                .foregroundStyle(PL.dangerText)
-                        }
                     }
                 } header: {
                     // The header has to describe what is in the section.
@@ -836,9 +818,9 @@ struct CoachInviteSheet: View {
                             ? "Invite a coach"
                             : "Invite another coach")
                 } footer: {
-                    Text(link != nil
-                         ? "It is waiting above until they open it."
-                         : "For a coach you haven't connected yet. They open the link, sign in, and can watch your matches point by point and leave notes.")
+                    if link != nil {
+                        Text("It is waiting above until they open it.")
+                    }
                 }
 
                 if link == nil {
@@ -849,6 +831,21 @@ struct CoachInviteSheet: View {
                         offerMatches: scope != "all",
                         named: !inviteName.trimmingCharacters(in: .whitespaces).isEmpty
                     )
+
+                    Section {
+                        Text("For a coach you haven't connected yet. They open the link, sign in, and can watch your matches point by point and leave notes.")
+                            .font(.plBody)
+                            .foregroundStyle(PL.text400)
+                        Button(creating ? "Creating…" : "Create invite link") {
+                            Task { await create() }
+                        }
+                        .disabled(creating)
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.plCaption)
+                                .foregroundStyle(PL.dangerText)
+                        }
+                    }
                 }
             }
             .tint(PL.cyan)
@@ -1109,9 +1106,6 @@ struct ExportSheet: View {
     @State private var showScore = true
     @State private var reels: [String: String] = [:] // scope -> status
     @State private var busy: String?
-    @State private var instagramOpen = false
-    /// The emergency switch (136); an unreadable row answers "on".
-    @State private var sharingOn = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -1135,46 +1129,14 @@ struct ExportSheet: View {
                 scope: "starred",
                 disabled: starredCount == 0
             )
-            if sharingOn {
-                instagramRow
-            }
             rawRow
             Spacer()
         }
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
         .task {
-            sharingOn = await StoryShareModel.sharingEnabled()
             await loadReels()
         }
-        .sheet(isPresented: $instagramOpen) {
-            ShareHighlightsSheet(match: match, starredCount: starredCount)
-                .presentationDetents([.height(ShareHighlightsSheet.detentHeight)])
-                .presentationBackground(PL.surface)
-                .presentationDragIndicator(.visible)
-        }
-    }
-
-    /// The starred rallies as one 9:16 video, handed straight to
-    /// Instagram — the vertical sibling of the row above, rendered on the
-    /// worker like every other stitched export.
-    private var instagramRow: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Instagram Reel").font(.plRowTitle)
-                    .foregroundStyle(starredCount > 0 ? PL.text100 : PL.text500)
-                Text(starredCount > 0
-                     ? "Your starred rallies, back to back"
-                     : "Star points to share them")
-                    .font(.plCaption)
-                    .foregroundStyle(PL.text500)
-            }
-            Spacer()
-            Button("Share") { instagramOpen = true }
-                .buttonStyle(PLSecondaryButtonStyle())
-                .disabled(starredCount == 0)
-        }
-        .plInnerRow()
     }
 
     private func exportRow(

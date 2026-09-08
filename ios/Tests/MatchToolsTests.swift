@@ -17,4 +17,13 @@ func runMatchToolsChecks() {
             == [.match],
         "unprocessed matches offer only their live whole-match link"
     )
+    check(
+        coachInviteCreationOrder.last == .createLink,
+        "coach invite creation ends with its primary action"
+    )
+    check(
+        coachInviteCreationOrder.firstIndex(of: .starterPack)!
+            < coachInviteCreationOrder.firstIndex(of: .createLink)!,
+        "starter selections come before invite creation"
+    )
 }

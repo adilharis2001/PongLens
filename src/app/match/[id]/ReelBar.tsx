@@ -483,7 +483,7 @@ export function ReelRow({
                 <span className="text-zinc-500">{starred.length} starred</span>
               </>
             ) : (
-              <span className="text-zinc-500">Video &amp; clips</span>
+              <span className="text-zinc-500">Video files</span>
             )}
           </span>
           <ToolRowChevron />

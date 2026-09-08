@@ -26,6 +26,22 @@ func shareLinkTargets(
     return targets
 }
 
+enum CoachInviteCreationStep: Hashable {
+    case identity
+    case access
+    case starterPack
+    case explanation
+    case createLink
+}
+
+let coachInviteCreationOrder: [CoachInviteCreationStep] = [
+    .identity,
+    .access,
+    .starterPack,
+    .explanation,
+    .createLink,
+]
+
 enum AutomaticHighlightAction: Hashable {
     case play
     case instagram
