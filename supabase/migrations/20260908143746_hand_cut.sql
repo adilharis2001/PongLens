@@ -9,8 +9,8 @@
 -- Design: docs/superpowers/specs/2026-09-07-hand-cut-design.md
 -- How it fits the rest: docs/research/2026-09-08-hand-cut-integration.md
 --
--- Numbered above the live head (20260908120318) so `db push` orders it
--- last; the checkout it was written in was behind the database.
+-- Applied to the live database on 2026-09-08 as version 20260908143746,
+-- which is this file's name so `db push` sees it as already applied.
 
 -- ---------------------------------------------------------------- matches
 
