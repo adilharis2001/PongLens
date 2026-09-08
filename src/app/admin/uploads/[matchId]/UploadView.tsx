@@ -993,7 +993,9 @@ function RouteLine({
       <p className="mt-2 text-sm text-zinc-400">
         {!processed
           ? "Nothing has run on this upload yet."
-          : assembly.fallbackReason
+          : assembly.pipeline === "hand-v1"
+            ? "The points were marked by hand, so no assembler ran."
+            : assembly.fallbackReason
             ? `The serve-anchored assembler was asked for and could not run: ${assembly.fallbackReason}.`
             : "This upload predates the record of which assembler cut its cards."}
       </p>

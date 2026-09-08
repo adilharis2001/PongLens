@@ -1178,7 +1178,13 @@ export function MatchView({
     },
     [match]
   );
-  const placementNotice = placementNoticeForViewer(placement.view, isOwner);
+  // A hand-cut match has no ball track and no table, so placement maps
+  // and automatic highlights are not on offer: not as a disabled row,
+  // not as a notice inviting a tap that can only fail.
+  const handCut = match.cut_source === "manual";
+  const placementNotice = handCut
+    ? null
+    : placementNoticeForViewer(placement.view, isOwner);
   // A coach's maps are the public share page's maps (Adil, 2026-09-02):
   // the same collectors, the same three-point floor, the same read-only
   // deck. The owner keeps the interactive aggregate below.
@@ -1202,10 +1208,8 @@ export function MatchView({
     gameIndexByPoint,
     serving,
   ]);
-  const showPointPlacementNotice = showPlacementDeepDive(
-    placement.view,
-    false,
-  );
+  const showPointPlacementNotice =
+    !handCut && showPlacementDeepDive(placement.view, false);
   const serveGuess = useMemo(
     () => firstServerGuess(visiblePoints, userSide),
     [visiblePoints, userSide]
@@ -3140,7 +3144,7 @@ export function MatchView({
                 </span>
               </button>
             )}
-            {hasCutOffsets && (
+            {hasCutOffsets && !handCut && (
               <HighlightsRow
                 matchId={match.id}
                 onPlay={(asset, onDownload) =>
@@ -3170,10 +3174,12 @@ export function MatchView({
                 </span>
               </button>
             )}
-            <PlacementToolsRow
-              controller={placement}
-              onReady={() => scrollToReadyPlacement(document)}
-            />
+            {!handCut && (
+              <PlacementToolsRow
+                controller={placement}
+                onReady={() => scrollToReadyPlacement(document)}
+              />
+            )}
             <button
               type="button"
               onClick={() => setShareTarget({})}
@@ -4350,7 +4356,7 @@ export function MatchView({
           that shed the rest of it, but maps that exist are the camera's
           own data and stay shown whatever the type. Generation stays in
           Tools either way. */}
-      {isOwner && (scored || placementMappedPoints > 0) && (
+      {isOwner && !handCut && (scored || placementMappedPoints > 0) && (
         <div id="ball-map" className="scroll-mt-32">
           {showPlacementDeepDive(
             placement.view,

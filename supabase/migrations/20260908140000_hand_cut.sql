@@ -7,6 +7,10 @@
 -- them into a normal cut match.
 --
 -- Design: docs/superpowers/specs/2026-09-07-hand-cut-design.md
+-- How it fits the rest: docs/research/2026-09-08-hand-cut-integration.md
+--
+-- Numbered above the live head (20260908120318) so `db push` orders it
+-- last; the checkout it was written in was behind the database.
 
 -- ---------------------------------------------------------------- matches
 
@@ -16,13 +20,45 @@ alter table public.matches
 
 comment on column public.matches.cut_source is
   'manual means the points on this match were marked by its owner rather '
-  'than found by the detector. create_match(existing=true) refuses to '
-  'delete points on such a match, because an automatic re-run would '
-  'silently destroy an hour of a player''s work. No client grant: only '
-  'claim_hand_cut and the worker write it. When processing versions land '
-  'this moves onto the version as its producer.';
+  'than found by the detector. The worker refuses to delete points on such '
+  'a match, match_reprocess_source answers null for it, and the placement '
+  'and highlights surfaces do not offer themselves. No client grant: only '
+  'claim_hand_cut and the worker write it.';
 
 -- No grant. matches update grants are column-scoped and this is not in one.
+
+-- ----------------------------------------------------------- rollout gate
+--
+-- Same grammar as automatic_highlights: 'on', 'user:<id>' or
+-- 'users:<id>,<id>'. Admins always pass, the way match_reprocessing_enabled
+-- treats them, so the feature can be tried on production before anyone
+-- else sees it. Read through the function below, never from the client:
+-- the key is not on the public allow-list and does not need to be.
+
+insert into public.app_config (key, value) values ('hand_cut', 'off')
+on conflict (key) do nothing;
+
+create or replace function public.hand_cut_enabled(p_user uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select public.is_admin() or exists (
+    select 1
+      from public.app_config c
+     where c.key = 'hand_cut'
+       and (c.value = 'on'
+            or c.value = 'user:' || p_user::text
+            or (c.value like 'users:%'
+                and p_user::text = any (string_to_array(
+                      replace(substr(c.value, 7), ' ', ''), ','))))
+  );
+$$;
+
+revoke all on function public.hand_cut_enabled(uuid) from public, anon;
+grant execute on function public.hand_cut_enabled(uuid) to authenticated;
 
 -- ------------------------------------------------------------ the drafts
 
@@ -36,7 +72,8 @@ create table if not exists public.hand_cut_drafts (
   updated_at   timestamptz not null default now(),
   -- Set by claim_hand_cut only. Once set, the update policy below freezes
   -- the row: the worker must read the same set the player agreed to, not
-  -- one they kept editing while it ran.
+  -- one they kept editing while it ran. The worker clears it again when a
+  -- cut fails for good, which is what hands the marks back.
   submitted_at timestamptz
 );
 
@@ -59,6 +96,24 @@ grant select, insert, delete on public.hand_cut_drafts to authenticated;
 -- submitted_at is deliberately absent, so only the definer function sets it.
 grant update (marks, updated_at) on public.hand_cut_drafts to authenticated;
 
+-- The Mac worker signs in as postgres and owns this table. The Modal
+-- backup lane signs in as ponglens_worker, which has explicit grants per
+-- table and nothing else; give it the same two operations the worker
+-- performs here. The role is created out of band, so this must not fail
+-- where it does not exist.
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'ponglens_worker') then
+    grant select on public.hand_cut_drafts to ponglens_worker;
+    grant update (submitted_at) on public.hand_cut_drafts to ponglens_worker;
+  end if;
+end $$;
+
+comment on table public.hand_cut_drafts is
+  'Marks a player has made while cutting a match by hand, in SOURCE '
+  'seconds. Scratch work until claim_hand_cut freezes the row and queues '
+  'the hand_cut job.';
+
 -- ------------------------------------------------------------- the claim
 
 create or replace function public.claim_hand_cut(
@@ -72,7 +127,7 @@ as $$
 declare
   v_me       uuid := (select auth.uid());
   v_match    public.matches%rowtype;
-  v_job      uuid;
+  v_job      uuid := gen_random_uuid();
   v_n        int;
   v_mark     jsonb;
   v_prev_t1  numeric := -1;
@@ -82,6 +137,9 @@ declare
 begin
   if v_me is null then
     raise exception 'not_authenticated' using errcode = '42501';
+  end if;
+  if not public.hand_cut_enabled(v_me) then
+    raise exception 'not_enabled' using errcode = '42501';
   end if;
 
   -- The row lock is the serialization point and comes before every other
@@ -99,10 +157,7 @@ begin
     raise exception 'bad_state' using errcode = 'P0001';
   end if;
 
-  -- Load-bearing beyond tidiness: matches.job_id is only ever written in
-  -- the same statement as cut_path, so a null cut_path is what guarantees a
-  -- null job_id, which is what guarantees no stale trim offset reaches a
-  -- later re-cut.
+  -- A cut already exists: this is a processed match, whatever its status.
   if v_match.cut_path is not null then
     raise exception 'bad_state' using errcode = 'P0001';
   end if;
@@ -139,7 +194,7 @@ begin
     from public.jobs
    where user_id = v_me
      and status in ('queued', 'processing')
-     and kind <> 'reclip';
+     and kind not in ('reclip', 'content_check');
   if v_active >= 4 then
     raise exception 'queue_full' using errcode = 'P0001';
   end if;
@@ -179,25 +234,34 @@ begin
         submitted_at = now(),
         updated_at = now();
 
+  -- The job carries what the worker's publish lock asks of every ordinary
+  -- processing job: which processing version it belongs to and which job
+  -- originated it (itself). An ordinary job gets these stamped when it is
+  -- claimed; a hand cut has no claim step, so they are written here.
+  -- matches.status is deliberately NOT moved: a job that dies leaves the
+  -- match 'uploaded' and fully recoverable, and the raw page reads the
+  -- job, not the status, to say that something is running.
+  insert into public.jobs (id, user_id, kind, status, input_path,
+                           original_name, options)
+  values (v_job, v_me, 'hand_cut', 'queued', v_match.raw_path,
+          v_match.original_name,
+          jsonb_build_object(
+            'match_id', p_match_id,
+            'source', 'manual',
+            'processing_version_id', v_match.active_processing_version_id,
+            'originating_match_job_id', v_job));
+
   -- clip_pads is stamped here rather than left to a job lookup, because a
   -- hand-cut match has no strictness on a job to fall back to and
-  -- match_pre_pad would otherwise guess.
+  -- match_pre_pad would otherwise guess. job_id links the match to its
+  -- job the way an upload is linked to its processing job, which is what
+  -- the publish lock checks and what the library's "processing" chip
+  -- reads. The worker clears it again if the cut fails for good.
   update public.matches
      set cut_source = 'manual',
-         clip_pads = '{"pre": 1.2, "post": 1.3}'::jsonb
+         clip_pads = '{"pre": 1.2, "post": 1.3}'::jsonb,
+         job_id = v_job
    where id = p_match_id;
-
-  -- matches.status is deliberately NOT moved. The worker's generic failure
-  -- handler only flips a deadspace_cut match out of processing, so a
-  -- hand_cut job that died with the match in 'processing' would brick both
-  -- the match and its own retry. Left 'uploaded', a dead job is fully
-  -- recoverable, and the raw page's "running" test already reads the job
-  -- rather than the status.
-  insert into public.jobs (user_id, kind, status, input_path, original_name, options)
-  values (v_me, 'hand_cut', 'queued', v_match.raw_path,
-          coalesce(v_match.original_name, 'Hand cut'),
-          jsonb_build_object('match_id', p_match_id))
-  returning id into v_job;
 
   return jsonb_build_object('job_id', v_job, 'points', v_n);
 end;
@@ -205,6 +269,76 @@ $$;
 
 revoke all on function public.claim_hand_cut(uuid, jsonb) from public, anon;
 grant execute on function public.claim_hand_cut(uuid, jsonb) to authenticated;
+
+-- ------------------------------------------- a failed cut rings the bell
+--
+-- Recreated from 066 (its only definition) with the hand_cut kind added.
+-- The player is waiting on this job exactly as they wait on an upload, and
+-- the email half lives in the worker beside the upload one.
+
+create or replace function public.jobs_notify_failed()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.status is not distinct from old.status or new.status <> 'failed' then
+    return new;
+  end if;
+  -- ONLY the jobs a person is waiting on. reclip, placement and reel
+  -- renders fail behind their own surfaces, which report themselves; a
+  -- bell for each would be noise about work nobody asked about directly.
+  if coalesce(new.kind, 'deadspace_cut')
+     not in ('deadspace_cut', 'youtube_import', 'hand_cut') then
+    return new;
+  end if;
+  if new.user_id is null then
+    return new;
+  end if;
+
+  insert into public.notifications
+    (user_id, kind, title, body, href)
+  values (
+    new.user_id,
+    'upload_failed',
+    case when new.kind = 'youtube_import' then 'Import failed'
+         when new.kind = 'hand_cut' then 'Cut failed'
+         else 'Upload failed' end,
+    coalesce(nullif(btrim(new.user_message), ''),
+             case when new.kind = 'hand_cut'
+                  then 'We couldn''t finish cutting this match. Your marks are saved.'
+                  else 'We couldn''t process this video.' end),
+    case when new.kind = 'hand_cut' and (new.options ? 'match_id')
+         then '/match/' || (new.options->>'match_id')
+         else '/upload' end
+  );
+  return new;
+end;
+$$;
+
+-- ---------------------------------------- reprocessing refuses a hand cut
+--
+-- One function answers "where is the original this match could be run
+-- from again?" for the feedback sheet (canReprocess), the request trigger
+-- and the admin's start button. Answering null for a hand-cut match closes
+-- all three at once: an automatic run would replace every point the
+-- player marked. Body otherwise verbatim from 20260907212000.
+
+create or replace function public.match_reprocess_source(p_match_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select case
+    when m.cut_source = 'manual' then null
+    when m.raw_path ~ ('^r2://[^/]+/'||m.user_id::text||'/.+') then m.raw_path
+    when j.user_id=m.user_id and j.input_path ~ ('^r2://[^/]+/'||m.user_id::text||'/.+') then j.input_path
+    else null end
+  from public.matches m left join public.jobs j on j.id=m.job_id where m.id=p_match_id
+$$;
 
 -- --------------------------------------------------- placement refusals
 --
@@ -372,8 +506,3 @@ revoke all on function public.request_placement_generation(uuid)
   from public, anon;
 grant execute on function public.request_placement_generation(uuid)
   to authenticated;
-
-comment on table public.hand_cut_drafts is
-  'Marks a player has made while cutting a match by hand, in SOURCE '
-  'seconds. Scratch work until claim_hand_cut freezes the row and queues '
-  'the hand_cut job.';

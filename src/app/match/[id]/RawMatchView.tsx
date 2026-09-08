@@ -57,6 +57,7 @@ export function RawMatchView({
   commerceEnabled,
   minutesBalance,
   initialJob,
+  handCutEnabled,
   initialNotes,
   noteAuthors,
   userId,
@@ -67,6 +68,8 @@ export function RawMatchView({
   commerceEnabled: boolean;
   minutesBalance: number | null;
   initialJob: ActiveJob | null;
+  /** Rolled out per account; the page asks the database. */
+  handCutEnabled: boolean;
   initialNotes: Note[];
   noteAuthors: NoteAuthor[];
   userId: string;
@@ -109,7 +112,10 @@ export function RawMatchView({
   /** Is the process card open? Closed on a fresh upload; a failed one
    *  opens itself, because its reason and its retry are why anyone is
    *  looking at this screen. */
-  const [processOpen, setProcessOpen] = useState(match.status === "failed");
+  const [processOpen, setProcessOpen] = useState(
+    match.status === "failed"
+      || (initialJob?.kind === "hand_cut" && initialJob.status === "failed"),
+  );
   /** Which of the two ways is open. Neither, until the reader picks one:
    *  the card's job is to show that there IS a choice. */
   const [autoOpen, setAutoOpen] = useState(false);
@@ -473,6 +479,9 @@ export function RawMatchView({
     job != null &&
     job.kind !== "content_check" &&
     (job.status === "queued" || job.status === "processing");
+  /** The latest hand cut on this match died for good. */
+  const handCutFailed =
+    job?.kind === "hand_cut" && job.status === "failed";
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 pt-6">
@@ -674,6 +683,24 @@ export function RawMatchView({
           </div>
           <p className="mt-3 text-sm text-zinc-400">
             You can leave this page. We email you when the match is ready.
+          </p>
+        </section>
+      )}
+
+      {/* A hand cut that did not finish. The match itself is back to
+          'uploaded' (the worker undid its half-written cut), so nothing
+          else on this page says anything went wrong; the job does. The
+          marks are still here: the row below reads "N marked". */}
+      {handCutFailed && (
+        <section className="mt-4 rounded-2xl border border-edge bg-surface p-5">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+            Marked by hand
+          </h2>
+          <p className="mt-3 text-sm text-zinc-300">
+            {job?.user_message ?? "The cut didn't finish."}
+          </p>
+          <p className="mt-2 text-sm text-zinc-400">
+            Your marks are saved. Open them, check them and send them again.
           </p>
         </section>
       )}
@@ -907,7 +934,7 @@ export function RawMatchView({
               Marking a match is a thumb job; the desktop pad exists and
               works, but it is not what is being put in front of players
               yet. */}
-          {handCutReady && (
+          {handCutEnabled && handCutReady && (
           <button
             type="button"
             onClick={() => {

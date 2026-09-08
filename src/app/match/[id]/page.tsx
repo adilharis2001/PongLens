@@ -111,9 +111,13 @@ export default async function MatchPage({
 
     let minutesBalance: number | null = null;
     let initialJob = null;
+    // Marking the points by hand is rolled out per account (app_config
+    // 'hand_cut', admins always). The function arrives with the hand-cut
+    // migration; until then the call errors and this simply stays false.
+    let handCutEnabled = false;
     const commerceEnabled = await getCommerceEnabled();
     if (isOwner) {
-      const [stateRes, jobRes] = await Promise.all([
+      const [stateRes, jobRes, gateRes] = await Promise.all([
         commerceEnabled
           ? supabase.rpc("my_processing_state").single()
           : Promise.resolve({ data: null }),
@@ -124,12 +128,14 @@ export default async function MatchPage({
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle(),
+        supabase.rpc("hand_cut_enabled", { p_user: user.id }),
       ]);
       const state = stateRes.data as { minutes_balance?: number } | null;
       if (typeof state?.minutes_balance === "number") {
         minutesBalance = state.minutes_balance;
       }
       initialJob = jobRes.data ?? null;
+      handCutEnabled = gateRes.data === true;
     }
 
     const rawAvatar =
@@ -147,6 +153,7 @@ export default async function MatchPage({
             commerceEnabled={commerceEnabled}
             minutesBalance={minutesBalance}
             initialJob={initialJob}
+            handCutEnabled={handCutEnabled}
             initialNotes={(notesRes.data ?? []) as Note[]}
             noteAuthors={(authorsRes.data ?? []) as NoteAuthor[]}
             userId={user.id}

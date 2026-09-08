@@ -111,7 +111,7 @@ export function liveJobFor(
   return (
     list.find(
       (j) =>
-        j.kind === "deadspace_cut" &&
+        (j.kind === "deadspace_cut" || j.kind === "hand_cut") &&
         working(j) &&
         String(j.options?.match_id ?? "") === matchId,
     ) ?? null

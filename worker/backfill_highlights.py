@@ -48,6 +48,7 @@ def list_eligible_matches(
             "where m.status = 'ready' and m.user_id = any(%s::uuid[]) "
             "and (%s::int is null or m.created_at >= "
             "now() - (%s::int * interval '1 day')) "
+            "and coalesce(m.cut_source, 'auto') <> 'manual' "
             "and exists (select 1 from public.points scored "
             "where scored.match_id = m.id "
             "and scored.confirmed_winner is not null) "

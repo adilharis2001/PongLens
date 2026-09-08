@@ -439,3 +439,101 @@ Sizes: every fix above is one condition, one string or one small
 function. The rebase is the real work, because `create_match` and the
 worker file have moved under the branch and another chat's uncommitted
 worker changes sit in the production tree.
+
+## 8. What changed on the branch after the decisions (2026-09-08, later)
+
+Adil's decisions, in order: rebase first; hide the highlights and placement
+rows and the reprocess offer on a hand-cut match; make failure honest;
+gate the rollout per account; fix the accounting gaps before shipping;
+apply the migration by hand on his go; test on production with his own
+account. Everything below is on branch `hand-cut`, rebased onto
+`origin/main` (c9294638). Nothing has been merged, pushed or applied.
+
+**Rebase.** Thirteen commits replayed onto GitHub's main with one stop
+(two add/add conflicts: a job label and an import). The lock-based
+`create_match` merged on its own with the manual guard already inside the
+lock. Verified afterwards: 33 reducer tests, the worker tests, the whole
+project typecheck (only GitHub's four pre-existing test-file errors
+remain) and a real `npm run build`.
+
+**B1 highlights.** `/api/highlights` answers `unavailable` (GET) and 409
+(POST) for `cut_source = 'manual'`; the match row is read with `*` so the
+route survives the window before the column exists. The worker's
+`_prepare_automatic_highlight_manifest` never refreshes evidence on a hand
+cut, and `backfill_highlights.py` excludes them. The row itself is hidden
+in `MatchView` (`handCut`).
+
+**B2 reprocessing.** `match_reprocess_source` answers null for a hand-cut
+match, which closes `canReprocess`, the request trigger and the admin's
+start button in one place. The worker guard stays as the backstop.
+
+**B3 placement.** The Tools row, the aggregate empty state, the point-sheet
+notice and the coach's notice are all gated on `handCut` in `MatchView`.
+The worker's `placement_for_match` treats a hand cut as `source_missing`
+before the detector runs. iOS still reads `placement_status` and shows its
+own row; the RPC refusal stands, and the iOS string is a follow-up (iOS is
+untouched by decision).
+
+**B4 failure.** The handler's rollback is split: a retryable failure keeps
+the draft submitted and the job linked so the queue's redelivery can run
+again; a terminal one (a user-facing error, or the queue giving up) hands
+the marks back (`submitted_at` null, `cut_source` auto, `job_id` null).
+Only the job the match still points at may undo anything, so a stale
+message can never delete a resubmission's points. `jobs_notify_failed`
+rings for `hand_cut` ("Cut failed", linking the match); the worker emails
+the player on a terminal failure (`match.hand-cut-failed`) and on success
+(`notify_job_done`, the promise the raw page already made). `liveJobFor`
+recognises the kind, so Home shows the cut running. The raw page shows a
+"Marked by hand" section when the latest hand cut failed, and the marker
+row reads "N marked" so the player can send them again.
+
+**B5, B6.** A rally whose clip fails to encode is inserted with no clip and
+`edited = true`, which fires the reclip trigger; `insert_points` accepts a
+point without a clip. The original is fetched with
+`_download_backfill_object` (a missing object is terminal, anything else
+retries).
+
+**B7.** `locked_ordinary_match_attempt` allowlists `hand_cut`;
+`claim_hand_cut` stamps `processing_version_id` and
+`originating_match_job_id` on the job and links `matches.job_id` to it,
+which is what the lock checks at publish.
+
+**Money.** The rollback negates the attempt's storage rows (the cut's key
+and the clip prefix). The attempt key is the queue's `job_id:read_ct`, so
+a retry's minutes are booked; clip encoding runs inside
+`point_clip_encoding`.
+
+**Cosmetics done.** `_CutMap.dynamic_tails` treats `hand-v1` like `v2`;
+`_encode_clip` uses the reclip ladder (8-bit output); the publish tripwire
+tolerance scales with the segment count (`hand_cut_length_tolerance`,
+tested); marks emptied by the duration filter fail with a message; a
+thumbnail is taken from the first rally's serve; Home's download list
+skips `hand_cut` jobs; the admin uploads page reports a hand cut as "never
+asked" with its own route line.
+
+**Rollout gate.** `app_config` key `hand_cut` (`off` by default; `on`,
+`user:<id>` or `users:<id>,<id>`), read through `hand_cut_enabled(uuid)`,
+which also passes admins. The match page asks it and the claim RPC
+enforces it. To open it for one account later:
+
+```sql
+update public.app_config set value = 'users:<id>' where key = 'hand_cut';
+```
+
+**Migration.** Renumbered to `20260908140000_hand_cut.sql`, above the live
+head. It adds the `ponglens_worker` grants where that role exists. Apply
+it by hand (the Supabase SQL editor or the MCP `apply_migration`) after
+the web deploy, or before it; the code tolerates either order.
+
+**Not done, deliberately.** iOS placement copy for a hand cut; the
+`/research/scores` exclusion (needs the column to exist before the query
+can name it); the story crop fallback and the share-sheet toggle copy.
+
+**Not verifiable here.** The migration has not run anywhere, so the marker
+row, the claim, the job and the failure path were not exercised end to
+end on this pass. The reducer, the pad, the segment arithmetic and the
+publish tripwire have tests; the rest is the production test with Adil's
+account, in this order: apply the migration, open an unprocessed match on
+a phone, mark a few points, send, watch the job on `/admin/processing`,
+open the match, confirm no Highlights or Placement rows and no "Try
+processing again", then open Home and the library card.

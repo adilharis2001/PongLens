@@ -64,7 +64,7 @@ export interface PlacementHypothesisJson {
 export interface MatchJson {
   version?: number;
   /** Which card assembly ran. Absent on matches processed before 119. */
-  pipeline?: "v1" | "v2";
+  pipeline?: "v1" | "v2" | "hand-v1";
   source?: { duration?: number; fps?: number; width?: number; height?: number };
   options?: {
     strictness?: string;
@@ -313,6 +313,19 @@ export function readTable(
 ): TableReading {
   const camera = storyCrop?.camera ?? null;
   if (!matchJson) {
+    return {
+      state: "unknown",
+      quad: null,
+      detector: null,
+      note: null,
+      agreement: null,
+      camera,
+    };
+  }
+  if (matchJson.pipeline === "hand-v1") {
+    // Marked by hand: the ladder never ran, so this is "never asked", not
+    // "declined". Reporting it as refused would count a player's own cut
+    // as a detector failure.
     return {
       state: "unknown",
       quad: null,

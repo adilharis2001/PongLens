@@ -2,6 +2,7 @@ import html
 import unittest
 
 from worker.email_templates import (
+    hand_cut_failed_message,
     EmailMessage,
     admin_job_failure_message,
     cost_alert_message,
@@ -63,12 +64,22 @@ class EmailRendererTests(unittest.TestCase):
 class WorkerOutcomeCatalogTests(unittest.TestCase):
     def test_every_outcome_fixture_has_a_unique_rendered_identity(self):
         fixtures = worker_outcome_fixtures()
-        self.assertEqual(len(fixtures), 5)
-        self.assertEqual(len({f["message"].template_id for f in fixtures}), 5)
+        self.assertEqual(len(fixtures), 6)
+        self.assertEqual(len({f["message"].template_id for f in fixtures}), 6)
         for fixture in fixtures:
             rendered = render_email(fixture["message"])
             self.assertTrue(rendered.html)
             self.assertTrue(rendered.text)
+
+    def test_hand_cut_failure_keeps_the_marks_and_links_the_match(self):
+        rendered = render_email(hand_cut_failed_message(
+            "https://www.ponglens.com/match/preview",
+            "The original video could not be read.",
+        ))
+        self.assertEqual(rendered.subject, "We couldn't finish cutting your match")
+        self.assertIn("The original video could not be read.", rendered.text)
+        self.assertIn("The points you marked are saved.", rendered.text)
+        self.assertIn("https://www.ponglens.com/match/preview", rendered.text)
 
     def test_match_ready_names_the_file_and_destination(self):
         rendered = render_email(match_ready_message(

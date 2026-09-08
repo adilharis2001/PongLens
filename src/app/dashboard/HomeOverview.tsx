@@ -338,6 +338,7 @@ export function HomeOverview({
     (j) =>
       j.kind !== "reel" &&
       j.kind !== "reclip" &&
+      j.kind !== "hand_cut" &&
       (j.options?.points !== true ||
         (!matchJobIds.has(j.id) &&
           (j.status === "done" || j.status === "failed")))

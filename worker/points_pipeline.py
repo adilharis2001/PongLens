@@ -432,6 +432,17 @@ def play_cut_segments(windows, dur, head, tail, merge_gap=SEGMENT_MERGE_S):
     return [(s0, s1) for s0, s1 in segs]
 
 
+def hand_cut_length_tolerance(n_segments: int) -> float:
+    """How far an encoded hand cut may differ from its segments' arithmetic
+    before the worker refuses to publish it.
+
+    Each segment is a separately encoded part, so a little rounding rides on
+    every one, and a heavily marked match accumulates more of it than a
+    lightly marked one. A constant would fail a correct cut of four hundred
+    rallies and wave through a wrong one of three."""
+    return max(2.0, 0.05 * n_segments)
+
+
 def segment_cut_offsets(segments):
     """Offset of each segment inside the concatenated cut video."""
     offsets, acc = [], 0.0

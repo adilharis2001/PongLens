@@ -90,6 +90,7 @@ except ModuleNotFoundError:  # direct `python worker/worker.py` execution
         qa_digest_message,
         render_email,
         upload_failed_message,
+    hand_cut_failed_message,
     )
     from cost_reconcile import (
         record_r2_storage_snapshot,
@@ -979,8 +980,33 @@ def notify_upload_failed(conn, user_id: str, kind: str,
         return False
 
 
+def notify_hand_cut_failed(conn, user_id: str | None, job_id: str | None,
+                           message: str | None) -> bool:
+    """Tell the player their hand cut did not finish. Never raises.
+
+    Same contract as notify_upload_failed: only what a person can act on,
+    and True when the mail actually went out."""
+    try:
+        if not user_id:
+            return False
+        match_id = get_job_match_id(conn, job_id) if job_id else None
+        rendered = render_email(hand_cut_failed_message(
+            f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL,
+            message or "We couldn't finish cutting this match.",
+        ))
+        to = get_user_email(conn, user_id)
+        if to:
+            send_email(to, rendered)
+            return True
+        return False
+    except Exception as e:
+        log.warning("  hand cut failure email failed (non-fatal): %s", e)
+        return False
+
+
 def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
-                        user_id: str | None, user_message: str | None):
+                        user_id: str | None, user_message: str | None,
+                        terminal: bool = True):
     """Decide who hears about a failed job. One failure, one email.
 
     An echo failure (already_reported: the processing job that died only
@@ -1000,6 +1026,12 @@ def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
         # A failed content check is an upload outcome too (097).
         uploader_emailed = notify_upload_failed(conn, user_id, kind,
                                                 user_message)
+    elif kind == "hand_cut" and terminal:
+        # A person is waiting on this one too, and the raw page promised
+        # the email. Only once the queue has given up: an attempt that will
+        # run again is not news.
+        uploader_emailed = notify_hand_cut_failed(conn, user_id, job_id,
+                                                  user_message)
     if job_id and not (isinstance(e, UserFacingError) and uploader_emailed):
         notify_job_failed(conn, job_id, str(e))
 
@@ -3276,6 +3308,10 @@ def placement_for_match(
         record.get("source_expired")
         or not record.get("input_path")
         or not record.get("match_json_path")
+        # No ball track and no calibrated table: nothing to draw, and
+        # placement_backfill would raise on the missing source.fps after a
+        # full detector run. Terminal, before anything expensive.
+        or match_cut_source(conn, match_id) == "manual"
     ):
         source_failure = (
             "source_expired"
@@ -4202,7 +4238,7 @@ def locked_ordinary_match_attempt(conn, match_id: str, user_id: str, job_id: str
             cur.execute(
                 "select j.user_id::text,j.kind,j.status,j.options,j.user_message, "
                 "exists(select 1 from public.processing_ledger l where l.job_id=j.id and l.kind='refund'), "
-                "exists(select 1 from public.jobs newer where newer.kind in ('deadspace_cut','youtube_import') "
+                "exists(select 1 from public.jobs newer where newer.kind in ('deadspace_cut','youtube_import','hand_cut') "
                 "and newer.user_id=j.user_id and newer.options->>'match_id'=%s "
                 "and (newer.created_at,newer.id)>(j.created_at,j.id)) "
                 "from public.jobs j where j.id = %s for update of j", (match_id, job_id),
@@ -4210,7 +4246,7 @@ def locked_ordinary_match_attempt(conn, match_id: str, user_id: str, job_id: str
             job = cur.fetchone()
             allowed = {"queued", "processing", "failed"} if claim else {"processing"}
             if (not job or job[0] != str(user_id)
-                    or job[1] not in {"deadspace_cut", "youtube_import"}
+                    or job[1] not in {"deadspace_cut", "youtube_import", "hand_cut"}
                     or job[2] not in allowed or job[4] or job[5] or job[6]
                     or (job[2] == "failed" and match[1] == "failed")):
                 raise MatchVersionChanged("ordinary processing job is terminal or stale")
@@ -4242,6 +4278,27 @@ def locked_ordinary_match_attempt(conn, match_id: str, user_id: str, job_id: str
     finally:
         if owns_transaction:
             conn.autocommit = True
+
+
+def match_cut_source(conn, match_id: str) -> str:
+    """'manual' when the owner marked this match's points by hand, else 'auto'.
+
+    The column arrives with the hand-cut migration, and this worker can be
+    running before that has happened. Asking for a column that does not
+    exist aborts the transaction, which would fail every library job at
+    publish, so the read first asks whether it can ask. No column yet means
+    nothing hand-marked exists to protect."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select 1 from information_schema.columns "
+            "where table_schema = 'public' and table_name = 'matches' "
+            "and column_name = 'cut_source'")
+        if not cur.fetchone():
+            return "auto"
+        cur.execute("select cut_source from public.matches where id = %s",
+                    (match_id,))
+        got = cur.fetchone()
+    return "manual" if got and got[0] == "manual" else "auto"
 
 
 def create_match(conn, match_id: str, user_id: str, job_id: str,
@@ -4287,28 +4344,10 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
             # UserFacingError rather than a bare raise, so the existing
             # handler refunds the minutes and fails the job instead of
             # retrying into the same wall.
-            if not hand_cut:
-                # The column arrives with the hand-cut migration, and this
-                # worker can be running before that has happened. Asking
-                # for a column that does not exist aborts the transaction,
-                # which would fail EVERY library job at publish. So the
-                # guard first asks whether it can ask. No column yet means
-                # nothing hand-marked exists to protect.
-                cur.execute(
-                    "select 1 from information_schema.columns "
-                    "where table_schema = 'public' "
-                    "and table_name = 'matches' "
-                    "and column_name = 'cut_source'")
-                if cur.fetchone():
-                    cur.execute(
-                        "select cut_source from public.matches "
-                        "where id = %s",
-                        (match_id,))
-                    got = cur.fetchone()
-                    if got and got[0] == "manual":
-                        raise UserFacingError(
-                            "This match was marked by hand. Processing it "
-                            "would delete every point you marked.")
+            if not hand_cut and match_cut_source(conn, match_id) == "manual":
+                raise UserFacingError(
+                    "This match was marked by hand. Processing it "
+                    "would delete every point you marked.")
             # A re-run after a failed points stage would stack a second
             # set of rows onto the leftovers. Only that attempt's still-
             # unpublished version may be cleared; historical annotations
@@ -4666,7 +4705,8 @@ def insert_points(
                 "rally_end_cut_s = excluded.rally_end_cut_s, "
                 "highlight_evidence = excluded.highlight_evidence returning id",
                 (point_id, match_id, processing_version_id, p["idx"], p["t0"], p["t1"],
-                 f"{prefix}/{p['clip']}", p.get("server"),
+                 f"{prefix}/{p['clip']}" if p.get("clip") else None,
+                 p.get("server"),
                  json.dumps(p["placement"]) if p.get("placement") else None,
                  json.dumps(p["suggestion"]) if p.get("suggestion")
                  else None,
@@ -4687,7 +4727,8 @@ def insert_points(
                     float(p["rally_end_cut_s"])
                     if p.get("rally_end_cut_s") is not None else None
                 ),
-                "clip_path": f"{prefix}/{p['clip']}",
+                "clip_path": (f"{prefix}/{p['clip']}"
+                              if p.get("clip") else None),
                 "deleted": False,
                 "edited": False,
                 "is_let": False,
@@ -5962,7 +6003,8 @@ class _CutMap:
                     float(p["cut_t0"]), float(p["t1"]))
             except (KeyError, TypeError, ValueError):
                 continue
-        self.dynamic_tails = bool(mj) and (mj or {}).get("pipeline") != "v2"
+        self.dynamic_tails = (bool(mj)
+                              and (mj or {}).get("pipeline") not in ("v2", "hand-v1"))
 
     def locate(self, idx: int, c0: float, c1: float) -> float | None:
         """Cut second where the source window [c0, c1] starts, or None
@@ -6049,7 +6091,69 @@ def _hand_cut_segments(marks: list[dict], dur: float, pre: float, post: float):
     return segments, offsets, anchors
 
 
-def process_hand_cut(conn, job_id: str, user_id: str, payload: dict):
+def _hand_cut_rollback(conn, match_id: str, job_id: str, *, release: bool,
+                       ledger_keys: list[str] | None = None) -> None:
+    """Undo a hand cut that did not publish.
+
+    Every attempt takes the match back to 'uploaded' with no cut and no
+    points, so the raw page is what opens. What ELSE comes back depends on
+    whether the job will run again:
+
+    - a retryable failure (a network hiccup, an encoder crash) keeps the
+      draft submitted and the job linked, because the queue redelivers the
+      same message and the next attempt must find the marks frozen and the
+      lock's job still in place;
+    - a terminal one (release=True) hands the marks back to the player: the
+      draft unfreezes so it can be edited and sent again, cut_source
+      returns to 'auto' so nothing protects points that no longer exist,
+      and the job link clears so the next claim starts clean.
+
+    Only the job the match still points at may undo anything. A stale
+    queue message for a job the player has already replaced must not
+    delete the replacement's points; it only negates its own storage rows.
+    """
+    if ledger_keys:
+        ledger_negate_keys(conn, ledger_keys)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("select job_id::text from public.matches where id = %s",
+                        (match_id,))
+            row = cur.fetchone()
+            if not row or row[0] != str(job_id):
+                log.info("  hand cut: match %s has moved on from job %s; "
+                         "nothing to undo", match_id, job_id)
+                return
+            cur.execute("delete from public.points where match_id = %s",
+                        (match_id,))
+            cur.execute(
+                "update public.matches set status = 'uploaded', "
+                "cut_path = null where id = %s", (match_id,))
+            if release:
+                cur.execute(
+                    "update public.matches set cut_source = 'auto', "
+                    "job_id = null where id = %s", (match_id,))
+                cur.execute(
+                    "update public.hand_cut_drafts set submitted_at = null "
+                    "where match_id = %s", (match_id,))
+    except Exception:
+        log.warning("  hand cut: rollback failed for %s", match_id,
+                    exc_info=True)
+
+
+def hand_cut_release(conn, job_id: str, payload: dict) -> None:
+    """A terminal failure, seen from the generic handler: hand the marks
+    back. Idempotent, and a no-op for a job the match no longer points at."""
+    try:
+        options = get_job_options(conn, job_id, payload)
+    except Exception:
+        options = (payload.get("options") or {})
+    match_id = options.get("match_id") if isinstance(options, dict) else None
+    if match_id:
+        _hand_cut_rollback(conn, str(match_id), str(job_id), release=True)
+
+
+def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
+                     attempt_key: str) -> None:
     """Build a match from the owner's own marks."""
     match_id = (payload.get("options") or {}).get("match_id")
     if not match_id:
@@ -6074,7 +6178,12 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict):
     if str(owner_id) != str(user_id):
         raise RuntimeError("hand_cut: job user does not own the match")
     if submitted_at is None:
-        raise RuntimeError("hand_cut: draft was never submitted")
+        # Only a terminal failure unfreezes the draft, and that also ends
+        # the job, so a message arriving here is a stale redelivery of a
+        # job that has already been handed back. Nothing left to redo.
+        raise UserFacingError(
+            "These marks were already handed back. Open the match and "
+            "send them again.")
     with conn.cursor() as cur:
         cur.execute("select 1 from public.points where match_id = %s limit 1",
                     (match_id,))
@@ -6089,21 +6198,32 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict):
 
     pre, post = 1.2, 1.3
     workdir = tempfile.mkdtemp(prefix=f"ponglens-handcut-{str(job_id)[:8]}-")
+    # Storage rows this attempt writes, so a rollback can negate exactly
+    # them: the cut by its own key, the clips by their folder prefix.
+    ledger_keys: list[str] = []
     try:
         pulse_stage("download")
         update_job(conn, job_id, status="processing", progress=8, error=None)
-        raw_url = _presigned_get(raw_path)
-        if not raw_url:
-            raise UserFacingError("The original video is no longer available.")
         local_raw = os.path.join(workdir, "source.mp4")
-        subprocess.run(["curl", "-sSL", "-o", local_raw, raw_url],
-                       check=True, timeout=3 * 3600)
+        try:
+            _download_backfill_object(raw_path, Path(local_raw))
+        except Exception as e:
+            # A missing object is final; anything else (a dropped
+            # connection, a throttled bucket) is worth the queue's retry.
+            text = str(e)
+            if "404" in text or "NoSuchKey" in text or "Not Found" in text:
+                raise UserFacingError(
+                    "The original video is no longer available.") from e
+            raise
         dur = probe_duration_s(local_raw) or float(duration_s or 0)
         if not dur or dur <= 0:
             raise UserFacingError("The original video could not be read.")
         marks = [m for m in marks if float(m["t0"]) < dur]
         for m in marks:
             m["t1"] = min(float(m["t1"]), dur)
+        if not marks:
+            raise UserFacingError(
+                "Every mark is past the end of the video.")
 
         pulse_stage("cut")
         update_job(conn, job_id, progress=20)
@@ -6119,8 +6239,10 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict):
                 "t0": round(t0, 2),
                 "t1": round(t1, 2),
                 # clip_t0/clip_t1/cut_t0/t1 are what _CutMap.born reads, so
-                # every later re-cut takes the flat-pad branch instead of
-                # consulting the dynamic tail for a point no detector saw.
+                # a later re-cut of one of THESE points takes the flat-pad
+                # branch. A card inserted or split later has no born entry;
+                # _CutMap.dynamic_tails is what keeps it off the dynamic
+                # tail, by pipeline name.
                 "clip_t0": round(max(0.0, t0 - pre), 2),
                 "clip_t1": round(min(dur, t1 + post), 2),
                 "cut_t0": cut_t0,
@@ -6132,10 +6254,9 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict):
         kept = sum(b - a for a, b in segments)
         match_json = {
             "version": 3,
-            # NOT "v2". Labelling it v2 would switch off the dynamic tail,
-            # but it would also make the admin uploads page count serve
-            # marks, find none, and report that the end-on assembler ran on
-            # a match no detector ever touched.
+            # NOT "v2". Labelling it v2 would make the admin uploads page
+            # count serve marks, find none, and report that the end-on
+            # assembler ran on a match no detector ever touched.
             "pipeline": "hand-v1",
             "source": {"duration": round(dur, 2)},
             "options": {"clip_pads": {"pre": pre, "post": post}},
@@ -6153,7 +6274,7 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict):
             json.dump(match_json, fh)
 
         cut_local = os.path.join(workdir, "result.mp4")
-        with COST_METER.timed_stage("hand_cut_encoding", str(job_id)):
+        with COST_METER.timed_stage("hand_cut_encoding", attempt_key):
             subprocess.run(
                 [VENV_PY, POINTS_PIPELINE, "cut",
                  "--video", local_raw, "--out", cut_local,
@@ -6166,8 +6287,10 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict):
         # is published. _CutMap.locate is what every later re-cut uses, so
         # if the two disagree the match would play every chip at the wrong
         # second and nothing would error. Fail with the draft intact.
+        sys.path.insert(0, os.path.dirname(POINTS_PIPELINE))
+        from points_pipeline import hand_cut_length_tolerance  # noqa: E402
         probe_cut = probe_duration_s(cut_local) or 0.0
-        if abs(probe_cut - kept) > 2.0:
+        if abs(probe_cut - kept) > hand_cut_length_tolerance(len(segments)):
             raise RuntimeError(
                 f"hand cut length {probe_cut:.1f}s does not match the "
                 f"segments' {kept:.1f}s")
@@ -6185,38 +6308,64 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict):
         result_path = f"r2://{R2_MEDIA_BUCKET}/{result_key}"
         r2().upload_file(cut_local, R2_MEDIA_BUCKET, result_key,
                          ExtraArgs={"ContentType": "video/mp4"})
+        ledger_keys.append(result_path)
         ledger_append(conn, user_id, "cut", os.path.getsize(cut_local),
                       result_path, match_id)
 
         pulse_stage("points")
-        # Clips come off the finished cut by range, with process_reclip's
-        # own encode ladder. Named NN.mp4, NOT the hex form: _RECUT_KEY_RE
+        # Clips come off the finished cut by range, on process_reclip's own
+        # encode ladder. Named NN.mp4, NOT the hex form: _RECUT_KEY_RE
         # matches only the hex form and process_reclip deletes and
         # ledger-negates anything matching it, so an original clip must stay
         # outside that regex.
         cut_url = _presigned_get(result_path)
         key_prefix = f"points/{user_id}/{match_id}"
+        r2_prefix = f"r2://{R2_MEDIA_BUCKET}/{key_prefix}"
         clip_bytes = 0
-        for n, p in enumerate(points, start=1):
-            c0 = verify.locate(int(p["idx"]), p["clip_t0"], p["clip_t1"])
-            span = float(p["clip_t1"]) - float(p["clip_t0"])
-            local_clip = os.path.join(outdir, p["clip"])
-            ok = _encode_clip(cut_url or cut_local, c0 or 0.0, span, local_clip)
-            if not ok:
-                log.warning("  hand cut: clip %s failed to encode", p["idx"])
-                p["clip"] = None
-                continue
-            clip_bytes += os.path.getsize(local_clip)
-            r2().upload_file(
-                local_clip, R2_MEDIA_BUCKET,
-                f"{key_prefix}/{n:02d}.mp4",
-                ExtraArgs={"ContentType": "video/mp4"})
-            p["clip"] = f"{n:02d}.mp4"
-            update_job(conn, job_id,
-                       progress=40 + int(45 * n / max(len(points), 1)))
+        thumb_path = None
+        failed_clips: set[int] = set()
+        with COST_METER.timed_stage("point_clip_encoding", attempt_key):
+            for n, p in enumerate(points, start=1):
+                c0 = verify.locate(int(p["idx"]), p["clip_t0"], p["clip_t1"])
+                span = float(p["clip_t1"]) - float(p["clip_t0"])
+                local_clip = os.path.join(outdir, p["clip"])
+                ok = _encode_clip(cut_url or cut_local, c0 or 0.0, span,
+                                  local_clip)
+                if not ok:
+                    # The point stays; only its file is missing. It is
+                    # inserted below with no clip and marked edited, which
+                    # is what asks the reclip trigger to cut it again. The
+                    # timeline is the truth and the clip catches up.
+                    log.warning("  hand cut: clip %s failed to encode",
+                                p["idx"])
+                    p["clip"] = None
+                    failed_clips.add(int(p["idx"]))
+                    continue
+                clip_bytes += os.path.getsize(local_clip)
+                r2().upload_file(
+                    local_clip, R2_MEDIA_BUCKET,
+                    f"{key_prefix}/{n:02d}.mp4",
+                    ExtraArgs={"ContentType": "video/mp4"})
+                p["clip"] = f"{n:02d}.mp4"
+                if thumb_path is None:
+                    # The first rally's serve, the way the automatic path
+                    # picks its poster. Without this the library card keeps
+                    # the walk-in frame the content check wrote.
+                    thumb_local = os.path.join(workdir, "match_thumb.webp")
+                    thumb_name = f"thumb-{job_id}.webp"
+                    if extract_thumb(local_clip, thumb_local, pre):
+                        r2().upload_file(
+                            thumb_local, R2_MEDIA_BUCKET,
+                            f"{key_prefix}/{thumb_name}",
+                            ExtraArgs={"ContentType": "image/webp"})
+                        clip_bytes += os.path.getsize(thumb_local)
+                        thumb_path = f"{r2_prefix}/{thumb_name}"
+                update_job(conn, job_id,
+                           progress=40 + int(45 * n / max(len(points), 1)))
         if clip_bytes:
+            ledger_keys.append(f"{r2_prefix}/")
             ledger_append(conn, user_id, "clip", clip_bytes,
-                          f"r2://{R2_MEDIA_BUCKET}/{key_prefix}/", match_id)
+                          f"{r2_prefix}/", match_id)
 
         with open(mj_path, "w") as fh:
             json.dump(match_json, fh)
@@ -6229,14 +6378,10 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict):
         create_match(conn, match_id, user_id, job_id, result_path,
                      played_at=played_at, existing=True,
                      hand_cut=True)
-        r2_prefix = f"r2://{R2_MEDIA_BUCKET}/{key_prefix}"
-        insertable = [p for p in points if p.get("clip")]
-        for p in insertable:
+        for p in points:
             p["rally_end_cut_s"] = None
             p["highlight_evidence"] = None
-        inserted = insert_points(conn, match_id, insertable, r2_prefix)
-        # The answers, and a clip that failed to encode left marked so the
-        # existing reclip trigger picks it up as the RETRY.
+        inserted = insert_points(conn, match_id, points, r2_prefix)
         with conn.cursor() as cur:
             for p, m in zip(points, marks):
                 row_id = (inserted.get(int(p["idx"])) or {}).get("id")
@@ -6244,56 +6389,61 @@ def process_hand_cut(conn, job_id: str, user_id: str, payload: dict):
                     continue
                 is_let = bool(m.get("let"))
                 winner = None if is_let else m.get("w")
+                # edited=true on a point with no clip is the reclip
+                # request: the trigger fires on that update and queues one
+                # re-cut for the match.
                 cur.execute(
                     "update public.points set confirmed_winner = %s, "
-                    "is_let = %s, confirmed_how = %s, starred = %s "
+                    "is_let = %s, confirmed_how = %s, starred = %s, "
+                    "edited = (edited or %s) "
                     "where id = %s",
                     (winner, is_let, "let" if is_let else None,
-                     bool(m.get("star")), row_id),
+                     bool(m.get("star")), int(p["idx"]) in failed_clips,
+                     row_id),
                 )
             cur.execute(
                 "update public.matches set clip_pads = %s where id = %s",
                 (json.dumps({"pre": pre, "post": post}), match_id),
             )
-        finish_match(conn, match_id, "ready", f"{r2_prefix}/match.json")
-        log.info("  hand cut published: match %s, %d points",
-                 match_id, len(insertable))
+        finish_match(conn, match_id, "ready", f"{r2_prefix}/match.json",
+                     thumb_path=thumb_path)
+        log.info("  hand cut published: match %s, %d points (%d clips "
+                 "left for reclip)", match_id, len(points), len(failed_clips))
+    except MatchVersionChanged:
+        # The match has moved on to another job (a resubmission overtook
+        # this message). Nothing of this attempt reached the database, so
+        # only its storage rows need undoing.
+        ledger_negate_keys(conn, ledger_keys)
+        raise
+    except UserFacingError:
+        _hand_cut_rollback(conn, match_id, job_id, release=True,
+                           ledger_keys=ledger_keys)
+        raise
     except Exception:
-        # Undo what was written and hand the marks back, so Try again
-        # re-submits the same draft rather than starting over.
-        try:
-            with conn.cursor() as cur:
-                cur.execute("delete from public.points where match_id = %s",
-                            (match_id,))
-                cur.execute(
-                    "update public.matches set cut_source = 'auto', "
-                    "status = 'uploaded', cut_path = null, job_id = null "
-                    "where id = %s", (match_id,))
-                cur.execute(
-                    "update public.hand_cut_drafts set submitted_at = null "
-                    "where match_id = %s", (match_id,))
-        except Exception:
-            log.warning("  hand cut: rollback failed for %s", match_id,
-                        exc_info=True)
+        _hand_cut_rollback(conn, match_id, job_id, release=False,
+                           ledger_keys=ledger_keys)
         raise
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
 def _encode_clip(src: str, seek: float, span: float, out: str) -> bool:
-    """One point clip, by range. Same ladder process_reclip uses."""
-    base = ["ffmpeg", "-y", "-v", "error", "-ss", f"{seek:.2f}",
-            "-i", src, "-t", f"{span:.2f}", "-vf", "scale=720:-2"]
-    tail = ["-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", out]
-    for vcodec in (["-c:v", "h264_videotoolbox", "-b:v", "2500k"],
-                   ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23"]):
-        try:
-            subprocess.run(base + vcodec + tail, check=True, timeout=900)
-            if os.path.exists(out) and os.path.getsize(out) > 0:
-                return True
-        except Exception:
-            continue
-    return False
+    """One point clip, by range, on process_reclip's own encode ladder:
+    hardware first, libx264 behind it, 8-bit either way so a 10-bit source
+    never yields a clip some players refuse to open."""
+    try:
+        _run_ffmpeg_encoded(
+            ["-ss", f"{seek:.2f}", "-i", src, "-t", f"{span:.2f}",
+             "-vf", "scale=720:-2"],
+            ["-c:v", "h264_videotoolbox", "-b:v", "2500k",
+             "-allow_sw", "1", "-pix_fmt", "yuv420p"],
+            ["-c:v", "libx264", "-preset", "medium", "-crf", "23",
+             "-pix_fmt", "yuv420p"],
+            ["-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", out],
+        )
+    except Exception:
+        return False
+    return os.path.exists(out) and os.path.getsize(out) > 0
 
 
 def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
@@ -8076,10 +8226,14 @@ def _prepare_automatic_highlight_manifest(
     from highlights import build_manifest
 
     last_error: Exception | None = None
+    # A hand-cut match has no detections to refresh from; the refresh path
+    # would run the whole detector over the original to find none. Its
+    # points simply never qualify.
+    hand_cut = match_cut_source(conn, match_id) == "manual"
     for _attempt in range(2):
         try:
             points = _wait_for_highlight_points(conn, match_id, processing_version_id=processing_version_id)
-            if requested_refresh or highlight_evidence_refresh_needed(points):
+            if not hand_cut and (requested_refresh or highlight_evidence_refresh_needed(points)):
                 refresh_match_evidence_for_render(conn, match_id, processing_version_id=processing_version_id)
                 requested_refresh = False
                 update_job(conn, job_id, progress=12)
@@ -8996,9 +9150,12 @@ def process_job(conn, msg) -> None:
         # The owner marked the points themselves; no detector runs at all.
         pulse_stage("marks")
         update_job(conn, job_id, status="processing", progress=5, error=None)
-        process_hand_cut(conn, job_id, user_id, payload)
+        process_hand_cut(conn, job_id, user_id, payload, attempt_key)
         update_job(conn, job_id, status="done", progress=100)
         archive_message(conn, msg["msg_id"])
+        # The raw page promised this email, and it is the same promise the
+        # automatic path keeps. The bell rides the ready trigger.
+        notify_job_done(conn, job_id, user_id)
         log.info("  hand cut done: job %s", job_id)
         return
 
@@ -10030,6 +10187,16 @@ def main():
                         if lib_match:
                             refund_processing_spend_direct(conn, job_id)
                             mark_library_match_failed(conn, str(lib_match))
+                    # Hand cut: nothing was charged, so no refund. The
+                    # marks go back to the player and the match returns to
+                    # 'uploaded' with nothing protecting points that no
+                    # longer exist. Idempotent with the handler's own
+                    # rollback.
+                    if job_id and kind == "hand_cut" and (
+                        isinstance(e, UserFacingError)
+                        or msg["read_ct"] >= MAX_READ_CT
+                    ):
+                        hand_cut_release(conn, job_id, payload)
                     if isinstance(e, UserFacingError):
                         # Deterministic failure (private video, too long…):
                         # retrying can't succeed, archive right away.
@@ -10084,7 +10251,9 @@ def main():
                                       msg["msg_id"])
 
                 send_failure_emails(conn, e, job_id, kind,
-                                    payload.get("user_id"), user_message)
+                                    payload.get("user_id"), user_message,
+                                    terminal=isinstance(e, UserFacingError)
+                                    or msg["read_ct"] >= MAX_READ_CT)
 
         except psycopg2.Error as e:
             log.warning("database connection issue (%s) — reconnecting in 30s", e)

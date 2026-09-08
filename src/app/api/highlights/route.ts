@@ -110,11 +110,16 @@ export async function GET(req: Request) {
 
   const { data: match, error: matchError } = await supabase
     .from("matches")
-    .select("id,user_id,cut_path,status")
+    .select("*")
     .eq("id", matchId)
     .maybeSingle();
   if (matchError || !match || match.user_id !== user.id) {
     return response({ error: "Match not found" }, 404);
+  }
+  // A hand-cut match has no ball track to find highlights in. Asking
+  // would run the whole detector over the original to find none.
+  if (match.cut_source === "manual") {
+    return response({ status: "unavailable" });
   }
 
   try {
@@ -202,11 +207,14 @@ export async function POST(req: Request) {
 
   const { data: match, error: matchError } = await supabase
     .from("matches")
-    .select("id,user_id,cut_path,status")
+    .select("*")
     .eq("id", matchId)
     .maybeSingle();
   if (matchError || !match || match.user_id !== user.id) {
     return response({ code: "match_not_found" }, 404);
+  }
+  if (match.cut_source === "manual") {
+    return response({ code: "highlights_unavailable" }, 409);
   }
   if (!match.cut_path || match.status !== "ready") {
     return response({ code: "highlights_unavailable" }, 409);

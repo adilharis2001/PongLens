@@ -209,6 +209,10 @@ export interface Match {
   // basis for processing minutes), and the original filename for display
   // before any metadata exists.
   raw_path?: string | null;
+  /** 'manual' when the owner marked the points by hand: no ball track,
+   *  no table, so nothing that needs those is offered. Absent until the
+   *  hand-cut migration runs, which reads as 'auto'. */
+  cut_source?: "auto" | "manual" | null;
   duration_s?: number | null;
   original_name?: string | null;
   created_at: string;

@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from points_pipeline import (                                  # noqa: E402
     SEGMENT_PADS,
     cut_position,
+    hand_cut_length_tolerance,
     play_cut_segments,
     segment_cut_offsets,
 )
@@ -122,6 +123,23 @@ class HandCutSegments(unittest.TestCase):
         dur = 100.0
         segments, _, _ = build([(90.0, 99.8)], dur)
         self.assertLessEqual(segments[-1][1], dur + 1e-6)
+
+
+class LengthToleranceTests(unittest.TestCase):
+    """The publish tripwire compares the encoded cut's length with the
+    segments' arithmetic. Every segment is encoded on its own, so the
+    allowance has to grow with how many there are."""
+
+    def test_small_matches_keep_the_two_second_floor(self):
+        self.assertEqual(hand_cut_length_tolerance(1), 2.0)
+        self.assertEqual(hand_cut_length_tolerance(40), 2.0)
+
+    def test_heavily_marked_matches_get_room_to_round(self):
+        self.assertAlmostEqual(hand_cut_length_tolerance(100), 5.0)
+        self.assertAlmostEqual(hand_cut_length_tolerance(400), 20.0)
+
+    def test_never_below_the_floor(self):
+        self.assertEqual(hand_cut_length_tolerance(0), 2.0)
 
 
 if __name__ == "__main__":
