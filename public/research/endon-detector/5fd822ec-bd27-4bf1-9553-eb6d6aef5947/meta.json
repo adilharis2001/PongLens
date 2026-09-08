@@ -1,0 +1,25 @@
+{
+ "match": "5fd822ec",
+ "matchId": "5fd822ec-bd27-4bf1-9553-eb6d6aef5947",
+ "title": "Anton v Hugo Ginoux, 11 min",
+ "venue": "PingPod W37",
+ "crop": [
+  616.0,
+  132.0,
+  930.0,
+  524.0
+ ],
+ "rawOffsetS": 0.0,
+ "offsetErr": 0.0,
+ "cards": 58,
+ "points": 46,
+ "ok": 36,
+ "srvAgree": 0,
+ "srvDisagree": 0,
+ "missed": 1,
+ "fused": 4,
+ "extra": 5,
+ "onDeleted": 4,
+ "nowhere": 4,
+ "short": 2
+}

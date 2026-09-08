@@ -13,7 +13,9 @@ export function SignOutRow() {
 
   async function signOut() {
     const supabase = createClient();
-    await supabase.auth.signOut();
+    // This browser only, for the reason on the dashboard's SignOutButton:
+    // the global default signs every device out at once, silently.
+    await supabase.auth.signOut({ scope: "local" });
     router.push("/");
     router.refresh();
   }

@@ -4,6 +4,7 @@ import SwiftUI
 import Supabase
 
 struct JournalScreen: View {
+    @Environment(Router.self) private var router
     @Environment(AppState.self) private var app
     @Environment(LibraryStore.self) private var library
     @Environment(JournalStore.self) private var store
@@ -47,6 +48,12 @@ struct JournalScreen: View {
                             .tracking(-0.6)
                             .foregroundStyle(PL.textBody)
                             .id("journal-top")
+                            // The Coaching feed's collapsed preview is a
+                            // doorway to an entry here; this is the other
+                            // half. On appear as well as on change, because
+                            // the tab may be mounted after the router was set.
+                            .onAppear { revealIfAsked(proxy: proxy) }
+                            .onChange(of: router.journalEntryToReveal) { _, _ in revealIfAsked(proxy: proxy) }
 
                         searchField
 
@@ -160,6 +167,14 @@ struct JournalScreen: View {
     /// An ask source that points at a journal entry brings the feed to it,
     /// the way the web's /journal#journal-entry- anchor does: back to the
     /// plain feed, then scroll to the card.
+    /// The Coaching feed's collapsed preview is a doorway here. It sets
+    /// the entry on the router beside the tab; this is the other half.
+    private func revealIfAsked(proxy: ScrollViewProxy) {
+        guard let id = router.journalEntryToReveal else { return }
+        router.journalEntryToReveal = nil
+        revealEntry(id, proxy: proxy)
+    }
+
     private func revealEntry(_ id: UUID, proxy: ScrollViewProxy) {
         selectedTag = nil
         query = ""
@@ -474,12 +489,21 @@ struct JournalScreen: View {
                         editRequest = EditRequest(lesson: lesson)
                     })
                 case .coach(let entry):
-                    Button {
-                        coachEntryOpen = entry
-                    } label: {
-                        CoachSharedEntryCard(entry: entry)
+                    if let recapId = entry.recapId {
+                        NavigationLink {
+                            LessonVideoDetailScreen(id: recapId)
+                        } label: {
+                            CoachSharedEntryCard(entry: entry)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Button {
+                            coachEntryOpen = entry
+                        } label: {
+                            CoachSharedEntryCard(entry: entry)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
             if items.count > feedCap, !showAll {
@@ -1094,6 +1118,13 @@ struct WorkingOnCard: View {
 struct LessonCardView: View {
     let lesson: LessonRow
     let store: JournalStore
+    /// A preview rather than the whole entry: the top line, the title and
+    /// the first four points, and the whole card is a doorway. The
+    /// Coaching feed shows entries this way; the Journal shows them whole.
+    /// One view with one flag, so the two cannot drift.
+    var collapsed = false
+    /// Where the doorway leads, when collapsed.
+    var onOpen: (() -> Void)? = nil
     let onEdit: () -> Void
 
     @Environment(AppState.self) private var app
@@ -1105,6 +1136,70 @@ struct LessonCardView: View {
     @State private var shareOpen = false
 
     var body: some View {
+        if collapsed {
+            Button { onOpen?() } label: { preview }
+                .buttonStyle(.plain)
+        } else {
+            full
+        }
+    }
+
+    /// The doorway: top line, title, first four points, and "More".
+    private var preview: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            topLine
+            if let title = lesson.takeaways?.title, !title.isEmpty {
+                Text(title)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(PL.text100)
+                    .multilineTextAlignment(.leading)
+            }
+            let points = previewPoints(lesson.visibleThemes)
+            if points.isEmpty {
+                EntryText(text: lesson.transcript).lineLimit(4)
+            } else {
+                ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+                    HStack(alignment: .top, spacing: 8) {
+                        Circle().fill(PL.text600).frame(width: 4, height: 4).padding(.top, 7)
+                        Text(point).font(.plBody).foregroundStyle(PL.text200)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+            if previewTruncates(lesson.visibleThemes) {
+                Text("More")
+                    .font(.plCaption)
+                    .foregroundStyle(PL.cyan)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 14)
+        .contentShape(Rectangle())
+    }
+
+    private var topLine: some View {
+        HStack(spacing: 4) {
+            if let coachName = lesson.coachName, !coachName.isEmpty {
+                (Text("Lesson with ").foregroundColor(PL.text500)
+                    + Text(coachName).foregroundColor(PL.text200).fontWeight(.semibold)
+                    + Text(" · \(PGDate.shortDate(lesson.createdAt))").foregroundColor(PL.text500))
+                    .font(.system(size: 13))
+            } else {
+                Text("Note · \(PGDate.shortDate(lesson.createdAt))")
+                    .font(.system(size: 13))
+                    .foregroundStyle(PL.text500)
+            }
+            if lesson.sharedWithCoachAt != nil, let name = lesson.coachName {
+                Text("· Shared with \(name)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(PL.cyan)
+                    .lineLimit(1)
+            }
+            Spacer()
+        }
+    }
+
+    private var full: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 4) {
                 // Derived from the coach, not from kind. Practice and
@@ -1147,7 +1242,9 @@ struct LessonCardView: View {
                 // points, and identity by content makes those one row:
                 // SwiftUI drops the duplicate and the card silently shows
                 // less than the note contains.
-                ForEach(Array((takeaways.themes ?? []).enumerated()), id: \.offset) { _, theme in
+                // The visible themes: a recap's appended link theme is not
+                // drawn, because the recap card is the way in now.
+                ForEach(Array(lesson.visibleThemes.enumerated()), id: \.offset) { _, theme in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(theme.name.uppercased())
                             .font(.plSection)

@@ -20,6 +20,7 @@ import Supabase
 struct CoachingScreen: View {
     @Environment(AppState.self) private var app
     @Environment(JournalStore.self) private var journal
+    @Environment(Router.self) private var router
     @Environment(LibraryStore.self) private var library
     @Environment(CoachingStore.self) private var coaching
     @Environment(\.scenePhase) private var scenePhase
@@ -93,17 +94,27 @@ struct CoachingScreen: View {
                 )
             )
         }
-        for lesson in journal.lessons where lesson.kind == "lesson" {
+        // A recap is one thing everywhere. When a recap has been saved
+        // the feed used to keep its journal entry and hide the recap, so
+        // the card was the whole written entry with a link bullet at the
+        // bottom. It is the other way round now: the recap card, with the
+        // entry's coach line and shared state on it, and the entry itself
+        // is not drawn twice.
+        var shownAsRecap = Set<UUID>()
+        for recap in recaps where recap.student_id == nil {
+            let entry = journal.lessons.first { $0.lessonVideoId == recap.id }
+            if let entry { shownAsRecap.insert(entry.id) }
             out.append(
-                .init(kind: .lesson(lesson), at: lesson.createdAt, coachRef: lesson.coachRefId)
+                .init(
+                    kind: .recap(recap, entry),
+                    at: entry?.createdAt ?? recap.created_at,
+                    coachRef: entry?.coachRefId ?? recap.coach_ref_id
+                )
             )
         }
-        for recap in recaps where recap.student_id == nil {
-            // The recap's own journal entry is already in `lessons`;
-            // showing both would be one lesson twice under two headings.
-            if journal.lessons.contains(where: { $0.lessonVideoId == recap.id }) { continue }
+        for lesson in journal.lessons where lesson.kind == "lesson" && !shownAsRecap.contains(lesson.id) {
             out.append(
-                .init(kind: .recap(recap), at: recap.created_at, coachRef: recap.coach_ref_id)
+                .init(kind: .lesson(lesson), at: lesson.createdAt, coachRef: lesson.coachRefId)
             )
         }
         for link in coaching.coachLinks
@@ -368,16 +379,24 @@ struct CoachingScreen: View {
     private func row(_ item: CoachingItem) -> some View {
         switch item.kind {
         case .shared(let entry):
-            // Home and the Journal open a shared entry in its sheet, which
-            // carries the recap's poster and a button to watch it, the
-            // linked match, and Report. This feed dropped the card in bare,
-            // so a shared recap could be seen and not opened.
-            Button {
-                coachEntryOpen = entry
-            } label: {
-                CoachSharedEntryCard(entry: entry)
+            // A recap is one thing everywhere: the card opens the recap
+            // page. A written entry keeps its sheet, where the linked
+            // match and Report live.
+            if let recapId = entry.recapId {
+                NavigationLink {
+                    LessonVideoDetailScreen(id: recapId)
+                } label: {
+                    CoachSharedEntryCard(entry: entry)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button {
+                    coachEntryOpen = entry
+                } label: {
+                    CoachSharedEntryCard(entry: entry)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         case .note(let note):
             // A coach's remark and the rally it is about stay one tap
             // apart: a point note opens that point, a match note opens
@@ -402,14 +421,21 @@ struct CoachingScreen: View {
                 coachNoteBody(note, title: title)
             }
         case .lesson(let lesson):
-            LessonCardView(lesson: lesson, store: journal) {
-                editRequest = EditRequest(lesson: lesson)
-            }
-        case .recap(let recap):
+            // A preview, and a doorway: the Journal tab, scrolled to this
+            // entry. The Journal itself shows the whole card.
+            LessonCardView(
+                lesson: lesson, store: journal, collapsed: true,
+                onOpen: {
+                    router.journalEntryToReveal = lesson.id
+                    router.tab = .journal
+                },
+                onEdit: { editRequest = EditRequest(lesson: lesson) }
+            )
+        case .recap(let recap, let entry):
             NavigationLink {
                 LessonVideoDetailScreen(
                     id: recap.id,
-                    coachName: recap.coach_ref_id.flatMap { ref in
+                    coachName: (entry?.coachRefId ?? recap.coach_ref_id).flatMap { ref in
                         coaching.playerCoaches.first { $0.id == ref }?.displayName
                     }
                 )
@@ -420,10 +446,20 @@ struct CoachingScreen: View {
                 HStack(spacing: 14) {
                     RecapPosterThumb(id: recap.id)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("LESSON RECAP")
-                            .font(.system(size: 11, weight: .semibold))
-                            .tracking(0.6)
-                            .foregroundStyle(PL.cyan)
+                        if let entry, let coachName = entry.coachName, !coachName.isEmpty {
+                            // Saved: whose lesson it was and whether they can
+                            // see it, the same line the journal card carries.
+                            (Text("Lesson with ").foregroundColor(PL.text500)
+                                + Text(coachName).foregroundColor(PL.text200).fontWeight(.semibold)
+                                + Text(entry.sharedWithCoachAt != nil ? " · Shared" : "").foregroundColor(PL.cyan))
+                                .font(.system(size: 12))
+                                .lineLimit(1)
+                        } else {
+                            Text("LESSON RECAP")
+                                .font(.system(size: 11, weight: .semibold))
+                                .tracking(0.6)
+                                .foregroundStyle(PL.cyan)
+                        }
                         Text(recap.title)
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(PL.text200)
@@ -548,7 +584,9 @@ struct CoachingItem: Identifiable {
         case shared(CoachSharedEntry)
         case note(NoteFeedRow)
         case lesson(LessonRow)
-        case recap(LessonVideo)
+        /// The saved recap and, once it is in the journal, its entry: the
+        /// coach line, the shared state, and the way to the coach's chip.
+        case recap(LessonVideo, LessonRow?)
         case match(MatchRow, String)
     }
 
@@ -573,7 +611,7 @@ struct CoachingItem: Identifiable {
         case .shared(let e): "shared-\(e.entryId)"
         case .note(let n): "note-\(n.id)"
         case .lesson(let l): "lesson-\(l.id)"
-        case .recap(let r): "recap-\(r.id)"
+        case .recap(let r, _): "recap-\(r.id)"
         case .match(let m, _): "match-\(m.id)"
         }
     }

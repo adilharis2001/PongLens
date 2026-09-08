@@ -117,9 +117,14 @@ final class ThumbLoader {
                     return nil
                 }
                 guard code == 200, let image = UIImage(data: data) else {
-                    // 401 means the token was refreshed under us, and the
-                    // next attempt reads the new one. Everything else is
-                    // worth one more try too.
+                    // 401: the token expired under us, or the session
+                    // behind it is gone. The shared recovery refreshes for
+                    // the first and signs the app out for the second, and
+                    // in the second case there is nothing left to retry
+                    // for. Everything else is worth one more try.
+                    if code == 401, await API.recoverUnauthorized() == false {
+                        return nil
+                    }
                     try? await Task.sleep(for: .milliseconds(300 << attempt))
                     continue
                 }

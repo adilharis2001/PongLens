@@ -24,6 +24,14 @@ export const RESEARCH_PAGES = [
     accent: "cyan",
   },
   {
+    title: "End-on detector",
+    category: "Card assembly",
+    description:
+      "Anton's and Tim's uploads, which went to the end-on assembler on full-frame detections, reprocessed with the crop the fixed worker now applies. Today's card beside the new one, point by point.",
+    href: "/research/endon-detector",
+    accent: "cyan",
+  },
+  {
     title: "V3 across matches",
     category: "Card assembly",
     description:

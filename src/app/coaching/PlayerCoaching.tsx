@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { RecapPosterThumb } from "@/app/journal/RecapPosterThumb";
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -48,7 +49,14 @@ type Item =
   | { kind: "shared"; at: string; coachRef: string | null; entry: SharedEntry }
   | { kind: "note"; at: string; coachRef: string | null; note: NoteFeedRow }
   | { kind: "lesson"; at: string; coachRef: string | null; lesson: Lesson }
-  | { kind: "recap"; at: string; coachRef: string | null; recap: RecapRow }
+  | {
+      kind: "recap";
+      at: string;
+      coachRef: string | null;
+      recap: RecapRow;
+      /** Its journal entry, once saved: the coach line and the shared state. */
+      lesson: Lesson | null;
+    }
   | {
       kind: "match";
       at: string;
@@ -269,28 +277,35 @@ export function PlayerCoaching({
         note: n,
       });
     }
-    for (const l of lessons) {
-      out.push({
-        kind: "lesson",
-        at: l.created_at,
-        coachRef: l.coach_ref_id ?? NO_COACH,
-        lesson: l,
-      });
-    }
+    // A recap is one thing everywhere. When a recap has been saved the
+    // feed used to keep its journal entry and hide the recap, so the card
+    // was the whole written entry with a link bullet at the bottom. It is
+    // the other way round now: the recap card, with the entry's coach line
+    // and shared state on it, and the entry is not drawn twice.
+    const shownAsRecap = new Set<string>();
     for (const r of recaps) {
       // A coach's own import belongs to their student's page, not here.
       if (r.student_id) continue;
-      // The recap's own journal entry is already in `lessons`; showing
-      // both would be the same lesson twice under two headings.
-      if (lessons.some((l) => l.lesson_video_id === r.id)) continue;
+      const entry = lessons.find((l) => l.lesson_video_id === r.id) ?? null;
+      if (entry) shownAsRecap.add(entry.id);
       out.push({
         kind: "recap",
         // When the lesson happened, not when the recap was last touched.
         // Editing a recap should not move it to the top of a feed that
         // reads as a history. iOS sorts on the same field.
-        at: r.created_at,
-        coachRef: r.coach_ref_id ?? NO_COACH,
+        at: entry?.created_at ?? r.created_at,
+        coachRef: (entry?.coach_ref_id ?? r.coach_ref_id) ?? NO_COACH,
         recap: r,
+        lesson: entry,
+      });
+    }
+    for (const l of lessons) {
+      if (shownAsRecap.has(l.id)) continue;
+      out.push({
+        kind: "lesson",
+        at: l.created_at,
+        coachRef: l.coach_ref_id ?? NO_COACH,
+        lesson: l,
       });
     }
     for (const l of links) {
@@ -576,6 +591,7 @@ function FeedRow({
   onLessonDeleted: (id: string) => void;
   onEdit: (lesson: Lesson) => void;
 }) {
+  const router = useRouter();
   if (item.kind === "shared") {
     const asked = openEntryId === item.entry.entry_id;
     return (
@@ -598,6 +614,8 @@ function FeedRow({
   }
 
   if (item.kind === "lesson") {
+    // A preview, and a doorway: the Journal, scrolled to this entry. The
+    // Journal itself shows the whole card.
     return (
       <LessonCard
         lesson={item.lesson}
@@ -609,6 +627,8 @@ function FeedRow({
         onUpdated={onLessonUpdated}
         onDeleted={onLessonDeleted}
         onEdit={onEdit}
+        collapsed
+        onOpen={() => router.push(`/journal?entry=${item.lesson.id}`)}
       />
     );
   }
@@ -645,9 +665,21 @@ function FeedRow({
               shared match shows its picture. */}
           <RecapPosterThumb id={item.recap.id} />
           <span className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-wider text-cyan-glow">
-              Lesson recap
-            </p>
+            {item.lesson?.coach_name ? (
+              // Saved: whose lesson it was and whether they can see it,
+              // the same line the journal card carries.
+              <p className="truncate text-xs text-zinc-500">
+                {"Lesson with "}
+                <span className="text-zinc-300">{item.lesson.coach_name}</span>
+                {item.lesson.shared_with_coach_at ? (
+                  <span className="text-cyan-glow">{" · Shared"}</span>
+                ) : null}
+              </p>
+            ) : (
+              <p className="text-xs font-semibold uppercase tracking-wider text-cyan-glow">
+                Lesson recap
+              </p>
+            )}
             <p className="mt-1 truncate text-sm font-medium text-zinc-100">
               {item.recap.edit?.title || "Your lesson"}
             </p>

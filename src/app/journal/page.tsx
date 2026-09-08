@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 export default async function ImprovePage({
   searchParams,
 }: {
-  searchParams: Promise<{ match?: string }>;
+  searchParams: Promise<{ match?: string; entry?: string }>;
 }) {
   const supabase = await createClient();
   const {
@@ -31,7 +31,7 @@ export default async function ImprovePage({
     redirect("/login");
   }
 
-  const { match } = await searchParams;
+  const { match, entry } = await searchParams;
   const { data: recollectPreference } = await supabase
     .from("recollect_preferences")
     .select("enabled")
@@ -56,6 +56,7 @@ export default async function ImprovePage({
       <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Journal</h1>
       <div className="mt-6">
         <NotesFeed
+        initialEntry={entry ?? null}
           userId={user.id}
           accountName={accountName}
           initialMatch={match ?? null}

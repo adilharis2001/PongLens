@@ -25,7 +25,8 @@ swiftc -O -o "$OUT" \
   "$CORE/Linkify.swift" \
   "$CORE/AllowanceLimit.swift" \
   "$CORE/UserFacingError.swift" \
+  "$CORE/LessonPreview.swift" \
   ScoreLogicTests.swift ServePlacementTests.swift StarredTests.swift \
   HighlightsTests.swift PlayerTakeoverTests.swift CameraGuideGateTests.swift \
-  RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift SpokenScoreTests.swift ScoreCaptureTests.swift LinkifyTests.swift AllowanceRecoveryTests.swift UserFacingErrorTests.swift MatchToolsTests.swift main.swift
+  RallyEndTests.swift SideChangeTests.swift ServingTests.swift InsertGeometryTests.swift SpokenScoreTests.swift ScoreCaptureTests.swift LinkifyTests.swift AllowanceRecoveryTests.swift UserFacingErrorTests.swift MatchToolsTests.swift LessonPreviewTests.swift main.swift
 "$OUT"

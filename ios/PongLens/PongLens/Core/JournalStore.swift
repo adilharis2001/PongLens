@@ -31,11 +31,26 @@ struct NoteFeedRow: Codable, Identifiable, Hashable {
     }
 }
 
+extension LessonRow {
+    /// The takeaways to show: for an entry that stands for a recap, without
+    /// the link theme the older app versions need. The recap card is the
+    /// way in now, so the link is not drawn. Same rule as
+    /// CoachSharedEntry.visibleThemes and entryThemes on the web.
+    var visibleThemes: [LessonTakeaways.Theme] {
+        let themes = takeaways?.themes ?? []
+        let recap = lessonVideoId ?? CoachSharedEntry.recapId(in: transcript)
+        guard recap != nil else { return themes }
+        return themes.filter { theme in
+            !(theme.name == "Lesson video" && theme.points.allSatisfy { CoachSharedEntry.recapId(in: $0) != nil })
+        }
+    }
+}
+
 struct LessonTakeaways: Codable, Hashable {
     let title: String?
     let themes: [Theme]?
 
-    struct Theme: Codable, Hashable {
+    struct Theme: Codable, Hashable, PreviewTheme {
         let name: String
         let points: [String]
     }
