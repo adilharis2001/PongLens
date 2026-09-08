@@ -33,8 +33,11 @@ export const config = {
   matcher: [
     /*
      * Run on everything except static assets. Auth-protected routes
-     * (/dashboard) are enforced inside updateSession.
+     * (/dashboard) are enforced inside updateSession. `.well-known` is
+     * Apple's (the app-site association file); its fetches come from
+     * Apple's servers with no session, and running the session refresh
+     * on them buys nothing.
      */
-    "/((?!_next/static|_next/image|favicon.ico|img/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|img/|\\.well-known/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

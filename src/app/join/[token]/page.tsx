@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { studentInviteCopy } from "@/lib/coaches/invitePreviewData";
 import { Logo } from "@/components/Logo";
+import { SignedInAs } from "@/components/SignedInAs";
 import { JoinCoach } from "./JoinCoach";
 
 /**
@@ -181,6 +182,11 @@ export default async function JoinPage({
         Lesson notes they share land in your journal. You choose which
         matches they can see.
       </p>
+      {/* Which account is about to join, before the button that does it.
+          A phone's browser and its PongLens app can hold different
+          accounts, and this page used to accept for whichever one the
+          browser had without ever naming it. */}
+      {user.email && <SignedInAs email={user.email} next={`/join/${token}`} />}
       <JoinCoach
         token={token}
         coachName={info.coach_name}

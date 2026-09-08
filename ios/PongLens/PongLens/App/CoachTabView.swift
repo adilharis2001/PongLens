@@ -207,6 +207,13 @@ struct CoachTabView: View {
             await library.load()
             await scores.load(for: library.matches.filter { $0.status == .ready })
             library.startPolling()
+            // A coach invite accepted in the app asked for the roster;
+            // the tree was swapped to get here, so the request travels
+            // through AppState rather than through this view's router.
+            if let requested = app.pendingCoachTab {
+                app.pendingCoachTab = nil
+                router.tab = requested
+            }
             #if DEBUG
             if router.devOpenFirstStudent, let student = workspace.activeStudents.first {
                 router.devOpenFirstStudent = false
