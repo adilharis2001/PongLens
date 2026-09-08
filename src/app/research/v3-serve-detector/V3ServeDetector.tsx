@@ -125,6 +125,7 @@ export function V3ServeDetector({
           : "the V3 card";
     };
     let mineName = nameOf("own");
+    const passiveSide = () => (activeIsOwn ? "other" : "own");
     let lastPlayed: [any, HTMLElement] | null = null;
     let ovT: Float64Array | null = null;
     let bnT: Float64Array | null = null;
@@ -143,18 +144,17 @@ export function V3ServeDetector({
     // page. The lane and the play bar always draw the one NOT shown.
     let OWN: any = null;
     let OTHER: any = null;
-    let shown: "own" | "other" = "own";
+    // The rows the list shows. In a single-card play mode they follow THAT
+    // detector's cards, one row each; otherwise they are production's cards.
+    let VIEW: any[] = [];
+    let activeIsOwn = true;
+    // ownLabel / otherLabel are the component's; redeclaring them here
+    // shadowed them in a temporal dead zone for nameOf("own") above and
+    // broke every load (2026-09-08).
     const otherBase =
       dataBase === "/research/body-detector"
         ? "/research/v3-serve-detector"
         : "/research/body-detector";
-    const ownLabel =
-      dataBase === "/research/body-detector"
-        ? "Body"
-        : dataBase === "/research/endon-detector"
-          ? "Reprocessed"
-          : "V3";
-    const otherLabel = dataBase === "/research/body-detector" ? "V3" : "Body";
     let psT: Float64Array | null = null;
     let plT: Float64Array | null = null;
     let raf = 0;
@@ -212,24 +212,41 @@ export function V3ServeDetector({
 
     /** Point the page at one detector's rows: the list, the lane (the other
      *  one's cards), the names on the play bar and the table's highlight. */
-    function applyShown() {
-      const active = shown === "own" ? OWN : OTHER;
-      const passive = shown === "own" ? OTHER : OWN;
+    /** One row per card of the detector being played, or production's rows.
+     *  A production card with no card of that kind keeps its row, so a
+     *  missed point is still on the list; a production card with two or
+     *  more of them becomes two or more rows, each playing exactly its
+     *  own card. */
+    function explode(rows: any[]): any[] {
+      const out: any[] = [];
+      for (const r of rows) {
+        if (r.mine.length <= 1) { out.push(r); continue; }
+        r.mine.forEach((m: any, i: number) =>
+          out.push({
+            ...r, mine: [m], swall: null, _part: i + 1, _of: r.mine.length,
+            holds_press: r.tap != null ? m.t1 >= r.tap : r.holds_press,
+          }));
+      }
+      const t0 = (r: any) => (r.mine[0] ? r.mine[0].t0 : r.prod_t0 != null ? r.prod_t0 : r.span0);
+      return out.sort((x, y) => t0(x) - t0(y));
+    }
+
+    /** Point the page at the play mode: which detector's cards the rows
+     *  follow, which one's cards the lane draws, what the labels say. */
+    function applyMode() {
+      const wantOther = playMode === "other" && !!OTHER;
+      const active = wantOther ? OTHER : OWN;
+      const passive = wantOther ? OWN : OTHER;
+      activeIsOwn = !wantOther;
       DATA = active;
       BODY = cardsOf(passive);
-      mineName = nameOf(shown);
+      mineName = nameOf(activeIsOwn ? "own" : "other");
+      VIEW = playMode === "own" || wantOther ? explode(active.rows) : active.rows;
       const pb = $("playbar");
-      const mineBtn = pb.querySelector('button[data-p="mine"]');
-      const otherBtn = pb.querySelector('button[data-p="body"]') as HTMLElement | null;
+      const otherBtn = pb.querySelector('button[data-p="other"]') as HTMLElement | null;
+      if (otherBtn) otherBtn.style.display = OTHER ? "" : "none";
       const bothBtn = pb.querySelector('button[data-p="both"]');
-      if (mineBtn) mineBtn.textContent = (shown === "own" ? ownLabel : otherLabel) + " card only";
-      if (otherBtn) {
-        otherBtn.textContent = (shown === "own" ? otherLabel : ownLabel) + " card only";
-        otherBtn.style.display = BODY ? "" : "none";
-      }
-      if (bothBtn) bothBtn.textContent = BODY ? "All three, with a run-up" : "Both, with a run-up";
-      for (const b of Array.from(host.querySelectorAll("#showbar button")))
-        b.setAttribute("aria-pressed", String((b as HTMLElement).dataset.w === shown));
+      if (bothBtn) bothBtn.textContent = OTHER ? "All three, with a run-up" : "Both, with a run-up";
       buildStats();
       render();
     }
@@ -262,22 +279,23 @@ export function V3ServeDetector({
     }
 
     function name(r: any) {
-      return r.app_no != null
-        ? "card " + r.app_no
-        : r.verdict === "junk_deleted"
-          ? "a card you deleted"
-          : "card " + r.mine[0].n + " of mine";
+      const base =
+        r.app_no != null
+          ? "card " + r.app_no
+          : r.verdict === "junk_deleted"
+            ? "a card you deleted"
+            : "card " + r.mine[0].n + " of mine";
+      return r._part ? base + " \u00b7 my card " + r.mine[0].n : base;
     }
 
     function span(r: any, mode: string): [number, number] | null {
-      if (mode === "mine") {
+      if (mode === "own" || mode === "other") {
         const ts: number[] = [];
         for (const m of r.mine) ts.push(m.t0, m.t1);
         if (!ts.length && r.swall) ts.push(r.swall.t0, r.swall.t1);
         return ts.length ? [Math.min(...ts), Math.max(...ts)] : null;
       }
       if (mode === "prod") return r.prod_t0 == null ? null : [r.prod_t0, r.prod_t1];
-      if (mode === "body") return bodySpan(r);
       return null;
     }
 
@@ -290,19 +308,16 @@ export function V3ServeDetector({
       vid.currentTime = toRaw(a);
       vid.play().catch(() => {});
 
+      const single = playMode === "own" || playMode === "other";
       const who = !exact
-        ? playMode === "mine"
-          ? "no card of mine here, so this is the whole stretch"
+        ? single
+          ? "no " + mineName.replace(/^the /, "") + " here, so this is the whole stretch"
           : playMode === "prod"
             ? "you carded nothing here, so this is the whole stretch"
-            : playMode === "body"
-              ? "the other detector has no card here, so this is the whole stretch"
-              : (BODY ? "all three cards" : "both cards") + ", with a second of run-up"
-        : playMode === "mine"
+            : (BODY ? "all three cards" : "both cards") + ", with a second of run-up"
+        : single
           ? mineName + " exactly, no run-up"
-          : playMode === "body"
-            ? nameOf(shown === "own" ? "other" : "own") + " exactly, no run-up"
-            : "your card exactly, no run-up";
+          : "your card exactly, no run-up";
 
       let tail = "";
       if (r.tap != null)
@@ -357,7 +372,7 @@ export function V3ServeDetector({
           : "") +
         (r.tap != null ? ", the yellow line is where you pressed the winner" : "") +
         ", pink is the ball going dead" +
-        (BODY ? ", the green bars along the bottom are " + nameOf(shown === "own" ? "other" : "own").replace("the ", "the ").replace(" card", " cards") : "") + "</div>";
+        (BODY ? ", the green bars along the bottom are " + nameOf(passiveSide()).replace(" card", " cards") : "") + "</div>";
       return h;
     }
 
@@ -401,67 +416,106 @@ export function V3ServeDetector({
                     : r.verdict === f;
     }
 
-    // The table: every stat is a row, the columns are the two detectors, and
-    // a row that is a filter is one click away from the rows behind its
-    // number. What was a row of pills that mixed counts with filters.
-    const STAT_ROWS: [string, string, string][] = [
-      ["all", "Cards made", ""],
-      ["bad", "Problems", "v-missed"],
-      ["ok", "Correct", "v-ok"],
-      ["missed", "No card", "v-missed"],
-      ["fused", "Swallowed", "v-fused"],
-      ["extra", "Too many cards", "v-extra"],
-      ["nopress", "Misses your winner press", "v-missed"],
-      ["junk_deleted", "On a card you deleted", "v-junk_deleted"],
-      ["junk_unknown", "Where you carded nothing", "v-junk_unknown"],
-      ["srv_agree", "Right server", "v-ok"],
-      ["srv_disagree", "Wrong server", "v-missed"],
-      ["called_false", "You called it not a serve", ""],
-      ["bodies", "From the bodies alone, no ball", "v-ok"],
-    ];
+    // The numbers, as four small tables side by side rather than one tall
+    // one: the percentages that answer "how good is this match", then the
+    // counts behind them in three groups. Every row that is a filter is one
+    // click from the rows behind its number, and the count and the click
+    // share one predicate, so the number is exactly how many rows appear.
+    // Nothing here is declared at the top level of the effect that a line
+    // above could read too early (2026-09-08).
     function countFor(c: any, f: string): number {
       if (f === "all") return c.summary.cards;
       return c.rows.reduce((n: number, r: any) => n + (keeps(r, f) ? 1 : 0), 0);
     }
     function buildStats() {
-      const own = OWN, other = OTHER;
-      const cols = shown === "own" ? [own, other] : [other, own];
-      const heads = shown === "own" ? [ownLabel, otherLabel] : [otherLabel, ownLabel];
-      let h = '<table id="stattable"><thead><tr><th></th><th>' + heads[0] + " cards</th>" +
-        (cols[1] ? "<th>" + heads[1] + " cards</th>" : "") + "</tr></thead><tbody>";
-      const s0 = cols[0].summary;
-      h += '<tr class="info"><td>Cards you kept · deleted</td><td>' + s0.points + " · " + s0.deleted + "</td>" +
-        (cols[1] ? "<td>" + s0.points + " · " + s0.deleted + "</td>" : "") + "</tr>";
-      for (const [f, label, cls] of STAT_ROWS) {
-        const a = countFor(cols[0], f);
-        const b = cols[1] ? countFor(cols[1], f) : null;
-        if (f === "bodies" && a === 0 && !b) continue;
-        h += '<tr data-f="' + f + '" class="' + (filter === f ? "sel" : "") + '"><td>' + label + "</td>" +
-          '<td><b class="' + cls + '">' + a + "</b></td>" +
-          (cols[1] ? '<td><b class="' + cls + '">' + b + "</b></td>" : "") + "</tr>";
-      }
-      h += "</tbody></table>";
-      const pct = (c: any) => {
-        const t = c.summary.srv_agree + c.summary.srv_disagree;
-        return t ? Math.round((100 * c.summary.srv_agree) / t) + "% of " + t : "—";
+      const cols = [OWN, OTHER];
+      const heads = [ownLabel, otherLabel];
+      const both = !!cols[1];
+      const pctOf = (num: number, den: number) => (den > 0 ? Math.round((100 * num) / den) : null);
+      // The five percentages, in the owner's own order of what matters.
+      // Each maps to the filter that shows the failures behind it. `good`
+      // says whether a high number is good, for the colour.
+      const pcts = (c: any) => {
+        const S = c.summary;
+        const pts = c.rows.filter((r: any) => r.kind === "point");
+        const pressed = pts.filter((r: any) => r.tap != null);
+        const short = pressed.filter((r: any) => r.holds_press === false).length;
+        const missed = pts.filter((r: any) => r.verdict === "missed").length;
+        return [
+          ["Points found", pctOf(pts.length - missed, pts.length), "missed", true],
+          ["Clean", pctOf(S.ok, pts.length), "bad", true],
+          ["Endings hold your press", pctOf(pressed.length - short, pressed.length), "nopress", true],
+          ["Junk", pctOf(S.on_deleted + S.nowhere, S.cards), "junk_deleted", false],
+          ["Server right", pctOf(S.srv_agree, S.srv_agree + S.srv_disagree), "srv_disagree", true],
+        ] as [string, number | null, string, boolean][];
       };
-      h += '<div id="statdetail">Server right on ' + pct(cols[0]) + " checkable cards" +
-        (cols[1] ? " (" + heads[1].toLowerCase() + ": " + pct(cols[1]) + ")" : "") +
-        ". " + s0.serves_raw + " serve detections, " + s0.serves_hand + " thrown out as a pass-and-hold; " +
-        s0.blind_cards + " cards never saw the ball cross the net; dead-ball split found " + s0.dead_runs + ".</div>";
+      const tone = (v: number | null, good: boolean) =>
+        v === null ? "" : (good ? v : 100 - v) >= 90 ? "v-ok" : (good ? v : 100 - v) >= 70 ? "v-extra" : "v-missed";
+      const cell = (v: number | null, cls: string) =>
+        "<td><b" + (cls ? ' class="' + cls + '"' : "") + ">" + (v === null ? "\u2014" : v + "%") + "</b></td>";
+      const p0 = pcts(cols[0]);
+      const p1 = both ? pcts(cols[1]) : null;
+      const head = (title: string) =>
+        '<table class="stat"><thead><tr><th class="ttl">' + title + "</th><th>" + heads[0] + "</th>" +
+        (both ? "<th>" + heads[1] + "</th>" : "") + "</tr></thead><tbody>";
+      let h = '<div id="stattables">';
+      h += head("How good");
+      p0.forEach(([label, v, f, good], i) => {
+        h += '<tr data-f="' + f + '" class="' + (filter === f ? "sel" : "") + '"><td>' + label + "</td>" +
+          cell(v, tone(v, good)) + (p1 ? cell(p1[i][1], tone(p1[i][1], good)) : "") + "</tr>";
+      });
+      h += "</tbody></table>";
+      const GROUPS: [string, [string, string, string][]][] = [
+        ["Cards", [
+          ["all", "Made", ""],
+          ["ok", "Correct", "v-ok"],
+          ["bad", "Problems", "v-missed"],
+          ["missed", "No card", "v-missed"],
+          ["fused", "Swallowed", "v-fused"],
+          ["extra", "Too many cards", "v-extra"],
+        ]],
+        ["Against your scoring", [
+          ["nopress", "Misses your winner press", "v-missed"],
+          ["junk_deleted", "On a card you deleted", "v-junk_deleted"],
+          ["junk_unknown", "Where you carded nothing", "v-junk_unknown"],
+          ["called_false", "You called it not a serve", ""],
+          ["bodies", "From the bodies alone, no ball", "v-ok"],
+        ]],
+        ["Server", [
+          ["srv_agree", "Right", "v-ok"],
+          ["srv_disagree", "Wrong", "v-missed"],
+        ]],
+      ];
+      for (const [title, rows] of GROUPS) {
+        h += head(title);
+        for (const [f, label, cls] of rows) {
+          const x = countFor(cols[0], f);
+          const y = both ? countFor(cols[1], f) : null;
+          if (f === "bodies" && x === 0 && !y) continue;
+          h += '<tr data-f="' + f + '" class="' + (filter === f ? "sel" : "") + '"><td>' + label + "</td>" +
+            '<td><b class="' + cls + '">' + x + "</b></td>" +
+            (both ? '<td><b class="' + cls + '">' + y + "</b></td>" : "") + "</tr>";
+        }
+        h += "</tbody></table>";
+      }
+      h += "</div>";
+      const S0 = cols[0].summary;
+      h += '<div id="statdetail">You kept ' + S0.points + " cards and deleted " + S0.deleted + ". " +
+        S0.serves_raw + " serve detections, " + S0.serves_hand + " thrown out as a pass-and-hold; " +
+        S0.blind_cards + " cards never saw the ball cross the net; dead-ball split found " + S0.dead_runs + ".</div>";
       $("summary").innerHTML = h;
-      for (const tr of Array.from(host.querySelectorAll("#stattable tr[data-f]")))
+      for (const tr of Array.from(host.querySelectorAll("#stattables tr[data-f]")))
         tr.addEventListener("click", () => {
           filter = (tr as HTMLElement).dataset.f!;
-          for (const o of Array.from(host.querySelectorAll("#stattable tr[data-f]")))
-            o.classList.toggle("sel", o === tr);
+          for (const o of Array.from(host.querySelectorAll("#stattables tr[data-f]")))
+            o.classList.toggle("sel", (o as HTMLElement).dataset.f === filter);
           render();
         });
     }
 
     function render() {
       tbody.replaceChildren();
-      const rows = DATA.rows.filter((r: any) => keeps(r, filter));
+      const rows = VIEW.filter((r: any) => keeps(r, filter));
       for (const r of rows) {
         const tr = document.createElement("tr");
         tr.className = "row" + (r.kind === "junk" ? " junk" : "");
@@ -862,8 +916,8 @@ export function V3ServeDetector({
           ctx.font = "600 12px -apple-system,system-ui,sans-serif";
           ctx.fillText(
             inb
-              ? (shown === "own" ? otherLabel : ownLabel) + " detector: card " + inb[2] + " \u00b7 " + fmt(inb[0]) + "\u2013" + fmt(inb[1])
-              : (shown === "own" ? otherLabel : ownLabel) + " detector: no card here",
+              ? (activeIsOwn ? otherLabel : ownLabel) + " detector: card " + inb[2] + " \u00b7 " + fmt(inb[0]) + "\u2013" + fmt(inb[1])
+              : (activeIsOwn ? otherLabel : ownLabel) + " detector: no card here",
             10,
             eh - 10,
           );
@@ -1038,17 +1092,12 @@ export function V3ServeDetector({
         playMode = (b as HTMLElement).dataset.p!;
         for (const o of Array.from(el.querySelectorAll("#playbar button")))
           o.setAttribute("aria-pressed", String(o === b));
-        // Re-play whatever is on screen in the new mode, so switching is a
-        // comparison rather than a setting you then have to go and apply.
-        if (lastPlayed) play(lastPlayed[0], lastPlayed[1]);
-      });
-    }
-    for (const b of Array.from(el.querySelectorAll("#showbar button"))) {
-      b.addEventListener("click", () => {
-        const w = (b as HTMLElement).dataset.w as "own" | "other";
-        if (w === "other" && !OTHER) return;
-        shown = w;
-        applyShown();
+        // The rows follow the card being played, so the list is rebuilt
+        // and the row that was on screen no longer exists as such.
+        lastPlayed = null;
+        stopAt = null;
+        applyMode();
+        vlabel.textContent = "Click any row to play it.";
       });
     }
 
@@ -1079,7 +1128,6 @@ export function V3ServeDetector({
       if (dead) return;
       OWN = cmp;
       OTHER = otherCmp && Array.isArray(otherCmp.rows) ? otherCmp : null;
-      shown = "own";
       OV = ovj;
       ovT = Float64Array.from(ovj.ball, (r: any) => r[0]);
       bnT = Float64Array.from(ovj.bounces, (r: any) => r[0]);
@@ -1096,7 +1144,7 @@ export function V3ServeDetector({
         0,
       );
 
-      applyShown();
+      applyMode();
       h1.textContent =
         (heading ?? "My cards against your scorekeeper") + " — " + meta.title +
         (meta.venue ? " · " + meta.venue : "");
@@ -1192,10 +1240,7 @@ export function V3ServeDetector({
           <h1>{heading ?? "My cards against your scorekeeper"}</h1>
           <div id="summary" />
           <div id="showbar">
-            <span className="lab">Rows</span>
-            <button data-w="own" aria-pressed="true">{ownLabel} cards</button>
-            <button data-w="other" aria-pressed="false">{otherLabel} cards</button>
-            <span className="lab">click a row of the table to filter</span>
+            <span className="lab">Click a row of the table to filter. The play bar below decides which cards the list follows.</span>
           </div>
           <div id="viewbar">
             <button id="vidtoggle">Hide the video</button>
@@ -1250,8 +1295,8 @@ export function V3ServeDetector({
         </div>
         <div id="playbar">
           <span className="lab">Play</span>
-          <button data-p="mine" aria-pressed="false">{ownLabel} card only</button>
-          <button data-p="body" aria-pressed="false">{otherLabel} card only</button>
+          <button data-p="own" aria-pressed="false">{ownLabel} card only</button>
+          <button data-p="other" aria-pressed="false">{otherLabel} card only</button>
           <button data-p="prod" aria-pressed="false">Production card only</button>
           <button data-p="both" aria-pressed="true">All three, with a run-up</button>
         </div>

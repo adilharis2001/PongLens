@@ -18,19 +18,19 @@ export const CSS = `
 .v3 header { padding:12px 16px 10px; border-bottom:1px solid #222831; }
 .v3 h1 { margin:0 0 9px; font-size:16px; font-weight:600; }
 .v3 #summary { margin-bottom:10px; }
-.v3 #stattable { border-collapse:collapse; width:auto; min-width:360px; font-size:12.5px; }
-.v3 #stattable th { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:#8b97a7;
-  padding:4px 14px 6px 0; border-bottom:1px solid #222831; text-align:right; }
-.v3 #stattable th:first-child { text-align:left; }
-.v3 #stattable td { padding:4px 14px 4px 0; border-bottom:1px solid #161b22; text-align:right;
+.v3 #stattables { display:flex; flex-wrap:wrap; gap:4px 28px; align-items:flex-start; }
+.v3 table.stat { border-collapse:collapse; width:auto; font-size:12.5px; }
+.v3 table.stat th { font-size:11px; text-transform:uppercase; letter-spacing:.6px; color:#8b97a7;
+  padding:4px 12px 5px 0; border-bottom:1px solid #222831; text-align:right; }
+.v3 table.stat th.ttl { text-align:left; color:#c9d2dc; }
+.v3 table.stat td { padding:3px 12px 3px 0; border-bottom:1px solid #161b22; text-align:right;
   white-space:nowrap; }
-.v3 #stattable td:first-child { text-align:left; color:#c9d2dc; }
-.v3 #stattable tr[data-f] { cursor:pointer; }
-.v3 #stattable tr[data-f]:hover td { background:#131820; }
-.v3 #stattable tr.sel td { background:#1a2230; }
-.v3 #stattable tr.sel td:first-child { color:#fff; font-weight:600; }
-.v3 #stattable tr.info td { color:#8b97a7; }
-.v3 #stattable b { font-weight:650; }
+.v3 table.stat td:first-child { text-align:left; color:#c9d2dc; min-width:150px; }
+.v3 table.stat tr[data-f] { cursor:pointer; }
+.v3 table.stat tr[data-f]:hover td { background:#131820; }
+.v3 table.stat tr.sel td { background:#1a2230; }
+.v3 table.stat tr.sel td:first-child { color:#fff; font-weight:600; }
+.v3 table.stat b { font-weight:650; }
 .v3 #statdetail { margin-top:8px; font-size:11.5px; color:#8b97a7; max-width:70ch; }
 .v3 #showbar { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:8px; }
 .v3 #showbar .lab { color:#8b97a7; font-size:12.5px; margin-right:2px; }
