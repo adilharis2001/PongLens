@@ -127,6 +127,16 @@ export function RawMatchView({
    */
   const [markingUrl, setMarkingUrl] = useState<string | null>(null);
   const [draftMarks, setDraftMarks] = useState<Mark[]>([]);
+  /**
+   * Does the hand-cut backend exist yet?
+   *
+   * Self-disabling rather than config-gated: the draft read below answers
+   * it. Until the migration runs the table is missing, the read errors,
+   * this stays false and the row never appears — so the code can ship
+   * ahead of the schema without offering anyone a button that cannot
+   * finish. It reveals itself the moment the migration lands.
+   */
+  const [handCutReady, setHandCutReady] = useState(false);
   const draftCount = draftMarks.filter((m) => m.t1 !== null).length;
   const [spokenOpen, setSpokenOpen] = useState(false);
   const spokenRows = cleanSpoken(match.spoken_scores);
@@ -306,7 +316,9 @@ export function RawMatchView({
       .select("marks")
       .eq("match_id", match.id)
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data, error: readError }) => {
+        if (readError) return; // no table yet: the feature stays hidden
+        setHandCutReady(true);
         const rows = (data as { marks?: Mark[] } | null)?.marks;
         if (Array.isArray(rows)) setDraftMarks(rows);
       });
@@ -859,13 +871,13 @@ export function RawMatchView({
                 <button
                   onClick={process}
                   disabled={busy || !enough}
-                  className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink transition-opacity disabled:opacity-40 sm:max-w-xs"
+                  className="glow-cta w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink transition-opacity disabled:opacity-40"
                 >
                   {charge != null ? `Process · ${charge} min` : "Process"}
                 </button>
                 {availableMinutes != null && (
                   <p
-                    className={`mt-2 w-full text-center text-xs sm:max-w-xs ${
+                    className={`mt-2 w-full text-center text-xs ${
                       enough ? "text-zinc-500" : "text-amber-300/90"
                     }`}
                   >
@@ -890,6 +902,12 @@ export function RawMatchView({
           {error && <p className="mt-3 text-sm text-amber-300/90">{error}</p>}
           </div>
           )}
+          {/* Phone and mobile web only for now (lg:hidden), and only on an
+              unprocessed match, which is the only place this card renders.
+              Marking a match is a thumb job; the desktop pad exists and
+              works, but it is not what is being put in front of players
+              yet. */}
+          {handCutReady && (
           <button
             type="button"
             onClick={() => {
@@ -897,7 +915,7 @@ export function RawMatchView({
               setMarking(true);
             }}
             disabled={!rawUrl || undecodable}
-            className="flex w-full items-center gap-3 border-t border-edge/60 p-5 text-left transition-colors hover:bg-ink/20 disabled:opacity-40"
+            className="flex w-full items-center gap-3 border-t border-edge/60 p-5 text-left transition-colors hover:bg-ink/20 disabled:opacity-40 lg:hidden"
           >
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold text-zinc-100">
@@ -914,6 +932,7 @@ export function RawMatchView({
             </span>
             <ToolRowChevron />
           </button>
+          )}
           </div>
           )}
         </section>
