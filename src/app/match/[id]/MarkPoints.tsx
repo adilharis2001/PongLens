@@ -43,11 +43,14 @@ import {
   type Outcome,
   asPoints,
   clearAwaiting,
+  lastClosedEnd as lastEnd,
+  MIN_POINT_S,
   emptyState,
   endMark,
-  lastClosedEnd,
   openMark,
   selectMark,
+  removeMark,
+  setEdges,
   setOutcome,
   startMark,
   summarize,
@@ -66,6 +69,16 @@ const SAVE_DEBOUNCE_MS = 1500;
 
 /** The floating desktop card, and where it was last dropped. Its own key,
  *  because it is a different card at a different size from Keep score's. */
+/** The pads the worker cuts a hand-marked clip with, mirrored here so the
+ *  preview shows the clip the player will actually get rather than the
+ *  bare rally. Must match claim_hand_cut's clip_pads. */
+const CLIP_PRE = 1.2;
+const CLIP_POST = 1.3;
+
+/** How far before a point Redo drops the playhead, so there is a run-up to
+ *  the serve rather than landing on top of it. */
+const REDO_LEAD_S = 3;
+
 const PAD_WIDTH = 380;
 const PAD_POS_KEY = "ponglens:mark-pad-pos";
 
@@ -217,6 +230,18 @@ export function MarkPoints({
    *  loses its gesture, so speed must also be reachable as a control. */
   const [speed, setSpeed] = useState(1);
   const [refusal, setRefusal] = useState<string | null>(null);
+  /** Open when the player is adjusting a point's edges. */
+  const [adjusting, setAdjusting] = useState<string | null>(null);
+  /** While previewing a point, the second to stop at. Playing past the end
+   *  of the clip would show footage the clip does not contain, which is the
+   *  opposite of what a preview is for. */
+  const previewUntil = useRef<number | null>(null);
+  /** The edges being dragged in the Adjust sheet, before they are saved,
+   *  and the fixed window the track draws. The window is computed ONCE on
+   *  open: derived live from the draft it would rescale under the finger,
+   *  which slides the other handle and moves the ground you are aiming at. */
+  const [adjustDraft, setAdjustDraft] = useState<[number, number] | null>(null);
+  const [adjustBounds, setAdjustBounds] = useState<[number, number] | null>(null);
   const [playhead, setPlayhead] = useState(0);
   const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -426,7 +451,7 @@ export function MarkPoints({
   const resumeToLastPoint = useCallback(() => {
     if (resumedRef.current) return;
     resumedRef.current = true;
-    const last = lastClosedEnd(stateRef.current.marks);
+    const last = lastEnd(stateRef.current.marks);
     const v = videoRef.current;
     if (last === null || !v) return;
     const d = Number.isFinite(v.duration) ? v.duration : Infinity;
@@ -477,6 +502,74 @@ export function MarkPoints({
     },
     [apply, resumeAfterAnswer]
   );
+
+  /**
+   * Tapping a chip plays that point's CLIP back, padded exactly as the
+   * worker will cut it, and stops where the clip stops.
+   *
+   * Without this a marked point is a number on a strip and nobody can tell
+   * whether the cut is any good, which is the one thing worth checking
+   * before committing eighty of them.
+   */
+  const tapChip = useCallback(
+    (id: string) => {
+      const s = stateRef.current;
+      const wasSelected = s.selectedId === id;
+      setState(selectMark(s, id));
+      const m = s.marks.find((x) => x.id === id);
+      const v = videoRef.current;
+      if (wasSelected || !m || m.t1 === null || !v) {
+        previewUntil.current = null;
+        return;
+      }
+      pausedForAnswer.current = false;
+      v.currentTime = Math.max(0, m.t0 - CLIP_PRE);
+      setPlayhead(v.currentTime);
+      previewUntil.current = m.t1 + CLIP_POST;
+      playApi.current?.play();
+    },
+    []
+  );
+
+  /** Back to where the marking had got to. */
+  const resumeMarking = useCallback(() => {
+    setState((s) => selectMark(s, null));
+    previewUntil.current = null;
+    const last = lastEnd(stateRef.current.marks);
+    const v = videoRef.current;
+    if (v && last !== null) {
+      v.currentTime = Math.max(0, last);
+      setPlayhead(v.currentTime);
+    }
+    playApi.current?.play();
+  }, []);
+
+  /**
+   * Start this point over. The mark goes, and the playhead lands a few
+   * seconds before it began so there is a run-up to the serve — but never
+   * back inside the previous rally, which is already cut and does not want
+   * re-watching.
+   */
+  const redoPoint = useCallback((id: string) => {
+    const s = stateRef.current;
+    const i = s.marks.findIndex((m) => m.id === id);
+    if (i < 0) return;
+    const m = s.marks[i];
+    const prevEnd = i > 0 ? s.marks[i - 1].t1 : null;
+    const to = Math.max(
+      prevEnd ?? 0,
+      Math.max(0, m.t0 - REDO_LEAD_S)
+    );
+    setState(selectMark(removeMark(s, id).state, null));
+    setAdjusting(null);
+    previewUntil.current = null;
+    const v = videoRef.current;
+    if (v) {
+      v.currentTime = to;
+      setPlayhead(to);
+    }
+    playApi.current?.play();
+  }, []);
 
   const tapUndo = useCallback(() => {
     setState((s) => undoLast(s));
@@ -731,7 +824,7 @@ export function MarkPoints({
             selected={state.selectedId === m.id}
             awaiting={state.awaitingId === m.id}
             grow={m.t1 === null ? grow : 0}
-            onSelect={() => setState((s) => selectMark(s, m.id))}
+            onSelect={() => tapChip(m.id)}
           />
         ))
       )}
@@ -741,7 +834,52 @@ export function MarkPoints({
   /** The rhythm pair. The biggest thing on the pad, because it is what the
    *  session is: begin a rally, end a rally, eighty times. Whichever one is
    *  next is the lit one, so the pad always says what to press. */
-  const rhythmPair = (
+  /**
+   * The pair. Begin and End while marking; Adjust and Resume once an
+   * existing point is selected, because Begin and End mean nothing to a
+   * rally whose edges are already set. Same two slots either way, so
+   * nothing on the pad moves under a thumb.
+   */
+  const selectedMark = state.selectedId
+    ? state.marks.find((m) => m.id === state.selectedId) ?? null
+    : null;
+  const reviewing_ = selectedMark !== null && selectedMark.t1 !== null;
+
+  const rhythmPair = reviewing_ ? (
+    <div className="flex shrink-0 gap-2">
+      <button
+        type="button"
+        onClick={() => {
+          if (!selectedMark || selectedMark.t1 === null) return;
+          const i = state.marks.findIndex((x) => x.id === selectedMark.id);
+          const prevEnd = i > 0 ? state.marks[i - 1].t1 ?? 0 : 0;
+          const nextStart =
+            i < state.marks.length - 1
+              ? state.marks[i + 1].t0
+              : durationS ?? selectedMark.t1 + 30;
+          setAdjustDraft([selectedMark.t0, selectedMark.t1]);
+          // Reach past the clip on both sides so an edge can be dragged
+          // outwards, but never into a neighbouring rally.
+          setAdjustBounds([
+            Math.max(prevEnd, selectedMark.t0 - 8),
+            Math.min(nextStart, selectedMark.t1 + 8),
+          ]);
+          setAdjusting(selectedMark.id);
+          playApi.current?.pause();
+        }}
+        className="glow-cta h-16 flex-1 rounded-xl border-2 border-cyan-glow bg-cyan-glow text-base font-bold text-ink transition-colors active:scale-[0.99]"
+      >
+        Adjust
+      </button>
+      <button
+        type="button"
+        onClick={resumeMarking}
+        className="h-16 flex-1 rounded-xl border-2 border-edge bg-surface text-base font-bold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white active:scale-[0.99]"
+      >
+        Resume
+      </button>
+    </div>
+  ) : (
     <div className="flex shrink-0 gap-2">
       <button
         type="button"
@@ -926,31 +1064,53 @@ export function MarkPoints({
             </button>
           ) : (
             <>
-              {/* left thumb: the rhythm pair, adjacent */}
+              {/* left thumb: the pair, in the same two boxes whichever
+                  meaning they carry, so nothing moves under a thumb */}
               <button
                 type="button"
-                onClick={tapEnd}
-                disabled={!open}
+                onClick={reviewing_ ? resumeMarking : tapEnd}
+                disabled={!reviewing_ && !open}
                 className={`${tile} absolute ${
-                  open
+                  !reviewing_ && open
                     ? "glow-cta border-cyan-glow bg-cyan-glow text-ink"
-                    : "border-edge bg-ink/70 text-zinc-400"
+                    : "border-edge bg-ink/70 text-zinc-300"
                 }`}
                 style={{ left: 4, bottom: base, width: 100, height: 62 }}
               >
-                End Point
+                {reviewing_ ? "Resume" : "End Point"}
               </button>
               <button
                 type="button"
-                onClick={tapBegin}
+                onClick={() => {
+                  if (!reviewing_) {
+                    tapBegin();
+                    return;
+                  }
+                  if (!selectedMark || selectedMark.t1 === null) return;
+                  const idx = state.marks.findIndex(
+                    (x) => x.id === selectedMark.id
+                  );
+                  const prevEnd = idx > 0 ? state.marks[idx - 1].t1 ?? 0 : 0;
+                  const nextStart =
+                    idx < state.marks.length - 1
+                      ? state.marks[idx + 1].t0
+                      : durationS ?? selectedMark.t1 + 30;
+                  setAdjustDraft([selectedMark.t0, selectedMark.t1]);
+                  setAdjustBounds([
+                    Math.max(prevEnd, selectedMark.t0 - 8),
+                    Math.min(nextStart, selectedMark.t1 + 8),
+                  ]);
+                  setAdjusting(selectedMark.id);
+                  playApi.current?.pause();
+                }}
                 className={`${tile} absolute ${
-                  open
-                    ? "border-edge bg-ink/70 text-zinc-300"
-                    : "glow-cta border-cyan-glow bg-cyan-glow text-ink"
+                  reviewing_ || !open
+                    ? "glow-cta border-cyan-glow bg-cyan-glow text-ink"
+                    : "border-edge bg-ink/70 text-zinc-300"
                 }`}
                 style={{ left: 4, bottom: base + 68, width: 100, height: 62 }}
               >
-                Begin Point
+                {reviewing_ ? "Adjust" : "Begin Point"}
               </button>
               <button
                 type="button"
@@ -1103,7 +1263,14 @@ export function MarkPoints({
           readPixels={false}
           videoElRef={videoRef}
           playRef={playApi}
-          onTime={(el) => setPlayhead(el.currentTime)}
+          onTime={(el) => {
+            setPlayhead(el.currentTime);
+            const stop = previewUntil.current;
+            if (stop !== null && el.currentTime >= stop) {
+              previewUntil.current = null;
+              playApi.current?.pause();
+            }
+          }}
           onLoadedMetadata={(el) => {
             if (el.videoWidth > 0 && el.videoHeight > 0) {
               setAr(el.videoWidth / el.videoHeight);
@@ -1137,6 +1304,136 @@ export function MarkPoints({
             {padBody}
           </div>
         ))}
+
+      {/* Adjust: the point's edges on a track, dragged. Modelled on the
+          scorekeeper's own Modify sheet (ModifyClip.tsx) — the same cyan
+          band for what the clip keeps, the same handle as a line with a
+          ringed knob, the same rule that the picture follows the handle so
+          the frame under your finger is the one you are judging. */}
+      {adjusting && adjustDraft && adjustBounds && (() => {
+        const m = state.marks.find((x) => x.id === adjusting);
+        if (!m || m.t1 === null) return null;
+        const [dT0, dT1] = adjustDraft;
+        const i = state.marks.findIndex((x) => x.id === adjusting);
+        const [lo, hi] = adjustBounds;
+        const span = Math.max(0.5, hi - lo);
+        const pct = (t: number) => ((t - lo) / span) * 100;
+        const fromX = (clientX: number, el: HTMLElement) => {
+          const r = el.getBoundingClientRect();
+          const f = Math.min(1, Math.max(0, (clientX - r.left) / Math.max(1, r.width)));
+          return lo + f * span;
+        };
+        const drag = (edge: "start" | "end") => ({
+          onPointerDown: (e: React.PointerEvent) => {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+          },
+          onPointerMove: (e: React.PointerEvent) => {
+            if (!(e.buttons & 1) && e.pointerType === "mouse") return;
+            const track = (e.currentTarget as HTMLElement).parentElement;
+            if (!track) return;
+            const t = fromX(e.clientX, track);
+            setAdjustDraft((d) => {
+              if (!d) return d;
+              const [a, b] = d;
+              const clamped = Math.min(hi, Math.max(lo, t));
+              return edge === "start"
+                ? [Math.min(clamped, b - MIN_POINT_S), b]
+                : [a, Math.max(clamped, a + MIN_POINT_S)];
+            });
+            const v = videoRef.current;
+            if (v) {
+              v.currentTime = Math.max(0, t);
+              setPlayhead(v.currentTime);
+            }
+          },
+        });
+        return (
+          <div className="absolute inset-0 z-30 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center">
+            <div className="ks-fade w-full rounded-t-2xl border border-edge bg-surface p-5 pb-8 sm:max-w-md sm:rounded-2xl sm:pb-5">
+              <h2 className="text-base font-semibold">
+                Point {i + 1}
+              </h2>
+              <p className="mt-0.5 text-xs text-zinc-500">
+                Drag the handles until the band covers the rally.
+              </p>
+
+              <div className="relative mt-5 h-10 touch-none select-none">
+                <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/10">
+                  <span
+                    className="absolute inset-y-0 bg-cyan-glow/45"
+                    style={{
+                      left: `${pct(dT0)}%`,
+                      width: `${Math.max(0, pct(dT1) - pct(dT0))}%`,
+                    }}
+                  />
+                </div>
+                <span
+                  className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-glow shadow-[0_0_8px_rgba(34,211,238,0.7)]"
+                  style={{ left: `${Math.min(100, Math.max(0, pct(playhead)))}%` }}
+                />
+                {(["start", "end"] as const).map((edge) => (
+                  <button
+                    key={edge}
+                    type="button"
+                    aria-label={edge === "start" ? "Start of point" : "End of point"}
+                    {...drag(edge)}
+                    className="absolute top-0 flex h-10 w-8 -translate-x-1/2 touch-none items-center justify-center"
+                    style={{ left: `${pct(edge === "start" ? dT0 : dT1)}%` }}
+                  >
+                    <span className="h-10 w-0.5 rounded-full bg-cyan-glow" />
+                    <span className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-cyan-glow bg-ink shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
+                  </button>
+                ))}
+              </div>
+
+              <p className="mt-2 text-center text-xs text-zinc-400">
+                {(dT1 - dT0).toFixed(1)}s long
+              </p>
+
+              <div className="mt-5 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    apply(setEdges(stateRef.current, m.id, dT0, dT1));
+                    setAdjusting(null);
+                  }}
+                  className="glow-cta flex-1 rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdjusting(null)}
+                  className="flex-1 rounded-full border border-edge px-4 py-2.5 text-sm font-semibold text-zinc-300 transition-colors hover:text-white"
+                >
+                  Cancel
+                </button>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => redoPoint(m.id)}
+                  className="flex-1 rounded-full border border-edge px-4 py-2 text-xs font-semibold text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-zinc-100"
+                >
+                  Mark it again
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    apply(removeMark(stateRef.current, m.id));
+                    setAdjusting(null);
+                    setState((st) => selectMark(st, null));
+                  }}
+                  className="flex-1 rounded-full border border-edge px-4 py-2 text-xs font-semibold text-zinc-400 transition-colors hover:border-amber-400/60 hover:text-amber-200"
+                >
+                  Remove point
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* The one question asked on the way in, in the same dress as the
           scorekeeper's own setup sheet: bottom-anchored on a phone,

@@ -332,6 +332,46 @@ export function moveEdge(
   };
 }
 
+/**
+ * Set both edges of a closed mark at once, from the Adjust sheet.
+ *
+ * `moveEdge` nudges one edge by a step; this takes the pair a drag
+ * produced. Same guards either way: never shorter than a point, never
+ * across a neighbour, because the list stays ordered by start and the
+ * worker's segment arithmetic assumes it.
+ */
+export function setEdges(
+  state: MarkState,
+  id: string,
+  t0: number,
+  t1: number
+): Applied {
+  const i = state.marks.findIndex((m) => m.id === id);
+  if (i < 0) return { state };
+  const m = state.marks[i];
+  if (m.t1 === null) return { state };
+
+  const a = round2(Math.max(0, t0));
+  const b = round2(t1);
+  if (b - a < MIN_POINT_S) return { state, refused: REFUSE.short };
+
+  const prev = state.marks[i - 1];
+  const next = state.marks[i + 1];
+  if (prev && prev.t1 !== null && a < prev.t1) return { state, refused: REFUSE.inside };
+  if (next && b > next.t0) return { state, refused: REFUSE.inside };
+
+  const marks = state.marks.slice();
+  marks[i] = { ...m, t0: a, t1: b };
+  return {
+    state: {
+      marks,
+      undo: [...state.undo, { type: "move", id, t0: m.t0, t1: m.t1 }],
+      selectedId: state.selectedId,
+      awaitingId: state.awaitingId,
+    },
+  };
+}
+
 export function removeMark(state: MarkState, id: string): Applied {
   const i = state.marks.findIndex((m) => m.id === id);
   if (i < 0) return { state };

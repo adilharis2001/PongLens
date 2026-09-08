@@ -47,4 +47,24 @@ ended and the new start would fall before that end and be refused. It
 carries on instead, leaving the point uncalled and saying so. Without it the
 session strands with the picture frozen and no way forward.
 
+**A marked point can be watched back and fixed.** Tapping a chip seeks to
+that point's clip start, padded exactly as the worker will cut it, plays,
+and stops where the clip stops. A number on a strip tells nobody whether
+the cut is any good, and that is the one thing worth checking before
+committing eighty of them.
+
+While a marked point is selected the pair changes meaning: Begin and End
+say nothing about a rally whose edges are already set, so they become
+Adjust and Resume, in the same two boxes so nothing moves under a thumb.
+The three answers stay live, because changing a winner is the commonest
+correction. Adjust opens a sheet modelled on the scorekeeper's own Modify
+(`ModifyClip.tsx`): the same cyan band for what the clip keeps, the same
+handle as a line with a ringed knob, and the same rule that the picture
+follows the handle so the frame under your finger is the one you are
+judging. Its window is fixed when the sheet opens rather than derived from
+the draft, or the track rescales under the finger and slides the other
+handle. The sheet also carries "Mark it again", which drops the point and
+puts the playhead three seconds before it began, never back inside the
+previous rally.
+
 The data model, the worker job and the cut-clock arithmetic are unchanged.
