@@ -104,8 +104,8 @@ grant update (marks, updated_at) on public.hand_cut_drafts to authenticated;
 do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'ponglens_worker') then
-    grant select on public.hand_cut_drafts to ponglens_worker;
-    grant update (submitted_at) on public.hand_cut_drafts to ponglens_worker;
+    execute 'grant select on public.hand_cut_drafts to ponglens_worker';
+    execute 'grant update (submitted_at) on public.hand_cut_drafts to ponglens_worker';
   end if;
 end $$;
 
