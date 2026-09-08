@@ -88,6 +88,65 @@ export interface ResolvedSharePoint {
   scored_at_cut_s?: number | null;
 }
 
+/** The only automatic-highlight manifest fields a public page needs. */
+export interface PublicHighlightTimelineRow {
+  point_id: string;
+  output_start_s: number;
+  output_end_s: number;
+}
+
+/** One rally start on the clock of the video the public page is playing. */
+export interface SharePlaybackTimelineEntry {
+  at: number;
+  end: number | null;
+  pointId: string;
+  /** Position in the complete visible match, used for score entering rally. */
+  pointIndex: number;
+}
+
+/**
+ * Build the score walk on the video's own clock.
+ *
+ * A whole-match link plays the cut and therefore uses cut_t0. A highlight
+ * link plays the worker's joined reel and therefore uses output_start_s.
+ * Both retain the point's position in the complete match so the score shown
+ * is the score entering that selected rally, even when earlier points were
+ * not chosen for the reel.
+ */
+export function buildSharePlaybackTimeline(
+  kind: "match" | "highlights",
+  points: ResolvedSharePoint[],
+  highlights: PublicHighlightTimelineRow[] = [],
+): SharePlaybackTimelineEntry[] {
+  if (kind === "match") {
+    return points.flatMap((point, pointIndex) => {
+      const at = Number(point.cut_t0);
+      return point.cut_t0 !== null && Number.isFinite(at) && at >= 0
+        ? [{ at, end: null, pointId: point.id, pointIndex }]
+        : [];
+    });
+  }
+
+  const indexById = new Map(points.map((point, index) => [point.id, index]));
+  return highlights
+    .flatMap((row): SharePlaybackTimelineEntry[] => {
+      const pointIndex = indexById.get(row.point_id);
+      const at = Number(row.output_start_s);
+      const end = Number(row.output_end_s);
+      if (
+        pointIndex === undefined ||
+        !Number.isFinite(at) ||
+        !Number.isFinite(end) ||
+        at < 0 ||
+        end <= at
+      ) {
+        return [];
+      }
+      return [{ at, end, pointId: row.point_id, pointIndex }];
+    })
+    .sort((a, b) => a.at - b.at);
+}
+
 /** Row from resolve_share_removed() (139): a deleted card's footage
  *  boundaries on the cut clock — enough to jump it, nothing else. */
 export interface ResolvedShareRemoved {
