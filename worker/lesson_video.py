@@ -57,13 +57,34 @@ TRANSCRIPT_FLOOR_WPM=12
 # so a lesson that is half drilling and half teaching is not averaged into
 # one verdict.
 THIN_WINDOW_SECONDS=120
-ASR_VERSION=5
-# Sections exist because whisper takes at most 25 MB, which at this
-# worker's 64 kbps mono is about 52 minutes. They are an artefact of that
-# limit and of nothing else: no rule about quality, coverage or reporting
-# is phrased in terms of a section. Twenty minutes halves the number of
-# boundaries a teaching moment can straddle against the old ten.
+ASR_VERSION=6
+# A section is the unit of storage and retry: twenty minutes of the lesson
+# transcribed, saved, and reused by the time it covers. It is NOT what
+# whisper is handed. Whisper on a twenty-minute file is a coin flip that
+# turns on encoder noise: the pinned ffmpeg wrote a section one byte
+# different from a development build's, same stream, same settings, and
+# on that file whisper transcribed the first 46 seconds and then went
+# silent for nineteen minutes. On the other file it did all twenty. Once
+# it collapses after a quiet stretch it never recovers for the rest of the
+# file, and temperature 0 makes that deterministic per file, not per
+# audio. Version 5 shipped that way and lost 95% of a lesson's opening.
+#
+# So whisper sees the lesson in four-minute windows with ten seconds of
+# context either side. Measured on the first twenty minutes of the lesson
+# that collapsed, same file, same greedy decoding: one-minute windows
+# heard 766 words, two-minute 912 (and zeroed one quiet stretch a longer
+# window heard fine), four-minute 1,044, and the whole twenty minutes at
+# once 1,216 on the day it did not collapse and 62 on the day it did.
+# Longer windows hear more, because whisper carries context inside a
+# file, and lose more when they collapse. Four minutes is where the loss
+# is bounded at four minutes of a ninety-minute lesson and the hearing is
+# within a sixth of the unbounded pass. Each raw segment belongs to
+# exactly one window's core, so the overlaps are context and never text
+# twice; windows run four at a time.
 SECTION_SECONDS=1200
+WINDOW_CORE_SECONDS=240
+WINDOW_PAD_SECONDS=10
+WINDOW_WORKERS=4
 # How far past the end of a file a transcriber may claim before its answer
 # is treated as broken rather than as its usual overshoot.
 SEGMENT_OVERRUN_SECONDS=5.0
@@ -255,6 +276,34 @@ def reusable_sections(saved,ranges):
  by_range={(round(float(c.get('start_s',0) or 0),3),round(float(c.get('end_s',0) or 0),3)):c for c in saved}
  return [by_range.get((round(float(a),3),round(float(b),3))) for a,b in ranges]
 
+def window_ranges(start,end,core=None,pad=None):
+ """(window_start, window_end, core_start, core_end) covering [start, end).
+
+ Cores tile the span with no gaps and no overlap. The window around each
+ core reaches into its neighbours for context and is clipped to the span.
+ """
+ core=core or WINDOW_CORE_SECONDS;pad=WINDOW_PAD_SECONDS if pad is None else pad
+ out=[];at=float(start)
+ while at<end-.5:
+  cs=at;ce=min(at+core,end)
+  out.append((max(float(start),cs-pad),min(float(end),ce+pad),cs,ce))
+  at=ce
+ return out
+
+def core_segments(segments,window_start,core_start,core_end):
+ """The raw segments that belong to this window: the ones that begin in its core.
+
+ Filtered before merging, not after, so an utterance can never be built
+ from pieces on both sides of a core boundary and then dropped or kept
+ whole by where its first piece happened to fall.
+ """
+ out=[]
+ for segment in segments:
+  try:at=window_start+float(segment['start'])
+  except (KeyError,TypeError,ValueError):continue
+  if core_start<=at<core_end:out.append(segment)
+ return out
+
 def transcript_chunk_reusable(chunk):
  """Keep a saved section only if somebody was actually heard in it.
 
@@ -266,8 +315,13 @@ def transcript_chunk_reusable(chunk):
  has already been tried and re-running them would cost money to learn
  the same answer.
  """
+ version=chunk.get('asr_version',0)
+ # Version 5 handed whisper whole twenty-minute files and lost most of a
+ # section whenever it collapsed early. Its sections look heard enough
+ # to pass the floor and are systematically short, so none is kept.
+ if version==5:return False
  span=float(chunk.get('end_s',0) or 0)-float(chunk.get('start_s',0) or 0)
- if thin_transcript(chunk.get('utterances',[]),span):return chunk.get('asr_version',0)>=ASR_VERSION
+ if thin_transcript(chunk.get('utterances',[]),span):return version>=ASR_VERSION
  return True
 
 def merge_segments(segments,start,duration,gap=1.5,span=45.0):
@@ -292,8 +346,11 @@ def merge_segments(segments,start,duration,gap=1.5,span=45.0):
   # So a small overrun is clamped and, if nothing of the segment remains
   # inside the recording, dropped. A timestamp beyond that is not a tail,
   # it is a broken response, and is still refused.
-  if not all(math.isfinite(x) for x in (a,b)) or a<0 or b<=a or b>duration+SEGMENT_OVERRUN_SECONDS:raise ValueError('Invalid transcription segment timing.')
+  if not all(math.isfinite(x) for x in (a,b)) or a<0 or b>duration+SEGMENT_OVERRUN_SECONDS:
+   raise ValueError(f'Invalid transcription segment timing: {a}-{b} in a {duration}s file.')
   b=min(b,duration)
+  # Whisper returns the odd zero-length piece, and on ninety short windows
+  # it returned one. That is its answer, not a broken one: dropped.
   if b<=a or not text:continue
   # A transcriber filling non-speech repeats itself, either inside one
   # segment ("you you you") or across several ("RUPERT STREET" three
@@ -359,40 +416,45 @@ class Runtime:
   self.meter_events([{'provider':'OpenAI','service':'Transcription','operation':'lesson_video_transcription','sku':model,'quantity':duration,'unit':'audio_second','idempotency_key':'openai:'+str(r.headers.get('x-request-id') or uuid.uuid4())+':audio'}])
   return d,duration
  def transcribe_whisper(self,path,start):
-  """First rung: the model that hears the room this product records in.
-
-  Lessons arrive as a phone on a tripod several metres from the coach,
-  in a hall with other tables going. Measured on one ten-minute section
-  of a real lesson, Deepgram returned 8 words and the diarized model
-  102; this returned 631, and matched a known-good transcript of the
-  same audio almost line for line. It offers no speaker labels, which
-  costs nothing: the prompts are told not to trust them anyway.
-  """
+  """Whisper over one window. Greedy, for the reason below."""
   # Greedy decoding: measured both the most accurate setting on this audio
   # and the only one that repeats itself. The same section transcribed
   # twice at the default returned 549 and 631 words; at zero it returned
-  # 639 both times, byte for byte. A lesson that reads differently each
-  # time it is processed is its own kind of broken.
+  # 639 both times, byte for byte.
   d,duration=self.openai_transcription(path,'whisper-1',{'response_format':'verbose_json','temperature':0})
-  return merge_segments(d.get('segments') or [],start,duration)
- def transcribe(self,path,start,seconds):
-  """Hear the section.
-
-  One pass, greedy, and no second opinion, because there is no honest
-  one to be had: the only model that hears these rooms reliably also
-  writes coaching that nobody said. A stretch this comes back empty on
-  is left empty, and everything downstream is built so that not knowing
-  why can only cost coverage.
-  """
-  first=None
+  return d.get('segments') or [],duration
+ def transcribe_window(self,section,file_start,bounds,directory):
+  """One window: cut it, hear it, keep the segments that begin in its core."""
+  ws,we,cs,ce=bounds
+  piece=Path(directory)/f'window-{int(ws)}.mp3'
+  run(['ffmpeg','-v','error','-y','-ss',str(ws-file_start),'-t',str(we-ws),'-i',str(section),'-ac','1','-ar','16000','-c:a','libmp3lame','-b:a','64k',str(piece)],120)
+  last=None
   for attempt in range(3):
    try:
-    first=self.transcribe_whisper(path,start);break
-   except Exception:
-    log.warning('Lesson transcription failed',exc_info=True)
+    segments,duration=self.transcribe_whisper(piece,ws)
+    return merge_segments(core_segments(segments,ws,cs,ce),ws,duration)
+   except Exception as e:
+    last=e;log.warning('Window %.0f-%.0f failed',ws,we,exc_info=True)
     if attempt<2:time.sleep(3*(attempt+1))
-  if first is None:raise RuntimeError('Part of the audio could not be transcribed. Retry to continue; the original and completed sections are kept.')
-  return first
+  raise RuntimeError('Part of the audio could not be transcribed. Retry to continue; the original and completed sections are kept.') from last
+ def transcribe(self,path,start,seconds,directory):
+  """Hear the section, a minute at a time, four minutes at once.
+
+  No second opinion, because there is no honest one to be had: the only
+  model that hears these rooms reliably also writes coaching that nobody
+  said. A window this comes back empty on is left empty, and everything
+  downstream is built so that not knowing why can only cost coverage.
+  """
+  import concurrent.futures
+  # Decoded once so every window is cut by exact sample position. Seeking
+  # an MP3 goes by LAME's estimate and can land a second or two off,
+  # which would have moved every clip in the recap by that much.
+  wav=Path(directory)/'section.wav'
+  run(['ffmpeg','-v','error','-y','-i',str(path),'-ac','1','-ar','16000',str(wav)],300)
+  bounds=window_ranges(start,start+seconds)
+  with concurrent.futures.ThreadPoolExecutor(max_workers=WINDOW_WORKERS) as pool:
+   parts=list(pool.map(lambda b:self.transcribe_window(wav,start,b,directory),bounds))
+  return sorted((u for part in parts for u in part),key=lambda u:float(u['start_s']))
 
 def frame(source,seconds,directory,n):
  path=Path(directory)/f'frame-{n}.jpg'
@@ -778,7 +840,7 @@ def process(rt,row):
      if lease_lost.is_set():raise RuntimeError('Lesson lease heartbeat was lost.')
      rt.stage(row,f"Transcribing section {i+1} of {len(ranges)}")
      audio=Path(directory)/'audio.mp3';run(['ffmpeg','-v','error','-y','-ss',str(start),'-t',str(end-start),'-i',str(source),'-vn','-ac','1','-ar','16000','-c:a','libmp3lame','-b:a','64k',str(audio)],180)
-     utterances=rt.transcribe(audio,start,end-start)
+     utterances=rt.transcribe(audio,start,end-start,directory)
      transcript.append({'start_s':start,'end_s':end,'utterances':utterances,'asr_version':ASR_VERSION})
      rt.update(row,transcript=transcript)
     edit=create_edit(rt,row,source,directory,transcript,duration);rt.update(row,edit=edit)
