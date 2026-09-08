@@ -29,7 +29,9 @@ import { ShareStats } from "./ShareStats";
 import { SharePlacement } from "./SharePlacement";
 import { StarredView, type StarredClip } from "./StarredView";
 import { ShareEntry } from "./ShareEntry";
+import { sanitizeHighlightTimeline } from "@/app/api/share/highlightShare";
 import {
+  buildSharePlaybackTimeline,
   playersLine,
   pointContextLine,
   highlightContextLine,
@@ -43,6 +45,7 @@ import {
   type ResolvedSharePoint,
   type ResolvedShareRemoved,
   type ResolvedStarredPoint,
+  type PublicHighlightTimelineRow,
 } from "./shareData";
 
 /**
@@ -99,6 +102,16 @@ const resolveSharePoints = cache(
     });
     return (data ?? []) as ResolvedSharePoint[];
   }
+);
+
+const resolveHighlightTimeline = cache(
+  async (token: string): Promise<PublicHighlightTimelineRow[]> => {
+    const supabase = await createClient();
+    const { data } = await supabase.rpc("resolve_share_highlight_timeline", {
+      p_token: token,
+    });
+    return sanitizeHighlightTimeline(data);
+  },
 );
 
 // The dead footage a MATCH link's player jumps: the deleted cards'
@@ -449,9 +462,16 @@ export default async function SharePage({
     }));
   }
 
-  const points: ResolvedSharePoint[] = isMatch
+  const points: ResolvedSharePoint[] = isMatch || isHighlights
     ? await resolveSharePoints(token)
     : [];
+  const playbackTimeline = isHighlights
+    ? buildSharePlaybackTimeline(
+        "highlights",
+        points,
+        await resolveHighlightTimeline(token),
+      )
+    : buildSharePlaybackTimeline("match", points);
 
   // The scored half of the page, computed here rather than in the browser:
   // MatchScore carries a Map and a Set, neither of which survives the
@@ -459,7 +479,7 @@ export default async function SharePage({
   const asPoints = sharePointsAsPoints(points, link.match_id);
   const deadSpans = isMatch ? await resolveShareSkips(token, asPoints) : [];
   const scored =
-    isMatch &&
+    (isMatch || isHighlights) &&
     link.show_score &&
     points.some((p) => !p.is_let && p.confirmed_winner !== null);
   const score = scored ? computeMatchScore(asPoints) : null;
@@ -527,6 +547,12 @@ export default async function SharePage({
                 <p className="text-sm text-zinc-500">Nothing here right now.</p>
               </div>
             )
+          ) : isHighlights && playbackTimeline.length === 0 ? (
+            <div className="flex aspect-video items-center justify-center border-y border-edge bg-ink sm:rounded-2xl sm:border">
+              <p className="text-sm text-zinc-500">
+                These highlights are no longer available.
+              </p>
+            </div>
           ) : isMatch && !link.cut_path && !link.raw_path ? (
             /* Neither video exists (a legacy match whose original was
                swept before 096 protected library videos): say so, rather
@@ -544,6 +570,7 @@ export default async function SharePage({
               }
               matchId={link.match_id}
               points={points}
+              timeline={playbackTimeline}
               skipSpans={deadSpans}
               showScore={Boolean(scored)}
               you={you}

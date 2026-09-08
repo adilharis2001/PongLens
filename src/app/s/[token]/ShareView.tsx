@@ -4,7 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { computeMatchScore } from "@/app/match/[id]/gameScore";
 import { ScoreBug, scoreBugPlacement } from "@/app/match/[id]/ScoreBug";
 import { SharePlayer } from "./SharePlayer";
-import { sharePointsAsPoints, type ResolvedSharePoint } from "./shareData";
+import {
+  buildSharePlaybackTimeline,
+  sharePointsAsPoints,
+  type ResolvedSharePoint,
+  type SharePlaybackTimelineEntry,
+} from "./shareData";
 
 /**
  * Client half of the public /s/[token] page for POINT and MATCH links.
@@ -35,6 +40,7 @@ export function ShareView({
   kind,
   matchId,
   points = [],
+  timeline: suppliedTimeline,
   skipSpans = [],
   showScore = false,
   you,
@@ -49,6 +55,9 @@ export function ShareView({
    *  than on the server because MatchScore carries a Map and a Set, and
    *  neither survives the server-to-client boundary. */
   points?: ResolvedSharePoint[];
+  /** Rally positions on the clock of the media being played. Highlight
+   *  links receive the sanitized worker-output clock from the server. */
+  timeline?: SharePlaybackTimelineEntry[];
   /** Dead footage the player jumps during playback: deleted cards and,
    *  with tap_end_playback on (138/139), the tail after each winner tap.
    *  Computed by the page (playhead.skipSpans); absent means no jumping,
@@ -112,14 +121,10 @@ export function ShareView({
    *  migration 011) simply cannot be placed on this clock, so they are
    *  left out of navigation and out of the score walk rather than guessed
    *  at with the source time. */
-  const timeline = useMemo(() => {
-    const walked: { at: number; index: number }[] = [];
-    points.forEach((p, index) => {
-      if (p.cut_t0 === null) return;
-      walked.push({ at: Number(p.cut_t0), index });
-    });
-    return walked;
-  }, [points]);
+  const timeline = useMemo(
+    () => suppliedTimeline ?? buildSharePlaybackTimeline("match", points),
+    [suppliedTimeline, points]
+  );
 
   /** The rally on screen: the last one that has started. -1 before the
    *  first. */
@@ -152,7 +157,7 @@ export function ShareView({
    */
   const entering = useMemo(() => {
     if (!showScore || !scored) return null;
-    const upto = activeRow < 0 ? 0 : timeline[activeRow].index;
+    const upto = activeRow < 0 ? 0 : timeline[activeRow].pointIndex;
     return computeMatchScore(asPoints.slice(0, upto));
   }, [showScore, scored, activeRow, timeline, asPoints]);
 
@@ -230,7 +235,7 @@ export function ShareView({
     seekTo(timeline[activeRow].at);
   }, [activeRow, timeline, seekTo]);
 
-  const hasRallies = kind === "match" && timeline.length > 0;
+  const hasRallies = kind !== "point" && timeline.length > 0;
 
   return (
     <div className="relative overflow-hidden bg-ink sm:rounded-2xl sm:border sm:border-edge">
