@@ -144,17 +144,13 @@ export function V3ServeDetector({
     let OWN: any = null;
     let OTHER: any = null;
     let shown: "own" | "other" = "own";
+    // ownLabel / otherLabel are the component's; redeclaring them here
+    // shadowed them in a temporal dead zone for nameOf("own") above and
+    // broke every load (2026-09-08).
     const otherBase =
       dataBase === "/research/body-detector"
         ? "/research/v3-serve-detector"
         : "/research/body-detector";
-    const ownLabel =
-      dataBase === "/research/body-detector"
-        ? "Body"
-        : dataBase === "/research/endon-detector"
-          ? "Reprocessed"
-          : "V3";
-    const otherLabel = dataBase === "/research/body-detector" ? "V3" : "Body";
     let psT: Float64Array | null = null;
     let plT: Float64Array | null = null;
     let raf = 0;
