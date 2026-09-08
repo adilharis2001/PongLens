@@ -6453,15 +6453,18 @@ export const Player = forwardRef<
               )}
             </span>
             <span className="flex-1" />
-            {/* Who serves, as a switch: a track with a knob that slides.
-                Knob on the left, Me serves; knob on the right, the
-                opponent does. The knob carries the glowing ball and the
-                track takes the server's colour, and the two names flank
-                it with the serving side lit — so the picture reads with
-                no instruction. One press anywhere on it flips the serve
-                and re-anchors the rotation; the flash says so. It is
-                the height of the old serve balls, so the row does not
-                grow. */}
+            {/* Who serves: a statement and a switch. "Anton serves" in
+                Anton's colour, and beside it a small track whose knob sits
+                on Anton's side carrying the ball. Press it and the knob
+                slides, the colour changes and the words change with it,
+                so the picture and the sentence always agree. One label
+                rather than a name either side: two names read as a
+                diagram to decode, one sentence reads as a fact.
+
+                Geometry rides in `style`, the way this block's edge layout
+                does: the knob's travel is the track's inner width less the
+                knob less both insets, and a number written here cannot be
+                dropped by a stale stylesheet or drift off-centre. */}
             {server !== null && (
               <button
                 type="button"
@@ -6470,40 +6473,49 @@ export const Player = forwardRef<
                 onClick={() => setServerTo(server === "user" ? "opponent" : "user")}
                 aria-label={
                   server === "user"
-                    ? `${youLabel === "Me" ? "I" : youLabel} served this point. Press to give the serve to ${themLabel}.`
-                    : `${themLabel} served this point. Press to give the serve to ${youLabel === "Me" ? "me" : youLabel}.`
+                    ? `${youLabel === "Me" ? "You serve" : `${youLabel} serves`}. Press to give the serve to ${themLabel}.`
+                    : `${themLabel} serves. Press to give the serve to ${youLabel === "Me" ? "you" : youLabel}.`
                 }
-                className="flex shrink-0 items-center gap-2 rounded-lg px-1 py-0.5 text-sm font-semibold"
+                className="flex shrink-0 items-center gap-2.5 rounded-lg py-0.5 pl-1.5 pr-1"
               >
                 <span
-                  className={`max-w-[5.5rem] truncate ${
-                    server === "user" ? "text-cyan-glow" : "text-zinc-500"
+                  className={`max-w-[9rem] truncate text-sm font-semibold ${
+                    server === "user" ? "text-cyan-glow" : "text-magenta-soft"
                   }`}
                 >
-                  {youLabel}
+                  {server === "user"
+                    ? youLabel === "Me"
+                      ? "You serve"
+                      : `${youLabel} serves`
+                    : `${themLabel} serves`}
                 </span>
                 <span
                   aria-hidden="true"
-                  className={`relative block h-[30px] w-14 shrink-0 rounded-full border transition-colors ${
-                    server === "user"
-                      ? "border-cyan-glow/40 bg-cyan-glow/20"
-                      : "border-magenta-soft/40 bg-magenta-soft/20"
+                  className={`relative block shrink-0 rounded-full transition-colors ${
+                    server === "user" ? "bg-cyan-glow/25" : "bg-magenta-soft/25"
                   }`}
+                  style={{ width: 44, height: 24 }}
                 >
                   <span
-                    className={`absolute top-[3px] block h-6 w-6 rounded-full ring-2 ring-white/70 transition-transform ${
-                      server === "user"
-                        ? "serve-ball-you left-[3px]"
-                        : "serve-ball-them left-[3px] translate-x-[26px]"
+                    className={`absolute block rounded-full ring-1 ring-white/30 transition-transform ${
+                      server === "user" ? "serve-ball-you" : "serve-ball-them"
                     }`}
+                    style={{
+                      width: 18,
+                      height: 18,
+                      top: 3,
+                      left: 3,
+                      // 44 wide, 18 knob, 3 in from each end: travel is 20.
+                      transform:
+                        server === "user" ? "translateX(0)" : "translateX(20px)",
+                      // The ball's own glow is sized for a 14px dot in open
+                      // space; inside a 24px track it bloomed past the edge.
+                      boxShadow:
+                        server === "user"
+                          ? "0 0 6px rgba(34, 211, 238, 0.7)"
+                          : "0 0 6px rgba(232, 121, 249, 0.7)",
+                    }}
                   />
-                </span>
-                <span
-                  className={`max-w-[5.5rem] truncate ${
-                    server === "opponent" ? "text-magenta-soft" : "text-zinc-500"
-                  }`}
-                >
-                  {themLabel}
                 </span>
               </button>
             )}
