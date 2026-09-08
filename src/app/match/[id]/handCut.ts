@@ -280,6 +280,18 @@ export function toggleStar(state: MarkState, id: string): Applied {
   };
 }
 
+/**
+ * Stop asking who won, without answering.
+ *
+ * The player moved on instead. The point stays closed and uncalled, which
+ * the strip already draws as a dashed chip and Keep score will ask about
+ * later; the brief was always that the answer is optional.
+ */
+export function clearAwaiting(state: MarkState): MarkState {
+  if (state.awaitingId === null) return state;
+  return { ...state, awaitingId: null };
+}
+
 export function selectMark(state: MarkState, id: string | null): MarkState {
   return { ...state, selectedId: state.selectedId === id ? null : id };
 }

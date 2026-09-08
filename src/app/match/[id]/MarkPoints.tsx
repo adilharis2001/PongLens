@@ -42,6 +42,7 @@ import {
   type MarkState,
   type Outcome,
   asPoints,
+  clearAwaiting,
   emptyState,
   endMark,
   lastClosedEnd,
@@ -226,6 +227,15 @@ export function MarkPoints({
   const stateRef = useRef(state);
   stateRef.current = state;
   const refuseTimer = useRef<number | null>(null);
+  /**
+   * Did WE pause the video, waiting for who won?
+   *
+   * Only set when End Point closes a rally in scoring mode. It matters that
+   * this is a flag and not just "is it paused": a player who paused by hand
+   * to look at something must not have the video yanked back into motion by
+   * an answer, so only a pause this screen caused is one this screen undoes.
+   */
+  const pausedForAnswer = useRef(false);
   const saveTimer = useRef<number | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
 
@@ -424,20 +434,55 @@ export function MarkPoints({
     setPlayhead(v.currentTime);
   }, []);
 
+  /** Let it run again, if we were the ones holding it. */
+  const resumeAfterAnswer = useCallback(() => {
+    if (!pausedForAnswer.current) return;
+    pausedForAnswer.current = false;
+    playApi.current?.play();
+  }, []);
+
   const tapBegin = useCallback(() => {
+    // Held for an answer, and they pressed on instead. Carry on and leave
+    // the point uncalled. It cannot start a rally here: the video has not
+    // moved since the last one ended, so a new point would begin before
+    // that end and be refused, which would strand the session with the
+    // picture frozen and no way forward.
+    if (pausedForAnswer.current) {
+      setState((s) => clearAwaiting(s));
+      resumeAfterAnswer();
+      refuse("Left uncalled.");
+      return;
+    }
     apply(startMark(stateRef.current, nowT(), rateNow(), nextId()));
-  }, [apply, nowT, rateNow]);
+  }, [apply, nowT, rateNow, resumeAfterAnswer, refuse]);
 
   const tapEnd = useCallback(() => {
-    apply(endMark(stateRef.current, nowT()));
-  }, [apply, nowT]);
+    const next = endMark(stateRef.current, nowT());
+    apply(next);
+    // Hold the picture until the point is called. Watching the next rally
+    // start while still deciding who won the last one is the thing that
+    // makes a pass feel rushed, and the answer row is already pulsing for
+    // it. Cut-only mode has nothing to answer, so it never stops.
+    if (!next.refused && mode === "score") {
+      playApi.current?.pause();
+      pausedForAnswer.current = true;
+    }
+  }, [apply, nowT, mode]);
 
   const tapAnswer = useCallback(
-    (o: Outcome) => apply(setOutcome(stateRef.current, o)),
-    [apply]
+    (o: Outcome) => {
+      const next = setOutcome(stateRef.current, o);
+      apply(next);
+      if (!next.refused) resumeAfterAnswer();
+    },
+    [apply, resumeAfterAnswer]
   );
 
-  const tapUndo = useCallback(() => setState((s) => undoLast(s)), []);
+  const tapUndo = useCallback(() => {
+    setState((s) => undoLast(s));
+    // Undoing the end reopens the rally, so the picture has to run again.
+    resumeAfterAnswer();
+  }, [resumeAfterAnswer]);
 
   const tapStar = useCallback(() => {
     const s = stateRef.current;
@@ -476,6 +521,8 @@ export function MarkPoints({
       switch (e.key) {
         case " ":
           e.preventDefault();
+          // Taking manual control releases our hold, either direction.
+          pausedForAnswer.current = false;
           if (videoRef.current?.paused) playApi.current?.play();
           else playApi.current?.pause();
           return;

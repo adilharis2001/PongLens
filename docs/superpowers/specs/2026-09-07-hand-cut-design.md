@@ -33,4 +33,18 @@ place in a forty minute video. And the pad carries the app's own speed
 control: the picture gestures work, but the floating card covers part of
 the frame, and whichever half it sits on loses its hold gesture.
 
+**The picture stops for the answer.** In scoring mode End Point pauses the
+video and it stays paused until the point is called. Watching the next
+rally begin while still deciding who won the last one is what made a pass
+feel rushed. Only a pause this screen caused is one it undoes, so a player
+who paused by hand to look at something does not have the video yanked
+back into motion by an answer. Cut-only mode never stops, because it has
+nothing to ask.
+
+That change needed one more: pressing Begin Point while the picture is held
+cannot start a rally, because the video has not moved since the last one
+ended and the new start would fall before that end and be refused. It
+carries on instead, leaving the point uncalled and saying so. Without it the
+session strands with the picture frozen and no way forward.
+
 The data model, the worker job and the cut-clock arithmetic are unchanged.
