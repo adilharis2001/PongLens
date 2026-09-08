@@ -49,6 +49,7 @@ import {
   emptyState,
   endMark,
   openMark,
+  resetOpen,
   selectMark,
   removeMark,
   setEdges,
@@ -250,6 +251,10 @@ export function MarkPoints({
   const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  /** The rally in progress, if there is one. Declared up here because the
+   *  keyboard handler and the pair both branch on it. */
+  const open = openMark(state.marks);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playApi = useRef<{ play: () => void; pause: () => void } | null>(null);
@@ -478,6 +483,27 @@ export function MarkPoints({
     playApi.current?.play();
   }, []);
 
+  /**
+   * Reset: the Begin tap was too early.
+   *
+   * Throws the open rally away and rewinds to where the last finished
+   * point ended, then plays, so the run-up to the serve comes round again.
+   * Pressing Begin a beat early happens constantly; this is the fix for it
+   * that does not require ending a rally which never started.
+   */
+  const tapReset = useCallback(() => {
+    const { state: next, backTo } = resetOpen(stateRef.current);
+    setState(next);
+    previewUntil.current = null;
+    pausedForAnswer.current = false;
+    const v = videoRef.current;
+    if (v) {
+      v.currentTime = Math.max(0, backTo);
+      setPlayhead(v.currentTime);
+    }
+    playApi.current?.play();
+  }, []);
+
   const tapBegin = useCallback(() => {
     // Held for an answer, and they pressed on instead. Carry on and leave
     // the point uncalled. It cannot start a rally here: the video has not
@@ -634,7 +660,8 @@ export function MarkPoints({
         case "s":
         case "S":
           e.preventDefault();
-          tapBegin();
+          if (open) tapReset();
+          else tapBegin();
           return;
         case "e":
         case "E":
@@ -695,7 +722,9 @@ export function MarkPoints({
     chooseSpeed,
     started,
     beginCutting,
+    open,
     tapBegin,
+    tapReset,
     tapEnd,
     tapAnswer,
     tapUndo,
@@ -721,7 +750,6 @@ export function MarkPoints({
 
   /* ------------------------------------------------------- derived scores */
 
-  const open = openMark(state.marks);
   const awaiting = state.awaitingId !== null;
   const canAnswer = awaiting || state.selectedId !== null;
   const sum = useMemo(() => summarize(state.marks), [state.marks]);
@@ -909,14 +937,14 @@ export function MarkPoints({
     <div className="flex shrink-0 gap-2">
       <button
         type="button"
-        onClick={tapBegin}
+        onClick={open ? tapReset : tapBegin}
         className={`h-16 flex-1 rounded-xl border-2 text-base font-bold transition-colors active:scale-[0.99] ${
           open
-            ? "border-edge bg-surface text-zinc-400"
+            ? "border-edge bg-surface text-zinc-400 hover:border-amber-400/50 hover:text-amber-200"
             : "glow-cta border-cyan-glow bg-cyan-glow text-ink"
         }`}
       >
-        Begin Point
+        {open ? "Reset" : "Begin Point"}
       </button>
       <button
         type="button"
@@ -983,7 +1011,7 @@ export function MarkPoints({
     <div className="hidden shrink-0 flex-wrap gap-x-3 gap-y-1 text-[10px] text-zinc-500 lg:flex">
       {(mode === "cut"
         ? [
-            ["S", "Begin"],
+            ["S", open ? "Reset" : "Begin"],
             ["E", "End"],
             ["U", "Undo"],
             ["T", "Star"],
@@ -991,7 +1019,7 @@ export function MarkPoints({
             ["[ ]", "Speed"],
           ]
         : [
-            ["S", "Begin"],
+            ["S", open ? "Reset" : "Begin"],
             ["E", "End"],
             ["←", youLabel],
             ["→", themLabel],
@@ -1106,7 +1134,8 @@ export function MarkPoints({
                 type="button"
                 onClick={() => {
                   if (!reviewing_) {
-                    tapBegin();
+                    if (open) tapReset();
+                    else tapBegin();
                     return;
                   }
                   if (!selectedMark || selectedMark.t1 === null) return;
@@ -1133,7 +1162,7 @@ export function MarkPoints({
                 }`}
                 style={{ left: 4, bottom: base + 68, width: 100, height: 62 }}
               >
-                {reviewing_ ? "Adjust" : "Begin Point"}
+                {reviewing_ ? "Adjust" : open ? "Reset" : "Begin Point"}
               </button>
               <button
                 type="button"

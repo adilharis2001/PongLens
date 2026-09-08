@@ -13,6 +13,7 @@ import {
   moveEdge,
   openMark,
   removeMark,
+  resetOpen,
   selectMark,
   setOutcome,
   startMark,
@@ -247,6 +248,37 @@ test("undo of a forgotten end restores the open point", () => {
   const back = undoLast(state);
   assert.equal(back.marks.length, 1);
   assert.equal(back.marks[0].t1, null, "open again");
+});
+
+test("Reset drops the open rally and points back at the last finished one", () => {
+  const { state } = run([...rally(10, 24, "user"), { at: 40, start: true }]);
+  const r = resetOpen(state);
+  assert.equal(r.state.marks.length, 1, "the open rally is gone");
+  assert.equal(r.state.marks[0].winner, "user", "the finished one is untouched");
+  assert.equal(r.backTo, 24, "back to where the last point ended");
+});
+
+test("Reset with nothing finished yet goes back to the start of the video", () => {
+  const { state } = run([{ at: 40, start: true }]);
+  const r = resetOpen(state);
+  assert.equal(r.state.marks.length, 0);
+  assert.equal(r.backTo, 0);
+});
+
+test("Reset with nothing open changes nothing", () => {
+  const { state } = run(rally(10, 24, "user"));
+  const r = resetOpen(state);
+  assert.deepEqual(r.state.marks, state.marks);
+  assert.equal(r.backTo, 24);
+});
+
+test("Reset is undoable, and brings the open rally back", () => {
+  const { state } = run([...rally(10, 24, "user"), { at: 40, start: true }]);
+  const after = resetOpen(state).state;
+  const back = undoLast(after);
+  assert.equal(back.marks.length, 2);
+  assert.equal(back.marks[1].t1, null, "open again, at the same start");
+  assert.equal(back.marks[1].t0, state.marks[1].t0);
 });
 
 test("undo on an empty stack is a no-op", () => {

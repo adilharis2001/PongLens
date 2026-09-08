@@ -82,4 +82,11 @@ render. Its `speedRef` now exposes `set` alongside `hold` and `release`,
 and the rail drives that, which also keeps the player's own speed pill in
 step.
 
+**Beginning too early has its own way out.** While a rally is open the left
+button reads Reset, not Begin Point. It throws the open rally away and
+rewinds to where the last finished point ended, then plays, so the run-up
+to the serve comes round again. Pressing Begin a beat early happens
+constantly, and until this the only way to fix it was to end a rally that
+had never started. Undo brings the open rally back.
+
 The data model, the worker job and the cut-clock arithmetic are unchanged.

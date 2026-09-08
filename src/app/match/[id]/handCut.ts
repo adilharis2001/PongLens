@@ -201,6 +201,40 @@ export function startMark(
 }
 
 /**
+ * Reset: the Begin tap was too early.
+ *
+ * Throws away the rally that is open and hands back the second the last
+ * finished point ended, so the caller can rewind there and let the run-up
+ * play again. Nothing else moves: earlier points, their answers and the
+ * score are all untouched.
+ *
+ * This is what the left button means while a point is open. Pressing Begin
+ * again to mean "I forgot the end" is the rarer mistake and it has Undo;
+ * pressing Begin a beat too early happens constantly, and until now it
+ * could only be fixed by ending a rally that had not started.
+ */
+export function resetOpen(state: MarkState): { state: MarkState; backTo: number } {
+  const open = openMark(state.marks);
+  const backTo = lastClosedEnd(state.marks) ?? 0;
+  if (!open) return { state, backTo };
+  // A "remove" entry, not a "start" one: undoing a start DELETES the mark,
+  // and Reset has already done that. What undo has to do here is put the
+  // open rally back exactly as it was.
+  return {
+    state: {
+      marks: state.marks.slice(0, -1),
+      undo: [
+        ...state.undo,
+        { type: "remove", index: state.marks.length - 1, mark: open },
+      ],
+      selectedId: state.selectedId,
+      awaitingId: state.awaitingId,
+    },
+    backTo,
+  };
+}
+
+/**
  * End Point.
  *
  * Closes the rally on screen and hands the pad to the answer row, which
