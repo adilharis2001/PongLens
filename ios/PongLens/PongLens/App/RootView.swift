@@ -38,6 +38,11 @@ struct RootView: View {
         // without signing in. Never compiled into Release.
         if ProcessInfo.processInfo.arguments.contains("--theme-gallery") {
             ThemeGallery()
+        } else if ProcessInfo.processInfo.arguments.contains("--dev-recording-brief") {
+            // The first-run brief, without an account: it only ever shows
+            // to a fresh account mid-tap, which makes checking its copy a
+            // whole sign-up. Same idea as --theme-gallery above.
+            RecordingBriefSheet(context: .upload, onDone: {})
         } else {
             appBody
         }

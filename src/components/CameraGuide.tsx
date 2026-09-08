@@ -276,7 +276,7 @@ const SETUPS = [
   },
 ];
 
-function RealSetups() {
+export function RealSetups() {
   const [open, setOpen] = useState(false);
   return (
     <div className="mt-4">

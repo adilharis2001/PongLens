@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { RealSetups } from "./CameraGuide";
 
 /**
  * RecordingBrief — five pages a new account steps through once, before its
@@ -40,6 +41,8 @@ type Page = {
   alt: string;
   title: string;
   body: string;
+  /** The three reference photographs, behind a tap (page one only). */
+  setups?: boolean;
   /** A line under the body that only some doors get. */
   note?: Partial<Record<RecordingBriefContext, string>>;
 };
@@ -49,7 +52,8 @@ export const RECORDING_BRIEF_PAGES: Page[] = [
     src: "/brief/p1.svg",
     alt: "Seen from above: the camera stands to one side of the table, level with your half, and its view takes in the whole table.",
     title: "Put the camera to the side",
-    body: "Side-on to the table, level with your half, and raised to about head height. Choose the side you do not serve from, so you are never standing between the camera and the table when a point starts. For most right-handers that is the forehand side.",
+    body: "We recommend filming from the side, as close to side-on as you can get, level with your half and raised to about head height. If filming from the side is difficult, a diagonal view works too. Choose the side you do not serve from, so you are never standing between the camera and the table when a point starts. For most right-handers that is the forehand side.",
+    setups: true,
     note: {
       record:
         "The next screen draws the table where it should sit. Line the real one up with it before you start.",
@@ -270,6 +274,11 @@ export function RecordingBrief({
                     {p.title}
                   </h2>
                   <p className="mt-2 text-[15px] leading-relaxed text-zinc-300">{p.body}</p>
+                  {/* The three reference photographs, the same component the
+                      "Where to place the camera" sheet opens. Behind a tap so
+                      the page stays one idea, but on the one walk every new
+                      account takes. */}
+                  {p.setups && <RealSetups />}
                   {note && (
                     <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-edge bg-surface-2/50 px-3 py-2.5 text-[13.5px] leading-snug text-zinc-300">
                       <ViewfinderIcon className="mt-px h-[18px] w-[18px] shrink-0 text-cyan-glow" />
