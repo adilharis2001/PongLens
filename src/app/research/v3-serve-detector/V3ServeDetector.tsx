@@ -397,60 +397,99 @@ export function V3ServeDetector({
                     : r.verdict === f;
     }
 
-    // The table: every stat is a row, the columns are the two detectors, and
-    // a row that is a filter is one click away from the rows behind its
-    // number. What was a row of pills that mixed counts with filters.
-    const STAT_ROWS: [string, string, string][] = [
-      ["all", "Cards made", ""],
-      ["bad", "Problems", "v-missed"],
-      ["ok", "Correct", "v-ok"],
-      ["missed", "No card", "v-missed"],
-      ["fused", "Swallowed", "v-fused"],
-      ["extra", "Too many cards", "v-extra"],
-      ["nopress", "Misses your winner press", "v-missed"],
-      ["junk_deleted", "On a card you deleted", "v-junk_deleted"],
-      ["junk_unknown", "Where you carded nothing", "v-junk_unknown"],
-      ["srv_agree", "Right server", "v-ok"],
-      ["srv_disagree", "Wrong server", "v-missed"],
-      ["called_false", "You called it not a serve", ""],
-      ["bodies", "From the bodies alone, no ball", "v-ok"],
-    ];
+    // The numbers, as four small tables side by side rather than one tall
+    // one: the percentages that answer "how good is this match", then the
+    // counts behind them in three groups. Every row that is a filter is one
+    // click from the rows behind its number, and the count and the click
+    // share one predicate, so the number is exactly how many rows appear.
+    // Nothing here is declared at the top level of the effect that a line
+    // above could read too early (2026-09-08).
     function countFor(c: any, f: string): number {
       if (f === "all") return c.summary.cards;
       return c.rows.reduce((n: number, r: any) => n + (keeps(r, f) ? 1 : 0), 0);
     }
     function buildStats() {
-      const own = OWN, other = OTHER;
-      const cols = shown === "own" ? [own, other] : [other, own];
+      const cols = shown === "own" ? [OWN, OTHER] : [OTHER, OWN];
       const heads = shown === "own" ? [ownLabel, otherLabel] : [otherLabel, ownLabel];
-      let h = '<table id="stattable"><thead><tr><th></th><th>' + heads[0] + " cards</th>" +
-        (cols[1] ? "<th>" + heads[1] + " cards</th>" : "") + "</tr></thead><tbody>";
-      const s0 = cols[0].summary;
-      h += '<tr class="info"><td>Cards you kept · deleted</td><td>' + s0.points + " · " + s0.deleted + "</td>" +
-        (cols[1] ? "<td>" + s0.points + " · " + s0.deleted + "</td>" : "") + "</tr>";
-      for (const [f, label, cls] of STAT_ROWS) {
-        const a = countFor(cols[0], f);
-        const b = cols[1] ? countFor(cols[1], f) : null;
-        if (f === "bodies" && a === 0 && !b) continue;
-        h += '<tr data-f="' + f + '" class="' + (filter === f ? "sel" : "") + '"><td>' + label + "</td>" +
-          '<td><b class="' + cls + '">' + a + "</b></td>" +
-          (cols[1] ? '<td><b class="' + cls + '">' + b + "</b></td>" : "") + "</tr>";
-      }
-      h += "</tbody></table>";
-      const pct = (c: any) => {
-        const t = c.summary.srv_agree + c.summary.srv_disagree;
-        return t ? Math.round((100 * c.summary.srv_agree) / t) + "% of " + t : "—";
+      const both = !!cols[1];
+      const pctOf = (num: number, den: number) => (den > 0 ? Math.round((100 * num) / den) : null);
+      // The five percentages, in the owner's own order of what matters.
+      // Each maps to the filter that shows the failures behind it. `good`
+      // says whether a high number is good, for the colour.
+      const pcts = (c: any) => {
+        const S = c.summary;
+        const pts = c.rows.filter((r: any) => r.kind === "point");
+        const pressed = pts.filter((r: any) => r.tap != null);
+        const short = pressed.filter((r: any) => r.holds_press === false).length;
+        const missed = pts.filter((r: any) => r.verdict === "missed").length;
+        return [
+          ["Points found", pctOf(pts.length - missed, pts.length), "missed", true],
+          ["Clean", pctOf(S.ok, pts.length), "bad", true],
+          ["Endings hold your press", pctOf(pressed.length - short, pressed.length), "nopress", true],
+          ["Junk", pctOf(S.on_deleted + S.nowhere, S.cards), "junk_deleted", false],
+          ["Server right", pctOf(S.srv_agree, S.srv_agree + S.srv_disagree), "srv_disagree", true],
+        ] as [string, number | null, string, boolean][];
       };
-      h += '<div id="statdetail">Server right on ' + pct(cols[0]) + " checkable cards" +
-        (cols[1] ? " (" + heads[1].toLowerCase() + ": " + pct(cols[1]) + ")" : "") +
-        ". " + s0.serves_raw + " serve detections, " + s0.serves_hand + " thrown out as a pass-and-hold; " +
-        s0.blind_cards + " cards never saw the ball cross the net; dead-ball split found " + s0.dead_runs + ".</div>";
+      const tone = (v: number | null, good: boolean) =>
+        v === null ? "" : (good ? v : 100 - v) >= 90 ? "v-ok" : (good ? v : 100 - v) >= 70 ? "v-extra" : "v-missed";
+      const cell = (v: number | null, cls: string) =>
+        "<td><b" + (cls ? ' class="' + cls + '"' : "") + ">" + (v === null ? "\u2014" : v + "%") + "</b></td>";
+      const p0 = pcts(cols[0]);
+      const p1 = both ? pcts(cols[1]) : null;
+      const head = (title: string) =>
+        '<table class="stat"><thead><tr><th class="ttl">' + title + "</th><th>" + heads[0] + "</th>" +
+        (both ? "<th>" + heads[1] + "</th>" : "") + "</tr></thead><tbody>";
+      let h = '<div id="stattables">';
+      h += head("How good");
+      p0.forEach(([label, v, f, good], i) => {
+        h += '<tr data-f="' + f + '" class="' + (filter === f ? "sel" : "") + '"><td>' + label + "</td>" +
+          cell(v, tone(v, good)) + (p1 ? cell(p1[i][1], tone(p1[i][1], good)) : "") + "</tr>";
+      });
+      h += "</tbody></table>";
+      const GROUPS: [string, [string, string, string][]][] = [
+        ["Cards", [
+          ["all", "Made", ""],
+          ["ok", "Correct", "v-ok"],
+          ["bad", "Problems", "v-missed"],
+          ["missed", "No card", "v-missed"],
+          ["fused", "Swallowed", "v-fused"],
+          ["extra", "Too many cards", "v-extra"],
+        ]],
+        ["Against your scoring", [
+          ["nopress", "Misses your winner press", "v-missed"],
+          ["junk_deleted", "On a card you deleted", "v-junk_deleted"],
+          ["junk_unknown", "Where you carded nothing", "v-junk_unknown"],
+          ["called_false", "You called it not a serve", ""],
+          ["bodies", "From the bodies alone, no ball", "v-ok"],
+        ]],
+        ["Server", [
+          ["srv_agree", "Right", "v-ok"],
+          ["srv_disagree", "Wrong", "v-missed"],
+        ]],
+      ];
+      for (const [title, rows] of GROUPS) {
+        h += head(title);
+        for (const [f, label, cls] of rows) {
+          const x = countFor(cols[0], f);
+          const y = both ? countFor(cols[1], f) : null;
+          if (f === "bodies" && x === 0 && !y) continue;
+          h += '<tr data-f="' + f + '" class="' + (filter === f ? "sel" : "") + '"><td>' + label + "</td>" +
+            '<td><b class="' + cls + '">' + x + "</b></td>" +
+            (both ? '<td><b class="' + cls + '">' + y + "</b></td>" : "") + "</tr>";
+        }
+        h += "</tbody></table>";
+      }
+      h += "</div>";
+      const S0 = cols[0].summary;
+      h += '<div id="statdetail">You kept ' + S0.points + " cards and deleted " + S0.deleted + ". " +
+        S0.serves_raw + " serve detections, " + S0.serves_hand + " thrown out as a pass-and-hold; " +
+        S0.blind_cards + " cards never saw the ball cross the net; dead-ball split found " + S0.dead_runs + ".</div>";
       $("summary").innerHTML = h;
-      for (const tr of Array.from(host.querySelectorAll("#stattable tr[data-f]")))
+      for (const tr of Array.from(host.querySelectorAll("#stattables tr[data-f]")))
         tr.addEventListener("click", () => {
           filter = (tr as HTMLElement).dataset.f!;
-          for (const o of Array.from(host.querySelectorAll("#stattable tr[data-f]")))
-            o.classList.toggle("sel", o === tr);
+          for (const o of Array.from(host.querySelectorAll("#stattables tr[data-f]")))
+            o.classList.toggle("sel", (o as HTMLElement).dataset.f === filter);
           render();
         });
     }
