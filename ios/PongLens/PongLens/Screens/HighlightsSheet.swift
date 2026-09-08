@@ -5,6 +5,7 @@ import SwiftUI
 struct HighlightsSheet: View {
     let match: MatchRow
     let model: MatchDetailModel
+    let scored: Bool
     let onChanged: (AutomaticHighlightsResponse) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -61,6 +62,8 @@ struct HighlightsSheet: View {
                             if hasActions {
                                 AutomaticHighlightActions(
                                     match: match,
+                                    starredCount: model.visible.filter(\.starred).count,
+                                    scored: scored,
                                     includePlay: true,
                                     playDetail: response?.summary ?? "",
                                     onPlay: { playing = true }
@@ -88,7 +91,8 @@ struct HighlightsSheet: View {
         .fullScreenCover(isPresented: $playing) {
             if let response, let url = response.url, let manifest = response.manifest {
                 HighlightsTakeover(
-                    match: match, model: model, videoURL: url, manifest: manifest
+                    match: match, model: model, scored: scored,
+                    videoURL: url, manifest: manifest
                 )
             }
         }
@@ -170,6 +174,7 @@ struct HighlightsSheet: View {
 private struct HighlightsTakeover: View {
     let match: MatchRow
     let model: MatchDetailModel
+    let scored: Bool
     let videoURL: URL
     let manifest: AutomaticHighlightManifest
 
@@ -188,7 +193,11 @@ private struct HighlightsTakeover: View {
             onShareHighlight: { shareOpen = true }
         )
         .sheet(isPresented: $shareOpen) {
-            HighlightsShareSheet(match: match)
+            HighlightsShareSheet(
+                match: match,
+                starredCount: model.visible.filter(\.starred).count,
+                scored: scored
+            )
                 .presentationDetents([.height(HighlightsShareSheet.detentHeight)])
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
@@ -200,6 +209,8 @@ private struct HighlightsTakeover: View {
 /// duration from the same already-qualified canonical pool.
 struct HighlightsShareSheet: View {
     let match: MatchRow
+    let starredCount: Int
+    let scored: Bool
 
     static var detentHeight: CGFloat { 470 }
 
@@ -207,6 +218,8 @@ struct HighlightsShareSheet: View {
         PLChooserSheet(title: "Share this highlight") {
             AutomaticHighlightActions(
                 match: match,
+                starredCount: starredCount,
+                scored: scored,
                 includePlay: false,
                 playDetail: "",
                 onPlay: {}
@@ -219,6 +232,8 @@ struct HighlightsShareSheet: View {
 /// playback and by the player's Share shortcut so the two sheets cannot drift.
 private struct AutomaticHighlightActions: View {
     let match: MatchRow
+    let starredCount: Int
+    let scored: Bool
     let includePlay: Bool
     let playDetail: String
     let onPlay: () -> Void
@@ -229,6 +244,7 @@ private struct AutomaticHighlightActions: View {
     @State private var sharingOn = true
     @State private var busyAction: String?
     @State private var instagramOpen = false
+    @State private var linkOpen = false
     @AppStorage("shareShowNames") private var showNames = true
     @AppStorage("shareShowScore") private var showScore = true
     @AppStorage("shareShowLogo") private var showLogo = true
@@ -262,12 +278,11 @@ private struct AutomaticHighlightActions: View {
                 case .shareLink:
                     PLChooserRow(
                         icon: "link",
-                        title: busyAction == "link" ? "Creating…" : "Share a link",
+                        title: "Share a link",
                         detail: "Anyone with the link can watch. You can revoke it anytime from your account.",
-                        pending: busyAction != nil && busyAction != "link",
-                        busy: busyAction == "link"
+                        pending: busyAction != nil
                     ) {
-                        Task { await shareHighlightLink() }
+                        linkOpen = true
                     }
                 case .saveVideo:
                     shareRow(
@@ -279,9 +294,17 @@ private struct AutomaticHighlightActions: View {
                 }
             }
 
+            Text("Video appearance")
+                .font(.plBody)
+                .foregroundStyle(PL.text200)
+                .padding(.top, 4)
+            Text("For Instagram and saved videos.")
+                .font(.plCaption)
+                .foregroundStyle(PL.text500)
+
             Toggle("Include names", isOn: $showNames)
                 .font(.plBody).foregroundStyle(PL.text200)
-                .tint(PL.cyan.opacity(0.5)).padding(.top, 4)
+                .tint(PL.cyan.opacity(0.5))
             Toggle("Include score", isOn: $showScore)
                 .font(.plBody).foregroundStyle(PL.text200)
                 .tint(PL.cyan.opacity(0.5))
@@ -319,6 +342,19 @@ private struct AutomaticHighlightActions: View {
             .presentationBackground(PL.surface)
             .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $linkOpen) {
+            ShareLinksSheet(
+                match: match,
+                starredCount: starredCount,
+                scored: scored,
+                processed: true,
+                initialTarget: .highlights,
+                highlightsReady: true
+            )
+            .presentationDetents([.medium, .large])
+            .presentationBackground(PL.surface)
+            .presentationDragIndicator(.visible)
+        }
         .task { sharingOn = await StoryShareModel.sharingEnabled() }
     }
 
@@ -336,33 +372,6 @@ private struct AutomaticHighlightActions: View {
             busy: busyAction == action
         ) {
             Task { await run(action, to: destination) }
-        }
-    }
-
-    private func shareHighlightLink() async {
-        guard busyAction == nil else { return }
-        busyAction = "link"
-        model.errorMessage = nil
-        defer { busyAction = nil }
-        struct Req: Encodable {
-            let matchId: String
-            let kind: String
-        }
-        struct Res: Decodable { let url: String }
-        do {
-            let response: Res = try await API.post(
-                "api/share",
-                Req(
-                    matchId: match.id.uuidString.lowercased(),
-                    kind: "highlights"
-                )
-            )
-            guard let url = URL(string: response.url) else {
-                throw URLError(.badURL)
-            }
-            shareItem = url
-        } catch {
-            model.errorMessage = "Couldn't create the link. Try again."
         }
     }
 

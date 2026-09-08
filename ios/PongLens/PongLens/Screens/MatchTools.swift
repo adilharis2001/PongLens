@@ -106,13 +106,18 @@ struct ToolsSection: View {
         .sheet(isPresented: $shareOpen) {
             ShareLinksSheet(
                 match: match, starredCount: starredCount,
-                scored: score.confirmedCount > 0
+                scored: score.confirmedCount > 0,
+                highlightsReady: automaticHighlights?.status == "ready"
             )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $highlightsOpen) {
-            HighlightsSheet(match: match, model: model) { response in
+            HighlightsSheet(
+                match: match,
+                model: model,
+                scored: score.confirmedCount > 0
+            ) { response in
                 automaticHighlights = response
             }
                 .presentationBackground(PL.surface)
@@ -300,12 +305,14 @@ struct ShareLinksSheet: View {
     /// upgrades to the cut once processing lands), so the footer must not
     /// promise "cut to the play" yet.
     var processed = true
+    let initialTarget: ShareLinkTarget
+    var highlightsReady: Bool
 
     @Environment(\.dismiss) private var dismiss
-    @State private var scope = "match"
+    @State private var target: ShareLinkTarget
     /// One link per scope: the API is idempotent, and switching back
     /// should show the link you already made rather than mint again.
-    @State private var links: [String: URL] = [:]
+    @State private var links: [ShareLinkTarget: URL] = [:]
     @State private var creating = false
     @State private var errorMessage: String?
     @State private var showQR = false
@@ -315,22 +322,62 @@ struct ShareLinksSheet: View {
     /// takes effect on a link somebody already has.
     @State private var showScore = true
 
-    private var link: URL? { links[scope] }
-    private var starredEmpty: Bool { scope == "starred" && starredCount == 0 }
+    init(
+        match: MatchRow,
+        starredCount: Int,
+        scored: Bool = false,
+        processed: Bool = true,
+        initialTarget: ShareLinkTarget = .match,
+        highlightsReady: Bool = false
+    ) {
+        self.match = match
+        self.starredCount = starredCount
+        self.scored = scored
+        self.processed = processed
+        self.initialTarget = initialTarget
+        self.highlightsReady = highlightsReady
+        _target = State(initialValue: initialTarget)
+    }
+
+    private var link: URL? { links[target] }
+    private var starredEmpty: Bool {
+        target == .starred && starredCount == 0
+    }
+    private var targets: [ShareLinkTarget] {
+        shareLinkTargets(
+            processed: processed,
+            highlightsReady: highlightsReady
+        )
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    // Before processing there are no points to star, so
-                    // the starred scope is not an empty choice, it is an
-                    // impossible one — the picker waits for the cut.
-                    if processed {
-                        Picker("Share", selection: $scope) {
-                            Text("This match").tag("match")
-                            Text("Starred points").tag("starred")
+                    ForEach(targets, id: \.self) { option in
+                        Button {
+                            target = option
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(targetTitle(option))
+                                        .font(.plRowTitle)
+                                        .foregroundStyle(PL.text100)
+                                    Text(targetDetail(option))
+                                        .font(.plCaption)
+                                        .foregroundStyle(PL.text500)
+                                }
+                                Spacer()
+                                Image(systemName: target == option
+                                      ? "checkmark.circle.fill"
+                                      : "circle")
+                                    .foregroundStyle(
+                                        target == option ? PL.cyan : PL.text600
+                                    )
+                            }
+                            .contentShape(Rectangle())
                         }
-                        .pickerStyle(.segmented)
+                        .buttonStyle(.plain)
                     }
                 } footer: {
                     Text(scopeFooter)
@@ -343,7 +390,7 @@ struct ShareLinksSheet: View {
                 // The bug over the video, the result and the analysis
                 // under it are the same fact told three ways, so they
                 // answer to one control rather than three.
-                if scope == "match", scored {
+                if target != .starred, scored {
                     Section {
                         Toggle("Include score and stats", isOn: $showScore)
                     } footer: {
@@ -393,10 +440,10 @@ struct ShareLinksSheet: View {
                 // The route is idempotent and applies the choice on the
                 // reuse path, so this updates the link already out there
                 // rather than minting a second one.
-                guard scope == "match", links["match"] != nil else { return }
+                guard target != .starred, links[target] != nil else { return }
                 Task { await mint() }
             }
-            .navigationTitle("Share")
+            .navigationTitle("Share a link")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -406,7 +453,7 @@ struct ShareLinksSheet: View {
             }
         }
         .preferredColorScheme(.dark)
-        .onChange(of: scope) { _, _ in
+        .onChange(of: target) { _, _ in
             // The QR belongs to the link on screen, so a switch closes it.
             showQR = false
             copied = false
@@ -415,10 +462,13 @@ struct ShareLinksSheet: View {
     }
 
     private var scopeFooter: String {
-        if scope == "starred" {
+        if target == .starred {
             return starredCount == 0
                 ? "Star points to share them as a set."
                 : "The \(starredCount) points you have starred, and it keeps up as you star more. Anyone with the link can watch."
+        }
+        if target == .highlights {
+            return "Your current highlight reel. Anyone with the link can watch, and you can revoke it anytime from your account."
         }
         if !processed {
             return "The whole match, as uploaded. Anyone with the link can watch, and you can revoke it anytime from your account."
@@ -428,17 +478,43 @@ struct ShareLinksSheet: View {
 
     private struct MintResponse: Decodable { let url: String }
 
+    private func targetTitle(_ option: ShareLinkTarget) -> String {
+        switch option {
+        case .match: "This match"
+        case .highlights: "Highlights"
+        case .starred: "Starred points"
+        }
+    }
+
+    private func targetDetail(_ option: ShareLinkTarget) -> String {
+        switch option {
+        case .match: processed ? "The whole match, cut to the play" : "The whole match, as uploaded"
+        case .highlights: "Your best qualifying rallies"
+        case .starred: starredCount == 0 ? "Star points to share them" : "\(starredCount) selected rallies"
+        }
+    }
+
     private func mint() async {
         creating = true
         errorMessage = nil
         let id = match.id.uuidString.lowercased()
         let res: MintResponse?
-        if scope == "starred" {
+        if target == .starred {
             struct Req: Encodable {
                 let matchId: String
                 let kind: String
             }
             res = try? await API.post("api/share", Req(matchId: id, kind: "starred"))
+        } else if target == .highlights {
+            struct Req: Encodable {
+                let matchId: String
+                let kind: String
+                let showScore: Bool
+            }
+            res = try? await API.post(
+                "api/share",
+                Req(matchId: id, kind: "highlights", showScore: showScore)
+            )
         } else {
             struct Req: Encodable {
                 let matchId: String
@@ -449,7 +525,7 @@ struct ShareLinksSheet: View {
             )
         }
         if let url = res.flatMap({ URL(string: $0.url) }) {
-            links[scope] = url
+            links[target] = url
         } else {
             errorMessage = "Couldn't create the link. Try again."
         }
