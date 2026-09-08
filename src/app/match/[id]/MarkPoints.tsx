@@ -3,22 +3,22 @@
 /**
  * Mark the points: the scorekeeper's pad, pointed at the ORIGINAL upload.
  *
- * The player watches their own video and taps twice per rally — once as the
- * serve goes up, once to say who won. Playback never stops, and the strip
- * fills in as they go. When they finish, the worker builds a real cut from
- * the marks and the match opens like any other.
+ * THE RHYTHM, and everything here serves it:
+ *
+ *   Begin Point  ->  End Point  ->  Me / Them / Let  ->  Begin Point ...
+ *
+ * Three taps per rally, and the video never stops for any of them. Begin
+ * and End sit side by side because they are the same thought a beat apart;
+ * having to cross the pad to end a rally is what made the first version
+ * hard to use. The three answers share one row, and that row LIGHTS UP the
+ * moment a point ends, because at that instant it is the only thing the pad
+ * wants from you.
  *
  * A SEPARATE COMPONENT, NOT A THIRD MODE IN Player.tsx. That file is 8324
- * lines and its header comment is a behavioural spec of its own; the one
- * feature that must not break is the scorekeeper, and the cheapest way to
- * not break it is to not touch it. What is shared is shared by IMPORT
- * (ClipPlayer, serving, gameScore) rather than by copy, so the rotation and
- * the game walk stay single implementations.
- *
- * The video layer is ClipPlayer in cut mode — the same component
- * RawMatchView already mounts on this file — which is why nothing here
- * rebuilds play/pause, double-tap seek, hold-for-speed, pinch zoom, the
- * transport or fullscreen.
+ * lines and its header is a behavioural spec of its own; the one feature
+ * that must not break is the scorekeeper, and the cheapest way not to break
+ * it is not to touch it. What is shared is shared by IMPORT (ClipPlayer,
+ * serving, gameScore), so the ITTF rotation stays one implementation.
  *
  * WHAT THIS FILE NEVER COMPUTES: cut_t0, cut segments, or which seconds the
  * cut keeps. The worker does that once, through the same three functions
@@ -40,6 +40,7 @@ import {
   endMark,
   openMark,
   selectMark,
+  setOutcome,
   startMark,
   summarize,
   toggleStar,
@@ -47,91 +48,69 @@ import {
   validate,
 } from "./handCut";
 
-/** How long a refusal stays on screen. Long enough to read, short enough
- *  that it is gone before the next rally needs the space. */
+/** How long a refusal stays on screen. Long enough to read, gone before
+ *  the next rally needs the space. */
 const REFUSE_MS = 2000;
 
-/** Draft autosave. Every tap re-arms it; nothing on screen ever waits for
- *  the network, so a flaky connection costs nothing but a later save. */
+/** Draft autosave. Every tap re-arms it; nothing on screen waits for the
+ *  network, so a flaky connection costs a later save and never a tap. */
 const SAVE_DEBOUNCE_MS = 1500;
+
+/** The floating desktop card, and where it was last dropped. Its own key,
+ *  because it is a different card at a different size from Keep score's. */
+const PAD_WIDTH = 380;
+const PAD_POS_KEY = "ponglens:mark-pad-pos";
 
 let markSeq = 0;
 const nextId = () => `m${++markSeq}-${Math.random().toString(36).slice(2, 8)}`;
 
-/* ------------------------------------------------------------------ pad */
+/* ---------------------------------------------------------------- pieces */
 
-/**
- * The pad's control primitive, carrying its own name.
- *
- * Copied from Player.tsx's PadControl for the reason its comment gives: at
- * 16px an icon alone is ambiguous, and a first-time user should not have to
- * press a button to find out what it does.
- */
-function PadControl({
+/** A small utility control. Deliberately the SMALLEST thing on the pad:
+ *  Undo and the seek pair are used a few times a session, and the rhythm
+ *  buttons above them are used eighty. */
+function Util({
   label,
-  aria,
   onClick,
   disabled,
   lit,
-  tone = "plain",
-  mini,
-  children,
 }: {
   label: string;
-  aria?: string;
   onClick: () => void;
   disabled?: boolean;
   lit?: boolean;
-  tone?: "plain" | "amber" | "cyan";
-  mini?: boolean;
-  children?: React.ReactNode;
 }) {
-  const toneClass = lit
-    ? "border-cyan-glow/60 bg-cyan-glow/15 text-cyan-glow"
-    : tone === "amber"
-      ? "border-amber-400/40 bg-amber-400/5 text-amber-300 hover:border-amber-400/60"
-      : tone === "cyan"
-        ? "border-cyan-glow/40 bg-cyan-glow/5 text-cyan-glow hover:border-cyan-glow/60"
-        : mini
-          ? "border-white/10 bg-ink/60 text-zinc-300 hover:text-white"
-          : "border-edge bg-surface text-zinc-300 hover:border-cyan-glow/50 hover:text-white";
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      aria-label={aria ?? label}
-      className={`flex flex-col items-center justify-center rounded-xl border transition-colors disabled:opacity-40 ${
-        mini ? "h-10 w-10 shrink-0 gap-0.5" : "h-12 min-w-11 flex-1 gap-1"
-      } ${toneClass}`}
+      className={`h-10 flex-1 rounded-lg border text-[11px] font-semibold transition-colors disabled:opacity-35 ${
+        lit
+          ? "border-amber-400/60 bg-amber-400/15 text-amber-300"
+          : "border-edge bg-surface text-zinc-400 hover:border-cyan-glow/40 hover:text-zinc-100"
+      }`}
     >
-      {children}
-      <span
-        className={`whitespace-nowrap font-semibold leading-none ${
-          mini ? "text-[9px]" : "text-[10px]"
-        }`}
-      >
-        {label}
-      </span>
+      {label}
     </button>
   );
 }
 
-/** One rally in the strip. Closed chips take their outcome's colour; the
+/** One rally in the strip. Closed chips take their answer's colour; the
  *  open one grows, because an open rally's length is not yet known and a
  *  draining ring would be claiming otherwise. */
 function MarkChip({
   n,
   mark,
-  current,
   selected,
+  awaiting,
   grow,
   onSelect,
 }: {
   n: number;
   mark: Mark;
-  current: boolean;
   selected: boolean;
+  awaiting: boolean;
   grow: number;
   onSelect: () => void;
 }) {
@@ -160,11 +139,15 @@ function MarkChip({
       data-chip={n}
       onClick={onSelect}
       aria-label={`Point ${n}, ${said}`}
-      aria-current={current ? "true" : undefined}
+      aria-current={open || awaiting ? "true" : undefined}
       className={`relative flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-full border text-xs font-semibold tabular-nums transition-[width,transform,box-shadow] ${tone} ${
         selected ? "ring-2 ring-white/90" : ""
-      } ${current ? "scale-110 shadow-[0_0_12px_rgba(255,255,255,0.35)]" : ""}`}
-      style={{ width: open ? Math.min(64, 32 + grow) : 32 }}
+      } ${
+        open || awaiting
+          ? "scale-110 shadow-[0_0_12px_rgba(255,255,255,0.35)]"
+          : ""
+      }`}
+      style={{ width: open ? Math.min(60, 32 + grow) : 32 }}
     >
       {open && (
         <span
@@ -189,7 +172,6 @@ function MarkChip({
 /* ---------------------------------------------------------------- screen */
 
 export function MarkPoints({
-  matchId,
   rawUrl,
   durationS,
   firstServer,
@@ -200,7 +182,6 @@ export function MarkPoints({
   submit,
   onClose,
 }: {
-  matchId: string;
   rawUrl: string;
   durationS: number | null;
   firstServer: MatchServer | null;
@@ -209,13 +190,16 @@ export function MarkPoints({
   initialMarks: Mark[];
   /** Best effort, debounced. Never blocks a tap. */
   saveDraft: (marks: Mark[]) => Promise<void>;
-  /** Hands the marks to claim_hand_cut. Resolves to an error slug or null. */
+  /** Hands the marks to claim_hand_cut. Resolves to a message or null. */
   submit: (marks: Mark[]) => Promise<string | null>;
   onClose: () => void;
 }) {
   const [state, setState] = useState<MarkState>(() =>
     initialMarks.length ? { ...emptyState, marks: initialMarks } : emptyState
   );
+  /** Has the session started? Until it has, the pad is one button, because
+   *  one button is the only thing there is to do. */
+  const [started, setStarted] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [playhead, setPlayhead] = useState(0);
   const [reviewing, setReviewing] = useState(false);
@@ -232,20 +216,20 @@ export function MarkPoints({
 
   /* -------------------------------------------------- layout, four shapes */
 
-  // matchMedia rather than CSS variants, for the reason Player.tsx gives:
-  // the desktop pad differs in STRUCTURE (it floats and carries a key
-  // legend), not only in styling, and the repo's dual-render idiom would
-  // mount two copies of a component that owns a video.
+  // matchMedia rather than CSS variants: the desktop pad differs in
+  // STRUCTURE (it drags and carries a key legend), not only in styling,
+  // and the repo's dual-render idiom would mount two copies of a component
+  // that owns a video.
   const [floating, setFloating] = useState(false);
   const [overlayPad, setOverlayPad] = useState(false);
   const [portrait, setPortrait] = useState(true);
-  /** From the file itself. A 9:16 upload needs a different shape entirely
-   *  (see the box rule below), and guessing 16:9 would letterbox it. */
+  /** From the file itself. A 9:16 upload needs a different shape entirely,
+   *  and guessing 16:9 would letterbox it. */
   const [ar, setAr] = useState(16 / 9);
   useEffect(() => {
     const desk = window.matchMedia("(min-width: 1024px) and (pointer: fine)");
-    // The predicate string is copied verbatim from Player.tsx so the two
-    // scorekeepers can never disagree about what a phone in landscape is.
+    // Copied verbatim from Player.tsx so the two scorekeepers can never
+    // disagree about what a phone in landscape is.
     const land = window.matchMedia(
       "(orientation: landscape) and (pointer: coarse) and (max-height: 500px)"
     );
@@ -265,6 +249,100 @@ export function MarkPoints({
       port.removeEventListener("change", sync);
     };
   }, []);
+
+  /* ------------------------------------------------------- dragging (desktop) */
+
+  const [padPos, setPadPos] = useState<{ x: number; y: number } | null>(null);
+  const padCardRef = useRef<HTMLDivElement | null>(null);
+  const padDragRef = useRef<{
+    px: number;
+    py: number;
+    x: number;
+    y: number;
+    moved: boolean;
+  } | null>(null);
+
+  const clampPadPos = useCallback((p: { x: number; y: number }) => {
+    const card = padCardRef.current;
+    const w = card?.offsetWidth ?? PAD_WIDTH;
+    const h = card?.offsetHeight ?? 480;
+    return {
+      x: Math.min(Math.max(8, p.x), Math.max(8, window.innerWidth - w - 8)),
+      y: Math.min(Math.max(8, p.y), Math.max(8, window.innerHeight - h - 8)),
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!floating) return;
+    try {
+      const raw = localStorage.getItem(PAD_POS_KEY);
+      if (raw) {
+        const v = JSON.parse(raw);
+        if (typeof v?.x === "number" && typeof v?.y === "number") {
+          setPadPos(clampPadPos(v));
+        }
+      }
+    } catch {
+      // Storage blocked, or someone else's value. The default spot is fine.
+    }
+  }, [floating, clampPadPos]);
+
+  const padDragHandlers = {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      const t = e.target as HTMLElement;
+      if (t.closest("button, a, input, textarea, select")) return;
+      const card = padCardRef.current;
+      if (!card) return;
+      // Kills the text selection a drag across the score would start. Safe
+      // here: interactive targets already returned above.
+      e.preventDefault();
+      const r = card.getBoundingClientRect();
+      padDragRef.current = {
+        px: e.clientX,
+        py: e.clientY,
+        x: r.left,
+        y: r.top,
+        moved: false,
+      };
+      card.setPointerCapture(e.pointerId);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const d = padDragRef.current;
+      const card = padCardRef.current;
+      if (!d || !card) return;
+      const dx = e.clientX - d.px;
+      const dy = e.clientY - d.py;
+      if (!d.moved && Math.hypot(dx, dy) < 3) return;
+      d.moved = true;
+      const next = clampPadPos({ x: d.x + dx, y: d.y + dy });
+      card.style.left = `${next.x}px`;
+      card.style.top = `${next.y}px`;
+      card.style.right = "auto";
+      card.style.transform = "none";
+      card.style.cursor = "grabbing";
+    },
+    onPointerUp: () => {
+      const d = padDragRef.current;
+      padDragRef.current = null;
+      const card = padCardRef.current;
+      if (card) card.style.cursor = "";
+      if (!d?.moved || !card) return;
+      const r = card.getBoundingClientRect();
+      const next = clampPadPos({ x: r.left, y: r.top });
+      setPadPos(next);
+      try {
+        localStorage.setItem(PAD_POS_KEY, JSON.stringify(next));
+      } catch {
+        // Storage blocked; the drag still holds for this session.
+      }
+    },
+    onPointerCancel: () => {
+      padDragRef.current = null;
+      const card = padCardRef.current;
+      if (card) card.style.cursor = "";
+    },
+  };
 
   /* ------------------------------------------------------------- the taps */
 
@@ -299,15 +377,25 @@ export function MarkPoints({
     [refuse]
   );
 
-  const tapStart = useCallback(() => {
+  /** The one button before anything has begun. It starts playback in the
+   *  same gesture, because "begin" and "and now watch it" are one thought,
+   *  and because a browser only lets a video play from a real user tap. */
+  const beginCutting = useCallback(() => {
+    setStarted(true);
+    playApi.current?.play();
+  }, []);
+
+  const tapBegin = useCallback(() => {
     apply(startMark(stateRef.current, nowT(), rateNow(), nextId()));
   }, [apply, nowT, rateNow]);
 
-  const tapOutcome = useCallback(
-    (o: Outcome) => {
-      apply(endMark(stateRef.current, nowT(), o));
-    },
-    [apply, nowT]
+  const tapEnd = useCallback(() => {
+    apply(endMark(stateRef.current, nowT()));
+  }, [apply, nowT]);
+
+  const tapAnswer = useCallback(
+    (o: Outcome) => apply(setOutcome(stateRef.current, o)),
+    [apply]
   );
 
   const tapUndo = useCallback(() => setState((s) => undoLast(s)), []);
@@ -315,6 +403,7 @@ export function MarkPoints({
   const tapStar = useCallback(() => {
     const s = stateRef.current;
     const target =
+      s.awaitingId ??
       s.selectedId ??
       openMark(s.marks)?.id ??
       s.marks[s.marks.length - 1]?.id ??
@@ -337,6 +426,14 @@ export function MarkPoints({
       const t = e.target;
       if (t instanceof HTMLElement && t.closest("input, textarea, select")) return;
 
+      if (!started) {
+        if (e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          beginCutting();
+        }
+        return;
+      }
+
       switch (e.key) {
         case " ":
           e.preventDefault();
@@ -346,37 +443,29 @@ export function MarkPoints({
         case "s":
         case "S":
           e.preventDefault();
-          tapStart();
+          tapBegin();
+          return;
+        case "e":
+        case "E":
+          e.preventDefault();
+          tapEnd();
           return;
         case "ArrowLeft":
-          if (e.shiftKey) {
-            e.preventDefault();
-            seekBy(-10);
-            return;
-          }
           e.preventDefault();
-          tapOutcome("user");
+          if (e.shiftKey) seekBy(-10);
+          else tapAnswer("user");
           return;
         case "ArrowRight":
-          if (e.shiftKey) {
-            e.preventDefault();
-            seekBy(10);
-            return;
-          }
           e.preventDefault();
-          tapOutcome("opponent");
+          if (e.shiftKey) seekBy(10);
+          else tapAnswer("opponent");
           return;
         case "k":
         case "K":
         case "l":
         case "L":
           e.preventDefault();
-          tapOutcome("let");
-          return;
-        case "e":
-        case "E":
-          e.preventDefault();
-          tapOutcome("end");
+          tapAnswer("let");
           return;
         case "u":
         case "U":
@@ -396,7 +485,17 @@ export function MarkPoints({
     // records having cost this repo a round already.
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [tapStart, tapOutcome, tapUndo, tapStar, seekBy, reviewing]);
+  }, [
+    started,
+    beginCutting,
+    tapBegin,
+    tapEnd,
+    tapAnswer,
+    tapUndo,
+    tapStar,
+    seekBy,
+    reviewing,
+  ]);
 
   /* ---------------------------------------------------------- draft saves */
 
@@ -416,6 +515,8 @@ export function MarkPoints({
   /* ------------------------------------------------------- derived scores */
 
   const open = openMark(state.marks);
+  const awaiting = state.awaitingId !== null;
+  const canAnswer = awaiting || state.selectedId !== null;
   const sum = useMemo(() => summarize(state.marks), [state.marks]);
 
   // The rotation and the game walk are the product's own, never re-derived.
@@ -424,21 +525,10 @@ export function MarkPoints({
     [state.marks]
   );
   const score = useMemo(() => computeMatchScore(scorePoints), [scorePoints]);
-  const serving = useMemo(
-    () => computeServing(scorePoints, firstServer),
-    [scorePoints, firstServer]
-  );
-  /** Who serves the rally being marked now: the one after the last closed
-   *  point, which is what the rotation answers for a point that does not
-   *  exist yet. Falls back to the opener. */
   const nextServer: MatchServer | null = useMemo(() => {
-    const closed = scorePoints;
-    if (!closed.length) return firstServer;
-    // computeServing answers per existing point; the next server is the
-    // rotation's answer for the point after the last one, which it gives
-    // by re-walking with a placeholder.
+    if (!scorePoints.length) return firstServer;
     const probe = [
-      ...closed,
+      ...scorePoints,
       {
         id: "__next__",
         confirmed_winner: null,
@@ -453,7 +543,6 @@ export function MarkPoints({
 
   const grow = open ? Math.max(0, playhead - open.t0) : 0;
 
-  // Keep the newest chip in view without stealing focus.
   useEffect(() => {
     const el = stripRef.current;
     if (!el) return;
@@ -476,17 +565,16 @@ export function MarkPoints({
     else onClose();
   }, [durationS, submit, onClose]);
 
-  /* ----------------------------------------------------------------- bits */
-
-  const canOutcome = open !== null || state.selectedId !== null;
+  /* ----------------------------------------------------------- pad pieces */
 
   const ticker = (
     <div
       className={
         overlayPad
-          ? "pointer-events-auto flex items-center gap-3 rounded-xl bg-ink/50 px-3 py-1 backdrop-blur-sm"
+          ? "pointer-events-auto flex items-center gap-2 rounded-xl bg-ink/50 px-3 backdrop-blur-sm"
           : "flex w-full shrink-0 items-center gap-3 border-b border-edge/60 px-3 py-2"
       }
+      style={overlayPad ? { height: 30 } : undefined}
     >
       <span className="flex items-baseline gap-2">
         <span
@@ -504,19 +592,18 @@ export function MarkPoints({
           </span>
         )}
       </span>
-      <span className="ml-auto flex items-center gap-2 text-[11px] text-zinc-400">
-        {nextServer && (
-          <>
-            <span
-              className={`block h-2.5 w-2.5 rounded-full ${
-                nextServer === "user" ? "bg-cyan-glow" : "bg-magenta-soft"
-              }`}
-              aria-hidden="true"
-            />
-            {nextServer === "user" ? `${youLabel} serves` : `${themLabel} serves`}
-          </>
-        )}
-      </span>
+      {nextServer && (
+        <span className="ml-auto flex items-center gap-2 text-[11px] text-zinc-400">
+          <span
+            className={`block h-2.5 w-2.5 rounded-full ${
+              nextServer === "user" ? "bg-cyan-glow" : "bg-magenta-soft"
+            }`}
+            aria-hidden="true"
+          />
+          {!overlayPad &&
+            (nextServer === "user" ? `${youLabel} serves` : `${themLabel} serves`)}
+        </span>
+      )}
     </div>
   );
 
@@ -525,20 +612,21 @@ export function MarkPoints({
       ref={stripRef}
       className={
         overlayPad
-          ? "pointer-events-auto flex gap-1.5 overflow-x-auto rounded-xl bg-ink/50 px-2 py-1 backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          : "flex w-full shrink-0 gap-1.5 overflow-x-auto border-b border-edge/60 px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          ? "pointer-events-auto flex items-center gap-1.5 overflow-x-auto rounded-xl bg-ink/50 px-2 backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          : "flex w-full shrink-0 items-center gap-1.5 overflow-x-auto border-b border-edge/60 px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       }
+      style={overlayPad ? { height: 32 } : { minHeight: 52 }}
     >
       {state.marks.length === 0 ? (
-        <span className="py-1.5 text-[11px] text-zinc-500">Nothing marked yet.</span>
+        <span className="text-[11px] text-zinc-500">Nothing marked yet.</span>
       ) : (
         state.marks.map((m, i) => (
           <MarkChip
             key={m.id}
             n={i + 1}
             mark={m}
-            current={m.t1 === null}
             selected={state.selectedId === m.id}
+            awaiting={state.awaitingId === m.id}
             grow={m.t1 === null ? grow : 0}
             onSelect={() => setState((s) => selectMark(s, m.id))}
           />
@@ -547,115 +635,89 @@ export function MarkPoints({
     </div>
   );
 
-  /** The two big answers. Dimmed and inert with nothing open, but they keep
-   *  their boxes: a target that moves is one you have to look at, and this
-   *  screen is used without looking away from the ball. */
-  const winnerTiles = (
-    <div
-      className={
-        overlayPad
-          ? "pointer-events-auto flex flex-col gap-2"
-          : "flex min-h-[64px] flex-1 gap-2.5"
-      }
-      // The floating card is content-sized, so flex-1 collapses these to
-      // nothing; a fixed height keeps the two answers the biggest targets
-      // on the pad, which is what they are on the scorekeeper.
-      style={overlayPad ? { width: 88 } : floating ? { height: 132 } : undefined}
-    >
+  /** The rhythm pair. The biggest thing on the pad, because it is what the
+   *  session is: begin a rally, end a rally, eighty times. Whichever one is
+   *  next is the lit one, so the pad always says what to press. */
+  const rhythmPair = (
+    <div className="flex shrink-0 gap-2">
       <button
         type="button"
-        onClick={() => tapOutcome("user")}
-        disabled={!canOutcome}
-        className={`min-w-0 flex-1 rounded-2xl border px-2 font-bold transition-all active:scale-[0.98] disabled:opacity-30 ${
-          overlayPad ? "h-20 text-base backdrop-blur-sm" : "text-xl"
-        } h-full border-cyan-glow/40 bg-cyan-glow/10 text-cyan-glow`}
+        onClick={tapBegin}
+        className={`h-16 flex-1 rounded-xl border-2 text-base font-bold transition-colors active:scale-[0.99] ${
+          open
+            ? "border-edge bg-surface text-zinc-400"
+            : "glow-cta border-cyan-glow bg-cyan-glow text-ink"
+        }`}
       >
-        <span className="block truncate">{youLabel}</span>
+        Begin Point
       </button>
       <button
         type="button"
-        onClick={() => tapOutcome("opponent")}
-        disabled={!canOutcome}
-        className={`min-w-0 flex-1 rounded-2xl border px-2 font-bold transition-all active:scale-[0.98] disabled:opacity-30 ${
-          overlayPad ? "h-20 text-base backdrop-blur-sm" : "text-xl"
-        } h-full border-magenta-glow/40 bg-magenta-glow/10 text-magenta-soft`}
+        onClick={tapEnd}
+        disabled={!open}
+        className={`h-16 flex-1 rounded-xl border-2 text-base font-bold transition-colors active:scale-[0.99] disabled:opacity-35 ${
+          open
+            ? "glow-cta border-cyan-glow bg-cyan-glow text-ink"
+            : "border-edge bg-surface text-zinc-400"
+        }`}
       >
-        <span className="block truncate">{themLabel}</span>
+        End Point
       </button>
     </div>
   );
 
-  const secondaryRow = (
-    <div
-      className={
-        overlayPad ? "pointer-events-auto flex flex-col gap-2" : "flex shrink-0 gap-2"
-      }
-      style={overlayPad ? { width: 88 } : undefined}
-    >
-      <PadControl
-        label="Let"
-        aria="This point was a let"
-        tone="amber"
-        onClick={() => tapOutcome("let")}
-        disabled={!canOutcome}
-      />
-      <PadControl
-        label="End"
-        aria="End the point without saying who won"
-        onClick={() => tapOutcome("end")}
-        disabled={!canOutcome}
-      />
+  /** The three answers, one row. They pulse the instant a point ends,
+   *  because that is the only moment the pad is waiting on the player. */
+  const answerRow = (
+    <div className="flex shrink-0 gap-2">
+      {(
+        [
+          ["user", youLabel, "border-cyan-glow bg-cyan-glow/15 text-cyan-glow"],
+          ["opponent", themLabel, "border-magenta-glow bg-magenta-glow/15 text-magenta-soft"],
+          ["let", "Let", "border-amber-400/70 bg-amber-400/10 text-amber-300"],
+        ] as const
+      ).map(([value, label, lit]) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => tapAnswer(value)}
+          disabled={!canAnswer}
+          className={`h-14 min-w-0 flex-1 rounded-xl border px-1 text-base font-bold transition-all active:scale-[0.98] disabled:opacity-30 ${
+            canAnswer ? lit : "border-edge bg-surface text-zinc-500"
+          } ${awaiting ? "animate-pulse ring-2 ring-white/60" : ""}`}
+        >
+          <span className="block truncate">{label}</span>
+        </button>
+      ))}
     </div>
   );
 
-  const controlRow = (
-    <div
-      className={
-        overlayPad ? "pointer-events-auto flex flex-col gap-2" : "flex shrink-0 gap-2"
-      }
-      style={overlayPad ? { width: 88 } : undefined}
-    >
-      <PadControl
-        label="Undo"
-        onClick={tapUndo}
-        disabled={state.undo.length === 0}
-        mini={overlayPad}
-      />
-      <PadControl
+  const utilRow = (
+    <div className="flex shrink-0 gap-2">
+      <Util label="Undo" onClick={tapUndo} disabled={state.undo.length === 0} />
+      <Util
         label="Star"
         onClick={tapStar}
         disabled={state.marks.length === 0}
-        mini={overlayPad}
+        lit={
+          !!state.marks.find(
+            (m) => m.id === (state.awaitingId ?? state.selectedId)
+          )?.starred
+        }
       />
-      <PadControl label="-10s" aria="Back ten seconds" onClick={() => seekBy(-10)} mini={overlayPad} />
-      <PadControl label="+10s" aria="Forward ten seconds" onClick={() => seekBy(10)} mini={overlayPad} />
+      <Util label="-10s" onClick={() => seekBy(-10)} />
+      <Util label="+10s" onClick={() => seekBy(10)} />
     </div>
   );
 
-  const primary = (
-    <button
-      type="button"
-      onClick={tapStart}
-      className={`w-full shrink-0 rounded-xl border-2 font-semibold transition-colors active:scale-[0.99] ${
-        overlayPad ? "h-20 text-sm backdrop-blur-sm" : "h-14 text-base"
-      } ${
-        open
-          ? "border-edge bg-surface text-zinc-300"
-          : "glow-cta border-cyan-glow bg-cyan-glow text-ink"
-      }`}
-    >
-      Point starts
-    </button>
-  );
-
   const legend = (
-    <div className="mt-2 hidden shrink-0 flex-wrap gap-x-3 gap-y-1 px-1 text-[10px] text-zinc-500 lg:flex">
+    <div className="hidden shrink-0 flex-wrap gap-x-3 gap-y-1 text-[10px] text-zinc-500 lg:flex">
       {[
-        ["S", "Point starts"],
+        ["S", "Begin"],
+        ["E", "End"],
         ["←", youLabel],
         ["→", themLabel],
         ["K", "Let"],
-        ["E", "End"],
         ["U", "Undo"],
         ["T", "Star"],
         ["Space", "Play"],
@@ -668,17 +730,6 @@ export function MarkPoints({
         </span>
       ))}
     </div>
-  );
-
-  const refusalLine = refusal && (
-    <p
-      role="status"
-      className={`shrink-0 text-center text-[12px] font-semibold text-amber-300 ${
-        overlayPad ? "pointer-events-none absolute inset-x-0 top-24 z-20" : "py-1"
-      }`}
-    >
-      {refusal}
-    </p>
   );
 
   const doneButton = (
@@ -695,147 +746,131 @@ export function MarkPoints({
     </button>
   );
 
+  const beginCuttingButton = (
+    <button
+      type="button"
+      onClick={beginCutting}
+      className="glow-cta h-16 w-full shrink-0 rounded-xl bg-cyan-glow text-base font-bold text-ink active:scale-[0.99]"
+    >
+      Begin Cutting
+    </button>
+  );
+
+  const refusalLine = refusal ? (
+    <p
+      role="status"
+      className="shrink-0 text-center text-[12px] font-semibold text-amber-300"
+    >
+      {refusal}
+    </p>
+  ) : null;
+
   /* -------------------------------------------------------------- overlay */
 
-  /**
-   * Phone landscape: the pad dissolves into edge bands over a full-bleed
-   * picture, the shape Player.tsx uses for the same reason. Every camera in
-   * this product is aimed at the table, so the centre of the frame is the
-   * one place chrome must never sit.
-   *
-   * GEOMETRY IS EXPLICIT, NOT FLEX. The height here is genuinely scarce and
-   * a stretched flex child silently overflows the bottom of the screen,
-   * which is exactly what the first attempt did. Budget, at 852x348 with
-   * ClipPlayer's 52px cut-mode transport reserved:
-   *
-   *   band height          348 - 52 = 296
-   *   top bar              ticker 30 + gap 4 + strip 32   = 66
-   *   right column         Let/End 36 + Me 84 + Anton 84
-   *                        + 2 gaps of 6                  = 216
-   *   bottom inset                                        = 6
-   *   66 + 216 + 6 = 288, inside 296 with 8 to spare.
-   *
-   * Both columns are bottom-anchored so they end where thumbs rest in a
-   * landscape grip, and nothing in them moves between states.
-   */
   const landscapeBands = useCallback(
     (picture: PictureBox) => {
-      // Two different floors on purpose. The left column only has to clear
-      // the transport; the right one also has to clear ClipPlayer's own
-      // speed and zoom pills, which live in the bottom-RIGHT corner about
-      // 26px above the transport. Measured against the rendered player, not
-      // assumed: the first attempt put the opponent's tile straight through
-      // them.
+      // Two floors on purpose. The left column only clears the transport;
+      // the right one also clears ClipPlayer's speed and zoom pills, which
+      // live in the bottom-RIGHT corner about 26px above it. Measured
+      // against the rendered player, not assumed.
       const base = picture.chromeFloor + 6;
       const baseRight = picture.chromeFloor + 34;
       const tile =
-        "pointer-events-auto rounded-xl border font-semibold backdrop-blur-sm transition-colors disabled:opacity-30 active:scale-[0.98]";
+        "pointer-events-auto rounded-xl border font-bold backdrop-blur-sm transition-all disabled:opacity-30 active:scale-[0.98]";
       return (
         <div className="pointer-events-none absolute inset-0 z-10">
-          {/* top bar: score left, chips centre, Done right */}
+          <div className="absolute left-1 top-1">{ticker}</div>
           <div
-            className="pointer-events-auto absolute flex items-center gap-2 rounded-xl bg-ink/50 px-3 backdrop-blur-sm"
-            style={{ left: 4, top: 4, height: 30 }}
+            className="absolute"
+            style={{ left: 116, right: 176, top: 38 }}
           >
-            <span className="text-base font-bold tabular-nums">
-              <span className="text-cyan-glow">{score.current.you}</span>
-              <span className="mx-1 text-zinc-600">-</span>
-              <span className="text-magenta-soft">{score.current.them}</span>
-            </span>
-            {nextServer && (
-              <span
-                className={`block h-2 w-2 rounded-full ${
-                  nextServer === "user" ? "bg-cyan-glow" : "bg-magenta-soft"
-                }`}
-                aria-label={nextServer === "user" ? `${youLabel} serves` : `${themLabel} serves`}
-              />
-            )}
-          </div>
-          <div
-            ref={stripRef}
-            className="pointer-events-auto absolute flex items-center gap-1.5 overflow-x-auto rounded-xl bg-ink/50 px-2 backdrop-blur-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            style={{ left: 116, right: 176, top: 38, height: 30 }}
-          >
-            {state.marks.length === 0 ? (
-              <span className="text-[11px] text-zinc-400">Nothing marked yet.</span>
-            ) : (
-              state.marks.map((m, i) => (
-                <MarkChip
-                  key={m.id}
-                  n={i + 1}
-                  mark={m}
-                  current={m.t1 === null}
-                  selected={state.selectedId === m.id}
-                  grow={m.t1 === null ? grow : 0}
-                  onSelect={() => setState((st) => selectMark(st, m.id))}
-                />
-              ))
-            )}
+            {strip}
           </div>
           <div className="pointer-events-auto absolute" style={{ right: 76, top: 4 }}>
             {doneButton}
           </div>
 
-          {/* left: the one thing pressed most, under the left thumb */}
-          <button
-            type="button"
-            onClick={tapStart}
-            className={`${tile} absolute ${
-              open
-                ? "border-edge bg-ink/70 text-zinc-200"
-                : "border-cyan-glow bg-cyan-glow/90 text-ink"
-            }`}
-            style={{ left: 4, bottom: base, width: 96, height: 92 }}
-          >
-            Point starts
-          </button>
-          <button
-            type="button"
-            onClick={tapUndo}
-            disabled={state.undo.length === 0}
-            className={`${tile} absolute border-white/15 bg-ink/60 text-xs text-zinc-200`}
-            style={{ left: 4, bottom: base + 98, width: 96, height: 40 }}
-          >
-            Undo
-          </button>
+          {!started ? (
+            <button
+              type="button"
+              onClick={beginCutting}
+              className={`${tile} glow-cta absolute border-cyan-glow bg-cyan-glow text-ink`}
+              style={{
+                left: "50%",
+                bottom: base + 40,
+                transform: "translateX(-50%)",
+                width: 200,
+                height: 56,
+              }}
+            >
+              Begin Cutting
+            </button>
+          ) : (
+            <>
+              {/* left thumb: the rhythm pair, adjacent */}
+              <button
+                type="button"
+                onClick={tapEnd}
+                disabled={!open}
+                className={`${tile} absolute ${
+                  open
+                    ? "glow-cta border-cyan-glow bg-cyan-glow text-ink"
+                    : "border-edge bg-ink/70 text-zinc-400"
+                }`}
+                style={{ left: 4, bottom: base, width: 100, height: 62 }}
+              >
+                End Point
+              </button>
+              <button
+                type="button"
+                onClick={tapBegin}
+                className={`${tile} absolute ${
+                  open
+                    ? "border-edge bg-ink/70 text-zinc-300"
+                    : "glow-cta border-cyan-glow bg-cyan-glow text-ink"
+                }`}
+                style={{ left: 4, bottom: base + 68, width: 100, height: 62 }}
+              >
+                Begin Point
+              </button>
+              <button
+                type="button"
+                onClick={tapUndo}
+                disabled={state.undo.length === 0}
+                className={`${tile} absolute border-white/15 bg-ink/60 text-[11px] font-semibold text-zinc-200`}
+                style={{ left: 4, bottom: base + 136, width: 100, height: 34 }}
+              >
+                Undo
+              </button>
 
-          {/* right: the answers, stacked bottom-up */}
-          <button
-            type="button"
-            onClick={() => tapOutcome("opponent")}
-            disabled={!canOutcome}
-            className={`${tile} absolute border-magenta-glow/50 bg-magenta-glow/15 text-magenta-soft`}
-            style={{ right: 4, bottom: baseRight, width: 104, height: 70 }}
-          >
-            <span className="block truncate px-1">{themLabel}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => tapOutcome("user")}
-            disabled={!canOutcome}
-            className={`${tile} absolute border-cyan-glow/50 bg-cyan-glow/15 text-cyan-glow`}
-            style={{ right: 4, bottom: baseRight + 76, width: 104, height: 70 }}
-          >
-            <span className="block truncate px-1">{youLabel}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => tapOutcome("let")}
-            disabled={!canOutcome}
-            className={`${tile} absolute border-amber-400/40 bg-amber-400/10 text-[11px] text-amber-300`}
-            style={{ right: 58, bottom: baseRight + 152, width: 50, height: 32 }}
-          >
-            Let
-          </button>
-          <button
-            type="button"
-            onClick={() => tapOutcome("end")}
-            disabled={!canOutcome}
-            className={`${tile} absolute border-white/15 bg-ink/60 text-[11px] text-zinc-200`}
-            style={{ right: 4, bottom: baseRight + 152, width: 50, height: 32 }}
-          >
-            End
-          </button>
+              {/* right thumb: the three answers, pulsing when asked for */}
+              {(
+                [
+                  ["let", "Let", "border-amber-400/70 bg-amber-400/15 text-amber-300", 0],
+                  ["opponent", themLabel, "border-magenta-glow bg-magenta-glow/20 text-magenta-soft", 40],
+                  ["user", youLabel, "border-cyan-glow bg-cyan-glow/20 text-cyan-glow", 106],
+                ] as const
+              ).map(([value, label, lit, offset]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => tapAnswer(value)}
+                  disabled={!canAnswer}
+                  className={`${tile} absolute px-1 ${
+                    canAnswer ? lit : "border-edge bg-ink/60 text-zinc-500"
+                  } ${awaiting ? "animate-pulse ring-2 ring-white/60" : ""}`}
+                  style={{
+                    right: 4,
+                    bottom: baseRight + offset,
+                    width: 104,
+                    height: value === "let" ? 34 : 60,
+                  }}
+                >
+                  <span className="block truncate">{label}</span>
+                </button>
+              ))}
+            </>
+          )}
 
           {refusal && (
             <p
@@ -850,42 +885,60 @@ export function MarkPoints({
       );
     },
     [
-      score,
-      nextServer,
+      ticker,
+      strip,
+      doneButton,
+      started,
+      beginCutting,
+      open,
+      tapBegin,
+      tapEnd,
+      tapUndo,
+      tapAnswer,
+      canAnswer,
+      awaiting,
+      state.undo.length,
       youLabel,
       themLabel,
-      state,
-      grow,
-      doneButton,
-      tapStart,
-      tapUndo,
-      tapOutcome,
-      canOutcome,
-      open,
       refusal,
     ]
   );
 
-  /* ----------------------------------------------------------------- pad */
+  /* ------------------------------------------------------------ pad body */
 
   const padBody = (
     <>
+      {/* The grab bar is the one place that LOOKS draggable. The whole card
+          drags from any dead space, but an affordance has to say so. */}
+      {floating && (
+        <div
+          className="flex h-5 shrink-0 items-center justify-center"
+          style={{ cursor: "grab" }}
+          title="Drag to move"
+          aria-hidden="true"
+        >
+          <span className="h-1 w-9 rounded-full bg-white/20" />
+        </div>
+      )}
       {ticker}
       {strip}
-      <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 p-3">
         {refusalLine}
-        {controlRow}
-        {secondaryRow}
-        {winnerTiles}
-        {primary}
+        {!started ? (
+          beginCuttingButton
+        ) : (
+          <>
+            {rhythmPair}
+            {answerRow}
+            {utilRow}
+          </>
+        )}
         <div className="flex shrink-0 items-center justify-between gap-2">
           <span className="text-[11px] text-zinc-500">
             {sum.total} {sum.total === 1 ? "point" : "points"}
           </span>
           {doneButton}
         </div>
-        {/* Its own row, and it wraps. Sharing a line with the count pushed
-            Done off the edge of the 380px pad. */}
         {legend}
       </div>
     </>
@@ -900,8 +953,8 @@ export function MarkPoints({
       }`}
       style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      {/* Video. The box is sized on this div, never on the element: a media
-          element has no intrinsic size until metadata arrives. */}
+      {/* The box is sized on this div, never on the element: a media element
+          has no intrinsic size until metadata arrives. */}
       <div
         className={
           overlayPad || floating
@@ -915,9 +968,7 @@ export function MarkPoints({
             ? {
                 // A min() of the two real limits. Never viewport-minus-a-
                 // constant: that is comfortable at 844 and brutal at 660.
-                // A 9:16 upload hits the 46dvh arm and goes tall-and-narrow
-                // rather than 148px wide.
-                height: `min(calc(100vw / ${ar.toFixed(4)}), 46dvh)`,
+                height: `min(calc(100vw / ${ar.toFixed(4)}), 42dvh)`,
               }
             : undefined
         }
@@ -940,13 +991,19 @@ export function MarkPoints({
         />
       </div>
 
-      {/* Pad. Absent in the landscape overlay, where it rides the picture. */}
       {!overlayPad &&
         (floating ? (
           <div className="pointer-events-none absolute inset-0 z-10">
             <div
-              className="pointer-events-auto absolute flex max-h-[calc(100%-2rem)] w-[380px] flex-col overflow-y-auto rounded-2xl border border-edge bg-ink/90 shadow-2xl shadow-black/50 backdrop-blur-md"
-              style={{ right: 24, top: "50%", transform: "translateY(-50%)" }}
+              ref={padCardRef}
+              {...padDragHandlers}
+              className="pointer-events-auto absolute flex max-h-[calc(100%-2rem)] flex-col overflow-y-auto rounded-2xl border border-edge bg-ink/90 shadow-2xl shadow-black/50 backdrop-blur-md"
+              style={{
+                width: PAD_WIDTH,
+                ...(padPos
+                  ? { left: padPos.x, top: padPos.y }
+                  : { right: 24, top: "50%", transform: "translateY(-50%)" }),
+              }}
             >
               {padBody}
             </div>
@@ -957,8 +1014,6 @@ export function MarkPoints({
           </div>
         ))}
 
-      {/* Review. Same shape as the scorekeeper's summary: what you did,
-          what is unfinished, and the one irreversible button. */}
       {reviewing && (
         <div className="absolute inset-0 z-20 flex items-center justify-center bg-ink/70 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-2xl border border-edge bg-surface p-6">
@@ -967,8 +1022,9 @@ export function MarkPoints({
             </p>
             {sum.unscored > 0 && (
               <p className="mt-2 text-sm text-zinc-400">
-                {sum.unscored} {sum.unscored === 1 ? "has" : "have"} no winner yet.
-                You can score {sum.unscored === 1 ? "it" : "them"} from the match.
+                {sum.unscored} {sum.unscored === 1 ? "has" : "have"} no winner
+                yet. You can score {sum.unscored === 1 ? "it" : "them"} from the
+                match.
               </p>
             )}
             {sum.open && (

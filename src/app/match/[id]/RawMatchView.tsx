@@ -1191,7 +1191,6 @@ export function RawMatchView({
 
       {marking && rawUrl && (
         <MarkPoints
-          matchId={match.id}
           rawUrl={rawUrl}
           durationS={duration}
           firstServer={match.first_server}

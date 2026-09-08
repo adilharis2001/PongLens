@@ -2,9 +2,9 @@
  * Marking a match by hand: the whole rule, with no React and no clocks of
  * its own.
  *
- * The player watches their own upload and taps twice per point — once as
- * the serve goes up, once to say who won. This module owns what a tap
- * MEANS. It holds no video, reads no time, and touches no network, so the
+ * The player watches their own upload and taps three times per rally:
+ * Begin Point as the serve goes up, End Point when it finishes, then who
+ * won it. This module owns what each tap MEANS. It holds no video, reads no time, and touches no network, so the
  * rhythm of the thing can be tested by replaying a list of taps.
  *
  * WHAT THIS MODULE DELIBERATELY DOES NOT KNOW:
@@ -43,7 +43,10 @@ export interface Mark {
   rate: number;
 }
 
-export type Outcome = "user" | "opponent" | "let" | "end";
+/** What the three answer buttons say. Closing a point is a separate tap
+ *  (End Point), so there is no "end" outcome: a point closed and never
+ *  answered is simply unscored, which the strip already draws as dashed. */
+export type Outcome = "user" | "opponent" | "let";
 
 type UndoEntry =
   | { type: "start"; id: string }
@@ -57,12 +60,24 @@ type UndoEntry =
 export interface MarkState {
   marks: Mark[];
   undo: UndoEntry[];
-  /** A closed chip the player tapped, so the outcome buttons retarget it.
-   *  Only consulted when no point is open: the live flow is never hijacked. */
+  /** A closed chip the player tapped, so the answer buttons retarget it. */
   selectedId: string | null;
+  /**
+   * The point just closed by End Point and not yet answered. This is what
+   * the answer row lights up FOR: after ending a rally the next input is
+   * who won it, and the pad says so rather than leaving the player to
+   * work it out. Cleared by an answer, by starting the next point, or by
+   * undo.
+   */
+  awaitingId: string | null;
 }
 
-export const emptyState: MarkState = { marks: [], undo: [], selectedId: null };
+export const emptyState: MarkState = {
+  marks: [],
+  undo: [],
+  selectedId: null,
+  awaitingId: null,
+};
 
 /**
  * A rally shorter than this is a mis-tap, not a point. The same floor the
@@ -110,6 +125,7 @@ export function leadFor(rate: number): number {
 export const REFUSE = {
   short: "Too short to be a point.",
   noneOpen: "No point open.",
+  noneEnded: "End the point first.",
   inside: "That's inside the last point.",
   past: "That's before the last point ended.",
 } as const;
@@ -163,6 +179,7 @@ export function startMark(
         marks: next,
         undo: [...state.undo, { type: "start-over", id, prevId: open.id, prevT1: open.t1 }],
         selectedId: null,
+        awaitingId: null,
       },
     };
   }
@@ -178,68 +195,74 @@ export function startMark(
       ],
       undo: [...state.undo, { type: "start", id }],
       selectedId: null,
+      awaitingId: null,
     },
   };
 }
 
 /**
- * You / Them / Let / End.
+ * End Point.
  *
- * An open point always wins the tap. A selected chip only retargets when
- * nothing is open, so an outcome can never be stolen from the rally the
- * player is actually watching — which is the single likeliest error in this
- * loop and the reason FullMatch.tsx's "score the most recent point" rule is
- * not copied here. That screen writes a research timeline read back
- * afterwards; this one writes the match score.
+ * Closes the rally on screen and hands the pad to the answer row, which
+ * lights up. Deliberately its own button rather than folded into the
+ * winner tiles: ending and judging are two different thoughts, and pairing
+ * End Point beside Begin Point is what makes the rhythm learnable.
  */
-export function endMark(state: MarkState, now: number, outcome: Outcome): Applied {
+export function endMark(state: MarkState, now: number): Applied {
   const open = openMark(state.marks);
+  if (!open) return { state, refused: REFUSE.noneOpen };
 
-  if (open) {
-    const t1 = round2(now);
-    if (t1 - open.t0 < MIN_POINT_S) return { state, refused: REFUSE.short };
-    const next = state.marks.slice();
-    next[next.length - 1] = {
-      ...open,
-      t1,
-      winner: outcome === "user" || outcome === "opponent" ? outcome : null,
-      isLet: outcome === "let",
-    };
-    return {
-      state: {
-        marks: next,
-        undo: [...state.undo, { type: "end", id: open.id, t1: open.t1, winner: open.winner, isLet: open.isLet }],
-        selectedId: null,
-      },
-    };
-  }
+  const t1 = round2(now);
+  if (t1 - open.t0 < MIN_POINT_S) return { state, refused: REFUSE.short };
+  const next = state.marks.slice();
+  next[next.length - 1] = { ...open, t1 };
+  return {
+    state: {
+      marks: next,
+      undo: [
+        ...state.undo,
+        { type: "end", id: open.id, t1: open.t1, winner: open.winner, isLet: open.isLet },
+      ],
+      selectedId: null,
+      awaitingId: open.id,
+    },
+  };
+}
 
-  if (state.selectedId) {
-    const i = state.marks.findIndex((m) => m.id === state.selectedId);
-    if (i >= 0) {
-      const m = state.marks[i];
-      // Tapping the outcome a point already carries clears it, the same
-      // toggle the scorekeeper's winner tiles have always had.
-      const wanted = outcome === "user" || outcome === "opponent" ? outcome : null;
-      const sameWinner = wanted !== null && m.winner === wanted && !m.isLet;
-      const sameLet = outcome === "let" && m.isLet;
-      const next = state.marks.slice();
-      next[i] = {
-        ...m,
-        winner: sameWinner ? null : wanted,
-        isLet: sameLet ? false : outcome === "let",
-      };
-      return {
-        state: {
-          marks: next,
-          undo: [...state.undo, { type: "outcome", id: m.id, winner: m.winner, isLet: m.isLet }],
-          selectedId: state.selectedId,
-        },
-      };
-    }
-  }
+/**
+ * Me / Them / Let.
+ *
+ * Answers the point just ended, or a chip the player selected. Never the
+ * rally still in progress: a point is judged after it finishes, so an
+ * answer while one is open would be about a rally nobody has seen the end
+ * of. Tapping the answer a point already carries clears it, the same
+ * toggle the scorekeeper's winner tiles have always had.
+ */
+export function setOutcome(state: MarkState, outcome: Outcome): Applied {
+  const id = state.awaitingId ?? state.selectedId;
+  if (!id) return { state, refused: REFUSE.noneEnded };
+  const i = state.marks.findIndex((m) => m.id === id);
+  if (i < 0) return { state, refused: REFUSE.noneEnded };
 
-  return { state, refused: REFUSE.noneOpen };
+  const m = state.marks[i];
+  const wanted = outcome === "let" ? null : outcome;
+  const sameWinner = wanted !== null && m.winner === wanted && !m.isLet;
+  const sameLet = outcome === "let" && m.isLet;
+  const next = state.marks.slice();
+  next[i] = {
+    ...m,
+    winner: sameWinner ? null : wanted,
+    isLet: sameLet ? false : outcome === "let",
+  };
+  return {
+    state: {
+      marks: next,
+      undo: [...state.undo, { type: "outcome", id: m.id, winner: m.winner, isLet: m.isLet }],
+      selectedId: state.selectedId,
+      // Answered, so the row stops asking.
+      awaitingId: null,
+    },
+  };
 }
 
 export function toggleStar(state: MarkState, id: string): Applied {
@@ -252,6 +275,7 @@ export function toggleStar(state: MarkState, id: string): Applied {
       marks: next,
       undo: [...state.undo, { type: "star", id, starred: state.marks[i].starred }],
       selectedId: state.selectedId,
+      awaitingId: state.awaitingId,
     },
   };
 }
@@ -291,6 +315,7 @@ export function moveEdge(
       marks: next,
       undo: [...state.undo, { type: "move", id, t0: m.t0, t1: m.t1 }],
       selectedId: state.selectedId,
+      awaitingId: state.awaitingId,
     },
   };
 }
@@ -305,6 +330,7 @@ export function removeMark(state: MarkState, id: string): Applied {
       marks: next,
       undo: [...state.undo, { type: "remove", index: i, mark: gone }],
       selectedId: state.selectedId === id ? null : state.selectedId,
+      awaitingId: state.awaitingId === id ? null : state.awaitingId,
     },
   };
 }
@@ -354,7 +380,7 @@ export function undoLast(state: MarkState): MarkState {
       marks.splice(entry.index, 0, entry.mark);
       break;
   }
-  return { marks, undo, selectedId: state.selectedId };
+  return { marks, undo, selectedId: state.selectedId, awaitingId: null };
 }
 
 export interface MarkSummary {
