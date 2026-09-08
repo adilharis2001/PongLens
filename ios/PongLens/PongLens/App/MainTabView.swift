@@ -382,10 +382,10 @@ struct PLTopBar: View {
             if !current { onSwitch() }
         } label: {
             Text(label)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: 12, weight: .semibold))
                 .lineLimit(1)
                 .foregroundStyle(current ? PL.cyan : PL.text400)
-                .padding(.horizontal, 11)
+                .padding(.horizontal, 9)
                 .padding(.vertical, 6)
                 .background(current ? PL.cyan.opacity(0.15) : Color.clear)
                 .contentShape(Rectangle())
@@ -400,8 +400,12 @@ struct PLTopBar: View {
     var body: some View {
         HStack {
             LogoWordmark()
+                .fixedSize()
             Spacer()
-            HStack(spacing: switchTo == nil ? 20 : 14) {
+            // Tighter with the switch present: two cells, the bell and
+            // the avatar have to leave a 390pt phone room for the
+            // wordmark, measured at 122pt.
+            HStack(spacing: switchTo == nil ? 20 : 10) {
                 if switchTo != nil {
                     HStack(spacing: 0) {
                         sideCell("Player", side: .player)
