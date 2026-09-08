@@ -355,39 +355,65 @@ struct MainTabView: View {
 struct PLTopBar: View {
     @Environment(AppState.self) private var app
     var unreadCount = 0
-    /// The side switch (158): the OTHER side's name, shown only for
-    /// accounts that have both. A word over an icon — "Coaching" on the
-    /// playing side, "Playing" on the coaching side — so it never reads
-    /// as "your coach". Nil hides it; everyone else keeps Account's row.
+    /// The side switch (158), shown only for accounts that have both
+    /// sides. Two cells, Player and Coach, in the order onboarding asks
+    /// the question; the side you are on is lit, the other is the tap.
+    /// It used to be one button naming the side it switched TO, and a
+    /// player with both sides could not tell which one they were on —
+    /// the word on the button was the one place they looked for that,
+    /// and it said the opposite. Two cells answer both questions at once,
+    /// and the lit cell moving is the switch happening.
+    ///
+    /// `switchTo` is kept as the gate the two roots already set: non-nil
+    /// shows the control, nil hides it. Which cell is lit comes from the
+    /// app's own workspace, not from the string. `onSwitch` is what the
+    /// dim cell does; the lit cell does nothing, so tapping to confirm
+    /// where you are cannot send you to the other side.
     var switchTo: String? = nil
     var onSwitch: () -> Void = {}
     var onBell: () -> Void = {}
     var onAvatar: () -> Void = {}
+
+    /// One cell of the side switch. Lit in the accent when it is the side
+    /// the app is on; dim otherwise, and the tap that switches.
+    private func sideCell(_ label: String, side: AppState.Workspace) -> some View {
+        let current = app.workspace == side
+        return Button {
+            if !current { onSwitch() }
+        } label: {
+            Text(label)
+                .font(.system(size: 13, weight: .semibold))
+                .lineLimit(1)
+                .foregroundStyle(current ? PL.cyan : PL.text400)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .background(current ? PL.cyan.opacity(0.15) : Color.clear)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(current
+            ? "\(label): the side you are on"
+            : "Switch to \(label.lowercased()) mode")
+        .accessibilityAddTraits(current ? .isSelected : [])
+    }
 
     var body: some View {
         HStack {
             LogoWordmark()
             Spacer()
             HStack(spacing: switchTo == nil ? 20 : 14) {
-                if let switchTo {
-                    Button(action: onSwitch) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "arrow.left.arrow.right")
-                                .font(.system(size: 11, weight: .bold))
-                            Text(switchTo)
-                                .font(.system(size: 13, weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        .fixedSize()
-                        .foregroundStyle(PL.text200)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
-                        .background(PL.surface2, in: Capsule())
-                        .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
-                        .contentShape(Capsule())
+                if switchTo != nil {
+                    HStack(spacing: 0) {
+                        sideCell("Player", side: .player)
+                        Rectangle().fill(PL.edge).frame(width: 1)
+                        sideCell("Coach", side: .coach)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Switch to \(switchTo.lowercased())")
+                    .fixedSize()
+                    .background(PL.surface2, in: Capsule())
+                    .overlay(Capsule().strokeBorder(PL.edge, lineWidth: 1))
+                    .clipShape(Capsule())
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel("Which side you are on")
                 }
                 Button(action: onBell) {
                     Image(systemName: "bell")

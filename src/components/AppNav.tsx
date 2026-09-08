@@ -319,45 +319,51 @@ export function AppNav({
     if (!confirmLeaveDuringUpload()) e.preventDefault();
   };
 
-  // The side switch (158): one tap between playing and coaching, only for
-  // accounts that have both. It names the side it switches TO. It used to
-  // say "Coaching", which is now also the name of a tab one row below it,
-  // so the bar offered two doors under one word. "Mode" is what makes it
-  // read as a switch rather than a destination; the phone drops it,
-  // because the top bar there also carries the bell and the avatar.
-  // Everyone else keeps the door in Account.
+  // The side switch (158): only for accounts that have both sides. Two
+  // cells, Player and Coach, in the order onboarding asks the question;
+  // the side you are on is lit, the other is the tap. It used to be one
+  // button naming the side it switched TO, and a player with both sides
+  // could not tell which one they were on — the word on the button was
+  // the one place they looked for that, and it said the opposite. Two
+  // cells answer both questions at once, and the lit cell moving is the
+  // switch happening. Pressing the lit cell does nothing, so tapping to
+  // confirm where you are cannot send you to the other side. Everyone
+  // else keeps the door in Account.
   const sideSwitch =
     coachEligible && userId ? (
-      <button
-        type="button"
-        onClick={() => {
-          const toCoach = workspace !== "coach";
-          setWorkspace(userId, toCoach ? "coach" : "player");
-          router.push(toCoach ? "/coaching" : "/dashboard");
-          router.refresh();
-        }}
-        aria-label={workspace === "coach" ? "Switch to player mode" : "Switch to coach mode"}
-        className="flex items-center gap-1.5 rounded-full border border-edge px-3 py-1 text-xs font-medium text-zinc-300 transition-colors hover:border-zinc-500 hover:text-white"
+      <div
+        role="group"
+        aria-label="Which side you are on"
+        className="flex overflow-hidden rounded-full border border-edge text-xs font-medium"
       >
-        <svg
-          viewBox="0 0 24 24"
-          className="h-3.5 w-3.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M7 8h10m0 0-3-3m3 3-3 3M17 16H7m0 0 3-3m-3 3 3 3" />
-        </svg>
-        <span className="hidden md:inline">
-          {workspace === "coach" ? "Player mode" : "Coach mode"}
-        </span>
-        <span className="md:hidden">
-          {workspace === "coach" ? "Player" : "Coach"}
-        </span>
-      </button>
+        {(["player", "coach"] as const).map((side) => {
+          const current = (workspace === "coach") === (side === "coach");
+          const label = side === "coach" ? "Coach" : "Player";
+          return (
+            <button
+              key={side}
+              type="button"
+              aria-pressed={current}
+              aria-label={current ? `${label}: the side you are on` : `Switch to ${label.toLowerCase()} mode`}
+              onClick={() => {
+                if (current) return;
+                setWorkspace(userId, side);
+                router.push(side === "coach" ? "/coaching" : "/dashboard");
+                router.refresh();
+              }}
+              className={`px-3 py-1 transition-colors ${
+                side === "coach" ? "border-l border-edge" : ""
+              } ${
+                current
+                  ? "bg-cyan-glow/15 text-cyan-glow"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
     ) : null;
 
   const avatarLink = (
