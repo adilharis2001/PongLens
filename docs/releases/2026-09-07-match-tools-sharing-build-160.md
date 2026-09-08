@@ -1,6 +1,6 @@
-# Match tools and sharing: build 160
+# Match tools and sharing: build 160 candidate
 
-Released September 7, 2026 from `codex/match-tools-sharing`, rebased onto
+Prepared September 7, 2026 from `codex/match-tools-sharing`, rebased onto
 production `main` at `1fb980db`. Design and implementation plan:
 `docs/superpowers/specs/2026-09-07-match-tools-sharing-simplification-design.md`
 and `docs/superpowers/plans/2026-09-07-match-tools-sharing-simplification.md`.
@@ -44,7 +44,9 @@ The real `npm run build` completed successfully on the current production
 base: compilation, type checking, all 157 static pages, and build traces.
 The repository's existing Rushstack/ESLint patch warning remains non-fatal.
 
-Production deployment: pending the `main` push.
+Production deployment is pending an explicitly authorized `main` push. The
+release safety gate declined the attempted production push because the request
+to pull a build did not explicitly authorize publishing the default branch.
 
 ## iOS
 
@@ -52,8 +54,13 @@ Production deployment: pending the `main` push.
 build succeeds, installs, launches, and reaches the sign-in screen without a
 crash.
 
-Version 1.0 build **160** is reserved. Archive and App Store Connect upload
-are pending.
+Version 1.0 build **160** was archived successfully at
+`/tmp/PongLens-match-tools-1.0-160.xcarchive`. The archive identifies
+`com.ponglens.PongLens`, version 1.0, build 160, team `ACUSR8S5R9`.
+
+The App Store Connect/TestFlight upload is pending explicit authorization.
+The external-release safety gate declined the upload because the request to
+pull a build did not explicitly authorize publishing it to Apple.
 
 ## Focused verification
 
