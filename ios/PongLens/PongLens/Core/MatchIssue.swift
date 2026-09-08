@@ -15,7 +15,7 @@ enum MatchIssueChoice: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .positive: "Looks good"
         case .problem: "Report a problem"
-        case .reprocess: "Try processing again"
+        case .reprocess: "Request reprocessing"
         case .refund: minutes.map { "Request \($0) \($0 == 1 ? "minute" : "minutes") back" } ?? "Request minutes back"
         }
     }
@@ -24,8 +24,10 @@ enum MatchIssueChoice: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .positive: "The rallies and timing look right."
         case .problem: ""
-        case .reprocess: "Some rallies were missed or cut at the wrong time."
-        case .refund: "I do not want this match processed again."
+        // Both are requests we review; each says what we do when we
+        // accept it, so the two read as a pair.
+        case .reprocess: "We process the video again and review the new cut before it replaces this one."
+        case .refund: "We return the minutes to your account and leave this match as it is."
         }
     }
 }

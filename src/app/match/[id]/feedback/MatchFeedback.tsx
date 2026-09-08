@@ -197,37 +197,42 @@ export function MatchFeedback({ matchId, initialState, isOwner, matchStatus, tit
       {view.choices.length > 0 && <form className={issue ? "mt-5 space-y-4" : "space-y-4"} onSubmit={e => { e.preventDefault(); void submit(); }}>
         {/* A coach, or an owner whose match is not ready, has one thing
             to say and no choice to make: the note is the whole form. */}
-        {view.choices[0].kind !== "problem" && <fieldset disabled={busy || dictating} className="space-y-2">
+        {view.choices[0].kind !== "problem" && <fieldset disabled={busy || dictating} className="grid gap-3 sm:grid-cols-2">
           <legend className="sr-only">Processing</legend>
           {view.choices.map(c => {
             const on = selected === c.kind;
-            // The app's choose-one row: a rounded field, lit in the accent
-            // with a check when chosen. The radio itself is for the
-            // keyboard and the screen reader; the row is the control.
-            return <label key={c.kind} className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-colors focus-within:border-cyan-glow ${
+            // The app's choose-one cells, side by side on a wide screen the
+            // way Your side's two buttons sit: a rounded field, lit in the
+            // accent when chosen, with a radio mark so both read as a choice
+            // before either is picked. The native radio is for the keyboard
+            // and the screen reader; the cell is the control.
+            return <label key={c.kind} className={`flex cursor-pointer flex-col gap-1.5 rounded-xl border px-4 py-4 transition-colors focus-within:border-cyan-glow ${
               on ? "border-cyan-glow/70 bg-cyan-glow/10" : "border-edge bg-ink/40 hover:border-zinc-600"
             }`}>
               <input type="radio" name="outcome" value={c.kind} checked={on} onChange={() => { setChoice(c.kind); setConfirmation(null); }} className="sr-only" />
-              <span className="min-w-0 flex-1">
-                <span className={`block text-sm font-semibold ${on ? "text-cyan-glow" : "text-zinc-100"}`}>{c.label}</span>
-                <span className="mt-0.5 block text-xs text-zinc-500">{c.description}</span>
+              <span className="flex items-center justify-between gap-3">
+                <span className={`text-sm font-semibold ${on ? "text-cyan-glow" : "text-zinc-100"}`}>{c.label}</span>
+                <span aria-hidden="true" className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border ${on ? "border-cyan-glow bg-cyan-glow" : "border-zinc-600"}`}>
+                  {on && <svg viewBox="0 0 24 24" className="h-3 w-3 text-ink" fill="none" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="m5 12 5 5 9-10" /></svg>}
+                </span>
               </span>
-              {on && <svg viewBox="0 0 24 24" className="h-[18px] w-[18px] shrink-0 text-cyan-glow" fill="currentColor" aria-hidden="true">
-                <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm4.7 7.7-5.4 5.4a1 1 0 0 1-1.4 0l-2.6-2.6a1 1 0 1 1 1.4-1.4l1.9 1.9 4.7-4.7a1 1 0 1 1 1.4 1.4Z" />
-              </svg>}
+              <span className="text-sm text-zinc-400">{c.description}</span>
             </label>;
           })}
         </fieldset>}
         {view.noRemedyNote && <p className="text-sm text-zinc-300">{view.noRemedyNote}</p>}
-        {selected && selected !== "positive" && <>
-          <label className="block text-sm text-zinc-300">
-            {view.fieldLabel}{!view.messageRequired && " (optional)"}
-            <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder={view.placeholder} maxLength={1000} rows={3} required={view.messageRequired} disabled={busy}
-              className="mt-2 block w-full rounded-xl border border-edge bg-ink p-3 text-sm text-zinc-100 focus:border-cyan-glow focus:outline-none" />
-          </label>
+        {/* The note is part of the form from the start, optional beside a
+            request and required for a report, so the card reads as one
+            form rather than two boxes and a button. */}
+        <label className="block text-sm text-zinc-300">
+          {view.fieldLabel}{!view.messageRequired && " (optional)"}
+          <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder={view.placeholder} maxLength={1000} rows={3} required={view.messageRequired} disabled={busy}
+            className="mt-2 block w-full rounded-xl border border-edge bg-ink p-3 text-sm text-zinc-100 focus:border-cyan-glow focus:outline-none" />
+        </label>
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <button disabled={busy || dictating || !selectedChoice || (view.messageRequired && !message.trim())} className={primary}>{busy ? "Sending…" : view.action}</button>
           <DictateButton label="Dictate your message" onBusyChange={setDictating} onError={setError} onTranscript={text => setMessage(current => `${current}${current ? " " : ""}${text}`.slice(0, 1000))} />
-        </>}
-        <button disabled={busy || dictating || !selectedChoice || (view.messageRequired && !message.trim())} className={primary}>{busy ? "Sending…" : "Send"}</button>
+        </div>
       </form>}
       {error && <p role="alert" className="mt-3 text-sm text-red-400">{error}</p>}
       {loadError && <div className="mt-3 space-y-3"><p role="alert" className="text-sm text-red-400">{loadError}</p><button type="button" onClick={() => void refresh()} disabled={busy} className={pill}>Try again</button></div>}

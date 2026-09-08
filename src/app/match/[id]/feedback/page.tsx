@@ -36,7 +36,7 @@ export default async function MatchFeedbackPage({ params }: { params: Promise<{ 
   return <>
     <AppNav avatarUrl={avatarUrl} remembered={workspace} />
     <main className="bg-arena flex-1 px-4 pb-28 pt-5 sm:px-6 md:pb-16">
-      <div className="mx-auto max-w-xl">
+      <div className="mx-auto max-w-2xl">
         <UpLink href={`/match/${id}`} label="Match" />
         <MatchFeedback matchId={id} initialState={(stateResult.data as MatchIssueState | null) ?? null} isOwner={match.user_id === user.id} matchStatus={match.status}
           title={title.primary} detail={title.secondary} thumbnail={thumbnail} hasOriginal={hasOriginalVideo(match.raw_path)} />

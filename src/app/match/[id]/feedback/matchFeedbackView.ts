@@ -45,8 +45,10 @@ export function matchFeedbackPresentation(state: MatchIssueState, hasOriginal: b
   const choices: FeedbackChoice[] = [];
   if (!issue || status === "recorded" || status === "cancelled") {
     if (cut) {
-      if (state.canReprocess) choices.push({ kind: "reprocess", label: "Try processing again", description: "Some rallies were missed or cut at the wrong time." });
-      if (state.canRefund && (state.refundableMinutes ?? 0) > 0) choices.push({ kind: "refund", label: `Request ${state.refundableMinutes} ${state.refundableMinutes === 1 ? "minute" : "minutes"} back`, description: "I do not want this match processed again." });
+      // Both are requests we review, and the description says what we do
+      // when we accept one, so the two read as a pair.
+      if (state.canReprocess) choices.push({ kind: "reprocess", label: "Request reprocessing", description: "We process the video again and review the new cut before it replaces this one." });
+      if (state.canRefund && (state.refundableMinutes ?? 0) > 0) choices.push({ kind: "refund", label: `Request ${state.refundableMinutes} ${state.refundableMinutes === 1 ? "minute" : "minutes"} back`, description: "We return the minutes to your account and leave this match as it is." });
       if (choices.length === 0 && state.canProblem) choices.push({ kind: "problem", label: "Report a problem", description: "" });
     } else if (state.canProblem) {
       choices.push({ kind: "problem", label: "Report a problem", description: "" });
@@ -65,7 +67,8 @@ export function matchFeedbackPresentation(state: MatchIssueState, hasOriginal: b
       ? `${automaticMinutes} processing ${automaticMinutes === 1 ? "minute was" : "minutes were"} returned automatically after processing failed.`
       : null,
     fieldLabel: cut ? "What went wrong?" : "What happened?",
-    placeholder: cut ? "Tell us what was missed or cut incorrectly." : "Tell us what went wrong.",
+    placeholder: cut ? "Rallies that were missed, or cut at the wrong time." : "Tell us what went wrong.",
+    action: reportOnly ? "Send report" : "Send request",
     // A report needs words (the server refuses an empty one); a remedy
     // request does not.
     messageRequired: reportOnly,

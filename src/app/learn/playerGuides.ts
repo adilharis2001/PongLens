@@ -188,7 +188,7 @@ export const playerGuides: Guide[] = [
       {
         heading: "Processing",
         steps: [
-          "Open Processing in the match's Tools. Choose Try processing again or Request minutes back when they apply to this match; otherwise describe the problem and send it.",
+          "Open Processing in the match's Tools. Choose Request reprocessing or Request minutes back when they apply to this match; otherwise describe the problem and send it.",
           "Describe any missing rallies or incorrect cuts, then send. This is a private review. Ideas and bugs go to the Feedback row directly below, which opens the public board.",
           "The minute request shows the exact amount that can be returned for this match. Sending it does not return minutes immediately; you will be notified after review.",
         ],

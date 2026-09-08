@@ -52,11 +52,13 @@ struct MatchIssuePanel: View {
                         Text("The original video is no longer stored, so this match cannot be processed again.")
                             .font(.plBody).foregroundStyle(PL.text300)
                     }
-                    if let selected = model.selectedChoice, selected != .positive {
-                        noteField(for: selected, cut: state.isOwnerCut)
-                    }
+                    // The note is part of the form from the start, optional
+                    // beside a request and required for a report, so the
+                    // sheet reads as one form rather than rows and a button.
+                    let reportOnly = state.choices == [.problem]
+                    noteField(reportOnly: reportOnly, cut: state.isOwnerCut)
                     Button { Task { await model.submit() } } label: {
-                        Text(model.busy ? "Sending…" : "Send")
+                        Text(model.busy ? "Sending…" : reportOnly ? "Send report" : "Send request")
                             .frame(maxWidth: .infinity, minHeight: 28)
                     }
                     .buttonStyle(PLPrimaryButtonStyle())
@@ -124,16 +126,16 @@ struct MatchIssuePanel: View {
                         .foregroundStyle(active ? PL.cyan : PL.text100)
                     Text(choice.detail)
                         .font(.plCaption)
-                        .foregroundStyle(PL.text500)
+                        .foregroundStyle(PL.text400)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .multilineTextAlignment(.leading)
                 Spacer(minLength: 8)
-                if active {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 18, weight: .medium))
-                        .foregroundStyle(PL.cyan)
-                }
+                // A radio mark on every row, so both read as a choice
+                // before either is picked.
+                Image(systemName: active ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(active ? PL.cyan : PL.text600)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(12)
@@ -154,14 +156,14 @@ struct MatchIssuePanel: View {
 
     /// A report needs words (the server refuses an empty one); a remedy
     /// request does not, so only the request says "optional".
-    private func noteField(for choice: MatchIssueChoice, cut: Bool) -> some View {
+    private func noteField(reportOnly: Bool, cut: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(choice == .problem
+            Text(reportOnly
                  ? (cut ? "What went wrong?" : "What happened?")
                  : "What went wrong? (optional)")
                 .font(.plBody).foregroundStyle(PL.text300)
             TextField(
-                cut ? "Tell us what was missed or cut incorrectly." : "Tell us what went wrong.",
+                cut ? "Rallies that were missed, or cut at the wrong time." : "Tell us what went wrong.",
                 text: $model.message, axis: .vertical
             )
             .lineLimit(3...8)

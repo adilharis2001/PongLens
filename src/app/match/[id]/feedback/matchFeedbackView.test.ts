@@ -31,9 +31,10 @@ test("ready owners get server-eligible choices and the exact spend amount", () =
   const view = matchFeedbackPresentation(ready);
   assert.equal(view.trailing, "Report a problem");
   assert.deepEqual(view.choices.map(c => [c.kind, c.label]), [
-    ["reprocess", "Try processing again"],
+    ["reprocess", "Request reprocessing"],
     ["refund", "Request 11 minutes back"],
   ]);
+  assert.equal(view.action, "Send request");
   assert.equal(view.fieldLabel, "What went wrong?");
   assert.equal(view.messageRequired, false);
   assert.equal(matchFeedbackPresentation(ready, false).noRemedyNote, null);
@@ -71,6 +72,7 @@ test("a processed match with no remedy left takes a plain report, and says why w
   const gone = matchFeedbackPresentation(none, false);
   assert.deepEqual(gone.choices.map(c => c.kind), ["problem"]);
   assert.equal(gone.messageRequired, true);
+  assert.equal(gone.action, "Send report");
   assert.equal(gone.fieldLabel, "What went wrong?");
   assert.equal(gone.noRemedyNote, "The original video is no longer stored, so this match cannot be processed again.");
   assert.equal(matchFeedbackPresentation(none, true).noRemedyNote, null);
