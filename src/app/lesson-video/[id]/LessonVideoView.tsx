@@ -92,6 +92,7 @@ export function LessonVideoView({
   const active = useRef(true);
   const editingRevision = useRef(0);
   const linkBorn = useRef(0);
+  const savedOnOpen = useRef(false);
 
   async function load(force = false) {
     const r = await fetch('/api/lesson-video?id=' + id);
@@ -113,6 +114,17 @@ export function LessonVideoView({
       linkBorn.current = Date.now();
       return d;
     });
+    // A player's finished recap saves itself to their journal the first
+    // time they open it, unshared. Adil, 2026-09-07: "the prepared recap
+    // should just save to my profile, and that's it." There is no review
+    // step for a lesson somebody had, only for one a coach made for a
+    // student, and a Save recap button that had to be pressed before the
+    // share switch meant anything was the button that read as
+    // reprocessing. The ref keeps the ten-second poll from asking twice.
+    if (d.isOwner && !d.video.student_id && d.video.status === 'review' && !savedOnOpen.current) {
+      savedOnOpen.current = true;
+      await action('share', { share: false });
+    }
   }
   useEffect(() => {
     active.current = true;
@@ -148,10 +160,10 @@ export function LessonVideoView({
 
   // Older responses do not say; until they do, ready-with-a-recipient
   // means shared.
-  const shared = detail?.shared ?? (v?.status === 'ready' && (!!v?.student_id || !!v?.coach_ref_id));
+  const shared = detail?.shared ?? false;
   const owner = !!detail?.isOwner;
   const watchable = !!detail?.playbackUrl && !!edit;
-  const canShare = !!v && lessonCanShare(v, owner, shared);
+  const canShare = !!v && forStudent && lessonCanShare(v, owner, shared);
   const canRetry = owner && v?.status === 'failed';
   const canEdit = owner && !!edit && !!v && ['review', 'ready', 'failed'].includes(v.status);
   const canDelete = owner && !!v && !['queued', 'processing', 'uploading'].includes(v.status);
@@ -433,12 +445,26 @@ export function LessonVideoView({
                 ))}
               </select>
             </label>
-            {/* Said once, at the moment somebody is choosing. Moving a
-                lesson to a different coach cannot carry the first one's
-                access across with it. */}
+            {/* The share switch IS the share control, shown once the recap
+                is saved, which is when there is something to share. It used
+                to sit as three buttons in the card below — Share, Keep it to
+                myself, Stop sharing — two of which did nothing on a recap
+                that was already saved. Same markup as the journal's. */}
+            {v.coach_ref_id && v.status === 'ready' && (
+              <label className="mt-4 flex cursor-pointer items-start gap-2 text-sm text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={shared}
+                  disabled={busy}
+                  onChange={(e) => void action(e.target.checked ? 'share' : 'unshare', e.target.checked ? { share: true } : {})}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--color-cyan-glow,#22d3ee)]"
+                />
+                <span>Share this recap with {otherName}</span>
+              </label>
+            )}
             {v.coach_ref_id && (
               <p className="mt-3 text-sm leading-relaxed text-zinc-400">
-                Changing this stops sharing, so you choose again who sees it.
+                Changing who taught it stops sharing, so you choose again who sees it.
               </p>
             )}
           </div>
@@ -448,37 +474,9 @@ export function LessonVideoView({
             <button
               className={primary + ' w-full'}
               disabled={busy}
-              onClick={() => void action('share', withCoach ? { share: true } : {})}
+              onClick={() => void action('share')}
             >
-              {busy
-                ? 'Saving…'
-                : forStudent
-                  ? 'Share with student'
-                  : withCoach
-                    ? `Share with ${otherName}`
-                    : 'Save recap'}
-            </button>
-          )}
-          {/* Sharing is asked every time and never assumed: a player who
-              wants the recap in their own journal and nowhere else says
-              so here, rather than finding out later that pressing the one
-              button sent it. */}
-          {canShare && withCoach && (
-            <button
-              className={button + ' mt-3 w-full'}
-              disabled={busy}
-              onClick={() => void action('share', { share: false })}
-            >
-              Keep it to myself
-            </button>
-          )}
-          {owner && withCoach && shared && v.status === 'ready' && (
-            <button
-              className={button + ' mt-3 w-full'}
-              disabled={busy}
-              onClick={() => void action('unshare')}
-            >
-              Stop sharing
+              {busy ? 'Saving…' : 'Share with student'}
             </button>
           )}
           {canRetry && (
@@ -491,12 +489,12 @@ export function LessonVideoView({
               Shared with {otherName}. It is in their journal, and any edit you make here goes to them once you share it again.
             </p>
           )}
-          {owner && shared && withCoach && (
-            <p className="text-sm leading-relaxed text-zinc-400">
-              {otherName} can read this recap. Stop sharing takes it back.
+          {!owner && <p className="text-sm leading-relaxed text-zinc-400">Shared with you.</p>}
+          {error && (
+            <p role="alert" className="mt-3 text-sm text-amber-300">
+              {error}
             </p>
           )}
-          {!owner && <p className="text-sm leading-relaxed text-zinc-400">Shared with you.</p>}
           {edit && (
             <button className={button + ' w-full' + (anyPrimary || shared || !owner ? ' mt-3' : '')} onClick={() => setReading(true)}>
               Read lesson notes

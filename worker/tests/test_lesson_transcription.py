@@ -3,7 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 from worker.lesson_video import (
- ASR_VERSION, Runtime, chunk_ranges, degenerate, merge_segments, reusable_sections, section_has_teaching,
+ ASR_VERSION, Runtime, chunk_ranges, core_segments, degenerate, merge_segments, reusable_sections, section_has_teaching,
+ window_ranges, WINDOW_CORE_SECONDS,
  thin_stretches, thin_transcript, transcript_chunk_reusable, transcript_density,
  transcript_words, window_candidates, words_between,
 )
@@ -49,6 +50,11 @@ class TranscriptDensityTests(unittest.TestCase):
   self.assertEqual(transcript_words([{'transcript':'two words'},{'text':None}]),2)
 
 class TranscriptReuseTests(unittest.TestCase):
+ def test_a_section_from_the_scheme_that_collapsed_is_never_reused(self):
+  # Version 5 handed whisper whole twenty-minute files. Its sections look
+  # heard enough to pass the floor and are systematically short.
+  self.assertFalse(transcript_chunk_reusable(chunk(0,1200,['word ']*600,asr_version=5)))
+
  def test_a_thin_section_is_reheard_until_the_current_ladder_has_tried(self):
   # This is the bug that pinned a lesson to eight words for good: the
   # old gate marked its own near-silent answer reusable immediately, so
@@ -73,55 +79,60 @@ class TranscriptReuseTests(unittest.TestCase):
   talk=[{'start_s':600,'end_s':720,'text':'word '*200}]
   self.assertTrue(section_has_teaching({'start_s':0,'end_s':1200,'utterances':talk}))
 
-class TranscriptionTests(unittest.TestCase):
- """One listener, greedy, and no second opinion.
+class WindowedTranscriptionTests(unittest.TestCase):
+ """Whisper sees the lesson a minute at a time, four minutes at once.
 
- A second opinion was the obvious way to tell a drill from a stretch
- nobody was heard in, and there is no honest one to be had: the only
- model that hears these rooms reliably cannot say nothing. Given a real
- drill it wrote "Alright, more spin on the serve. Hit the ball. That's
- it," and given digital silence "OK, let's keep your elbow up and follow
- through" — plausible coaching, different every run, none of it said.
-
- So the two are not told apart. Everything downstream is instead built so
- that not knowing costs coverage and never correctness.
+ On a twenty-minute file it is a coin flip that turns on encoder noise:
+ the pinned ffmpeg wrote a section one byte different from a development
+ build's, and on that file whisper transcribed 46 seconds and went silent
+ for nineteen minutes. A collapse in a one-minute window costs a minute.
  """
  def rt(self,**attrs):
   rt=Runtime.__new__(Runtime);rt.openai='test';rt.http=Mock();rt.meter_events=Mock()
   for name,value in attrs.items():setattr(rt,name,value)
   return rt
 
- def test_a_section_is_heard_once_and_taken_as_it_comes(self):
-  heard=[{'start_s':0,'end_s':1200,'text':'word '*1200}]
-  rt=self.rt(transcribe_whisper=Mock(return_value=heard))
-  self.assertEqual(rt.transcribe('a.mp3',0,1200),heard)
-  self.assertEqual(rt.transcribe_whisper.call_count,1)
+ def test_cores_tile_the_section_and_windows_reach_into_their_neighbours(self):
+  bounds=window_ranges(1200,1330,core=60,pad=5)
+  self.assertEqual(bounds,[(1200.0,1265.0,1200.0,1260.0),(1255.0,1325.0,1260.0,1320.0),(1315.0,1330.0,1320.0,1330.0)])
+  # No second of the section belongs to two cores, and none to none.
+  self.assertEqual([c for _,_,c,_ in bounds],[1200.0,1260.0,1320.0])
+  self.assertEqual([e for _,_,_,e in bounds],[1260.0,1320.0,1330.0])
 
- @patch('worker.lesson_video.time.sleep')
- def test_a_failed_pass_is_retried_and_then_asks_for_a_retry(self,_sleep):
-  # An empty section saved here would be read afterwards as silence in
-  # the room, and never transcribed again.
+ def test_a_segment_belongs_to_the_window_whose_core_it_begins_in(self):
+  # The pads are context for whisper, never text twice: a segment that
+  # starts in the leading pad is the previous window's to keep.
+  segments=[{'start':2,'end':4,'text':'pad before'},{'start':6,'end':8,'text':'in core'},{'start':66,'end':68,'text':'pad after'}]
+  kept=core_segments(segments,window_start=1255,core_start=1260,core_end=1320)
+  self.assertEqual([x['text'] for x in kept],['in core'])
+
+ def test_windows_are_heard_and_stitched_in_order(self):
+  def hear(section,file_start,bounds,directory):
+   ws,we,cs,ce=bounds
+   return [{'start_s':cs,'end_s':cs+5,'speaker':None,'text':f'core {int(cs)}'}]
+  rt=self.rt(transcribe_window=hear)
+  # The section is decoded to WAV first; that call is not the subject.
+  # The span is three windows at whatever the window is set to, so the
+  # test does not quietly pin the setting.
+  with patch('worker.lesson_video.run'):
+   out=rt.transcribe('a.mp3',1200,3*WINDOW_CORE_SECONDS,'/tmp')
+  self.assertEqual([u['text'] for u in out],[f'core {1200+i*WINDOW_CORE_SECONDS}' for i in range(3)])
+
+ def test_a_window_that_fails_three_times_asks_for_a_retry(self):
   rt=self.rt(transcribe_whisper=Mock(side_effect=RuntimeError('network')))
-  with self.assertRaises(RuntimeError):rt.transcribe('a.mp3',0,1200)
+  with tempfile.TemporaryDirectory() as d, patch('worker.lesson_video.run'), patch('worker.lesson_video.time.sleep'):
+   with self.assertRaises(RuntimeError):rt.transcribe_window(Path(d)/'s.mp3',0,(0,65,0,60),d)
   self.assertEqual(rt.transcribe_whisper.call_count,3)
-
- @patch('worker.lesson_video.time.sleep')
- def test_a_pass_that_succeeds_on_the_second_try_is_kept(self,_sleep):
-  heard=[{'start_s':0,'end_s':1200,'text':'word '*1200}]
-  rt=self.rt(transcribe_whisper=Mock(side_effect=[RuntimeError('network'),heard]))
-  self.assertEqual(rt.transcribe('a.mp3',0,1200),heard)
 
  def test_whisper_is_greedy_and_metered_by_measured_seconds(self):
   response=Mock();response.headers={'x-request-id':'test'}
-  response.json.return_value={'duration':1200,'segments':[{'start':1,'end':3,'text':'Bend your knees.'}]}
+  response.json.return_value={'duration':65,'segments':[{'start':1,'end':3,'text':'Bend your knees.'}]}
   rt=self.rt();rt.http.post.return_value=response
-  with tempfile.NamedTemporaryFile() as f:result=rt.transcribe_whisper(f.name,600)
-  self.assertEqual(result,[{'start_s':601,'end_s':603,'speaker':None,'text':'Bend your knees.'}])
+  with tempfile.NamedTemporaryFile() as f:segments,duration=rt.transcribe_whisper(f.name,600)
+  self.assertEqual(segments,[{'start':1,'end':3,'text':'Bend your knees.'}]);self.assertEqual(duration,65)
   sent=rt.http.post.call_args.kwargs['data']
-  self.assertEqual(sent['model'],'whisper-1')
-  self.assertEqual(sent['temperature'],0)
-  self.assertEqual(rt.meter_events.call_args.args[0][0]['quantity'],1200)
-  self.assertEqual(rt.meter_events.call_args.args[0][0]['sku'],'whisper-1')
+  self.assertEqual(sent['model'],'whisper-1');self.assertEqual(sent['temperature'],0)
+  self.assertEqual(rt.meter_events.call_args.args[0][0]['quantity'],65)
 
 class DegenerateTextTests(unittest.TestCase):
  """A transcriber talking to itself must never reach a chapter.
@@ -172,6 +183,12 @@ class MergeSegmentsTests(unittest.TestCase):
   out=merge_segments(segments,0,600)
   self.assertTrue(all(u['end_s']-u['start_s']<=45 for u in out))
   self.assertEqual(transcript_words(out),120)
+
+ def test_a_zero_length_piece_is_dropped_not_fatal(self):
+  # Seen on the first windowed run over a real lesson: one segment with
+  # end equal to start. Refusing the window over it failed the section.
+  out=merge_segments([{'start':10,'end':10,'text':'Uh'},{'start':12,'end':14,'text':'Stay low.'}],0,65)
+  self.assertEqual([u['text'] for u in out],['Stay low.'])
 
  def test_a_hallucinated_tail_past_the_end_is_dropped_not_fatal(self):
   # Found on the first live run against a real lesson: whisper returned
