@@ -38,7 +38,13 @@ export async function POST(req: Request) {
     page = String(body.page ?? "");
     matchId = String(body.matchId ?? "");
     rowS = Math.round(Number(body.rowS) * 10) / 10;
-    verdict = body.verdict == null ? null : String(body.verdict);
+    // A clear is an EXPLICIT null. A missing field is a client bug, and a
+    // client bug must not delete a call (a shared button handler did exactly
+    // that to the serve calls on 2026-09-08).
+    if (!("verdict" in body)) {
+      return NextResponse.json({ error: "Missing verdict (null clears)" }, { status: 400 });
+    }
+    verdict = body.verdict === null ? null : String(body.verdict);
     note = body.note == null ? null : String(body.note).slice(0, 2000);
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });

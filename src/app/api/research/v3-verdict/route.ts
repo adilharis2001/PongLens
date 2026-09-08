@@ -30,7 +30,14 @@ export async function POST(req: Request) {
     const body = await req.json();
     matchId = String(body.matchId ?? "");
     serveS = Math.round(Number(body.serveS) * 10) / 10;
-    verdict = body.verdict == null ? null : String(body.verdict);
+    // A clear is an EXPLICIT null. A missing field is a client bug, and a
+    // client bug must not delete a call: on 2026-09-08 the row-call buttons
+    // were caught by this route's button handler and every click here
+    // arrived without a verdict, deleting the serve call for that row.
+    if (!("verdict" in body)) {
+      return NextResponse.json({ error: "Missing verdict (null clears)" }, { status: 400 });
+    }
+    verdict = body.verdict === null ? null : String(body.verdict);
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }

@@ -779,15 +779,19 @@ export function V3ServeDetector({
             });
           }
         }
+        // Only the serve buttons (data-v). The row-call buttons below share
+        // the .vd strip and used to be caught here too: a click on one set
+        // all three lit and deleted the serve call for the row (2026-09-08).
         if (key != null) {
-          for (const b of Array.from(tr.querySelectorAll(".vd button"))) {
+          for (const b of Array.from(tr.querySelectorAll(".vd button[data-v]"))) {
             b.addEventListener("click", (ev) => {
               ev.stopPropagation();
-              const v = (b as HTMLElement).dataset.v!;
+              const v = (b as HTMLElement).dataset.v;
+              if (!v) return;
               const now = CALLS.get(`${META.matchId}|${key.toFixed(1)}`);
               const next = now === v ? null : v;
               saveVerdict(key, next);
-              for (const o of Array.from(tr.querySelectorAll(".vd button")))
+              for (const o of Array.from(tr.querySelectorAll(".vd button[data-v]")))
                 o.setAttribute(
                   "aria-pressed",
                   String(next !== null && (o as HTMLElement).dataset.v === next),
