@@ -30,7 +30,6 @@ export default async function TestingPage() {
   const yours = isAdmin
     ? n("open") + n("triaged") + n("verified")
     : n("fixed");
-  const smoke = testCases.filter((c) => c.depth === "smoke").length;
   const fresh = testCases.filter((c) => isNewCase(c)).length;
 
   const cards = [
@@ -38,8 +37,8 @@ export default async function TestingPage() {
       href: "/testing/library",
       title: "Test library",
       detail: fresh
-        ? `${testCases.length} cases, ${fresh} new to run first`
-        : `${testCases.length} cases, ${smoke} to run every release`,
+        ? `${testCases.length} cases, ${fresh} new to test first`
+        : `${testCases.length} cases, each saying when it was last tested`,
       attention: fresh > 0,
     },
     {
