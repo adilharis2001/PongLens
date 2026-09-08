@@ -1,0 +1,25 @@
+{
+ "match": "5fd822ec",
+ "matchId": "5fd822ec-bd27-4bf1-9553-eb6d6aef5947",
+ "title": "Hugo Ginoux, 11 min",
+ "venue": "PingPod W37",
+ "crop": [
+  676.0,
+  204.0,
+  810.0,
+  456.0
+ ],
+ "rawOffsetS": 1.467,
+ "offsetErr": 1.432,
+ "cards": 42,
+ "points": 46,
+ "ok": 41,
+ "srvAgree": 20,
+ "srvDisagree": 19,
+ "missed": 2,
+ "fused": 3,
+ "extra": 0,
+ "onDeleted": 0,
+ "nowhere": 1,
+ "short": 4
+}
