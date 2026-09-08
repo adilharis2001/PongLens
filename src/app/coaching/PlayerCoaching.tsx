@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { Thumb, useThumbs } from "@/app/dashboard/shared";
 import { useRouter } from "next/navigation";
 import { RecapPosterThumb } from "@/app/journal/RecapPosterThumb";
 import { useSearchParams } from "next/navigation";
@@ -104,6 +105,11 @@ export function PlayerCoaching({
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [recaps, setRecaps] = useState<RecapRow[]>([]);
   const [matchNames, setMatchNames] = useState<Map<string, string>>(new Map());
+  // Which shared matches have a thumbnail, so the feed can show the match
+  // rather than a sentence about it, the way the phone does. Signed in one
+  // batch by the same hook the match library uses.
+  const [matchThumbPaths, setMatchThumbPaths] = useState<Map<string, string>>(new Map());
+  const matchThumbs = useThumbs([...matchThumbPaths.keys()]);
   const [vocab, setVocab] = useState<Tag[]>([]);
   const [entryTags, setEntryTags] = useState<EntryTag[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -203,15 +209,18 @@ export function PlayerCoaching({
         const { data: ms } = await supabase
           .from("matches")
           .select(
-            "id, user_id, opponent_name, venue, played_at, user_side, player_near_name, player_far_name"
+            "id, user_id, opponent_name, venue, played_at, user_side, player_near_name, player_far_name, thumb_path"
           )
           .in("id", [...new Set(scoped)]);
         if (!alive) return;
         const names = new Map<string, string>();
-        for (const m of (ms ?? []) as MatchTitleRow[]) {
+        const paths = new Map<string, string>();
+        for (const m of (ms ?? []) as (MatchTitleRow & { thumb_path: string | null })[]) {
           names.set(m.id, matchTitle(m));
+          if (m.thumb_path) paths.set(m.id, m.thumb_path);
         }
         setMatchNames(names);
+        setMatchThumbPaths(paths);
       }
     })();
     return () => {
@@ -461,6 +470,7 @@ export function PlayerCoaching({
           <ul className="mt-6 space-y-3">
             {shown.slice(0, cap).map((item) => (
               <FeedRow
+            matchThumbs={matchThumbs}
                 key={rowKey(item)}
                 item={item}
                 openEntryId={openEntryId}
@@ -578,6 +588,7 @@ function FeedRow({
   onLessonUpdated,
   onLessonDeleted,
   onEdit,
+  matchThumbs,
 }: {
   item: Item;
   /** The coach_entries row the bell was tapped on, if any. */
@@ -590,6 +601,8 @@ function FeedRow({
   onLessonUpdated: (lesson: Lesson) => void;
   onLessonDeleted: (id: string) => void;
   onEdit: (lesson: Lesson) => void;
+  /** Signed thumbnail urls for the shared matches, by match id. */
+  matchThumbs: Record<string, string>;
 }) {
   const router = useRouter();
   if (item.kind === "shared") {
@@ -693,15 +706,21 @@ function FeedRow({
   }
 
   if (item.kind === "match") {
+    // A shared match shows the match, not a sentence about it. The
+    // thumbnail is the one the library already signs, at the size the
+    // recap cards use, so the feed reads as one thing.
     return (
       <li className="rounded-2xl border border-edge bg-surface p-4">
-        <Link href={`/match/${item.matchId}`} className="group block">
-          <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-            Shared with {item.coachName}
-          </p>
-          <p className="mt-1 truncate text-sm font-medium text-zinc-100 transition-colors group-hover:text-white">
-            {item.title}
-          </p>
+        <Link href={`/match/${item.matchId}`} className="group flex items-center gap-4">
+          <Thumb url={matchThumbs[item.matchId]} className="h-16 w-[104px] shrink-0 rounded-xl" />
+          <span className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Shared with {item.coachName}
+            </p>
+            <p className="mt-1 truncate text-sm font-medium text-zinc-100 transition-colors group-hover:text-white">
+              {item.title}
+            </p>
+          </span>
         </Link>
       </li>
     );
