@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { RecapPosterThumb } from "./RecapPosterThumb";
 import { EntryImage } from "@/components/entryPhoto";
 import { LinkedText } from "@/components/LinkedText";
 import { entryThemes, recapIdOf } from "@/lib/lessonVideo/entries";
@@ -84,12 +85,17 @@ export function SharedEntryCard({
         onClick={() => setExpanded((v) => !v)}
       >
         <span className="flex min-w-0 items-start gap-3">
-          {entry.image_path && (
+          {/* A recap looks like a recap before it is opened, the way a
+              shared match shows its picture. Same thumbnail the feed's
+              own recap cards use; the phone draws the same one. */}
+          {recapId ? (
+            <RecapPosterThumb id={recapId} />
+          ) : entry.image_path ? (
             <EntryImage
               lessonId={entry.lesson_id}
               className="h-11 w-11 shrink-0 rounded-lg border border-edge object-cover"
             />
-          )}
+          ) : null}
           <span className="min-w-0">
             <span className="block text-xs font-semibold uppercase tracking-wider text-cyan-glow">
               {entry.coach_name}
