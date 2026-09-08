@@ -929,11 +929,11 @@ export function RawMatchView({
           {error && <p className="mt-3 text-sm text-amber-300/90">{error}</p>}
           </div>
           )}
-          {/* Phone and mobile web only for now (lg:hidden), and only on an
-              unprocessed match, which is the only place this card renders.
-              Marking a match is a thumb job; the desktop pad exists and
-              works, but it is not what is being put in front of players
-              yet. */}
+          {/* Desktop web and mobile web, on an unprocessed match, which is
+              the only place this card renders. Not the iOS app, by
+              decision (2026-09-08): the marker is a web surface for now.
+              On a phone the pad sits under the video; on a desktop it is
+              the floating card the scorekeeper uses. */}
           {handCutEnabled && handCutReady && (
           <button
             type="button"
@@ -942,7 +942,7 @@ export function RawMatchView({
               setMarking(true);
             }}
             disabled={!rawUrl || undecodable}
-            className="flex w-full items-center gap-3 border-t border-edge/60 p-5 text-left transition-colors hover:bg-ink/20 disabled:opacity-40 lg:hidden"
+            className="flex w-full items-center gap-3 border-t border-edge/60 p-5 text-left transition-colors hover:bg-ink/20 disabled:opacity-40"
           >
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold text-zinc-100">
