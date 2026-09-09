@@ -112,7 +112,7 @@ export default async function TermsPage() {
         <ul>
           <li>
             We don&apos;t guarantee uptime, processing speed, or that results
-            will be perfect. Typical processing takes under 30 minutes, but it
+            will be perfect. Typical processing takes about 90 minutes, but it
             can take longer.
           </li>
           <li>

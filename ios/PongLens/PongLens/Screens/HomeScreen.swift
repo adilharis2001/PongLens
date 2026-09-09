@@ -262,7 +262,7 @@ struct HomeScreen: View {
                 Text(processingCount == 1 ? "Your match is processing" : "\(processingCount) matches are processing")
                     .font(.plCardTitle)
                     .foregroundStyle(PL.text100)
-                Text("Most videos finish in under 30 minutes. We'll email you when it's ready.")
+                Text("Most videos finish in about 90 minutes. We'll email you when it's ready.")
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
                 if let ready = latestReady {

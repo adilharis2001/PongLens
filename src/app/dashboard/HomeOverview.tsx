@@ -454,7 +454,7 @@ export function HomeOverview({
             </p>
           </div>
           <p className="mt-2 text-xs text-zinc-500">
-            Most videos finish in under 30 minutes. We&apos;ll email you when
+            Most videos finish in about 90 minutes. We&apos;ll email you when
             it&apos;s ready.
           </p>
           {latestReady && (
