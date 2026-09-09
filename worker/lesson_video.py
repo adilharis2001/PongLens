@@ -846,24 +846,65 @@ def write_lesson_poster(playback,directory):
  run(['ffmpeg','-v','error','-y','-ss','0.1','-i',str(playback),'-frames:v','1','-vf',"scale='min(1920,iw)':-2",'-q:v','2',str(poster)],90)
  return poster
 
-def render(source,edit,directory,on_progress=lambda x:None):
+def render(source,edit,directory,on_progress=lambda x:None,panels=True):
+ """Cut the recap.
+
+ `panels` decides whether the copy with the words burnt into the picture is
+ made beside the clean one. Normal processing does not want it. The apps
+ play the clean file and draw the chapters themselves, so the burnt-in copy
+ is only ever used for a download, and making it every time doubled the
+ encode of every recap and every rebuild for a file most are never asked
+ for. Measured on the Mac Studio, a minute of recap costs 14.9s burnt-in
+ and 15.5s clean: the two passes are the same price. `render_share_file`
+ builds it on request. Modal's parity check still asks for both.
+ """
  files=[];clean_files=[]
  color=lesson_color_filter(probe(source))
  for i,c in enumerate(edit['chapters']):
   on_progress(f"Rendering chapter {i+1} of {len(edit['chapters'])}")
-  panel=Path(directory)/f'panel-{i}.png';clip=Path(directory)/f'clip-{i}.mp4';draw_panel(c,i,len(edit['chapters']),panel)
-  run(['ffmpeg','-v','error','-y','-ss',str(c['start_s']),'-t',str(c['end_s']-c['start_s']),'-i',str(source),'-loop','1','-i',str(panel),'-filter_complex','[0:v]'+color+'scale=1280:800:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=0x0c0f16,fps=30[v];[1:v]'+PANEL_SDR+'[panel];[panel][v]overlay=48:135:shortest=1,format=yuv420p[out]','-map','[out]','-map','0:a:0','-c:v','libx264','-preset','fast','-crf','18','-threads','4','-c:a','aac','-b:a','160k','-af','aresample=async=1:first_pts=0','-t',str(c['end_s']-c['start_s']),'-movflags','+faststart',*SDR_OUTPUT,str(clip)],1200)
-  files.append(clip)
+  if panels:
+   panel=Path(directory)/f'panel-{i}.png';clip=Path(directory)/f'clip-{i}.mp4';draw_panel(c,i,len(edit['chapters']),panel)
+   run(['ffmpeg','-v','error','-y','-ss',str(c['start_s']),'-t',str(c['end_s']-c['start_s']),'-i',str(source),'-loop','1','-i',str(panel),'-filter_complex','[0:v]'+color+'scale=1280:800:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=0x0c0f16,fps=30[v];[1:v]'+PANEL_SDR+'[panel];[panel][v]overlay=48:135:shortest=1,format=yuv420p[out]','-map','[out]','-map','0:a:0','-c:v','libx264','-preset','fast','-crf','18','-threads','4','-c:a','aac','-b:a','160k','-af','aresample=async=1:first_pts=0','-t',str(c['end_s']-c['start_s']),'-movflags','+faststart',*SDR_OUTPUT,str(clip)],1200)
+   files.append(clip)
   clean=Path(directory)/f'clean-{i}.mp4'
   run(['ffmpeg','-v','error','-y','-ss',str(c['start_s']),'-t',str(c['end_s']-c['start_s']),'-i',str(source),'-vf',color+'scale=1920:1080:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,fps=30','-map','0:v:0','-map','0:a:0','-c:v','libx264','-preset','fast','-crf','18','-threads','4','-c:a','aac','-b:a','160k','-af','aresample=async=1:first_pts=0','-movflags','+faststart',*SDR_OUTPUT,str(clean)],1200)
   clean_files.append(clean)
- listing=Path(directory)/'clips.txt';listing.write_text(''.join("file '"+str(p).replace("'","'\\''")+"'\n" for p in files))
  output=Path(directory)/'recap.mp4'
- run(['ffmpeg','-v','error','-y','-f','concat','-safe','0','-i',str(listing),'-c','copy','-movflags','+faststart',str(output)],180)
+ if panels:
+  listing=Path(directory)/'clips.txt';listing.write_text(''.join("file '"+str(p).replace("'","'\\''")+"'\n" for p in files))
+  run(['ffmpeg','-v','error','-y','-f','concat','-safe','0','-i',str(listing),'-c','copy','-movflags','+faststart',str(output)],180)
  clean_listing=Path(directory)/'clean-clips.txt';clean_listing.write_text(''.join("file '"+str(p).replace("'","'\\''")+"'\n" for p in clean_files))
  run(['ffmpeg','-v','error','-y','-f','concat','-safe','0','-i',str(clean_listing),'-c','copy','-movflags','+faststart',str(Path(directory)/'playback.mp4')],180)
- measured=float(probe(output)['format']['duration']);expected=sum(c['end_s']-c['start_s'] for c in edit['chapters'])
+ result=output if panels else Path(directory)/'playback.mp4'
+ measured=float(probe(result)['format']['duration']);expected=sum(c['end_s']-c['start_s'] for c in edit['chapters'])
  if abs(measured-expected)>2:raise RuntimeError('The rendered recap timing did not match its chapters.')
+ return result
+
+def render_share_file(playback,edit,directory,on_progress=lambda x:None):
+ """Burn the recap's words into a copy of the clean video.
+
+ Cut from the finished clean recap rather than from the original. The
+ original averages 3.7 GB and the clean recap 150 MB, and for ordinary 16:9
+ footage both routes land on 1280x720 inside a 1280x800 frame, so this is
+ the same picture for a fraction of the download. The clean file is already
+ SDR, so nothing is tone mapped a second time. A chapter's place in that
+ file is summary_start_s, which normalize_edit derived when the recap was
+ cut, and which is the same clock the apps seek by.
+ """
+ files=[]
+ for i,c in enumerate(edit['chapters']):
+  on_progress(f"Adding text to chapter {i+1} of {len(edit['chapters'])}")
+  panel=Path(directory)/f'share-panel-{i}.png';clip=Path(directory)/f'share-clip-{i}.mp4'
+  draw_panel(c,i,len(edit['chapters']),panel)
+  start=float(c['summary_start_s']);end=float(c['summary_end_s'])
+  if not all(math.isfinite(x) for x in (start,end)) or end<=start:raise ValueError('The recap chapters do not line up with its video. Rebuild the recap and try again.')
+  run(['ffmpeg','-v','error','-y','-ss',str(start),'-t',str(end-start),'-i',str(playback),'-loop','1','-i',str(panel),'-filter_complex','[0:v]scale=1280:800:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,pad=1280:800:(ow-iw)/2:(oh-ih)/2:color=0x0c0f16,fps=30[v];[1:v]'+PANEL_SDR+'[panel];[panel][v]overlay=48:135:shortest=1,format=yuv420p[out]','-map','[out]','-map','0:a:0','-c:v','libx264','-preset','fast','-crf','18','-threads','4','-c:a','aac','-b:a','160k','-af','aresample=async=1:first_pts=0','-t',str(end-start),'-movflags','+faststart',*SDR_OUTPUT,str(clip)],1200)
+  files.append(clip)
+ listing=Path(directory)/'share-clips.txt';listing.write_text(''.join("file '"+str(p).replace("'","'\\''")+"'\n" for p in files))
+ output=Path(directory)/'shared.mp4'
+ run(['ffmpeg','-v','error','-y','-f','concat','-safe','0','-i',str(listing),'-c','copy','-movflags','+faststart',str(output)],180)
+ measured=float(probe(output)['format']['duration']);expected=sum(float(c['summary_end_s'])-float(c['summary_start_s']) for c in edit['chapters'])
+ if abs(measured-expected)>2:raise RuntimeError('The prepared video timing did not match its chapters.')
  return output
 
 def process(rt,row):
@@ -902,19 +943,20 @@ def process(rt,row):
      rt.update(row,transcript=transcript)
     edit=create_edit(rt,row,source,directory,transcript,duration);rt.update(row,edit=edit)
    else:edit=normalize_edit(row['edit'],duration)
-   output=render(source,edit,directory,lambda text:rt.stage(row,text))
+   # No burnt-in copy here. It is one request away and most recaps are
+   # never asked for one; summary_key stays as it is on rows that already
+   # have a file, and lesson_share_renders is the truth from now on.
+   playback=render(source,edit,directory,lambda text:rt.stage(row,text),panels=False)
    if lease_lost.is_set():raise RuntimeError('Lesson lease heartbeat was lost.')
    rt.stage(row,'Saving the recap')
-   key=f"lesson-video/{row['owner_id']}/{row['id']}/recap-v{row['revision']}-{row['lease_token']}.mp4"
-   playback_key=key.replace('/recap-','/playback-')
+   playback_key=f"lesson-video/{row['owner_id']}/{row['id']}/playback-v{row['revision']}-{row['lease_token']}.mp4"
    poster_key=playback_key.replace('.mp4','.jpg')
-   poster=write_lesson_poster(Path(directory)/'playback.mp4',directory)
-   attempt_keys=[key,playback_key,poster_key]
-   rt.s3.upload_file(str(output),BUCKET,key,ExtraArgs={'ContentType':'video/mp4'})
-   rt.s3.upload_file(str(Path(directory)/'playback.mp4'),BUCKET,playback_key,ExtraArgs={'ContentType':'video/mp4'})
+   poster=write_lesson_poster(playback,directory)
+   attempt_keys=[playback_key,poster_key]
+   rt.s3.upload_file(str(playback),BUCKET,playback_key,ExtraArgs={'ContentType':'video/mp4'})
    rt.s3.upload_file(str(poster),BUCKET,poster_key,ExtraArgs={'ContentType':'image/jpeg'})
-   rt.update(row,status='review',stage='Ready to review',summary_key=key,playback_key=playback_key,edit=edit,error=None,lease_until=None)
-   try:rt.rest('storage_ledger','POST',[{'user_id':row['owner_id'],'kind':'other','bytes':output.stat().st_size,'r2_key':'r2://'+BUCKET+'/'+key},{'user_id':row['owner_id'],'kind':'other','bytes':(Path(directory)/'playback.mp4').stat().st_size,'r2_key':'r2://'+BUCKET+'/'+playback_key},{'user_id':row['owner_id'],'kind':'other','bytes':poster.stat().st_size,'r2_key':'r2://'+BUCKET+'/'+poster_key}])
+   rt.update(row,status='review',stage='Ready to review',playback_key=playback_key,edit=edit,error=None,lease_until=None)
+   try:rt.rest('storage_ledger','POST',[{'user_id':row['owner_id'],'kind':'other','bytes':playback.stat().st_size,'r2_key':'r2://'+BUCKET+'/'+playback_key},{'user_id':row['owner_id'],'kind':'other','bytes':poster.stat().st_size,'r2_key':'r2://'+BUCKET+'/'+poster_key}])
    except Exception:log.warning('Lesson storage ledger failed',exc_info=True)
  except Exception as e:
   log.exception('Lesson %s failed',row['id'])
@@ -923,6 +965,66 @@ def process(rt,row):
   try:rt.update(row,status='failed',stage=None,error=message[:600],lease_until=None)
   except Exception:log.exception('Could not save failure state')
  finally:stop.set();thread.join(timeout=2)
+
+def process_share_render(rt,claim):
+ """Prepare the copy of a recap that a coach can hand to somebody outside
+ PongLens, with the words burnt into the picture so they travel with it.
+
+ This runs on its own row, its own queue and its own lease. It deliberately
+ does not touch lesson_videos: that row carries a single lease, and taking
+ it would move the lesson to `processing`, which is the one state where
+ canReadVideo turns a student's own recap into a 404.
+
+ The revision stamped here is the one the claim captured. A coach who
+ corrects a word while this runs gets a file that honestly reads as behind
+ their latest wording rather than one that silently claims to be current.
+ """
+ stop=threading.Event();lease_lost=threading.Event()
+ video_id=claim['lesson_video_id'];token=claim['lease_token'];owner=claim['owner_id']
+ def update(**fields):
+  result=rt.rest(f"lesson_share_renders?lesson_video_id=eq.{video_id}&lease_token=eq.{token}",'PATCH',{**fields,'updated_at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime())})
+  if not result:raise RuntimeError('The video file lease was lost.')
+ def heartbeat():
+  while not stop.wait(45):
+   try:
+    update(lease_until=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime(time.time()+300)))
+    rt.worker_heartbeat()
+   except Exception:lease_lost.set();log.exception('Share render heartbeat failed');return
+ thread=threading.Thread(target=heartbeat,daemon=True);thread.start()
+ try:
+  root=Path(os.environ.get('LESSON_VIDEO_WORKDIR',tempfile.gettempdir()))
+  with tempfile.TemporaryDirectory(prefix='lesson-share-',dir=root) as directory:
+   playback=Path(directory)/'playback.mp4'
+   rt.s3.download_file(BUCKET,claim['playback_key'],str(playback))
+   edit=normalize_edit(claim['edit'],float(claim['duration_s']))
+   output=render_share_file(playback,edit,directory,lambda text:update(stage=text))
+   if lease_lost.is_set():raise RuntimeError('The video file lease was lost.')
+   update(stage='Saving the video file')
+   key=f"lesson-video/{owner}/{video_id}/shared-v{claim['revision']}-{token}.mp4"
+   size=output.stat().st_size
+   rt.s3.upload_file(str(output),BUCKET,key,ExtraArgs={'ContentType':'video/mp4'})
+   # The row points at the new file before the old one goes, so a crash
+   # in between leaves a spare file rather than a row pointing at nothing.
+   update(status='ready',stage=None,error=None,r2_key=key,bytes=size,lease_until=None)
+   try:rt.rest('storage_ledger','POST',[{'user_id':owner,'kind':'other','bytes':size,'r2_key':'r2://'+BUCKET+'/'+key}])
+   except Exception:log.warning('Share render ledger failed',exc_info=True)
+   previous=claim.get('previous_key')
+   if previous and previous!=key:
+    # The one place in this pipeline that clears up after itself. Every
+    # recap rebuild before today left its predecessor in R2 and left the
+    # bytes counted against the coach forever.
+    try:
+     head=rt.s3.head_object(Bucket=BUCKET,Key=previous)
+     rt.s3.delete_object(Bucket=BUCKET,Key=previous)
+     rt.rest('storage_ledger','POST',[{'user_id':owner,'kind':'other','bytes':-int(head['ContentLength']),'r2_key':'r2://'+BUCKET+'/'+previous}])
+    except Exception:log.warning('Superseded share render cleanup failed',exc_info=True)
+ except Exception as error:
+  log.exception('Lesson share render %s failed',video_id)
+  message=str(error) if isinstance(error,ValueError) else 'The video file could not be prepared. Your recap is unchanged. Try again.'
+  try:update(status='failed',stage=None,error=message[:600],lease_until=None)
+  except Exception:log.warning('Share render failure could not be recorded',exc_info=True)
+ finally:
+  stop.set();thread.join(timeout=5)
 
 def main():
  parser=argparse.ArgumentParser();parser.add_argument('--once',action='store_true');parser.add_argument('--cloud',action='store_true');parser.add_argument('--release-id',action='store_true');args=parser.parse_args()
@@ -935,6 +1037,11 @@ def main():
    drain_deletions(rt)
    rows=rt.rest('rpc/claim_lesson_video','POST',{'p_release':rid,'p_worker':identity,'p_cloud':args.cloud})
    if rows:process(rt,rows[0])
+   else:
+    # Recaps first. A coach waiting to read a lesson outranks a coach
+    # waiting for a file they asked for and will collect later.
+    claim=rt.rest('rpc/claim_lesson_share_render','POST',{'p_release':rid,'p_worker':identity,'p_cloud':args.cloud})
+    if claim:process_share_render(rt,claim)
   except Exception:log.exception('Lesson worker poll failed')
   if args.once:return
   time.sleep(10)
