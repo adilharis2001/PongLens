@@ -43,6 +43,35 @@ import points_endon
 import points_v2
 
 
+def _edges_note(body_info, v3_serves, v3_dead, v3_why, anchor_on, close_on):
+    """The clause the match note carries about the two card edges.
+
+    It goes at the END of the "points bodies:" sentence because the admin
+    uploads page reads the front of that sentence with a regex, and a new
+    fact in the middle of it stops the page recognising the route (the same
+    rule the "points v2" sentence has carried since 2026-09-06).
+
+    A run with the edges switched off says nothing, so an old note and a new
+    one differ only where the behaviour differs.
+    """
+    if not (anchor_on or close_on):
+        return ""
+    if v3_why and not close_on:
+        return f", serve anchoring unavailable ({v3_why})"
+    parts = []
+    if anchor_on:
+        parts.append(f"{body_info.get('anchored', 0)} started at the serve")
+    if close_on:
+        parts.append(f"{body_info.get('closed', 0)} closed on the ball "
+                     f"({body_info.get('closed_on_dead', 0)} on a dead ball)")
+    head = (f", serve anchoring unavailable ({v3_why})" if v3_why
+            else f", serves v3 {len(v3_serves or [])}, "
+                 f"dead-ball runs {len(v3_dead or [])}")
+    if v3_why and anchor_on:
+        parts = [p for p in parts if "started at the serve" not in p]
+    return head + (", " + ", ".join(parts) if parts else "")
+
+
 def build_highlight_evidence(card, evidence, n_hits, route,
                              unavailable_reason=None):
     """Distill one card's reviewable rally receipts in source seconds.
@@ -2857,9 +2886,48 @@ def cmd_points(args):
                         "no table and no activity gate to stand in for it")
                 first_ball_t0 = (min(c["t0"] for c in v2_cards)
                                  if v2_cards else None)
+                # THE V3 SERVE DETECTOR (spec 2026-09-09), if either edge
+                # rule is on. It reads the ball track and the players this
+                # pass already has, costs a few seconds, and needs a real
+                # table: on the activity-gate stand-in the lengths it works
+                # in are not table widths and its answer would mean nothing.
+                # A refusal is not a failure — the cards keep the edges the
+                # bodies gave them and the note says why.
+                v3_serves, v3_dead, v3_why = None, None, None
+                want_edges = (getattr(args, "serve_anchor", False)
+                              or getattr(args, "rally_end", False))
+                if want_edges and calib is None:
+                    v3_why = "no table"
+                elif want_edges:
+                    try:
+                        import serve_v3
+                        v3 = serve_v3.detect(
+                            body_corners, v2_E.track, v2_E.cross, players,
+                            fps, dur, width=meta["width"])
+                        v3_serves = [c for c, _a, _s in v3["serves"]]
+                        v3_dead = v3["dead"]
+                        if not v3["boxes_complete"]:
+                            print("serve v3: the players file predates the "
+                                  "all-boxes record; person rules see only "
+                                  "the two chosen players")
+                        print(f"serve v3: {len(v3_serves)} serves "
+                              f"({v3['raw']} detections, {v3['dropped_pass']} passes, "
+                              f"{v3['dropped_unpaired']} unpaired), "
+                              f"{len(v3_dead)} dead-ball runs")
+                    except Exception as exc:                    # noqa: BLE001
+                        v3_why = f"{type(exc).__name__}: {exc}"
+                        print(f"serve v3 unavailable ({v3_why}) — "
+                              f"the bodies keep their own edges")
                 body_cards, body_info = body_points.assemble(
                     players, body_corners, v2_E, dur,
-                    first_ball_t0=first_ball_t0)
+                    first_ball_t0=first_ball_t0,
+                    v3_serves=v3_serves, v3_dead=v3_dead,
+                    # The start needs the serve detector; the END only needs
+                    # the ball events this pass already has, so it still runs
+                    # when V3 refuses — which is the case on exactly the
+                    # matches production is worst on, the ones with no table.
+                    anchor=bool(v3_serves) and getattr(args, "serve_anchor", False),
+                    close=getattr(args, "rally_end", False))
                 if not body_cards:
                     raise body_points.BodyPointsUnavailable(
                         "the body assembler produced no cards")
@@ -2885,7 +2953,10 @@ def cmd_points(args):
                     f"{body_info['both_share']:.0%}, {window_note}, "
                     f"model body-{body_info['model']}, "
                     f"decoder bias 0.5 dur_w 4 play_min 1.5, "
-                    f"ball cards kept {len(ball_cards)}")
+                    f"ball cards kept {len(ball_cards)}"
+                    + _edges_note(body_info, v3_serves, v3_dead, v3_why,
+                                  getattr(args, "serve_anchor", False),
+                                  getattr(args, "rally_end", False)))
                 print(f"points bodies: {len(body_cards)} cards "
                       f"({body_info['stamped']} with a serve) replace "
                       f"{len(ball_cards)} ball cards ({window_note})")
@@ -3336,6 +3407,15 @@ def main():
                    help="players.json from extract_players_rtmpose.py; with "
                         "--pipeline bodies the body-first assembler decides the "
                         "cards and the ball side only sharpens them")
+    p.add_argument("--serve-anchor", action="store_true",
+                   help="with --pipeline bodies: a body card holding a V3 "
+                        "serve opens where production opens any serve card, "
+                        "HEAD_LEAD before the contact (app_config."
+                        "body_serve_anchor)")
+    p.add_argument("--rally-end", action="store_true",
+                   help="with --pipeline bodies: a body card closes when the "
+                        "ball went dead, or failing that when it was last "
+                        "seen, plus a buffer (app_config.body_rally_end)")
     p.add_argument("--pipeline", default="v1", choices=["v1", "v2", "bodies"],
                    help="'v2': card assembly from points_v2 (rebuilt against "
                         "owner-marked point boundaries); needs a calibrated "

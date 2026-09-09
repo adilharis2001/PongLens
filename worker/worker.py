@@ -5078,6 +5078,25 @@ def points_pipeline_version(conn) -> str:
         return "v1"
 
 
+def body_card_edges(conn) -> tuple[bool, bool]:
+    """(anchor the start on the serve, close the end on the ball).
+
+    Two switches rather than one, because they are two changes of very
+    different weight: closing the end reads ball events this pass already
+    has, while anchoring the start runs the whole V3 serve detector. Read
+    per job like the switches around it, so either can be turned off between
+    two uploads with one UPDATE and no restart, and both FAIL OPEN to off --
+    a config read that errors must leave the cards exactly as the bodies drew
+    them. Spec: docs/superpowers/specs/2026-09-09-serve-anchored-body-cards-
+    design.md.
+    """
+    try:
+        return (get_config(conn, "body_serve_anchor") == "on",
+                get_config(conn, "body_rally_end") == "on")
+    except Exception:                                          # noqa: BLE001
+        return False, False
+
+
 def ball_crop_enabled(conn) -> bool:
     """Whether ball detection runs on a crop around the table:
     app_config.ball_crop.
@@ -5188,6 +5207,8 @@ def run_points_subprocess(
     placement_serve_seed: bool = False,
     attempt_key: str = "manual",
     players_json: str | None = None,
+    serve_anchor: bool = False,
+    rally_end: bool = False,
 ) -> str:
     """The points pipeline in plays cut mode, run BEFORE the cut so the
     cut can keep exactly the per-point segments (dead-space round 4).
@@ -5230,6 +5251,13 @@ def run_points_subprocess(
             cmd.append("--placement-serve-seed")
     if pipeline == "bodies" and players_json:
         cmd += ["--players", players_json]
+        # The two card edges (spec 2026-09-09). Passed as flags rather than
+        # read in the child, so one place decides what a run does and the
+        # decision is visible in the process list.
+        if serve_anchor:
+            cmd.append("--serve-anchor")
+        if rally_end:
+            cmd.append("--rally-end")
     log.info("  points pipeline (strictness=%s placement=%s cut=plays "
              "pipeline=%s)…",
              strictness, bool(options.get("placement")), pipeline)
@@ -5439,11 +5467,13 @@ def processing_pipeline_settings(conn, options: dict, attempt_key: str) -> tuple
     pipeline = options.get("points_pipeline")
     if pipeline not in ("v1", "v2", "bodies"):
         pipeline = points_pipeline_version(conn)
+    anchor, rally_end = body_card_edges(conn)
     return bool(ball_crop), corners, dict(
         pipeline=pipeline,
         endon_fallback=endon_fallback_enabled(conn),
         serve_surface_pad=serve_pad, serve_merge_s=serve_merge,
         placement_serve_seed=placement_serve_seed_enabled(conn),
+        serve_anchor=anchor, rally_end=rally_end,
         attempt_key=attempt_key,
     )
 

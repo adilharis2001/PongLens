@@ -18,8 +18,11 @@ back into source pixels without knowing anything else.
 Output shape (read by body_features.load_players):
   {"sample_fps": 10, "rect": [x, y, w, h], "video": ..., "device": ...,
    "frames": [{"t": 12.3, "near": {"box": [...], "kp": [[x, y, s], ...]},
-               "far": {...}}, ...],
+               "far": {...}, "all": [[x0, y0, x1, y1], ...]}, ...],
    "samples": N, "both": M}
+
+`all` is every person box the detector found at that sample, which is what
+the V3 serve rule reads; `near`/`far` are the two the chooser named.
 
 `--progress PATH` is rewritten every 200 samples with {"t": ..., "of": ...}
 so the worker can advance jobs.progress while this runs; a 20-minute silent
@@ -149,6 +152,16 @@ def main() -> int:
                     rec[s] = {"box": [round(float(v), 1) for v in box],
                               "kp": [[round(float(kps[i][j][0]), 1), round(float(kps[i][j][1]), 1),
                                       round(float(scs[i][j]), 3)] for j in range(kps.shape[1])]}
+        # EVERYBODY IN THE WINDOW, not only the two who are playing.
+        #
+        # The serve rule asks "was the ball inside anyone's box" and "how much
+        # of the run-up did a person cover", and in the lab it asked that of
+        # every box the detector found, spectators included. Keeping only the
+        # chosen pair would answer those questions differently — more
+        # permissively — for reasons no reader could reconstruct from the
+        # file. Window pixels, like the boxes above.
+        if boxes:
+            rec["all"] = [[round(float(v), 1) for v in b[:4]] for b in boxes]
         if "near" in rec and "far" in rec:
             both += 1
         frames.append(rec)

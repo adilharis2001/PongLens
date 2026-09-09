@@ -88,6 +88,35 @@ END_PAD_S = 0.8             # seconds after the last event the extension keeps
 QUIET_RULE = True           # drop a card with no crossing and no table bounce inside it
 AFTER_FIRST = True          # no body card before the ball pipeline's first card
 
+# ---------------------------------------------------------------------------
+# The two edges the ball is allowed to move (spec 2026-09-09).
+#
+# The bodies still decide WHERE the points are. Neither rule below may create
+# a card, remove one, or split one; each moves one edge of a card that already
+# exists, and only when the ball says something definite about it.
+# ---------------------------------------------------------------------------
+
+# THE START. A card holding a serve opens where production has always opened a
+# card on a serve: HEAD_LEAD before the contact. The window is how far from the
+# card's own start a serve may be and still be this card's serve — three
+# seconds back because a body card can open in the dead time before a point,
+# four forward because it can open late, inside the set-up.
+ANCHOR_BACK_S = 3.0
+ANCHOR_FWD_S = 4.0
+
+# THE END. Measured against Adil's winner presses over 447 cards: at 1.0 s
+# sixty-nine cards end more than a second before the press, at 1.5 s eighteen,
+# at 2.0 s seven. He chose 1.5 s (2026-09-09), which takes a median 0.9 s off
+# every card and about 18 minutes off thirteen matches.
+END_BUF_S = 1.5
+
+# A dead-ball run is only the end of THIS point if the ball never crossed the
+# net again after it, and it has to fall after the serve rather than in the
+# set-up. Both are physics, not caution: a ball that crosses the net again was
+# not dead.
+DEAD_AFTER_SERVE_S = 1.0
+DEAD_CROSS_TOL_S = 0.3
+
 # Guards. Each falls open to the ball cards, with its reason in the note.
 MIN_BOTH_PLAYERS_SHARE = 0.40   # frames with both players / sampled frames
 
@@ -337,8 +366,105 @@ def refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0=None):
     return out
 
 
-def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=None):
+def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
+                     anchor=True, close=True):
+    """Move each card's edges to what the ball saw, and nothing else.
+
+    `serves` are the V3 detector's contacts, `dead` its ball-going-dead runs.
+    The card list is walked in order so that a start pulled earlier cannot
+    reach into the card before it, which is arithmetic rather than caution:
+    two cards cannot hold the same second of video.
+
+    A card the ball says nothing about keeps exactly the edges the bodies gave
+    it. That is the whole contract of this pass, and it is why neither rule
+    has a fallback: no serve, no anchor; no ball event, no close.
+    """
+    if not cards or (not anchor and not close):
+        return cards, dict(anchored=0, closed=0, closed_on_dead=0)
+    sv = sorted(float(x) for x in (serves or []))
+    cr = np.asarray(sorted(float(x) for x in cross), float)
+    ev = np.asarray(sorted([float(x) for x in cross] + [float(x) for x in bt_table]), float)
+    runs = sorted((float(a), float(b)) for a, b in (dead or []))
+    out = []
+    anchored = closed = on_dead = 0
+    cards = sorted((dict(c) for c in cards), key=lambda c: c["t0"])
+    for i, c in enumerate(cards):
+        t0, t1 = float(c["t0"]), float(c["t1"])
+        prev_t1 = out[-1]["t1"] if out else -1e9
+        if anchor and sv:
+            lo, hi = t0 - ANCHOR_BACK_S, min(t1, t0 + ANCHOR_FWD_S)
+            near = [x for x in sv
+                    if lo <= x <= hi and x - V2.HEAD_LEAD >= prev_t1 + V2.MIN_GAP_S - 1e-9]
+            if near:
+                s = near[0]
+                start = max(prev_t1 + V2.MIN_GAP_S, s - V2.HEAD_LEAD, 0.0)
+                if t1 - start >= V2.MIN_CARD_S:
+                    if abs(start - t0) > 0.01:
+                        anchored += 1
+                        c["why"] = _add_why(c.get("why"), "started at the serve")
+                    t0 = start
+                    c["serve_s"] = s
+        if close:
+            end, src = _ball_end(t0, t1, c.get("serve_s"), ev, cr, runs)
+            if end is not None:
+                stop = min(t1, end + END_BUF_S)
+                if stop - t0 >= V2.MIN_CARD_S and t1 - stop > 0.05:
+                    t1 = stop
+                    c["end_evidence_s"] = end
+                    closed += 1
+                    on_dead += (src == "dead")
+                    c["why"] = _add_why(
+                        c.get("why"),
+                        "ended where the ball went dead" if src == "dead"
+                        else "ended where the ball stopped")
+                elif end > t0:
+                    # Not a trim, but still the truest end we have, and the
+                    # app's own unscored-point trim reads it.
+                    c["end_evidence_s"] = end
+        c["t0"], c["t1"] = t0, min(t1, float(duration))
+        V2.clamp_evidence(c)
+        if c["t1"] - c["t0"] >= V2.MIN_CARD_S:
+            out.append(c)
+    return out, dict(anchored=anchored, closed=closed, closed_on_dead=on_dead)
+
+
+def _add_why(why, phrase):
+    why = why or "bodies"
+    return why if phrase in why else f"{why}, {phrase}"
+
+
+def _ball_end(t0, t1, serve_s, ev, cr, runs):
+    """(the moment the point stopped, how we know) or (None, None).
+
+    Two readings, and the first is the better one. A DEAD RUN is the ball
+    dribbling to a stop on the table, which is the point ending; it is rare,
+    about one card in twenty, and where it fires it lands a couple of seconds
+    before the tracker stops seeing the ball at all. Otherwise the LAST net
+    crossing or table bounce inside the card, which is where the ball was last
+    seen doing something.
+    """
+    inside = ev[(ev >= t0) & (ev <= t1)]
+    if not len(inside):
+        return None, None
+    after = (float(serve_s) + DEAD_AFTER_SERVE_S) if serve_s is not None else t0
+    for a, _b in runs:
+        if not (after <= a <= t1):
+            continue
+        if len(cr[(cr > a + DEAD_CROSS_TOL_S) & (cr <= t1)]):
+            continue        # the ball crossed the net again: it was not dead
+        if a > t0:
+            return a, "dead"
+    return float(inside[-1]), "last"
+
+
+def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=None,
+             v3_serves=None, v3_dead=None, anchor=False, close=False):
     """The body cards for one match, or raise BodyPointsUnavailable.
+
+    `v3_serves` and `v3_dead` come from the V3 serve detector and are used
+    only by the edge pass at the end: `anchor` opens a card at its serve,
+    `close` shuts it when the ball stopped. Both default off, so a caller
+    that passes nothing gets exactly the cards the trial has been cutting.
 
     Returns (cards, info): the resolved card list and a dict describing the
     run for the match note (samples, share of frames with both players,
@@ -362,9 +488,17 @@ def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=
                   serve_s=None, why="bodies", end_evidence_s=b) for a, b in segs]
     refined = refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0)
     resolved = V2.resolve(refined)
+    # The edges last, on settled cards: the anchor needs to know where the
+    # card before it ends, and that is only true once the overlaps are gone.
+    edges = dict(anchored=0, closed=0, closed_on_dead=0)
+    if anchor or close:
+        resolved, edges = anchor_and_close(
+            resolved, v3_serves, cross, bt_table, v3_dead, duration,
+            anchor=anchor, close=close)
+        resolved = V2.resolve(resolved)
     info = dict(samples=int(len(T)), both_share=round(share, 3), segments=len(segs),
                 cards=len(resolved), stamped=sum(1 for d in resolved if d.get("serve_s") is not None),
-                model=model["version"], features=model["sha"])
+                model=model["version"], features=model["sha"], **edges)
     return resolved, info
 
 
