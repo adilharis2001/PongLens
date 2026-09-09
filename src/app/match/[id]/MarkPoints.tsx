@@ -44,6 +44,7 @@ import {
   type Outcome,
   asPoints,
   clearAwaiting,
+  allCalled,
   firstUnscored,
   lastClosedEnd as lastEnd,
   MIN_POINT_S,
@@ -75,11 +76,6 @@ const SAVE_DEBOUNCE_MS = 1500;
 /** The pads the worker cuts a hand-marked clip with, mirrored here so the
  *  preview shows the clip the player will actually get rather than the
  *  bare rally. Must match claim_hand_cut's clip_pads. */
-/** The beat between one point's clip ending and the next one starting,
- *  when the pad is walking the strip. Long enough to read as a break
- *  rather than a stall, short enough that watching thirty points back is
- *  still watching rather than waiting. */
-const CHAIN_GAP_MS = 600;
 /** Longer than ClipPlayer's own double-tap window (280ms), so the pause
  *  inside a double tap never paints a play button. */
 const PAUSE_GLYPH_MS = 340;
@@ -247,12 +243,23 @@ export function MarkPoints({
    *  no winner selected and cued. Scoring a cut-only pass is then one
    *  answer after another, with the video playing each point back. */
   const resumed = initialMarks.length > 0;
+  /**
+   * Opened on a match already cut AND already called, every point of it.
+   * There is nothing to add and nothing to answer, so this is not a
+   * marking screen: it is a review, and a review starts at the first
+   * point, not at the end of the last one. Read once on the way in, so a
+   * draft saved during the session cannot change what the screen was
+   * opened as.
+   */
+  const openedFinished = useRef(allCalled(initialMarks)).current;
   const [state, setState] = useState<MarkState>(() =>
     resumed
       ? {
           ...emptyState,
           marks: initialMarks,
-          selectedId: firstUnscored(initialMarks)?.id ?? null,
+          selectedId: openedFinished
+            ? initialMarks[0]?.id ?? null
+            : firstUnscored(initialMarks)?.id ?? null,
         }
       : emptyState
   );
@@ -275,7 +282,7 @@ export function MarkPoints({
   );
   /** Has the session started? Until it has, the pad is one button, because
    *  one button is the only thing there is to do. */
-  const [started, setStarted] = useState(resumed);
+  const [started, setStarted] = useState(resumed && !openedFinished);
   /** The pad's own speed control, mirroring the scorekeeper's. The picture
    *  gestures (hold left for 0.25x, hold right for 2x) still work, but the
    *  floating pad covers part of the frame and whichever half it sits on
@@ -299,8 +306,6 @@ export function MarkPoints({
   const adjustDraftRef = useRef<[number, number] | null>(null);
   /** The speed bar's own drag flag; a released finger clears it. */
   const speedDragging = useRef(false);
-  /** Pending hop to the next point while the strip is being walked. */
-  const chainTimer = useRef<number | null>(null);
   const [playhead, setPlayhead] = useState(0);
   /**
    * Held still long enough to deserve a play button in the middle of the
@@ -515,24 +520,15 @@ export function MarkPoints({
     refuseTimer.current = window.setTimeout(() => setRefusal(null), REFUSE_MS);
   }, []);
 
-  const clearChain = useCallback(() => {
-    if (chainTimer.current !== null) {
-      window.clearTimeout(chainTimer.current);
-      chainTimer.current = null;
-    }
-  }, []);
-  useEffect(() => clearChain, [clearChain]);
-
   const apply = useCallback(
     (next: { state: MarkState; refused?: string }) => {
       if (next.refused) {
         refuse(next.refused);
         return;
       }
-      clearChain();
       setState(next.state);
     },
-    [refuse, clearChain]
+    [refuse]
   );
 
   /** The one button before anything has begun. It starts playback in the
@@ -543,22 +539,28 @@ export function MarkPoints({
     playApi.current?.play();
   }, []);
 
+
   /**
-   * Where a reopened draft is cued: at the first point still waiting for
-   * a winner, padded as its clip will be, so pressing play shows that
-   * point and stops at its end; otherwise where the marking stopped.
-   * Runs on the first metadata event, and again after the serve card.
+   * Where a reopened draft is cued: on the point the pad opened on,
+   * padded as its clip will be, so pressing play shows that point and
+   * stops at its end. A finished draft opens on the first point and an
+   * unfinished one on the first still missing a winner; with neither,
+   * the cue is where the marking stopped. Runs on the first metadata
+   * event, and again after the serve card.
    */
   const cueReview = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
     const d = Number.isFinite(v.duration) ? v.duration : Infinity;
-    const pending = firstUnscored(stateRef.current.marks);
-    if (pending && pending.t1 !== null) {
-      v.currentTime = Math.max(0, Math.min(d - 0.1, pending.t0 - CLIP_PRE));
-      previewUntil.current = pending.t1 + CLIP_POST;
+    const s = stateRef.current;
+    const cue =
+      (s.selectedId ? s.marks.find((m) => m.id === s.selectedId) : null) ??
+      firstUnscored(s.marks);
+    if (cue && cue.t1 !== null) {
+      v.currentTime = Math.max(0, Math.min(d - 0.1, cue.t0 - CLIP_PRE));
+      previewUntil.current = cue.t1 + CLIP_POST;
     } else {
-      const last = lastEnd(stateRef.current.marks);
+      const last = lastEnd(s.marks);
       if (last === null) return;
       v.currentTime = Math.max(0, Math.min(d - 0.1, last));
       previewUntil.current = null;
@@ -757,7 +759,6 @@ export function MarkPoints({
       const m = s.marks.find((x) => x.id === id);
       const v = videoRef.current;
       if (!m || m.t1 === null || !v) return;
-      clearChain();
       setState((st) => selectMark(st, id));
       pausedForAnswer.current = false;
       v.currentTime = Math.max(0, m.t0 - CLIP_PRE);
@@ -765,7 +766,7 @@ export function MarkPoints({
       previewUntil.current = m.t1 + CLIP_POST;
       playApi.current?.play();
     },
-    [clearChain]
+    []
   );
 
   const tapChip = useCallback(
@@ -774,15 +775,23 @@ export function MarkPoints({
       // Tapping the point already playing stops it, which is the only way
       // to hold a frame in the middle of a walk.
       if (s.selectedId === id) {
-        clearChain();
         previewUntil.current = null;
         playApi.current?.pause();
         return;
       }
       playMark(id);
     },
-    [clearChain, playMark]
+    [playMark]
   );
+
+  /** The same gate, for a match already cut and called: it walks the
+   *  points from the first one instead of picking up the marking. */
+  const beginReview = useCallback(() => {
+    setStarted(true);
+    const first = stateRef.current.marks.find((m) => m.t1 !== null);
+    if (first) playMark(first.id);
+    else playApi.current?.play();
+  }, [playMark]);
 
   /** Previous or next point, from the one selected. */
   const stepMark = useCallback(
@@ -817,16 +826,13 @@ export function MarkPoints({
     if (mode === "score" && !done.isLet && done.winner === null) return;
     const next = s.marks.slice(i + 1).find((m) => m.t1 !== null);
     if (!next) return;
-    clearChain();
-    chainTimer.current = window.setTimeout(() => {
-      chainTimer.current = null;
-      playMark(next.id);
-    }, CHAIN_GAP_MS);
-  }, [mode, clearChain, playMark]);
+    // Straight through, with no beat between the clips: a gap in the
+    // middle of a review reads as the pad hesitating, not as a break.
+    playMark(next.id);
+  }, [mode, playMark]);
 
   /** Back to where the marking had got to. */
   const resumeMarking = useCallback(() => {
-    clearChain();
     setState((s) => selectMark(s, null));
     previewUntil.current = null;
     const last = lastEnd(stateRef.current.marks);
@@ -836,7 +842,7 @@ export function MarkPoints({
       setPlayhead(v.currentTime);
     }
     playApi.current?.play();
-  }, [clearChain]);
+  }, []);
 
   /**
    * Start this point over. The mark goes, and the playhead lands a few
@@ -894,7 +900,6 @@ export function MarkPoints({
    * closes it, in the same place under the same thumb.
    */
   const openAdjust = useCallback(() => {
-    clearChain();
     const st = stateRef.current;
     const m = st.selectedId ? st.marks.find((x) => x.id === st.selectedId) : null;
     if (!m || m.t1 === null) return;
@@ -908,7 +913,7 @@ export function MarkPoints({
     setAdjustBounds([Math.max(prevEnd, m.t0 - 8), Math.min(nextStart, m.t1 + 8)]);
     setAdjusting(m.id);
     playApi.current?.pause();
-  }, [durationS, clearChain]);
+  }, [durationS]);
 
   const confirmAdjust = useCallback(() => {
     const id = adjusting;
@@ -941,7 +946,8 @@ export function MarkPoints({
       if (!started) {
         if (e.key === " " || e.key === "Enter") {
           e.preventDefault();
-          beginCutting();
+          if (openedFinished) beginReview();
+          else beginCutting();
         }
         return;
       }
@@ -1545,10 +1551,10 @@ export function MarkPoints({
   const beginCuttingButton = (
     <button
       type="button"
-      onClick={beginCutting}
+      onClick={openedFinished ? beginReview : beginCutting}
       className="glow-cta h-16 w-full shrink-0 rounded-xl bg-cyan-glow text-base font-bold text-ink active:scale-[0.99]"
     >
-      Begin Cutting
+      {openedFinished ? "Begin review" : "Begin Cutting"}
     </button>
   );
 
@@ -1589,7 +1595,7 @@ export function MarkPoints({
           {!started ? (
             <button
               type="button"
-              onClick={beginCutting}
+              onClick={openedFinished ? beginReview : beginCutting}
               className={`${tile} glow-cta absolute border-cyan-glow bg-cyan-glow text-ink`}
               style={{
                 left: "50%",
@@ -1599,7 +1605,7 @@ export function MarkPoints({
                 height: 56,
               }}
             >
-              Begin Cutting
+              {openedFinished ? "Begin review" : "Begin Cutting"}
             </button>
           ) : (
             <>
@@ -1728,6 +1734,8 @@ export function MarkPoints({
       doneButton,
       started,
       beginCutting,
+      beginReview,
+      openedFinished,
       open,
       tapBegin,
       tapEnd,

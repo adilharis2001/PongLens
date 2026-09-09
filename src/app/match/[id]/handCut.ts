@@ -163,6 +163,18 @@ export function firstUnscored(
   return null;
 }
 
+/**
+ * Every point closed and every point called: nothing left to mark and
+ * nothing left to answer. An empty list is not finished, it is unstarted.
+ * A let counts as called — nobody won it, and that is the answer.
+ */
+export function allCalled(marks: Mark[]): boolean {
+  return (
+    marks.length > 0 &&
+    marks.every((m) => m.t1 !== null && (m.isLet || m.winner !== null))
+  );
+}
+
 export function lastClosedEnd(marks: Mark[]): number | null {
   for (let i = marks.length - 1; i >= 0; i--) {
     const t1 = marks[i].t1;

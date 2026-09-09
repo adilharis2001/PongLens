@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   type Mark,
+  allCalled,
   firstUnscored,
   LEAD_MAX_S,
   LEAD_MIN_S,
@@ -400,4 +401,21 @@ test("firstUnscored walks the closed points without a winner; a let counts as an
   assert.equal(firstUnscored(marks, "d"), null);
   assert.equal(firstUnscored([closed("o", 40, null)]), null);
   assert.equal(firstUnscored([]), null);
+});
+
+test("allCalled is true only when every point is closed and answered", () => {
+  assert.equal(allCalled([]), false);
+  assert.equal(allCalled([closed("a", 0, 5, "user")]), true);
+  assert.equal(
+    allCalled([closed("a", 0, 5, "user"), closed("b", 10, 15, null, true)]),
+    true,
+  );
+  assert.equal(
+    allCalled([closed("a", 0, 5, "user"), closed("b", 10, 15)]),
+    false,
+  );
+  assert.equal(
+    allCalled([closed("a", 0, 5, "user"), closed("open", 10, null)]),
+    false,
+  );
 });
