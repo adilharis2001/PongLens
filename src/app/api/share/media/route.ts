@@ -27,6 +27,13 @@ export const runtime = "nodejs";
  */
 
 const TTL_SECONDS = 15 * 60;
+// A lesson recap runs up to fifteen minutes, so the clip TTL is shorter than
+// the thing it signs and a viewer who pauses can come back to dead playback.
+// No share page re-mints on its own. An hour covers a recap watched slowly;
+// the price is that a revoked link keeps working for whoever is already
+// watching until their address lapses, rather than dying within a quarter of
+// an hour. Adil's call, 2026-09-09.
+const RECAP_TTL_SECONDS = 60 * 60;
 
 function parseR2(path: string | null | undefined) {
   const m = (path ?? "").match(/^r2:\/\/([^/]+)\/(.+)$/);
@@ -47,6 +54,43 @@ export async function GET(req: Request) {
   });
   const link = links?.[0];
   if (!link) {
+    // A lesson recap link. The recap a stranger watches is the CLEAN video
+    // with the chapters drawn by the page, the same way the apps show it, so
+    // no render stands between creating a link and it working. The download
+    // is the copy with the words burnt in, and the function returns its key
+    // only while it still matches the recap's current wording.
+    const { data: recaps } = await supabase.rpc("resolve_share_lesson_recap", {
+      p_token: token,
+    });
+    const recap = recaps?.[0];
+    if (recap) {
+      const what = url.searchParams.get("what") ?? "video";
+      const key: string | null =
+        what === "poster" ? recap.poster_key
+        : what === "download" ? recap.download_key
+        : recap.playback_key;
+      // Second layer over the function's own gate: the lesson space, and no
+      // '..' segment that could walk the signed key elsewhere after the
+      // prefix passes.
+      if (!key || !key.startsWith("lesson-video/") || key.includes("..")) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+      try {
+        const signed = await presignGet("ponglens-media", key, {
+          expiresSeconds: RECAP_TTL_SECONDS,
+          disposition: what === "download" ? "attachment" : "inline",
+          filename: what === "download" ? `${(recap.title ?? "Lesson recap").replace(/[\\/:*?"<>|]/g, " ").trim().slice(0, 80)}.mp4` : undefined,
+        });
+        return NextResponse.json({ url: signed });
+      } catch (e) {
+        console.error("share media error:", e);
+        return NextResponse.json(
+          { error: "Could not create a media link. Try again shortly." },
+          { status: 500 }
+        );
+      }
+    }
+
     // Not a match-family link. A journal entry link (154) resolves through
     // its own function; the only media an entry has is its attached photo.
     // The function is the real gate (155): it returns image_path only when

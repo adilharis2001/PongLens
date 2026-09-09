@@ -5,6 +5,7 @@ import { MEDIA_BUCKET,createMultipartUpload,presignUploadPart,listParts,complete
 import { PART_SIZE,validateImport,validateEdit,canReadVideo,publicVideo } from '@/lib/lessonVideo/model';
 import { lessonCanSetCoach } from '@/lib/lessonVideo/presentation';
 import { queueLessonRender } from '@/lib/lessonVideo/queueing';
+import { shareFileState,shareFileDownloadable,sameChapterTiming,withSummaryClock } from '@/lib/lessonVideo/shareFile';
 import { QUOTA_ERRORS,type StorageState } from '@/lib/quota';
 export const runtime='nodejs';
 export const maxDuration=60;
@@ -52,8 +53,20 @@ export async function GET(req:Request){
    // A key that is set is a file that exists. The status says what is
    // happening next, not whether there is anything to watch now, and
    // reading it as both is what made an edit look like a fresh import.
-   const watchable=(owner&&!!row.summary_key)||['review','ready'].includes(row.status);
-   const summaryUrl=row.summary_key&&watchable?await presignGet(MEDIA_BUCKET,row.summary_key,{expiresSeconds:14400}):undefined;
+   // The clean file is the recap now. It used to be keyed on the burnt-in
+   // copy, which is no longer made unless somebody asks for it.
+   const watchable=(owner&&!!row.playback_key)||['review','ready'].includes(row.status);
+   // The downloadable copy with the words in the picture. It is its own row
+   // with its own revision, so it can honestly read as behind the wording.
+   const {data:fileRow}=await db.from('lesson_share_renders').select('status,revision,r2_key,bytes,stage,error').eq('lesson_video_id',id).maybeSingle();
+   const fileState=shareFileState(fileRow,row.revision);
+   const downloadName=((row.edit?.title as string|undefined)||row.original_name||'Lesson recap').replace(/[\\/:*?"<>|]/g,' ').trim().slice(0,80)+'.mp4';
+   const fileUrl=shareFileDownloadable(fileState)&&fileRow?.r2_key&&watchable
+    ?await presignGet(MEDIA_BUCKET,fileRow.r2_key,{expiresSeconds:14400,filename:downloadName})
+    :undefined;
+   // Kept for the app versions that shipped before the file had a state of
+   // its own and read this one field.
+   const summaryUrl=fileUrl??(row.summary_key&&watchable?await presignGet(MEDIA_BUCKET,row.summary_key,{expiresSeconds:14400}):undefined);
    const playbackUrl=row.playback_key&&watchable?await presignGet(MEDIA_BUCKET,row.playback_key,{expiresSeconds:14400}):summaryUrl;
    let posterUrl: string | undefined;
    if(playbackUrl&&row.playback_key){
@@ -64,7 +77,17 @@ export async function GET(req:Request){
    // thing: the coach can take the entry back from the student page, and a
    // player can stop sharing their own recap.
    const sharedNow=owner?await entryShared(db,row):true;
-   return NextResponse.json({video:publicVideo(row,owner),isOwner:owner,shared:sharedNow,sourceUrl,summaryUrl,playbackUrl,posterUrl},{headers:{'Cache-Control':'private, no-store'}});
+   // The public link, owner only. Anyone else reading this recap is inside
+   // PongLens already and has their own way to it.
+   let linkUrl:string|null=null;
+   if(owner){
+    const {data:link}=await db.from('share_links').select('token').eq('lesson_video_id',id).eq('kind','lesson_recap').is('revoked_at',null).maybeSingle();
+    if(link?.token)linkUrl=(process.env.NODE_ENV==='production'?'https://www.ponglens.com':new URL(req.url).origin)+'/s/'+link.token;
+   }
+   // The stage and the reason are the owner's business: a student does not
+   // need to watch their coach's file fail to build.
+   const file={state:fileState,stage:owner?fileRow?.stage??null:null,error:owner?fileRow?.error??null:null,bytes:fileRow?.bytes??null,url:fileUrl??null};
+   return NextResponse.json({video:publicVideo(row,owner),isOwner:owner,shared:sharedNow,sourceUrl,summaryUrl,playbackUrl,posterUrl,file,link:linkUrl},{headers:{'Cache-Control':'private, no-store'}});
   }
   let q=db.from('lesson_videos').select('id,owner_id,student_id,coach_ref_id,lesson_id,original_name,file_size,duration_s,status,stage,error,edit,revision,created_at,updated_at').eq('owner_id',user.id).order('created_at',{ascending:false}).limit(100);
   if(studentId){if(!UUID.test(studentId))return failure('Invalid student');q=q.eq('student_id',studentId);}
@@ -197,10 +220,35 @@ export async function POST(req:Request){
    // typo fix read as the whole lesson being processed again. The worker
    // writes its new file under a key stamped with the new revision, so
    // the old one is never overwritten while it is still being watched.
-   const {data:changed,error}=await db.from('lesson_videos').update({...queueLessonRender('Updating recap',new Date().toISOString()),edit,revision:row.revision+1}).eq('id',id).eq('revision',row.revision).eq('status',row.status).select('id').maybeSingle();
+   // The words are not in the video any more. The apps play the clean file
+   // and draw the chapters from this row, so correcting a cue is a write and
+   // nothing else: no job, no twenty minutes, and no taking the recap back
+   // from the student who was reading it over a typo. Only a change to which
+   // clips are in the recap needs the encoder.
+   const words=!!row.edit?.chapters&&sameChapterTiming(row.edit.chapters,edit.chapters);
+   const patch=words
+    // validateEdit drops where each chapter sits inside the finished recap,
+    // because until now the worker always rewrote it. On this path it does
+    // not run, and the public page seeks by that clock.
+    ?{edit:{...edit,chapters:withSummaryClock(edit.chapters)},revision:row.revision+1,updated_at:new Date().toISOString()}
+    :{...queueLessonRender('Updating recap',new Date().toISOString()),edit,revision:row.revision+1};
+   const {data:changed,error}=await db.from('lesson_videos').update(patch).eq('id',id).eq('revision',row.revision).eq('status',row.status).select('id').maybeSingle();
    if(error)throw error;if(!changed)return failure('The lesson changed. Reload before editing.',409);
-   if(row.lesson_id)await db.from('coach_entries').update({shared_at:null}).eq('lesson_id',row.lesson_id).eq('coach_id',user.id);
-   return NextResponse.json({ok:true});
+   if(!words){
+    if(row.lesson_id)await db.from('coach_entries').update({shared_at:null}).eq('lesson_id',row.lesson_id).eq('coach_id',user.id);
+    // A file being built for a recap whose clips are about to change would
+    // be cut from a video that is being replaced underneath it.
+    await db.from('lesson_share_renders').delete().eq('lesson_video_id',id).in('status',['queued','failed']);
+   }
+   return NextResponse.json({ok:true,rebuilding:!words});
+  }
+  if(action==='prepare-file'){
+   // The copy with the words painted into the picture, for sending to
+   // somebody who will not open it in PongLens. Idempotent in the database:
+   // asking twice while one is being made changes nothing.
+   const {data:made,error}=await db.rpc('request_lesson_share_render',{p_id:id,p_owner:user.id});
+   if(error){console.error('lesson share render request',error);return failure('The video file could not be started. Check that the recap has finished.',409);}
+   return NextResponse.json({ok:true,file:{state:shareFileState(made,row.revision),stage:made?.stage??null,error:null,bytes:made?.bytes??null,url:null}});
   }
   if(action==='share'){
    // Publishing and sharing are one act for a coach and two for a player: a

@@ -62,6 +62,7 @@ export async function POST(req: Request) {
   let pointId: string;
   let tagId: string;
   let lessonId: string;
+  let lessonVideoId: string;
   let requestedKind: string;
   let title: string | null = null;
   let titleProvided = false;
@@ -73,6 +74,7 @@ export async function POST(req: Request) {
     pointId = String(body.pointId ?? "");
     tagId = String(body.tagId ?? "");
     lessonId = String(body.lessonId ?? "");
+    lessonVideoId = String(body.lessonVideoId ?? "");
     requestedKind = String(body.kind ?? "");
     if ("title" in body) {
       titleProvided = true;
@@ -86,10 +88,89 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // A lesson recap link: its own flow for the same reason the entry link
+  // has one. Nothing below is about a match, and this one is not about a
+  // journal entry either, because a recap has no entry until it is
+  // published and a coach may want to send it before that.
+  if (lessonVideoId) {
+    if (!UUID_RE.test(lessonVideoId) || matchId || pointId || tagId || lessonId || requestedKind) {
+      return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+    }
+    // Strict ownership. A coach shared with may read the recap in the app;
+    // deciding that a stranger can watch it is the owner's alone.
+    const { data: recap } = await supabase
+      .from("lesson_videos")
+      .select("id, owner_id, status, edit, playback_key, stage")
+      .eq("id", lessonVideoId)
+      .maybeSingle();
+    if (!recap || recap.owner_id !== user.id) {
+      return NextResponse.json({ error: "Lesson not found" }, { status: 404 });
+    }
+    if (!recap.edit || !recap.playback_key || recap.stage === "Deleting") {
+      return NextResponse.json(
+        { error: "Wait for the recap to finish before sharing a link." },
+        { status: 409 }
+      );
+    }
+
+    const existingRecap = supabase
+      .from("share_links")
+      .select("id, token, title")
+      .eq("lesson_video_id", lessonVideoId)
+      .eq("kind", "lesson_recap")
+      .is("revoked_at", null);
+    const { data: foundRecap } = await existingRecap.limit(1);
+    if (foundRecap && foundRecap.length > 0) {
+      return NextResponse.json({
+        id: foundRecap[0].id,
+        token: foundRecap[0].token,
+        title: foundRecap[0].title ?? null,
+        url: `${shareBase(req)}/s/${foundRecap[0].token}`,
+      });
+    }
+
+    const recapToken = randomBytes(24).toString("base64url");
+    const { data: createdRecap, error: recapError } = await supabase
+      .from("share_links")
+      .insert({
+        owner: user.id,
+        lesson_video_id: lessonVideoId,
+        kind: "lesson_recap",
+        token: recapToken,
+        title,
+      })
+      .select("id, token, title")
+      .single();
+    if (recapError || !createdRecap) {
+      if (recapError?.code === "23505") {
+        const { data: raced } = await existingRecap.limit(1);
+        if (raced && raced.length > 0) {
+          return NextResponse.json({
+            id: raced[0].id,
+            token: raced[0].token,
+            title: raced[0].title ?? null,
+            url: `${shareBase(req)}/s/${raced[0].token}`,
+          });
+        }
+      }
+      console.error("share create error:", recapError);
+      return NextResponse.json(
+        { error: "Could not create the link. Try again." },
+        { status: 500 }
+      );
+    }
+    return NextResponse.json({
+      id: createdRecap.id,
+      token: createdRecap.token,
+      title: createdRecap.title ?? null,
+      url: `${shareBase(req)}/s/${createdRecap.token}`,
+    });
+  }
+
   // A journal entry link (154): its own flow, because nothing below —
   // ownership, the kind lattice, the score toggle — is about a match.
   if (lessonId) {
-    if (!UUID_RE.test(lessonId) || matchId || pointId || tagId || requestedKind) {
+    if (!UUID_RE.test(lessonId) || matchId || pointId || tagId || lessonVideoId || requestedKind) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
     // Strict ownership, same rule as a match: only the author publishes.
