@@ -3,7 +3,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { LessonPlayback } from './LessonPlayback';
 import { UpLink } from '@/components/UpLink';
-import type { LessonEdit, LessonVideo } from '@/lib/lessonVideo/model';
+import { AutoTextarea } from '@/components/AutoTextarea';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import type { LessonVideo } from '@/lib/lessonVideo/model';
+import {
+  canAddCue,
+  canRemoveCue,
+  draftBlocker,
+  draftFromEdit,
+  draftSnapshot,
+  editFromDraft,
+  MAX_CHAPTER_TITLE_LENGTH,
+  MAX_CUE_LENGTH,
+  MAX_RECAP_TITLE_LENGTH,
+  nextDraftId,
+  type EditDraft,
+} from '@/lib/lessonVideo/editDraft';
 import {
   formatClipLength,
   lessonCanSetCoach,
@@ -82,7 +97,11 @@ export function LessonVideoView({
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [editing, setEditing] = useState<LessonEdit | null>(null);
+  const [editing, setEditing] = useState<EditDraft | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // A line added by hand should be ready to type into. The id is claimed
+  // by "Add a point" and spent by the field's ref the moment it mounts.
+  const [focusId, setFocusId] = useState<string | null>(null);
   const [, setChapter] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [watching, setWatching] = useState(false);
@@ -91,6 +110,8 @@ export function LessonVideoView({
 
   const active = useRef(true);
   const editingRevision = useRef(0);
+  // The recap as it read when the editor opened, for the discard guard.
+  const editingOriginal = useRef('');
   const linkBorn = useRef(0);
   const savedOnOpen = useRef(false);
 
@@ -165,9 +186,17 @@ export function LessonVideoView({
   const watchable = !!detail?.playbackUrl && !!edit;
   const canShare = !!v && forStudent && lessonCanShare(v, owner, shared);
   const canRetry = owner && v?.status === 'failed';
+  // A rebuild over a recap that can still be watched. The old recap stays
+  // on the page while the worker makes the new one.
+  const updating = watchable && !!v && ['queued', 'processing'].includes(v.status);
   const canEdit = owner && !!edit && !!v && ['review', 'ready', 'failed'].includes(v.status);
+  // The Edit row stays where it was while the rebuild runs, shut rather
+  // than gone: a row that vanishes reads as the menu breaking.
+  const editLocked = owner && updating;
   const canDelete = owner && !!v && !['queued', 'processing', 'uploading'].includes(v.status);
-  const hasManage = canEdit || !!detail?.summaryUrl || (owner && !!detail?.sourceUrl) || canDelete;
+  const hasManage = canEdit || editLocked || !!detail?.summaryUrl || (owner && !!detail?.sourceUrl) || canDelete;
+  const editDirty = !!editing && draftSnapshot(editing) !== editingOriginal.current;
+  const editBlocker = editing ? draftBlocker(editing) : null;
 
   async function action(name: string, extra: object = {}) {
     setBusy(true);
@@ -194,8 +223,56 @@ export function LessonVideoView({
   }
   function openEditor() {
     editingRevision.current = v!.revision;
-    setEditing(structuredClone(edit!));
+    const draft = draftFromEdit(edit!);
+    editingOriginal.current = draftSnapshot(draft);
+    setFocusId(null);
+    setConfirmDiscard(false);
+    setEditing(draft);
   }
+  function closeEditor() {
+    setConfirmDiscard(false);
+    setEditing(null);
+  }
+  /** Cancel, Escape and the backdrop all come through here, so unsaved
+   *  work is never dropped without asking. */
+  function attemptCloseEditor() {
+    if (busy) return;
+    if (editDirty) setConfirmDiscard(true);
+    else closeEditor();
+  }
+  function updateDraft(change: (draft: EditDraft) => EditDraft) {
+    setEditing((draft) => (draft ? change(draft) : draft));
+  }
+  function updateChapter(chapterId: string, change: (chapter: EditDraft['chapters'][number]) => EditDraft['chapters'][number]) {
+    updateDraft((draft) => ({ ...draft, chapters: draft.chapters.map((c) => (c.id === chapterId ? change(c) : c)) }));
+  }
+  function addCue(chapterId: string) {
+    const id = nextDraftId();
+    updateChapter(chapterId, (c) => (canAddCue(c) ? { ...c, cues: [...c.cues, { id, text: '' }] } : c));
+    setFocusId(id);
+  }
+  function removeCue(chapterId: string, cueId: string) {
+    updateChapter(chapterId, (c) => (canRemoveCue(c) ? { ...c, cues: c.cues.filter((cue) => cue.id !== cueId) } : c));
+  }
+  function removeChapter(chapterId: string) {
+    updateDraft((draft) => (draft.chapters.length > 1 ? { ...draft, chapters: draft.chapters.filter((c) => c.id !== chapterId) } : draft));
+  }
+
+  // Escape goes through the same guard as Cancel. Stopping the keydown's
+  // default keeps the browser's own close-on-Escape from running ahead of
+  // the question. No dependency list: the guard reads state that changes
+  // on every keystroke, and a stale closure here would discard work.
+  useEffect(() => {
+    if (!editing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || confirmDiscard) return;
+      e.preventDefault();
+      e.stopPropagation();
+      attemptCloseEditor();
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  });
   function watchFrom(index: number) {
     if (!edit) return;
     resumeTime.current = lessonChapterStart(edit.chapters, index) ?? 0;
@@ -244,6 +321,18 @@ export function LessonVideoView({
                   <span>{edit!.chapters.length} chapters</span>
                   <span>{lessonRecapMinutes(edit!)} min recap</span>
                 </div>
+                {/* The rebuild, in the worker's own words. The ten-second
+                    poll keeps the stage current; the old recap above keeps
+                    playing until the new one replaces it. */}
+                {updating && (
+                  <div role="status" className="mt-4 rounded-2xl border border-edge bg-surface p-5">
+                    <p className="font-medium">Updating your recap</p>
+                    <p className="mt-1 text-sm text-zinc-300">{v.status === 'processing' && v.stage ? v.stage : 'Waiting to start'}</p>
+                    <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+                      Your current recap stays until the new one is ready. This usually takes 15 to 20 minutes.
+                    </p>
+                  </div>
+                )}
               </>
             ) : (
               <div role="status" className="rounded-2xl border border-edge bg-surface p-5">
@@ -339,57 +428,140 @@ export function LessonVideoView({
           ref={(node) => {
             if (node && !node.open) node.showModal();
           }}
-          onCancel={() => setEditing(null)}
+          onCancel={(e) => {
+            // The browser's own Escape. Held open here so the discard
+            // question is asked; the keydown guard above usually gets
+            // there first.
+            e.preventDefault();
+            if (!confirmDiscard) attemptCloseEditor();
+          }}
+          onClose={(e) => {
+            // A close the page did not ask for (a browser that would not
+            // hold the dialog open). Unsaved work comes back with the
+            // question rather than vanishing.
+            if (editDirty) {
+              e.currentTarget.showModal();
+              setConfirmDiscard(true);
+            } else closeEditor();
+          }}
           className="m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-2xl border border-edge bg-surface p-5 text-zinc-100 backdrop:bg-black/75"
         >
           <div className="flex items-center justify-between gap-4">
             <h2 className="text-xl font-semibold">Edit recap</h2>
-            <button className={button} onClick={() => setEditing(null)}>
+            <button type="button" className={button} disabled={busy} onClick={attemptCloseEditor}>
               Cancel
             </button>
           </div>
           <label className="mt-5 block text-sm">
             Title
-            <input autoFocus className={field} value={editing.title} maxLength={100} onChange={(e) => setEditing({ ...editing, title: e.target.value })} />
+            <input
+              autoFocus
+              className={field}
+              value={editing.title}
+              maxLength={MAX_RECAP_TITLE_LENGTH}
+              onChange={(e) => updateDraft((draft) => ({ ...draft, title: e.target.value }))}
+            />
           </label>
           {editing.chapters.map((ch, i) => (
-            <div className="mt-6 border-t border-edge pt-5" key={i}>
-              <label className="text-sm text-zinc-400">
+            <div className="mt-6 border-t border-edge pt-5" key={ch.id}>
+              <label className="block text-sm text-zinc-400">
                 Chapter {i + 1}
                 <input
                   aria-label={`Chapter ${i + 1} title`}
                   className={field}
                   value={ch.title}
-                  maxLength={80}
-                  onChange={(e) => setEditing({ ...editing, chapters: editing.chapters.map((c, n) => (n === i ? { ...c, title: e.target.value } : c)) })}
+                  maxLength={MAX_CHAPTER_TITLE_LENGTH}
+                  onChange={(e) => updateChapter(ch.id, (c) => ({ ...c, title: e.target.value }))}
                 />
               </label>
-              {ch.cues.map((cue, j) => (
-                <textarea
-                  key={j}
-                  aria-label={`Chapter ${i + 1} reminder ${j + 1}`}
-                  rows={3}
-                  className={field}
-                  value={cue}
-                  maxLength={220}
-                  onChange={(e) =>
-                    setEditing({
-                      ...editing,
-                      chapters: editing.chapters.map((c, n) => (n === i ? { ...c, cues: c.cues.map((x, m) => (m === j ? e.target.value : x)) } : c)),
-                    })
-                  }
-                />
-              ))}
-              {editing.chapters.length > 1 && (
-                <button className={button + ' mt-3'} onClick={() => setEditing({ ...editing, chapters: editing.chapters.filter((_, n) => n !== i) })}>
-                  Remove chapter
-                </button>
-              )}
+              <ul className="mt-3 space-y-1.5">
+                {ch.cues.map((cue, j) => (
+                  <li key={cue.id} className="flex gap-2">
+                    {/* The same bullet the journal editor draws, measured
+                        onto the centre of the field's first line. */}
+                    <span className="mt-[18px] h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
+                    <AutoTextarea
+                      value={cue.text}
+                      onChange={(e) => {
+                        const text = e.target.value.slice(0, MAX_CUE_LENGTH);
+                        updateChapter(ch.id, (c) => ({ ...c, cues: c.cues.map((x) => (x.id === cue.id ? { ...x, text } : x)) }));
+                      }}
+                      rows={1}
+                      maxLength={MAX_CUE_LENGTH}
+                      placeholder="One short reminder"
+                      aria-label={`Chapter ${i + 1} point ${j + 1}`}
+                      ref={(el) => {
+                        if (el && focusId === cue.id) {
+                          el.focus();
+                          setFocusId(null);
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-[15px] text-zinc-200 outline-none hover:border-edge focus:border-cyan-glow/50 focus:bg-surface-2/60"
+                    />
+                    {canRemoveCue(ch) && (
+                      <button
+                        type="button"
+                        onClick={() => removeCue(ch.id, cue.id)}
+                        aria-label="Remove this point"
+                        title="Remove this point"
+                        className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-surface-2 hover:text-amber-300"
+                      >
+                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                          <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                        </svg>
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                {canAddCue(ch) && (
+                  <button
+                    type="button"
+                    onClick={() => addCue(ch.id)}
+                    className="rounded-full border border-edge px-3.5 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+                  >
+                    Add a point
+                  </button>
+                )}
+                {editing.chapters.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeChapter(ch.id)}
+                    className="rounded-full border border-edge px-3.5 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-amber-300/50 hover:text-amber-300"
+                  >
+                    Remove chapter
+                  </button>
+                )}
+              </div>
             </div>
           ))}
-          <button disabled={busy} className={primary + ' mt-6'} onClick={() => void action('edit', { edit: editing, expectedRevision: editingRevision.current })}>
-            Save and rebuild
-          </button>
+          <div className="mt-6 border-t border-edge pt-5">
+            <button
+              type="button"
+              disabled={busy || !!editBlocker}
+              className={primary + ' w-full sm:w-auto'}
+              onClick={() => void action('edit', { edit: editFromDraft(editing), expectedRevision: editingRevision.current })}
+            >
+              {busy ? 'Saving…' : 'Save and rebuild'}
+            </button>
+            {editBlocker && <p className="mt-3 text-sm text-zinc-400">{editBlocker}</p>}
+            {error && (
+              <p role="alert" className="mt-3 text-sm text-amber-300">
+                {error}
+              </p>
+            )}
+          </div>
+          {/* Inside the dialog on purpose: a modal dialog sits in the top
+              layer, and anything rendered outside it is behind the
+              backdrop and cannot be pressed. */}
+          <ConfirmDialog
+            open={confirmDiscard}
+            title="Discard your changes?"
+            confirmLabel="Discard"
+            onCancel={() => setConfirmDiscard(false)}
+            onConfirm={closeEditor}
+          />
         </dialog>
       )}
       {confirmDelete && (
@@ -505,8 +677,13 @@ export function LessonVideoView({
           <section className="mt-6" aria-label="Manage">
             <Label>Manage</Label>
             <div className={card}>
-              {canEdit && (
-                <button type="button" className={row} disabled={busy} onClick={openEditor}>
+              {(canEdit || editLocked) && (
+                <button
+                  type="button"
+                  className={row + (editLocked ? ' cursor-not-allowed opacity-50 disabled:opacity-50 disabled:hover:bg-transparent' : '')}
+                  disabled={busy || editLocked}
+                  onClick={openEditor}
+                >
                   Edit recap
                   {chevron}
                 </button>
@@ -530,6 +707,7 @@ export function LessonVideoView({
                 </button>
               )}
             </div>
+            {editLocked && <p className="mt-3 text-sm text-zinc-400">Editing is available when the update finishes.</p>}
           </section>
         )}
       </>

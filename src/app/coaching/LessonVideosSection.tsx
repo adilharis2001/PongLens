@@ -35,7 +35,7 @@ export function LessonVideosSection({ studentId }: { studentId?: string }) {
           <Link key={video.id} href={`/lesson-video/${video.id}`} className={row}>
             <span className="min-w-0">
               <span className="block">{video.edit?.title ?? video.original_name}</span>
-              <span className="mt-0.5 block text-xs font-normal text-zinc-500">{lessonStatusLabel(video, !!video.shared)}</span>
+              <span className="mt-0.5 block text-xs font-normal text-zinc-500">{lessonStatusLabel(video, !!video.shared, !!video.edit)}</span>
             </span>{chevron}
           </Link>
         ))}
