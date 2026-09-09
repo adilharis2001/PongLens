@@ -195,6 +195,74 @@ export interface ResolvedShareEntry {
 }
 
 /**
+ * One chapter of a shared lesson recap, as a stranger may read it.
+ *
+ * The clock is the SUMMARY clock — where the chapter sits inside the
+ * finished recap, which is the only video a share link plays. The source
+ * timings (start_s/end_s, where the clip was taken from in the coach's
+ * ninety minutes) are not published, and the page never needs them.
+ */
+export interface PublicLessonChapter {
+  title: string;
+  cues: string[];
+  summary_start_s: number | null;
+  summary_end_s: number | null;
+}
+
+/** Row from resolve_share_lesson_recap(): one shared lesson recap. The
+ *  three R2 keys stay on the server; the browser asks the share media
+ *  route for a short-TTL URL, token as its only credential. */
+export interface ResolvedShareLessonRecap {
+  lesson_video_id: string;
+  /** the coach's own title for the recap; null when they never set one */
+  title: string | null;
+  /** metadata name only, never the email local part (130) */
+  owner_name: string | null;
+  chapters: unknown;
+  playback_key: string | null;
+  poster_key: string | null;
+  /** null unless a downloadable file exists AND still carries the recap's
+   *  current wording. Null is simply "no download", never a state a
+   *  viewer is told about. */
+  download_key: string | null;
+  download_bytes: number | null;
+}
+
+/** A number that is really a number. Postgres hands back jsonb, so a
+ *  missing clock arrives as null and Number(null) would read as 0 —
+ *  chapter one, for every chapter. */
+function finiteOrNull(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** The recap's chapters, in order, with anything unusable dropped. */
+export function publicLessonChapters(raw: unknown): PublicLessonChapter[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((row): PublicLessonChapter[] => {
+    if (!row || typeof row !== "object") return [];
+    const c = row as Record<string, unknown>;
+    const title = typeof c.title === "string" ? c.title.trim() : "";
+    if (!title) return [];
+    const cues = Array.isArray(c.cues)
+      ? c.cues
+          .filter((cue): cue is string => typeof cue === "string")
+          .map((cue) => cue.trim())
+          .filter(Boolean)
+      : [];
+    return [
+      {
+        title,
+        cues,
+        summary_start_s: finiteOrNull(c.summary_start_s),
+        summary_end_s: finiteOrNull(c.summary_end_s),
+      },
+    ];
+  });
+}
+
+/**
  * The share rows, in the shape the match maths expects.
  *
  * computeMatchScore, computeServing, computeMatchStats and

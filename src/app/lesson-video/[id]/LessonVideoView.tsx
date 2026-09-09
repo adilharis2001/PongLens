@@ -28,6 +28,12 @@ import {
   lessonRecapMinutes,
   lessonStatusLabel,
 } from '@/lib/lessonVideo/presentation';
+import {
+  shareFileCanPrepare,
+  shareFileDownloadable,
+  shareFileSize,
+  type ShareFileState,
+} from '@/lib/lessonVideo/shareFile';
 
 /**
  * One lesson video: the recap to watch, its chapters, and what the coach
@@ -44,8 +50,15 @@ import {
  * play, and a student coming back for one point wants to land on that
  * point. Tapping a chapter opens playback there.
  *
- * "Manage" replaces the More menu: the same four actions, as rows in a
- * card, which is how every other coach page offers its secondary actions.
+ * "Manage" replaces the More menu: the secondary actions as rows in a card,
+ * which is how every other coach page offers them.
+ *
+ * Two of those rows open a dialog rather than doing something at once, and
+ * they borrow the match page's words for it. "Share" on its own never says
+ * whether you get a link, a file or a permission, so the row that mints a
+ * public URL is "Share a link" and the row that hands you a file is
+ * "Export". The downloadable copy with the words painted into the picture
+ * lives inside Export, where somebody looking for a file will look.
  */
 
 const button =
@@ -57,6 +70,11 @@ const field =
 const card = 'divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface';
 const row =
   'flex w-full items-center justify-between gap-4 px-5 py-4 text-left text-sm font-medium text-zinc-200 transition-colors hover:bg-surface-2 disabled:opacity-40';
+/** The page has one modal treatment. Every dialog on it uses this shell. */
+const dialogShell =
+  'm-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-2xl border border-edge bg-surface p-5 text-zinc-100 backdrop:bg-black/75';
+/** What a Manage row says on its right: the state, not a second label. */
+const rowState = 'shrink-0 text-xs text-zinc-500';
 
 export interface LessonUp {
   href: string;
@@ -69,9 +87,22 @@ interface Detail {
   /** Whether the linked student can see it today. Absent from older responses. */
   shared?: boolean;
   sourceUrl?: string;
-  summaryUrl?: string;
   playbackUrl?: string;
   posterUrl?: string;
+  /**
+   * The downloadable copy with the words painted into the picture, and how
+   * far along it is. `stage` and `error` are the owner's only. Absent from
+   * older responses, which is read as "there is no file".
+   */
+  file?: {
+    state: ShareFileState;
+    stage: string | null;
+    error: string | null;
+    bytes: number | null;
+    url: string | null;
+  };
+  /** The public link to this recap, owner only. Null when there is none. */
+  link?: string | null;
 }
 
 function Label({ children }: { children: React.ReactNode }) {
@@ -106,7 +137,23 @@ export function LessonVideoView({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [watching, setWatching] = useState(false);
   const [reading, setReading] = useState(false);
+  // The two Manage dialogs. One at a time, so they share a busy flag and an
+  // error line; both are rendered outside Actions() so the modal never
+  // escapes the hidden half of the responsive layout.
+  const [linking, setLinking] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [manageBusy, setManageBusy] = useState(false);
+  const [manageError, setManageError] = useState('');
+  const [copied, setCopied] = useState(false);
+  // Read after mount: this component renders on the server too, where
+  // navigator does not exist.
+  const [canNativeShare, setCanNativeShare] = useState(false);
   const resumeTime = useRef(0);
+  const linkField = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setCanNativeShare(typeof navigator !== 'undefined' && typeof navigator.share === 'function');
+  }, []);
 
   const active = useRef(true);
   const editingRevision = useRef(0);
@@ -194,7 +241,29 @@ export function LessonVideoView({
   // than gone: a row that vanishes reads as the menu breaking.
   const editLocked = owner && updating;
   const canDelete = owner && !!v && !['queued', 'processing', 'uploading'].includes(v.status);
-  const hasManage = canEdit || editLocked || !!detail?.summaryUrl || (owner && !!detail?.sourceUrl) || canDelete;
+
+  // The public link and the downloadable copy. Both are the owner's to
+  // decide; a coach shared with may read the recap in the app and nothing
+  // more, which is what the two routes behind these already enforce.
+  const link = detail?.link ?? null;
+  const file = detail?.file;
+  const fileState: ShareFileState = file?.state ?? 'none';
+  const fileUrl = file?.url ?? null;
+  const fileSize = shareFileSize(file?.bytes);
+  const canDownloadFile = shareFileDownloadable(fileState) && !!fileUrl;
+  // The file is cut from the finished recap, so the database refuses to
+  // start one while the recap itself is being made again. Offering a button
+  // that can only come back with an error is worse than not offering it.
+  const recapSettled = !!v && ['review', 'ready'].includes(v.status);
+  const canPrepareFile = owner && watchable && recapSettled && shareFileCanPrepare(fileState);
+  const prepareWaiting = owner && watchable && !recapSettled && shareFileCanPrepare(fileState);
+  const canLink = owner && watchable;
+  // A student sees the file entry only when there is a file to take. The
+  // owner sees it whenever there is a recap, because they can ask for one.
+  const showFileEntry = watchable && (owner || canDownloadFile);
+  const showSource = owner && !!detail?.sourceUrl;
+  const hasExport = showFileEntry || showSource;
+  const hasManage = canEdit || editLocked || canLink || hasExport || canDelete;
   const editDirty = !!editing && draftSnapshot(editing) !== editingOriginal.current;
   const editBlocker = editing ? draftBlocker(editing) : null;
 
@@ -219,6 +288,71 @@ export function LessonVideoView({
       setError((e as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+  async function post(url: string, body: object) {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || 'That did not work. Try again.');
+    return d;
+  }
+  /** Anything a Manage dialog does: its own busy flag and its own error
+   *  line, because a modal sits in the top layer and the page's error
+   *  message is behind the backdrop where nobody can read it. */
+  async function manage(run: () => Promise<void>) {
+    setManageBusy(true);
+    setManageError('');
+    try {
+      await run();
+      await load();
+    } catch (e) {
+      setManageError((e as Error).message);
+    } finally {
+      setManageBusy(false);
+    }
+  }
+  function openLinking() {
+    setManageError('');
+    setCopied(false);
+    setLinking(true);
+  }
+  function openExport() {
+    setManageError('');
+    setExporting(true);
+  }
+  const createLink = () => manage(async () => { await post('/api/share', { lessonVideoId: id }); });
+  const stopSharing = () =>
+    manage(async () => {
+      // Revoking needs the link row's id and only the create call answers
+      // with it. That call is idempotent, so asking for the link we already
+      // have returns the same row rather than minting a second one.
+      const made = await post('/api/share', { lessonVideoId: id });
+      await post('/api/share/revoke', { id: made.id });
+    });
+  const prepareFile = () => manage(async () => { await post('/api/lesson-video', { action: 'prepare-file', id }); });
+  async function copyLink() {
+    if (!link) return;
+    setManageError('');
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // No clipboard permission. Select the link so one keystroke takes it.
+      linkField.current?.select();
+      setManageError('Copy the selected link with your keyboard.');
+    }
+  }
+  async function shareLink() {
+    if (!link) return;
+    try {
+      await navigator.share({ url: link });
+    } catch {
+      // The person closed the system share sheet. The link is still there.
     }
   }
   function openEditor() {
@@ -564,6 +698,165 @@ export function LessonVideoView({
           />
         </dialog>
       )}
+      {linking && (
+        <dialog
+          ref={(node) => {
+            if (node && !node.open) node.showModal();
+          }}
+          onCancel={() => setLinking(false)}
+          className={dialogShell}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-xl font-semibold">Share a link</h2>
+            <button type="button" className={button} onClick={() => setLinking(false)}>
+              Close
+            </button>
+          </div>
+          {link ? (
+            <>
+              <div className="mt-4">
+                <input
+                  ref={linkField}
+                  readOnly
+                  aria-label="Link to this recap"
+                  className={field}
+                  value={link}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+              </div>
+              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                <button type="button" className={primary + ' w-full sm:w-auto'} onClick={() => void copyLink()}>
+                  {copied ? 'Copied' : 'Copy link'}
+                </button>
+                {canNativeShare && (
+                  <button type="button" className={button + ' w-full sm:w-auto'} onClick={() => void shareLink()}>
+                    Share
+                  </button>
+                )}
+              </div>
+              <div className="mt-3">
+                <button
+                  type="button"
+                  className={button + ' w-full text-amber-300 sm:w-auto'}
+                  disabled={manageBusy}
+                  onClick={() => void stopSharing()}
+                >
+                  {manageBusy ? 'Stopping…' : 'Stop sharing'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-4 text-sm leading-relaxed text-zinc-400">
+                Anyone with the link can watch this recap. They do not need a PongLens account.
+              </p>
+              <button
+                type="button"
+                className={primary + ' mt-4 w-full sm:w-auto'}
+                disabled={manageBusy}
+                onClick={() => void createLink()}
+              >
+                {manageBusy ? 'Creating…' : 'Create a link'}
+              </button>
+            </>
+          )}
+          {manageError && (
+            <p role="alert" className="mt-3 text-sm text-amber-300">
+              {manageError}
+            </p>
+          )}
+        </dialog>
+      )}
+      {exporting && (
+        <dialog
+          ref={(node) => {
+            if (node && !node.open) node.showModal();
+          }}
+          onCancel={() => setExporting(false)}
+          className={dialogShell}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <h2 className="text-xl font-semibold">Export</h2>
+            <button type="button" className={button} onClick={() => setExporting(false)}>
+              Close
+            </button>
+          </div>
+          {showFileEntry && (
+            <section className="mt-5">
+              <h3 className="text-sm font-semibold text-zinc-100">Video with text</h3>
+              <p className="mt-1 text-sm leading-relaxed text-zinc-400">
+                {fileState === 'none'
+                  ? 'The video with your words on it has not been made yet.'
+                  : fileState === 'queued' || fileState === 'processing'
+                    ? (file?.stage ?? 'Waiting to start')
+                    : fileState === 'ready'
+                      ? fileSize
+                        ? 'Ready. ' + fileSize + '.'
+                        : 'Ready.'
+                      : fileState === 'behind'
+                        ? 'This file still shows your earlier wording.'
+                        : (file?.error ?? 'The video could not be made.')}
+              </p>
+              {(canPrepareFile || canDownloadFile) && (
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                  {canPrepareFile && (
+                    <button
+                      type="button"
+                      className={primary + ' w-full sm:w-auto'}
+                      disabled={manageBusy}
+                      onClick={() => void prepareFile()}
+                    >
+                      {manageBusy
+                        ? 'Starting…'
+                        : fileState === 'behind'
+                          ? 'Prepare it again'
+                          : fileState === 'failed'
+                            ? 'Try again'
+                            : 'Prepare the video'}
+                    </button>
+                  )}
+                  {canDownloadFile && (
+                    <a
+                      className={(canPrepareFile ? button : primary) + ' w-full sm:w-auto'}
+                      href={fileUrl!}
+                    >
+                      {canPrepareFile ? 'Download anyway' : 'Download'}
+                    </a>
+                  )}
+                </div>
+              )}
+              {canPrepareFile && (
+                <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+                  This takes a few minutes. You can keep using PongLens while it runs.
+                </p>
+              )}
+              {prepareWaiting && (
+                <p className="mt-3 text-sm leading-relaxed text-zinc-400">
+                  You can make it once the update finishes.
+                </p>
+              )}
+            </section>
+          )}
+          {showSource && (
+            <section className={'mt-5' + (showFileEntry ? ' border-t border-edge pt-5' : '')}>
+              <h3 className="text-sm font-semibold text-zinc-100">Original recording</h3>
+              <a
+                className={button + ' mt-4 w-full sm:w-auto'}
+                href={detail!.sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open
+              </a>
+            </section>
+          )}
+          {manageError && (
+            <p role="alert" className="mt-3 text-sm text-amber-300">
+              {manageError}
+            </p>
+          )}
+        </dialog>
+      )}
       {confirmDelete && (
         <dialog
           ref={(node) => {
@@ -688,17 +981,23 @@ export function LessonVideoView({
                   {chevron}
                 </button>
               )}
-              {detail?.summaryUrl && (
-                <a className={row} href={detail.summaryUrl} target="_blank" rel="noreferrer">
-                  Video with text
-                  {chevron}
-                </a>
+              {canLink && (
+                <button type="button" className={row} onClick={openLinking}>
+                  Share a link
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className={rowState}>{link ? '1 link' : 'Not shared'}</span>
+                    {chevron}
+                  </span>
+                </button>
               )}
-              {owner && detail?.sourceUrl && (
-                <a className={row} href={detail.sourceUrl} target="_blank" rel="noreferrer">
-                  Original recording
-                  {chevron}
-                </a>
+              {hasExport && (
+                <button type="button" className={row} onClick={openExport}>
+                  Export
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className={rowState}>Video files</span>
+                    {chevron}
+                  </span>
+                </button>
               )}
               {canDelete && (
                 <button type="button" className={row + ' text-red-300'} disabled={busy} onClick={() => setConfirmDelete(true)}>

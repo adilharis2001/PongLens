@@ -29,6 +29,7 @@ import { ShareStats } from "./ShareStats";
 import { SharePlacement } from "./SharePlacement";
 import { StarredView, type StarredClip } from "./StarredView";
 import { ShareEntry } from "./ShareEntry";
+import { LessonRecapView } from "./LessonRecapView";
 import { sanitizeHighlightTimeline } from "@/app/api/share/highlightShare";
 import {
   buildSharePlaybackTimeline,
@@ -39,7 +40,9 @@ import {
   sharePointsAsPoints,
   starredContextLine,
   tagContextLine,
+  publicLessonChapters,
   type ResolvedShareEntry,
+  type ResolvedShareLessonRecap,
   type ResolvedShareLink,
   type ResolvedSharePlacement,
   type ResolvedSharePoint,
@@ -184,6 +187,21 @@ const resolveEntry = cache(
   }
 );
 
+// A lesson recap link (170). Recap tokens share the URL space with match
+// and entry tokens and resolve through their own function, so the page
+// asks this only after the match resolver has come up empty — the same
+// order the share media route follows.
+const resolveLessonRecap = cache(
+  async (token: string): Promise<ResolvedShareLessonRecap | null> => {
+    if (!token || token.length < 32 || token.length > 128) return null;
+    const supabase = await createClient();
+    const { data } = await supabase.rpc("resolve_share_lesson_recap", {
+      p_token: token,
+    });
+    return (data?.[0] as ResolvedShareLessonRecap | undefined) ?? null;
+  }
+);
+
 // Tag links resolve their point set live too (same shape as starred).
 const resolveTagged = cache(
   async (token: string): Promise<ResolvedStarredPoint[]> => {
@@ -204,6 +222,24 @@ export async function generateMetadata({
   const link = await resolve(token);
   const robots = { index: false, follow: false };
   if (!link) {
+    const recap = await resolveLessonRecap(token);
+    if (recap) {
+      const title = recap.title?.trim() || "Lesson recap";
+      const description = recap.owner_name
+        ? `A lesson recap from ${recap.owner_name} on PongLens.`
+        : "A lesson recap on PongLens.";
+      return {
+        title,
+        description,
+        robots,
+        openGraph: { title: `${title} · PongLens`, description },
+        twitter: {
+          card: "summary_large_image",
+          title: `${title} · PongLens`,
+          description,
+        },
+      };
+    }
     const entry = await resolveEntry(token);
     if (!entry) return { title: "PongLens", robots };
     const title = entryLines(entry).heading;
@@ -385,9 +421,73 @@ export default async function SharePage({
   const { token } = await params;
   const link = await resolve(token);
 
-  // A journal entry link: its own quiet reading page. No video machinery,
-  // no score — an entry is text, maybe a photo, and a transcript.
+  // A lesson recap link (170): the clean video with the chapters drawn
+  // beside it, which is how both apps show it. Nothing is rendered to make
+  // this page work, so a link is watchable the moment a coach creates it.
+  // The three R2 keys stay here — the media route signs them — and the
+  // written lesson notes are never published: a recap is the chapters.
   if (!link) {
+    const recap = await resolveLessonRecap(token);
+    if (recap) {
+      const recapSupportEmail = await getSupportEmail();
+      const chapters = publicLessonChapters(recap.chapters);
+      const coach = (recap.owner_name ?? "").trim();
+      const custom = recap.title?.trim() || null;
+      // Two shapes rather than one, so the name is never said twice: the
+      // coach's own title takes the heading and the attribution sits under
+      // it; with no title the attribution IS the heading.
+      const heading =
+        custom ?? (coach ? `Lesson recap from ${coach}` : "Lesson recap");
+      const subLine = custom
+        ? coach
+          ? `A lesson recap from ${coach}.`
+          : "A lesson recap."
+        : null;
+      const bytes = Number(recap.download_bytes);
+      return (
+        <main className="bg-arena flex min-h-screen flex-col">
+          <div className="mx-auto w-full max-w-md flex-1 pb-10 sm:max-w-lg lg:max-w-5xl">
+            <header className="px-4 pt-5 sm:pt-8">
+              <Logo />
+              <h1 className="mt-5 text-2xl font-bold tracking-tight sm:text-3xl">
+                {heading}
+              </h1>
+              {subLine && (
+                <p className="mt-1 text-sm text-zinc-500">{subLine}</p>
+              )}
+            </header>
+
+            <div className="mt-4 sm:px-4">
+              <LessonRecapView
+                token={token}
+                chapters={chapters}
+                canDownload={Boolean(recap.download_key)}
+                downloadBytes={
+                  recap.download_key && Number.isFinite(bytes) && bytes > 0
+                    ? bytes
+                    : null
+                }
+              />
+            </div>
+          </div>
+
+          <footer className="mt-8 border-t border-edge/60 px-4 py-6">
+            <div className="mx-auto flex w-full max-w-md flex-col items-center gap-3 sm:max-w-lg">
+              <Logo />
+              <a
+                href={`mailto:${recapSupportEmail}?subject=Report%20a%20shared%20lesson%20recap`}
+                className="text-xs text-zinc-600 transition-colors hover:text-zinc-400"
+              >
+                Report this recap
+              </a>
+            </div>
+          </footer>
+        </main>
+      );
+    }
+
+    // A journal entry link: its own quiet reading page. No video machinery,
+    // no score — an entry is text, maybe a photo, and a transcript.
     const entry = await resolveEntry(token);
     if (!entry) return <LinkOff />;
     const entrySupportEmail = await getSupportEmail();
