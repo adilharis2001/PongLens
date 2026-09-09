@@ -443,6 +443,8 @@ struct LessonVideoDetailScreen: View {
     @State private var watchRequest: WatchRequest?
     @State private var notesOpen = false
     @State private var deleteOpen = false
+    @State private var shareLinkOpen = false
+    @State private var exportOpen = false
     /// Who the recap says taught the lesson. Mirrors the row so the
     /// picker can show an answer before the write comes back.
     @State private var coachRefId: UUID?
@@ -495,7 +497,10 @@ struct LessonVideoDetailScreen: View {
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(10)) } catch { return }
                 let renewPlayback = LessonVideoPlaybackRefresh.isDue(lastRefresh: playerURLFetchedAt)
-                if !watchOpen && (detail?.video.needsRefresh == true || renewPlayback) {
+                // The file with the words in it is built long after the
+                // recap is watchable, so the page waits on that too. Same
+                // ten seconds, same loop.
+                if !watchOpen && (detail?.needsRefresh == true || renewPlayback) {
                     await load(refreshPlayback: renewPlayback)
                 }
             }
@@ -525,6 +530,28 @@ struct LessonVideoDetailScreen: View {
         .sheet(isPresented: $editOpen) {
             if let edit = detail?.video.edit {
                 LessonVideoEditSheet(id: id, expectedRevision: detail?.video.revision, edit: edit) { await load() }
+            }
+        }
+        .sheet(isPresented: $shareLinkOpen) {
+            LessonRecapLinkSheet(id: id, existing: detail?.link) { await load() }
+        }
+        .sheet(isPresented: $exportOpen) {
+            // Read from the page's own copy, so the ten-second poll moves
+            // the sheet from "Preparing" to "Ready" while it is open.
+            if let detail {
+                LessonRecapExportSheet(
+                    id: id,
+                    file: detail.file,
+                    showFile: watchable(detail),
+                    // The file is cut from the finished recap, so the
+                    // database refuses to start one while the recap is
+                    // being made again. A button that can only come back
+                    // with an error is worse than no button.
+                    canPrepare: detail.isOwner && watchable(detail)
+                        && ["review", "ready"].contains(detail.video.status),
+                    prepareWaiting: detail.isOwner && rebuilding(detail),
+                    originalURL: originalURL(detail)
+                ) { await load() }
             }
         }
     }
@@ -725,7 +752,13 @@ struct LessonVideoDetailScreen: View {
     }
 
     private enum ManageRow: Hashable {
-        case edit, watchOriginal, exportSummary(URL), exportOriginal(URL), delete
+        case edit, shareLink, export, watchOriginal, delete
+    }
+
+    /// The original recording, for the owner. Sharing a recap never hands
+    /// over the ninety minutes it was cut from.
+    private func originalURL(_ detail: LessonVideoDetail) -> URL? {
+        detail.isOwner ? (detail.sourceUrl ?? detail.originalUrl).flatMap(URL.init(string:)) : nil
     }
 
     private func manageRows(_ detail: LessonVideoDetail) -> [ManageRow] {
@@ -736,10 +769,15 @@ struct LessonVideoDetailScreen: View {
         // caption under the list says when it comes back.
         if detail.isOwner, video.edit != nil,
            ["review", "ready", "failed"].contains(video.status) || rebuilding(detail) { rows.append(.edit) }
-        let originalURL = detail.isOwner ? (detail.sourceUrl ?? detail.originalUrl).flatMap(URL.init(string:)) : nil
-        if originalURL != nil { rows.append(.watchOriginal) }
-        if let url = detail.summaryUrl.flatMap(URL.init(string:)) { rows.append(.exportSummary(url)) }
-        if let originalURL { rows.append(.exportOriginal(originalURL)) }
+        // A public link is the owner's to hand out, and there is nothing
+        // worth handing out until there is a recap to watch.
+        if detail.isOwner, watchable(detail) { rows.append(.shareLink) }
+        // Export is where the file with the words in it is asked for, so
+        // the owner reaches it as soon as there is a recap or a recording
+        // to save. Anybody else sees it only when a file already exists.
+        let hasFile = detail.file?.downloadURL != nil
+        if detail.isOwner ? (watchable(detail) || originalURL(detail) != nil) : hasFile { rows.append(.export) }
+        if originalURL(detail) != nil { rows.append(.watchOriginal) }
         if detail.isOwner, !video.needsRefresh { rows.append(.delete) }
         return rows
     }
@@ -752,7 +790,7 @@ struct LessonVideoDetailScreen: View {
             VStack(alignment: .leading, spacing: 8) {
                 CoachGroup("Manage") {
                     ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                        manageRow(row, editLocked: editLocked)
+                        manageRow(row, detail: detail, editLocked: editLocked)
                         if index < rows.count - 1 { CoachRowDivider() }
                     }
                 }
@@ -765,39 +803,24 @@ struct LessonVideoDetailScreen: View {
     }
 
     @ViewBuilder
-    private func manageRow(_ row: ManageRow, editLocked: Bool) -> some View {
+    private func manageRow(_ row: ManageRow, detail: LessonVideoDetail, editLocked: Bool) -> some View {
         switch row {
         case .edit:
             CoachNavRow(label: "Edit recap") { editOpen = true }
                 .disabled(busy || editLocked)
                 .opacity(editLocked ? 0.5 : 1)
+        case .shareLink:
+            CoachNavRow(
+                label: "Share a link",
+                detail: detail.link == nil ? "Not shared" : "1 link"
+            ) { shareLinkOpen = true }
+        case .export:
+            CoachNavRow(label: "Export", detail: "Video files") { exportOpen = true }
         case .watchOriginal:
             CoachNavRow(label: "Watch original recording") { watchOriginal() }
-        case .exportSummary(let url):
-            exportRow("Export video with text", url: url)
-        case .exportOriginal(let url):
-            exportRow("Export original video", url: url)
         case .delete:
             CoachNavRow(label: "Delete lesson video", tint: PL.dangerText) { deleteOpen = true }.disabled(busy)
         }
-    }
-
-    /// A Manage row that hands the file to the share sheet rather than
-    /// opening a screen, so it carries the share glyph where the others
-    /// carry a chevron.
-    private func exportRow(_ label: String, url: URL) -> some View {
-        ShareLink(item: url) {
-            HStack(spacing: 12) {
-                Text(label).font(.system(size: 16)).foregroundStyle(PL.textBody)
-                Spacer()
-                Image(systemName: "square.and.arrow.up")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(PL.text500)
-            }
-            .padding(.horizontal, 16).padding(.vertical, 14)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     /// Open the player on the recap, at a chapter when one was tapped.
@@ -921,6 +944,312 @@ struct LessonVideoDetailScreen: View {
                 )
                 if action == "delete" { dismiss() } else { await load() }
             } catch { self.error = UserFacingError.message(error) }
+        }
+    }
+}
+
+/// The public link to a recap.
+///
+/// One link, or none. There is no title to set, no expiry to choose and
+/// nothing to switch: the page a stranger opens shows the recap as it
+/// currently reads, and stopping the link is what takes it away. POST
+/// /api/share is idempotent, so asking again hands back the link that
+/// already exists rather than minting a second one, which is also how the
+/// sheet learns the id it needs to revoke a link the page arrived with.
+private struct LessonRecapLinkSheet: View {
+    let id: UUID
+    /// The live link the recap page already knows about, if there is one.
+    let existing: String?
+    /// Reload the page behind, so the Manage row's "Not shared" catches up.
+    let onChanged: () async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var link: URL?
+    @State private var linkId: String?
+    @State private var started = false
+    @State private var creating = false
+    @State private var revoking = false
+    @State private var copied = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if let link {
+                        Text(link.absoluteString)
+                            .font(.system(size: 13, design: .monospaced))
+                            .foregroundStyle(PL.text300)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(PL.surface, in: RoundedRectangle(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(PL.edge, lineWidth: 1))
+                        Button { copy(link) } label: {
+                            Text(copied ? "Copied" : "Copy link").frame(maxWidth: .infinity, minHeight: 28)
+                        }
+                        .buttonStyle(PLPrimaryButtonStyle())
+                        ShareLink(item: link) {
+                            Text("Share the link").frame(maxWidth: .infinity, minHeight: 28)
+                        }
+                        .buttonStyle(PLSecondaryButtonStyle())
+                        Button { Task { await stopSharing() } } label: {
+                            Text(revoking ? "Stopping…" : "Stop sharing").frame(maxWidth: .infinity, minHeight: 28)
+                        }
+                        .buttonStyle(PLSoftDestructiveButtonStyle())
+                        .disabled(revoking)
+                    } else {
+                        Text("Anyone with the link can watch this recap. They do not need a PongLens account.")
+                            .font(.plBody).foregroundStyle(PL.text400).lineSpacing(4)
+                        Button { Task { await create() } } label: {
+                            Text(creating ? "Creating…" : "Create a link").frame(maxWidth: .infinity, minHeight: 28)
+                        }
+                        .buttonStyle(PLPrimaryButtonStyle())
+                        .disabled(creating)
+                    }
+                    if let errorMessage {
+                        Text(errorMessage).font(.plCaption).foregroundStyle(PL.dangerText)
+                    }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(PL.ink)
+            .navigationTitle("Share a link")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }.fontWeight(.semibold)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .preferredColorScheme(.dark)
+        .task {
+            // Only on the way in. After that the sheet's own state is the
+            // truth, so a reload landing mid-revoke cannot put the link
+            // back on screen.
+            guard !started else { return }
+            started = true
+            link = existing.flatMap(URL.init(string:))
+        }
+    }
+
+    private func copy(_ url: URL) {
+        UIPasteboard.general.string = url.absoluteString
+        copied = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            copied = false
+        }
+    }
+
+    private struct MintResponse: Decodable {
+        let id: String
+        let url: String
+    }
+
+    private func create() async {
+        guard !creating else { return }
+        creating = true
+        errorMessage = nil
+        defer { creating = false }
+        struct Req: Encodable { let lessonVideoId: String }
+        do {
+            let res: MintResponse = try await API.post(
+                "api/share", Req(lessonVideoId: id.uuidString.lowercased())
+            )
+            guard let url = URL(string: res.url) else {
+                errorMessage = "Couldn't create the link. Try again."
+                return
+            }
+            link = url
+            linkId = res.id
+            await onChanged()
+        } catch {
+            errorMessage = UserFacingError.message(error) ?? "Couldn't create the link. Try again."
+        }
+    }
+
+    private func stopSharing() async {
+        guard !revoking else { return }
+        revoking = true
+        errorMessage = nil
+        defer { revoking = false }
+        struct Req: Encodable { let lessonVideoId: String }
+        struct RevokeReq: Encodable { let id: String }
+        do {
+            // The page arrives with the link's address and not its id, so
+            // the id is asked for here. The mint is idempotent and returns
+            // the link that already exists.
+            let target: String
+            if let linkId { target = linkId }
+            else {
+                let res: MintResponse = try await API.post(
+                    "api/share", Req(lessonVideoId: id.uuidString.lowercased())
+                )
+                target = res.id
+            }
+            let _: LessonVideoOK = try await API.post("api/share/revoke", RevokeReq(id: target))
+            link = nil
+            linkId = nil
+            copied = false
+            await onChanged()
+        } catch {
+            errorMessage = UserFacingError.message(error) ?? "Couldn't stop sharing. Try again."
+        }
+    }
+}
+
+/// The two files a recap can hand somebody: the copy with the words in the
+/// picture, and the recording it was made from.
+///
+/// The recap people watch in PongLens is the clean video with the chapters
+/// drawn by the app, so the burnt-in copy is only ever a download. It is
+/// built on request rather than with every correction, which is why this
+/// sheet is mostly about saying where that build has got to.
+private struct LessonRecapExportSheet: View {
+    let id: UUID
+    let file: LessonShareFile?
+    /// There is a recap to cut a file from. A student sees this entry only
+    /// when there is already a file to take.
+    let showFile: Bool
+    /// Only the owner of a settled recap can ask for a build.
+    let canPrepare: Bool
+    /// The owner, while the recap itself is being made again, which is the
+    /// one time asking would be refused.
+    let prepareWaiting: Bool
+    let originalURL: URL?
+    let onChanged: () async -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var busy = false
+    @State private var errorMessage: String?
+
+    private var state: LessonShareFileState { file?.state ?? .none }
+    /// The server sends the address only when there is something at it, so
+    /// this is its own answer about whether a download is possible, rather
+    /// than a second reading of the state.
+    private var downloadURL: URL? { file?.downloadURL }
+    private var prepareOffered: Bool { canPrepare && state.canPrepare }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 28) {
+                    if showFile || file?.downloadURL != nil { videoWithText }
+                    if let originalURL { originalRecording(originalURL) }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .background(PL.ink)
+            .navigationTitle("Export")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }.fontWeight(.semibold)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .preferredColorScheme(.dark)
+    }
+
+    private var videoWithText: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Video with text").font(.plCardTitle).foregroundStyle(PL.text100)
+            Text(stateLine).font(.plBody).foregroundStyle(PL.text400).lineSpacing(4)
+            if prepareOffered {
+                Button { Task { await prepare() } } label: {
+                    Text(busy ? "Starting…" : prepareLabel).frame(maxWidth: .infinity, minHeight: 28)
+                }
+                .buttonStyle(PLPrimaryButtonStyle())
+                .disabled(busy)
+                Text("This takes a few minutes. You can keep using PongLens while it runs.")
+                    .font(.plCaption).foregroundStyle(PL.text400).lineSpacing(3)
+            } else if prepareWaiting, state.canPrepare {
+                Text("You can make it once the update finishes.")
+                    .font(.plCaption).foregroundStyle(PL.text400).lineSpacing(3)
+            }
+            if let downloadURL {
+                // A file that is behind is still a file, and somebody who
+                // only wants to send something today should be able to. It
+                // steps back to the outlined style when there is a build to
+                // start beside it, so the card keeps one cyan action.
+                if prepareOffered {
+                    saveOrSend(downloadURL).buttonStyle(PLSecondaryButtonStyle())
+                } else {
+                    saveOrSend(downloadURL).buttonStyle(PLPrimaryButtonStyle())
+                }
+            }
+            if let errorMessage {
+                Text(errorMessage).font(.plCaption).foregroundStyle(PL.dangerText)
+            }
+        }
+    }
+
+    private func originalRecording(_ url: URL) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Original recording").font(.plCardTitle).foregroundStyle(PL.text100)
+            saveOrSend(url).buttonStyle(PLSecondaryButtonStyle())
+        }
+    }
+
+    /// Hands the file's address to the system share sheet, which is where
+    /// Save to Files, Messages and the rest live.
+    private func saveOrSend(_ url: URL) -> some View {
+        ShareLink(item: url) {
+            Text("Save or send").frame(maxWidth: .infinity, minHeight: 28)
+        }
+    }
+
+    /// What the file is doing, in the words a person would use.
+    private var stateLine: String {
+        let stage = file?.stage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        switch state {
+        case .none:
+            return "The video with your words on it has not been made yet."
+        case .queued, .processing:
+            return stage.isEmpty ? "Waiting to start" : stage
+        case .ready:
+            // Same sentence as the web panel, full stop included: one rule
+            // written twice is how two surfaces start disagreeing.
+            if let size = file?.sizeLabel { return "Ready. \(size)." }
+            return "Ready."
+        case .behind:
+            return "This file still shows your earlier wording."
+        case .failed:
+            let reason = file?.error?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return reason.isEmpty ? "The video could not be made." : reason
+        case .unknown:
+            return "Update PongLens to see the state of this file."
+        }
+    }
+
+    private var prepareLabel: String {
+        switch state {
+        case .behind: "Prepare it again"
+        case .failed: "Try again"
+        default: "Prepare the video"
+        }
+    }
+
+    private func prepare() async {
+        guard !busy else { return }
+        busy = true
+        errorMessage = nil
+        defer { busy = false }
+        do {
+            let _: LessonVideoFileResponse = try await API.post(
+                "api/lesson-video", LessonVideoAction(action: "prepare-file", id: id)
+            )
+            // The page's own read is what this sheet renders, and it is
+            // also what starts the poll that will move it to Ready.
+            await onChanged()
+        } catch {
+            errorMessage = UserFacingError.message(error)
+                ?? "The video file could not be started. Try again."
         }
     }
 }

@@ -209,9 +209,14 @@ struct CoachRowDivider: View {
 }
 
 /// An Account-style action row: label, optional leading symbol, chevron.
+///
+/// `detail` is the state the row is in, on the right of the label, the way
+/// the match page's Tools rows read: the row names one job and the right
+/// hand side says where it has got to.
 struct CoachNavRow: View {
     let label: String
     var symbol: String? = nil
+    var detail: String? = nil
     var tint: Color = PL.textBody
     let action: () -> Void
 
@@ -228,6 +233,11 @@ struct CoachNavRow: View {
                     .font(.system(size: 16))
                     .foregroundStyle(tint)
                 Spacer()
+                if let detail {
+                    Text(detail)
+                        .font(.system(size: 15))
+                        .foregroundStyle(PL.text400)
+                }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(PL.text600)

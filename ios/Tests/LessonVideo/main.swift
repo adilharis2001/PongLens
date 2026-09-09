@@ -215,3 +215,62 @@ check(long.chapters[1].cues[0].count == 220 && long.chapters[1].title.count == 8
 check(LessonVideoEditDraft.maxCuesPerChapter == 3, "three points is what the rendered panel has room for")
 print("lesson edit draft checks passed")
 
+
+
+// The downloadable copy with the words in the picture: what its state
+// says, and what the recap page does about it. Twin of shareFile.test.ts.
+for (raw, expected) in [
+    ("none", LessonShareFileState.none), ("queued", .queued), ("processing", .processing),
+    ("ready", .ready), ("behind", .behind), ("failed", .failed),
+    // A state written by a newer server must not take the page down with it.
+    ("sweeping", .unknown), ("", .unknown),
+] {
+    let decoded = try JSONDecoder().decode(
+        LessonShareFile.self, from: Data(#"{"state":"\#(raw)"}"#.utf8)
+    )
+    check(decoded.state == expected, "\(raw) must decode as \(expected)")
+}
+check(LessonShareFileState.ready.isDownloadable && LessonShareFileState.behind.isDownloadable,
+      "a built file can be saved, including one built from earlier wording")
+for state in [LessonShareFileState.none, .queued, .processing, .failed, .unknown] {
+    check(!state.isDownloadable, "\(state) has no file to hand anybody")
+}
+for state in [LessonShareFileState.none, .behind, .failed] {
+    check(state.canPrepare, "\(state) is a state a build would get somewhere from")
+}
+for state in [LessonShareFileState.queued, .processing, .ready, .unknown] {
+    check(!state.canPrepare, "asking for a build while \(state) would do nothing useful")
+}
+check(LessonShareFileState.queued.isBuilding && LessonShareFileState.processing.isBuilding,
+      "a build in flight is what the page waits on")
+for state in [LessonShareFileState.none, .ready, .behind, .failed, .unknown] {
+    check(!state.isBuilding, "\(state) has settled, so the poll can stop")
+}
+check(LessonShareFile.sizeLabel(bytes: nil) == nil && LessonShareFile.sizeLabel(bytes: 0) == nil
+      && LessonShareFile.sizeLabel(bytes: -5) == nil, "a size we do not know is not printed")
+check(LessonShareFile.sizeLabel(bytes: 134_217_728) == "128 MB", "megabytes are whole")
+check(LessonShareFile.sizeLabel(bytes: 1_072_693_248) == "1023 MB", "just under a gigabyte stays in MB")
+check(LessonShareFile.sizeLabel(bytes: 1_073_741_824) == "1.0 GB", "a gigabyte changes unit")
+check(LessonShareFile.sizeLabel(bytes: 2_147_483_648) == "2.0 GB", "gigabytes keep one decimal")
+print("lesson share file state and size checks passed")
+
+func lessonDetail(_ tail: String, status: String = "ready") throws -> LessonVideoDetail {
+    try JSONDecoder().decode(LessonVideoDetail.self, from: Data("""
+    {"video":{"id":"00000000-0000-0000-0000-000000000001","owner_id":"00000000-0000-0000-0000-000000000002","original_name":"Lesson.mov","file_size":1024,"duration_s":5400,"status":"\(status)","created_at":"2026-09-09T00:00:00Z"},"isOwner":true\(tail)}
+    """.utf8))
+}
+// A recap that is finished, with a file still being built: the page has to
+// keep polling, or the sheet sits on "Waiting to start" forever.
+let building = try lessonDetail(#","file":{"state":"queued","stage":null,"error":null,"bytes":null,"url":null},"link":"https://www.ponglens.com/s/abc123""#)
+check(!building.video.needsRefresh, "the recap itself has finished")
+check(building.needsRefresh, "a queued file keeps the page reading")
+check(building.link == "https://www.ponglens.com/s/abc123", "the public link comes back on the page")
+let ready = try lessonDetail(#","file":{"state":"ready","stage":null,"error":null,"bytes":134217728,"url":"https://media.example/recap.mp4"}"#)
+check(!ready.needsRefresh, "a finished file stops the poll")
+check(ready.file?.downloadURL != nil && ready.file?.sizeLabel == "128 MB", "a ready file is a download with a size")
+check(ready.link == nil, "no link means no link, not a crash")
+// A server from before the file had a state of its own sends neither key.
+let older = try lessonDetail("", status: "processing")
+check(older.file == nil && older.link == nil, "an older response still decodes")
+check(older.needsRefresh, "and the recap being made still drives the poll")
+print("lesson recap file and link page checks passed")

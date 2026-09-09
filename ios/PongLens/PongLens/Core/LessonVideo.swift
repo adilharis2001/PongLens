@@ -113,10 +113,110 @@ struct LessonVideoDetail: Decodable {
     /// means shared". A player pressed Stop sharing twice, the call
     /// succeeded both times, and the page went on saying Shared.
     let shared: Bool?
+    /// The downloadable copy with the words painted into the picture, and
+    /// what is happening to it. Optional because a server from before the
+    /// file had a state of its own does not send it.
+    let file: LessonShareFile?
+    /// The public link, when there is a live one. Owner only: anybody else
+    /// reading this recap is inside PongLens already.
+    let link: String?
 
     /// One answer, from whichever place the server put it, and never a
     /// guess: a recap is shared when the server says so.
     var sharedNow: Bool { shared ?? video.shared ?? false }
+
+    /// Whether this page still has something to wait for. Two things can
+    /// be running: the recap itself being made, and the downloadable file
+    /// being built, which carries on long after the recap is watchable.
+    /// One condition, so the screen keeps one ten-second poll rather than
+    /// growing a second timer beside it.
+    var needsRefresh: Bool { video.needsRefresh || (file?.state.isBuilding ?? false) }
+}
+
+/// What is happening to the downloadable copy of a recap: the video with
+/// the words painted into the picture.
+///
+/// The apps play the clean recap and draw the chapters themselves, so this
+/// file is only ever used for a download, to send to somebody who will not
+/// open it in PongLens. It is built when its owner asks for it, and it goes
+/// out of date the moment a word is corrected, because by then the old
+/// words are in the picture. Twin of ShareFileState in
+/// `src/lib/lessonVideo/shareFile.ts`.
+///
+/// `unknown` is the fallback for a state this build has never heard of. A
+/// phone that has not been updated must still show the recap, rather than
+/// failing to decode the whole page over one word it does not recognise.
+nonisolated enum LessonShareFileState: String, Decodable {
+    case none, queued, processing, ready, behind, failed, unknown
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        self = LessonShareFileState(rawValue: raw) ?? .unknown
+    }
+
+    /// Whether there is a file somebody can actually download. `behind` is
+    /// included on purpose: it plays, and it shows the wording its owner
+    /// had when it was built. Twin of shareFileDownloadable.
+    var isDownloadable: Bool { self == .ready || self == .behind }
+
+    /// Whether asking for a build would do anything. Twin of
+    /// shareFileCanPrepare, with one case the web has no word for:
+    /// `unknown` answers no, because a build this app cannot name is not
+    /// one it should start a second copy of.
+    var canPrepare: Bool {
+        switch self {
+        case .queued, .processing, .ready, .unknown: false
+        case .none, .behind, .failed: true
+        }
+    }
+
+    /// A build is running now. This is what keeps the recap page polling
+    /// after the recap itself has finished.
+    var isBuilding: Bool { self == .queued || self == .processing }
+}
+
+/// The file's state as the recap page reads it.
+nonisolated struct LessonShareFile: Decodable {
+    let state: LessonShareFileState
+    /// What the worker is doing, and why it stopped. Both are the owner's
+    /// business; the server sends null for anybody else.
+    let stage: String?
+    let error: String?
+    let bytes: Int?
+    /// A presigned download, sent only when there is a file to fetch.
+    let url: String?
+
+    /// Written out rather than synthesized so a response missing a key
+    /// still reads as "nothing has been made" instead of failing the whole
+    /// page.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        state = try container.decodeIfPresent(LessonShareFileState.self, forKey: .state) ?? .none
+        stage = try container.decodeIfPresent(String.self, forKey: .stage)
+        error = try container.decodeIfPresent(String.self, forKey: .error)
+        bytes = try container.decodeIfPresent(Int.self, forKey: .bytes)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+    }
+    private enum CodingKeys: String, CodingKey { case state, stage, error, bytes, url }
+
+    var downloadURL: URL? { url.flatMap(URL.init(string:)) }
+    var sizeLabel: String? { Self.sizeLabel(bytes: bytes) }
+
+    /// "128 MB", "2.0 GB", and nothing at all when the size is not known.
+    /// Twin of shareFileSize, including where it changes unit.
+    static func sizeLabel(bytes: Int?) -> String? {
+        guard let bytes, bytes > 0 else { return nil }
+        let mb = Double(bytes) / (1024 * 1024)
+        if mb >= 1024 { return String(format: "%.1f GB", mb / 1024) }
+        return "\(Int(mb.rounded())) MB"
+    }
+}
+
+/// What "prepare-file" answers with: the file's state, straight away, so
+/// the sheet can show the build starting before the page reloads.
+struct LessonVideoFileResponse: Decodable {
+    let ok: Bool
+    let file: LessonShareFile
 }
 struct LessonVideoList: Decodable { let videos: [LessonVideo] }
 struct LessonVideoAction: Encodable {
