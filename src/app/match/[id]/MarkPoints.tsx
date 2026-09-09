@@ -44,6 +44,7 @@ import {
   type Outcome,
   asPoints,
   clearAwaiting,
+  firstUnscored,
   lastClosedEnd as lastEnd,
   MIN_POINT_S,
   emptyState,
@@ -224,12 +225,25 @@ export function MarkPoints({
   submit: (marks: Mark[]) => Promise<string | null>;
   onClose: () => void;
 }) {
+  /** A draft reopens where the work is, not at the front door: the pad is
+   *  live at once, in scoring mode, with the first point that still has
+   *  no winner selected and cued. Scoring a cut-only pass is then one
+   *  answer after another, with the video playing each point back. */
+  const resumed = initialMarks.length > 0;
   const [state, setState] = useState<MarkState>(() =>
-    initialMarks.length ? { ...emptyState, marks: initialMarks } : emptyState
+    resumed
+      ? {
+          ...emptyState,
+          marks: initialMarks,
+          selectedId: firstUnscored(initialMarks)?.id ?? null,
+        }
+      : emptyState
   );
   /** Cut only, or cut and score? Asked once, before anything else, so the
    *  pad can drop the half of itself the answer does not need. */
-  const [mode, setMode] = useState<"cut" | "score" | null>(null);
+  const [mode, setMode] = useState<"cut" | "score" | null>(
+    resumed ? "score" : null
+  );
   /** Who served first, if known. Comes in from the match row and is set
    *  here the moment the player answers, so the rotation shows at once. */
   const [firstServer, setFirstServer] = useState<MatchServer | null>(
@@ -239,10 +253,12 @@ export function MarkPoints({
     if (initialFirstServer) setFirstServer(initialFirstServer);
   }, [initialFirstServer]);
   /** The second question on the way in, where a rotation exists. */
-  const [serveStep, setServeStep] = useState(false);
+  const [serveStep, setServeStep] = useState(
+    resumed && tracksServe(matchType) && initialFirstServer === null
+  );
   /** Has the session started? Until it has, the pad is one button, because
    *  one button is the only thing there is to do. */
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState(resumed);
   /** The pad's own speed control, mirroring the scorekeeper's. The picture
    *  gestures (hold left for 0.25x, hold right for 2x) still work, but the
    *  floating pad covers part of the frame and whichever half it sits on
@@ -473,6 +489,28 @@ export function MarkPoints({
   }, []);
 
   /**
+   * Where a reopened draft is cued: at the first point still waiting for
+   * a winner, padded as its clip will be, so pressing play shows that
+   * point and stops at its end; otherwise where the marking stopped.
+   * Runs on the first metadata event, and again after the serve card.
+   */
+  const cueReview = useCallback(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const d = Number.isFinite(v.duration) ? v.duration : Infinity;
+    const pending = firstUnscored(stateRef.current.marks);
+    if (pending && pending.t1 !== null) {
+      v.currentTime = Math.max(0, Math.min(d - 0.1, pending.t0 - CLIP_PRE));
+      previewUntil.current = pending.t1 + CLIP_POST;
+    } else {
+      const last = lastEnd(stateRef.current.marks);
+      if (last === null) return;
+      v.currentTime = Math.max(0, Math.min(d - 0.1, last));
+      previewUntil.current = null;
+    }
+    setPlayhead(v.currentTime);
+  }, []);
+  /**
    * Who served first is asked on the way into scoring, and only where a
    * rotation exists: a match, a league, a tournament (tracksServe), never
    * a practice. The answer is on the tape, so the card leaves the video
@@ -487,16 +525,11 @@ export function MarkPoints({
   const closeServeStep = useCallback(() => {
     setServeStep(false);
     // Begin Cutting is what starts playback; the preview must not leave
-    // the tape running behind a button that says begin. A draft resumes
-    // where marking stopped, and the preview must not move that either.
+    // the tape running behind a button that says begin. A draft is cued
+    // back to where its work is, and the preview must not move that.
     playApi.current?.pause();
-    const last = lastEnd(stateRef.current.marks);
-    const v = videoRef.current;
-    if (last !== null && v) {
-      v.currentTime = Math.max(0, last);
-      setPlayhead(v.currentTime);
-    }
-  }, []);
+    cueReview();
+  }, [cueReview]);
   const answerFirstServer = useCallback(
     (value: MatchServer) => {
       setFirstServer(value);
@@ -524,13 +557,8 @@ export function MarkPoints({
   const resumeToLastPoint = useCallback(() => {
     if (resumedRef.current) return;
     resumedRef.current = true;
-    const last = lastEnd(stateRef.current.marks);
-    const v = videoRef.current;
-    if (last === null || !v) return;
-    const d = Number.isFinite(v.duration) ? v.duration : Infinity;
-    v.currentTime = Math.max(0, Math.min(d - 0.1, last));
-    setPlayhead(v.currentTime);
-  }, []);
+    cueReview();
+  }, [cueReview]);
 
   /** Let it run again, if we were the ones holding it. */
   const resumeAfterAnswer = useCallback(() => {
@@ -588,13 +616,41 @@ export function MarkPoints({
     }
   }, [apply, nowT, mode]);
 
+  /**
+   * An answer given to a point selected for review (rather than the one
+   * that just ended) moves the review on: the next point still without a
+   * winner is selected and played back, so scoring a whole cut-only draft
+   * is one answer after another with the video doing the walking. When
+   * none is left the selection clears and the pad is back to marking.
+   */
+  const advanceReview = useCallback((after: MarkState, fromId: string) => {
+    const next = firstUnscored(after.marks, fromId);
+    const v = videoRef.current;
+    if (!next || next.t1 === null || !v) {
+      setState((s) => selectMark(s, null));
+      previewUntil.current = null;
+      return;
+    }
+    setState((s) => selectMark(s, next.id));
+    pausedForAnswer.current = false;
+    v.currentTime = Math.max(0, next.t0 - CLIP_PRE);
+    setPlayhead(v.currentTime);
+    previewUntil.current = next.t1 + CLIP_POST;
+    playApi.current?.play();
+  }, []);
+
   const tapAnswer = useCallback(
     (o: Outcome) => {
-      const next = setOutcome(stateRef.current, o);
+      const before = stateRef.current;
+      const reviewingId =
+        before.awaitingId === null ? before.selectedId : null;
+      const next = setOutcome(before, o);
       apply(next);
-      if (!next.refused) resumeAfterAnswer();
+      if (next.refused) return;
+      if (reviewingId) advanceReview(next.state, reviewingId);
+      else resumeAfterAnswer();
     },
-    [apply, resumeAfterAnswer]
+    [apply, resumeAfterAnswer, advanceReview]
   );
 
   /**
@@ -827,6 +883,16 @@ export function MarkPoints({
     if (!el) return;
     el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
   }, [state.marks.length]);
+  // A review walks the strip from the front; the chip under review must
+  // be on screen, or the strip is a row of numbers ending at the wrong end.
+  useEffect(() => {
+    const el = stripRef.current;
+    const id = state.selectedId;
+    if (!el || !id) return;
+    const i = state.marks.findIndex((m) => m.id === id);
+    const chip = i >= 0 ? (el.children[i] as HTMLElement | undefined) : undefined;
+    chip?.scrollIntoView?.({ inline: "center", block: "nearest", behavior: "smooth" });
+  }, [state.selectedId, state.marks]);
 
   /* --------------------------------------------------------------- submit */
 
@@ -1317,7 +1383,9 @@ export function MarkPoints({
               ? sum.open
                 ? "One point still open"
                 : ""
-              : `${sum.total} ${sum.total === 1 ? "point" : "points"}`}
+              : sum.unscored > 0
+                ? `${sum.total} ${sum.total === 1 ? "point" : "points"} · ${sum.unscored} to score`
+                : `${sum.total} ${sum.total === 1 ? "point" : "points"}`}
           </span>
           {doneButton}
         </div>

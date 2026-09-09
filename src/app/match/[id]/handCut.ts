@@ -143,6 +143,26 @@ export function openMark(marks: Mark[]): Mark | null {
   return last && last.t1 === null ? last : null;
 }
 
+/**
+ * The first closed point still waiting for a winner, scanning after
+ * `afterId` when given. A let is scored: nobody won it, and that is the
+ * answer. Null when every point has its answer.
+ */
+export function firstUnscored(
+  marks: Mark[],
+  afterId: string | null = null
+): Mark | null {
+  let past = afterId === null;
+  for (const m of marks) {
+    if (!past) {
+      if (m.id === afterId) past = true;
+      continue;
+    }
+    if (m.t1 !== null && !m.isLet && m.winner === null) return m;
+  }
+  return null;
+}
+
 export function lastClosedEnd(marks: Mark[]): number | null {
   for (let i = marks.length - 1; i >= 0; i--) {
     const t1 = marks[i].t1;

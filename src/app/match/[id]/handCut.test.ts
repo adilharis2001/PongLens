@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  type Mark,
+  firstUnscored,
   LEAD_MAX_S,
   LEAD_MIN_S,
   MIN_POINT_S,
@@ -373,4 +375,29 @@ test("the minimum point length is the same number the database applies", () => {
   // through that the RPC then rejects, and a session would be lost to a
   // refusal the player was never shown.
   assert.equal(MIN_POINT_S, 0.7);
+});
+
+/* --------------------------------------------------------- review pass */
+
+const closed = (
+  id: string,
+  t0: number,
+  t1: number | null,
+  winner: "user" | "opponent" | null = null,
+  isLet = false,
+): Mark => ({ id, t0, t1, winner, isLet, starred: false, tap: t0, rate: 1 });
+
+test("firstUnscored walks the closed points without a winner; a let counts as answered", () => {
+  const marks = [
+    closed("a", 0, 5, "user"),
+    closed("b", 10, 15),
+    closed("c", 20, 25, null, true),
+    closed("d", 30, 35),
+    closed("open", 40, null),
+  ];
+  assert.equal(firstUnscored(marks)?.id, "b");
+  assert.equal(firstUnscored(marks, "b")?.id, "d");
+  assert.equal(firstUnscored(marks, "d"), null);
+  assert.equal(firstUnscored([closed("o", 40, null)]), null);
+  assert.equal(firstUnscored([]), null);
 });
