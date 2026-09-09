@@ -1,7 +1,7 @@
 # Text is data, the file is an artifact: design
 
 **Date:** 2026-09-09
-**Status:** Proposed, awaiting Adil's decisions in §8
+**Status:** Approved 2026-09-09, not yet built
 
 ## Purpose
 
@@ -347,30 +347,41 @@ your recap" card for structural rebuilds, the journal entry copy of the notes,
 
 ---
 
-## 8. Decisions needed
+## 8. Decisions (Adil, 2026-09-09)
 
-**D1. Stop building the burnt-in file during normal processing?**
-Recommended: yes. It halves every render and every rebuild, and most coaches
-never export. The cost is that the first export waits, where today it is
-instant.
+**D1. The burnt-in file is not made during normal processing.** Accepted. It
+halves every render and every structural rebuild. The first export waits
+instead of being instant, which is the point: a coach asks for a file when
+they want one.
 
-**D2. What does a stranger with the link see?**
-Recommended: the video and the chapter cues only, not the written lesson notes.
-The notes are the fuller private record and often name how a student is
-struggling. The alternative is a switch, like the match link's "include score".
+**D2. A stranger with the link sees the video and the chapter cues.** Accepted.
+The written lesson notes stay private. They are the fuller record and often
+name how a student is struggling.
 
-**D3. How long is a public media URL good for?**
-Recommended: one hour, with a re-mint when playback errors. Fifteen minutes is
-the current value and is shorter than the recap. The trade-off is that a
-revoked link's last signed URL can live up to an hour, where the existing
-comment argues for fifteen minutes precisely so it dies quickly.
+**D3. Nothing expires. The signed media address lasts one hour.** The question
+as first written was misread as being about the link, so to be unambiguous:
 
-**D4. Does the public page allow the download, or only the coach?**
-Recommended: allow it on the page when a current file exists. That is what the
-file is for. The alternative is that only the coach can download and then send
-the file themselves.
+- The share link never expires. It works until the coach revokes it, exactly
+  like a journal entry link.
+- No file is ever deleted on a clock. `lesson-video/` is covered by no sweep
+  tier, and this spec does not add one. A coach opening a recap years later
+  finds everything still there.
+- The only lifetime in play is the presigned R2 address the page mints to play
+  the video, invisible to the viewer. Fifteen minutes is shorter than a recap,
+  so a viewer who pauses can find playback dead on return. It becomes one hour,
+  with a re-mint when playback errors.
+- The cost is that a revoked link keeps working for whoever is already watching
+  until their address lapses, up to an hour rather than fifteen minutes.
 
----
+**D4. Whoever holds the link can download the file.** Accepted, when a current
+file exists. That is what the file is for.
+
+**Storage is not a constraint here, and this change improves it.** Measured on
+production, 2026-09-09: originals average 3.7 GB and hold 32.4 GB; clean recaps
+average 150 MB and hold 5.4 GB; videos with text average 128 MB and hold
+2.4 GB. The originals are the whole story. This change makes no video with text
+unless somebody asks for one, and deletes the superseded copy when one is
+rebuilt, which nothing does today.
 
 ## 9. Size
 
