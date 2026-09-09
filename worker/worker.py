@@ -1027,6 +1027,19 @@ def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
     """
     if isinstance(e, UserFacingError) and e.already_reported:
         return
+    # NOTHING GOES OUT UNTIL THE QUEUE HAS GIVEN UP.
+    #
+    # A failure that will be tried again in thirty minutes has not stopped,
+    # so there is nothing for anyone to review yet, and if the retry works
+    # the right number of emails about it is zero. Until 2026-09-09 every
+    # attempt sent its own pair, so one upload whose video never arrived
+    # produced two "we couldn't process your video" to the player and two
+    # "[Action needed]" to the admin, thirty minutes apart, for a single
+    # event. A deterministic failure is terminal on its first attempt
+    # (`terminal` is computed that way), so the private-video and
+    # wrong-sport messages still reach the uploader immediately.
+    if not terminal:
+        return
     uploader_emailed = False
     if kind in ("deadspace_cut", "youtube_import", "content_check"):
         # The bell row is the trigger's job (066); this is the email.

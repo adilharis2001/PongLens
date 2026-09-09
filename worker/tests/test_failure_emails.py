@@ -46,13 +46,14 @@ class ScriptedConnection:
 
 
 class SendFailureEmailsTests(unittest.TestCase):
-    def sent(self, e, kind, uploader_sends=True):
+    def sent(self, e, kind, uploader_sends=True, terminal=True):
         """Run send_failure_emails; return (uploader_called, admin_called)."""
         with mock.patch.object(worker, "notify_upload_failed",
                                return_value=uploader_sends) as uploader, \
              mock.patch.object(worker, "notify_job_failed") as admin:
             worker.send_failure_emails(
-                object(), e, "job-1", kind, "user-1", str(e)[:300])
+                object(), e, "job-1", kind, "user-1", str(e)[:300],
+                terminal=terminal)
         return uploader.called, admin.called
 
     def test_content_check_rejection_sends_one_email(self):
@@ -210,3 +211,39 @@ class ContentCheckEchoDetectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RetryNoiseTests(unittest.TestCase):
+    """An attempt that will run again is not news (2026-09-09).
+
+    A missing upload used to send four emails for one event: the player and
+    the admin, twice each, thirty minutes apart, because every attempt spoke
+    for itself.
+    """
+
+    def test_a_failure_that_will_be_retried_emails_nobody(self):
+        for kind in ("deadspace_cut", "youtube_import", "content_check",
+                     "hand_cut", "placement_generate"):
+            with self.subTest(kind=kind):
+                uploader, admin = SendFailureEmailsTests().sent(
+                    RuntimeError("404 HeadObject: Not Found"), kind,
+                    terminal=False)
+                self.assertFalse(uploader)
+                self.assertFalse(admin)
+
+    def test_the_last_attempt_still_tells_both(self):
+        uploader, admin = SendFailureEmailsTests().sent(
+            RuntimeError("404 HeadObject: Not Found"), "content_check",
+            uploader_sends=True, terminal=True)
+        self.assertTrue(uploader)
+        self.assertTrue(admin, "a crash the uploader email withholds still "
+                               "needs the admin's copy")
+
+    def test_a_deterministic_failure_is_terminal_on_its_first_attempt(self):
+        """The private-video and wrong-sport messages must not wait for a
+        retry that will never happen."""
+        uploader, admin = SendFailureEmailsTests().sent(
+            worker.UserFacingError(worker.CONTENT_CHECK_REJECT_MSG),
+            "content_check", terminal=True)
+        self.assertTrue(uploader)
+        self.assertFalse(admin)
