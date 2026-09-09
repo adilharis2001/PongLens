@@ -44,9 +44,9 @@ import {
   type Outcome,
   asPoints,
   clearAwaiting,
-  allCalled,
   firstUnscored,
   lastClosedEnd as lastEnd,
+  openAs,
   MIN_POINT_S,
   emptyState,
   endMark,
@@ -244,20 +244,28 @@ export function MarkPoints({
    *  answer after another, with the video playing each point back. */
   const resumed = initialMarks.length > 0;
   /**
-   * Opened on a match already cut AND already called, every point of it.
-   * There is nothing to add and nothing to answer, so this is not a
-   * marking screen: it is a review, and a review starts at the first
-   * point, not at the end of the last one. Read once on the way in, so a
-   * draft saved during the session cannot change what the screen was
-   * opened as.
+   * Every point closed and called. Not the same as done with the video:
+   * someone who marked ten rallies and put the phone down has called
+   * every point they marked, with most of the match still ahead.
+   *
+   * What separates them is how much tape is left after the last point. A
+   * match that was marked to the end has a little run-out on it; one that
+   * was abandoned part way has minutes. So: called AND close to the end
+   * opens straight into a review, called AND miles from it asks which of
+   * the two the player came back for, and anything still uncalled keeps
+   * the scoring pass it had. Read once on the way in, so a draft saved
+   * during the session cannot change what the screen was opened as.
    */
-  const openedFinished = useRef(allCalled(initialMarks)).current;
+  const openedAs = useRef(openAs(initialMarks, durationS)).current;
+  const openedCalled = openedAs === "review" || openedAs === "choice";
+  const openedFinished = openedAs === "review";
+  const openedPartial = openedAs === "choice";
   const [state, setState] = useState<MarkState>(() =>
     resumed
       ? {
           ...emptyState,
           marks: initialMarks,
-          selectedId: openedFinished
+          selectedId: openedCalled
             ? initialMarks[0]?.id ?? null
             : firstUnscored(initialMarks)?.id ?? null,
         }
@@ -282,7 +290,7 @@ export function MarkPoints({
   );
   /** Has the session started? Until it has, the pad is one button, because
    *  one button is the only thing there is to do. */
-  const [started, setStarted] = useState(resumed && !openedFinished);
+  const [started, setStarted] = useState(resumed && !openedCalled);
   /** The pad's own speed control, mirroring the scorekeeper's. The picture
    *  gestures (hold left for 0.25x, hold right for 2x) still work, but the
    *  floating pad covers part of the frame and whichever half it sits on
@@ -844,6 +852,13 @@ export function MarkPoints({
     playApi.current?.play();
   }, []);
 
+  /** The gate's other half on a partly marked match: straight back to
+   *  the end of the last point, with nothing selected, marking again. */
+  const beginMarking = useCallback(() => {
+    setStarted(true);
+    resumeMarking();
+  }, [resumeMarking]);
+
   /**
    * Start this point over. The mark goes, and the playhead lands a few
    * seconds before it began so there is a run-up to the serve — but never
@@ -946,7 +961,8 @@ export function MarkPoints({
       if (!started) {
         if (e.key === " " || e.key === "Enter") {
           e.preventDefault();
-          if (openedFinished) beginReview();
+          if (openedPartial) beginMarking();
+          else if (openedFinished) beginReview();
           else beginCutting();
         }
         return;
@@ -1548,7 +1564,24 @@ export function MarkPoints({
     </button>
   );
 
-  const beginCuttingButton = (
+  const beginCuttingButton = openedPartial ? (
+    <div className="flex shrink-0 flex-col gap-2">
+      <button
+        type="button"
+        onClick={beginMarking}
+        className="glow-cta h-16 w-full rounded-xl bg-cyan-glow text-base font-bold text-ink active:scale-[0.99]"
+      >
+        Keep marking
+      </button>
+      <button
+        type="button"
+        onClick={beginReview}
+        className="h-12 w-full rounded-xl border-2 border-edge bg-surface text-sm font-bold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white active:scale-[0.99]"
+      >
+        Review the points
+      </button>
+    </div>
+  ) : (
     <button
       type="button"
       onClick={openedFinished ? beginReview : beginCutting}
@@ -1593,20 +1626,48 @@ export function MarkPoints({
           </div>
 
           {!started ? (
-            <button
-              type="button"
-              onClick={openedFinished ? beginReview : beginCutting}
-              className={`${tile} glow-cta absolute border-cyan-glow bg-cyan-glow text-ink`}
-              style={{
-                left: "50%",
-                bottom: base + 40,
-                transform: "translateX(-50%)",
-                width: 200,
-                height: 56,
-              }}
-            >
-              {openedFinished ? "Begin review" : "Begin Cutting"}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={
+                  openedPartial
+                    ? beginMarking
+                    : openedFinished
+                      ? beginReview
+                      : beginCutting
+                }
+                className={`${tile} glow-cta absolute border-cyan-glow bg-cyan-glow text-ink`}
+                style={{
+                  left: "50%",
+                  bottom: openedPartial ? base + 52 : base + 40,
+                  transform: "translateX(-50%)",
+                  width: 200,
+                  height: openedPartial ? 52 : 56,
+                }}
+              >
+                {openedPartial
+                  ? "Keep marking"
+                  : openedFinished
+                    ? "Begin review"
+                    : "Begin Cutting"}
+              </button>
+              {openedPartial && (
+                <button
+                  type="button"
+                  onClick={beginReview}
+                  className={`${tile} absolute border-white/15 bg-ink/70 text-sm text-zinc-200`}
+                  style={{
+                    left: "50%",
+                    bottom: base + 4,
+                    transform: "translateX(-50%)",
+                    width: 200,
+                    height: 40,
+                  }}
+                >
+                  Review the points
+                </button>
+              )}
+            </>
           ) : (
             <>
               {/* left thumb: the pair, in the same two boxes whichever
@@ -1735,7 +1796,9 @@ export function MarkPoints({
       started,
       beginCutting,
       beginReview,
+      beginMarking,
       openedFinished,
+      openedPartial,
       open,
       tapBegin,
       tapEnd,

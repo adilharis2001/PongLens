@@ -5,6 +5,7 @@ import {
   type Mark,
   allCalled,
   firstUnscored,
+  openAs,
   LEAD_MAX_S,
   LEAD_MIN_S,
   MIN_POINT_S,
@@ -418,4 +419,21 @@ test("allCalled is true only when every point is closed and answered", () => {
     allCalled([closed("a", 0, 5, "user"), closed("open", 10, null)]),
     false,
   );
+});
+
+test("openAs tells a review from a pass someone walked away from", () => {
+  const called = [closed("a", 10, 15, "user"), closed("b", 30, 35, "opponent")];
+  // Nothing marked at all.
+  assert.equal(openAs([], 600), "fresh");
+  // A point still without a winner: the scoring pass, whatever the tail.
+  assert.equal(openAs([...called, closed("c", 50, 55)], 60), "scoring");
+  // Called, and the tape runs out with the last point.
+  assert.equal(openAs(called, 60), "review");
+  assert.equal(openAs(called, 35 + 45), "review");
+  // Called, but minutes of match still ahead: ask.
+  assert.equal(openAs(called, 35 + 46), "choice");
+  assert.equal(openAs(called, 600), "choice");
+  // No duration to measure against: ask rather than guess.
+  assert.equal(openAs(called, null), "choice");
+  assert.equal(openAs(called, 0), "choice");
 });

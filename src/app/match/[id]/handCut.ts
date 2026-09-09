@@ -163,6 +163,39 @@ export function firstUnscored(
   return null;
 }
 
+/** Video left after the last point that still counts as "marked to the
+ *  end": time enough to walk off and stop the recording, not time enough
+ *  for another rally to have gone unmarked. */
+export const TAIL_S = 45;
+
+/** What the pad is on the way in. */
+export type OpenAs =
+  /** Nothing marked: the cutting gate. */
+  | "fresh"
+  /** Points still without a winner: the scoring pass, from the first one. */
+  | "scoring"
+  /** Every point called and the tape ends with them: a review from point one. */
+  | "review"
+  /** Every point called but the match runs on: ask which one they came back for. */
+  | "choice";
+
+/**
+ * Which of the four a reopened draft is.
+ *
+ * Called is not the same as finished, and conflating them was a real bug:
+ * ten rallies marked and called at the front of a long match is a pass
+ * someone walked away from, not a match to sit and watch. What separates
+ * them is how much tape is left after the last point. With no duration to
+ * measure against, ask rather than guess.
+ */
+export function openAs(marks: Mark[], durationS: number | null): OpenAs {
+  if (marks.length === 0) return "fresh";
+  if (!allCalled(marks)) return "scoring";
+  if (durationS === null || !(durationS > 0)) return "choice";
+  const end = lastClosedEnd(marks) ?? 0;
+  return durationS - end <= TAIL_S ? "review" : "choice";
+}
+
 /**
  * Every point closed and every point called: nothing left to mark and
  * nothing left to answer. An empty list is not finished, it is unstarted.
