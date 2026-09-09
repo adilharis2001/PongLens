@@ -10,6 +10,7 @@ import {
   isKnownStage,
   loadNote,
   processingHubDetail,
+  shareRenderNote,
   queueSummary,
   sourceName,
   stageLabel,
@@ -612,4 +613,19 @@ test("a cancellation is not evidence that a worker is running", () => {
   );
   const main = rows.find((r) => r.key === "mac:main");
   assert.doesNotMatch(main?.caveat ?? "", /so a worker is running/);
+});
+
+test("the shareable video queue is named on the lesson worker that serves it", () => {
+  assert.equal(shareRenderNote({}), null);
+  assert.equal(shareRenderNote({ share_queued: 0, share_failed: 0 }), null);
+  assert.equal(
+    shareRenderNote({ share_stage: "Adding text to chapter 4 of 12" }),
+    "Shareable video: adding text to chapter 4 of 12"
+  );
+  assert.equal(shareRenderNote({ share_queued: 1 }), "1 shareable video waiting");
+  assert.equal(shareRenderNote({ share_queued: 3 }), "3 shareable videos waiting");
+  assert.equal(
+    shareRenderNote({ share_stage: "Saving the video file", share_queued: 2, share_failed: 1 }),
+    "Shareable video: saving the video file · 2 shareable videos waiting · 1 could not be prepared"
+  );
 });

@@ -143,6 +143,12 @@ export interface LessonWorkers {
   cloud_worker_id?: string | null;
   cloud_reporting_today?: number;
   release_id?: string | null;
+  /** The second queue the same Mac process serves: the copies of a recap
+   *  with the words burnt in, which a coach asks for and waits on. */
+  share_queued?: number;
+  share_failed?: number;
+  share_stage?: string | null;
+  share_oldest_queued_at?: string | null;
 }
 
 export interface ProcessingOverview {
@@ -237,6 +243,25 @@ export function sourceName(
 export function stageLabel(stage: string | null | undefined): string | null {
   if (!stage) return null;
   return STAGE_LABELS[stage] ?? stage;
+}
+
+/**
+ * What the lesson worker's second queue is doing, in a sentence.
+ *
+ * The shareable copy of a recap is prepared by the same Mac process, on the
+ * same heartbeat, so it gets no worker row of its own: a row would claim a
+ * process that can be separately alive or dead. This is how the page names
+ * the work instead. Nothing here is amber. A queue is a queue, and amber is
+ * a budget kept for the two states that are actually wrong.
+ */
+export function shareRenderNote(lesson: LessonWorkers): string | null {
+  const parts: string[] = [];
+  if (lesson.share_stage) parts.push(`Shareable video: ${lesson.share_stage.toLowerCase()}`);
+  const queued = lesson.share_queued ?? 0;
+  if (queued > 0) parts.push(queued === 1 ? "1 shareable video waiting" : `${queued} shareable videos waiting`);
+  const failed = lesson.share_failed ?? 0;
+  if (failed > 0) parts.push(failed === 1 ? "1 could not be prepared" : `${failed} could not be prepared`);
+  return parts.length ? parts.join(" · ") : null;
 }
 
 export function isKnownStage(stage: string | null | undefined): boolean {
@@ -603,7 +628,10 @@ export function buildWorkerRows(
       state,
       detail: state === "idle" || state === "off" ? detail : STATE_DETAIL[state],
       caveat: null,
-      note: null,
+      // The same process also prepares the shareable copy of a recap, so
+      // this is the one place that work is visible. Silence about it would
+      // read as nothing happening while a coach waits.
+      note: key === "lesson:mac" ? shareRenderNote(lesson) : null,
       pct: null,
       jobFor: null,
       matchId: null,
