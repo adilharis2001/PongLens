@@ -80,6 +80,9 @@ const SAVE_DEBOUNCE_MS = 1500;
  *  rather than a stall, short enough that watching thirty points back is
  *  still watching rather than waiting. */
 const CHAIN_GAP_MS = 600;
+/** Longer than ClipPlayer's own double-tap window (280ms), so the pause
+ *  inside a double tap never paints a play button. */
+const PAUSE_GLYPH_MS = 340;
 const CLIP_PRE = 1.2;
 const CLIP_POST = 1.3;
 
@@ -285,6 +288,7 @@ export function MarkPoints({
    *  of the clip would show footage the clip does not contain, which is the
    *  opposite of what a preview is for. */
   const previewUntil = useRef<number | null>(null);
+  const stoppedTimer = useRef<number | null>(null);
   /** The edges being dragged in the Adjust sheet, before they are saved,
    *  and the fixed window the track draws. The window is computed ONCE on
    *  open: derived live from the draft it would rescale under the finger,
@@ -298,6 +302,28 @@ export function MarkPoints({
   /** Pending hop to the next point while the strip is being walked. */
   const chainTimer = useRef<number | null>(null);
   const [playhead, setPlayhead] = useState(0);
+  /**
+   * Held still long enough to deserve a play button in the middle of the
+   * picture.
+   *
+   * Not `paused` itself, on purpose. A single tap on the picture toggles
+   * play/pause and a double tap walks the rallies, so the first tap of a
+   * double tap pauses for a moment — and a glyph on raw `paused` strobes
+   * in the middle of the frame every time someone reaches for the next
+   * point. ClipPlayer left its own glyph off entirely for that reason.
+   * Waiting out the double-tap window keeps the affordance for the
+   * pauses that matter (a clip that has played out, a point waiting to be
+   * called, a drag being judged) and never paints it for a gesture.
+   */
+  const [stopped, setStopped] = useState(false);
+  /**
+   * Has the picture ever run in this session?
+   *
+   * Until it has, ClipPlayer paints its own poster glyph on the still
+   * frame and this one would sit under it, two play buttons deep. After
+   * the first play that poster retires for good and this takes over.
+   */
+  const [everPlayed, setEverPlayed] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -588,6 +614,39 @@ export function MarkPoints({
     resumedRef.current = true;
     cueReview();
   }, [cueReview]);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    const clear = () => {
+      if (stoppedTimer.current !== null) {
+        window.clearTimeout(stoppedTimer.current);
+        stoppedTimer.current = null;
+      }
+    };
+    const sync = () => {
+      clear();
+      if (el.paused) {
+        stoppedTimer.current = window.setTimeout(() => {
+          stoppedTimer.current = null;
+          setStopped(true);
+        }, PAUSE_GLYPH_MS);
+      } else {
+        setStopped(false);
+        setEverPlayed(true);
+      }
+    };
+    sync();
+    el.addEventListener("play", sync);
+    el.addEventListener("playing", sync);
+    el.addEventListener("pause", sync);
+    return () => {
+      clear();
+      el.removeEventListener("play", sync);
+      el.removeEventListener("playing", sync);
+      el.removeEventListener("pause", sync);
+    };
+  }, [rawUrl]);
 
   /** Let it run again, if we were the ones holding it. */
   const resumeAfterAnswer = useCallback(() => {
@@ -1748,11 +1807,48 @@ export function MarkPoints({
               {stepping ? "Next" : "+5s"}
             </button>
           </div>
+          {started && everPlayed && stopped && (
+            <div className="pointer-events-none absolute inset-0 z-[9]">
+              <button
+                type="button"
+                onClick={() => playApi.current?.play()}
+                data-pad-play="1"
+                aria-label="Play"
+                className="pointer-events-auto absolute flex items-center justify-center rounded-full border border-white/15 bg-ink/60 backdrop-blur-sm transition-colors active:bg-ink/80"
+                style={{
+                  left: picture.left + picture.width / 2 - 24,
+                  top: picture.top + picture.height / 2 - 24,
+                  width: 48,
+                  height: 48,
+                }}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  className="ml-0.5 h-6 w-6 text-zinc-100"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+              </button>
+            </div>
+          )}
           {overlayPad ? landscapeBands(picture) : null}
         </>
       );
     },
-    [overlayPad, landscapeBands, seekBy, reviewing_, stepMark, hasPrev, hasNext]
+    [
+      overlayPad,
+      landscapeBands,
+      seekBy,
+      reviewing_,
+      stepMark,
+      hasPrev,
+      hasNext,
+      started,
+      stopped,
+      everPlayed,
+    ]
   );
 
   /* ------------------------------------------------------------ pad body */
