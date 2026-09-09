@@ -132,7 +132,14 @@ struct UploadScreen: View {
                 draft: $draft,
                 recentOpponents: library.recentValues(\.opponentName),
                 recentVenues: library.recentValues(\.venue),
-                processOn: true,
+                // Off by default, the same as the web card and the
+                // recorder: processing spends minutes, so it is asked
+                // for rather than assumed. Hardcoded rather than read
+                // from Record settings — that switch was set in the
+                // recorder's context, and library uploads must never
+                // start spending because of a choice made about
+                // recording.
+                processOn: false,
                 placementOn: placementOn
             )
             .presentationDetents([.large])
@@ -361,7 +368,7 @@ struct UploadScreen: View {
         placementOn = RecordSettings.load().placementMaps
         queue.enqueue(
             fileURL: url, durationS: duration, sessionId: sessionId,
-            metadata: draft, processOn: true, placementOn: placementOn,
+            metadata: draft, processOn: false, placementOn: placementOn,
             originalName: suggestedName.map { "\($0).\(ext)" } ?? url.lastPathComponent
         )
         // Presenting a sheet while the picker's dismissal is still

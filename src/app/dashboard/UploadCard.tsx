@@ -393,8 +393,15 @@ export function UploadCard({
   // instruction instead — give it at 2% and walk away, or take ten
   // minutes over the trim and give it at the end. Order uploads skip all
   // of this; the review's own claim pays for those.
-  const [autoProcess, setAutoProcess] = useState(true);
-  const autoProcessRef = useRef(true);
+  // OFF by default (2026-09-09, Adil's call). Processing spends minutes,
+  // and a default that spends them is a default that has to be noticed to
+  // be refused. Off, the upload lands in the library and "Break it into
+  // points" on the match page is a decision taken with the video already
+  // watchable. Anyone who wants the old behaviour turns it on before the
+  // upload finishes, and the button under it says which one they are
+  // getting: "Process video" or "Save video in library".
+  const [autoProcess, setAutoProcess] = useState(false);
+  const autoProcessRef = useRef(false);
   autoProcessRef.current = autoProcess;
   const [autoPlacement, setAutoPlacement] = useState(false);
   const autoPlacementRef = useRef(false);

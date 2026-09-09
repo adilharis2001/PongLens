@@ -27,7 +27,11 @@ struct RecordSettings: Codable, Equatable {
     var fps: Int = 60 // 30 or 60
     var wifiOnlyUploads = false
     var overlay: RecordOverlay = .ghost
-    var processAfterUpload = true
+    /// OFF by default (2026-09-09, Adil's call): processing spends
+    /// minutes, and a default that spends them has to be noticed to be
+    /// refused. A saved settings blob keeps whatever its owner chose —
+    /// this only moves new installs and anyone who never touched it.
+    var processAfterUpload = false
     var placementMaps = false
     /// Listen for a game score called out at the phone. Off until it has
     /// been proven in a real hall — a feature that mishears is worse than
@@ -49,7 +53,7 @@ struct RecordSettings: Codable, Equatable {
         wifiOnlyUploads = try values.decodeIfPresent(
             Bool.self, forKey: .wifiOnlyUploads) ?? false
         processAfterUpload = try values.decodeIfPresent(
-            Bool.self, forKey: .processAfterUpload) ?? true
+            Bool.self, forKey: .processAfterUpload) ?? false
         placementMaps = try values.decodeIfPresent(
             Bool.self, forKey: .placementMaps) ?? false
         callOutScore = try values.decodeIfPresent(
