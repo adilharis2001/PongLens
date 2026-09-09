@@ -605,12 +605,27 @@ export function MarkPoints({
    * question to the match page, which asks it after the cut the way it
    * does for an automatic one.
    */
+  /**
+   * Does closing the serve card move the picture?
+   *
+   * On the way in, yes: nothing has started, and the card hands over to
+   * the cue the pad opened on. Asked again mid-pass, no — the player is
+   * somewhere in the tape and a jump would throw away their place.
+   */
+  const serveStepCue = useRef(true);
   const chooseScore = useCallback(() => {
     setMode("score");
-    if (tracksServe(matchType) && firstServer === null) setServeStep(true);
+    if (tracksServe(matchType) && firstServer === null) {
+      serveStepCue.current = true;
+      setServeStep(true);
+    }
   }, [matchType, firstServer]);
   const closeServeStep = useCallback(() => {
     setServeStep(false);
+    if (!serveStepCue.current) {
+      serveStepCue.current = true;
+      return;
+    }
     // Begin Cutting is what starts playback; the preview must not leave
     // the tape running behind a button that says begin. A draft is cued
     // back to where its work is, and the preview must not move that.
@@ -896,6 +911,45 @@ export function MarkPoints({
     // middle of a review reads as the pad hesitating, not as a break.
     playMark(next.id);
   }, [mode, playMark]);
+
+  /**
+   * Cutting only, or cutting and calling: switched mid-pass, both ways.
+   *
+   * The choice was asked once on the way in and then fixed for the life
+   * of the draft, so someone ten rallies into a cut-only pass who decided
+   * they wanted the score had to finish the cut and score the match
+   * afterwards. It is one difference — whether the pad asks who won — and
+   * it should be one tap.
+   *
+   * Nothing is thrown away either way. Winners already called stay on
+   * their points and come back the moment scoring is on again; a
+   * cut-only pass simply stops asking.
+   */
+  const toggleScoring = useCallback(() => {
+    const next: CutMode = mode === "score" ? "cut" : "score";
+    setMode(next);
+    if (next === "cut") {
+      // The answer row is about to disappear, and it is the only thing
+      // that releases a picture held for an answer. Let it go first.
+      setState((s) => clearAwaiting(s));
+      if (pausedForAnswer.current) {
+        pausedForAnswer.current = false;
+        playApi.current?.play();
+      }
+      return;
+    }
+    // Scoring with no first server has no rotation to show, so ask the
+    // same question the way in asks — but never over an open rally, and
+    // without moving the playhead, because this happens mid-pass.
+    if (
+      tracksServe(matchType) &&
+      firstServer === null &&
+      openMark(stateRef.current.marks) === null
+    ) {
+      serveStepCue.current = false;
+      setServeStep(true);
+    }
+  }, [mode, matchType, firstServer]);
 
   /** Back to where the marking had got to. */
   const resumeMarking = useCallback(() => {
@@ -1855,14 +1909,17 @@ export function MarkPoints({
                 </>
               )}
 
-              {/* right thumb: the three answers, pulsing when asked for */}
-              {(
-                [
-                  ["let", "Let", "border-amber-400/70 bg-amber-400/15 text-amber-300", 0],
-                  ["opponent", themLabel, "border-magenta-glow bg-magenta-glow/20 text-magenta-soft", 40],
-                  ["user", youLabel, "border-cyan-glow bg-cyan-glow/20 text-cyan-glow", 106],
-                ] as const
-              ).map(([value, label, lit, offset]) => (
+              {/* right thumb: the three answers, pulsing when asked for.
+                  A cut-only pass has nothing to answer, so it has no
+                  answer tiles — the same rule the portrait pad follows. */}
+              {mode !== "cut" &&
+                (
+                  [
+                    ["let", "Let", "border-amber-400/70 bg-amber-400/15 text-amber-300", 0],
+                    ["opponent", themLabel, "border-magenta-glow bg-magenta-glow/20 text-magenta-soft", 40],
+                    ["user", youLabel, "border-cyan-glow bg-cyan-glow/20 text-cyan-glow", 106],
+                  ] as const
+                ).map(([value, label, lit, offset]) => (
                 <button
                   key={value}
                   type="button"
@@ -1878,9 +1935,9 @@ export function MarkPoints({
                     height: value === "let" ? 34 : 60,
                   }}
                 >
-                  <span className="block truncate">{label}</span>
-                </button>
-              ))}
+                    <span className="block truncate">{label}</span>
+                  </button>
+                ))}
             </>
           )}
 
@@ -2062,16 +2119,32 @@ export function MarkPoints({
           </>
         )}
         <div className="flex shrink-0 items-center justify-between gap-2">
-          <span className="text-[11px] text-zinc-500">
+          <span className="min-w-0 truncate text-[11px] text-zinc-500">
             {mode === "cut"
               ? sum.open
                 ? "One point still open"
-                : ""
+                : `${sum.total} ${sum.total === 1 ? "point" : "points"}`
               : sum.unscored > 0
                 ? `${sum.total} ${sum.total === 1 ? "point" : "points"} · ${sum.unscored} to score`
                 : `${sum.total} ${sum.total === 1 ? "point" : "points"}`}
           </span>
-          {doneButton}
+          <div className="flex shrink-0 items-center gap-2">
+            {started && mode !== null && (
+              <button
+                type="button"
+                onClick={toggleScoring}
+                aria-label={
+                  mode === "score"
+                    ? "Stop calling who won each point"
+                    : "Also call who won each point"
+                }
+                className="shrink-0 rounded-full border border-edge px-3 py-2 text-[11px] font-semibold text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-zinc-100"
+              >
+                {mode === "score" ? "Stop scoring" : "Score them too"}
+              </button>
+            )}
+            {doneButton}
+          </div>
         </div>
         {legend}
       </div>
