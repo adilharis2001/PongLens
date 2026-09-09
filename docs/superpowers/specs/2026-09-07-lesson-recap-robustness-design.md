@@ -295,3 +295,34 @@ Three changes, none of which asks for less:
 
 Adil's rule, 8 Sep: tighter where it repeats, and nothing else. Coverage
 and length rules are unchanged.
+
+## 10. The journal's voice (8 Sep 2026)
+
+The audio journal's notes have had good feedback from players; the video
+notes read stiffer for three reasons that are all in the prompt. Adil
+asked for those three to be carried across and for the journal's size
+caps (2 to 6 headings, 2 to 6 points each) to stay out until there is
+feedback on the video notes either way. Both products take a lesson of
+up to 90 minutes, so the caps are a real choice, not a size mismatch.
+
+Carried across, into the outline and the per-section notes:
+
+- second person, as something a person wrote down, never a report of
+  what was said ("this was described as", "the player should");
+- one sentence of roughly 12 to 25 words, situation first;
+- write the clearest sentence the words support and leave it for the
+  coach to correct on review; never hedge, never drop a point. The coach
+  reviews every recap before sharing, so the reviewer is the person who
+  was talking;
+- a three to six word title in sentence case.
+
+With a guard the first dry run earned: the prompt's example sentences
+are marked as not evidence, because the outline copied one of them into
+a real lesson's notes verbatim. And a completeness guard, because the
+second dry run merged "chopper" out of existence: shorter sentences, not
+fewer, and named details stay in.
+
+Measured on Anton's 8 Sep lesson, same transcript, same twelve clips:
+65 note points before, 57 after, with the repeats gone and every named
+drill and opponent type still present. Dry runs are in the session's
+scratchpad; the recap itself was not touched.
