@@ -99,12 +99,19 @@ def main() -> int:
         # presentation time of the frame just grabbed; OpenCV reads it from
         # the container, so a variable-rate phone recording keeps its clock
         t_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
-        t = (t_ms / 1000.0) if t_ms and t_ms > 0 else (f_index / fps)
+        t_pos = (t_ms / 1000.0) if t_ms and t_ms > 0 else None
+        # ONE monotonic clock. The container's timestamp when it has one and
+        # it moves forward; otherwise one frame period on from the last
+        # frame. Mixing the two clocks (index for the frames without a
+        # timestamp, container time for the rest) sampled 16 times a second
+        # instead of 10 on the first production run.
+        if last_t is None:
+            t = t_pos if t_pos is not None else 0.0
+        elif t_pos is not None and t_pos > last_t:
+            t = t_pos
+        else:
+            t = last_t + 1.0 / fps
         f_index += 1
-        # a container that reports no timestamps at all falls back to the
-        # frame index, which is what every earlier pass did
-        if last_t is not None and t < last_t:
-            t = last_t
         last_t = t
         if a.end is not None and t > a.end:
             break

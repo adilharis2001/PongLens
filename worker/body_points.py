@@ -33,7 +33,27 @@ import body_features as BF
 import points_v2 as V2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MODEL_VERSION = os.environ.get("PONGLENS_BODY_MODEL", "v1")
+
+
+def _current_version() -> str:
+    """Which frozen model runs: the environment, else the one line in
+    body_model/CURRENT, else v1. A file rather than code so a new freeze can
+    be switched in between two jobs without restarting the worker (the
+    points child imports this module fresh on every run)."""
+    v = os.environ.get("PONGLENS_BODY_MODEL")
+    if v:
+        return v
+    try:
+        with open(os.path.join(HERE, "body_model", "CURRENT")) as fh:
+            v = fh.read().strip()
+            if v:
+                return v
+    except OSError:
+        pass
+    return "v1"
+
+
+MODEL_VERSION = _current_version()
 MODEL_DIR = os.path.join(HERE, "body_model", MODEL_VERSION)
 
 # ---------------------------------------------------------------------------
