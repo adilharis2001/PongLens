@@ -30,7 +30,14 @@
  * the automatic pipeline uses. See handCut.ts.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { ClipPlayer, type PictureBox } from "./ClipPlayer";
 import { computeMatchScore } from "./gameScore";
@@ -45,7 +52,10 @@ import {
   asPoints,
   clearAwaiting,
   firstUnscored,
+  gapsAround,
+  insertMark,
   lastClosedEnd as lastEnd,
+  type Gap,
   openAs,
   MIN_POINT_S,
   emptyState,
@@ -801,6 +811,42 @@ export function MarkPoints({
     else playApi.current?.play();
   }, [playMark]);
 
+  /**
+   * A rally the pass went past, put back where it belongs.
+   *
+   * The new point lands in the middle of the hole at a rally's length,
+   * and the bar opens on it straight away, because a guess in the middle
+   * of fifteen seconds of dead time is a starting position and not an
+   * answer. Confirm writes it; leaving it alone leaves the guess, which
+   * Undo takes out.
+   */
+  const insertAt = useCallback(
+    (gap: Gap) => {
+      const span = gap.hi - gap.lo;
+      const len = Math.max(MIN_POINT_S, Math.min(6, span - 0.4));
+      const t0 = gap.lo + (span - len) / 2;
+      const t1 = t0 + len;
+      const id = nextId();
+      const next = insertMark(stateRef.current, t0, t1, id);
+      apply(next);
+      if (next.refused) return;
+      playApi.current?.pause();
+      previewUntil.current = null;
+      pausedForAnswer.current = false;
+      const v = videoRef.current;
+      if (v) {
+        v.currentTime = Math.max(0, t0 - CLIP_PRE);
+        setPlayhead(v.currentTime);
+      }
+      const draft: [number, number] = [t0, t1];
+      setAdjustDraft(draft);
+      adjustDraftRef.current = draft;
+      setAdjustBounds([gap.lo, gap.hi]);
+      setAdjusting(id);
+    },
+    [apply, nextId]
+  );
+
   /** Previous or next point, from the one selected. */
   const stepMark = useCallback(
     (dir: -1 | 1) => {
@@ -1197,6 +1243,35 @@ export function MarkPoints({
     </div>
   );
 
+  /** Only ever beside the point being stood on: a "+" against every chip
+   *  is a row of plus signs rather than an offer. */
+  const gaps = gapsAround(state.marks, state.selectedId, durationS);
+  const plusButton = (gap: Gap, where: "before" | "after") => (
+    <button
+      type="button"
+      onClick={() => insertAt(gap)}
+      title="Add a rally here"
+      aria-label={
+        where === "before"
+          ? "Add a rally before this point"
+          : "Add a rally after this point"
+      }
+      className="flex h-8 w-6 shrink-0 items-center justify-center rounded-full border border-dashed border-zinc-600 text-zinc-500 transition-colors hover:border-cyan-glow/60 hover:text-cyan-glow"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="h-3.5 w-3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        aria-hidden="true"
+      >
+        <path d="M12 5v14M5 12h14" />
+      </svg>
+    </button>
+  );
+
   const strip = (
     <div
       ref={stripRef}
@@ -1211,8 +1286,9 @@ export function MarkPoints({
         <span className="text-[11px] text-zinc-500">Nothing marked yet.</span>
       ) : (
         state.marks.map((m, i) => (
+          <Fragment key={m.id}>
+          {state.selectedId === m.id && gaps.before && plusButton(gaps.before, "before")}
           <MarkChip
-            key={m.id}
             n={i + 1}
             mark={m}
             selected={state.selectedId === m.id}
@@ -1221,6 +1297,10 @@ export function MarkPoints({
             grow={m.t1 === null ? grow : 0}
             onSelect={() => tapChip(m.id)}
           />
+          {state.selectedId === m.id &&
+            gaps.after &&
+            plusButton(gaps.after, "after")}
+          </Fragment>
         ))
       )}
     </div>

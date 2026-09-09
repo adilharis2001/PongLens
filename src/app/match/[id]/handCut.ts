@@ -163,6 +163,91 @@ export function firstUnscored(
   return null;
 }
 
+/**
+ * A hole in the strip wide enough to offer a new point in. The same
+ * number the scorekeeper's own insert affordance uses, so a gap that
+ * invites a rally there invites one here.
+ */
+export const GAP_WORTH_MARKING_S = 4;
+
+export interface Gap {
+  /** Source seconds a new point may occupy, exclusive of its neighbours. */
+  lo: number;
+  hi: number;
+}
+
+/**
+ * Where a rally could be added on either side of one point.
+ *
+ * Only ever asked about the point being stood on, because a "+" beside
+ * every chip is a row of plus signs rather than an offer. Before the
+ * first point the window opens at zero; after the last it runs to the end
+ * of the video, and with no duration to bound it there is no offer.
+ */
+export function gapsAround(
+  marks: Mark[],
+  id: string | null,
+  durationS: number | null
+): { before: Gap | null; after: Gap | null } {
+  const none = { before: null, after: null };
+  if (!id) return none;
+  const closed = marks.filter((m) => m.t1 !== null);
+  const i = closed.findIndex((m) => m.id === id);
+  if (i < 0) return none;
+  const wide = (lo: number, hi: number): Gap | null =>
+    hi - lo >= GAP_WORTH_MARKING_S ? { lo, hi } : null;
+  const prevEnd = i > 0 ? closed[i - 1].t1 ?? 0 : 0;
+  const nextStart =
+    i + 1 < closed.length
+      ? closed[i + 1].t0
+      : durationS !== null && durationS > 0
+        ? durationS
+        : null;
+  return {
+    before: wide(prevEnd, closed[i].t0),
+    after: nextStart === null ? null : wide(closed[i].t1 ?? 0, nextStart),
+  };
+}
+
+/**
+ * A rally the first pass went past, put back in its place.
+ *
+ * Ordered by t0 like every other mark, so the strip, the score and the
+ * worker's segments all read it the same way, and undone by the same
+ * entry a fresh start uses.
+ */
+export function insertMark(
+  state: MarkState,
+  t0: number,
+  t1: number,
+  id: string
+): Applied {
+  if (!(t1 - t0 >= MIN_POINT_S)) return { state, refused: REFUSE.short };
+  const clash = state.marks.some(
+    (m) => m.t1 !== null && t0 < m.t1 && m.t0 < t1
+  );
+  if (clash) return { state, refused: REFUSE.inside };
+  const mark: Mark = {
+    id,
+    t0,
+    t1,
+    winner: null,
+    isLet: false,
+    starred: false,
+    tap: t0,
+    rate: 1,
+  };
+  const marks = [...state.marks, mark].sort((a, b) => a.t0 - b.t0);
+  return {
+    state: {
+      marks,
+      undo: [...state.undo, { type: "start", id }],
+      selectedId: id,
+      awaitingId: null,
+    },
+  };
+}
+
 /** Video left after the last point that still counts as "marked to the
  *  end": time enough to walk off and stop the recording, not time enough
  *  for another rally to have gone unmarked. */

@@ -5,6 +5,8 @@ import {
   type Mark,
   allCalled,
   firstUnscored,
+  gapsAround,
+  insertMark,
   openAs,
   LEAD_MAX_S,
   LEAD_MIN_S,
@@ -436,4 +438,49 @@ test("openAs tells a review from a pass someone walked away from", () => {
   // No duration to measure against: ask rather than guess.
   assert.equal(openAs(called, null), "choice");
   assert.equal(openAs(called, 0), "choice");
+});
+
+/* ------------------------------------------------------- adding one back */
+
+const stateOf = (marks: Mark[], selectedId: string | null = null) => ({
+  ...emptyState,
+  marks,
+  selectedId,
+});
+
+test("gapsAround offers a window either side of the point stood on, and nowhere else", () => {
+  const marks = [
+    closed("a", 10, 15, "user"),
+    closed("b", 30, 35, "user"),
+    closed("c", 60, 65, "user"),
+  ];
+  // Nothing selected: nothing offered.
+  assert.deepEqual(gapsAround(marks, null, 100), { before: null, after: null });
+  // Standing on the middle one: the holes on both sides.
+  assert.deepEqual(gapsAround(marks, "b", 100), {
+    before: { lo: 15, hi: 30 },
+    after: { lo: 35, hi: 60 },
+  });
+  // The first point's "before" opens at zero; the last one's "after" runs
+  // to the end of the video.
+  assert.deepEqual(gapsAround(marks, "a", 100).before, { lo: 0, hi: 10 });
+  assert.deepEqual(gapsAround(marks, "c", 100).after, { lo: 65, hi: 100 });
+  // Too tight for a rally, so no offer.
+  const tight = [closed("a", 10, 15, "user"), closed("b", 17, 22, "user")];
+  assert.equal(gapsAround(tight, "a", 100).after, null);
+  // No duration to bound the tail: no offer past the last point.
+  assert.equal(gapsAround(marks, "c", null).after, null);
+});
+
+test("insertMark drops a rally into its place in order, and Undo takes it out", () => {
+  const before = stateOf([closed("a", 10, 15, "user"), closed("c", 60, 65, "user")]);
+  const added = insertMark(before, 30, 36, "b");
+  assert.equal(added.refused, undefined);
+  assert.deepEqual(added.state.marks.map((m) => m.id), ["a", "b", "c"]);
+  assert.equal(added.state.selectedId, "b");
+  assert.equal(added.state.marks[1].winner, null);
+  assert.deepEqual(undoLast(added.state).marks.map((m) => m.id), ["a", "c"]);
+  // Too short to be a rally, and overlapping one that exists.
+  assert.equal(insertMark(before, 30, 30.2, "x").refused, REFUSE.short);
+  assert.equal(insertMark(before, 12, 20, "x").refused, REFUSE.inside);
 });
