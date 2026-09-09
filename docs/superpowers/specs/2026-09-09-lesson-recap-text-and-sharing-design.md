@@ -1,7 +1,8 @@
 # Text is data, the file is an artifact: design
 
 **Date:** 2026-09-09
-**Status:** Approved 2026-09-09, not yet built
+**Status:** Built 2026-09-09. Web and iOS build 177 shipped; the worker
+release `lesson-video-2a410e4624459d01` is installed and waits to be enabled.
 
 ## Purpose
 
@@ -391,3 +392,34 @@ branch, two sheets on each of web and iOS, and the admin lane. Larger than the
 8 September work: two sessions, with the worker and the public page as the two
 halves. It reduces the storage leak and removes the student's 404 during an
 edit as side effects.
+
+---
+
+## 10. What shipped, and what was checked
+
+Built 9 September in one pass. Two things changed from the design above once
+the code was read:
+
+- **The shareable file is cut from the finished clean recap**, not the
+  original, which was in the design as a proposal needing a look. It was
+  compared: one chapter rendered both ways, frames taken at the same moment,
+  mean difference 0.66 of 255 across the picture and identical to the eye. The
+  original averages 3.7 GB and the clean recap 150 MB.
+- **`validateEdit` drops the summary clock**, which never mattered while every
+  saved edit went back through the worker and was rewritten. On the text-only
+  path nothing rewrites it, and the public page seeks by it, so the route
+  fills it in (`withSummaryClock`). This was a real defect found while
+  building, not a design change.
+
+Verified: the anonymous reader was exercised end to end on a real recap. It
+returned the title, the chapters with their cues and clock, and the coach's
+name, and nothing else: no lesson notes, no student, no email, no original
+video. Revoking the link made it return nothing on the next call.
+
+Not verified: nothing was seen rendered. Signing in is not available to the
+session, so the public page, both web sheets and both iOS sheets are checked
+by build, by test and by reading, not by eye.
+
+The transitional bridge in the route, which reads `summary_key` when no render
+row exists, can be deleted once every recap has been processed by a release
+that writes one.
