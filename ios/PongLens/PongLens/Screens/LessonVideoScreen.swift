@@ -1727,8 +1727,8 @@ private struct LessonVideoEditSheet: View {
                             .foregroundStyle(PL.text100)
                             .plCard(padding: 16)
                     }
-                    ForEach($draft.chapters) { $chapter in
-                        chapterCard($chapter)
+                    ForEach(draft.chapters) { chapter in
+                        chapterCard(chapter)
                     }
                     Text("Saving prepares a new recap. Review it again before saving or sharing.")
                         .font(.plCaption).foregroundStyle(PL.text400)
@@ -1754,25 +1754,33 @@ private struct LessonVideoEditSheet: View {
     /// One chapter: its title, its points with a remove control on each,
     /// a row to add a point while there is room, and a way to drop the
     /// whole chapter while there is another to keep.
-    private func chapterCard(_ chapter: Binding<LessonVideoEditDraft.Chapter>) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            TextField("Chapter title", text: chapter.title, axis: .vertical)
+    ///
+    /// The rows are walked by value and every field is bound by id.
+    /// `ForEach` over a binding to a collection hands each row a binding
+    /// that resolves by POSITION, so removing a point left a row holding
+    /// the index of something no longer there, and reading it crashed the
+    /// app on the next pass. Nothing here can be read by a stale index:
+    /// a lookup that finds nothing returns empty text and writes nowhere.
+    private func chapterCard(_ chapter: LessonVideoEditDraft.Chapter) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Chapter title", text: chapterTitle(chapter.id), axis: .vertical)
                 .font(.plCardTitle).foregroundStyle(PL.text100)
-            let cueCount = chapter.wrappedValue.cues.count
-            ForEach(chapter.cues) { $cue in
-                HStack(alignment: .top, spacing: 8) {
-                    TextField("Point", text: $cue.text, axis: .vertical)
+                .writingSurface()
+            ForEach(chapter.cues) { cue in
+                HStack(alignment: .top, spacing: 4) {
+                    TextField("Point", text: cueText(chapter.id, cue.id), axis: .vertical)
                         .font(.plBody)
-                        .foregroundStyle(PL.text300)
+                        .foregroundStyle(PL.text200)
                         .lineLimit(2...6)
                         .focused($focus, equals: cue.id)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .writingSurface()
                     // A chapter keeps its last point: the recap panel has
                     // to say something, and the server refuses an empty
                     // chapter, so the control goes rather than the button
                     // failing on press.
-                    if cueCount > 1 {
-                        Button { remove(cue: cue.id, from: chapter.wrappedValue.id) } label: {
+                    if chapter.cues.count > 1 {
+                        Button { remove(cue: cue.id, from: chapter.id) } label: {
                             Image(systemName: "xmark.circle")
                                 .font(.system(size: 18))
                         }
@@ -1780,12 +1788,9 @@ private struct LessonVideoEditSheet: View {
                         .accessibilityLabel("Remove this point")
                     }
                 }
-                if cue.id != chapter.wrappedValue.cues.last?.id {
-                    Rectangle().fill(PL.edge).frame(height: 1)
-                }
             }
-            if cueCount < LessonVideoEditDraft.maxCuesPerChapter {
-                Button { addCue(to: chapter.wrappedValue.id) } label: {
+            if chapter.cues.count < LessonVideoEditDraft.maxCuesPerChapter {
+                Button { addCue(to: chapter.id) } label: {
                     Label("Add a point", systemImage: "plus.circle")
                         .font(.plBody)
                         .foregroundStyle(PL.cyan)
@@ -1795,13 +1800,29 @@ private struct LessonVideoEditSheet: View {
                 .buttonStyle(.plain)
             }
             if draft.chapters.count > 1 {
-                Button("Remove chapter") { removeChapter(chapter.wrappedValue.id) }
+                Button("Remove chapter") { removeChapter(chapter.id) }
                     .buttonStyle(PLSoftDestructiveButtonStyle())
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
         .disabled(busy)
+    }
+
+    /// The chapter's title, found by id rather than by where it sits.
+    private func chapterTitle(_ chapterId: UUID) -> Binding<String> {
+        Binding(
+            get: { draft.chapterTitle(chapterId) },
+            set: { draft.setChapterTitle(chapterId, $0) }
+        )
+    }
+
+    /// One point, found by id rather than by where it sits.
+    private func cueText(_ chapterId: UUID, _ cueId: UUID) -> Binding<String> {
+        Binding(
+            get: { draft.cueText(chapter: chapterId, cue: cueId) },
+            set: { draft.setCueText(chapter: chapterId, cue: cueId, $0) }
+        )
     }
 
     /// The small round remove control beside a point: caption grey, and
@@ -1813,10 +1834,6 @@ private struct LessonVideoEditSheet: View {
                 .foregroundStyle(configuration.isPressed ? PL.warning : PL.text400)
                 .frame(width: 44, height: 44)
                 .contentShape(Rectangle())
-                // Pull the frame back so the glyph sits on the text's first
-                // line and the hit area hangs off the card's padding.
-                .padding(.top, -12)
-                .padding(.trailing, -12)
         }
     }
 

@@ -420,6 +420,25 @@ extension View {
                     .strokeBorder(PL.edge, lineWidth: 1)
             )
     }
+
+    /// Text somebody can change, inside a card of other text.
+    ///
+    /// `plField` carries a visible outline, which is right for a form of
+    /// separate inputs and wrong for a stack of sentences: three outlined
+    /// boxes inside one card read as boxes rather than as writing. This is
+    /// the same idea with the outline taken off, so a line reads as a
+    /// surface you can put a cursor into without anything drawn around it.
+    ///
+    /// The web shows this on hover and on focus. A phone has no hover, so
+    /// the resting state has to carry it, or nothing ever says the text can
+    /// be changed and a coach finds out by tapping.
+    func writingSurface() -> some View {
+        self
+            .tint(PL.cyan)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(PL.surface2.opacity(0.5), in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous))
+    }
 }
 
 // MARK: - Keyboard dismissal

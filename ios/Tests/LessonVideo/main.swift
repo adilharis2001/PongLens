@@ -287,3 +287,25 @@ check(!LessonVideoMedia.sameTarget(signedOnce, nil), "a missing link is never th
 check(!LessonVideoMedia.sameTarget(nil, nil), "and neither is two missing links")
 check(!LessonVideoMedia.sameTarget(signedOnce, "not a url"), "an unreadable link is never the same file")
 print("lesson media identity checks passed")
+
+// Pressing the X on a point used to crash the app. Every row is now read by
+// id, so a row that has just been removed can be read once more safely.
+var live = LessonVideoEditDraft(LessonVideoEdit(
+    title: "Lesson",
+    chapters: [.init(title: "One", cues: ["First point.", "Second point."], start_s: 0, end_s: 30, summary_start_s: 0, summary_end_s: 30)],
+    themes: [], warning: nil))
+let liveChapter = live.chapters[0].id
+let doomed = live.chapters[0].cues[1].id
+check(live.cueText(chapter: liveChapter, cue: doomed) == "Second point.", "a point reads by its id")
+live.chapters[0].cues.removeAll { $0.id == doomed }
+check(live.cueText(chapter: liveChapter, cue: doomed) == "", "a removed point reads as empty, not a crash")
+live.setCueText(chapter: liveChapter, cue: doomed, "typed into a row that is gone")
+check(live.chapters[0].cues.count == 1, "and writing to it changes nothing")
+check(live.cueText(chapter: liveChapter, cue: live.chapters[0].cues[0].id) == "First point.", "the point that stayed is untouched")
+let goneChapter = UUID()
+check(live.chapterTitle(goneChapter) == "", "a removed chapter reads as empty too")
+live.setChapterTitle(goneChapter, "nowhere")
+check(live.chapters.count == 1, "and writing to it changes nothing")
+live.setChapterTitle(liveChapter, "Renamed")
+check(live.chapterTitle(liveChapter) == "Renamed", "a chapter that is there still takes an edit")
+print("lesson editor row lookup checks passed")

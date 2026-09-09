@@ -434,6 +434,37 @@ struct LessonVideoEditDraft: Equatable {
 
     /// Three points is the space the rendered chapter panel has.
     static let maxCuesPerChapter = 3
+
+    // Reading and writing a row BY ID, never by where it sits.
+    //
+    // The editor used to hand each row a binding produced by `ForEach` over
+    // a binding to the array, and those resolve by position. Removing a
+    // point left a row holding the index of something no longer there, and
+    // reading it crashed the app the moment the list was laid out again.
+    // A lookup that finds nothing answers with empty text and writes
+    // nowhere, so a row that has just been removed can be read safely one
+    // last time.
+
+    func chapterTitle(_ chapterId: UUID) -> String {
+        chapters.first(where: { $0.id == chapterId })?.title ?? ""
+    }
+
+    mutating func setChapterTitle(_ chapterId: UUID, _ text: String) {
+        guard let index = chapters.firstIndex(where: { $0.id == chapterId }) else { return }
+        chapters[index].title = text
+    }
+
+    func cueText(chapter chapterId: UUID, cue cueId: UUID) -> String {
+        chapters.first(where: { $0.id == chapterId })?
+            .cues.first(where: { $0.id == cueId })?.text ?? ""
+    }
+
+    mutating func setCueText(chapter chapterId: UUID, cue cueId: UUID, _ text: String) {
+        guard let chapterIndex = chapters.firstIndex(where: { $0.id == chapterId }),
+              let cueIndex = chapters[chapterIndex].cues.firstIndex(where: { $0.id == cueId })
+        else { return }
+        chapters[chapterIndex].cues[cueIndex].text = text
+    }
     /// The server's own trims (validateEdit on web): a longer value is
     /// cut there anyway, so it is cut here first and what is saved is
     /// what was on screen.

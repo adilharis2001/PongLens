@@ -637,7 +637,7 @@ export function LessonVideoView({
                           setFocusId(null);
                         }
                       }}
-                      className="min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-[15px] text-zinc-200 outline-none hover:border-edge focus:border-cyan-glow/50 focus:bg-surface-2/60"
+                      className="min-w-0 flex-1 rounded-lg border border-transparent bg-surface-2/40 px-2 py-1.5 text-[15px] text-zinc-200 outline-none hover:border-edge focus:border-cyan-glow/50 focus:bg-surface-2/60"
                     />
                     {canRemoveCue(ch) && (
                       <button
