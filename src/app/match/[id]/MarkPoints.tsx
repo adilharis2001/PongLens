@@ -824,21 +824,21 @@ export function MarkPoints({
   }, [apply]);
 
   /**
-   * Adjust is a toggle on the bar, not a sheet: the point's edges appear
-   * between the chips and the buttons with the picture still in view, and
-   * every handle release is applied at once (Undo takes it back). The
-   * window reaches past the clip on both sides so an edge can be dragged
+   * Adjust is a bar, not a sheet: the point's edges appear between the
+   * chips and the buttons with the picture still in view. The window
+   * reaches past the clip on both sides so an edge can be dragged
    * outwards, but never into a neighbouring rally.
+   *
+   * Dragging only previews. Confirm is what writes the new edges, and
+   * until it is pressed Resume is dark, so a point cannot be left
+   * half-dragged: the one button that opened the bar is the one that
+   * closes it, in the same place under the same thumb.
    */
-  const toggleAdjust = useCallback(() => {
+  const openAdjust = useCallback(() => {
     clearChain();
     const st = stateRef.current;
     const m = st.selectedId ? st.marks.find((x) => x.id === st.selectedId) : null;
     if (!m || m.t1 === null) return;
-    if (adjusting === m.id) {
-      setAdjusting(null);
-      return;
-    }
     const i = st.marks.findIndex((x) => x.id === m.id);
     const prevEnd = i > 0 ? st.marks[i - 1].t1 ?? 0 : 0;
     const nextStart =
@@ -849,7 +849,20 @@ export function MarkPoints({
     setAdjustBounds([Math.max(prevEnd, m.t0 - 8), Math.min(nextStart, m.t1 + 8)]);
     setAdjusting(m.id);
     playApi.current?.pause();
-  }, [adjusting, durationS, clearChain]);
+  }, [durationS, clearChain]);
+
+  const confirmAdjust = useCallback(() => {
+    const id = adjusting;
+    const d = adjustDraftRef.current;
+    setAdjusting(null);
+    adjustDraftRef.current = null;
+    if (!id || !d) return;
+    const m = stateRef.current.marks.find((x) => x.id === id);
+    if (!m || m.t1 === null) return;
+    if (d[0] !== m.t0 || d[1] !== m.t1) {
+      apply(setEdges(stateRef.current, id, d[0], d[1]));
+    }
+  }, [adjusting, apply]);
 
   const seekBy = useCallback((delta: number) => {
     const v = videoRef.current;
@@ -1012,7 +1025,12 @@ export function MarkPoints({
   // Adjust belongs to one selected point; when the selection moves on, so
   // does the bar.
   useEffect(() => {
-    if (adjusting && state.selectedId !== adjusting) setAdjusting(null);
+    if (adjusting && state.selectedId !== adjusting) {
+      // The bar belongs to one point. Moving to another leaves the drag
+      // unconfirmed, and unconfirmed means unwritten.
+      setAdjusting(null);
+      adjustDraftRef.current = null;
+    }
   }, [adjusting, state.selectedId]);
   // A review walks the strip from the front; the chip under review must
   // be on screen, or the strip is a row of numbers ending at the wrong end.
@@ -1141,25 +1159,23 @@ export function MarkPoints({
     : null;
   const reviewing_ = selectedMark !== null && selectedMark.t1 !== null;
 
+  /** The bar is showing this point's edges, waiting to be confirmed. */
+  const adjustOn = selectedMark !== null && adjusting === selectedMark.id;
   const rowGrow = floating ? "flex shrink-0 gap-2" : "flex min-h-16 flex-[3] gap-2";
   const rhythmPair = reviewing_ ? (
     <div className={rowGrow}>
       <button
         type="button"
-        onClick={toggleAdjust}
-        aria-pressed={adjusting === selectedMark.id}
-        className={`${floating ? "h-16" : "min-h-16"} flex-1 rounded-xl border-2 text-base font-bold transition-colors active:scale-[0.99] ${
-          adjusting === selectedMark.id
-            ? "border-cyan-glow bg-cyan-glow/15 text-cyan-glow ring-2 ring-cyan-glow/40"
-            : "glow-cta border-cyan-glow bg-cyan-glow text-ink"
-        }`}
+        onClick={adjustOn ? confirmAdjust : openAdjust}
+        className={`${floating ? "h-16" : "min-h-16"} glow-cta flex-1 rounded-xl border-2 border-cyan-glow bg-cyan-glow text-base font-bold text-ink transition-colors active:scale-[0.99]`}
       >
-        Adjust
+        {adjustOn ? "Confirm" : "Adjust"}
       </button>
       <button
         type="button"
         onClick={resumeMarking}
-        className={`${floating ? "h-16" : "min-h-16"} flex-1 rounded-xl border-2 border-edge bg-surface text-base font-bold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white active:scale-[0.99]`}
+        disabled={adjustOn}
+        className={`${floating ? "h-16" : "min-h-16"} flex-1 rounded-xl border-2 border-edge bg-surface text-base font-bold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white active:scale-[0.99] disabled:opacity-35 disabled:hover:border-edge disabled:hover:text-zinc-300`}
       >
         Resume
       </button>
@@ -1371,13 +1387,6 @@ export function MarkPoints({
           setPlayhead(v.currentTime);
         }
       },
-      onPointerUp: () => {
-        const d = adjustDraftRef.current;
-        if (!d) return;
-        if (d[0] !== m.t0 || d[1] !== m.t1) {
-          apply(setEdges(stateRef.current, m.id, d[0], d[1]));
-        }
-      },
     });
     return (
       <div className="flex h-full items-center gap-3">
@@ -1540,7 +1549,7 @@ export function MarkPoints({
               <button
                 type="button"
                 onClick={reviewing_ ? resumeMarking : tapEnd}
-                disabled={!reviewing_ && !open}
+                disabled={(!reviewing_ && !open) || (reviewing_ && adjustOn)}
                 className={`${tile} absolute ${
                   !reviewing_ && open
                     ? "glow-cta border-cyan-glow bg-cyan-glow text-ink"
@@ -1558,7 +1567,8 @@ export function MarkPoints({
                     else tapBegin();
                     return;
                   }
-                  toggleAdjust();
+                  if (adjustOn) confirmAdjust();
+                  else openAdjust();
                 }}
                 className={`${tile} absolute ${
                   reviewing_ || !open
@@ -1567,7 +1577,13 @@ export function MarkPoints({
                 }`}
                 style={{ left: 4, bottom: base + 68, width: 100, height: 62 }}
               >
-                {reviewing_ ? "Adjust" : open ? "Reset" : "Begin Point"}
+                {reviewing_
+                  ? adjustOn
+                    ? "Confirm"
+                    : "Adjust"
+                  : open
+                    ? "Reset"
+                    : "Begin Point"}
               </button>
               <button
                 type="button"
@@ -1666,7 +1682,9 @@ export function MarkPoints({
       refusal,
       reviewing_,
       selectedMark,
-      toggleAdjust,
+      adjustOn,
+      openAdjust,
+      confirmAdjust,
       redoPoint,
       apply,
     ]
