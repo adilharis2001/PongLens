@@ -153,19 +153,33 @@ function formatLength(seconds: number) {
 }
 
 /**
+ * How late the side-picker frame may be taken, in seconds.
+ *
+ * This is a question about ENDS, not about seek cost. Players change ends
+ * at the end of every game, so a frame from after the first game is over
+ * shows the player at the opposite end from the one the answer is stored
+ * against — and nothing downstream can tell that happened. A one-sided
+ * first game is over well inside three minutes, and a practice match
+ * quickest of all, so the cap sits before that is likely rather than at
+ * the four minutes it started on (Adil, 2026-09-09).
+ *
+ * The twin is `posterTimeS` in `RecordScreen.swift`. Move one, move both.
+ */
+const SIDE_FRAME_MAX_S = 150;
+
+/**
  * Where the side-picker frame is taken from, in seconds.
  *
- * A quarter of the way in, no more than four minutes, and never before a
- * trim start. The first second of a recording is the phone being set down
- * and two people walking to the table, and half the video was a minute at
- * most — both put the frame before anyone was in position, which is the
- * board's "very difficult to choose what side you are". A quarter in, a
- * match is being played; four minutes caps it so a long file does not
- * wait on a seek into its middle; and a trim start is the owner saying
- * where play begins, which beats any guess.
+ * A quarter of the way in, capped as above, and never before a trim start.
+ * The first second of a recording is the phone being set down and two
+ * people walking to the table, and half the video was a minute at most —
+ * both put the frame before anyone was in position, which is the board's
+ * "very difficult to choose what side you are". A quarter in, a match is
+ * being played; and a trim start is the owner saying where play begins,
+ * which beats any guess.
  */
 export function posterTimeS(durationS: number, trimStartS: number | null): number {
-  const guess = Math.min(240, durationS * 0.25);
+  const guess = Math.min(SIDE_FRAME_MAX_S, durationS * 0.25);
   return Math.max(trimStartS ?? 0, guess);
 }
 

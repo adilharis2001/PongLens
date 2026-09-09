@@ -2328,16 +2328,29 @@ struct MatchDetailsSheet: View {
         )
     }
 
+    /// How late the side-picker frame may be taken. This is a question
+    /// about ENDS, not about seek cost: players change ends at the end of
+    /// every game, so a frame from after the first game is over shows the
+    /// player at the opposite end from the one the answer is stored
+    /// against, and nothing downstream can tell that happened. A one-sided
+    /// first game is over well inside three minutes, and a practice match
+    /// quickest of all, so the cap sits before that is likely rather than
+    /// at the four minutes it started on (Adil, 2026-09-09).
+    ///
+    /// The twin is `SIDE_FRAME_MAX_S` in `UploadCard.tsx`. Move one, move
+    /// both.
+    private static let sideFrameMaxS: Double = 150
+
     /// Where the side-picker frame is taken from. The same rule as the
-    /// web's posterTimeS: a quarter of the way in, no more than four
-    /// minutes, and never before a trim start. The first second of a
-    /// recording is the phone being set down and two people walking to
-    /// the table, which is the board's "very difficult to choose what
-    /// side you are". A quarter in, a match is being played; a trim
-    /// start is the owner saying where play begins, which beats a guess.
+    /// web's posterTimeS: a quarter of the way in, capped as above, and
+    /// never before a trim start. The first second of a recording is the
+    /// phone being set down and two people walking to the table, which is
+    /// the board's "very difficult to choose what side you are". A quarter
+    /// in, a match is being played; a trim start is the owner saying where
+    /// play begins, which beats a guess.
     private var posterTimeS: Double {
         let d = firstItemDuration ?? 0
-        let guess = min(240, d * 0.25)
+        let guess = min(Self.sideFrameMaxS, d * 0.25)
         return max(trimStart > 0.5 ? trimStart : 0, guess)
     }
 
