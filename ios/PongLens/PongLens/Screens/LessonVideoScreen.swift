@@ -869,8 +869,14 @@ struct LessonVideoDetailScreen: View {
         let hadRecap = detail != nil
         do {
             let value: LessonVideoDetail = try await API.get("api/lesson-video", query: ["id": id.uuidString])
-            let changed = detail?.video.revision != value.video.revision || detail?.video.status != value.video.status
-            detail = value
+            // The player is rebuilt only when the file behind it is a
+            // different one. Comparing the revision meant a coach who
+            // corrected a word watched the recap reload under them.
+            let changed = !LessonVideoMedia.sameTarget(detail?.playbackUrl, value.playbackUrl)
+            var next = value
+            if !changed, let keep = detail?.playbackUrl { next.playbackUrl = keep }
+            if LessonVideoMedia.sameTarget(detail?.posterUrl, value.posterUrl), let keep = detail?.posterUrl { next.posterUrl = keep }
+            detail = next
             await saveOnOpen(value)
             // The picker follows the row. "No coach" is only shown as an
             // answer once somebody has given it, so an unattributed recap

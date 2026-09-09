@@ -27,6 +27,7 @@ import {
   lessonReaderSections,
   lessonRecapMinutes,
   lessonStatusLabel,
+  sameMediaTarget,
 } from '@/lib/lessonVideo/presentation';
 import {
   shareFileCanPrepare,
@@ -168,16 +169,22 @@ export function LessonVideoView({
     if (!r.ok) throw new Error(d.error);
     if (!active.current) return;
     setDetail((previous) => {
-      // Signed links last four hours; keep the one that is playing unless
-      // the recap itself changed, so a poll never restarts the video.
+      // Signed links last four hours; keep the one that is playing while it
+      // still points at the same file, so a poll never restarts the video.
+      // This used to compare the revision and the status instead, which said
+      // "changed" on a text edit that leaves the video untouched, and the
+      // picture blinked while a coach typed.
       if (
         !force &&
-        previous?.video.revision === d.video.revision &&
-        previous?.video.status === d.video.status &&
         previous?.playbackUrl &&
+        sameMediaTarget(previous.playbackUrl, d.playbackUrl) &&
         Date.now() - linkBorn.current < 3 * 3600 * 1000
       ) {
-        return { ...d, playbackUrl: previous.playbackUrl, posterUrl: previous.posterUrl ?? d.posterUrl };
+        return {
+          ...d,
+          playbackUrl: previous.playbackUrl,
+          posterUrl: sameMediaTarget(previous.posterUrl, d.posterUrl) ? previous.posterUrl : d.posterUrl,
+        };
       }
       linkBorn.current = Date.now();
       return d;

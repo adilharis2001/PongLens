@@ -124,3 +124,23 @@ export function lessonCanShare(
  if(video.status==='review')return true;
  return video.status==='ready'&&hasRecipient(video)&&!shared;
 }
+
+/**
+ * Whether two signed media links point at the same stored file.
+ *
+ * A signed link carries the file's path and a signature that expires, so the
+ * same file signed twice gives two different strings. Swapping the src of a
+ * video or an image makes the browser throw away what it holds and fetch
+ * again, and the picture blinks.
+ *
+ * The page used to decide this from the recap's revision number, which was
+ * right while every saved edit re-cut the video: a new revision meant a new
+ * file. Correcting a word no longer re-cuts anything, so the revision moves
+ * while the file stays exactly where it was, and the blink is what a coach
+ * sees while they type. The path is what actually says whether the file
+ * changed.
+ */
+export function sameMediaTarget(a:string|null|undefined,b:string|null|undefined):boolean {
+ if(!a||!b)return false;
+ try{return new URL(a).pathname===new URL(b).pathname;}catch{return false;}
+}

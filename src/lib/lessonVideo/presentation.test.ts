@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {readFile} from 'node:fs/promises';
 
-import {formatClipLength, lessonCanSetCoach, lessonCanShare, lessonChapterIndexAt, lessonChapterStart, lessonReaderSections, lessonRecapMinutes, lessonStatusLabel} from './presentation.ts';
+import {formatClipLength, lessonCanSetCoach, lessonCanShare, lessonChapterIndexAt, lessonChapterStart, lessonReaderSections, lessonRecapMinutes, lessonStatusLabel, sameMediaTarget} from './presentation.ts';
 import type {LessonEdit} from './model.ts';
 
 const edit:LessonEdit={
@@ -175,3 +175,23 @@ test('a finished recap is unaffected by having something to watch',()=>{
  assert.equal(lessonStatusLabel({status:'ready',coach_ref_id:'c1'},true,true),'Shared');
 });
 
+
+test('the same file signed twice is still the same file', () => {
+ const a='https://media.example.com/lesson-video/o/v/playback-v3-abc.mp4?X-Amz-Signature=one&X-Amz-Date=1';
+ const b='https://media.example.com/lesson-video/o/v/playback-v3-abc.mp4?X-Amz-Signature=two&X-Amz-Date=2';
+ assert.equal(sameMediaTarget(a,b),true);
+});
+
+test('a re-cut recap is a different file, so the picture does change', () => {
+ const before='https://media.example.com/lesson-video/o/v/playback-v3-abc.mp4?X-Amz-Signature=one';
+ const after='https://media.example.com/lesson-video/o/v/playback-v4-def.mp4?X-Amz-Signature=two';
+ assert.equal(sameMediaTarget(before,after),false);
+});
+
+test('a missing or unreadable link never counts as the same file', () => {
+ const a='https://media.example.com/lesson-video/o/v/playback-v3-abc.mp4';
+ assert.equal(sameMediaTarget(a,undefined),false);
+ assert.equal(sameMediaTarget(null,a),false);
+ assert.equal(sameMediaTarget(a,'not a url'),false);
+ assert.equal(sameMediaTarget(undefined,undefined),false);
+});

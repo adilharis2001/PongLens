@@ -274,3 +274,16 @@ let older = try lessonDetail("", status: "processing")
 check(older.file == nil && older.link == nil, "an older response still decodes")
 check(older.needsRefresh, "and the recap being made still drives the poll")
 print("lesson recap file and link page checks passed")
+
+// The picture must not blink while a coach corrects a word. A signed link is
+// the file's path plus a signature that expires, so the same file signed
+// twice is two different strings.
+let signedOnce = "https://media.example.com/lesson-video/o/v/playback-v3-abc.mp4?X-Amz-Signature=one"
+let signedAgain = "https://media.example.com/lesson-video/o/v/playback-v3-abc.mp4?X-Amz-Signature=two"
+let recut = "https://media.example.com/lesson-video/o/v/playback-v4-def.mp4?X-Amz-Signature=three"
+check(LessonVideoMedia.sameTarget(signedOnce, signedAgain), "the same file signed twice is one file")
+check(!LessonVideoMedia.sameTarget(signedOnce, recut), "a re-cut recap is a different file")
+check(!LessonVideoMedia.sameTarget(signedOnce, nil), "a missing link is never the same file")
+check(!LessonVideoMedia.sameTarget(nil, nil), "and neither is two missing links")
+check(!LessonVideoMedia.sameTarget(signedOnce, "not a url"), "an unreadable link is never the same file")
+print("lesson media identity checks passed")

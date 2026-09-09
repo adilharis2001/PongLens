@@ -103,8 +103,8 @@ struct LessonVideoDetail: Decodable {
     let sourceUrl: String?
     let originalUrl: String?
     let summaryUrl: String?
-    let playbackUrl: String?
-    let posterUrl: String?
+    var playbackUrl: String?
+    var posterUrl: String?
     let isOwner: Bool
     /// Whether the other person can see it today. The detail response
     /// carries this at the top level; the list response tucks it inside
@@ -306,6 +306,25 @@ struct LessonVideoUploadedParts: Decodable {
 
 /// API media URLs last four hours. Renew after three, or whenever the app
 /// returns to the foreground, without rebuilding playback every status poll.
+nonisolated enum LessonVideoMedia {
+    /// Whether two signed media links point at the same stored file.
+    ///
+    /// A signed link carries the file's path and a signature that expires,
+    /// so the same file signed twice gives two different strings. Handing a
+    /// player or an image a new string makes it throw away what it holds and
+    /// fetch again, and the picture blinks.
+    ///
+    /// The screen used to decide this from the recap's revision and status,
+    /// which was right while every saved edit re-cut the video: a new
+    /// revision meant a new file. Correcting a word no longer re-cuts
+    /// anything, so the revision moves while the file stays where it was.
+    /// The path is what actually says whether the file changed.
+    static func sameTarget(_ a: String?, _ b: String?) -> Bool {
+        guard let a, let b, let first = URL(string: a), let second = URL(string: b) else { return false }
+        return !first.path.isEmpty && first.path == second.path
+    }
+}
+
 nonisolated enum LessonVideoPlaybackRefresh {
     static func isDue(lastRefresh: Date?, now: Date = Date()) -> Bool {
         guard let lastRefresh else { return false }
