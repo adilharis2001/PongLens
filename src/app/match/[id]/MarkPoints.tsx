@@ -75,6 +75,11 @@ const SAVE_DEBOUNCE_MS = 1500;
 /** The pads the worker cuts a hand-marked clip with, mirrored here so the
  *  preview shows the clip the player will actually get rather than the
  *  bare rally. Must match claim_hand_cut's clip_pads. */
+/** The beat between one point's clip ending and the next one starting,
+ *  when the pad is walking the strip. Long enough to read as a break
+ *  rather than a stall, short enough that watching thirty points back is
+ *  still watching rather than waiting. */
+const CHAIN_GAP_MS = 600;
 const CLIP_PRE = 1.2;
 const CLIP_POST = 1.3;
 
@@ -128,6 +133,7 @@ function MarkChip({
   mark,
   selected,
   awaiting,
+  playing,
   grow,
   onSelect,
 }: {
@@ -135,6 +141,8 @@ function MarkChip({
   mark: Mark;
   selected: boolean;
   awaiting: boolean;
+  /** The picture is inside this point right now. */
+  playing: boolean;
   grow: number;
   onSelect: () => void;
 }) {
@@ -162,14 +170,20 @@ function MarkChip({
       type="button"
       data-chip={n}
       onClick={onSelect}
-      aria-label={`Point ${n}, ${said}`}
+      aria-label={`Point ${n}, ${said}${playing ? ", playing" : ""}`}
       aria-current={open || awaiting ? "true" : undefined}
       className={`relative flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-full border text-xs font-semibold tabular-nums transition-[width,transform,box-shadow] ${tone} ${
-        selected ? "ring-2 ring-white/90" : ""
+        playing
+          ? "ring-2 ring-cyan-glow"
+          : selected
+            ? "ring-2 ring-white/90"
+            : ""
       } ${
         open || awaiting
           ? "scale-110 shadow-[0_0_12px_rgba(255,255,255,0.35)]"
-          : ""
+          : playing
+            ? "scale-110 shadow-[0_0_12px_rgba(34,211,238,0.55)]"
+            : ""
       }`}
       style={{ width: open ? Math.min(60, 32 + grow) : 32 }}
     >
@@ -281,6 +295,8 @@ export function MarkPoints({
   const adjustDraftRef = useRef<[number, number] | null>(null);
   /** The speed bar's own drag flag; a released finger clears it. */
   const speedDragging = useRef(false);
+  /** Pending hop to the next point while the strip is being walked. */
+  const chainTimer = useRef<number | null>(null);
   const [playhead, setPlayhead] = useState(0);
   const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -473,15 +489,24 @@ export function MarkPoints({
     refuseTimer.current = window.setTimeout(() => setRefusal(null), REFUSE_MS);
   }, []);
 
+  const clearChain = useCallback(() => {
+    if (chainTimer.current !== null) {
+      window.clearTimeout(chainTimer.current);
+      chainTimer.current = null;
+    }
+  }, []);
+  useEffect(() => clearChain, [clearChain]);
+
   const apply = useCallback(
     (next: { state: MarkState; refused?: string }) => {
       if (next.refused) {
         refuse(next.refused);
         return;
       }
+      clearChain();
       setState(next.state);
     },
-    [refuse]
+    [refuse, clearChain]
   );
 
   /** The one button before anything has begun. It starts playback in the
@@ -665,28 +690,84 @@ export function MarkPoints({
    * whether the cut is any good, which is the one thing worth checking
    * before committing eighty of them.
    */
-  const tapChip = useCallback(
+  /** Select a point, cue its clip exactly as the worker will cut it, and
+   *  play. Every path that shows a point back goes through here. */
+  const playMark = useCallback(
     (id: string) => {
       const s = stateRef.current;
-      const wasSelected = s.selectedId === id;
-      setState(selectMark(s, id));
       const m = s.marks.find((x) => x.id === id);
       const v = videoRef.current;
-      if (wasSelected || !m || m.t1 === null || !v) {
-        previewUntil.current = null;
-        return;
-      }
+      if (!m || m.t1 === null || !v) return;
+      clearChain();
+      setState((st) => selectMark(st, id));
       pausedForAnswer.current = false;
       v.currentTime = Math.max(0, m.t0 - CLIP_PRE);
       setPlayhead(v.currentTime);
       previewUntil.current = m.t1 + CLIP_POST;
       playApi.current?.play();
     },
-    []
+    [clearChain]
   );
+
+  const tapChip = useCallback(
+    (id: string) => {
+      const s = stateRef.current;
+      // Tapping the point already playing stops it, which is the only way
+      // to hold a frame in the middle of a walk.
+      if (s.selectedId === id) {
+        clearChain();
+        previewUntil.current = null;
+        playApi.current?.pause();
+        return;
+      }
+      playMark(id);
+    },
+    [clearChain, playMark]
+  );
+
+  /** Previous or next point, from the one selected. */
+  const stepMark = useCallback(
+    (dir: -1 | 1) => {
+      const s = stateRef.current;
+      const i = s.selectedId
+        ? s.marks.findIndex((m) => m.id === s.selectedId)
+        : -1;
+      if (i < 0) return;
+      for (let j = i + dir; j >= 0 && j < s.marks.length; j += dir) {
+        if (s.marks[j].t1 !== null) {
+          playMark(s.marks[j].id);
+          return;
+        }
+      }
+    },
+    [playMark]
+  );
+
+  /**
+   * A clip has just played out. A point that still needs its winner holds
+   * the picture there, because the answer row is what the pad wants next.
+   * Anything else walks on to the following point after a beat, so
+   * watching a marked match back is one tap rather than one per rally.
+   */
+  const chainAfterPreview = useCallback(() => {
+    const s = stateRef.current;
+    if (!s.selectedId) return;
+    const i = s.marks.findIndex((m) => m.id === s.selectedId);
+    if (i < 0) return;
+    const done = s.marks[i];
+    if (mode === "score" && !done.isLet && done.winner === null) return;
+    const next = s.marks.slice(i + 1).find((m) => m.t1 !== null);
+    if (!next) return;
+    clearChain();
+    chainTimer.current = window.setTimeout(() => {
+      chainTimer.current = null;
+      playMark(next.id);
+    }, CHAIN_GAP_MS);
+  }, [mode, clearChain, playMark]);
 
   /** Back to where the marking had got to. */
   const resumeMarking = useCallback(() => {
+    clearChain();
     setState((s) => selectMark(s, null));
     previewUntil.current = null;
     const last = lastEnd(stateRef.current.marks);
@@ -696,7 +777,7 @@ export function MarkPoints({
       setPlayhead(v.currentTime);
     }
     playApi.current?.play();
-  }, []);
+  }, [clearChain]);
 
   /**
    * Start this point over. The mark goes, and the playhead lands a few
@@ -750,6 +831,7 @@ export function MarkPoints({
    * outwards, but never into a neighbouring rally.
    */
   const toggleAdjust = useCallback(() => {
+    clearChain();
     const st = stateRef.current;
     const m = st.selectedId ? st.marks.find((x) => x.id === st.selectedId) : null;
     if (!m || m.t1 === null) return;
@@ -767,7 +849,7 @@ export function MarkPoints({
     setAdjustBounds([Math.max(prevEnd, m.t0 - 8), Math.min(nextStart, m.t1 + 8)]);
     setAdjusting(m.id);
     playApi.current?.pause();
-  }, [adjusting, durationS]);
+  }, [adjusting, durationS, clearChain]);
 
   const seekBy = useCallback((delta: number) => {
     const v = videoRef.current;
@@ -909,6 +991,19 @@ export function MarkPoints({
 
   const grow = open ? Math.max(0, playhead - open.t0) : 0;
 
+  /** The point the picture is inside, padded as its clip will be. Read
+   *  from the playhead rather than from what was tapped, so it is right
+   *  whether the pad is walking the strip or the tape is just running. */
+  const playingId = useMemo(() => {
+    for (const m of state.marks) {
+      if (m.t1 === null) continue;
+      if (playhead >= m.t0 - CLIP_PRE && playhead <= m.t1 + CLIP_POST) {
+        return m.id;
+      }
+    }
+    return null;
+  }, [playhead, state.marks]);
+
   useEffect(() => {
     const el = stripRef.current;
     if (!el) return;
@@ -923,12 +1018,12 @@ export function MarkPoints({
   // be on screen, or the strip is a row of numbers ending at the wrong end.
   useEffect(() => {
     const el = stripRef.current;
-    const id = state.selectedId;
+    const id = state.selectedId ?? playingId;
     if (!el || !id) return;
     const i = state.marks.findIndex((m) => m.id === id);
     const chip = i >= 0 ? (el.children[i] as HTMLElement | undefined) : undefined;
     chip?.scrollIntoView?.({ inline: "center", block: "nearest", behavior: "smooth" });
-  }, [state.selectedId, state.marks]);
+  }, [state.selectedId, playingId, state.marks]);
 
   /* --------------------------------------------------------------- submit */
 
@@ -1023,6 +1118,7 @@ export function MarkPoints({
             mark={m}
             selected={state.selectedId === m.id}
             awaiting={state.awaitingId === m.id}
+            playing={playingId === m.id}
             grow={m.t1 === null ? grow : 0}
             onSelect={() => tapChip(m.id)}
           />
@@ -1582,8 +1678,19 @@ export function MarkPoints({
    * a phone in portrait and on a desktop, and along the top in landscape,
    * where the columns of tiles own both edges.
    */
+  const stepIdx = state.selectedId
+    ? state.marks.findIndex((m) => m.id === state.selectedId)
+    : -1;
+  const hasPrev =
+    stepIdx > 0 && state.marks.slice(0, stepIdx).some((m) => m.t1 !== null);
+  const hasNext =
+    stepIdx >= 0 && state.marks.slice(stepIdx + 1).some((m) => m.t1 !== null);
+
   const videoOverlay = useCallback(
     (picture: PictureBox) => {
+      // While a marked point is selected the pair walks the strip; while
+      // marking, it nudges the tape.
+      const stepping = reviewing_;
       // Round at the picture's mid-height; a short pill along the top in
       // landscape, where the chip strip starts 38px down and a 40px
       // circle would run into it.
@@ -1596,36 +1703,38 @@ export function MarkPoints({
           <div className="pointer-events-none absolute inset-0 z-[9]">
             <button
               type="button"
-              onClick={() => seekBy(-5)}
-              aria-label="Back five seconds"
-              className={`${skip} absolute`}
+              onClick={() => (stepping ? stepMark(-1) : seekBy(-5))}
+              disabled={stepping && !hasPrev}
+              aria-label={stepping ? "Previous point" : "Back five seconds"}
+              className={`${skip} absolute disabled:opacity-30`}
               style={
                 overlayPad
                   ? { left: "50%", top: 2, transform: "translateX(-60px)" }
                   : { left: picture.left + 10, top: midY }
               }
             >
-              −5s
+              {stepping ? "Prev" : "−5s"}
             </button>
             <button
               type="button"
-              onClick={() => seekBy(5)}
-              aria-label="Forward five seconds"
-              className={`${skip} absolute`}
+              onClick={() => (stepping ? stepMark(1) : seekBy(5))}
+              disabled={stepping && !hasNext}
+              aria-label={stepping ? "Next point" : "Forward five seconds"}
+              className={`${skip} absolute disabled:opacity-30`}
               style={
                 overlayPad
                   ? { left: "50%", top: 2, transform: "translateX(12px)" }
                   : { left: picture.left + picture.width - 50, top: midY }
               }
             >
-              +5s
+              {stepping ? "Next" : "+5s"}
             </button>
           </div>
           {overlayPad ? landscapeBands(picture) : null}
         </>
       );
     },
-    [overlayPad, landscapeBands, seekBy]
+    [overlayPad, landscapeBands, seekBy, reviewing_, stepMark, hasPrev, hasNext]
   );
 
   /* ------------------------------------------------------------ pad body */
@@ -1718,6 +1827,7 @@ export function MarkPoints({
             if (stop !== null && el.currentTime >= stop) {
               previewUntil.current = null;
               playApi.current?.pause();
+              chainAfterPreview();
             }
           }}
           onLoadedMetadata={(el) => {
