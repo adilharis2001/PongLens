@@ -13,18 +13,31 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import sharp from "sharp";
 
+// The numbers have a hole in them: p2 was "Keep the whole table in frame",
+// deleted in September because its phone mock showed a camera square to the
+// net and argued with p1's band. The survivors keep their names rather than
+// shuffling up, so a stale reference points at nothing instead of quietly
+// at the wrong picture.
+const PAGES = [1, 3, 4, 5];
 const out = "ios/PongLens/PongLens/Resources";
-for (const n of [1, 2, 3, 4, 5]) {
+for (const n of PAGES) {
   const svg = readFileSync(`public/brief/p${n}.svg`, "utf8").replaceAll(
     "system-ui, -apple-system, sans-serif",
     "Helvetica Neue, Helvetica, Arial, sans-serif",
   );
+  // Each drawing states its own size, and they are no longer all 4:3 — p1
+  // is taller so the band and its labels are not cropped. Exporting every
+  // page at one hardcoded size squashed it.
+  const [, , vw, vh] = /viewBox="([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+)"/
+    .exec(svg)
+    .slice(1)
+    .map(Number);
   for (const scale of [2, 3]) {
     const png = await sharp(Buffer.from(svg), { density: 72 * scale * 2 })
-      .resize(320 * scale, 240 * scale)
+      .resize(Math.round(vw * scale), Math.round(vh * scale))
       .png({ compressionLevel: 9 })
       .toBuffer();
     writeFileSync(`${out}/brief-p${n}@${scale}x.png`, png);
   }
 }
-console.log("exported 10 files to", out);
+console.log(`exported ${PAGES.length * 2} files to`, out);

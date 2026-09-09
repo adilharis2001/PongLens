@@ -1,14 +1,21 @@
 import SwiftUI
 
-/// Five pages a new account steps through once, before its first recording
+/// Four pages a new account steps through once, before its first recording
 /// or upload.
 ///
-/// One picture and one idea per page: where to stand, what to frame, what
-/// to stand the phone on, the one mistake that hides the ball, then what
-/// to expect from processing. It replaced the automatic showing of the
-/// "Where to place the camera" sheet, which is one tall scroll that people
-/// swiped away. Each Next is a small commitment to the next idea, which is
-/// what makes five short pages get read where one long sheet did not.
+/// One picture and one idea per page: where to stand, what to stand the
+/// phone on, the one mistake that hides the ball, then what to expect from
+/// processing. It replaced the automatic showing of the "Where to place
+/// the camera" sheet, which is one tall scroll that people swiped away.
+/// Each Next is a small commitment to the next idea, which is what makes
+/// four short pages get read where one long sheet did not.
+///
+/// There were five. "Keep the whole table in frame" drew a phone squared
+/// up to the net, which argued with page one's band of side-and-diagonal
+/// positions, and its own point — every corner in the picture — was
+/// already a clause in page one's body. Its surviving instruction, film
+/// landscape, moved to the tripod page, where the phone is being placed
+/// anyway.
 ///
 /// There is no way out except through. The presenter switches off
 /// drag-to-dismiss and shows no grab handle; Back is always there, a swipe
@@ -40,6 +47,10 @@ struct RecordingBriefSheet: View {
         let image: String
         let title: String
         let body: String
+        /// The picture's shape, matching its own drawing. Page one is
+        /// taller than the rest: at 4:3 the band's outer arc and the
+        /// "Diagonal" label were cropped off the bottom.
+        var aspect: CGFloat = 4.0 / 3.0
         /// The three reference photographs, behind a tap (page one only).
         var showSetups = false
         /// A line under the body that only the record doors get.
@@ -51,18 +62,14 @@ struct RecordingBriefSheet: View {
             image: "brief-p1",
             title: "Let the camera see both halves",
             body: "Put it to the side of your half, or diagonally behind your corner, raised to about head height. Anywhere in that band works, as long as it can see both halves and every corner of the table is in the picture. Never straight behind a player. Choose the side you do not serve from. For most right-handers that is the forehand side.",
+            aspect: 320.0 / 300.0,
             showSetups: true,
             recordingNote: "The next screen draws the table where it should sit. Line the real one up with it before you start."
         ),
         Page(
-            image: "brief-p2",
-            title: "Keep the whole table in frame",
-            body: "Film landscape, with every corner of the table in the picture and both halves clearly visible. If there are other tables nearby, angle the camera so they stay out of the frame where you can."
-        ),
-        Page(
             image: "brief-p3",
             title: "Use a tripod",
-            body: "Put the phone on a tripod or something that does not move, and leave it there for the whole match. A phone held in the hand moves, and when the picture moves PongLens loses track of where the table is."
+            body: "Film landscape, with the phone on a tripod or something else that does not move, and leave it there for the whole match. A phone held in the hand moves, and when the picture moves PongLens loses track of where the table is."
         ),
         Page(
             image: "brief-p4",
@@ -72,7 +79,7 @@ struct RecordingBriefSheet: View {
         Page(
             image: "brief-p5",
             title: "Processing is in beta",
-            body: "PongLens finds and cuts each point automatically, and it is not perfect yet. A point can be missed, or a cut can start late or run long. You can fix any point from the match screen, and the model improves with every release. Most matches are ready within 30 minutes, and we email you when yours is."
+            body: "PongLens finds and cuts each point automatically, and it is not perfect yet. A point can be missed, or a cut can start late or run long. Scoring the match tightens them: a point you score ends right at the winning shot. You can fix any point from the match screen, and the model improves with every release. Most matches are ready within 30 minutes, and we email you when yours is."
         ),
     ]
 
@@ -174,7 +181,7 @@ struct RecordingBriefSheet: View {
 
     private func pageBody(_ page: Page) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            BriefPicture(name: page.image)
+            BriefPicture(name: page.image, aspect: page.aspect)
             Text(page.title)
                 .font(.system(size: 22, weight: .semibold))
                 .foregroundStyle(PL.text100)
@@ -213,13 +220,16 @@ struct RecordingBriefSheet: View {
     }
 }
 
-/// One of the five drawings, in a 4:3 box with the app's ink behind it.
+/// One of the drawings, in a box of its own shape with the app's ink
+/// behind it. The pages are no longer all 4:3 — page one is taller so its
+/// band and labels are not cropped.
 ///
 /// The PNGs are loose files in Resources/ (`brief-pN@2x.png`, `@3x.png`),
 /// the same arrangement as the reference photographs, so `UIImage(named:)`
 /// picks the scale on its own.
 private struct BriefPicture: View {
     let name: String
+    var aspect: CGFloat = 4.0 / 3.0
 
     var body: some View {
         ZStack {
@@ -230,7 +240,7 @@ private struct BriefPicture: View {
                     .scaledToFit()
             }
         }
-        .aspectRatio(4.0 / 3.0, contentMode: .fit)
+        .aspectRatio(aspect, contentMode: .fit)
         .frame(maxWidth: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(PL.edge, lineWidth: 1))

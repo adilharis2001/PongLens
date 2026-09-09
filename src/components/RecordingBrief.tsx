@@ -5,15 +5,21 @@ import { createPortal } from "react-dom";
 import { RealSetups } from "./CameraGuide";
 
 /**
- * RecordingBrief — five pages a new account steps through once, before its
+ * RecordingBrief — four pages a new account steps through once, before its
  * first recording or upload.
  *
- * One picture and one idea per page: where to stand, what to frame, what
- * to stand the phone on, the one mistake that hides the ball, then what to
- * expect from processing. It replaced the automatic showing of the "Where
- * to place the camera" sheet, which is one tall scroll that people swiped
- * away. Each Next is a small commitment to the next idea, which is what
- * makes five short pages get read where one long sheet did not.
+ * One picture and one idea per page: where to stand, what to stand the
+ * phone on, the one mistake that hides the ball, then what to expect from
+ * processing. It replaced the automatic showing of the "Where to place the
+ * camera" sheet, which is one tall scroll that people swiped away. Each
+ * Next is a small commitment to the next idea, which is what makes four
+ * short pages get read where one long sheet did not.
+ *
+ * There were five. "Keep the whole table in frame" drew a phone squared up
+ * to the net, which argued with page one's band of side-and-diagonal
+ * positions — and its own point, every corner in the picture, was already
+ * a clause in page one's body. Its surviving instruction, film landscape,
+ * moved to the tripod page, where the phone is being placed anyway.
  *
  * There is no way out except through: no close button, no tap outside, no
  * Escape. Back is always there, and on a touchscreen a swipe moves between
@@ -41,6 +47,10 @@ type Page = {
   alt: string;
   title: string;
   body: string;
+  /** The picture's shape, matching its own viewBox. Page one is taller
+   *  than the rest: at 4:3 the band's outer arc and the "Diagonal" label
+   *  were cropped off the bottom. */
+  aspect?: string;
   /** The three reference photographs, behind a tap (page one only). */
   setups?: boolean;
   /** A line under the body that only some doors get. */
@@ -53,6 +63,7 @@ export const RECORDING_BRIEF_PAGES: Page[] = [
     alt: "Seen from above: a band of camera positions sweeps from the side of your half round to diagonally behind your corner, and the camera's view takes in the whole table.",
     title: "Let the camera see both halves",
     body: "Put it to the side of your half, or diagonally behind your corner, raised to about head height. Anywhere in that band works, as long as it can see both halves and every corner of the table is in the picture. Never straight behind a player. Choose the side you do not serve from. For most right-handers that is the forehand side.",
+    aspect: "320 / 300",
     setups: true,
     note: {
       record:
@@ -60,16 +71,10 @@ export const RECORDING_BRIEF_PAGES: Page[] = [
     },
   },
   {
-    src: "/brief/p2.svg",
-    alt: "A phone held sideways. On its screen the whole table sits inside the frame with room to spare.",
-    title: "Keep the whole table in frame",
-    body: "Film landscape, with every corner of the table in the picture and both halves clearly visible. If there are other tables nearby, angle the camera so they stay out of the frame where you can.",
-  },
-  {
     src: "/brief/p3.svg",
     alt: "A phone on a tripod beside the table, a little above table height. A hand-held phone is crossed out.",
     title: "Use a tripod",
-    body: "Put the phone on a tripod or something that does not move, and leave it there for the whole match. A phone held in the hand moves, and when the picture moves PongLens loses track of where the table is.",
+    body: "Film landscape, with the phone on a tripod or something else that does not move, and leave it there for the whole match. A phone held in the hand moves, and when the picture moves PongLens loses track of where the table is.",
   },
   {
     src: "/brief/p4.svg",
@@ -81,7 +86,7 @@ export const RECORDING_BRIEF_PAGES: Page[] = [
     src: "/brief/p5.svg",
     alt: "A match timeline with the points PongLens found. One point is selected with a handle at each end.",
     title: "Processing is in beta",
-    body: "PongLens finds and cuts each point automatically, and it is not perfect yet. A point can be missed, or a cut can start late or run long. You can fix any point from the match screen, and the model improves with every release. Most matches are ready within 30 minutes, and we email you when yours is.",
+    body: "PongLens finds and cuts each point automatically, and it is not perfect yet. A point can be missed, or a cut can start late or run long. Scoring the match tightens them: a point you score ends right at the winning shot. You can fix any point from the match screen, and the model improves with every release. Most matches are ready within 30 minutes, and we email you when yours is.",
   },
 ];
 
@@ -253,16 +258,19 @@ export function RecordingBrief({
                   className="h-full w-full flex-none overflow-y-auto px-5 pb-3 pt-1"
                   aria-hidden={i !== index}
                 >
-                  <div className="aspect-[4/3] w-full overflow-hidden rounded-2xl border border-edge bg-ink">
-                    {/* Plain img: five fixed local drawings that are never
+                  <div
+                    className="w-full overflow-hidden rounded-2xl border border-edge bg-ink"
+                    style={{ aspectRatio: p.aspect ?? "4 / 3" }}
+                  >
+                    {/* Plain img: fixed local drawings that are never
                         optimised further, and every page is in the DOM so
-                        nothing loads on the way to it. */}
+                        nothing loads on the way to it. The box above sets
+                        the shape, so no intrinsic size is declared here —
+                        the pages are no longer all the same ratio. */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={p.src}
                       alt={p.alt}
-                      width={320}
-                      height={240}
                       draggable={false}
                       className="block h-full w-full select-none"
                     />
