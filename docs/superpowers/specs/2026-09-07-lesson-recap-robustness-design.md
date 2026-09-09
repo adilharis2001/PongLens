@@ -267,3 +267,31 @@ whole ladder.
 3. **The second opinion's price.** Moot: there is no second opinion. The
    rate rows for `gpt-audio` were added and are harmless if it is ever
    used for something it is honest at.
+
+## 9. Repetition (8 Sep 2026)
+
+The first real coach upload (Anton, Eran Dinur) came back complete and
+the coach read the same sentence twice: once under two note headings,
+once beside two neighbouring clips. The notes are written in one pass
+over every section, and each chapter's reminders are written on their
+own with no view of the others, so a point taught twice in the lesson
+came back twice.
+
+Three changes, none of which asks for less:
+
+- The outline stage is told each point appears once in the whole
+  outline, under the heading where the fuller sentence sits; a second
+  sentence stays only when its condition or exception differs.
+- The chapter stage is shown `earlier_chapter_cues`, the reminders already
+  written for earlier chapters, and told not to restate them. It writes
+  one to three reminders, three when the speech supports three distinct
+  points, and never a third made by rephrasing the first.
+- `tighten_edit` runs last and drops a sentence that is, as a word
+  sequence, at least 70% the same as one already kept (`REPEAT_THRESHOLD`,
+  measured on that recap: the repeats scored 0.73 to 0.77, the closest
+  pair of different instructions 0.43). It keeps the first wording, never
+  rewrites, never empties a chapter, and removes a heading left with no
+  points.
+
+Adil's rule, 8 Sep: tighter where it repeats, and nothing else. Coverage
+and length rules are unchanged.
