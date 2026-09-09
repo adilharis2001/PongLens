@@ -58,7 +58,15 @@ export async function GET(req:Request){
    const watchable=(owner&&!!row.playback_key)||['review','ready'].includes(row.status);
    // The downloadable copy with the words in the picture. It is its own row
    // with its own revision, so it can honestly read as behind the wording.
-   const {data:fileRow}=await db.from('lesson_share_renders').select('status,revision,r2_key,bytes,stage,error').eq('lesson_video_id',id).maybeSingle();
+   const {data:storedFile}=await db.from('lesson_share_renders').select('status,revision,r2_key,bytes,stage,error').eq('lesson_video_id',id).maybeSingle();
+   // A bridge for the window where a worker release that predates the render
+   // row is still the one on the Mac. Those runs write summary_key and no
+   // row, and the coach would be told to prepare a file that already exists.
+   // The revision it was built at is not recorded anywhere, so this reads as
+   // current; a recap made in that window and then reworded can say "ready"
+   // when it is really one wording behind. It stops mattering the moment the
+   // worker is switched over, and it never invents a file that is not there.
+   const fileRow=storedFile??(row.summary_key?{status:'ready',revision:row.revision,r2_key:row.summary_key,bytes:null,stage:null,error:null}:null);
    const fileState=shareFileState(fileRow,row.revision);
    const downloadName=((row.edit?.title as string|undefined)||row.original_name||'Lesson recap').replace(/[\\/:*?"<>|]/g,' ').trim().slice(0,80)+'.mp4';
    const fileUrl=shareFileDownloadable(fileState)&&fileRow?.r2_key&&watchable
