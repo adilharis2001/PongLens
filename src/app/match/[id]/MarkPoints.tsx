@@ -113,7 +113,7 @@ function Util({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className={`h-10 flex-1 rounded-lg border text-[11px] font-semibold transition-colors disabled:opacity-35 ${
+      className={`flex h-10 min-w-0 flex-1 items-center justify-center rounded-lg border px-0.5 text-center text-[10px] font-semibold leading-tight transition-colors disabled:opacity-35 ${
         lit
           ? "border-amber-400/60 bg-amber-400/15 text-amber-300"
           : "border-edge bg-surface text-zinc-400 hover:border-cyan-glow/40 hover:text-zinc-100"
@@ -1316,55 +1316,48 @@ export function MarkPoints({
   );
 
   /**
-   * Two rows of three rather than one row of six. Six at this width
-   * leaves about fifty pixels a button, which "Mark again" does not fit
-   * in, and the two rows split cleanly by what they act on: the tape
-   * above, the point you are on below.
+   * One strip, six controls: the tape, the history and the point you are
+   * on, all within a thumb's reach of each other.
    *
-   * The five second nudges live here as well as on the picture. On the
-   * picture they are the reach for a thumb, but they turn into Prev and
-   * Next the moment a point is selected, which is exactly when someone
-   * wants to shift the frame a little before adjusting an edge — and on
-   * a desktop the picture's buttons are a long way from the pad.
+   * The five second nudges are here as well as on the picture. On the
+   * picture they turn into Prev and Next the moment a point is selected,
+   * which is exactly when someone wants to shift the frame a little
+   * before adjusting an edge — and on a desktop the picture's buttons are
+   * a long way from the pad.
+   *
+   * Six across leaves about fifty pixels a button, so the labels are set
+   * a size down and allowed to take two lines rather than be cut off.
    */
   const utilRow = (
-    <div className="flex shrink-0 flex-col gap-2">
-      <div className="flex gap-2">
-        <Util label="−5s" onClick={() => seekBy(-5)} />
-        <Util label="+5s" onClick={() => seekBy(5)} />
-        <Util
-          label="Undo"
-          onClick={tapUndo}
-          disabled={state.undo.length === 0}
-        />
-      </div>
-      <div className="flex gap-2">
-        <Util
-          label="Star"
-          onClick={tapStar}
-          disabled={state.marks.length === 0}
-          lit={
-            !!state.marks.find(
-              (m) => m.id === (state.awaitingId ?? state.selectedId)
-            )?.starred
-          }
-        />
-        <Util
-          label="Mark again"
-          onClick={() => selectedMark && redoPoint(selectedMark.id)}
-          disabled={!reviewing_}
-        />
-        <Util
-          label="Remove"
-          onClick={() => {
-            if (!selectedMark) return;
-            apply(removeMark(stateRef.current, selectedMark.id));
-            setAdjusting(null);
-            setState((st) => selectMark(st, null));
-          }}
-          disabled={!reviewing_}
-        />
-      </div>
+    <div className="flex shrink-0 gap-1.5">
+      <Util label="Undo" onClick={tapUndo} disabled={state.undo.length === 0} />
+      <Util
+        label="Star"
+        onClick={tapStar}
+        disabled={state.marks.length === 0}
+        lit={
+          !!state.marks.find(
+            (m) => m.id === (state.awaitingId ?? state.selectedId)
+          )?.starred
+        }
+      />
+      <Util label="−5s" onClick={() => seekBy(-5)} />
+      <Util label="+5s" onClick={() => seekBy(5)} />
+      <Util
+        label="Mark again"
+        onClick={() => selectedMark && redoPoint(selectedMark.id)}
+        disabled={!reviewing_}
+      />
+      <Util
+        label="Remove"
+        onClick={() => {
+          if (!selectedMark) return;
+          apply(removeMark(stateRef.current, selectedMark.id));
+          setAdjusting(null);
+          setState((st) => selectMark(st, null));
+        }}
+        disabled={!reviewing_}
+      />
     </div>
   );
 
