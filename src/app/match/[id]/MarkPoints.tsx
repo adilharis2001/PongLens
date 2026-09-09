@@ -34,7 +34,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ClipPlayer, type PictureBox } from "./ClipPlayer";
 import { computeMatchScore } from "./gameScore";
-import { SpeedMenu } from "./SpeedMenu";
+import { SPEEDS } from "./SpeedMenu";
 import { computeServing, type MatchServer } from "./serving";
 import { tracksServe } from "@/lib/matchTitle";
 import type { Point } from "@/lib/types";
@@ -277,6 +277,10 @@ export function MarkPoints({
    *  which slides the other handle and moves the ground you are aiming at. */
   const [adjustDraft, setAdjustDraft] = useState<[number, number] | null>(null);
   const [adjustBounds, setAdjustBounds] = useState<[number, number] | null>(null);
+  /** The draft as of the last pointer move, for the commit on release. */
+  const adjustDraftRef = useRef<[number, number] | null>(null);
+  /** The speed bar's own drag flag; a released finger clears it. */
+  const speedDragging = useRef(false);
   const [playhead, setPlayhead] = useState(0);
   const [reviewing, setReviewing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -738,6 +742,33 @@ export function MarkPoints({
     if (target) apply(toggleStar(s, target));
   }, [apply]);
 
+  /**
+   * Adjust is a toggle on the bar, not a sheet: the point's edges appear
+   * between the chips and the buttons with the picture still in view, and
+   * every handle release is applied at once (Undo takes it back). The
+   * window reaches past the clip on both sides so an edge can be dragged
+   * outwards, but never into a neighbouring rally.
+   */
+  const toggleAdjust = useCallback(() => {
+    const st = stateRef.current;
+    const m = st.selectedId ? st.marks.find((x) => x.id === st.selectedId) : null;
+    if (!m || m.t1 === null) return;
+    if (adjusting === m.id) {
+      setAdjusting(null);
+      return;
+    }
+    const i = st.marks.findIndex((x) => x.id === m.id);
+    const prevEnd = i > 0 ? st.marks[i - 1].t1 ?? 0 : 0;
+    const nextStart =
+      i < st.marks.length - 1 ? st.marks[i + 1].t0 : durationS ?? m.t1 + 30;
+    const draft: [number, number] = [m.t0, m.t1];
+    setAdjustDraft(draft);
+    adjustDraftRef.current = draft;
+    setAdjustBounds([Math.max(prevEnd, m.t0 - 8), Math.min(nextStart, m.t1 + 8)]);
+    setAdjusting(m.id);
+    playApi.current?.pause();
+  }, [adjusting, durationS]);
+
   const seekBy = useCallback((delta: number) => {
     const v = videoRef.current;
     if (!v) return;
@@ -782,12 +813,12 @@ export function MarkPoints({
           return;
         case "ArrowLeft":
           e.preventDefault();
-          if (e.shiftKey || mode === "cut") seekBy(-10);
+          if (e.shiftKey || mode === "cut") seekBy(-5);
           else tapAnswer("user");
           return;
         case "ArrowRight":
           e.preventDefault();
-          if (e.shiftKey || mode === "cut") seekBy(10);
+          if (e.shiftKey || mode === "cut") seekBy(5);
           else tapAnswer("opponent");
           return;
         case "k":
@@ -883,6 +914,11 @@ export function MarkPoints({
     if (!el) return;
     el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
   }, [state.marks.length]);
+  // Adjust belongs to one selected point; when the selection moves on, so
+  // does the bar.
+  useEffect(() => {
+    if (adjusting && state.selectedId !== adjusting) setAdjusting(null);
+  }, [adjusting, state.selectedId]);
   // A review walks the strip from the front; the chip under review must
   // be on screen, or the strip is a row of numbers ending at the wrong end.
   useEffect(() => {
@@ -1009,46 +1045,35 @@ export function MarkPoints({
     : null;
   const reviewing_ = selectedMark !== null && selectedMark.t1 !== null;
 
+  const rowGrow = floating ? "flex shrink-0 gap-2" : "flex min-h-16 flex-[3] gap-2";
   const rhythmPair = reviewing_ ? (
-    <div className="flex shrink-0 gap-2">
+    <div className={rowGrow}>
       <button
         type="button"
-        onClick={() => {
-          if (!selectedMark || selectedMark.t1 === null) return;
-          const i = state.marks.findIndex((x) => x.id === selectedMark.id);
-          const prevEnd = i > 0 ? state.marks[i - 1].t1 ?? 0 : 0;
-          const nextStart =
-            i < state.marks.length - 1
-              ? state.marks[i + 1].t0
-              : durationS ?? selectedMark.t1 + 30;
-          setAdjustDraft([selectedMark.t0, selectedMark.t1]);
-          // Reach past the clip on both sides so an edge can be dragged
-          // outwards, but never into a neighbouring rally.
-          setAdjustBounds([
-            Math.max(prevEnd, selectedMark.t0 - 8),
-            Math.min(nextStart, selectedMark.t1 + 8),
-          ]);
-          setAdjusting(selectedMark.id);
-          playApi.current?.pause();
-        }}
-        className="glow-cta h-16 flex-1 rounded-xl border-2 border-cyan-glow bg-cyan-glow text-base font-bold text-ink transition-colors active:scale-[0.99]"
+        onClick={toggleAdjust}
+        aria-pressed={adjusting === selectedMark.id}
+        className={`${floating ? "h-16" : "min-h-16"} flex-1 rounded-xl border-2 text-base font-bold transition-colors active:scale-[0.99] ${
+          adjusting === selectedMark.id
+            ? "border-cyan-glow bg-cyan-glow/15 text-cyan-glow ring-2 ring-cyan-glow/40"
+            : "glow-cta border-cyan-glow bg-cyan-glow text-ink"
+        }`}
       >
         Adjust
       </button>
       <button
         type="button"
         onClick={resumeMarking}
-        className="h-16 flex-1 rounded-xl border-2 border-edge bg-surface text-base font-bold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white active:scale-[0.99]"
+        className={`${floating ? "h-16" : "min-h-16"} flex-1 rounded-xl border-2 border-edge bg-surface text-base font-bold text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white active:scale-[0.99]`}
       >
         Resume
       </button>
     </div>
   ) : (
-    <div className="flex shrink-0 gap-2">
+    <div className={rowGrow}>
       <button
         type="button"
         onClick={open ? tapReset : tapBegin}
-        className={`h-16 flex-1 rounded-xl border-2 text-base font-bold transition-colors active:scale-[0.99] ${
+        className={`${floating ? "h-16" : "min-h-16"} flex-1 rounded-xl border-2 text-base font-bold transition-colors active:scale-[0.99] ${
           open
             ? "border-edge bg-surface text-zinc-400 hover:border-amber-400/50 hover:text-amber-200"
             : "glow-cta border-cyan-glow bg-cyan-glow text-ink"
@@ -1060,7 +1085,7 @@ export function MarkPoints({
         type="button"
         onClick={tapEnd}
         disabled={!open}
-        className={`h-16 flex-1 rounded-xl border-2 text-base font-bold transition-colors active:scale-[0.99] disabled:opacity-35 ${
+        className={`${floating ? "h-16" : "min-h-16"} flex-1 rounded-xl border-2 text-base font-bold transition-colors active:scale-[0.99] disabled:opacity-35 ${
           open
             ? "glow-cta border-cyan-glow bg-cyan-glow text-ink"
             : "border-edge bg-surface text-zinc-400"
@@ -1074,7 +1099,7 @@ export function MarkPoints({
   /** The three answers, one row. They pulse the instant a point ends,
    *  because that is the only moment the pad is waiting on the player. */
   const answerRow = (
-    <div className="flex shrink-0 gap-2">
+    <div className={floating ? "flex shrink-0 gap-2" : "flex min-h-14 flex-[2] gap-2"}>
       {(
         [
           ["user", youLabel, "border-cyan-glow bg-cyan-glow/15 text-cyan-glow"],
@@ -1087,7 +1112,7 @@ export function MarkPoints({
           type="button"
           onClick={() => tapAnswer(value)}
           disabled={!canAnswer}
-          className={`h-14 min-w-0 flex-1 rounded-xl border px-1 text-base font-bold transition-all active:scale-[0.98] disabled:opacity-30 ${
+          className={`${floating ? "h-14" : "min-h-14"} min-w-0 flex-1 rounded-xl border px-1 text-base font-bold transition-all active:scale-[0.98] disabled:opacity-30 ${
             canAnswer ? lit : "border-edge bg-surface text-zinc-500"
           } ${awaiting ? "animate-pulse ring-2 ring-white/60" : ""}`}
         >
@@ -1110,15 +1135,201 @@ export function MarkPoints({
           )?.starred
         }
       />
-      <Util label="-10s" onClick={() => seekBy(-10)} />
-      <Util label="+10s" onClick={() => seekBy(10)} />
-      <SpeedMenu
-        value={speed}
-        onChange={chooseSpeed}
-        drop="up"
-        containerClassName="relative flex-1"
-        className="flex h-10 w-full items-center justify-center rounded-lg border border-edge bg-surface text-[11px] font-semibold tabular-nums text-zinc-400 transition-colors hover:border-cyan-glow/40 hover:text-zinc-100"
+      <Util
+        label="Mark again"
+        onClick={() => selectedMark && redoPoint(selectedMark.id)}
+        disabled={!reviewing_}
       />
+      <Util
+        label="Remove"
+        onClick={() => {
+          if (!selectedMark) return;
+          apply(removeMark(stateRef.current, selectedMark.id));
+          setAdjusting(null);
+          setState((st) => selectMark(st, null));
+        }}
+        disabled={!reviewing_}
+      />
+    </div>
+  );
+
+  /* ------------------------------------------------------------- the bar */
+
+  /**
+   * The bar between the chips and the buttons. It always holds something
+   * horizontal to drag: the playback speed by default, and the selected
+   * point's edges while Adjust is on. Both are the scorekeeper's own
+   * controls, moved out of menus and sheets so the picture never leaves
+   * the screen while a thumb is on them.
+   */
+  const speedIdx = Math.max(0, SPEEDS.findIndex((v) => v === speed));
+  const speedFromX = useCallback(
+    (clientX: number, el: HTMLElement) => {
+      const r = el.getBoundingClientRect();
+      const f = Math.min(1, Math.max(0, (clientX - r.left) / Math.max(1, r.width)));
+      const idx = Math.round(f * (SPEEDS.length - 1));
+      const next = SPEEDS[idx];
+      if (next !== undefined && next !== speed) chooseSpeed(next);
+    },
+    [speed, chooseSpeed]
+  );
+  const speedBar = (
+    <div className="flex h-full items-center gap-3">
+      <span className="w-9 shrink-0 text-[11px] font-semibold tabular-nums text-zinc-200">
+        {speed}x
+      </span>
+      <div
+        role="slider"
+        aria-label="Playback speed"
+        aria-valuemin={SPEEDS[0]}
+        aria-valuemax={SPEEDS[SPEEDS.length - 1]}
+        aria-valuenow={speed}
+        className="relative h-8 min-w-0 flex-1 touch-none select-none"
+        onPointerDown={(e) => {
+          e.preventDefault();
+          speedDragging.current = true;
+          try {
+            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+          } catch {
+            /* a synthetic pointer has no capture; the move still lands */
+          }
+          speedFromX(e.clientX, e.currentTarget as HTMLElement);
+        }}
+        onPointerMove={(e) => {
+          if (!speedDragging.current) return;
+          speedFromX(e.clientX, e.currentTarget as HTMLElement);
+        }}
+        onPointerUp={() => {
+          speedDragging.current = false;
+        }}
+        onPointerCancel={() => {
+          speedDragging.current = false;
+        }}
+        onLostPointerCapture={() => {
+          speedDragging.current = false;
+        }}
+      >
+        <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-white/10" />
+        {SPEEDS.map((v, i) => (
+          <span
+            key={v}
+            className={`absolute top-1/2 h-2 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${
+              i <= speedIdx ? "bg-cyan-glow/60" : "bg-white/25"
+            }`}
+            style={{ left: `${(i / (SPEEDS.length - 1)) * 100}%` }}
+          />
+        ))}
+        <span
+          className="pointer-events-none absolute top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-cyan-glow bg-ink shadow-[0_0_8px_rgba(34,211,238,0.6)]"
+          style={{ left: `${(speedIdx / (SPEEDS.length - 1)) * 100}%` }}
+        />
+      </div>
+      <span className="w-10 shrink-0 text-right text-[10px] text-zinc-500">speed</span>
+    </div>
+  );
+
+  const adjustingMark =
+    adjusting && adjustDraft && adjustBounds
+      ? state.marks.find((x) => x.id === adjusting) ?? null
+      : null;
+  const rangeBar = (() => {
+    if (!adjustingMark || adjustingMark.t1 === null || !adjustDraft || !adjustBounds) return null;
+    const m = adjustingMark;
+    const [dT0, dT1] = adjustDraft;
+    const i = state.marks.findIndex((x) => x.id === m.id);
+    const [lo, hi] = adjustBounds;
+    const span = Math.max(0.5, hi - lo);
+    const pct = (t: number) => ((t - lo) / span) * 100;
+    const fromX = (clientX: number, el: HTMLElement) => {
+      const r = el.getBoundingClientRect();
+      const f = Math.min(1, Math.max(0, (clientX - r.left) / Math.max(1, r.width)));
+      return lo + f * span;
+    };
+    const drag = (edge: "start" | "end") => ({
+      onPointerDown: (e: React.PointerEvent) => {
+        e.preventDefault();
+        try {
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        } catch {
+          /* synthetic pointers carry no capture */
+        }
+      },
+      onPointerMove: (e: React.PointerEvent) => {
+        if (!(e.buttons & 1) && e.pointerType === "mouse") return;
+        const track = (e.currentTarget as HTMLElement).parentElement;
+        if (!track) return;
+        const t = fromX(e.clientX, track);
+        const clamped = Math.min(hi, Math.max(lo, t));
+        const cur = adjustDraftRef.current ?? [dT0, dT1];
+        const next: [number, number] =
+          edge === "start"
+            ? [Math.min(clamped, cur[1] - MIN_POINT_S), cur[1]]
+            : [cur[0], Math.max(clamped, cur[0] + MIN_POINT_S)];
+        adjustDraftRef.current = next;
+        setAdjustDraft(next);
+        // The picture follows the handle: the frame under the finger is
+        // the one being judged.
+        const v = videoRef.current;
+        if (v) {
+          v.currentTime = Math.max(0, edge === "start" ? next[0] : next[1]);
+          setPlayhead(v.currentTime);
+        }
+      },
+      onPointerUp: () => {
+        const d = adjustDraftRef.current;
+        if (!d) return;
+        if (d[0] !== m.t0 || d[1] !== m.t1) {
+          apply(setEdges(stateRef.current, m.id, d[0], d[1]));
+        }
+      },
+    });
+    return (
+      <div className="flex h-full items-center gap-3">
+        <span className="w-9 shrink-0 text-[11px] font-semibold tabular-nums text-zinc-200">
+          {i + 1}
+        </span>
+        <div className="relative h-8 min-w-0 flex-1 touch-none select-none">
+          <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/10">
+            <span
+              className="absolute inset-y-0 bg-cyan-glow/45"
+              style={{ left: `${pct(dT0)}%`, width: `${Math.max(0, pct(dT1) - pct(dT0))}%` }}
+            />
+          </div>
+          <span
+            className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-glow shadow-[0_0_8px_rgba(34,211,238,0.7)]"
+            style={{ left: `${Math.min(100, Math.max(0, pct(playhead)))}%` }}
+          />
+          {(["start", "end"] as const).map((edge) => (
+            <button
+              key={edge}
+              type="button"
+              aria-label={edge === "start" ? "Start of point" : "End of point"}
+              {...drag(edge)}
+              className="absolute top-0 flex h-8 w-9 -translate-x-1/2 touch-none items-center justify-center"
+              style={{ left: `${pct(edge === "start" ? dT0 : dT1)}%` }}
+            >
+              <span className="h-8 w-0.5 rounded-full bg-cyan-glow" />
+              <span className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-cyan-glow bg-ink shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
+            </button>
+          ))}
+        </div>
+        <span className="w-10 shrink-0 text-right text-[10px] tabular-nums text-zinc-400">
+          {(dT1 - dT0).toFixed(1)}s
+        </span>
+      </div>
+    );
+  })();
+
+  const barStrip = (
+    <div
+      className={
+        overlayPad
+          ? "pointer-events-auto rounded-xl bg-ink/50 px-3 backdrop-blur-sm"
+          : "w-full shrink-0 border-b border-edge/60 px-3"
+      }
+      style={{ height: overlayPad ? 36 : 46 }}
+    >
+      {rangeBar ?? speedBar}
     </div>
   );
 
@@ -1205,7 +1416,7 @@ export function MarkPoints({
             className="absolute"
             style={{ left: 116, right: 176, top: 38 }}
           >
-            {strip}
+            {rangeBar ? barStrip : strip}
           </div>
           <div className="pointer-events-auto absolute" style={{ right: 76, top: 4 }}>
             {doneButton}
@@ -1251,22 +1462,7 @@ export function MarkPoints({
                     else tapBegin();
                     return;
                   }
-                  if (!selectedMark || selectedMark.t1 === null) return;
-                  const idx = state.marks.findIndex(
-                    (x) => x.id === selectedMark.id
-                  );
-                  const prevEnd = idx > 0 ? state.marks[idx - 1].t1 ?? 0 : 0;
-                  const nextStart =
-                    idx < state.marks.length - 1
-                      ? state.marks[idx + 1].t0
-                      : durationS ?? selectedMark.t1 + 30;
-                  setAdjustDraft([selectedMark.t0, selectedMark.t1]);
-                  setAdjustBounds([
-                    Math.max(prevEnd, selectedMark.t0 - 8),
-                    Math.min(nextStart, selectedMark.t1 + 8),
-                  ]);
-                  setAdjusting(selectedMark.id);
-                  playApi.current?.pause();
+                  toggleAdjust();
                 }}
                 className={`${tile} absolute ${
                   reviewing_ || !open
@@ -1286,6 +1482,31 @@ export function MarkPoints({
               >
                 Undo
               </button>
+              {reviewing_ && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => selectedMark && redoPoint(selectedMark.id)}
+                    className={`${tile} absolute border-white/15 bg-ink/60 text-[11px] font-semibold text-zinc-200`}
+                    style={{ left: 4, bottom: base + 174, width: 100, height: 34 }}
+                  >
+                    Mark again
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!selectedMark) return;
+                      apply(removeMark(stateRef.current, selectedMark.id));
+                      setAdjusting(null);
+                      setState((st) => selectMark(st, null));
+                    }}
+                    className={`${tile} absolute border-white/15 bg-ink/60 text-[11px] font-semibold text-zinc-200`}
+                    style={{ left: 4, bottom: base + 212, width: 100, height: 34 }}
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
 
               {/* right thumb: the three answers, pulsing when asked for */}
               {(
@@ -1331,6 +1552,8 @@ export function MarkPoints({
     [
       ticker,
       strip,
+      barStrip,
+      rangeBar,
       doneButton,
       started,
       beginCutting,
@@ -1345,7 +1568,64 @@ export function MarkPoints({
       youLabel,
       themLabel,
       refusal,
+      reviewing_,
+      selectedMark,
+      toggleAdjust,
+      redoPoint,
+      apply,
     ]
+  );
+
+  /**
+   * Five seconds either way, on the picture itself, the way the match
+   * player carries its transport. They sit at the picture's mid-height on
+   * a phone in portrait and on a desktop, and along the top in landscape,
+   * where the columns of tiles own both edges.
+   */
+  const videoOverlay = useCallback(
+    (picture: PictureBox) => {
+      // Round at the picture's mid-height; a short pill along the top in
+      // landscape, where the chip strip starts 38px down and a 40px
+      // circle would run into it.
+      const skip = `pointer-events-auto flex items-center justify-center rounded-full border border-white/15 bg-ink/60 text-[11px] font-semibold text-zinc-100 backdrop-blur-sm transition-colors active:bg-ink/80 ${
+        overlayPad ? "h-8 w-12" : "h-10 w-10"
+      }`;
+      const midY = picture.top + picture.height / 2 - 20;
+      return (
+        <>
+          <div className="pointer-events-none absolute inset-0 z-[9]">
+            <button
+              type="button"
+              onClick={() => seekBy(-5)}
+              aria-label="Back five seconds"
+              className={`${skip} absolute`}
+              style={
+                overlayPad
+                  ? { left: "50%", top: 2, transform: "translateX(-60px)" }
+                  : { left: picture.left + 10, top: midY }
+              }
+            >
+              −5s
+            </button>
+            <button
+              type="button"
+              onClick={() => seekBy(5)}
+              aria-label="Forward five seconds"
+              className={`${skip} absolute`}
+              style={
+                overlayPad
+                  ? { left: "50%", top: 2, transform: "translateX(12px)" }
+                  : { left: picture.left + picture.width - 50, top: midY }
+              }
+            >
+              +5s
+            </button>
+          </div>
+          {overlayPad ? landscapeBands(picture) : null}
+        </>
+      );
+    },
+    [overlayPad, landscapeBands, seekBy]
   );
 
   /* ------------------------------------------------------------ pad body */
@@ -1366,6 +1646,7 @@ export function MarkPoints({
       )}
       {ticker}
       {strip}
+      {barStrip}
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 p-3">
         {refusalLine}
         {!started ? (
@@ -1446,7 +1727,7 @@ export function MarkPoints({
             resumeToLastPoint();
           }}
           onClose={onClose}
-          overlay={overlayPad ? landscapeBands : undefined}
+          overlay={videoOverlay}
         />
       </div>
 
@@ -1472,136 +1753,6 @@ export function MarkPoints({
             {padBody}
           </div>
         ))}
-
-      {/* Adjust: the point's edges on a track, dragged. Modelled on the
-          scorekeeper's own Modify sheet (ModifyClip.tsx) — the same cyan
-          band for what the clip keeps, the same handle as a line with a
-          ringed knob, the same rule that the picture follows the handle so
-          the frame under your finger is the one you are judging. */}
-      {adjusting && adjustDraft && adjustBounds && (() => {
-        const m = state.marks.find((x) => x.id === adjusting);
-        if (!m || m.t1 === null) return null;
-        const [dT0, dT1] = adjustDraft;
-        const i = state.marks.findIndex((x) => x.id === adjusting);
-        const [lo, hi] = adjustBounds;
-        const span = Math.max(0.5, hi - lo);
-        const pct = (t: number) => ((t - lo) / span) * 100;
-        const fromX = (clientX: number, el: HTMLElement) => {
-          const r = el.getBoundingClientRect();
-          const f = Math.min(1, Math.max(0, (clientX - r.left) / Math.max(1, r.width)));
-          return lo + f * span;
-        };
-        const drag = (edge: "start" | "end") => ({
-          onPointerDown: (e: React.PointerEvent) => {
-            e.preventDefault();
-            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-          },
-          onPointerMove: (e: React.PointerEvent) => {
-            if (!(e.buttons & 1) && e.pointerType === "mouse") return;
-            const track = (e.currentTarget as HTMLElement).parentElement;
-            if (!track) return;
-            const t = fromX(e.clientX, track);
-            setAdjustDraft((d) => {
-              if (!d) return d;
-              const [a, b] = d;
-              const clamped = Math.min(hi, Math.max(lo, t));
-              return edge === "start"
-                ? [Math.min(clamped, b - MIN_POINT_S), b]
-                : [a, Math.max(clamped, a + MIN_POINT_S)];
-            });
-            const v = videoRef.current;
-            if (v) {
-              v.currentTime = Math.max(0, t);
-              setPlayhead(v.currentTime);
-            }
-          },
-        });
-        return (
-          <div className="absolute inset-0 z-30 flex items-end justify-center bg-ink/70 backdrop-blur-sm sm:items-center">
-            <div className="ks-fade w-full rounded-t-2xl border border-edge bg-surface p-5 pb-8 sm:max-w-md sm:rounded-2xl sm:pb-5">
-              <h2 className="text-base font-semibold">
-                Point {i + 1}
-              </h2>
-              <p className="mt-0.5 text-xs text-zinc-500">
-                Drag the handles until the band covers the rally.
-              </p>
-
-              <div className="relative mt-5 h-10 touch-none select-none">
-                <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-white/10">
-                  <span
-                    className="absolute inset-y-0 bg-cyan-glow/45"
-                    style={{
-                      left: `${pct(dT0)}%`,
-                      width: `${Math.max(0, pct(dT1) - pct(dT0))}%`,
-                    }}
-                  />
-                </div>
-                <span
-                  className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-cyan-glow shadow-[0_0_8px_rgba(34,211,238,0.7)]"
-                  style={{ left: `${Math.min(100, Math.max(0, pct(playhead)))}%` }}
-                />
-                {(["start", "end"] as const).map((edge) => (
-                  <button
-                    key={edge}
-                    type="button"
-                    aria-label={edge === "start" ? "Start of point" : "End of point"}
-                    {...drag(edge)}
-                    className="absolute top-0 flex h-10 w-8 -translate-x-1/2 touch-none items-center justify-center"
-                    style={{ left: `${pct(edge === "start" ? dT0 : dT1)}%` }}
-                  >
-                    <span className="h-10 w-0.5 rounded-full bg-cyan-glow" />
-                    <span className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-cyan-glow bg-ink shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
-                  </button>
-                ))}
-              </div>
-
-              <p className="mt-2 text-center text-xs text-zinc-400">
-                {(dT1 - dT0).toFixed(1)}s long
-              </p>
-
-              <div className="mt-5 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    apply(setEdges(stateRef.current, m.id, dT0, dT1));
-                    setAdjusting(null);
-                  }}
-                  className="glow-cta flex-1 rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink"
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAdjusting(null)}
-                  className="flex-1 rounded-full border border-edge px-4 py-2.5 text-sm font-semibold text-zinc-300 transition-colors hover:text-white"
-                >
-                  Cancel
-                </button>
-              </div>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => redoPoint(m.id)}
-                  className="flex-1 rounded-full border border-edge px-4 py-2 text-xs font-semibold text-zinc-400 transition-colors hover:border-cyan-glow/50 hover:text-zinc-100"
-                >
-                  Mark it again
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    apply(removeMark(stateRef.current, m.id));
-                    setAdjusting(null);
-                    setState((st) => selectMark(st, null));
-                  }}
-                  className="flex-1 rounded-full border border-edge px-4 py-2 text-xs font-semibold text-zinc-400 transition-colors hover:border-amber-400/60 hover:text-amber-200"
-                >
-                  Remove point
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* The one question asked on the way in, in the same dress as the
           scorekeeper's own setup sheet: bottom-anchored on a phone,
