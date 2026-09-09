@@ -392,13 +392,30 @@ def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
         t0, t1 = float(c["t0"]), float(c["t1"])
         prev_t1 = out[-1]["t1"] if out else -1e9
         if anchor and sv:
+            # THE FIRST SERVE OF THIS CARD, and only that one.
+            #
+            # A serve at or before the previous card's end belongs to that
+            # card, so it is skipped. Anything after it is this card's own
+            # first serve, and the rule either opens on it or leaves the card
+            # alone. It must never walk on to a LATER serve: the next
+            # detection inside a rally is a rally shot, and opening 1.6 s
+            # before that cuts the real serve off the front. Adil's Chris
+            # match, 2026-09-09: the serve at 26.51 could not have its full
+            # run-up because the card before it ended at 25.19, so the rule
+            # took the next detection at 29.71 and started the point three
+            # seconds into the rally. Five of that match's 83 cards lost
+            # their serve that way.
             lo, hi = t0 - ANCHOR_BACK_S, min(t1, t0 + ANCHOR_FWD_S)
-            near = [x for x in sv
-                    if lo <= x <= hi and x - V2.HEAD_LEAD >= prev_t1 + V2.MIN_GAP_S - 1e-9]
+            floor = max(prev_t1 + V2.MIN_GAP_S, 0.0)
+            near = [x for x in sv if lo <= x <= hi and x > floor]
             if near:
                 s = near[0]
-                start = max(prev_t1 + V2.MIN_GAP_S, s - V2.HEAD_LEAD, 0.0)
-                if t1 - start >= V2.MIN_CARD_S:
+                # A short run-up is better than none: open as early as the
+                # card before allows. Below HEAD_MIN_S there is no run-up
+                # left to show, and the bodies' own start is the better
+                # answer.
+                start = max(floor, s - V2.HEAD_LEAD)
+                if s - start >= V2.HEAD_MIN_S and t1 - start >= V2.MIN_CARD_S:
                     if abs(start - t0) > 0.01:
                         anchored += 1
                         c["why"] = _add_why(c.get("why"), "started at the serve")

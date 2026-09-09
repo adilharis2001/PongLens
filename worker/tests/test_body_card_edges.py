@@ -111,3 +111,38 @@ def test_both_rules_off_is_a_no_op():
     cards = [card(10.0, 20.0)]
     out, info = run(cards, serves=[11.0], cross=[12.0], anchor=False, close=False)
     assert out == cards and info["anchored"] == 0 and info["closed"] == 0
+
+
+def test_a_serve_with_no_room_for_its_run_up_still_opens_the_card():
+    """Adil's Chris match, point 4 (2026-09-09).
+
+    The card before it ended at 25.19 and the serve was at 26.51, so the full
+    1.6 s run-up did not fit. The rule used to walk on to the next detection,
+    at 29.71, and opened the point three seconds into the rally with the serve
+    outside it. It must open on the first serve with whatever room there is.
+    """
+    prev = card(18.65, 25.19)
+    this = card(26.15, 33.33)
+    out, info = run([prev, this], serves=[19.01, 26.51, 29.71],
+                    cross=[27.0, 28.0, 30.0, 31.0], close=False)
+    assert out[1]["serve_s"] == 26.51
+    assert out[1]["t0"] == 25.19 + V2.MIN_GAP_S
+    assert out[1]["t0"] < 26.51, "the serve has to stay inside the card"
+    assert info["anchored"] == 2, "the card before it opens on its own serve too"
+
+
+def test_a_serve_belonging_to_the_previous_card_is_skipped():
+    """A detection at or before the neighbour's end is that neighbour's serve,
+    so this card looks past it to its own."""
+    out, _ = run([card(20.0, 29.0), card(30.0, 38.0)],
+                 serves=[27.5, 31.2], cross=[32.0, 33.0], close=False)
+    assert out[1]["serve_s"] == 31.2
+    assert out[1]["t0"] == 31.2 - V2.HEAD_LEAD
+
+
+def test_no_run_up_at_all_leaves_the_card_alone():
+    """Less than HEAD_MIN_S of room is not a start worth having."""
+    prev = card(20.0, 26.4)
+    out, info = run([prev, card(26.7, 33.0)], serves=[26.8], cross=[27.5],
+                    close=False)
+    assert out[1]["t0"] == 26.7 and info["anchored"] == 0
