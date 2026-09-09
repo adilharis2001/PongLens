@@ -1,6 +1,9 @@
 # Serve-anchored body cards, and ends that stop when the ball does
 
-**Status: ACCEPTED by Adil, 2026-09-09. Building.**
+**Status: LIVE, 2026-09-09.** Built as commit 255879b8, installed in the
+checkout the worker runs, worker restarted 08:06, `body_serve_anchor` and
+`body_rally_end` both on. Rollback is one UPDATE each and touches no match
+already processed.
 
 His three decisions, which override the options below where they differ:
 
@@ -285,6 +288,23 @@ cheap and reversible; the front rule carries 1,800 lines of new code.
 ---
 
 ## 6. Verification, before anything is switched on
+
+**Done, 2026-09-09.** Parity: all thirteen matches, every serve contact and
+every dead-ball run identical to the millisecond against the lab's own chain
+(`worker/tests/test_serve_v3_parity.py`, 14 tests). Card rules: twelve unit
+tests. Cards: the real assembler over the thirteen matches, count unchanged at
+1,014, 692 starts anchored, 769 ends closed, median card 8.6 s to 7.0 s. The
+whole worker suite runs as it did before (two failures, both already there on
+origin/main). Steps 2 and 3 below are still owed.
+
+**End to end on a real job, 2026-09-09 08:43** (the QA account's match
+1bc1e30d, 645 s, reprocessed with both switches on): the serve detector ran
+inside the points child and found 43 serves from 49 detections, dropping 4
+passes and 2 unpaired, plus 4 dead-ball runs; 47 cards came out, 26 started
+at their serve and 38 closed on the ball, 2 of those on a dead ball. Every
+point carries a `cut_t0` and, for the first time on a body-cut match, a real
+`rally_end_cut_s` — 47 of 47, where before the trial wrote the body model's
+own play-off and the app's unscored trim could do nothing with it.
 
 1. **Parity.** Freeze the lab's own accepted serve list for the thirteen
    matches (`serves_v3.json` beside the existing frozen inputs in
