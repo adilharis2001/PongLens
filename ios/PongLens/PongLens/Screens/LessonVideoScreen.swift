@@ -273,7 +273,7 @@ struct LessonVideoScreen: View {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 5) {
                                     Text(video.title).font(.plCardTitle).foregroundStyle(PL.text100)
-                                    Text(video.statusLabel).font(.plCaption).foregroundStyle(PL.text400)
+                                    Text(video.statusLabel(hasRecap: video.edit != nil)).font(.plCaption).foregroundStyle(PL.text400)
                                 }
                                 Spacer(minLength: 8)
                                 Image(systemName: "chevron.right")
@@ -467,7 +467,12 @@ struct LessonVideoDetailScreen: View {
                         Text(detail.video.title).font(.plPageTitle).tracking(-0.6).foregroundStyle(PL.textBody)
                         Text(detail.video.statusLabel(hasRecap: watchable(detail))).font(.plCaption).foregroundStyle(PL.cyan)
                     }
-                    if watchable(detail) { recap(detail) } else { waiting(detail) }
+                    if watchable(detail) {
+                        recap(detail)
+                        if rebuilding(detail) { updating(detail.video) }
+                    } else {
+                        waiting(detail)
+                    }
                     attribution(detail)
                     actions(detail)
                     if let edit = detail.video.edit, !edit.chapters.isEmpty {
@@ -528,6 +533,13 @@ struct LessonVideoDetailScreen: View {
         detail.playbackUrl != nil || detail.summaryUrl != nil
     }
 
+    /// A new recap is being made over one that can already be watched: an
+    /// edit was saved and the worker is rendering it. The first import is
+    /// not this; it has nothing to watch yet and shows `waiting` instead.
+    private func rebuilding(_ detail: LessonVideoDetail) -> Bool {
+        detail.video.isProcessing && watchable(detail)
+    }
+
     /// The poster, and the two numbers the recap is made of.
     private func recap(_ detail: LessonVideoDetail) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -565,6 +577,24 @@ struct LessonVideoDetailScreen: View {
                 .font(.plCardTitle).foregroundStyle(PL.text100)
             Text(detail.video.error ?? "Your lesson will be here when it is ready.")
                 .font(.plBody).foregroundStyle(PL.text400).lineSpacing(4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 16)
+    }
+
+    /// Under the poster while a saved edit is being rendered. The old recap
+    /// stays playable above it, so this says what the worker is doing now
+    /// rather than standing in for the video: the stage line is the same
+    /// one the worker writes every few seconds, and the screen already
+    /// polls it every ten seconds while the row needs refreshing.
+    private func updating(_ video: LessonVideo) -> some View {
+        let stage = video.stage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("Updating your recap").font(.plCardTitle).foregroundStyle(PL.text100)
+            Text(video.status == "processing" && !stage.isEmpty ? stage : "Waiting to start")
+                .font(.plBody).foregroundStyle(PL.text300)
+            Text("Your current recap stays until the new one is ready. This usually takes 15 to 20 minutes.")
+                .font(.plCaption).foregroundStyle(PL.text400).lineSpacing(3)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
@@ -701,7 +731,11 @@ struct LessonVideoDetailScreen: View {
     private func manageRows(_ detail: LessonVideoDetail) -> [ManageRow] {
         let video = detail.video
         var rows: [ManageRow] = []
-        if detail.isOwner, video.edit != nil, ["review", "ready", "failed"].contains(video.status) { rows.append(.edit) }
+        // While a saved edit is being rendered the row stays, disabled:
+        // a row that vanishes reads as the menu going missing, and the
+        // caption under the list says when it comes back.
+        if detail.isOwner, video.edit != nil,
+           ["review", "ready", "failed"].contains(video.status) || rebuilding(detail) { rows.append(.edit) }
         let originalURL = detail.isOwner ? (detail.sourceUrl ?? detail.originalUrl).flatMap(URL.init(string:)) : nil
         if originalURL != nil { rows.append(.watchOriginal) }
         if let url = detail.summaryUrl.flatMap(URL.init(string:)) { rows.append(.exportSummary(url)) }
@@ -713,21 +747,30 @@ struct LessonVideoDetailScreen: View {
     @ViewBuilder
     private func manage(_ detail: LessonVideoDetail) -> some View {
         let rows = manageRows(detail)
+        let editLocked = rebuilding(detail)
         if !rows.isEmpty {
-            CoachGroup("Manage") {
-                ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                    manageRow(row)
-                    if index < rows.count - 1 { CoachRowDivider() }
+            VStack(alignment: .leading, spacing: 8) {
+                CoachGroup("Manage") {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                        manageRow(row, editLocked: editLocked)
+                        if index < rows.count - 1 { CoachRowDivider() }
+                    }
+                }
+                if editLocked && rows.contains(.edit) {
+                    Text("Editing is available when the update finishes.")
+                        .font(.plCaption).foregroundStyle(PL.text400)
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func manageRow(_ row: ManageRow) -> some View {
+    private func manageRow(_ row: ManageRow, editLocked: Bool) -> some View {
         switch row {
         case .edit:
-            CoachNavRow(label: "Edit recap") { editOpen = true }.disabled(busy)
+            CoachNavRow(label: "Edit recap") { editOpen = true }
+                .disabled(busy || editLocked)
+                .opacity(editLocked ? 0.5 : 1)
         case .watchOriginal:
             CoachNavRow(label: "Watch original recording") { watchOriginal() }
         case .exportSummary(let url):
@@ -1290,50 +1333,67 @@ private struct LessonVideoChapterIndex: View {
     }
 }
 
+/// Correct the recap's words: the title, each chapter's title and its
+/// points. Nothing is written until Save, and Save prepares a new recap
+/// video from what is here.
+///
+/// The draft is `LessonVideoEditDraft`, which gives every row an id, so
+/// removing a point removes that point and not its twin. What the sheet
+/// opened with is kept beside it: Cancel asks only when something has
+/// changed, and a swipe down is refused while there is anything to lose.
 private struct LessonVideoEditSheet: View {
     let id: UUID
     let expectedRevision: Int?
-    @State var edit: LessonVideoEdit
     let onSaved: () async -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var draft: LessonVideoEditDraft
+    private let opened: LessonVideoEditDraft
     @State private var busy = false
     @State private var error: String?
+    @State private var discardAsk = false
+    /// The point the keyboard is on, by its draft id.
+    @FocusState private var focus: UUID?
+
+    init(id: UUID, expectedRevision: Int?, edit: LessonVideoEdit, onSaved: @escaping () async -> Void) {
+        self.id = id
+        self.expectedRevision = expectedRevision
+        self.onSaved = onSaved
+        let draft = LessonVideoEditDraft(edit)
+        _draft = State(initialValue: draft)
+        opened = draft
+    }
+
+    private var dirty: Bool { draft != opened }
+    private var blocker: String? { draft.blocker }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    HStack {
-                        Button("Cancel") { dismiss() }
-                            .buttonStyle(PLSecondaryButtonStyle())
-                            .disabled(busy)
-                        Spacer()
-                        Button(busy ? "Saving…" : "Save") { save() }
-                            .buttonStyle(PLPrimaryButtonStyle())
-                            .disabled(busy || edit.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Button("Cancel") { cancel() }
+                                .buttonStyle(PLSecondaryButtonStyle())
+                                .disabled(busy)
+                            Spacer()
+                            Button(busy ? "Saving…" : "Save") { save() }
+                                .buttonStyle(PLPrimaryButtonStyle())
+                                .disabled(busy || blocker != nil)
+                        }
+                        if let blocker {
+                            Text(blocker).font(.plCaption).foregroundStyle(PL.warningText)
+                        }
                     }
                     Text("Edit recap").font(.plPageTitle).tracking(-0.6).foregroundStyle(PL.textBody)
                     VStack(alignment: .leading, spacing: 10) {
                         SectionHeading("Title")
-                        TextField("Lesson title", text: $edit.title, axis: .vertical)
+                        TextField("Lesson title", text: $draft.title, axis: .vertical)
                             .font(.plCardTitle)
                             .foregroundStyle(PL.text100)
                             .plCard(padding: 16)
                     }
-                    ForEach(edit.chapters.indices, id: \.self) { index in
-                        VStack(alignment: .leading, spacing: 14) {
-                            TextField("Chapter title", text: $edit.chapters[index].title, axis: .vertical)
-                                .font(.plCardTitle).foregroundStyle(PL.text100)
-                            ForEach(edit.chapters[index].cues.indices, id: \.self) { cue in
-                                TextField("Cue", text: $edit.chapters[index].cues[cue], axis: .vertical)
-                                    .font(.plBody)
-                                    .foregroundStyle(PL.text300)
-                                    .lineLimit(2...6)
-                                if cue < edit.chapters[index].cues.count - 1 {
-                                    Rectangle().fill(PL.edge).frame(height: 1)
-                                }
-                            }
-                        }
-                        .plCard(padding: 16)
+                    ForEach($draft.chapters) { $chapter in
+                        chapterCard($chapter)
                     }
                     Text("Saving prepares a new recap. Review it again before saving or sharing.")
                         .font(.plCaption).foregroundStyle(PL.text400)
@@ -1345,15 +1405,124 @@ private struct LessonVideoEditSheet: View {
             .background { ArenaBackground() }
             .toolbar(.hidden, for: .navigationBar)
             .plKeyboardDismiss()
-            .interactiveDismissDisabled(busy)
+            .confirmationDialog("Discard your changes?", isPresented: $discardAsk, titleVisibility: .visible) {
+                Button("Discard", role: .destructive) { dismiss() }
+                Button("Keep editing", role: .cancel) {}
+            }
+        }
+        // Swiping the sheet away with edits in it lost them silently, and
+        // nothing here has been written yet. With changes on screen the
+        // way out is Cancel, which asks first.
+        .interactiveDismissDisabled(dirty || busy)
+    }
+
+    /// One chapter: its title, its points with a remove control on each,
+    /// a row to add a point while there is room, and a way to drop the
+    /// whole chapter while there is another to keep.
+    private func chapterCard(_ chapter: Binding<LessonVideoEditDraft.Chapter>) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            TextField("Chapter title", text: chapter.title, axis: .vertical)
+                .font(.plCardTitle).foregroundStyle(PL.text100)
+            let cueCount = chapter.wrappedValue.cues.count
+            ForEach(chapter.cues) { $cue in
+                HStack(alignment: .top, spacing: 8) {
+                    TextField("Point", text: $cue.text, axis: .vertical)
+                        .font(.plBody)
+                        .foregroundStyle(PL.text300)
+                        .lineLimit(2...6)
+                        .focused($focus, equals: cue.id)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    // A chapter keeps its last point: the recap panel has
+                    // to say something, and the server refuses an empty
+                    // chapter, so the control goes rather than the button
+                    // failing on press.
+                    if cueCount > 1 {
+                        Button { remove(cue: cue.id, from: chapter.wrappedValue.id) } label: {
+                            Image(systemName: "xmark.circle")
+                                .font(.system(size: 18))
+                        }
+                        .buttonStyle(RemoveControlStyle())
+                        .accessibilityLabel("Remove this point")
+                    }
+                }
+                if cue.id != chapter.wrappedValue.cues.last?.id {
+                    Rectangle().fill(PL.edge).frame(height: 1)
+                }
+            }
+            if cueCount < LessonVideoEditDraft.maxCuesPerChapter {
+                Button { addCue(to: chapter.wrappedValue.id) } label: {
+                    Label("Add a point", systemImage: "plus.circle")
+                        .font(.plBody)
+                        .foregroundStyle(PL.cyan)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            if draft.chapters.count > 1 {
+                Button("Remove chapter") { removeChapter(chapter.wrappedValue.id) }
+                    .buttonStyle(PLSoftDestructiveButtonStyle())
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 16)
+        .disabled(busy)
+    }
+
+    /// The small round remove control beside a point: caption grey, and
+    /// amber under the finger, the same lean the soft destructive button
+    /// has. A 44pt square so the target is the whole corner, not the glyph.
+    private struct RemoveControlStyle: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .foregroundStyle(configuration.isPressed ? PL.warning : PL.text400)
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+                // Pull the frame back so the glyph sits on the text's first
+                // line and the hit area hangs off the card's padding.
+                .padding(.top, -12)
+                .padding(.trailing, -12)
         }
     }
 
+    private func addCue(to chapterId: UUID) {
+        guard let i = draft.chapters.firstIndex(where: { $0.id == chapterId }),
+              draft.chapters[i].cues.count < LessonVideoEditDraft.maxCuesPerChapter else { return }
+        let cue = LessonVideoEditDraft.Cue(text: "")
+        draft.chapters[i].cues.append(cue)
+        // A render behind the append: the row the keyboard is being sent
+        // to does not exist yet on this pass, and focus set now lands on
+        // nothing at all.
+        DispatchQueue.main.async { focus = cue.id }
+    }
+
+    private func remove(cue cueId: UUID, from chapterId: UUID) {
+        guard let i = draft.chapters.firstIndex(where: { $0.id == chapterId }),
+              draft.chapters[i].cues.count > 1 else { return }
+        if focus == cueId { focus = nil }
+        draft.chapters[i].cues.removeAll { $0.id == cueId }
+    }
+
+    private func removeChapter(_ chapterId: UUID) {
+        guard draft.chapters.count > 1 else { return }
+        focus = nil
+        draft.chapters.removeAll { $0.id == chapterId }
+    }
+
+    private func cancel() {
+        if dirty { discardAsk = true } else { dismiss() }
+    }
+
     private func save() {
+        guard blocker == nil else { return }
         busy = true
+        error = nil
         Task {
             do {
-                let _: LessonVideoOK = try await API.post("api/lesson-video", LessonVideoAction(action: "edit", id: id, edit: edit, expectedRevision: expectedRevision))
+                let _: LessonVideoOK = try await API.post(
+                    "api/lesson-video",
+                    LessonVideoAction(action: "edit", id: id, edit: draft.cleaned(), expectedRevision: expectedRevision)
+                )
                 await onSaved()
                 dismiss()
             } catch { self.error = UserFacingError.message(error) }

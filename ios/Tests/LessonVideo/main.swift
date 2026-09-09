@@ -171,5 +171,47 @@ let rebuilding = try! JSONDecoder().decode(LessonVideo.self, from: Data("""
 check(rebuilding.statusLabel(hasRecap: true) == "Updating your recap", "a correction does not read as a fresh import")
 check(rebuilding.statusLabel(hasRecap: false) == "Preparing your recap", "a first import still reads as a first import")
 check(rebuilding.statusLabel == "Preparing your recap", "the plain label is unchanged for callers with nothing to watch")
+// A row that carries an edit has a recap somebody can watch, so the plain
+// label answers the recap question itself: a list and the detail one tap
+// away must not disagree about the same lesson.
+let rebuildingWithRecap = try! JSONDecoder().decode(LessonVideo.self, from: Data("""
+{"id":"c75c8a89-16ee-41a1-b8f2-d3b441f0f82f","owner_id":"c75c8a89-16ee-41a1-b8f2-d3b441f0f82f","student_id":null,"lesson_id":null,"original_name":"a","file_size":1,"duration_s":1,"status":"queued","stage":null,"error":null,"edit":{"title":"Forehand","chapters":[{"title":"Stance","cues":["Stay low."],"start_s":0,"end_s":30}],"themes":[]},"created_at":"2026-09-06T00:00:00Z","revision":2}
+""".utf8))
+check(rebuildingWithRecap.statusLabel == "Updating your recap", "a list row with an edit reads as an update, the same as the detail")
 print("lesson rebuild label checks passed")
+
+// The edit sheet's draft: what Save refuses, and what it sends.
+let storedEdit = LessonVideoEdit(
+    title: "  Forehand loop  ",
+    chapters: [
+        LessonVideoEdit.Chapter(title: "Stance", cues: ["Stay low.", "   ", " Wider feet. "], start_s: 0, end_s: 30, summary_start_s: 1, summary_end_s: 31),
+        LessonVideoEdit.Chapter(title: "Serve", cues: ["Short and low."], start_s: 30, end_s: 60, summary_start_s: nil, summary_end_s: nil),
+    ],
+    themes: [LessonVideoEdit.Theme(name: "Footwork", points: ["Move first."])],
+    warning: "Audio was quiet."
+)
+var draft = LessonVideoEditDraft(storedEdit)
+check(draft.blocker == nil, "a stored edit is saveable as it arrived")
+check(draft.chapters[0].cues.count == 3, "the draft keeps every stored point, blank ones included, until save")
+check(Set(draft.chapters.map(\.id)).count == 2 && Set(draft.chapters[0].cues.map(\.id)).count == 3, "every row has an id of its own")
+let sent = draft.cleaned()
+check(sent.title == "Forehand loop", "the title is trimmed")
+check(sent.chapters[0].cues == ["Stay low.", "Wider feet."], "blank points are dropped and the rest trimmed")
+check(sent.chapters[0].summary_start_s == 1 && sent.chapters[0].summary_end_s == 31, "the chapter's times travel through untouched")
+check(sent.themes == storedEdit.themes && sent.warning == storedEdit.warning, "themes and the warning pass through unchanged")
+draft.title = "   "
+check(draft.blocker == "The recap needs a title.", "no title, no save")
+draft.title = "Forehand loop"
+draft.chapters[1].title = ""
+check(draft.blocker == "Every chapter needs a title.", "a chapter without a title blocks save")
+draft.chapters[1].title = "Serve"
+draft.chapters[1].cues[0].text = "  "
+check(draft.blocker == "Every chapter needs at least one point.", "a chapter with only blank points blocks save")
+draft.chapters[1].cues[0].text = String(repeating: "x", count: 300)
+draft.chapters[1].title = String(repeating: "t", count: 90)
+draft.title = String(repeating: "r", count: 120)
+let long = draft.cleaned()
+check(long.chapters[1].cues[0].count == 220 && long.chapters[1].title.count == 80 && long.title.count == 100, "the server's length limits are applied before sending")
+check(LessonVideoEditDraft.maxCuesPerChapter == 3, "three points is what the rendered panel has room for")
+print("lesson edit draft checks passed")
 

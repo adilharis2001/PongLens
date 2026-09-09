@@ -75,9 +75,10 @@ struct CoachLessonVideosSection: View {
     }
 
     private func statusLine(_ video: LessonVideo) -> String {
-        guard student == nil else { return video.statusLabel }
+        let label = video.statusLabel(hasRecap: video.edit != nil)
+        guard student == nil else { return label }
         let name = video.student_id.flatMap { workspace.student($0)?.displayName } ?? "Private lesson"
-        return "\(name) · \(video.statusLabel)"
+        return "\(name) · \(label)"
     }
 
     private func refresh() async {

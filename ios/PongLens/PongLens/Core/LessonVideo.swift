@@ -52,7 +52,11 @@ struct LessonVideo: Codable, Identifiable {
         // easily fixed while it is still uploading.
         isOwner && video.student_id == nil && video.stage != "Deleting"
     }
-    var statusLabel: String { statusLabel(hasRecap: false) }
+    /// The label with the recap question answered from the row itself. A
+    /// list row that has an edit is a lesson somebody has already watched,
+    /// so a rebuild reads "Updating your recap" there too, not "Waiting to
+    /// process" in the list and "Updating" on the detail one tap away.
+    var statusLabel: String { statusLabel(hasRecap: edit != nil) }
     /// One status word, with `hasRecap` saying whether there is already
     /// something to watch. Correcting a word is not reprocessing the
     /// lesson: a rebuild used to walk the same stages a first import
@@ -278,5 +282,95 @@ enum LessonVideoLength {
     static func label(seconds: Double) -> String {
         let whole = max(0, Int((seconds.isFinite ? seconds : 0).rounded()))
         return String(format: "%d:%02d", whole / 60, whole % 60)
+    }
+}
+
+/// The recap as the edit sheet holds it while it is open.
+///
+/// The stored edit carries bare strings, and a list cannot edit those: two
+/// identical points are one row as far as SwiftUI is concerned and typing
+/// into either moves both. Each chapter and each point gets an id of its
+/// own for as long as the sheet is open, and `cleaned()` turns it back into
+/// the shape the server takes. Foundation only, so the rules Save relies
+/// on run under ios/Tests without a simulator.
+struct LessonVideoEditDraft: Equatable {
+    struct Cue: Identifiable, Equatable {
+        let id: UUID
+        var text: String
+        init(id: UUID = UUID(), text: String) { self.id = id; self.text = text }
+    }
+    struct Chapter: Identifiable, Equatable {
+        let id: UUID
+        var title: String
+        var cues: [Cue]
+        let start_s: Double
+        let end_s: Double
+        let summary_start_s: Double?
+        let summary_end_s: Double?
+    }
+    var title: String
+    var chapters: [Chapter]
+    var themes: [LessonVideoEdit.Theme]
+    var warning: String?
+
+    /// Three points is the space the rendered chapter panel has.
+    static let maxCuesPerChapter = 3
+    /// The server's own trims (validateEdit on web): a longer value is
+    /// cut there anyway, so it is cut here first and what is saved is
+    /// what was on screen.
+    static let titleLimit = 100
+    static let chapterTitleLimit = 80
+    static let cueLimit = 220
+
+    init(_ edit: LessonVideoEdit) {
+        title = edit.title
+        chapters = edit.chapters.map { chapter in
+            Chapter(
+                id: UUID(), title: chapter.title,
+                cues: chapter.cues.map { Cue(text: $0) },
+                start_s: chapter.start_s, end_s: chapter.end_s,
+                summary_start_s: chapter.summary_start_s, summary_end_s: chapter.summary_end_s
+            )
+        }
+        themes = edit.themes
+        warning = edit.warning
+    }
+
+    /// Why Save is off, or nil when it may go. A disabled button with
+    /// nothing beside it reads as broken. Checked in the order a person
+    /// reads the sheet: the title, then each chapter's title, then its
+    /// points. Twin of the server's refusals, in words.
+    var blocker: String? {
+        if Self.trim(title).isEmpty { return "The recap needs a title." }
+        if chapters.contains(where: { Self.trim($0.title).isEmpty }) { return "Every chapter needs a title." }
+        if chapters.contains(where: { chapter in !chapter.cues.contains { !Self.trim($0.text).isEmpty } }) {
+            return "Every chapter needs at least one point."
+        }
+        return nil
+    }
+
+    /// The edit as it will be stored: everything trimmed, blank points
+    /// dropped, the server's length limits applied. Themes and the warning
+    /// pass through untouched; the sheet never shows them.
+    func cleaned() -> LessonVideoEdit {
+        LessonVideoEdit(
+            title: Self.trim(title, limit: Self.titleLimit),
+            chapters: chapters.map { chapter in
+                LessonVideoEdit.Chapter(
+                    title: Self.trim(chapter.title, limit: Self.chapterTitleLimit),
+                    cues: chapter.cues.map { Self.trim($0.text, limit: Self.cueLimit) }.filter { !$0.isEmpty },
+                    start_s: chapter.start_s, end_s: chapter.end_s,
+                    summary_start_s: chapter.summary_start_s, summary_end_s: chapter.summary_end_s
+                )
+            },
+            themes: themes,
+            warning: warning
+        )
+    }
+
+    private static func trim(_ value: String, limit: Int? = nil) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let limit, trimmed.count > limit else { return trimmed }
+        return String(trimmed.prefix(limit))
     }
 }

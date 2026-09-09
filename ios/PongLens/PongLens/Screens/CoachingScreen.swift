@@ -527,7 +527,7 @@ struct CoachingScreen: View {
     /// than a per-row fetch.
     private func recapMeta(_ recap: LessonVideo) -> String {
         guard let edit = recap.edit, !edit.chapters.isEmpty else {
-            return recap.statusLabel
+            return recap.statusLabel(hasRecap: recap.edit != nil)
         }
         let chapters = edit.chapters.count
         return "\(chapters) chapter\(chapters == 1 ? "" : "s") · \(edit.recapMinutes) min"
