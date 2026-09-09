@@ -253,6 +253,24 @@ export function insertMark(
  *  for another rally to have gone unmarked. */
 export const TAIL_S = 45;
 
+/** Cutting only, or cutting and scoring. */
+export type CutMode = "cut" | "score";
+
+/**
+ * Which pass a draft is, read from the row where the choice was recorded.
+ *
+ * A draft written before the choice was recorded has to be inferred, and
+ * the only honest signal is whether anything was ever called: one winner
+ * anywhere means someone was scoring, none at all across a whole pass
+ * means they were not. Guessing "scoring" instead is what put a cut-only
+ * pass into a scoring screen over points its owner had deliberately left
+ * uncalled.
+ */
+export function draftMode(marks: Mark[], recorded: CutMode | null): CutMode {
+  if (recorded) return recorded;
+  return marks.some((m) => m.isLet || m.winner !== null) ? "score" : "cut";
+}
+
 /** What the pad is on the way in. */
 export type OpenAs =
   /** Nothing marked: the cutting gate. */
@@ -273,9 +291,15 @@ export type OpenAs =
  * them is how much tape is left after the last point. With no duration to
  * measure against, ask rather than guess.
  */
-export function openAs(marks: Mark[], durationS: number | null): OpenAs {
+export function openAs(
+  marks: Mark[],
+  durationS: number | null,
+  mode: CutMode = "score"
+): OpenAs {
   if (marks.length === 0) return "fresh";
-  if (!allCalled(marks)) return "scoring";
+  // A cut-only pass has nothing to answer, so it is never a scoring pass
+  // however few of its points carry a winner.
+  if (mode === "score" && !allCalled(marks)) return "scoring";
   if (durationS === null || !(durationS > 0)) return "choice";
   const end = lastClosedEnd(marks) ?? 0;
   return durationS - end <= TAIL_S ? "review" : "choice";

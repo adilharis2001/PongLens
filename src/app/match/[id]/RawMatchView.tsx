@@ -37,7 +37,7 @@ import { TrimBar } from "@/components/TrimBar";
 import { ClipPlayer } from "./ClipPlayer";
 import { MatchFeedbackLink } from "./feedback/MatchFeedback";
 import { MarkPoints } from "./MarkPoints";
-import { submittable, type Mark } from "./handCut";
+import { submittable, type CutMode, type Mark } from "./handCut";
 import { userFirstServerUpdate } from "./matchStructure";
 import type { MatchServer } from "./serving";
 import { RawExportRow, TOOL_ROW_CLASS, ToolRowChevron } from "./ReelBar";
@@ -135,6 +135,9 @@ export function RawMatchView({
    */
   const [markingUrl, setMarkingUrl] = useState<string | null>(null);
   const [draftMarks, setDraftMarks] = useState<Mark[]>([]);
+  /** Cutting only, or cutting and scoring: the owner's own choice, kept
+   *  on the row so reopening does not have to guess at it. */
+  const [draftMode, setDraftMode] = useState<CutMode | null>(null);
   /**
    * Does the hand-cut backend exist yet?
    *
@@ -339,26 +342,29 @@ export function RawMatchView({
     const supabase = createClient();
     void supabase
       .from("hand_cut_drafts")
-      .select("marks")
+      .select("marks, mode")
       .eq("match_id", match.id)
       .maybeSingle()
       .then(({ data, error: readError }) => {
         if (readError) return; // no table yet: the feature stays hidden
         setHandCutReady(true);
-        const rows = (data as { marks?: Mark[] } | null)?.marks;
-        if (Array.isArray(rows)) setDraftMarks(rows);
+        const row = data as { marks?: Mark[]; mode?: CutMode | null } | null;
+        if (Array.isArray(row?.marks)) setDraftMarks(row.marks);
+        setDraftMode(row?.mode ?? null);
       });
   }, [isOwner, match.id]);
 
   const saveDraft = useCallback(
-    async (marks: Mark[]) => {
+    async (marks: Mark[], mode: CutMode | null) => {
       setDraftMarks(marks);
+      setDraftMode(mode);
       const supabase = createClient();
       await supabase.from("hand_cut_drafts").upsert(
         {
           match_id: match.id,
           user_id: userId,
           marks,
+          mode,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "match_id" },
@@ -1284,6 +1290,7 @@ export function RawMatchView({
           youLabel="Me"
           themLabel={(opponent.trim().split(/\s+/)[0] || "Them").slice(0, 12)}
           initialMarks={draftMarks}
+          initialMode={draftMode}
           saveDraft={saveDraft}
           submit={submitHandCut}
           onClose={() => {

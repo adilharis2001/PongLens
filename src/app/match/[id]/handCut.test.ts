@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   type Mark,
   allCalled,
+  draftMode,
   firstUnscored,
   gapsAround,
   insertMark,
@@ -483,4 +484,26 @@ test("insertMark drops a rally into its place in order, and Undo takes it out", 
   // Too short to be a rally, and overlapping one that exists.
   assert.equal(insertMark(before, 30, 30.2, "x").refused, REFUSE.short);
   assert.equal(insertMark(before, 12, 20, "x").refused, REFUSE.inside);
+});
+
+test("draftMode takes the recorded choice, and infers one only where none was recorded", () => {
+  const uncalled = [closed("a", 10, 15), closed("b", 30, 35)];
+  const called = [closed("a", 10, 15, "user"), closed("b", 30, 35)];
+  // Recorded wins, whatever the marks look like.
+  assert.equal(draftMode(uncalled, "score"), "score");
+  assert.equal(draftMode(called, "cut"), "cut");
+  // Nothing recorded: one call anywhere means someone was scoring.
+  assert.equal(draftMode(called, null), "score");
+  assert.equal(draftMode([closed("a", 10, 15, null, true)], null), "score");
+  assert.equal(draftMode(uncalled, null), "cut");
+  assert.equal(draftMode([], null), "cut");
+});
+
+test("a cut-only pass never opens as a scoring pass", () => {
+  const uncalled = [closed("a", 10, 15), closed("b", 30, 35)];
+  // Scoring would send them through every point asking for a winner.
+  assert.equal(openAs(uncalled, 600, "score"), "scoring");
+  // Cut only has nothing to answer: it is a question of where they got to.
+  assert.equal(openAs(uncalled, 600, "cut"), "choice");
+  assert.equal(openAs(uncalled, 60, "cut"), "review");
 });

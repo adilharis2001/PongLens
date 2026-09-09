@@ -51,10 +51,12 @@ import {
   type Outcome,
   asPoints,
   clearAwaiting,
+  draftMode,
   firstUnscored,
   gapsAround,
   insertMark,
   lastClosedEnd as lastEnd,
+  type CutMode,
   type Gap,
   openAs,
   MIN_POINT_S,
@@ -227,6 +229,7 @@ export function MarkPoints({
   youLabel,
   themLabel,
   initialMarks,
+  initialMode,
   saveDraft,
   submit,
   onClose,
@@ -242,8 +245,11 @@ export function MarkPoints({
   youLabel: string;
   themLabel: string;
   initialMarks: Mark[];
+  /** The pass this draft was, as recorded on the row. Null on a draft
+   *  saved before the choice was kept, and on a match never opened. */
+  initialMode: CutMode | null;
   /** Best effort, debounced. Never blocks a tap. */
-  saveDraft: (marks: Mark[]) => Promise<void>;
+  saveDraft: (marks: Mark[], mode: CutMode | null) => Promise<void>;
   /** Hands the marks to claim_hand_cut. Resolves to a message or null. */
   submit: (marks: Mark[]) => Promise<string | null>;
   onClose: () => void;
@@ -266,7 +272,13 @@ export function MarkPoints({
    * the scoring pass it had. Read once on the way in, so a draft saved
    * during the session cannot change what the screen was opened as.
    */
-  const openedAs = useRef(openAs(initialMarks, durationS)).current;
+  /** The pass this draft is, decided once on the way in. */
+  const openedMode = useRef(
+    resumed ? draftMode(initialMarks, initialMode) : null
+  ).current;
+  const openedAs = useRef(
+    openAs(initialMarks, durationS, openedMode ?? "score")
+  ).current;
   const openedCalled = openedAs === "review" || openedAs === "choice";
   const openedFinished = openedAs === "review";
   const openedPartial = openedAs === "choice";
@@ -283,9 +295,7 @@ export function MarkPoints({
   );
   /** Cut only, or cut and score? Asked once, before anything else, so the
    *  pad can drop the half of itself the answer does not need. */
-  const [mode, setMode] = useState<"cut" | "score" | null>(
-    resumed ? "score" : null
-  );
+  const [mode, setMode] = useState<CutMode | null>(openedMode);
   /** Who served first, if known. Comes in from the match row and is set
    *  here the moment the player answers, so the rotation shows at once. */
   const [firstServer, setFirstServer] = useState<MatchServer | null>(
@@ -296,7 +306,9 @@ export function MarkPoints({
   }, [initialFirstServer]);
   /** The second question on the way in, where a rotation exists. */
   const [serveStep, setServeStep] = useState(
-    resumed && tracksServe(matchType) && initialFirstServer === null
+    openedMode === "score" &&
+      tracksServe(matchType) &&
+      initialFirstServer === null
   );
   /** Has the session started? Until it has, the pad is one button, because
    *  one button is the only thing there is to do. */
@@ -1088,10 +1100,12 @@ export function MarkPoints({
 
   /* ---------------------------------------------------------- draft saves */
 
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
   useEffect(() => {
     if (saveTimer.current) window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
-      void saveDraft(stateRef.current.marks).catch(() => {
+      void saveDraft(stateRef.current.marks, modeRef.current).catch(() => {
         // Deliberately silent. The strip renders from local state, so a
         // failed save costs a later retry and never a tap.
       });
@@ -1099,7 +1113,7 @@ export function MarkPoints({
     return () => {
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
     };
-  }, [state.marks, saveDraft]);
+  }, [state.marks, mode, saveDraft]);
 
   /* ------------------------------------------------------- derived scores */
 
