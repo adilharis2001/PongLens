@@ -1315,34 +1315,56 @@ export function MarkPoints({
     </div>
   );
 
+  /**
+   * Two rows of three rather than one row of six. Six at this width
+   * leaves about fifty pixels a button, which "Mark again" does not fit
+   * in, and the two rows split cleanly by what they act on: the tape
+   * above, the point you are on below.
+   *
+   * The five second nudges live here as well as on the picture. On the
+   * picture they are the reach for a thumb, but they turn into Prev and
+   * Next the moment a point is selected, which is exactly when someone
+   * wants to shift the frame a little before adjusting an edge — and on
+   * a desktop the picture's buttons are a long way from the pad.
+   */
   const utilRow = (
-    <div className="flex shrink-0 gap-2">
-      <Util label="Undo" onClick={tapUndo} disabled={state.undo.length === 0} />
-      <Util
-        label="Star"
-        onClick={tapStar}
-        disabled={state.marks.length === 0}
-        lit={
-          !!state.marks.find(
-            (m) => m.id === (state.awaitingId ?? state.selectedId)
-          )?.starred
-        }
-      />
-      <Util
-        label="Mark again"
-        onClick={() => selectedMark && redoPoint(selectedMark.id)}
-        disabled={!reviewing_}
-      />
-      <Util
-        label="Remove"
-        onClick={() => {
-          if (!selectedMark) return;
-          apply(removeMark(stateRef.current, selectedMark.id));
-          setAdjusting(null);
-          setState((st) => selectMark(st, null));
-        }}
-        disabled={!reviewing_}
-      />
+    <div className="flex shrink-0 flex-col gap-2">
+      <div className="flex gap-2">
+        <Util label="−5s" onClick={() => seekBy(-5)} />
+        <Util label="+5s" onClick={() => seekBy(5)} />
+        <Util
+          label="Undo"
+          onClick={tapUndo}
+          disabled={state.undo.length === 0}
+        />
+      </div>
+      <div className="flex gap-2">
+        <Util
+          label="Star"
+          onClick={tapStar}
+          disabled={state.marks.length === 0}
+          lit={
+            !!state.marks.find(
+              (m) => m.id === (state.awaitingId ?? state.selectedId)
+            )?.starred
+          }
+        />
+        <Util
+          label="Mark again"
+          onClick={() => selectedMark && redoPoint(selectedMark.id)}
+          disabled={!reviewing_}
+        />
+        <Util
+          label="Remove"
+          onClick={() => {
+            if (!selectedMark) return;
+            apply(removeMark(stateRef.current, selectedMark.id));
+            setAdjusting(null);
+            setState((st) => selectMark(st, null));
+          }}
+          disabled={!reviewing_}
+        />
+      </div>
     </div>
   );
 
