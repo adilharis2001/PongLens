@@ -31,6 +31,14 @@
         "on": true,
         "bufferS": 1.5
       }
+    },
+    "tight": {
+      "tapEnd": true,
+      "rallyEnd": {
+        "on": true,
+        "bufferS": 1.75,
+        "tightBufferS": 0.4
+      }
     }
   },
   "cases": [
@@ -44,7 +52,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": null,
-        "rally_end_cut_s": null
+        "rally_end_cut_s": null,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -52,7 +61,8 @@
         "tapOnly": 56.5,
         "rallyOnly": 56.5,
         "both": 56.5,
-        "bothWide": 56.5
+        "bothWide": 56.5,
+        "tight": 56.5
       }
     },
     {
@@ -65,7 +75,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": 54.8,
-        "rally_end_cut_s": null
+        "rally_end_cut_s": null,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -73,7 +84,8 @@
         "tapOnly": 55.3,
         "rallyOnly": 56.5,
         "both": 55.3,
-        "bothWide": 55.3
+        "bothWide": 55.3,
+        "tight": 55.3
       }
     },
     {
@@ -86,7 +98,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": 56.4,
-        "rally_end_cut_s": null
+        "rally_end_cut_s": null,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -94,7 +107,8 @@
         "tapOnly": 56.5,
         "rallyOnly": 56.5,
         "both": 56.5,
-        "bothWide": 56.5
+        "bothWide": 56.5,
+        "tight": 56.5
       }
     },
     {
@@ -107,7 +121,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": 49,
-        "rally_end_cut_s": null
+        "rally_end_cut_s": null,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -115,7 +130,8 @@
         "tapOnly": 56.5,
         "rallyOnly": 56.5,
         "both": 56.5,
-        "bothWide": 56.5
+        "bothWide": 56.5,
+        "tight": 56.5
       }
     },
     {
@@ -128,7 +144,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": null,
-        "rally_end_cut_s": 53.9
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -136,7 +153,8 @@
         "tapOnly": 56.5,
         "rallyOnly": 54.4,
         "both": 54.4,
-        "bothWide": 55.4
+        "bothWide": 55.4,
+        "tight": 55.65
       }
     },
     {
@@ -149,7 +167,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": null,
-        "rally_end_cut_s": 56.4
+        "rally_end_cut_s": 56.4,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -157,7 +176,8 @@
         "tapOnly": 56.5,
         "rallyOnly": 56.5,
         "both": 56.5,
-        "bothWide": 56.5
+        "bothWide": 56.5,
+        "tight": 56.5
       }
     },
     {
@@ -170,7 +190,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": null,
-        "rally_end_cut_s": 49
+        "rally_end_cut_s": 49,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -178,7 +199,8 @@
         "tapOnly": 56.5,
         "rallyOnly": 56.5,
         "both": 56.5,
-        "bothWide": 56.5
+        "bothWide": 56.5,
+        "tight": 56.5
       }
     },
     {
@@ -191,7 +213,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": null,
-        "rally_end_cut_s": 51
+        "rally_end_cut_s": 51,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -199,7 +222,8 @@
         "tapOnly": 56.5,
         "rallyOnly": 56.5,
         "both": 56.5,
-        "bothWide": 56.5
+        "bothWide": 56.5,
+        "tight": 56.5
       }
     },
     {
@@ -212,7 +236,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": null,
-        "rally_end_cut_s": 52.6
+        "rally_end_cut_s": 52.6,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -220,7 +245,8 @@
         "tapOnly": 56.5,
         "rallyOnly": 53.1,
         "both": 53.1,
-        "bothWide": 54.1
+        "bothWide": 54.1,
+        "tight": 54.35
       }
     },
     {
@@ -233,7 +259,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": 54.8,
-        "rally_end_cut_s": 53.9
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -241,7 +268,8 @@
         "tapOnly": 55.3,
         "rallyOnly": 56.5,
         "both": 55.3,
-        "bothWide": 55.3
+        "bothWide": 55.3,
+        "tight": 55.3
       }
     },
     {
@@ -254,7 +282,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": 52,
-        "rally_end_cut_s": 55
+        "rally_end_cut_s": 55,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -262,7 +291,8 @@
         "tapOnly": 52.5,
         "rallyOnly": 56.5,
         "both": 52.5,
-        "bothWide": 52.5
+        "bothWide": 52.5,
+        "tight": 52.5
       }
     },
     {
@@ -275,7 +305,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": 49,
-        "rally_end_cut_s": 53.9
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -283,7 +314,8 @@
         "tapOnly": 56.5,
         "rallyOnly": 56.5,
         "both": 56.5,
-        "bothWide": 56.5
+        "bothWide": 56.5,
+        "tight": 56.5
       }
     },
     {
@@ -296,7 +328,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": 54.8,
-        "rally_end_cut_s": 53.9
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": null
       },
       "padded_end": 56.5,
       "ends": {
@@ -304,7 +337,8 @@
         "tapOnly": 56.5,
         "rallyOnly": 56.5,
         "both": 56.5,
-        "bothWide": 56.5
+        "bothWide": 56.5,
+        "tight": 56.5
       }
     },
     {
@@ -317,7 +351,8 @@
         "tight_start": false,
         "tight_end": false,
         "scored_at_cut_s": null,
-        "rally_end_cut_s": 53.9
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": null
       },
       "padded_end": null,
       "ends": {
@@ -325,7 +360,8 @@
         "tapOnly": null,
         "rallyOnly": null,
         "both": null,
-        "bothWide": null
+        "bothWide": null,
+        "tight": null
       }
     },
     {
@@ -338,7 +374,8 @@
         "tight_start": true,
         "tight_end": true,
         "scored_at_cut_s": null,
-        "rally_end_cut_s": 53.9
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": null
       },
       "padded_end": 54.599999999999994,
       "ends": {
@@ -346,7 +383,143 @@
         "tapOnly": 54.599999999999994,
         "rallyOnly": 54.4,
         "both": 54.4,
-        "bothWide": 54.599999999999994
+        "bothWide": 54.599999999999994,
+        "tight": 54.599999999999994
+      }
+    },
+    {
+      "name": "rally watched to the finish",
+      "point": {
+        "cut_t0": 50,
+        "t0": 100,
+        "t1": 104,
+        "edited": false,
+        "tight_start": false,
+        "tight_end": false,
+        "scored_at_cut_s": null,
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": {
+          "end_source": "observed",
+          "connected_crossings": 6,
+          "max_crossing_gap_s": 0.9
+        }
+      },
+      "padded_end": 56.5,
+      "ends": {
+        "off": 56.5,
+        "tapOnly": 56.5,
+        "rallyOnly": 54.4,
+        "both": 54.4,
+        "bothWide": 55.4,
+        "tight": 54.3
+      }
+    },
+    {
+      "name": "tracker lost the ball mid-rally",
+      "point": {
+        "cut_t0": 50,
+        "t0": 100,
+        "t1": 104,
+        "edited": false,
+        "tight_start": false,
+        "tight_end": false,
+        "scored_at_cut_s": null,
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": {
+          "end_source": "observed",
+          "connected_crossings": 6,
+          "max_crossing_gap_s": 2.4
+        }
+      },
+      "padded_end": 56.5,
+      "ends": {
+        "off": 56.5,
+        "tapOnly": 56.5,
+        "rallyOnly": 54.4,
+        "both": 54.4,
+        "bothWide": 55.4,
+        "tight": 55.65
+      }
+    },
+    {
+      "name": "end was never observed",
+      "point": {
+        "cut_t0": 50,
+        "t0": 100,
+        "t1": 104,
+        "edited": false,
+        "tight_start": false,
+        "tight_end": false,
+        "scored_at_cut_s": null,
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": {
+          "end_source": "card",
+          "connected_crossings": 6,
+          "max_crossing_gap_s": 0.9
+        }
+      },
+      "padded_end": 56.5,
+      "ends": {
+        "off": 56.5,
+        "tapOnly": 56.5,
+        "rallyOnly": 54.4,
+        "both": 54.4,
+        "bothWide": 55.4,
+        "tight": 55.65
+      }
+    },
+    {
+      "name": "too few crossings to call it a rally",
+      "point": {
+        "cut_t0": 50,
+        "t0": 100,
+        "t1": 104,
+        "edited": false,
+        "tight_start": false,
+        "tight_end": false,
+        "scored_at_cut_s": null,
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": {
+          "end_source": "observed",
+          "connected_crossings": 1,
+          "max_crossing_gap_s": 0.9
+        }
+      },
+      "padded_end": 56.5,
+      "ends": {
+        "off": 56.5,
+        "tapOnly": 56.5,
+        "rallyOnly": 54.4,
+        "both": 54.4,
+        "bothWide": 55.4,
+        "tight": 55.65
+      }
+    },
+    {
+      "name": "watched, but the tap wins",
+      "point": {
+        "cut_t0": 50,
+        "t0": 100,
+        "t1": 104,
+        "edited": false,
+        "tight_start": false,
+        "tight_end": false,
+        "scored_at_cut_s": 54.8,
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": {
+          "end_source": "observed",
+          "connected_crossings": 6,
+          "max_crossing_gap_s": 0.9
+        }
+      },
+      "padded_end": 56.5,
+      "ends": {
+        "off": 56.5,
+        "tapOnly": 55.3,
+        "rallyOnly": 56.5,
+        "both": 55.3,
+        "bothWide": 55.3,
+        "tight": 55.3
       }
     }
   ]

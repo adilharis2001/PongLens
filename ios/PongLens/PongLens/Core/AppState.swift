@@ -107,6 +107,13 @@ final class AppState {
     /// than to zero — zero is the most dangerous setting there is.
     var unscoredRallyEndBufferS = 0.5
 
+    /// app_config unscored_rally_end_tight_buffer_s: the tail kept on a
+    /// point whose rally we WATCHED stop, as opposed to one where the
+    /// tracker lost the ball. nil (missing, unparseable, or unreachable)
+    /// means every point keeps the wide tail — a failed fetch must never
+    /// be the setting that truncates a rally.
+    var unscoredRallyEndTightBufferS: Double?
+
     /// app_config game_end_detection (140): a marker between two rallies
     /// where the video shows the players swapping ends. False on any
     /// failure — a build that cannot reach the config should behave like
@@ -118,7 +125,8 @@ final class AppState {
         EndOptions(
             tapEnd: tapEndPlayback,
             rallyEnd: unscoredRallyEnd
-                ? RallyEndConfig(on: true, bufferS: unscoredRallyEndBufferS)
+                ? RallyEndConfig(on: true, bufferS: unscoredRallyEndBufferS,
+                                 tightBufferS: unscoredRallyEndTightBufferS)
                 : nil
         )
     }
@@ -131,6 +139,7 @@ final class AppState {
             .in("key", values: [
                 "placement_serves_only", "tap_end_playback",
                 "unscored_rally_end", "unscored_rally_end_buffer_s",
+                "unscored_rally_end_tight_buffer_s",
                 "game_end_detection",
             ])
             .execute().value
@@ -146,6 +155,9 @@ final class AppState {
         unscoredRallyEndBufferS = rows?.first {
             $0.key == "unscored_rally_end_buffer_s"
         }?.value.flatMap(Double.init).map { max(0, $0) } ?? 0.5
+        unscoredRallyEndTightBufferS = rows?.first {
+            $0.key == "unscored_rally_end_tight_buffer_s"
+        }?.value.flatMap(Double.init).flatMap { $0 >= 0 ? $0 : nil }
         gameEndDetection = rows?.first {
             $0.key == "game_end_detection"
         }?.value == "on"

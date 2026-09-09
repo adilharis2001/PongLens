@@ -99,6 +99,49 @@ let RALLY_END_MAX_TAIL_S = 2.7
 struct RallyEndConfig {
     let on: Bool
     let bufferS: Double
+    /// app_config.unscored_rally_end_tight_buffer_s: the tail kept on a
+    /// point whose rally we actually watched stop. nil means "use bufferS
+    /// for everything", which is what every caller had before 2026-09-09.
+    var tightBufferS: Double? = nil
+}
+
+/// The three things the worker records about how it watched a rally end
+/// (points.highlight_evidence). Decoded narrowly on purpose: the blob has
+/// a dozen more fields and this rule reads exactly these.
+struct RallyEvidence: Codable, Hashable {
+    let endSource: String?
+    let connectedCrossings: Int?
+    let maxCrossingGapS: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case endSource = "end_source"
+        case connectedCrossings = "connected_crossings"
+        case maxCrossingGapS = "max_crossing_gap_s"
+    }
+}
+
+/// How far the ball may go unseen inside a rally before its recorded end
+/// is a guess rather than an observation, and the fewest net crossings
+/// that make a stretch a rally at all. Mirrors playhead.ts.
+let RALLY_END_MAX_LOST_S = 1.5
+let RALLY_END_MIN_CROSSINGS = 2
+
+/// Did we WATCH this rally stop, or did we lose the ball and guess?
+///
+/// The difference decides how hard playback may cut. A rally the tracker
+/// followed to its last shot can end almost on that shot; one where the
+/// ball vanished for a second and a half in the middle has an "end" that
+/// is only the last thing we happened to see, and cutting to it truncates
+/// the point. Anything missing reads as NOT watched: a point whose
+/// evidence predates this keeps the tail it has rather than inheriting a
+/// hard cut from a blank. Mirrors playhead.ts rallyEndWatched.
+func rallyEndWatched(_ p: MatchPoint) -> Bool {
+    guard let ev = p.highlightEvidence else { return false }
+    guard ev.endSource == "observed" else { return false }
+    guard let crossings = ev.connectedCrossings,
+          crossings >= RALLY_END_MIN_CROSSINGS else { return false }
+    if let lost = ev.maxCrossingGapS, lost > RALLY_END_MAX_LOST_S { return false }
+    return true
 }
 
 /// Which endings are allowed to shorten a point. Mirrors EndOptions in
@@ -155,7 +198,10 @@ func effectiveEnd(_ p: MatchPoint, _ pad: ClipPad, _ ends: EndOptions) -> Double
        // The ending must explain where this point already ends. When it
        // does not, the detector lost the ball rather than watched it stop.
        let own = rallyEnd(p, pad), own - observed <= RALLY_END_MAX_TAIL_S {
-        return min(padded, observed + rally.bufferS)
+        // A watched finish earns the hard cut; a guessed one keeps the tail.
+        let buffer = rally.tightBufferS.map { rallyEndWatched(p) ? $0 : rally.bufferS }
+            ?? rally.bufferS
+        return min(padded, observed + buffer)
     }
     return padded
 }

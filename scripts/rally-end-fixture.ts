@@ -38,6 +38,16 @@ const OPTIONS: Record<string, EndOptions> = {
   rallyOnly: { tapEnd: false, rallyEnd: { on: true, bufferS: 0.5 } },
   both: { tapEnd: true, rallyEnd: { on: true, bufferS: 0.5 } },
   bothWide: { tapEnd: true, rallyEnd: { on: true, bufferS: 1.5 } },
+  // A rally we WATCHED stop is cut where it stopped (2026-09-09): the wide
+  // tail is for the ones we lost.
+  tight: { tapEnd: true, rallyEnd: { on: true, bufferS: 1.75, tightBufferS: 0.4 } },
+};
+
+/** The worker's own receipts for a rally it followed to the last shot. */
+const WATCHED = {
+  end_source: "observed",
+  connected_crossings: 6,
+  max_crossing_gap_s: 0.9,
 };
 
 const CASES: { name: string; point: Partial<Point> }[] = [
@@ -75,6 +85,40 @@ const CASES: { name: string; point: Partial<Point> }[] = [
     name: "tight edges",
     point: { rally_end_cut_s: 53.9, tight_start: true, tight_end: true },
   },
+  // The evidence rungs. Only the first should take the tight buffer.
+  {
+    name: "rally watched to the finish",
+    point: { rally_end_cut_s: 53.9, highlight_evidence: WATCHED },
+  },
+  {
+    name: "tracker lost the ball mid-rally",
+    point: {
+      rally_end_cut_s: 53.9,
+      highlight_evidence: { ...WATCHED, max_crossing_gap_s: 2.4 },
+    },
+  },
+  {
+    name: "end was never observed",
+    point: {
+      rally_end_cut_s: 53.9,
+      highlight_evidence: { ...WATCHED, end_source: "card" },
+    },
+  },
+  {
+    name: "too few crossings to call it a rally",
+    point: {
+      rally_end_cut_s: 53.9,
+      highlight_evidence: { ...WATCHED, connected_crossings: 1 },
+    },
+  },
+  {
+    name: "watched, but the tap wins",
+    point: {
+      scored_at_cut_s: 54.8,
+      rally_end_cut_s: 53.9,
+      highlight_evidence: WATCHED,
+    },
+  },
 ];
 
 const rows = CASES.map((c) => {
@@ -86,6 +130,7 @@ const rows = CASES.map((c) => {
       tight_start: p.tight_start, tight_end: p.tight_end,
       scored_at_cut_s: p.scored_at_cut_s ?? null,
       rally_end_cut_s: p.rally_end_cut_s ?? null,
+      highlight_evidence: p.highlight_evidence ?? null,
     },
     padded_end: paddedEnd(p, PAD),
     ends: Object.fromEntries(

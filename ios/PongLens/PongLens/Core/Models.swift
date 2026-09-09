@@ -335,6 +335,9 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     /// winner tap lands inside; an unscored point has no tap coming, so
     /// this is where its playback can stop instead.
     var rallyEndCutS: Double?
+    /// What the assembler saw of this rally. Playback reads three of its
+    /// fields to decide whether the recorded end was watched or guessed.
+    var highlightEvidence: RallyEvidence?
     var lossReasons: [String]?
     var direction: String?
     var misreadKind: String?
@@ -378,6 +381,7 @@ struct MatchPoint: Codable, Identifiable, Hashable {
         case scoredAtCutS = "scored_at_cut_s"
         case serveStartAtCutS = "serve_start_at_cut_s"
         case rallyEndCutS = "rally_end_cut_s"
+        case highlightEvidence = "highlight_evidence"
         case lossReasons = "loss_reasons"
         case misreadKind = "misread_kind"
         case serveSpin = "serve_spin"
@@ -389,7 +393,12 @@ struct MatchPoint: Codable, Identifiable, Hashable {
     }
 
     static let matchSelect =
-        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,side_change_dismissed,scored_at_cut_s,serve_start_at_cut_s,loss_reasons,direction,misread_kind,serve_spin,serve_sidespin,serve_length,placement_flagged,clip_path,placement,suggestion"
+        "id,match_id,idx,t0,t1,cut_t0,server,server_override,is_let,confirmed_winner,confirmed_how,starred,deleted,edited,tight_start,tight_end,game_end_override,game_winner_override,side_change_dismissed,scored_at_cut_s,serve_start_at_cut_s,loss_reasons,direction,misread_kind,serve_spin,serve_sidespin,serve_length,placement_flagged,clip_path,placement,suggestion,"
+        // rally_end_cut_s was decoded but never ASKED FOR until 2026-09-09,
+        // so the unscored rally-end trim (143) could not fire on this
+        // platform at all: it arrived nil on every point. Its evidence
+        // rides along for the tight-buffer rule.
+        + "rally_end_cut_s,highlight_evidence"
 
     /// Duration of the rally itself, in seconds.
     var rallySeconds: Double? {

@@ -25,11 +25,13 @@ private struct RallyEndFixture: Decodable {
         let tight_end: Bool
         let scored_at_cut_s: Double?
         let rally_end_cut_s: Double?
+        let highlight_evidence: RallyEvidence?
     }
     struct Opt: Decodable {
         struct Rally: Decodable {
             let on: Bool
             let bufferS: Double
+            let tightBufferS: Double?
         }
         let tapEnd: Bool
         let rallyEnd: Rally?
@@ -69,6 +71,7 @@ func runRallyEndParityChecks() {
             scoredAtCutS: c.point.scored_at_cut_s,
             serveStartAtCutS: nil,
             rallyEndCutS: c.point.rally_end_cut_s,
+            highlightEvidence: c.point.highlight_evidence,
             lossReasons: nil, direction: nil, misreadKind: nil,
             serveSpin: nil, serveSidespin: nil, serveLength: nil,
             placementFlagged: nil, clipPath: nil, placement: nil
@@ -82,7 +85,8 @@ func runRallyEndParityChecks() {
             let ends = EndOptions(
                 tapEnd: o.tapEnd,
                 rallyEnd: o.rallyEnd.map {
-                    RallyEndConfig(on: $0.on, bufferS: $0.bufferS)
+                    RallyEndConfig(on: $0.on, bufferS: $0.bufferS,
+                                   tightBufferS: $0.tightBufferS)
                 }
             )
             same("\(c.name) [\(name)]", effectiveEnd(p, pad, ends), expected)
