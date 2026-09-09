@@ -260,3 +260,23 @@ export const getUnscoredRallyEndBufferS = cache(async (): Promise<number> => {
   const n = Number(raw);
   return Number.isFinite(n) && n >= 0 ? n : 0.5;
 });
+
+/**
+ * Seconds kept after a rally we actually WATCHED stop.
+ *
+ * The tail above is a safety margin against a rally end we are not sure
+ * of. Where the ball was followed to its last shot there is nothing to be
+ * safe about, and the margin is just the players walking — which is the
+ * one thing a freshly processed match is supposed to have removed
+ * (Adil, 2026-09-09). `playhead.rallyEndWatched` decides which a point is.
+ *
+ * A missing or unparseable value reads as the wide tail, not as zero: a
+ * failed fetch must never be the setting that truncates a rally.
+ */
+export const getUnscoredRallyEndTightBufferS = cache(
+  async (): Promise<number | null> => {
+    const raw = await getConfigValue("unscored_rally_end_tight_buffer_s");
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  },
+);

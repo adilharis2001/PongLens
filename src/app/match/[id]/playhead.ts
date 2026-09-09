@@ -62,7 +62,49 @@ const TAP_END_GUARD_S = 0.5;
 
 /** app_config.unscored_rally_end and its buffer, threaded from the server
  *  the same way tapEnd is. Absent means off. */
-export type RallyEndConfig = { on: boolean; bufferS: number };
+export type RallyEndConfig = {
+  on: boolean;
+  bufferS: number;
+  /** app_config.unscored_rally_end_tight_buffer_s: the tail kept on a point
+   *  whose rally we actually watched stop. Absent means "use bufferS for
+   *  everything", which is the behaviour every caller had before. */
+  tightBufferS?: number | null;
+};
+
+/**
+ * Did we WATCH this rally stop, or did we lose the ball and guess?
+ *
+ * The difference decides how hard playback may cut. A rally the tracker
+ * followed to its last shot can end almost on that shot; one where the ball
+ * vanished for a second and a half in the middle has an "end" that is only
+ * the last thing we happened to see, and cutting to it truncates the point.
+ *
+ * The three tests are the ones the worker already writes on every point
+ * (points.highlight_evidence, so this needs no reprocessing and applies to
+ * every match ever cut):
+ *
+ *   end_source          the end was observed, not inferred from the card
+ *   connected_crossings the ball crossed the net enough times to be a rally
+ *   max_crossing_gap_s  and it was never lost for long inside it
+ *
+ * Anything missing reads as NOT confident. A point whose evidence predates
+ * this must keep the tail it has, not inherit a hard cut from a blank.
+ */
+export const RALLY_END_MAX_LOST_S = 1.5;
+export const RALLY_END_MIN_CROSSINGS = 2;
+
+export function rallyEndWatched(p: Point): boolean {
+  const ev = p.highlight_evidence as Record<string, unknown> | null | undefined;
+  if (!ev || typeof ev !== "object") return false;
+  if (ev.end_source !== "observed") return false;
+  const crossings = Number(ev.connected_crossings);
+  if (!Number.isFinite(crossings) || crossings < RALLY_END_MIN_CROSSINGS) {
+    return false;
+  }
+  const lost = Number(ev.max_crossing_gap_s);
+  if (Number.isFinite(lost) && lost > RALLY_END_MAX_LOST_S) return false;
+  return true;
+}
 
 /**
  * How far the point's own end may sit past the observed ending before the
@@ -165,7 +207,13 @@ export function effectiveEnd(
     // not, the detector lost the ball rather than watched it stop.
     && own !== null && own - Number(rally) <= RALLY_END_MAX_TAIL_S
   ) {
-    return Math.min(padded, Number(rally) + opts.rallyEnd.bufferS);
+    // A watched finish earns the hard cut; a guessed one keeps the tail.
+    const tight = opts.rallyEnd.tightBufferS;
+    const buffer =
+      tight !== null && tight !== undefined && rallyEndWatched(p)
+        ? tight
+        : opts.rallyEnd.bufferS;
+    return Math.min(padded, Number(rally) + buffer);
   }
   return padded;
 }

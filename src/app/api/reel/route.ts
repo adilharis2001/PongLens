@@ -12,6 +12,7 @@ import {
   getTapEndPlayback,
   getUnscoredRallyEnd,
   getUnscoredRallyEndBufferS,
+  getUnscoredRallyEndTightBufferS,
 } from "@/lib/config";
 import type { Point } from "@/lib/types";
 
@@ -325,6 +326,7 @@ export async function POST(req: Request) {
     rallyEnd: {
       on: await getUnscoredRallyEnd(),
       bufferS: await getUnscoredRallyEndBufferS(),
+      tightBufferS: await getUnscoredRallyEndTightBufferS(),
     },
   };
 

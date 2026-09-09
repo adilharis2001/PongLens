@@ -336,3 +336,59 @@ test("a gap wider than the tolerance stays two jumps", () => {
     { start: 11.5, end: 18 },
   ]);
 });
+
+
+// A rally we watched stop can be cut harder than one we lost (2026-09-09).
+const ev = (over: Record<string, unknown> = {}) => ({
+  end_source: "observed",
+  connected_crossings: 6,
+  max_crossing_gap_s: 0.9,
+  ...over,
+});
+const TIGHT = {
+  tapEnd: false,
+  rallyEnd: { on: true, bufferS: 1.75, tightBufferS: 0.4 },
+};
+
+test("a watched rally ends at the tight buffer", () => {
+  const p = pt({ rally_end_cut_s: 54, highlight_evidence: ev() });
+  assert.equal(effectiveEnd(p, PAD, TIGHT), 54.4);
+});
+
+test("a rally the tracker lost keeps the wide tail", () => {
+  const p = pt({
+    rally_end_cut_s: 54,
+    highlight_evidence: ev({ max_crossing_gap_s: 2.4 }),
+  });
+  assert.equal(effectiveEnd(p, PAD, TIGHT), 55.75);
+});
+
+test("an end nobody observed keeps the wide tail", () => {
+  const p = pt({
+    rally_end_cut_s: 54,
+    highlight_evidence: ev({ end_source: "card" }),
+  });
+  assert.equal(effectiveEnd(p, PAD, TIGHT), 55.75);
+});
+
+test("a point with no evidence at all keeps the wide tail", () => {
+  const p = pt({ rally_end_cut_s: 54 });
+  assert.equal(effectiveEnd(p, PAD, TIGHT), 55.75);
+});
+
+test("without a tight buffer configured nothing changes", () => {
+  const p = pt({ rally_end_cut_s: 54, highlight_evidence: ev() });
+  assert.equal(
+    effectiveEnd(p, PAD, { tapEnd: false, rallyEnd: { on: true, bufferS: 1.75 } }),
+    55.75,
+  );
+});
+
+test("a scored point is unaffected by the tight buffer", () => {
+  const p = pt({
+    scored_at_cut_s: 53,
+    rally_end_cut_s: 54,
+    highlight_evidence: ev(),
+  });
+  assert.equal(effectiveEnd(p, PAD, { ...TIGHT, tapEnd: true }), 53.5);
+});

@@ -387,6 +387,11 @@ export interface Point {
   // winner tap lands inside; an unscored point has no tap coming, so this
   // is where its playback can stop instead.
   rally_end_cut_s?: number | null;
+  // What the assembler saw of this rally (the worker's own receipts:
+  // end_source, connected_crossings, max_crossing_gap_s and the rest).
+  // Playback reads three of those fields to decide whether the recorded
+  // end was watched or guessed — see playhead.rallyEndWatched.
+  highlight_evidence?: Record<string, unknown> | null;
   confirmed_how: string | null;
   // Tactical placement of the deciding ball on the opponent's side:
   // forehand / backhand / middle (the crossover). Optional; may later be

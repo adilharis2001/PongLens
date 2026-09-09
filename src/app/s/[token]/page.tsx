@@ -8,6 +8,7 @@ import {
   getTapEndPlayback,
   getUnscoredRallyEnd,
   getUnscoredRallyEndBufferS,
+  getUnscoredRallyEndTightBufferS,
 } from "@/lib/config";
 import { Logo } from "@/components/Logo";
 import { computeMatchScore } from "@/app/match/[id]/gameScore";
@@ -128,17 +129,23 @@ const resolveShareSkips = cache(
     visible: Point[]
   ): Promise<{ start: number; end: number }[]> => {
     const supabase = await createClient();
-    const [removedRes, padsRes, tapEnd, rallyOn, rallyBuffer] =
+    const [removedRes, padsRes, tapEnd, rallyOn, rallyBuffer,
+           rallyTightBuffer] =
       await Promise.all([
         supabase.rpc("resolve_share_removed", { p_token: token }),
         supabase.rpc("resolve_share_clip_pads", { p_token: token }),
         getTapEndPlayback(),
         getUnscoredRallyEnd(),
         getUnscoredRallyEndBufferS(),
+        getUnscoredRallyEndTightBufferS(),
       ]);
     const ends = {
       tapEnd,
-      rallyEnd: { on: rallyOn, bufferS: rallyBuffer },
+      rallyEnd: {
+        on: rallyOn,
+        bufferS: rallyBuffer,
+        tightBufferS: rallyTightBuffer,
+      },
     };
     const removed = ((removedRes.data ?? []) as ResolvedShareRemoved[]).map(
       (r) =>

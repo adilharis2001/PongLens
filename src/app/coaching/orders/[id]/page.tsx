@@ -17,6 +17,7 @@ import {
   getTapEndPlayback,
   getUnscoredRallyEnd,
   getUnscoredRallyEndBufferS,
+  getUnscoredRallyEndTightBufferS,
 } from "@/lib/config";
 import type { Point } from "@/lib/types";
 import { CoachOrder, type WorkspacePoint } from "./CoachOrder";
@@ -153,6 +154,7 @@ export default async function CoachOrderPage({
       rallyEnd: {
         on: await getUnscoredRallyEnd(),
         bufferS: await getUnscoredRallyEndBufferS(),
+        tightBufferS: await getUnscoredRallyEndTightBufferS(),
       },
     },
   );

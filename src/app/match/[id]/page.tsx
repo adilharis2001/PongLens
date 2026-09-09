@@ -18,6 +18,7 @@ import {
   getTapEndPlayback,
   getUnscoredRallyEnd,
   getUnscoredRallyEndBufferS,
+  getUnscoredRallyEndTightBufferS,
 } from "@/lib/config";
 import { RAW_BUCKET, presignGet } from "@/lib/r2";
 import { hasOriginalVideo } from "@/lib/originalVideo";
@@ -308,6 +309,7 @@ export default async function MatchPage({
             rallyEnd: {
               on: await getUnscoredRallyEnd(),
               bufferS: await getUnscoredRallyEndBufferS(),
+              tightBufferS: await getUnscoredRallyEndTightBufferS(),
             },
           }}
           hasOriginal={hasOriginal}

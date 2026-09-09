@@ -5,6 +5,7 @@ import {
   getTapEndPlayback,
   getUnscoredRallyEnd,
   getUnscoredRallyEndBufferS,
+  getUnscoredRallyEndTightBufferS,
 } from "@/lib/config";
 import { MEDIA_BUCKET, getObject } from "@/lib/r2";
 import { requireAdmin } from "../../requireAdmin";
@@ -148,7 +149,8 @@ export default async function AdminUploadPage({
   // the match page reads them. Hardcoding them would make the admin watch
   // different boundaries from the owner, which is the one thing this page
   // must not do.
-  const [matchJson, serveMisses, tracks, tapEnd, rallyEndOn, rallyEndBufferS] =
+  const [matchJson, serveMisses, tracks, tapEnd, rallyEndOn, rallyEndBufferS,
+         rallyEndTightBufferS] =
     await Promise.all([
       readMatchJson(detail.match.match_json_path),
       readServeMisses(detail.match.match_json_path, matchId),
@@ -156,6 +158,7 @@ export default async function AdminUploadPage({
       getTapEndPlayback(),
       getUnscoredRallyEnd(),
       getUnscoredRallyEndBufferS(),
+      getUnscoredRallyEndTightBufferS(),
     ]);
 
   // The three winner rules, asked here rather than in the browser: the
@@ -201,7 +204,11 @@ export default async function AdminUploadPage({
           }))}
           ends={{
             tapEnd,
-            rallyEnd: { on: rallyEndOn, bufferS: rallyEndBufferS },
+            rallyEnd: {
+        on: rallyEndOn,
+        bufferS: rallyEndBufferS,
+        tightBufferS: rallyEndTightBufferS,
+      },
           }}
         />
       </main>
