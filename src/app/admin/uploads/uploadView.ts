@@ -370,7 +370,7 @@ export const DETECTOR_WARNINGS: Record<string, string> = {
  * Which assembler cut the cards
  * ---------------------------------------------------------------------- */
 
-export type AssemblyRoute = "serve-anchored" | "end-on" | null;
+export type AssemblyRoute = "serve-anchored" | "end-on" | "bodies" | null;
 
 export interface AssemblyReading {
   /** v1 | v2 | null when the file predates the key. */
@@ -402,6 +402,10 @@ export const SERVE_RATE_MIN = 2.1;
 const ROUTE_NOTE =
   /points v2:\s*(\d+)\s*cards,\s*(\d+)\s*serves,\s*(\d+)\s*crossings,\s*camera\s*([\d.]+),\s*serves\/min\s*([\d.]+),\s*route\s*([a-z-]+)/i;
 const FALLBACK_NOTE = /points v2 requested but fell back to v1:\s*(.+)$/i;
+/** The body-first assembler's own sentence (spec 2026-09-08). It is written
+ *  AFTER the "points v2:" sentence, because the ball side still runs. */
+const BODIES_NOTE = /points bodies:\s*(\d+)\s*cards,\s*(\d+)\s*with a serve/i;
+const BODIES_FALLBACK = /points bodies requested but fell back to ([a-z0-9-]+):\s*(.+)$/i;
 
 /**
  * Which assembler produced this match's cards.
@@ -443,10 +447,34 @@ export function readAssembly(matchJson: MatchJson | null): AssemblyReading {
   // serve marks at all, so counting there would report every card as a
   // miss; only v2 files are asked.
   const cardList = matchJson.points;
-  if (base.pipeline === "v2" && Array.isArray(cardList) && cardList.length) {
+  if ((base.pipeline === "v2" || base.pipeline === "bodies")
+      && Array.isArray(cardList) && cardList.length) {
     const withServe = cardList.filter((c) => typeof c.serve_s === "number").length;
     base.cardsWithServe = withServe;
     base.cardsWithoutServe = cardList.length - withServe;
+  }
+
+  // 0. The body-first assembler. match.json says so outright, and its own
+  //    sentence carries the counts; the ball router's sentence is still
+  //    there underneath as what the ball would have done.
+  if (base.pipeline === "bodies") {
+    let cards: number | null = null;
+    for (const note of matchJson.notes ?? []) {
+      const b = BODIES_NOTE.exec(note);
+      if (b) cards = Number(b[1]);
+      const m = ROUTE_NOTE.exec(note);
+      if (m) {
+        base.servesPerMin = Number(m[5]);
+        base.cameraShape = Number(m[4]);
+        base.serves = Number(m[2]);
+        base.crossings = Number(m[3]);
+      }
+    }
+    return { ...base, route: "bodies", routeFrom: "notes", cards };
+  }
+  for (const note of matchJson.notes ?? []) {
+    const f = BODIES_FALLBACK.exec(note);
+    if (f) base.fallbackReason = `bodies fell back to ${f[1]}: ${f[2].trim()}`;
   }
 
   // 1. The structured block, once the worker writes one.
@@ -502,6 +530,10 @@ export function readAssembly(matchJson: MatchJson | null): AssemblyReading {
 /** One line explaining the route in the router's own terms. */
 export function routeExplanation(a: AssemblyReading): string | null {
   if (a.route === null) return null;
+  if (a.route === "bodies") {
+    return "The players decided where the points are; the ball's serve "
+      + "stamps, crossings and bounces only sharpened them.";
+  }
   if (a.servesPerMin === null) {
     return a.route === "end-on"
       ? "No card carries a detected serve, which is what the end-on "

@@ -2716,7 +2716,8 @@ def cmd_points(args):
     v2_E = None
     v2_route = None
     v2_unavailable_reason = (
-        "pipeline_v1" if getattr(args, "pipeline", "v1") != "v2" else None
+        "pipeline_v1" if getattr(args, "pipeline", "v1") not in ("v2", "bodies")
+        else None
     )
     v2_serves = {}
     v2_card_by_start = {}
@@ -2726,7 +2727,11 @@ def cmd_points(args):
     # playback can stop here instead. Empty for v1 and for end-on cards,
     # which do not compute it.
     v2_rally_ends = {}
-    if getattr(args, "pipeline", "v1") == "v2":
+    # Which assembler's cards shipped: v1, v2 or bodies. Written into
+    # match.json; the admin upload page reads it.
+    pipeline_used = "v1"
+    ball_cards = None
+    if getattr(args, "pipeline", "v1") in ("v2", "bodies"):
         why_not = None
         if getattr(args, "cut_mode", "spans") != "plays":
             why_not = "v2 requires the plays cut"
@@ -2814,6 +2819,83 @@ def cmd_points(args):
             notes.append(f"points v2 requested but fell back to v1: "
                          f"{why_not}")
             print(f"points v2 unavailable ({why_not}) — falling back to v1")
+    if v2_cards is not None:
+        pipeline_used = "v2"
+
+    # 2d. THE BODY-FIRST ASSEMBLER (spec 2026-09-08). The players decide where
+    # the points are; the ball side above still ran in full and hands over
+    # its serve stamps, crossings and table bounces to sharpen them. The
+    # ball's own cards are KEPT in match.json as `ball_cards` so the admin
+    # portal can show both answers on every match. Fails open at every step:
+    # any refusal or error leaves the cards the ball side built and says so
+    # in the note.
+    if getattr(args, "pipeline", "v1") == "bodies":
+        body_why = None
+        if not getattr(args, "players", None):
+            body_why = "no players file"
+        elif not os.path.exists(args.players):
+            body_why = f"players file missing ({args.players})"
+        if body_why is None:
+            try:
+                import body_points
+                with open(args.players) as fh:
+                    players = json.load(fh)
+                if calib is not None:
+                    body_corners = calib["corners_px"]
+                    window_note = "table window"
+                elif gate:
+                    # No table: the ball's activity gate stands in for the
+                    # quad so the same two chooser rules and the same
+                    # table-relative features run against it. bbox is
+                    # (x0, x1, y0, y1); the near end is the lower edge.
+                    gx0, gx1, gy0, gy1 = gate["bbox"]
+                    body_corners = {"A_near_1": [gx0, gy1], "B_near_2": [gx1, gy1],
+                                    "C_far_2": [gx1, gy0], "D_far_1": [gx0, gy0]}
+                    window_note = "no table, activity gate stands in"
+                else:
+                    raise body_points.BodyPointsUnavailable(
+                        "no table and no activity gate to stand in for it")
+                first_ball_t0 = (min(c["t0"] for c in v2_cards)
+                                 if v2_cards else None)
+                body_cards, body_info = body_points.assemble(
+                    players, body_corners, v2_E, dur,
+                    first_ball_t0=first_ball_t0)
+                if not body_cards:
+                    raise body_points.BodyPointsUnavailable(
+                        "the body assembler produced no cards")
+                ball_cards = [dict(t0=round(float(c["t0"]), 2), t1=round(float(c["t1"]), 2),
+                                   serve_s=(round(float(c["serve_s"]), 2)
+                                            if c.get("serve_s") is not None else None),
+                                   why=c.get("why"))
+                              for c in (v2_cards or [])]
+                v2_cards = body_cards
+                pipeline_used = "bodies"
+                v2_route = "bodies"
+                v2_serves = {}
+                v2_card_by_start = {}
+                v2_rally_ends = {}
+                clip_pre = points_v2.CLIP_PRE_S
+                clip_post = points_v2.CLIP_POST_S
+                # Appended AFTER the "points v2:" sentence, which the admin
+                # page parses with a regex that must keep matching.
+                notes.append(
+                    f"points bodies: {len(body_cards)} cards, "
+                    f"{body_info['stamped']} with a serve, "
+                    f"{body_info['samples']} pose samples, both players in "
+                    f"{body_info['both_share']:.0%}, {window_note}, "
+                    f"model body-{body_info['model']}, "
+                    f"decoder bias 0.5 dur_w 4 play_min 1.5, "
+                    f"ball cards kept {len(ball_cards)}")
+                print(f"points bodies: {len(body_cards)} cards "
+                      f"({body_info['stamped']} with a serve) replace "
+                      f"{len(ball_cards)} ball cards ({window_note})")
+            except Exception as exc:                            # noqa: BLE001
+                body_why = f"{type(exc).__name__}: {exc}"
+        if body_why is not None:
+            kept = (f"{v2_route}" if v2_cards is not None else "v1")
+            notes.append(f"points bodies requested but fell back to {kept}: "
+                         f"{body_why}")
+            print(f"points bodies unavailable ({body_why}) — keeping {kept}")
 
     # 3. split spans into plays -> point windows (frames in the raw video).
     # Each play remembers its span index: cut_t0 (the point's offset inside
@@ -3183,7 +3265,10 @@ def cmd_points(args):
         "version": 3,          # v3: dual-server, confidence-scored shots
         # which card assembly cut this match — the provenance that makes
         # "what am I looking at" answerable during the v2 rollout
-        "pipeline": "v2" if v2_cards is not None else "v1",
+        "pipeline": pipeline_used,
+        # The ball side's own cards when the bodies cut the match, so the
+        # admin portal can show both answers. None otherwise.
+        "ball_cards": ball_cards,
         "source": {"duration": round(dur, 2), "fps": round(fps, 3),
                    "width": meta["width"], "height": meta["height"]},
         "options": {"strictness": args.strictness,
@@ -3247,7 +3332,11 @@ def main():
     p.add_argument("--placement", action="store_true")
     p.add_argument("--no-clips", action="store_true",
                    help="skip clip encoding (eval loop: match.json only)")
-    p.add_argument("--pipeline", default="v1", choices=["v1", "v2"],
+    p.add_argument("--players", metavar="PATH", default=None,
+                   help="players.json from extract_players_rtmpose.py; with "
+                        "--pipeline bodies the body-first assembler decides the "
+                        "cards and the ball side only sharpens them")
+    p.add_argument("--pipeline", default="v1", choices=["v1", "v2", "bodies"],
                    help="'v2': card assembly from points_v2 (rebuilt against "
                         "owner-marked point boundaries); needs a calibrated "
                         "table and candidate-carrying detections, falls back "

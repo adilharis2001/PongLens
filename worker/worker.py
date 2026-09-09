@@ -5070,7 +5070,10 @@ def points_pipeline_version(conn) -> str:
     errors must not change how a match processes.
     """
     try:
-        return "v2" if get_config(conn, "points_pipeline") == "v2" else "v1"
+        value = get_config(conn, "points_pipeline")
+        # 'bodies': the body-first assembler (spec 2026-09-08). The ball
+        # side still runs and hands it serve stamps, crossings and bounces.
+        return value if value in ("v2", "bodies") else "v1"
     except Exception:
         return "v1"
 
@@ -5184,10 +5187,15 @@ def run_points_subprocess(
     serve_merge_s: str = SERVE_MERGE_S_DEFAULT,
     placement_serve_seed: bool = False,
     attempt_key: str = "manual",
+    players_json: str | None = None,
 ) -> str:
     """The points pipeline in plays cut mode, run BEFORE the cut so the
     cut can keep exactly the per-point segments (dead-space round 4).
-    Returns the outdir whose match.json carries cut_segments."""
+    Returns the outdir whose match.json carries cut_segments.
+
+    players_json is the skeleton file from extract_players_rtmpose.py; with
+    pipeline 'bodies' the child hands the cards to the body-first assembler
+    and keeps the ball's own cards beside them in match.json."""
     strictness = options.get("strictness", "normal")
     if strictness not in VALID_STRICTNESS:
         strictness = "normal"
@@ -5196,12 +5204,13 @@ def run_points_subprocess(
            "--blurball", blurball_out, "--video", input_video,
            "--outdir", outdir, "--strictness", strictness,
            "--cut-mode", "plays"]
-    if pipeline == "v2":
+    if pipeline in ("v2", "bodies"):
         # The child decides for itself whether v2 can actually run (it
         # needs a table and candidate detections) and notes the fallback
         # in match.json when it cannot; match.json's "pipeline" key is the
-        # truth about what happened.
-        cmd += ["--pipeline", "v2",
+        # truth about what happened. 'bodies' runs the whole v2 side too
+        # and then lets the players decide the cards.
+        cmd += ["--pipeline", "bodies" if (pipeline == "bodies" and players_json) else "v2",
                 "--serve-surface-pad", str(serve_surface_pad),
                 "--serve-merge-s", str(serve_merge_s),
                 # Every signal the assembler saw, kept so the admin portal
@@ -5219,6 +5228,8 @@ def run_points_subprocess(
         cmd.append("--placement")
         if placement_serve_seed:
             cmd.append("--placement-serve-seed")
+    if pipeline == "bodies" and players_json:
+        cmd += ["--players", players_json]
     log.info("  points pipeline (strictness=%s placement=%s cut=plays "
              "pipeline=%s)…",
              strictness, bool(options.get("placement")), pipeline)
@@ -5238,6 +5249,179 @@ def run_points_subprocess(
     return outdir
 
 
+# ---------------------------------------------------------------------------
+# Points from the players (spec docs/superpowers/specs/2026-09-08-body-first-
+# points-worker-design.md). The pose pass runs in the rtmpose-production venv
+# like the End changes stage; the assembler itself is body_points.py under
+# the worker's own venv, called from inside points_pipeline.py.
+# ---------------------------------------------------------------------------
+PLAYERS_SCRIPT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "extract_players_rtmpose.py")
+# The pose window, in TABLE WIDTHS around the ball detection crop: settled
+# 2026-09-08 (research README section 11). 1.5 each side holds Julian's near
+# player in 99 of 100 frames; a full width below keeps the feet; the chooser's
+# own distance rule, not the crop, keeps spectators out.
+PLAYERS_WINDOW_SIDE_W = 1.5
+PLAYERS_WINDOW_ABOVE_W = 0.5
+PLAYERS_WINDOW_BELOW_W = 1.0
+PLAYERS_TIMEOUT_S = 3 * 3600
+
+
+def players_window(corners_px: dict | None, gate_bbox, width: int, height: int):
+    """(x, y, w, h) of the window the players are read in, and a word for
+    the note. With a table: the ball crop widened in table widths. Without
+    one: the whole frame."""
+    if corners_px:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import points_endon
+        import body_features
+        tw = body_features.table_width_px(corners_px)
+        base = points_endon.ball_crop_box(corners_px, width, height)
+        if base is None:
+            xs = [float(v[0]) for v in corners_px.values()]
+            ys = [float(v[1]) for v in corners_px.values()]
+            base = (min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
+        bx, by, bw, bh = [float(v) for v in base]
+        x0 = max(0.0, bx - PLAYERS_WINDOW_SIDE_W * tw)
+        y0 = max(0.0, by - PLAYERS_WINDOW_ABOVE_W * tw)
+        x1 = min(float(width), bx + bw + PLAYERS_WINDOW_SIDE_W * tw)
+        y1 = min(float(height), by + bh + PLAYERS_WINDOW_BELOW_W * tw)
+        return (int(x0), int(y0), int(x1 - x0), int(y1 - y0)), "widened crop"
+    return (0, 0, int(width), int(height)), "full frame"
+
+
+def run_body_points_pass(conn, job_id: str, local_input: str, blurball_out: str,
+                         workdir: str, options: dict, *, points_kwargs: dict) -> str:
+    """Read the players, then rebuild the points with the bodies deciding.
+
+    Runs after the ball side's own points pass, whose match.json carries the
+    table (or says there is none) and whose calibration.json is handed back
+    so the ladder is not asked twice. The first pass's output is set aside,
+    not deleted, and comes back with a note if anything here fails: a match
+    cut by the ball is what we had, a match with no points is not.
+    Returns the outdir to read match.json from."""
+    outdir = os.path.join(workdir, "points_out")
+    mj_path = os.path.join(outdir, "match.json")
+    try:
+        with open(mj_path) as fh:
+            first = json.load(fh)
+    except Exception as exc:                                    # noqa: BLE001
+        log.warning("  bodies: no first-pass match.json (%s); keeping the ball cards", exc)
+        return outdir
+    calibration = first.get("calibration") or {}
+    corners = calibration.get("table_corners_px") if calibration.get("ok") else None
+    gate = first.get("activity_gate") or {}
+    src = first.get("source") or {}
+    width, height = int(src.get("width") or 1920), int(src.get("height") or 1080)
+    duration = float(src.get("duration") or 0.0)
+    if not corners and not gate.get("bbox"):
+        _note_body_fallback(mj_path, "no table and no activity gate to stand in for it")
+        return outdir
+    rect, window_word = players_window(corners, gate.get("bbox"), width, height)
+    if corners:
+        corners_json = json.dumps({k: [float(v[0]), float(v[1])] for k, v in corners.items()})
+    else:
+        gx0, gx1, gy0, gy1 = gate["bbox"]
+        corners_json = json.dumps({"A_near_1": [gx0, gy1], "B_near_2": [gx1, gy1],
+                                   "C_far_2": [gx1, gy0], "D_far_1": [gx0, gy0]})
+    players_json = os.path.join(workdir, "players.json")
+    progress_path = os.path.join(workdir, "players.progress.json")
+    cmd = [RTMPOSE_PY, PLAYERS_SCRIPT,
+           "--video", local_input, "--output", players_json,
+           "--rect", ",".join(str(int(v)) for v in rect),
+           "--corners", corners_json,
+           "--model", RTMPOSE_MODEL, "--backend", RTMPOSE_BACKEND,
+           "--device", os.environ.get("PONGLENS_PLAYERS_DEVICE", "cpu"),
+           "--sample-fps", "10", "--progress", progress_path]
+    if duration > 0:
+        cmd += ["--end", f"{duration:.3f}"]
+    log.info("  bodies: reading the players in a %s window %s", window_word, rect)
+    pulse_stage("players", note=window_word)
+    started = time.perf_counter()
+    try:
+        with COST_METER.timed_stage("player_poses", points_kwargs.get("attempt_key", "manual")):
+            proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+            deadline = time.time() + PLAYERS_TIMEOUT_S
+            while proc.poll() is None:
+                if time.time() > deadline:
+                    proc.kill()
+                    raise TimeoutError(f"pose pass exceeded {PLAYERS_TIMEOUT_S} s")
+                time.sleep(15)
+                try:
+                    with open(progress_path) as fh:
+                        prog = json.load(fh)
+                    if prog.get("of"):
+                        frac = min(1.0, float(prog["t"]) / float(prog["of"]))
+                        pulse_note(f"{window_word}, {frac:.0%} of the video", pct=int(100 * frac))
+                        # the points band is 45 -> 60 on the job's own bar
+                        update_job(conn, job_id, progress=45 + int(12 * frac))
+                except Exception:                            # noqa: BLE001
+                    pass
+            if proc.returncode != 0:
+                err = (proc.stderr.read() or "")[-800:]
+                raise RuntimeError(f"pose pass exit {proc.returncode}: {err.strip()}")
+        log.info("  bodies: players read in %.0f s", time.perf_counter() - started)
+    except Exception as exc:                                    # noqa: BLE001
+        log.warning("  bodies: pose pass failed (%s); keeping the ball cards", exc)
+        _note_body_fallback(mj_path, f"pose pass failed: {exc}")
+        return outdir
+
+    keep = outdir + ".ballfirst"
+    shutil.rmtree(keep, ignore_errors=True)
+    shutil.copytree(outdir, keep)
+    calibration_json = os.path.join(keep, "calibration.json")
+    if not os.path.exists(calibration_json):
+        calibration_json = None
+    try:
+        pulse_stage("body_points")
+        kwargs = dict(points_kwargs)
+        kwargs["pipeline"] = "bodies"
+        # Hand the first pass's table back where this worker can (the
+        # checkout with the vision second pass has --calibration-json; the
+        # one without re-runs the free rung, which is cheap).
+        import inspect
+        params = inspect.signature(run_points_subprocess).parameters
+        if calibration_json and "calibration_json" in params:
+            kwargs["calibration_json"] = calibration_json
+        if "detections_note" in params and "read_ball_crop_sidecar" in globals():
+            kwargs["detections_note"] = detections_note_from_sidecar(
+                read_ball_crop_sidecar(workdir))
+        new_outdir = run_points_subprocess(
+            local_input, blurball_out, workdir, options,
+            players_json=players_json, **kwargs)
+        with open(os.path.join(new_outdir, "match.json")) as fh:
+            second = json.load(fh)
+        if not second.get("points"):
+            raise RuntimeError("the second pass produced no points")
+        log.info("  bodies: %s cut the match (%d points)",
+                 second.get("pipeline"), len(second.get("points") or []))
+        shutil.rmtree(keep, ignore_errors=True)
+        return new_outdir
+    except Exception as exc:                                    # noqa: BLE001
+        log.warning("  bodies: second pass failed (%s); restoring the ball cards", exc)
+        shutil.rmtree(outdir, ignore_errors=True)
+        os.replace(keep, outdir)
+        _note_body_fallback(mj_path, f"second pass failed: {exc}")
+        return outdir
+
+
+def _note_body_fallback(mj_path: str, why: str) -> None:
+    """Say in match.json that the bodies were asked for and did not cut it."""
+    try:
+        with open(mj_path) as fh:
+            mj = json.load(fh)
+        notes = list(mj.get("notes") or [])
+        kept = mj.get("pipeline") or "v1"
+        notes.append(f"points bodies requested but fell back to {kept}: {why}")
+        mj["notes"] = notes
+        tmp = mj_path + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(mj, fh)
+        os.replace(tmp, mj_path)
+    except Exception:                                           # noqa: BLE001
+        log.warning("  bodies: could not write the fallback note", exc_info=True)
+
+
 def processing_pipeline_settings(conn, options: dict, attempt_key: str) -> tuple[bool, dict | None, dict]:
     """The one detector/assembler configuration shared by active and candidate runs."""
     ball_crop = options.get("ball_crop")
@@ -5249,8 +5433,14 @@ def processing_pipeline_settings(conn, options: dict, attempt_key: str) -> tuple
                     for v in corners.values())):
         corners = None
     serve_pad, serve_merge = serve_motif_settings(conn)
+    # The job's own option wins over the config, like ball_crop above: this
+    # is how one match is recut by the other assembler without flipping the
+    # switch for everyone (spec 2026-09-08, section 3.2).
+    pipeline = options.get("points_pipeline")
+    if pipeline not in ("v1", "v2", "bodies"):
+        pipeline = points_pipeline_version(conn)
     return bool(ball_crop), corners, dict(
-        pipeline=points_pipeline_version(conn),
+        pipeline=pipeline,
         endon_fallback=endon_fallback_enabled(conn),
         serve_surface_pad=serve_pad, serve_merge_s=serve_merge,
         placement_serve_seed=placement_serve_seed_enabled(conn),
@@ -8894,6 +9084,15 @@ def run_match_processing_workflow(
             outdir = run_points_subprocess(
                 local_input, blurball_out, workdir, options,
                 **points_kwargs)
+            if active and points_kwargs.get("pipeline") == "bodies":
+                # THE BODY-FIRST ASSEMBLER (spec 2026-09-08). The pass above
+                # built the ball's cards and, with them, the table and the
+                # evidence the players' pass needs. Read the players, then
+                # rebuild the points with the bodies deciding. Fails open to
+                # the cards already on disk.
+                outdir = run_body_points_pass(
+                    conn, job_id, local_input, blurball_out, workdir, options,
+                    points_kwargs=points_kwargs)
             mj = os.path.join(outdir, "match.json")
             with open(mj) as fh:
                 if json.load(fh).get("cut_segments"):

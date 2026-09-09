@@ -200,6 +200,8 @@ const STAGE_LABELS: Record<string, string> = {
   candidate_save: "Saving candidate version",
   marks: "Reading the marks",
   points: "Building the points",
+  players: "Reading the players",
+  body_points: "Building the points from the players",
   cut: "Cutting the video",
   upload: "Uploading the result",
   publish: "Saving the match",

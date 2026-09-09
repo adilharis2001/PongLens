@@ -1,0 +1,6253 @@
+{
+"version": "v1",
+"features_sha": "69f672d813ca",
+"matches": {
+"89b35ee0": {
+"cards": [
+{
+"t0": 0.6,
+"t1": 8.89,
+"serve_s": 2.62,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 9.84,
+"t1": 16.2,
+"serve_s": 10.19,
+"why": "bodies, serve seen"
+},
+{
+"t0": 19.5,
+"t1": 30.8,
+"serve_s": 24.69,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 37.001,
+"t1": 59.801,
+"serve_s": 39.36,
+"why": "bodies, serve seen"
+},
+{
+"t0": 60.751,
+"t1": 68.602,
+"serve_s": 63.32,
+"why": "bodies, serve seen"
+},
+{
+"t0": 70.702,
+"t1": 77.402,
+"serve_s": 73.32,
+"why": "bodies, serve seen"
+},
+{
+"t0": 78.702,
+"t1": 90.402,
+"serve_s": 85.29,
+"why": "bodies, serve seen"
+},
+{
+"t0": 92.702,
+"t1": 105.402,
+"serve_s": 99.79,
+"why": "bodies, serve seen"
+},
+{
+"t0": 106.352,
+"t1": 116.203,
+"serve_s": 108.69,
+"why": "bodies, serve seen"
+},
+{
+"t0": 121.103,
+"t1": 132.56,
+"serve_s": 125.46,
+"why": "bodies, serve seen"
+},
+{
+"t0": 133.51,
+"t1": 140.203,
+"serve_s": 134.16,
+"why": "bodies, serve seen"
+},
+{
+"t0": 143.203,
+"t1": 151.16,
+"serve_s": 146.23,
+"why": "bodies, serve seen"
+},
+{
+"t0": 152.11,
+"t1": 153.304,
+"serve_s": 152.76,
+"why": "bodies, serve seen"
+},
+{
+"t0": 154.604,
+"t1": 161.504,
+"serve_s": 156.79,
+"why": "bodies, serve seen"
+},
+{
+"t0": 164.904,
+"t1": 170.404,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 171.604,
+"t1": 180.904,
+"serve_s": 173.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 185.904,
+"t1": 194.57,
+"serve_s": 188.93,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 195.52,
+"t1": 199.805,
+"serve_s": 196.09,
+"why": "bodies, serve seen"
+},
+{
+"t0": 200.755,
+"t1": 212.205,
+"serve_s": 203.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 222.005,
+"t1": 227.805,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 229.205,
+"t1": 233.97,
+"serve_s": null,
+"why": "bodies, end kept open by the ball"
+},
+{
+"t0": 268.606,
+"t1": 277.6,
+"serve_s": 270.4,
+"why": "bodies, serve seen"
+},
+{
+"t0": 278.55,
+"t1": 279.407,
+"serve_s": 279.2,
+"why": "bodies, serve seen"
+},
+{
+"t0": 281.307,
+"t1": 289.707,
+"serve_s": 284.33,
+"why": "bodies, serve seen"
+},
+{
+"t0": 290.657,
+"t1": 299.907,
+"serve_s": 294.63,
+"why": "bodies, serve seen"
+},
+{
+"t0": 300.857,
+"t1": 311.307,
+"serve_s": 304.86,
+"why": "bodies, serve seen"
+},
+{
+"t0": 312.257,
+"t1": 322.408,
+"serve_s": 314.13,
+"why": "bodies, serve seen"
+},
+{
+"t0": 323.708,
+"t1": 329.008,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 335.608,
+"t1": 347.508,
+"serve_s": 339.13,
+"why": "bodies, serve seen"
+},
+{
+"t0": 351.208,
+"t1": 359.508,
+"serve_s": 353.9,
+"why": "bodies, serve seen"
+},
+{
+"t0": 360.458,
+"t1": 369.209,
+"serve_s": 363.76,
+"why": "bodies, serve seen"
+},
+{
+"t0": 370.159,
+"t1": 386.809,
+"serve_s": 376.73,
+"why": "bodies, serve seen"
+},
+{
+"t0": 392.209,
+"t1": 401.409,
+"serve_s": 395.93,
+"why": "bodies, serve seen"
+},
+{
+"t0": 402.709,
+"t1": 410.91,
+"serve_s": 406.73,
+"why": "bodies, serve seen"
+},
+{
+"t0": 411.91,
+"t1": 424.71,
+"serve_s": 416.03,
+"why": "bodies, serve seen"
+},
+{
+"t0": 429.51,
+"t1": 437.41,
+"serve_s": 431.73,
+"why": "bodies, serve seen"
+},
+{
+"t0": 445.01,
+"t1": 458.311,
+"serve_s": 448.17,
+"why": "bodies, serve seen"
+},
+{
+"t0": 459.411,
+"t1": 466.311,
+"serve_s": 463.7,
+"why": "bodies, serve seen"
+},
+{
+"t0": 467.261,
+"t1": 476.511,
+"serve_s": 468.6,
+"why": "bodies, serve seen"
+},
+{
+"t0": 481.011,
+"t1": 490.011,
+"serve_s": 482.37,
+"why": "bodies, serve seen"
+},
+{
+"t0": 528.112,
+"t1": 544.78,
+"serve_s": 532.33,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 546.613,
+"t1": 558.213,
+"serve_s": 551.04,
+"why": "bodies, serve seen"
+},
+{
+"t0": 562.613,
+"t1": 572.413,
+"serve_s": 565.54,
+"why": "bodies, serve seen"
+},
+{
+"t0": 576.213,
+"t1": 584.67,
+"serve_s": 579.37,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 585.62,
+"t1": 592.414,
+"serve_s": 585.97,
+"why": "bodies, serve seen"
+},
+{
+"t0": 594.214,
+"t1": 609.414,
+"serve_s": 600.67,
+"why": "bodies, serve seen"
+},
+{
+"t0": 613.414,
+"t1": 625.015,
+"serve_s": 615.37,
+"why": "bodies, serve seen"
+},
+{
+"t0": 627.715,
+"t1": 638.0,
+"serve_s": 630.14,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 638.95,
+"t1": 645.715,
+"serve_s": 639.3,
+"why": "bodies, serve seen"
+},
+{
+"t0": 646.665,
+"t1": 659.415,
+"serve_s": 649.27,
+"why": "bodies, serve seen"
+},
+{
+"t0": 663.615,
+"t1": 682.416,
+"serve_s": 670.04,
+"why": "bodies, serve seen"
+},
+{
+"t0": 683.616,
+"t1": 688.116,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 692.816,
+"t1": 697.816,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 702.616,
+"t1": 713.617,
+"serve_s": 704.91,
+"why": "bodies, serve seen"
+},
+{
+"t0": 716.817,
+"t1": 723.017,
+"serve_s": 717.57,
+"why": "bodies, serve seen"
+},
+{
+"t0": 725.517,
+"t1": 735.517,
+"serve_s": 726.87,
+"why": "bodies, serve seen"
+},
+{
+"t0": 738.517,
+"t1": 752.218,
+"serve_s": 743.64,
+"why": "bodies, serve seen"
+},
+{
+"t0": 753.168,
+"t1": 758.318,
+"serve_s": 754.14,
+"why": "bodies, serve seen"
+},
+{
+"t0": 759.518,
+"t1": 766.118,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 779.618,
+"t1": 785.318,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 799.619,
+"t1": 812.31,
+"serve_s": 803.37,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 813.26,
+"t1": 815.28,
+"serve_s": 813.61,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 817.319,
+"t1": 826.819,
+"serve_s": 821.71,
+"why": "bodies, serve seen"
+},
+{
+"t0": 829.619,
+"t1": 834.42,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 835.62,
+"t1": 845.32,
+"serve_s": 840.24,
+"why": "bodies, serve seen"
+},
+{
+"t0": 847.72,
+"t1": 853.42,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 854.62,
+"t1": 865.65,
+"serve_s": 856.58,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 868.42,
+"t1": 880.121,
+"serve_s": 872.68,
+"why": "bodies, serve seen"
+},
+{
+"t0": 882.121,
+"t1": 892.521,
+"serve_s": 887.44,
+"why": "bodies, serve seen"
+},
+{
+"t0": 898.821,
+"t1": 908.021,
+"serve_s": 904.21,
+"why": "bodies, serve seen"
+},
+{
+"t0": 909.921,
+"t1": 919.921,
+"serve_s": 913.28,
+"why": "bodies, serve seen"
+},
+{
+"t0": 921.122,
+"t1": 933.722,
+"serve_s": 925.44,
+"why": "bodies, serve seen"
+},
+{
+"t0": 934.672,
+"t1": 946.022,
+"serve_s": 936.18,
+"why": "bodies, serve seen"
+},
+{
+"t0": 951.022,
+"t1": 954.822,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 956.022,
+"t1": 961.622,
+"serve_s": 957.98,
+"why": "bodies, serve seen"
+},
+{
+"t0": 962.822,
+"t1": 975.623,
+"serve_s": 964.71,
+"why": "bodies, serve seen"
+},
+{
+"t0": 976.723,
+"t1": 984.923,
+"serve_s": 977.74,
+"why": "bodies, serve seen"
+},
+{
+"t0": 989.423,
+"t1": 999.96,
+"serve_s": 990.01,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 1001.423,
+"t1": 1010.024,
+"serve_s": 1002.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1010.974,
+"t1": 1018.524,
+"serve_s": 1012.65,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1027.124,
+"t1": 1036.024,
+"serve_s": 1028.65,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1046.924,
+"t1": 1059.725,
+"serve_s": 1049.38,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1060.725,
+"t1": 1069.525,
+"serve_s": 1063.85,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1070.725,
+"t1": 1082.225,
+"serve_s": 1077.58,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1090.025,
+"t1": 1096.026,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1101.226,
+"t1": 1106.026,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1153.027,
+"t1": 1165.027,
+"serve_s": 1156.95,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1165.977,
+"t1": 1175.427,
+"serve_s": 1166.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1177.727,
+"t1": 1189.728,
+"serve_s": 1182.52,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1191.928,
+"t1": 1201.82,
+"serve_s": 1194.68,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1202.77,
+"t1": 1215.828,
+"serve_s": 1203.42,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1219.028,
+"t1": 1227.229,
+"serve_s": 1220.95,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1230.329,
+"t1": 1238.529,
+"serve_s": 1232.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1239.729,
+"t1": 1248.329,
+"serve_s": 1242.22,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1252.629,
+"t1": 1261.629,
+"serve_s": 1256.02,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1272.63,
+"t1": 1278.93,
+"serve_s": 1273.35,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1287.13,
+"t1": 1301.03,
+"serve_s": 1293.08,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1307.931,
+"t1": 1314.831,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1316.031,
+"t1": 1320.231,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1321.431,
+"t1": 1330.331,
+"serve_s": 1325.02,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1332.131,
+"t1": 1339.231,
+"serve_s": 1334.15,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1357.432,
+"t1": 1365.332,
+"serve_s": 1359.69,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1366.632,
+"t1": 1371.432,
+"serve_s": 1368.42,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1373.032,
+"t1": 1384.932,
+"serve_s": 1376.85,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1387.432,
+"t1": 1395.433,
+"serve_s": 1390.05,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1401.633,
+"t1": 1417.833,
+"serve_s": 1404.09,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1422.233,
+"t1": 1434.433,
+"serve_s": 1428.69,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1435.383,
+"t1": 1449.634,
+"serve_s": 1442.09,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1456.334,
+"t1": 1466.49,
+"serve_s": 1457.96,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 1467.44,
+"t1": 1474.534,
+"serve_s": 1467.79,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1495.935,
+"t1": 1501.535,
+"serve_s": 1499.62,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1502.485,
+"t1": 1511.7,
+"serve_s": 1503.32,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 1513.235,
+"t1": 1518.935,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1522.436,
+"t1": 1526.036,
+"serve_s": null,
+"why": "bodies"
+}
+],
+"info": {
+"samples": 15276,
+"both_share": 0.874,
+"segments": 108,
+"cards": 114,
+"stamped": 97,
+"model": "v1",
+"features": "69f672d813ca"
+}
+},
+"77fc4dee": {
+"cards": [
+{
+"t0": 14.248,
+"t1": 21.654,
+"serve_s": 16.04,
+"why": "bodies, serve seen"
+},
+{
+"t0": 25.559,
+"t1": 34.968,
+"serve_s": 27.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 36.67,
+"t1": 44.17,
+"serve_s": 39.0,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 45.12,
+"t1": 51.985,
+"serve_s": 45.47,
+"why": "bodies, serve seen"
+},
+{
+"t0": 54.789,
+"t1": 64.39,
+"serve_s": 59.98,
+"why": "bodies, serve seen"
+},
+{
+"t0": 65.34,
+"t1": 67.49,
+"serve_s": 65.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 68.44,
+"t1": 78.211,
+"serve_s": 72.36,
+"why": "bodies, serve seen"
+},
+{
+"t0": 80.114,
+"t1": 91.791,
+"serve_s": 82.27,
+"why": "bodies, serve seen"
+},
+{
+"t0": 92.741,
+"t1": 102.702,
+"serve_s": 94.28,
+"why": "bodies, serve seen"
+},
+{
+"t0": 103.804,
+"t1": 112.211,
+"serve_s": 106.0,
+"why": "bodies, serve seen"
+},
+{
+"t0": 113.714,
+"t1": 123.423,
+"serve_s": 118.78,
+"why": "bodies, serve seen"
+},
+{
+"t0": 132.032,
+"t1": 143.443,
+"serve_s": 134.09,
+"why": "bodies, serve seen"
+},
+{
+"t0": 144.393,
+"t1": 151.15,
+"serve_s": 146.4,
+"why": "bodies, serve seen"
+},
+{
+"t0": 152.1,
+"t1": 160.46,
+"serve_s": 153.78,
+"why": "bodies, serve seen"
+},
+{
+"t0": 168.369,
+"t1": 177.677,
+"serve_s": 171.26,
+"why": "bodies, serve seen"
+},
+{
+"t0": 182.783,
+"t1": 191.491,
+"serve_s": 185.31,
+"why": "bodies, serve seen"
+},
+{
+"t0": 196.797,
+"t1": 208.207,
+"serve_s": 198.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 209.157,
+"t1": 216.416,
+"serve_s": 210.17,
+"why": "bodies, serve seen"
+},
+{
+"t0": 226.527,
+"t1": 233.533,
+"serve_s": 228.25,
+"why": "bodies, serve seen"
+},
+{
+"t0": 240.341,
+"t1": 249.449,
+"serve_s": 242.17,
+"why": "bodies, serve seen"
+},
+{
+"t0": 252.253,
+"t1": 262.228,
+"serve_s": 255.65,
+"why": "bodies, serve seen"
+},
+{
+"t0": 279.447,
+"t1": 288.054,
+"serve_s": 282.94,
+"why": "bodies, serve seen"
+},
+{
+"t0": 290.958,
+"t1": 301.467,
+"serve_s": 292.75,
+"why": "bodies, serve seen"
+},
+{
+"t0": 303.571,
+"t1": 312.979,
+"serve_s": 306.13,
+"why": "bodies, serve seen"
+},
+{
+"t0": 320.387,
+"t1": 328.895,
+"serve_s": 322.88,
+"why": "bodies, serve seen"
+},
+{
+"t0": 332.7,
+"t1": 342.17,
+"serve_s": 334.36,
+"why": "bodies, serve seen"
+},
+{
+"t0": 343.12,
+"t1": 349.015,
+"serve_s": 343.77,
+"why": "bodies, serve seen"
+},
+{
+"t0": 356.624,
+"t1": 363.73,
+"serve_s": 358.42,
+"why": "bodies, serve seen"
+},
+{
+"t0": 367.234,
+"t1": 373.94,
+"serve_s": 368.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 375.843,
+"t1": 382.749,
+"serve_s": 377.37,
+"why": "bodies, serve seen"
+},
+{
+"t0": 383.699,
+"t1": 393.96,
+"serve_s": 387.51,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 403.871,
+"t1": 416.482,
+"serve_s": 405.53,
+"why": "bodies, serve seen"
+},
+{
+"t0": 417.432,
+"t1": 423.79,
+"serve_s": 420.08,
+"why": "bodies, serve seen"
+},
+{
+"t0": 431.065,
+"t1": 437.87,
+"serve_s": 433.39,
+"why": "bodies, serve seen"
+},
+{
+"t0": 438.82,
+"t1": 445.678,
+"serve_s": 440.2,
+"why": "bodies, serve seen"
+},
+{
+"t0": 447.581,
+"t1": 453.386,
+"serve_s": 449.51,
+"why": "bodies, serve seen"
+},
+{
+"t0": 454.688,
+"t1": 470.503,
+"serve_s": 458.88,
+"why": "bodies, serve seen"
+},
+{
+"t0": 474.308,
+"t1": 483.816,
+"serve_s": 479.1,
+"why": "bodies, serve seen"
+},
+{
+"t0": 486.821,
+"t1": 493.126,
+"serve_s": 488.08,
+"why": "bodies, serve seen"
+},
+{
+"t0": 506.841,
+"t1": 515.848,
+"serve_s": 509.23,
+"why": "bodies, serve seen"
+},
+{
+"t0": 518.652,
+"t1": 527.26,
+"serve_s": 521.21,
+"why": "bodies, serve seen"
+},
+{
+"t0": 528.762,
+"t1": 538.371,
+"serve_s": 530.95,
+"why": "bodies, serve seen"
+},
+{
+"t0": 539.321,
+"t1": 547.08,
+"serve_s": 540.43,
+"why": "bodies, serve seen"
+},
+{
+"t0": 548.03,
+"t1": 557.89,
+"serve_s": 550.41,
+"why": "bodies, serve seen"
+},
+{
+"t0": 558.84,
+"t1": 568.901,
+"serve_s": 563.25,
+"why": "bodies, serve seen"
+},
+{
+"t0": 569.851,
+"t1": 578.411,
+"serve_s": 570.93,
+"why": "bodies, serve seen"
+},
+{
+"t0": 584.118,
+"t1": 591.024,
+"serve_s": 585.64,
+"why": "bodies, serve seen"
+},
+{
+"t0": 592.026,
+"t1": 603.036,
+"serve_s": 597.09,
+"why": "bodies, serve seen"
+},
+{
+"t0": 604.405,
+"t1": 619.71,
+"serve_s": 610.83,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 620.66,
+"t1": 626.726,
+"serve_s": 621.01,
+"why": "bodies, serve seen"
+},
+{
+"t0": 627.676,
+"t1": 635.87,
+"serve_s": 630.39,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 641.041,
+"t1": 649.349,
+"serve_s": 643.63,
+"why": "bodies, serve seen"
+},
+{
+"t0": 653.254,
+"t1": 663.363,
+"serve_s": 655.65,
+"why": "bodies, serve seen"
+},
+{
+"t0": 667.268,
+"t1": 673.873,
+"serve_s": 669.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 680.781,
+"t1": 693.593,
+"serve_s": 683.11,
+"why": "bodies, serve seen"
+},
+{
+"t0": 706.807,
+"t1": 716.818,
+"serve_s": 711.7,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 718.018,
+"t1": 727.827,
+"serve_s": 723.11,
+"why": "bodies, serve seen"
+},
+{
+"t0": 737.938,
+"t1": 746.045,
+"serve_s": 739.8,
+"why": "bodies, serve seen"
+},
+{
+"t0": 747.245,
+"t1": 750.652,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 751.852,
+"t1": 758.958,
+"serve_s": 754.14,
+"why": "bodies, serve seen"
+},
+{
+"t0": 763.063,
+"t1": 769.73,
+"serve_s": 764.75,
+"why": "bodies, serve seen"
+},
+{
+"t0": 770.68,
+"t1": 775.81,
+"serve_s": 771.33,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 788.355,
+"t1": 793.16,
+"serve_s": 790.01,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 794.962,
+"t1": 803.169,
+"serve_s": 796.62,
+"why": "bodies, serve seen"
+},
+{
+"t0": 804.371,
+"t1": 813.579,
+"serve_s": 807.6,
+"why": "bodies, serve seen"
+},
+{
+"t0": 814.529,
+"t1": 822.088,
+"serve_s": 818.01,
+"why": "bodies, serve seen"
+},
+{
+"t0": 829.797,
+"t1": 837.704,
+"serve_s": 832.26,
+"why": "bodies, serve seen"
+},
+{
+"t0": 850.017,
+"t1": 857.323,
+"serve_s": 851.84,
+"why": "bodies, serve seen"
+},
+{
+"t0": 859.226,
+"t1": 868.334,
+"serve_s": 862.09,
+"why": "bodies, serve seen"
+},
+{
+"t0": 871.238,
+"t1": 877.844,
+"serve_s": 872.46,
+"why": "bodies, serve seen"
+},
+{
+"t0": 883.25,
+"t1": 890.657,
+"serve_s": 885.68,
+"why": "bodies, serve seen"
+},
+{
+"t0": 894.562,
+"t1": 904.17,
+"serve_s": 896.42,
+"why": "bodies, serve seen"
+},
+{
+"t0": 905.12,
+"t1": 912.57,
+"serve_s": 906.2,
+"why": "bodies, serve seen"
+},
+{
+"t0": 913.52,
+"t1": 917.283,
+"serve_s": 914.17,
+"why": "bodies, serve seen"
+},
+{
+"t0": 921.689,
+"t1": 927.293,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 928.796,
+"t1": 937.603,
+"serve_s": 931.45,
+"why": "bodies, serve seen"
+},
+{
+"t0": 945.98,
+"t1": 952.285,
+"serve_s": 947.24,
+"why": "bodies, serve seen"
+},
+{
+"t0": 953.487,
+"t1": 963.696,
+"serve_s": 959.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 967.101,
+"t1": 977.11,
+"serve_s": 970.79,
+"why": "bodies, serve seen"
+},
+{
+"t0": 979.113,
+"t1": 988.521,
+"serve_s": 981.97,
+"why": "bodies, serve seen"
+},
+{
+"t0": 990.724,
+"t1": 997.63,
+"serve_s": 992.62,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1005.439,
+"t1": 1014.347,
+"serve_s": 1007.4,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1017.952,
+"t1": 1026.959,
+"serve_s": 1020.58,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1032.566,
+"t1": 1041.674,
+"serve_s": 1036.03,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1045.379,
+"t1": 1054.387,
+"serve_s": 1047.7,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1055.337,
+"t1": 1063.596,
+"serve_s": 1058.72,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1066.6,
+"t1": 1074.807,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1082.316,
+"t1": 1090.423,
+"serve_s": 1084.51,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1091.525,
+"t1": 1102.135,
+"serve_s": 1093.75,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1104.939,
+"t1": 1116.449,
+"serve_s": 1107.03,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1118.152,
+"t1": 1125.525,
+"serve_s": 1120.11,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1126.475,
+"t1": 1137.337,
+"serve_s": 1132.02,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1149.45,
+"t1": 1157.357,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1159.46,
+"t1": 1167.166,
+"serve_s": 1162.12,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1170.671,
+"t1": 1181.51,
+"serve_s": 1171.79,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 1186.587,
+"t1": 1193.493,
+"serve_s": 1188.51,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1199.5,
+"t1": 1206.606,
+"serve_s": 1201.66,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1213.514,
+"t1": 1223.49,
+"serve_s": 1214.9,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 1225.826,
+"t1": 1235.134,
+"serve_s": 1228.92,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1238.439,
+"t1": 1246.546,
+"serve_s": 1239.76,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1250.05,
+"t1": 1256.956,
+"serve_s": 1251.97,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1257.958,
+"t1": 1267.77,
+"serve_s": 1260.88,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 1271.071,
+"t1": 1279.74,
+"serve_s": 1273.46,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 1290.791,
+"t1": 1297.764,
+"serve_s": 1292.82,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1303.27,
+"t1": 1309.275,
+"serve_s": 1305.13,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1310.377,
+"t1": 1319.085,
+"serve_s": 1314.04,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1320.035,
+"t1": 1329.896,
+"serve_s": 1321.78,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1330.846,
+"t1": 1336.402,
+"serve_s": 1332.79,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1341.709,
+"t1": 1347.613,
+"serve_s": 1343.7,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1348.563,
+"t1": 1361.427,
+"serve_s": 1354.51,
+"why": "bodies, serve seen"
+}
+],
+"info": {
+"samples": 13805,
+"both_share": 0.912,
+"segments": 105,
+"cards": 110,
+"stamped": 106,
+"model": "v1",
+"features": "69f672d813ca"
+}
+},
+"d15aad4d": {
+"cards": [
+{
+"t0": 213.18,
+"t1": 220.086,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 222.99,
+"t1": 232.999,
+"serve_s": 225.08,
+"why": "bodies, serve seen"
+},
+{
+"t0": 233.949,
+"t1": 242.608,
+"serve_s": 238.46,
+"why": "bodies, serve seen"
+},
+{
+"t0": 243.558,
+"t1": 253.219,
+"serve_s": 247.4,
+"why": "bodies, serve seen"
+},
+{
+"t0": 254.169,
+"t1": 266.299,
+"serve_s": 257.25,
+"why": "bodies, serve seen"
+},
+{
+"t0": 270.704,
+"t1": 278.911,
+"serve_s": 273.3,
+"why": "bodies, serve seen"
+},
+{
+"t0": 283.918,
+"t1": 291.324,
+"serve_s": 285.38,
+"why": "bodies, serve seen"
+},
+{
+"t0": 292.274,
+"t1": 300.633,
+"serve_s": 294.12,
+"why": "bodies, serve seen"
+},
+{
+"t0": 302.436,
+"t1": 312.745,
+"serve_s": 304.6,
+"why": "bodies, serve seen"
+},
+{
+"t0": 316.55,
+"t1": 328.561,
+"serve_s": 318.24,
+"why": "bodies, serve seen"
+},
+{
+"t0": 329.511,
+"t1": 337.47,
+"serve_s": 331.92,
+"why": "bodies, serve seen"
+},
+{
+"t0": 338.572,
+"t1": 355.588,
+"serve_s": 340.66,
+"why": "bodies, serve seen"
+},
+{
+"t0": 356.538,
+"t1": 363.997,
+"serve_s": 358.58,
+"why": "bodies, serve seen"
+},
+{
+"t0": 366.4,
+"t1": 376.909,
+"serve_s": 372.36,
+"why": "bodies, serve seen"
+},
+{
+"t0": 377.912,
+"t1": 388.021,
+"serve_s": 380.07,
+"why": "bodies, serve seen"
+},
+{
+"t0": 392.226,
+"t1": 402.935,
+"serve_s": 396.39,
+"why": "bodies, serve seen"
+},
+{
+"t0": 405.239,
+"t1": 421.754,
+"serve_s": 409.1,
+"why": "bodies, serve seen"
+},
+{
+"t0": 423.357,
+"t1": 431.764,
+"serve_s": 427.62,
+"why": "bodies, serve seen"
+},
+{
+"t0": 435.936,
+"t1": 446.145,
+"serve_s": 438.33,
+"why": "bodies, serve seen"
+},
+{
+"t0": 447.548,
+"t1": 455.655,
+"serve_s": 451.01,
+"why": "bodies, serve seen"
+},
+{
+"t0": 456.605,
+"t1": 466.966,
+"serve_s": 459.78,
+"why": "bodies, serve seen"
+},
+{
+"t0": 469.37,
+"t1": 477.78,
+"serve_s": 471.56,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 506.207,
+"t1": 511.21,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 513.414,
+"t1": 521.02,
+"serve_s": 515.14,
+"why": "bodies, serve seen"
+},
+{
+"t0": 523.424,
+"t1": 537.036,
+"serve_s": 530.95,
+"why": "bodies, serve seen"
+},
+{
+"t0": 537.986,
+"t1": 544.97,
+"serve_s": 539.46,
+"why": "bodies, serve seen"
+},
+{
+"t0": 545.92,
+"t1": 560.46,
+"serve_s": 546.27,
+"why": "bodies, serve seen"
+},
+{
+"t0": 563.264,
+"t1": 573.373,
+"serve_s": 565.96,
+"why": "bodies, serve seen"
+},
+{
+"t0": 576.377,
+"t1": 583.783,
+"serve_s": 578.8,
+"why": "bodies, serve seen"
+},
+{
+"t0": 588.088,
+"t1": 600.89,
+"serve_s": 599.39,
+"why": "bodies, serve seen"
+},
+{
+"t0": 601.84,
+"t1": 610.977,
+"serve_s": 605.1,
+"why": "bodies, serve seen"
+},
+{
+"t0": 612.58,
+"t1": 619.485,
+"serve_s": 614.04,
+"why": "bodies, serve seen"
+},
+{
+"t0": 626.494,
+"t1": 636.903,
+"serve_s": 627.78,
+"why": "bodies, serve seen"
+},
+{
+"t0": 637.853,
+"t1": 652.919,
+"serve_s": 639.7,
+"why": "bodies, serve seen"
+},
+{
+"t0": 654.722,
+"t1": 661.627,
+"serve_s": 656.48,
+"why": "bodies, serve seen"
+},
+{
+"t0": 665.432,
+"t1": 675.541,
+"serve_s": 669.89,
+"why": "bodies, serve seen"
+},
+{
+"t0": 676.491,
+"t1": 685.85,
+"serve_s": 680.24,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 697.064,
+"t1": 703.67,
+"serve_s": 698.59,
+"why": "bodies, serve seen"
+},
+{
+"t0": 736.804,
+"t1": 745.011,
+"serve_s": 739.43,
+"why": "bodies, serve seen"
+},
+{
+"t0": 770.337,
+"t1": 777.143,
+"serve_s": 772.33,
+"why": "bodies, serve seen"
+},
+{
+"t0": 778.093,
+"t1": 785.718,
+"serve_s": 779.97,
+"why": "bodies, serve seen"
+},
+{
+"t0": 791.225,
+"t1": 798.031,
+"serve_s": 792.95,
+"why": "bodies, serve seen"
+},
+{
+"t0": 799.333,
+"t1": 819.652,
+"serve_s": 804.63,
+"why": "bodies, serve seen"
+},
+{
+"t0": 824.258,
+"t1": 833.266,
+"serve_s": 826.58,
+"why": "bodies, serve seen"
+},
+{
+"t0": 836.47,
+"t1": 847.38,
+"serve_s": 839.6,
+"why": "bodies, serve seen"
+},
+{
+"t0": 848.382,
+"t1": 859.692,
+"serve_s": 853.24,
+"why": "bodies, serve seen"
+},
+{
+"t0": 861.595,
+"t1": 870.903,
+"serve_s": 865.92,
+"why": "bodies, serve seen"
+},
+{
+"t0": 871.853,
+"t1": 881.87,
+"serve_s": 873.63,
+"why": "bodies, serve seen"
+},
+{
+"t0": 882.82,
+"t1": 890.523,
+"serve_s": 883.17,
+"why": "bodies, serve seen"
+},
+{
+"t0": 919.153,
+"t1": 923.956,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 928.362,
+"t1": 934.33,
+"serve_s": 929.65,
+"why": "bodies, serve seen"
+},
+{
+"t0": 935.28,
+"t1": 941.074,
+"serve_s": 935.93,
+"why": "bodies, serve seen"
+},
+{
+"t0": 944.979,
+"t1": 952.752,
+"serve_s": 946.17,
+"why": "bodies, serve seen"
+},
+{
+"t0": 953.952,
+"t1": 958.758,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 961.262,
+"t1": 970.97,
+"serve_s": 963.69,
+"why": "bodies, serve seen"
+},
+{
+"t0": 972.473,
+"t1": 980.48,
+"serve_s": 973.76,
+"why": "bodies, serve seen"
+},
+{
+"t0": 981.582,
+"t1": 990.59,
+"serve_s": 983.41,
+"why": "bodies, serve seen"
+},
+{
+"t0": 999.7,
+"t1": 1012.211,
+"serve_s": 1001.12,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1014.014,
+"t1": 1020.42,
+"serve_s": 1015.44,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1025.126,
+"t1": 1034.233,
+"serve_s": 1029.15,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1036.637,
+"t1": 1048.348,
+"serve_s": 1041.26,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1054.455,
+"t1": 1063.763,
+"serve_s": 1057.98,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1073.274,
+"t1": 1083.383,
+"serve_s": 1075.33,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1090.791,
+"t1": 1101.401,
+"serve_s": 1092.25,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1102.603,
+"t1": 1112.412,
+"serve_s": 1104.46,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1114.315,
+"t1": 1123.523,
+"serve_s": 1117.77,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1124.723,
+"t1": 1131.597,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1135.703,
+"t1": 1146.512,
+"serve_s": 1137.73,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1153.42,
+"t1": 1158.524,
+"serve_s": 1154.84,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1161.128,
+"t1": 1171.437,
+"serve_s": 1165.56,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1172.387,
+"t1": 1178.8,
+"serve_s": 1174.0,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1179.75,
+"t1": 1187.854,
+"serve_s": 1180.4,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1207.374,
+"t1": 1218.685,
+"serve_s": 1208.66,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1220.387,
+"t1": 1230.196,
+"serve_s": 1222.48,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1231.599,
+"t1": 1238.604,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1245.513,
+"t1": 1254.52,
+"serve_s": 1250.71,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1256.924,
+"t1": 1269.53,
+"serve_s": 1264.35,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 1270.48,
+"t1": 1271.137,
+"serve_s": 1270.89,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1272.74,
+"t1": 1281.748,
+"serve_s": 1276.63,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1282.698,
+"t1": 1292.759,
+"serve_s": 1283.61,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1293.709,
+"t1": 1302.435,
+"serve_s": 1294.58,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1304.738,
+"t1": 1310.343,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1311.745,
+"t1": 1319.252,
+"serve_s": 1313.2,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1325.059,
+"t1": 1335.668,
+"serve_s": 1326.32,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1337.371,
+"t1": 1340.974,
+"serve_s": 1340.96,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1342.174,
+"t1": 1347.482,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1348.682,
+"t1": 1358.591,
+"serve_s": 1349.21,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1359.791,
+"t1": 1365.098,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1368.803,
+"t1": 1376.809,
+"serve_s": 1371.23,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1383.617,
+"t1": 1392.425,
+"serve_s": 1384.44,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1397.331,
+"t1": 1404.737,
+"serve_s": 1398.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1405.687,
+"t1": 1415.548,
+"serve_s": 1410.3,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1416.55,
+"t1": 1426.95,
+"serve_s": 1419.84,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1427.9,
+"t1": 1433.566,
+"serve_s": 1428.25,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1434.516,
+"t1": 1445.278,
+"serve_s": 1435.22,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1447.782,
+"t1": 1456.589,
+"serve_s": 1449.17,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1457.789,
+"t1": 1465.601,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1466.801,
+"t1": 1474.374,
+"serve_s": 1468.29,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1475.324,
+"t1": 1482.782,
+"serve_s": 1476.77,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1487.988,
+"t1": 1499.799,
+"serve_s": 1489.58,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1502.203,
+"t1": 1507.907,
+"serve_s": 1503.66,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1517.718,
+"t1": 1530.43,
+"serve_s": 1522.34,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1540.741,
+"t1": 1551.15,
+"serve_s": 1542.77,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1566.467,
+"t1": 1573.673,
+"serve_s": 1567.56,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1574.675,
+"t1": 1584.283,
+"serve_s": 1579.4,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1595.196,
+"t1": 1602.702,
+"serve_s": 1597.29,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1606.807,
+"t1": 1616.416,
+"serve_s": 1608.13,
+"why": "bodies, serve seen"
+}
+],
+"info": {
+"samples": 16061,
+"both_share": 0.887,
+"segments": 130,
+"cards": 107,
+"stamped": 97,
+"model": "v1",
+"features": "69f672d813ca"
+}
+},
+"bfc9b31b": {
+"cards": [
+{
+"t0": 8.008,
+"t1": 12.612,
+"serve_s": 9.3,
+"why": "bodies, serve seen"
+},
+{
+"t0": 15.116,
+"t1": 23.723,
+"serve_s": 16.31,
+"why": "bodies, serve seen"
+},
+{
+"t0": 24.673,
+"t1": 32.83,
+"serve_s": 26.68,
+"why": "bodies, serve seen"
+},
+{
+"t0": 33.78,
+"t1": 38.805,
+"serve_s": 34.43,
+"why": "bodies, serve seen"
+},
+{
+"t0": 39.907,
+"t1": 48.915,
+"serve_s": 42.83,
+"why": "bodies, serve seen"
+},
+{
+"t0": 50.317,
+"t1": 57.78,
+"serve_s": 52.68,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 58.73,
+"t1": 66.43,
+"serve_s": 59.08,
+"why": "bodies, serve seen"
+},
+{
+"t0": 67.38,
+"t1": 73.339,
+"serve_s": 68.03,
+"why": "bodies, serve seen"
+},
+{
+"t0": 74.289,
+"t1": 87.854,
+"serve_s": 79.17,
+"why": "bodies, serve seen"
+},
+{
+"t0": 89.256,
+"t1": 101.334,
+"serve_s": 93.52,
+"why": "bodies, serve seen"
+},
+{
+"t0": 102.284,
+"t1": 108.641,
+"serve_s": 102.73,
+"why": "bodies, serve seen"
+},
+{
+"t0": 109.591,
+"t1": 117.252,
+"serve_s": 110.27,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 118.452,
+"t1": 130.363,
+"serve_s": 122.95,
+"why": "bodies, serve seen"
+},
+{
+"t0": 131.313,
+"t1": 138.972,
+"serve_s": 134.26,
+"why": "bodies, serve seen"
+},
+{
+"t0": 139.922,
+"t1": 147.68,
+"serve_s": 141.27,
+"why": "bodies, serve seen"
+},
+{
+"t0": 152.186,
+"t1": 160.56,
+"serve_s": 153.94,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 162.863,
+"t1": 170.03,
+"serve_s": 165.12,
+"why": "bodies, serve seen"
+},
+{
+"t0": 170.98,
+"t1": 178.78,
+"serve_s": 171.63,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 183.884,
+"t1": 193.72,
+"serve_s": 187.54,
+"why": "bodies, serve seen"
+},
+{
+"t0": 194.67,
+"t1": 204.304,
+"serve_s": 195.32,
+"why": "bodies, serve seen"
+},
+{
+"t0": 217.084,
+"t1": 226.693,
+"serve_s": 219.54,
+"why": "bodies, serve seen"
+},
+{
+"t0": 229.697,
+"t1": 237.4,
+"serve_s": 232.02,
+"why": "bodies, serve seen"
+},
+{
+"t0": 238.35,
+"t1": 247.513,
+"serve_s": 239.0,
+"why": "bodies, serve seen"
+},
+{
+"t0": 250.217,
+"t1": 257.123,
+"serve_s": 252.18,
+"why": "bodies, serve seen"
+},
+{
+"t0": 258.073,
+"t1": 270.9,
+"serve_s": 258.95,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 273.541,
+"t1": 282.615,
+"serve_s": 275.1,
+"why": "bodies, serve seen"
+},
+{
+"t0": 283.565,
+"t1": 291.224,
+"serve_s": 286.48,
+"why": "bodies, serve seen"
+},
+{
+"t0": 292.174,
+"t1": 299.22,
+"serve_s": 294.22,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 300.17,
+"t1": 317.95,
+"serve_s": 300.52,
+"why": "bodies, serve seen"
+},
+{
+"t0": 320.955,
+"t1": 329.062,
+"serve_s": 321.91,
+"why": "bodies, serve seen"
+},
+{
+"t0": 330.564,
+"t1": 343.142,
+"serve_s": 335.96,
+"why": "bodies, serve seen"
+},
+{
+"t0": 344.092,
+"t1": 350.85,
+"serve_s": 344.94,
+"why": "bodies, serve seen"
+},
+{
+"t0": 351.8,
+"t1": 365.23,
+"serve_s": 356.25,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 366.18,
+"t1": 368.4,
+"serve_s": 366.76,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 371.472,
+"t1": 380.179,
+"serve_s": 374.1,
+"why": "bodies, serve seen"
+},
+{
+"t0": 384.485,
+"t1": 401.0,
+"serve_s": 388.08,
+"why": "bodies, serve seen"
+},
+{
+"t0": 402.67,
+"t1": 415.882,
+"serve_s": 405.1,
+"why": "bodies, serve seen"
+},
+{
+"t0": 417.685,
+"t1": 423.79,
+"serve_s": 419.51,
+"why": "bodies, serve seen"
+},
+{
+"t0": 434.502,
+"t1": 445.912,
+"serve_s": 435.89,
+"why": "bodies, serve seen"
+},
+{
+"t0": 449.917,
+"t1": 456.022,
+"serve_s": 451.54,
+"why": "bodies, serve seen"
+},
+{
+"t0": 456.972,
+"t1": 469.73,
+"serve_s": 458.15,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 470.68,
+"t1": 477.41,
+"serve_s": 471.03,
+"why": "bodies, serve seen"
+},
+{
+"t0": 479.313,
+"t1": 482.317,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 483.517,
+"t1": 492.825,
+"serve_s": 488.01,
+"why": "bodies, serve seen"
+},
+{
+"t0": 493.775,
+"t1": 505.438,
+"serve_s": 495.05,
+"why": "bodies, serve seen"
+},
+{
+"t0": 506.54,
+"t1": 515.048,
+"serve_s": 510.03,
+"why": "bodies, serve seen"
+},
+{
+"t0": 515.998,
+"t1": 524.757,
+"serve_s": 521.71,
+"why": "bodies, serve seen"
+},
+{
+"t0": 532.032,
+"t1": 546.946,
+"serve_s": 533.72,
+"why": "bodies, serve seen"
+},
+{
+"t0": 547.896,
+"t1": 558.057,
+"serve_s": 550.37,
+"why": "bodies, serve seen"
+},
+{
+"t0": 565.966,
+"t1": 573.373,
+"serve_s": 568.36,
+"why": "bodies, serve seen"
+},
+{
+"t0": 574.323,
+"t1": 583.983,
+"serve_s": 578.03,
+"why": "bodies, serve seen"
+},
+{
+"t0": 588.155,
+"t1": 599.766,
+"serve_s": 590.25,
+"why": "bodies, serve seen"
+},
+{
+"t0": 600.716,
+"t1": 611.077,
+"serve_s": 605.53,
+"why": "bodies, serve seen"
+},
+{
+"t0": 612.88,
+"t1": 622.789,
+"serve_s": 613.6,
+"why": "bodies, serve seen"
+},
+{
+"t0": 625.793,
+"t1": 632.799,
+"serve_s": 627.35,
+"why": "bodies, serve seen"
+},
+{
+"t0": 633.801,
+"t1": 644.31,
+"serve_s": 639.36,
+"why": "bodies, serve seen"
+},
+{
+"t0": 654.088,
+"t1": 668.101,
+"serve_s": 660.92,
+"why": "bodies, serve seen"
+},
+{
+"t0": 669.051,
+"t1": 681.914,
+"serve_s": 670.73,
+"why": "bodies, serve seen"
+},
+{
+"t0": 682.864,
+"t1": 693.39,
+"serve_s": 683.94,
+"why": "bodies, serve seen"
+},
+{
+"t0": 694.34,
+"t1": 706.739,
+"serve_s": 694.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 707.689,
+"t1": 715.815,
+"serve_s": 710.67,
+"why": "bodies, serve seen"
+},
+{
+"t0": 716.765,
+"t1": 737.937,
+"serve_s": 717.47,
+"why": "bodies, serve seen"
+},
+{
+"t0": 739.74,
+"t1": 757.256,
+"serve_s": 743.0,
+"why": "bodies, serve seen"
+},
+{
+"t0": 758.206,
+"t1": 768.167,
+"serve_s": 760.15,
+"why": "bodies, serve seen"
+},
+{
+"t0": 769.87,
+"t1": 777.543,
+"serve_s": 772.9,
+"why": "bodies, serve seen"
+},
+{
+"t0": 778.493,
+"t1": 791.85,
+"serve_s": 783.31,
+"why": "bodies, serve seen"
+},
+{
+"t0": 792.8,
+"t1": 801.167,
+"serve_s": 793.45,
+"why": "bodies, serve seen"
+},
+{
+"t0": 802.117,
+"t1": 807.93,
+"serve_s": 803.49,
+"why": "bodies, serve seen"
+},
+{
+"t0": 808.88,
+"t1": 817.083,
+"serve_s": 809.53,
+"why": "bodies, serve seen"
+},
+{
+"t0": 818.033,
+"t1": 830.096,
+"serve_s": 820.81,
+"why": "bodies, serve seen"
+},
+{
+"t0": 832.099,
+"t1": 844.777,
+"serve_s": 834.72,
+"why": "bodies, serve seen"
+},
+{
+"t0": 845.727,
+"t1": 854.25,
+"serve_s": 847.1,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 855.2,
+"t1": 864.397,
+"serve_s": 855.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 867.201,
+"t1": 878.811,
+"serve_s": 870.29,
+"why": "bodies, serve seen"
+},
+{
+"t0": 879.761,
+"t1": 887.82,
+"serve_s": 881.7,
+"why": "bodies, serve seen"
+},
+{
+"t0": 891.826,
+"t1": 906.806,
+"serve_s": 893.72,
+"why": "bodies, serve seen"
+},
+{
+"t0": 928.129,
+"t1": 933.132,
+"serve_s": null,
+"why": "bodies"
+}
+],
+"info": {
+"samples": 9321,
+"both_share": 0.941,
+"segments": 65,
+"cards": 77,
+"stamped": 75,
+"model": "v1",
+"features": "69f672d813ca"
+}
+},
+"10322849": {
+"cards": [
+{
+"t0": 24.125,
+"t1": 39.405,
+"serve_s": 27.69,
+"why": "bodies, serve seen"
+},
+{
+"t0": 43.01,
+"t1": 52.719,
+"serve_s": 45.67,
+"why": "bodies, serve seen"
+},
+{
+"t0": 56.524,
+"t1": 69.936,
+"serve_s": 57.38,
+"why": "bodies, serve seen"
+},
+{
+"t0": 71.136,
+"t1": 80.847,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 82.047,
+"t1": 85.151,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 86.351,
+"t1": 90.626,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 91.826,
+"t1": 106.639,
+"serve_s": 93.18,
+"why": "bodies, serve seen"
+},
+{
+"t0": 114.048,
+"t1": 130.666,
+"serve_s": 115.47,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 131.866,
+"t1": 141.874,
+"serve_s": 133.72,
+"why": "bodies, serve seen"
+},
+{
+"t0": 144.044,
+"t1": 149.949,
+"serve_s": 145.64,
+"why": "bodies, serve seen"
+},
+{
+"t0": 151.252,
+"t1": 159.28,
+"serve_s": 154.34,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 160.23,
+"t1": 170.37,
+"serve_s": 160.58,
+"why": "bodies, serve seen"
+},
+{
+"t0": 187.188,
+"t1": 192.191,
+"serve_s": 187.95,
+"why": "bodies, serve seen"
+},
+{
+"t0": 196.897,
+"t1": 200.8,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 211.779,
+"t1": 223.01,
+"serve_s": 215.87,
+"why": "bodies, serve seen"
+},
+{
+"t0": 223.96,
+"t1": 230.697,
+"serve_s": 224.31,
+"why": "bodies, serve seen"
+},
+{
+"t0": 231.647,
+"t1": 242.508,
+"serve_s": 235.69,
+"why": "bodies, serve seen"
+},
+{
+"t0": 244.011,
+"t1": 258.424,
+"serve_s": 249.01,
+"why": "bodies, serve seen"
+},
+{
+"t0": 259.374,
+"t1": 268.401,
+"serve_s": 260.82,
+"why": "bodies, serve seen"
+},
+{
+"t0": 283.117,
+"t1": 296.629,
+"serve_s": 287.01,
+"why": "bodies, serve seen"
+},
+{
+"t0": 301.135,
+"t1": 304.74,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 305.94,
+"t1": 312.2,
+"serve_s": 306.9,
+"why": "bodies, serve seen"
+},
+{
+"t0": 313.15,
+"t1": 319.28,
+"serve_s": 313.8,
+"why": "bodies, serve seen"
+},
+{
+"t0": 320.23,
+"t1": 326.225,
+"serve_s": 320.58,
+"why": "bodies, serve seen"
+},
+{
+"t0": 327.175,
+"t1": 332.832,
+"serve_s": 327.62,
+"why": "bodies, serve seen"
+},
+{
+"t0": 336.837,
+"t1": 346.679,
+"serve_s": 339.96,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 351.552,
+"t1": 359.959,
+"serve_s": 352.54,
+"why": "bodies, serve seen"
+},
+{
+"t0": 364.965,
+"t1": 373.573,
+"serve_s": 367.49,
+"why": "bodies, serve seen"
+},
+{
+"t0": 377.044,
+"t1": 391.357,
+"serve_s": 380.87,
+"why": "bodies, serve seen"
+},
+{
+"t0": 394.762,
+"t1": 403.67,
+"serve_s": 396.69,
+"why": "bodies, serve seen"
+},
+{
+"t0": 432.266,
+"t1": 444.477,
+"serve_s": 438.33,
+"why": "bodies, serve seen"
+},
+{
+"t0": 452.386,
+"t1": 463.997,
+"serve_s": 454.24,
+"why": "bodies, serve seen"
+},
+{
+"t0": 469.703,
+"t1": 482.21,
+"serve_s": 474.3,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 483.16,
+"t1": 493.793,
+"serve_s": 483.51,
+"why": "bodies, serve seen"
+},
+{
+"t0": 497.198,
+"t1": 509.208,
+"serve_s": 501.63,
+"why": "bodies, serve seen"
+},
+{
+"t0": 510.158,
+"t1": 520.42,
+"serve_s": 513.2,
+"why": "bodies, serve seen"
+},
+{
+"t0": 524.325,
+"t1": 532.332,
+"serve_s": 526.18,
+"why": "bodies, serve seen"
+},
+{
+"t0": 539.74,
+"t1": 552.919,
+"serve_s": 541.13,
+"why": "bodies, serve seen"
+},
+{
+"t0": 554.321,
+"t1": 568.334,
+"serve_s": 559.85,
+"why": "bodies, serve seen"
+},
+{
+"t0": 573.14,
+"t1": 588.755,
+"serve_s": 577.6,
+"why": "bodies, serve seen"
+},
+{
+"t0": 596.964,
+"t1": 603.39,
+"serve_s": 597.85,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 604.34,
+"t1": 616.849,
+"serve_s": 604.69,
+"why": "bodies, serve seen"
+},
+{
+"t0": 620.855,
+"t1": 631.664,
+"serve_s": 622.08,
+"why": "bodies, serve seen"
+},
+{
+"t0": 634.168,
+"t1": 646.579,
+"serve_s": 635.86,
+"why": "bodies, serve seen"
+},
+{
+"t0": 649.683,
+"t1": 670.269,
+"serve_s": 652.74,
+"why": "bodies, serve seen"
+},
+{
+"t0": 671.972,
+"t1": 684.384,
+"serve_s": 674.33,
+"why": "bodies, serve seen"
+},
+{
+"t0": 692.092,
+"t1": 697.997,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 699.197,
+"t1": 704.604,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 709.71,
+"t1": 722.288,
+"serve_s": 716.71,
+"why": "bodies, serve seen"
+},
+{
+"t0": 728.395,
+"t1": 734.901,
+"serve_s": 730.35,
+"why": "bodies, serve seen"
+},
+{
+"t0": 740.207,
+"t1": 754.721,
+"serve_s": 744.23,
+"why": "bodies, serve seen"
+},
+{
+"t0": 761.428,
+"t1": 766.83,
+"serve_s": 761.52,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 768.135,
+"t1": 782.015,
+"serve_s": 769.86,
+"why": "bodies, serve seen"
+},
+{
+"t0": 786.12,
+"t1": 794.927,
+"serve_s": 787.71,
+"why": "bodies, serve seen"
+},
+{
+"t0": 797.832,
+"t1": 812.545,
+"serve_s": 800.92,
+"why": "bodies, serve seen"
+},
+{
+"t0": 820.054,
+"t1": 827.26,
+"serve_s": 820.84,
+"why": "bodies, serve seen"
+},
+{
+"t0": 829.263,
+"t1": 841.841,
+"serve_s": 832.16,
+"why": "bodies, serve seen"
+},
+{
+"t0": 843.444,
+"t1": 852.552,
+"serve_s": 846.7,
+"why": "bodies, serve seen"
+},
+{
+"t0": 853.502,
+"t1": 861.761,
+"serve_s": 854.08,
+"why": "bodies, serve seen"
+},
+{
+"t0": 868.169,
+"t1": 875.46,
+"serve_s": 873.96,
+"why": "bodies, serve seen"
+},
+{
+"t0": 876.477,
+"t1": 884.484,
+"serve_s": 880.0,
+"why": "bodies, serve seen"
+},
+{
+"t0": 887.188,
+"t1": 892.659,
+"serve_s": 892.38,
+"why": "bodies, serve seen"
+},
+{
+"t0": 893.859,
+"t1": 899.167,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 900.367,
+"t1": 910.576,
+"serve_s": 902.39,
+"why": "bodies, serve seen"
+},
+{
+"t0": 911.526,
+"t1": 919.886,
+"serve_s": 912.0,
+"why": "bodies, serve seen"
+},
+{
+"t0": 921.589,
+"t1": 931.998,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 933.198,
+"t1": 945.411,
+"serve_s": null,
+"why": "bodies"
+}
+],
+"info": {
+"samples": 9369,
+"both_share": 0.877,
+"segments": 68,
+"cards": 67,
+"stamped": 57,
+"model": "v1",
+"features": "69f672d813ca"
+}
+},
+"f3237587": {
+"cards": [
+{
+"t0": 117.852,
+"t1": 129.86,
+"serve_s": 118.01,
+"why": "bodies, serve seen"
+},
+{
+"t0": 130.81,
+"t1": 140.673,
+"serve_s": 131.16,
+"why": "bodies, serve seen"
+},
+{
+"t0": 159.46,
+"t1": 166.566,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 167.766,
+"t1": 176.178,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 177.378,
+"t1": 186.386,
+"serve_s": 183.07,
+"why": "bodies, serve seen"
+},
+{
+"t0": 207.475,
+"t1": 214.58,
+"serve_s": 212.97,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 219.286,
+"t1": 225.892,
+"serve_s": 219.38,
+"why": "bodies, serve seen"
+},
+{
+"t0": 232.399,
+"t1": 241.908,
+"serve_s": 235.09,
+"why": "bodies, serve seen"
+},
+{
+"t0": 243.108,
+"t1": 249.318,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 250.518,
+"t1": 256.222,
+"serve_s": 253.01,
+"why": "bodies, serve seen"
+},
+{
+"t0": 260.995,
+"t1": 266.599,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 269.603,
+"t1": 277.04,
+"serve_s": 270.76,
+"why": "bodies, serve seen"
+},
+{
+"t0": 277.99,
+"t1": 280.81,
+"serve_s": 278.64,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 282.817,
+"t1": 290.223,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 291.826,
+"t1": 300.433,
+"serve_s": 295.59,
+"why": "bodies, serve seen"
+},
+{
+"t0": 309.743,
+"t1": 320.11,
+"serve_s": 311.44,
+"why": "bodies, serve seen"
+},
+{
+"t0": 321.06,
+"t1": 326.526,
+"serve_s": 321.41,
+"why": "bodies, serve seen"
+},
+{
+"t0": 331.632,
+"t1": 337.437,
+"serve_s": 332.52,
+"why": "bodies, serve seen"
+},
+{
+"t0": 338.839,
+"t1": 346.946,
+"serve_s": 341.37,
+"why": "bodies, serve seen"
+},
+{
+"t0": 356.457,
+"t1": 361.394,
+"serve_s": 357.15,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 364.965,
+"t1": 373.239,
+"serve_s": 368.56,
+"why": "bodies, serve seen"
+},
+{
+"t0": 376.944,
+"t1": 382.749,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 435.169,
+"t1": 441.874,
+"serve_s": 437.26,
+"why": "bodies, serve seen"
+},
+{
+"t0": 444.078,
+"t1": 453.186,
+"serve_s": 444.94,
+"why": "bodies, serve seen"
+},
+{
+"t0": 454.588,
+"t1": 462.45,
+"serve_s": 457.85,
+"why": "bodies, serve seen"
+},
+{
+"t0": 463.4,
+"t1": 466.699,
+"serve_s": 464.05,
+"why": "bodies, serve seen"
+},
+{
+"t0": 473.808,
+"t1": 482.015,
+"serve_s": 476.4,
+"why": "bodies, serve seen"
+},
+{
+"t0": 482.965,
+"t1": 492.892,
+"serve_s": 485.24,
+"why": "bodies, serve seen"
+},
+{
+"t0": 493.842,
+"t1": 500.9,
+"serve_s": 495.52,
+"why": "bodies, serve seen"
+},
+{
+"t0": 501.85,
+"t1": 511.811,
+"serve_s": 506.2,
+"why": "bodies, serve seen"
+},
+{
+"t0": 512.761,
+"t1": 525.625,
+"serve_s": 519.98,
+"why": "bodies, serve seen"
+},
+{
+"t0": 527.027,
+"t1": 533.433,
+"serve_s": 530.25,
+"why": "bodies, serve seen"
+},
+{
+"t0": 537.838,
+"t1": 544.61,
+"serve_s": 539.0,
+"why": "bodies, serve seen"
+},
+{
+"t0": 546.013,
+"t1": 555.321,
+"serve_s": 549.21,
+"why": "bodies, serve seen"
+},
+{
+"t0": 557.124,
+"t1": 561.928,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 564.431,
+"t1": 572.338,
+"serve_s": 566.16,
+"why": "bodies, serve seen"
+},
+{
+"t0": 577.745,
+"t1": 582.98,
+"serve_s": null,
+"why": "bodies, end kept open by the ball"
+},
+{
+"t0": 588.556,
+"t1": 605.338,
+"serve_s": 599.86,
+"why": "bodies, serve seen"
+},
+{
+"t0": 607.241,
+"t1": 618.051,
+"serve_s": 610.87,
+"why": "bodies, serve seen"
+},
+{
+"t0": 624.158,
+"t1": 632.965,
+"serve_s": 626.28,
+"why": "bodies, serve seen"
+},
+{
+"t0": 635.97,
+"t1": 643.776,
+"serve_s": 638.06,
+"why": "bodies, serve seen"
+},
+{
+"t0": 644.726,
+"t1": 654.787,
+"serve_s": 649.77,
+"why": "bodies, serve seen"
+},
+{
+"t0": 657.158,
+"t1": 664.263,
+"serve_s": 658.95,
+"why": "bodies, serve seen"
+},
+{
+"t0": 666.367,
+"t1": 675.17,
+"serve_s": 670.59,
+"why": "bodies, serve seen"
+},
+{
+"t0": 676.12,
+"t1": 684.484,
+"serve_s": 676.47,
+"why": "bodies, serve seen"
+},
+{
+"t0": 686.687,
+"t1": 692.191,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 695.896,
+"t1": 703.603,
+"serve_s": 696.25,
+"why": "bodies, serve seen"
+},
+{
+"t0": 710.01,
+"t1": 718.384,
+"serve_s": 712.6,
+"why": "bodies, serve seen"
+},
+{
+"t0": 719.334,
+"t1": 723.69,
+"serve_s": 719.91,
+"why": "bodies, serve seen"
+},
+{
+"t0": 734.001,
+"t1": 742.208,
+"serve_s": 736.93,
+"why": "bodies, serve seen"
+}
+],
+"info": {
+"samples": 7565,
+"both_share": 0.899,
+"segments": 56,
+"cards": 50,
+"stamped": 41,
+"model": "v1",
+"features": "69f672d813ca"
+}
+},
+"2eab3e3d": {
+"cards": [
+{
+"t0": 14.215,
+"t1": 24.424,
+"serve_s": 20.68,
+"why": "bodies, serve seen"
+},
+{
+"t0": 25.624,
+"t1": 33.299,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 39.006,
+"t1": 44.711,
+"serve_s": 39.43,
+"why": "bodies, serve seen"
+},
+{
+"t0": 63.731,
+"t1": 68.234,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 79.447,
+"t1": 84.55,
+"serve_s": 79.47,
+"why": "bodies, serve seen"
+},
+{
+"t0": 87.421,
+"t1": 95.228,
+"serve_s": 90.18,
+"why": "bodies, serve seen"
+},
+{
+"t0": 98.032,
+"t1": 111.044,
+"serve_s": 99.69,
+"why": "bodies, serve seen"
+},
+{
+"t0": 118.252,
+"t1": 125.358,
+"serve_s": 123.51,
+"why": "bodies, serve seen"
+},
+{
+"t0": 126.308,
+"t1": 146.646,
+"serve_s": 128.65,
+"why": "bodies, serve seen"
+},
+{
+"t0": 147.848,
+"t1": 158.458,
+"serve_s": 158.42,
+"why": "bodies, serve seen"
+},
+{
+"t0": 168.769,
+"t1": 173.673,
+"serve_s": 168.86,
+"why": "bodies, serve seen"
+},
+{
+"t0": 174.873,
+"t1": 180.78,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 184.285,
+"t1": 189.689,
+"serve_s": 185.11,
+"why": "bodies, serve seen"
+},
+{
+"t0": 190.639,
+"t1": 202.368,
+"serve_s": 192.32,
+"why": "bodies, serve seen"
+},
+{
+"t0": 204.672,
+"t1": 209.876,
+"serve_s": 209.27,
+"why": "bodies, serve seen"
+},
+{
+"t0": 212.279,
+"t1": 218.985,
+"serve_s": 216.74,
+"why": "bodies, serve seen"
+},
+{
+"t0": 220.287,
+"t1": 231.698,
+"serve_s": 221.41,
+"why": "bodies, serve seen"
+},
+{
+"t0": 232.898,
+"t1": 244.31,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 247.414,
+"t1": 261.42,
+"serve_s": 249.91,
+"why": "bodies, serve seen"
+},
+{
+"t0": 262.37,
+"t1": 273.106,
+"serve_s": 262.72,
+"why": "bodies, serve seen"
+},
+{
+"t0": 276.51,
+"t1": 288.721,
+"serve_s": 280.07,
+"why": "bodies, serve seen"
+},
+{
+"t0": 292.726,
+"t1": 310.743,
+"serve_s": 294.65,
+"why": "bodies, serve seen"
+},
+{
+"t0": 313.114,
+"t1": 325.525,
+"serve_s": 319.14,
+"why": "bodies, serve seen"
+},
+{
+"t0": 328.329,
+"t1": 333.933,
+"serve_s": 331.69,
+"why": "bodies, serve seen"
+},
+{
+"t0": 336.837,
+"t1": 342.71,
+"serve_s": 338.03,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 348.749,
+"t1": 354.654,
+"serve_s": 354.44,
+"why": "bodies, serve seen"
+},
+{
+"t0": 356.056,
+"t1": 364.063,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 367.168,
+"t1": 382.148,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 383.451,
+"t1": 388.054,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 402.77,
+"t1": 406.973,
+"serve_s": 402.93,
+"why": "bodies, serve seen"
+},
+{
+"t0": 409.376,
+"t1": 416.72,
+"serve_s": 413.8,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 422.189,
+"t1": 429.26,
+"serve_s": 422.71,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 433.367,
+"t1": 446.779,
+"serve_s": 438.23,
+"why": "bodies, serve seen"
+},
+{
+"t0": 448.082,
+"t1": 455.38,
+"serve_s": 448.61,
+"why": "bodies, serve seen"
+},
+{
+"t0": 456.33,
+"t1": 457.59,
+"serve_s": 456.98,
+"why": "bodies, serve seen"
+},
+{
+"t0": 458.79,
+"t1": 462.595,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 464.198,
+"t1": 469.602,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 475.91,
+"t1": 481.614,
+"serve_s": 476.07,
+"why": "bodies, serve seen"
+},
+{
+"t0": 491.492,
+"t1": 508.408,
+"serve_s": 493.18,
+"why": "bodies, serve seen"
+},
+{
+"t0": 509.41,
+"t1": 514.414,
+"serve_s": 510.53,
+"why": "bodies, serve seen"
+},
+{
+"t0": 517.118,
+"t1": 530.229,
+"serve_s": 519.31,
+"why": "bodies, serve seen"
+},
+{
+"t0": 531.179,
+"t1": 544.31,
+"serve_s": 531.92,
+"why": "bodies, serve seen"
+},
+{
+"t0": 546.413,
+"t1": 556.222,
+"serve_s": 553.54,
+"why": "bodies, serve seen"
+},
+{
+"t0": 558.726,
+"t1": 563.529,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 577.044,
+"t1": 583.77,
+"serve_s": 582.27,
+"why": "bodies, serve seen"
+},
+{
+"t0": 584.72,
+"t1": 589.856,
+"serve_s": 585.21,
+"why": "bodies, serve seen"
+},
+{
+"t0": 599.366,
+"t1": 606.339,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 611.946,
+"t1": 618.851,
+"serve_s": 613.4,
+"why": "bodies, serve seen"
+},
+{
+"t0": 633.968,
+"t1": 645.078,
+"serve_s": 638.2,
+"why": "bodies, serve seen"
+},
+{
+"t0": 646.781,
+"t1": 657.29,
+"serve_s": 650.07,
+"why": "bodies, serve seen"
+},
+{
+"t0": 661.462,
+"t1": 666.065,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 688.088,
+"t1": 696.696,
+"serve_s": 690.78,
+"why": "bodies, serve seen"
+},
+{
+"t0": 697.896,
+"t1": 707.206,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 708.409,
+"t1": 714.11,
+"serve_s": null,
+"why": "bodies, end kept open by the ball"
+},
+{
+"t0": 715.883,
+"t1": 726.993,
+"serve_s": 719.01,
+"why": "bodies, serve seen"
+},
+{
+"t0": 727.943,
+"t1": 745.411,
+"serve_s": 730.19,
+"why": "bodies, serve seen"
+},
+{
+"t0": 749.216,
+"t1": 755.321,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 758.626,
+"t1": 762.829,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 767.735,
+"t1": 773.406,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 776.41,
+"t1": 782.68,
+"serve_s": 776.87,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 784.318,
+"t1": 790.31,
+"serve_s": 785.61,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 791.26,
+"t1": 793.11,
+"serve_s": 791.61,
+"why": "bodies, serve seen"
+},
+{
+"t0": 794.06,
+"t1": 804.337,
+"serve_s": 797.09,
+"why": "bodies, serve seen"
+},
+{
+"t0": 805.287,
+"t1": 812.945,
+"serve_s": 808.3,
+"why": "bodies, serve seen"
+},
+{
+"t0": 814.145,
+"t1": 816.952,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 818.152,
+"t1": 823.056,
+"serve_s": 820.81,
+"why": "bodies, serve seen"
+},
+{
+"t0": 824.658,
+"t1": 830.05,
+"serve_s": 824.88,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 831.0,
+"t1": 833.232,
+"serve_s": 831.35,
+"why": "bodies, serve seen"
+},
+{
+"t0": 834.435,
+"t1": 847.046,
+"serve_s": 836.69,
+"why": "bodies, serve seen"
+},
+{
+"t0": 848.349,
+"t1": 858.157,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 864.365,
+"t1": 869.469,
+"serve_s": 865.62,
+"why": "bodies, serve seen"
+},
+{
+"t0": 876.977,
+"t1": 883.983,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 890.558,
+"t1": 905.071,
+"serve_s": 890.91,
+"why": "bodies, serve seen"
+},
+{
+"t0": 926.694,
+"t1": 930.196,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 950.684,
+"t1": 958.191,
+"serve_s": null,
+"why": "bodies"
+}
+],
+"info": {
+"samples": 9544,
+"both_share": 0.774,
+"segments": 74,
+"cards": 75,
+"stamped": 53,
+"model": "v1",
+"features": "69f672d813ca"
+}
+},
+"cebaa6d4": {
+"cards": [
+{
+"t0": 10.611,
+"t1": 20.219,
+"serve_s": 12.03,
+"why": "bodies, serve seen"
+},
+{
+"t0": 22.123,
+"t1": 29.128,
+"serve_s": 23.6,
+"why": "bodies, serve seen"
+},
+{
+"t0": 30.197,
+"t1": 37.14,
+"serve_s": 32.27,
+"why": "bodies, serve seen"
+},
+{
+"t0": 38.09,
+"t1": 45.411,
+"serve_s": 38.44,
+"why": "bodies, serve seen"
+},
+{
+"t0": 47.014,
+"t1": 54.18,
+"serve_s": 48.64,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 55.13,
+"t1": 61.227,
+"serve_s": 55.48,
+"why": "bodies, serve seen"
+},
+{
+"t0": 62.177,
+"t1": 71.537,
+"serve_s": 65.28,
+"why": "bodies, serve seen"
+},
+{
+"t0": 75.943,
+"t1": 82.89,
+"serve_s": 78.26,
+"why": "bodies, serve seen"
+},
+{
+"t0": 83.84,
+"t1": 92.125,
+"serve_s": 84.49,
+"why": "bodies, serve seen"
+},
+{
+"t0": 95.329,
+"t1": 110.2,
+"serve_s": 96.7,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 111.15,
+"t1": 116.449,
+"serve_s": 111.5,
+"why": "bodies, serve seen"
+},
+{
+"t0": 117.399,
+"t1": 127.46,
+"serve_s": 118.44,
+"why": "bodies, serve seen"
+},
+{
+"t0": 132.766,
+"t1": 140.873,
+"serve_s": 134.24,
+"why": "bodies, serve seen"
+},
+{
+"t0": 142.073,
+"t1": 146.646,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 148.249,
+"t1": 157.857,
+"serve_s": 150.48,
+"why": "bodies, serve seen"
+},
+{
+"t0": 164.064,
+"t1": 172.972,
+"serve_s": 165.42,
+"why": "bodies, serve seen"
+},
+{
+"t0": 177.978,
+"t1": 185.4,
+"serve_s": 179.96,
+"why": "bodies, serve seen"
+},
+{
+"t0": 186.35,
+"t1": 191.29,
+"serve_s": 187.0,
+"why": "bodies, serve seen"
+},
+{
+"t0": 202.97,
+"t1": 208.377,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 209.577,
+"t1": 219.688,
+"serve_s": 214.91,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 220.888,
+"t1": 229.295,
+"serve_s": 222.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 230.297,
+"t1": 242.008,
+"serve_s": 238.45,
+"why": "bodies, serve seen"
+},
+{
+"t0": 242.958,
+"t1": 249.02,
+"serve_s": 243.82,
+"why": "bodies, serve seen"
+},
+{
+"t0": 249.97,
+"t1": 257.16,
+"serve_s": 250.62,
+"why": "bodies, serve seen"
+},
+{
+"t0": 258.11,
+"t1": 264.897,
+"serve_s": 258.76,
+"why": "bodies, serve seen"
+},
+{
+"t0": 267.802,
+"t1": 275.37,
+"serve_s": 269.23,
+"why": "bodies, serve seen"
+},
+{
+"t0": 276.32,
+"t1": 283.716,
+"serve_s": 276.97,
+"why": "bodies, serve seen"
+},
+{
+"t0": 285.719,
+"t1": 294.427,
+"serve_s": 287.07,
+"why": "bodies, serve seen"
+},
+{
+"t0": 296.73,
+"t1": 308.941,
+"serve_s": 298.51,
+"why": "bodies, serve seen"
+},
+{
+"t0": 312.947,
+"t1": 318.117,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 319.62,
+"t1": 334.033,
+"serve_s": 321.65,
+"why": "bodies, serve seen"
+},
+{
+"t0": 335.336,
+"t1": 342.93,
+"serve_s": 337.06,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 343.88,
+"t1": 351.751,
+"serve_s": 344.23,
+"why": "bodies, serve seen"
+},
+{
+"t0": 352.853,
+"t1": 373.439,
+"serve_s": 355.07,
+"why": "bodies, serve seen"
+},
+{
+"t0": 374.389,
+"t1": 384.55,
+"serve_s": 380.81,
+"why": "bodies, serve seen"
+},
+{
+"t0": 407.475,
+"t1": 415.79,
+"serve_s": 408.92,
+"why": "bodies, serve seen"
+},
+{
+"t0": 416.74,
+"t1": 424.09,
+"serve_s": 417.39,
+"why": "bodies, serve seen"
+},
+{
+"t0": 425.04,
+"t1": 429.095,
+"serve_s": 425.96,
+"why": "bodies, serve seen"
+},
+{
+"t0": 430.064,
+"t1": 438.871,
+"serve_s": 433.73,
+"why": "bodies, serve seen"
+},
+{
+"t0": 439.821,
+"t1": 449.184,
+"serve_s": 443.5,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 450.384,
+"t1": 469.402,
+"serve_s": 453.24,
+"why": "bodies, serve seen"
+},
+{
+"t0": 470.805,
+"t1": 479.18,
+"serve_s": 473.11,
+"why": "bodies, serve seen"
+},
+{
+"t0": 480.13,
+"t1": 489.589,
+"serve_s": 480.78,
+"why": "bodies, serve seen"
+},
+{
+"t0": 492.193,
+"t1": 513.112,
+"serve_s": 493.56,
+"why": "bodies, serve seen"
+},
+{
+"t0": 518.319,
+"t1": 525.725,
+"serve_s": 520.5,
+"why": "bodies, serve seen"
+},
+{
+"t0": 526.675,
+"t1": 533.333,
+"serve_s": 528.1,
+"why": "bodies, serve seen"
+},
+{
+"t0": 539.039,
+"t1": 546.212,
+"serve_s": 540.81,
+"why": "bodies, serve seen"
+},
+{
+"t0": 547.162,
+"t1": 555.221,
+"serve_s": 547.91,
+"why": "bodies, serve seen"
+},
+{
+"t0": 556.171,
+"t1": 566.632,
+"serve_s": 560.22,
+"why": "bodies, serve seen"
+},
+{
+"t0": 567.582,
+"t1": 577.744,
+"serve_s": 570.75,
+"why": "bodies, serve seen"
+},
+{
+"t0": 581.348,
+"t1": 590.657,
+"serve_s": 583.23,
+"why": "bodies, serve seen"
+},
+{
+"t0": 591.859,
+"t1": 600.0,
+"serve_s": 593.16,
+"why": "bodies, serve seen"
+},
+{
+"t0": 600.95,
+"t1": 605.738,
+"serve_s": 601.6,
+"why": "bodies, serve seen"
+},
+{
+"t0": 606.688,
+"t1": 616.349,
+"serve_s": 608.6,
+"why": "bodies, serve seen"
+},
+{
+"t0": 632.867,
+"t1": 645.478,
+"serve_s": 634.21,
+"why": "bodies, serve seen"
+},
+{
+"t0": 649.483,
+"t1": 655.188,
+"serve_s": 651.35,
+"why": "bodies, serve seen"
+},
+{
+"t0": 656.138,
+"t1": 662.69,
+"serve_s": 656.56,
+"why": "bodies, serve seen"
+},
+{
+"t0": 663.64,
+"t1": 668.067,
+"serve_s": 664.29,
+"why": "bodies, serve seen"
+},
+{
+"t0": 669.017,
+"t1": 679.379,
+"serve_s": 669.49,
+"why": "bodies, serve seen"
+},
+{
+"t0": 680.881,
+"t1": 686.386,
+"serve_s": 682.5,
+"why": "bodies, serve seen"
+},
+{
+"t0": 687.336,
+"t1": 698.197,
+"serve_s": 690.9,
+"why": "bodies, serve seen"
+},
+{
+"t0": 699.147,
+"t1": 714.914,
+"serve_s": 700.04,
+"why": "bodies, serve seen"
+},
+{
+"t0": 715.864,
+"t1": 724.75,
+"serve_s": 716.88,
+"why": "bodies, serve seen"
+},
+{
+"t0": 725.7,
+"t1": 735.101,
+"serve_s": 726.35,
+"why": "bodies, serve seen"
+},
+{
+"t0": 736.403,
+"t1": 743.26,
+"serve_s": 737.75,
+"why": "bodies, serve seen"
+},
+{
+"t0": 744.21,
+"t1": 749.716,
+"serve_s": 744.86,
+"why": "bodies, serve seen"
+},
+{
+"t0": 752.72,
+"t1": 759.926,
+"serve_s": 754.29,
+"why": "bodies, serve seen"
+},
+{
+"t0": 760.876,
+"t1": 771.938,
+"serve_s": 761.63,
+"why": "bodies, serve seen"
+},
+{
+"t0": 775.81,
+"t1": 780.913,
+"serve_s": 777.44,
+"why": "bodies, serve seen"
+},
+{
+"t0": 782.516,
+"t1": 789.122,
+"serve_s": 783.87,
+"why": "bodies, serve seen"
+},
+{
+"t0": 790.825,
+"t1": 799.98,
+"serve_s": 793.01,
+"why": "bodies, serve seen"
+},
+{
+"t0": 800.93,
+"t1": 810.243,
+"serve_s": 801.28,
+"why": "bodies, serve seen"
+},
+{
+"t0": 813.647,
+"t1": 826.859,
+"serve_s": 814.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 827.809,
+"t1": 838.838,
+"serve_s": 828.39,
+"why": "bodies, serve seen"
+},
+{
+"t0": 840.04,
+"t1": 847.0,
+"serve_s": 841.4,
+"why": "bodies, serve seen"
+},
+{
+"t0": 847.95,
+"t1": 857.156,
+"serve_s": 848.6,
+"why": "bodies, serve seen"
+},
+{
+"t0": 858.159,
+"t1": 864.864,
+"serve_s": 860.07,
+"why": "bodies, serve seen"
+},
+{
+"t0": 867.868,
+"t1": 880.88,
+"serve_s": 869.04,
+"why": "bodies, serve seen"
+},
+{
+"t0": 883.684,
+"t1": 888.855,
+"serve_s": null,
+"why": "bodies"
+}
+],
+"info": {
+"samples": 9221,
+"both_share": 0.906,
+"segments": 70,
+"cards": 79,
+"stamped": 75,
+"model": "v1",
+"features": "69f672d813ca"
+}
+},
+"7e02fbb9": {
+"cards": [
+{
+"t0": 36.637,
+"t1": 46.245,
+"serve_s": 37.85,
+"why": "bodies, serve seen"
+},
+{
+"t0": 47.648,
+"t1": 58.257,
+"serve_s": 49.46,
+"why": "bodies, serve seen"
+},
+{
+"t0": 59.207,
+"t1": 66.065,
+"serve_s": 60.54,
+"why": "bodies, serve seen"
+},
+{
+"t0": 70.07,
+"t1": 77.677,
+"serve_s": 72.75,
+"why": "bodies, serve seen"
+},
+{
+"t0": 78.627,
+"t1": 83.983,
+"serve_s": 79.15,
+"why": "bodies, serve seen"
+},
+{
+"t0": 84.933,
+"t1": 92.358,
+"serve_s": 86.06,
+"why": "bodies, serve seen"
+},
+{
+"t0": 93.558,
+"t1": 104.373,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 105.573,
+"t1": 116.282,
+"serve_s": 110.81,
+"why": "bodies, serve seen"
+},
+{
+"t0": 117.785,
+"t1": 122.889,
+"serve_s": 119.72,
+"why": "bodies, serve seen"
+},
+{
+"t0": 123.839,
+"t1": 133.599,
+"serve_s": 125.26,
+"why": "bodies, serve seen"
+},
+{
+"t0": 136.504,
+"t1": 144.57,
+"serve_s": 139.2,
+"why": "bodies, serve seen"
+},
+{
+"t0": 145.52,
+"t1": 152.218,
+"serve_s": 145.87,
+"why": "bodies, serve seen"
+},
+{
+"t0": 154.421,
+"t1": 163.26,
+"serve_s": 158.22,
+"why": "bodies, serve seen"
+},
+{
+"t0": 164.21,
+"t1": 168.534,
+"serve_s": 164.86,
+"why": "bodies, serve seen"
+},
+{
+"t0": 174.742,
+"t1": 179.145,
+"serve_s": 176.4,
+"why": "bodies, serve seen"
+},
+{
+"t0": 184.952,
+"t1": 194.72,
+"serve_s": 188.51,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 196.564,
+"t1": 206.172,
+"serve_s": 197.68,
+"why": "bodies, serve seen"
+},
+{
+"t0": 207.122,
+"t1": 214.08,
+"serve_s": 208.36,
+"why": "bodies, serve seen"
+},
+{
+"t0": 219.186,
+"t1": 227.694,
+"serve_s": 220.17,
+"why": "bodies, serve seen"
+},
+{
+"t0": 231.499,
+"t1": 242.709,
+"serve_s": 232.28,
+"why": "bodies, serve seen"
+},
+{
+"t0": 266.5,
+"t1": 272.58,
+"serve_s": 267.9,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 275.109,
+"t1": 281.814,
+"serve_s": 276.18,
+"why": "bodies, serve seen"
+},
+{
+"t0": 283.617,
+"t1": 295.028,
+"serve_s": 284.35,
+"why": "bodies, serve seen"
+},
+{
+"t0": 295.978,
+"t1": 310.843,
+"serve_s": 306.03,
+"why": "bodies, serve seen"
+},
+{
+"t0": 316.851,
+"t1": 325.92,
+"serve_s": 318.48,
+"why": "bodies, serve seen"
+},
+{
+"t0": 326.87,
+"t1": 333.966,
+"serve_s": 327.22,
+"why": "bodies, serve seen"
+},
+{
+"t0": 334.916,
+"t1": 348.581,
+"serve_s": 335.89,
+"why": "bodies, serve seen"
+},
+{
+"t0": 361.695,
+"t1": 365.798,
+"serve_s": 362.45,
+"why": "bodies, serve seen"
+},
+{
+"t0": 366.748,
+"t1": 372.405,
+"serve_s": 367.38,
+"why": "bodies, serve seen"
+},
+{
+"t0": 375.609,
+"t1": 384.67,
+"serve_s": 377.52,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 400.234,
+"t1": 406.539,
+"serve_s": 400.64,
+"why": "bodies, serve seen"
+},
+{
+"t0": 407.489,
+"t1": 416.849,
+"serve_s": 408.05,
+"why": "bodies, serve seen"
+},
+{
+"t0": 417.799,
+"t1": 422.955,
+"serve_s": 419.06,
+"why": "bodies, serve seen"
+},
+{
+"t0": 431.532,
+"t1": 445.28,
+"serve_s": 435.44,
+"why": "bodies, serve seen"
+},
+{
+"t0": 446.23,
+"t1": 452.652,
+"serve_s": 446.88,
+"why": "bodies, serve seen"
+},
+{
+"t0": 457.958,
+"t1": 467.166,
+"serve_s": 459.52,
+"why": "bodies, serve seen"
+},
+{
+"t0": 472.773,
+"t1": 480.68,
+"serve_s": 473.8,
+"why": "bodies, serve seen"
+},
+{
+"t0": 482.683,
+"t1": 491.02,
+"serve_s": 484.21,
+"why": "bodies, serve seen"
+},
+{
+"t0": 491.97,
+"t1": 498.197,
+"serve_s": 492.62,
+"why": "bodies, serve seen"
+},
+{
+"t0": 504.105,
+"t1": 511.611,
+"serve_s": 505.56,
+"why": "bodies, serve seen"
+},
+{
+"t0": 512.561,
+"t1": 526.326,
+"serve_s": 513.5,
+"why": "bodies, serve seen"
+},
+{
+"t0": 528.028,
+"t1": 535.034,
+"serve_s": 529.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 536.234,
+"t1": 541.24,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 548.149,
+"t1": 558.658,
+"serve_s": 549.26,
+"why": "bodies, serve seen"
+},
+{
+"t0": 559.76,
+"t1": 569.35,
+"serve_s": 564.54,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 585.786,
+"t1": 591.83,
+"serve_s": 587.26,
+"why": "bodies, serve seen"
+},
+{
+"t0": 592.78,
+"t1": 598.197,
+"serve_s": 593.43,
+"why": "bodies, serve seen"
+},
+{
+"t0": 600.701,
+"t1": 609.94,
+"serve_s": 602.57,
+"why": "bodies, serve seen"
+},
+{
+"t0": 610.89,
+"t1": 624.73,
+"serve_s": 611.24,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 628.696,
+"t1": 640.106,
+"serve_s": 632.06,
+"why": "bodies, serve seen"
+},
+{
+"t0": 643.01,
+"t1": 654.821,
+"serve_s": 644.44,
+"why": "bodies, serve seen"
+},
+{
+"t0": 656.423,
+"t1": 660.626,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 678.846,
+"t1": 688.454,
+"serve_s": 681.53,
+"why": "bodies, serve seen"
+},
+{
+"t0": 689.404,
+"t1": 699.866,
+"serve_s": 690.34,
+"why": "bodies, serve seen"
+},
+{
+"t0": 701.869,
+"t1": 708.474,
+"serve_s": 702.68,
+"why": "bodies, serve seen"
+},
+{
+"t0": 710.377,
+"t1": 718.985,
+"serve_s": 711.46,
+"why": "bodies, serve seen"
+},
+{
+"t0": 719.935,
+"t1": 727.493,
+"serve_s": 720.53,
+"why": "bodies, serve seen"
+},
+{
+"t0": 728.693,
+"t1": 735.601,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 739.306,
+"t1": 750.116,
+"serve_s": 746.12,
+"why": "bodies, serve seen"
+},
+{
+"t0": 751.418,
+"t1": 762.729,
+"serve_s": 757.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 765.633,
+"t1": 775.141,
+"serve_s": 769.34,
+"why": "bodies, serve seen"
+},
+{
+"t0": 776.091,
+"t1": 781.25,
+"serve_s": 776.51,
+"why": "bodies, serve seen"
+},
+{
+"t0": 782.2,
+"t1": 793.626,
+"serve_s": 782.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 794.576,
+"t1": 803.036,
+"serve_s": 796.86,
+"why": "bodies, serve seen"
+},
+{
+"t0": 807.241,
+"t1": 814.347,
+"serve_s": 809.2,
+"why": "bodies, serve seen"
+},
+{
+"t0": 830.064,
+"t1": 839.872,
+"serve_s": 831.39,
+"why": "bodies, serve seen"
+},
+{
+"t0": 840.822,
+"t1": 849.082,
+"serve_s": 841.53,
+"why": "bodies, serve seen"
+},
+{
+"t0": 855.689,
+"t1": 861.694,
+"serve_s": 856.37,
+"why": "bodies, serve seen"
+},
+{
+"t0": 862.644,
+"t1": 871.604,
+"serve_s": 865.35,
+"why": "bodies, serve seen"
+},
+{
+"t0": 875.109,
+"t1": 880.213,
+"serve_s": 876.32,
+"why": "bodies, serve seen"
+},
+{
+"t0": 881.315,
+"t1": 892.125,
+"serve_s": 882.13,
+"why": "bodies, serve seen"
+},
+{
+"t0": 893.075,
+"t1": 899.24,
+"serve_s": 894.34,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 900.19,
+"t1": 904.037,
+"serve_s": 900.54,
+"why": "bodies, serve seen"
+},
+{
+"t0": 905.139,
+"t1": 919.752,
+"serve_s": 906.28,
+"why": "bodies, serve seen"
+}
+],
+"info": {
+"samples": 9738,
+"both_share": 0.896,
+"segments": 70,
+"cards": 74,
+"stamped": 70,
+"model": "v1",
+"features": "69f672d813ca"
+}
+},
+"5fd822ec": {
+"cards": [
+{
+"t0": 5.9,
+"t1": 16.8,
+"serve_s": 11.13,
+"why": "bodies, serve seen"
+},
+{
+"t0": 20.917,
+"t1": 29.317,
+"serve_s": 24.04,
+"why": "bodies, serve seen"
+},
+{
+"t0": 33.617,
+"t1": 40.317,
+"serve_s": 35.74,
+"why": "bodies, serve seen"
+},
+{
+"t0": 41.267,
+"t1": 49.617,
+"serve_s": 46.3,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 50.817,
+"t1": 59.833,
+"serve_s": 53.32,
+"why": "bodies, serve seen"
+},
+{
+"t0": 60.783,
+"t1": 73.133,
+"serve_s": 63.27,
+"why": "bodies, serve seen"
+},
+{
+"t0": 79.133,
+"t1": 88.533,
+"serve_s": 80.23,
+"why": "bodies, serve seen"
+},
+{
+"t0": 89.75,
+"t1": 99.65,
+"serve_s": 91.42,
+"why": "bodies, serve seen"
+},
+{
+"t0": 100.6,
+"t1": 109.05,
+"serve_s": 102.07,
+"why": "bodies, serve seen"
+},
+{
+"t0": 111.35,
+"t1": 124.15,
+"serve_s": 115.41,
+"why": "bodies, serve seen"
+},
+{
+"t0": 125.1,
+"t1": 138.17,
+"serve_s": 129.28,
+"why": "bodies, serve seen"
+},
+{
+"t0": 139.12,
+"t1": 144.667,
+"serve_s": 139.47,
+"why": "bodies, serve seen"
+},
+{
+"t0": 145.617,
+"t1": 151.93,
+"serve_s": 146.83,
+"why": "bodies, serve seen"
+},
+{
+"t0": 152.88,
+"t1": 158.23,
+"serve_s": 153.53,
+"why": "bodies, serve seen"
+},
+{
+"t0": 159.18,
+"t1": 161.33,
+"serve_s": 159.83,
+"why": "bodies, serve seen"
+},
+{
+"t0": 162.28,
+"t1": 169.183,
+"serve_s": 167.02,
+"why": "bodies, serve seen"
+},
+{
+"t0": 170.383,
+"t1": 175.683,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 176.883,
+"t1": 187.383,
+"serve_s": 181.16,
+"why": "bodies, serve seen"
+},
+{
+"t0": 192.483,
+"t1": 207.9,
+"serve_s": 201.03,
+"why": "bodies, serve seen"
+},
+{
+"t0": 215.0,
+"t1": 223.2,
+"serve_s": 216.88,
+"why": "bodies, serve seen"
+},
+{
+"t0": 224.9,
+"t1": 238.417,
+"serve_s": 229.5,
+"why": "bodies, serve seen"
+},
+{
+"t0": 239.367,
+"t1": 247.417,
+"serve_s": 240.72,
+"why": "bodies, serve seen"
+},
+{
+"t0": 249.417,
+"t1": 258.438,
+"serve_s": 251.31,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 271.933,
+"t1": 283.233,
+"serve_s": 277.92,
+"why": "bodies, serve seen"
+},
+{
+"t0": 288.433,
+"t1": 295.933,
+"serve_s": 288.88,
+"why": "bodies, serve seen"
+},
+{
+"t0": 296.883,
+"t1": 307.23,
+"serve_s": 305.73,
+"why": "bodies, serve seen"
+},
+{
+"t0": 308.18,
+"t1": 313.45,
+"serve_s": 305.73,
+"why": "bodies, serve seen"
+},
+{
+"t0": 314.65,
+"t1": 322.35,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 323.55,
+"t1": 333.45,
+"serve_s": 328.23,
+"why": "bodies, serve seen"
+},
+{
+"t0": 334.55,
+"t1": 344.65,
+"serve_s": 336.25,
+"why": "bodies, serve seen"
+},
+{
+"t0": 345.767,
+"t1": 357.267,
+"serve_s": 351.41,
+"why": "bodies, serve seen"
+},
+{
+"t0": 358.467,
+"t1": 364.567,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 365.767,
+"t1": 373.98,
+"serve_s": 366.86,
+"why": "bodies, serve seen"
+},
+{
+"t0": 374.93,
+"t1": 380.967,
+"serve_s": 375.28,
+"why": "bodies, serve seen"
+},
+{
+"t0": 382.483,
+"t1": 388.483,
+"serve_s": 383.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 389.683,
+"t1": 396.783,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 398.083,
+"t1": 408.783,
+"serve_s": 403.21,
+"why": "bodies, serve seen"
+},
+{
+"t0": 410.083,
+"t1": 427.0,
+"serve_s": 412.8,
+"why": "bodies, serve seen"
+},
+{
+"t0": 432.0,
+"t1": 442.3,
+"serve_s": 436.23,
+"why": "bodies, serve seen"
+},
+{
+"t0": 443.25,
+"t1": 452.7,
+"serve_s": 445.43,
+"why": "bodies, serve seen"
+},
+{
+"t0": 453.65,
+"t1": 461.35,
+"serve_s": 455.62,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 462.3,
+"t1": 466.817,
+"serve_s": 462.84,
+"why": "bodies, serve seen"
+},
+{
+"t0": 469.117,
+"t1": 481.317,
+"serve_s": 472.25,
+"why": "bodies, serve seen"
+},
+{
+"t0": 483.117,
+"t1": 490.833,
+"serve_s": 485.92,
+"why": "bodies, serve seen"
+},
+{
+"t0": 493.533,
+"t1": 503.033,
+"serve_s": 495.92,
+"why": "bodies, serve seen"
+},
+{
+"t0": 506.833,
+"t1": 515.233,
+"serve_s": 508.65,
+"why": "bodies, serve seen"
+},
+{
+"t0": 522.95,
+"t1": 533.75,
+"serve_s": 525.1,
+"why": "bodies, serve seen"
+},
+{
+"t0": 534.7,
+"t1": 545.85,
+"serve_s": 538.53,
+"why": "bodies, serve seen"
+},
+{
+"t0": 546.8,
+"t1": 555.85,
+"serve_s": 547.53,
+"why": "bodies, serve seen"
+},
+{
+"t0": 557.55,
+"t1": 567.567,
+"serve_s": 562.87,
+"why": "bodies, serve seen"
+}
+],
+"info": {
+"samples": 3732,
+"both_share": 0.883,
+"segments": 51,
+"cards": 50,
+"stamped": 46,
+"model": "v1",
+"features": "69f672d813ca"
+}
+},
+"95a07786": {
+"cards": [
+{
+"t0": 7.6,
+"t1": 13.217,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 14.417,
+"t1": 25.017,
+"serve_s": 16.71,
+"why": "bodies, serve seen"
+},
+{
+"t0": 34.133,
+"t1": 48.65,
+"serve_s": 36.14,
+"why": "bodies, serve seen"
+},
+{
+"t0": 49.6,
+"t1": 56.05,
+"serve_s": 50.3,
+"why": "bodies, serve seen"
+},
+{
+"t0": 58.45,
+"t1": 65.85,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 67.05,
+"t1": 74.867,
+"serve_s": 68.75,
+"why": "bodies, serve seen"
+},
+{
+"t0": 76.867,
+"t1": 84.38,
+"serve_s": 79.13,
+"why": "bodies, serve seen"
+},
+{
+"t0": 85.33,
+"t1": 94.683,
+"serve_s": 85.68,
+"why": "bodies, serve seen"
+},
+{
+"t0": 97.183,
+"t1": 106.4,
+"serve_s": 99.85,
+"why": "bodies, serve seen"
+},
+{
+"t0": 109.5,
+"t1": 121.9,
+"serve_s": 111.14,
+"why": "bodies, serve seen"
+},
+{
+"t0": 124.917,
+"t1": 134.617,
+"serve_s": 125.82,
+"why": "bodies, serve seen"
+},
+{
+"t0": 135.817,
+"t1": 140.217,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 141.417,
+"t1": 146.933,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 150.733,
+"t1": 157.933,
+"serve_s": 152.83,
+"why": "bodies, serve seen"
+},
+{
+"t0": 165.05,
+"t1": 173.26,
+"serve_s": 168.02,
+"why": "bodies, serve seen"
+},
+{
+"t0": 174.21,
+"t1": 179.92,
+"serve_s": 174.86,
+"why": "bodies, serve seen"
+},
+{
+"t0": 180.87,
+"t1": 186.967,
+"serve_s": 181.52,
+"why": "bodies, serve seen"
+},
+{
+"t0": 187.917,
+"t1": 195.967,
+"serve_s": 191.36,
+"why": "bodies, serve seen"
+},
+{
+"t0": 198.567,
+"t1": 209.983,
+"serve_s": 200.53,
+"why": "bodies, serve seen"
+},
+{
+"t0": 219.6,
+"t1": 229.0,
+"serve_s": 222.59,
+"why": "bodies, serve seen"
+},
+{
+"t0": 229.95,
+"t1": 238.3,
+"serve_s": 231.98,
+"why": "bodies, serve seen"
+},
+{
+"t0": 239.25,
+"t1": 244.317,
+"serve_s": 240.24,
+"why": "bodies, serve seen"
+},
+{
+"t0": 251.317,
+"t1": 265.733,
+"serve_s": 253.61,
+"why": "bodies, serve seen"
+},
+{
+"t0": 267.533,
+"t1": 279.85,
+"serve_s": 268.43,
+"why": "bodies, serve seen"
+},
+{
+"t0": 290.85,
+"t1": 297.467,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 298.667,
+"t1": 309.767,
+"serve_s": 301.29,
+"why": "bodies, serve seen"
+},
+{
+"t0": 311.667,
+"t1": 321.783,
+"serve_s": 313.32,
+"why": "bodies, serve seen"
+},
+{
+"t0": 324.183,
+"t1": 334.9,
+"serve_s": 327.86,
+"why": "bodies, serve seen"
+},
+{
+"t0": 336.1,
+"t1": 342.4,
+"serve_s": 337.72,
+"why": "bodies, serve seen"
+},
+{
+"t0": 343.35,
+"t1": 355.317,
+"serve_s": 345.01,
+"why": "bodies, serve seen"
+},
+{
+"t0": 356.917,
+"t1": 366.317,
+"serve_s": 358.36,
+"why": "bodies, serve seen"
+},
+{
+"t0": 367.433,
+"t1": 377.133,
+"serve_s": 373.22,
+"why": "bodies, serve seen"
+},
+{
+"t0": 378.083,
+"t1": 385.433,
+"serve_s": 379.42,
+"why": "bodies, serve seen"
+},
+{
+"t0": 386.45,
+"t1": 393.65,
+"serve_s": 388.53,
+"why": "bodies, serve seen"
+},
+{
+"t0": 398.95,
+"t1": 405.51,
+"serve_s": 400.06,
+"why": "bodies, serve seen"
+},
+{
+"t0": 406.46,
+"t1": 412.367,
+"serve_s": 406.81,
+"why": "bodies, serve seen"
+},
+{
+"t0": 413.317,
+"t1": 423.967,
+"serve_s": 415.72,
+"why": "bodies, serve seen"
+},
+{
+"t0": 424.917,
+"t1": 433.983,
+"serve_s": 426.57,
+"why": "bodies, serve seen"
+},
+{
+"t0": 434.933,
+"t1": 444.2,
+"serve_s": 438.29,
+"why": "bodies, serve seen"
+},
+{
+"t0": 451.2,
+"t1": 459.2,
+"serve_s": 454.09,
+"why": "bodies, serve seen"
+},
+{
+"t0": 464.317,
+"t1": 475.017,
+"serve_s": 466.52,
+"why": "bodies, serve seen"
+},
+{
+"t0": 475.967,
+"t1": 485.033,
+"serve_s": 476.98,
+"why": "bodies, serve seen"
+},
+{
+"t0": 490.733,
+"t1": 504.25,
+"serve_s": 492.12,
+"why": "bodies, serve seen"
+},
+{
+"t0": 508.25,
+"t1": 515.05,
+"serve_s": 510.64,
+"why": "bodies, serve seen"
+},
+{
+"t0": 516.0,
+"t1": 530.767,
+"serve_s": 525.59,
+"why": "bodies, serve seen"
+},
+{
+"t0": 544.383,
+"t1": 548.083,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 549.283,
+"t1": 560.6,
+"serve_s": 551.58,
+"why": "bodies, serve seen"
+},
+{
+"t0": 563.3,
+"t1": 575.8,
+"serve_s": 565.12,
+"why": "bodies, serve seen"
+},
+{
+"t0": 576.75,
+"t1": 582.37,
+"serve_s": 577.97,
+"why": "bodies, serve seen"
+},
+{
+"t0": 583.32,
+"t1": 594.833,
+"serve_s": 583.97,
+"why": "bodies, serve seen"
+},
+{
+"t0": 595.783,
+"t1": 606.333,
+"serve_s": 601.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 607.283,
+"t1": 615.65,
+"serve_s": 608.46,
+"why": "bodies, serve seen"
+},
+{
+"t0": 617.45,
+"t1": 626.85,
+"serve_s": 620.07,
+"why": "bodies, serve seen"
+},
+{
+"t0": 632.45,
+"t1": 643.667,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 645.167,
+"t1": 659.083,
+"serve_s": 647.31,
+"why": "bodies, serve seen"
+},
+{
+"t0": 665.483,
+"t1": 672.12,
+"serve_s": 666.51,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 673.5,
+"t1": 684.7,
+"serve_s": 676.62,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 685.9,
+"t1": 694.917,
+"serve_s": 688.31,
+"why": "bodies, serve seen"
+},
+{
+"t0": 696.517,
+"t1": 706.117,
+"serve_s": 698.8,
+"why": "bodies, serve seen"
+},
+{
+"t0": 707.067,
+"t1": 714.433,
+"serve_s": 708.38,
+"why": "bodies, serve seen"
+},
+{
+"t0": 715.433,
+"t1": 727.75,
+"serve_s": 718.16,
+"why": "bodies, serve seen"
+},
+{
+"t0": 734.45,
+"t1": 749.167,
+"serve_s": 737.77,
+"why": "bodies, serve seen"
+},
+{
+"t0": 752.967,
+"t1": 759.967,
+"serve_s": 754.94,
+"why": "bodies, serve seen"
+},
+{
+"t0": 760.917,
+"t1": 774.283,
+"serve_s": 762.96,
+"why": "bodies, serve seen"
+},
+{
+"t0": 778.283,
+"t1": 784.3,
+"serve_s": 781.29,
+"why": "bodies, serve seen"
+},
+{
+"t0": 785.25,
+"t1": 799.3,
+"serve_s": 788.27,
+"why": "bodies, serve seen"
+},
+{
+"t0": 800.6,
+"t1": 809.717,
+"serve_s": 802.58,
+"why": "bodies, serve seen"
+},
+{
+"t0": 814.317,
+"t1": 824.12,
+"serve_s": 816.41,
+"why": "bodies, serve seen"
+},
+{
+"t0": 825.07,
+"t1": 839.533,
+"serve_s": 825.42,
+"why": "bodies, serve seen"
+},
+{
+"t0": 842.35,
+"t1": 847.05,
+"serve_s": 843.16,
+"why": "bodies, serve seen"
+},
+{
+"t0": 848.0,
+"t1": 853.55,
+"serve_s": 848.49,
+"why": "bodies, serve seen"
+},
+{
+"t0": 855.15,
+"t1": 867.867,
+"serve_s": 857.54,
+"why": "bodies, serve seen"
+},
+{
+"t0": 868.817,
+"t1": 876.067,
+"serve_s": 870.62,
+"why": "bodies, serve seen"
+},
+{
+"t0": 877.017,
+"t1": 889.39,
+"serve_s": 880.85,
+"why": "bodies, serve seen"
+},
+{
+"t0": 890.34,
+"t1": 894.283,
+"serve_s": 890.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 895.233,
+"t1": 909.6,
+"serve_s": 901.73,
+"why": "bodies, serve seen"
+},
+{
+"t0": 913.9,
+"t1": 921.417,
+"serve_s": 916.61,
+"why": "bodies, serve seen"
+},
+{
+"t0": 923.217,
+"t1": 932.617,
+"serve_s": 927.72,
+"why": "bodies, serve seen"
+},
+{
+"t0": 933.567,
+"t1": 941.633,
+"serve_s": 938.2,
+"why": "bodies, serve seen"
+},
+{
+"t0": 942.583,
+"t1": 952.333,
+"serve_s": 945.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 956.65,
+"t1": 965.15,
+"serve_s": 958.57,
+"why": "bodies, serve seen"
+},
+{
+"t0": 966.65,
+"t1": 975.467,
+"serve_s": 969.73,
+"why": "bodies, serve seen"
+},
+{
+"t0": 976.967,
+"t1": 985.967,
+"serve_s": 980.05,
+"why": "bodies, serve seen"
+},
+{
+"t0": 986.917,
+"t1": 995.983,
+"serve_s": 988.61,
+"why": "bodies, serve seen"
+}
+],
+"info": {
+"samples": 6150,
+"both_share": 0.965,
+"segments": 82,
+"cards": 84,
+"stamped": 77,
+"model": "v1",
+"features": "69f672d813ca"
+}
+},
+"5c90151a": {
+"cards": [
+{
+"t0": 6.1,
+"t1": 14.8,
+"serve_s": 8.54,
+"why": "bodies, serve seen"
+},
+{
+"t0": 17.3,
+"t1": 24.94,
+"serve_s": 19.12,
+"why": "bodies, serve seen"
+},
+{
+"t0": 25.89,
+"t1": 28.317,
+"serve_s": 26.54,
+"why": "bodies, serve seen"
+},
+{
+"t0": 29.267,
+"t1": 39.617,
+"serve_s": 34.04,
+"why": "bodies, serve seen"
+},
+{
+"t0": 40.817,
+"t1": 47.317,
+"serve_s": 42.13,
+"why": "bodies, serve seen"
+},
+{
+"t0": 48.417,
+"t1": 55.533,
+"serve_s": 50.28,
+"why": "bodies, serve seen"
+},
+{
+"t0": 56.483,
+"t1": 67.133,
+"serve_s": 62.74,
+"why": "bodies, serve seen"
+},
+{
+"t0": 70.133,
+"t1": 79.333,
+"serve_s": 76.43,
+"why": "bodies, serve seen"
+},
+{
+"t0": 80.533,
+"t1": 84.433,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 85.633,
+"t1": 97.85,
+"serve_s": 93.08,
+"why": "bodies, serve seen"
+},
+{
+"t0": 100.95,
+"t1": 111.55,
+"serve_s": 102.32,
+"why": "bodies, serve seen"
+},
+{
+"t0": 117.15,
+"t1": 126.85,
+"serve_s": 118.81,
+"why": "bodies, serve seen"
+},
+{
+"t0": 127.8,
+"t1": 143.567,
+"serve_s": 130.5,
+"why": "bodies, serve seen"
+},
+{
+"t0": 145.167,
+"t1": 151.68,
+"serve_s": 145.98,
+"why": "bodies, serve seen"
+},
+{
+"t0": 152.63,
+"t1": 160.367,
+"serve_s": 153.28,
+"why": "bodies, serve seen"
+},
+{
+"t0": 174.383,
+"t1": 188.583,
+"serve_s": 180.36,
+"why": "bodies, serve seen"
+},
+{
+"t0": 191.183,
+"t1": 201.4,
+"serve_s": 193.45,
+"why": "bodies, serve seen"
+},
+{
+"t0": 202.6,
+"t1": 207.4,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 226.4,
+"t1": 237.217,
+"serve_s": 229.8,
+"why": "bodies, serve seen"
+},
+{
+"t0": 239.417,
+"t1": 251.717,
+"serve_s": 242.57,
+"why": "bodies, serve seen"
+},
+{
+"t0": 259.717,
+"t1": 268.417,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 273.733,
+"t1": 287.433,
+"serve_s": 277.65,
+"why": "bodies, serve seen"
+},
+{
+"t0": 301.733,
+"t1": 311.45,
+"serve_s": 303.38,
+"why": "bodies, serve seen"
+},
+{
+"t0": 315.95,
+"t1": 322.05,
+"serve_s": 317.09,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 323.0,
+"t1": 328.45,
+"serve_s": 323.41,
+"why": "bodies, serve seen"
+},
+{
+"t0": 329.65,
+"t1": 334.25,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 362.967,
+"t1": 370.667,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 372.267,
+"t1": 379.483,
+"serve_s": 375.03,
+"why": "bodies, serve seen"
+},
+{
+"t0": 380.683,
+"t1": 386.683,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 391.583,
+"t1": 402.183,
+"serve_s": 392.94,
+"why": "bodies, serve seen"
+},
+{
+"t0": 403.133,
+"t1": 425.3,
+"serve_s": 404.58,
+"why": "bodies, serve seen"
+},
+{
+"t0": 427.0,
+"t1": 433.9,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 435.1,
+"t1": 448.0,
+"serve_s": 441.28,
+"why": "bodies, serve seen"
+},
+{
+"t0": 448.95,
+"t1": 467.217,
+"serve_s": 455.07,
+"why": "bodies, serve seen"
+},
+{
+"t0": 469.617,
+"t1": 487.833,
+"serve_s": 475.45,
+"why": "bodies, serve seen"
+},
+{
+"t0": 491.033,
+"t1": 499.733,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 503.833,
+"t1": 513.233,
+"serve_s": 505.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 515.333,
+"t1": 525.55,
+"serve_s": 520.45,
+"why": "bodies, serve seen"
+},
+{
+"t0": 526.55,
+"t1": 539.25,
+"serve_s": 530.12,
+"why": "bodies, serve seen"
+},
+{
+"t0": 541.85,
+"t1": 551.25,
+"serve_s": 544.04,
+"why": "bodies, serve seen"
+},
+{
+"t0": 552.2,
+"t1": 561.567,
+"serve_s": 552.85,
+"why": "bodies, serve seen"
+},
+{
+"t0": 562.517,
+"t1": 571.067,
+"serve_s": 564.45,
+"why": "bodies, serve seen"
+},
+{
+"t0": 572.017,
+"t1": 583.367,
+"serve_s": 576.31,
+"why": "bodies, serve seen"
+},
+{
+"t0": 584.317,
+"t1": 593.067,
+"serve_s": 587.3,
+"why": "bodies, serve seen"
+},
+{
+"t0": 669.117,
+"t1": 674.57,
+"serve_s": 669.24,
+"why": "bodies, serve seen"
+},
+{
+"t0": 675.52,
+"t1": 690.917,
+"serve_s": 676.17,
+"why": "bodies, serve seen"
+},
+{
+"t0": 694.217,
+"t1": 703.33,
+"serve_s": 697.18,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 704.28,
+"t1": 705.433,
+"serve_s": 704.75,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 706.633,
+"t1": 720.133,
+"serve_s": 710.89,
+"why": "bodies, serve seen"
+},
+{
+"t0": 723.133,
+"t1": 734.433,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 735.633,
+"t1": 746.45,
+"serve_s": 738.8,
+"why": "bodies, serve seen"
+},
+{
+"t0": 749.25,
+"t1": 764.15,
+"serve_s": 752.64,
+"why": "bodies, serve seen"
+},
+{
+"t0": 774.767,
+"t1": 791.967,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 814.683,
+"t1": 823.683,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 827.283,
+"t1": 833.983,
+"serve_s": 829.08,
+"why": "bodies, serve seen"
+},
+{
+"t0": 837.183,
+"t1": 846.483,
+"serve_s": 838.3,
+"why": "bodies, serve seen"
+},
+{
+"t0": 849.2,
+"t1": 858.2,
+"serve_s": 851.42,
+"why": "bodies, serve seen"
+},
+{
+"t0": 859.15,
+"t1": 871.5,
+"serve_s": 860.61,
+"why": "bodies, serve seen"
+},
+{
+"t0": 874.2,
+"t1": 883.4,
+"serve_s": 875.82,
+"why": "bodies, serve seen"
+},
+{
+"t0": 886.017,
+"t1": 895.017,
+"serve_s": 887.37,
+"why": "bodies, serve seen"
+},
+{
+"t0": 896.217,
+"t1": 900.517,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 906.317,
+"t1": 913.017,
+"serve_s": 908.45,
+"why": "bodies, serve seen"
+},
+{
+"t0": 914.017,
+"t1": 924.533,
+"serve_s": 915.64,
+"why": "bodies, serve seen"
+},
+{
+"t0": 928.733,
+"t1": 936.233,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 939.733,
+"t1": 949.533,
+"serve_s": 941.13,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1025.567,
+"t1": 1033.583,
+"serve_s": 1029.19,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1040.383,
+"t1": 1047.983,
+"serve_s": 1043.88,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1050.783,
+"t1": 1066.6,
+"serve_s": 1054.33,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1071.4,
+"t1": 1084.8,
+"serve_s": 1073.74,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1085.75,
+"t1": 1097.5,
+"serve_s": 1086.71,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1098.45,
+"t1": 1106.317,
+"serve_s": 1103.06,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 1107.617,
+"t1": 1113.517,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1122.617,
+"t1": 1131.817,
+"serve_s": 1124.23,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1132.767,
+"t1": 1142.01,
+"serve_s": 1133.62,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 1142.96,
+"t1": 1147.133,
+"serve_s": 1143.31,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1153.433,
+"t1": 1163.233,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1164.433,
+"t1": 1176.65,
+"serve_s": 1166.9,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1177.95,
+"t1": 1186.35,
+"serve_s": 1180.33,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1187.85,
+"t1": 1203.85,
+"serve_s": 1192.18,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1208.867,
+"t1": 1219.567,
+"serve_s": 1213.84,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1220.767,
+"t1": 1232.767,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 1233.967,
+"t1": 1246.383,
+"serve_s": 1237.99,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1250.383,
+"t1": 1259.388,
+"serve_s": 1254.79,
+"why": "bodies, serve seen, end kept open by the ball"
+},
+{
+"t0": 1265.983,
+"t1": 1277.683,
+"serve_s": 1270.95,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1281.7,
+"t1": 1294.4,
+"serve_s": 1285.06,
+"why": "bodies, serve seen"
+},
+{
+"t0": 1295.35,
+"t1": 1313.4,
+"serve_s": 1300.97,
+"why": "bodies, serve seen"
+}
+],
+"info": {
+"samples": 7776,
+"both_share": 0.824,
+"segments": 81,
+"cards": 86,
+"stamped": 70,
+"model": "v1",
+"features": "69f672d813ca"
+}
+},
+"1c08539e": {
+"cards": [
+{
+"t0": 5.8,
+"t1": 13.2,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 16.8,
+"t1": 22.8,
+"serve_s": 17.49,
+"why": "bodies, serve seen"
+},
+{
+"t0": 23.75,
+"t1": 28.3,
+"serve_s": 24.16,
+"why": "bodies, serve seen"
+},
+{
+"t0": 38.3,
+"t1": 58.6,
+"serve_s": 41.59,
+"why": "bodies, serve seen"
+},
+{
+"t0": 59.55,
+"t1": 68.2,
+"serve_s": 59.96,
+"why": "bodies, serve seen"
+},
+{
+"t0": 69.15,
+"t1": 77.4,
+"serve_s": 71.56,
+"why": "bodies, serve seen"
+},
+{
+"t0": 79.4,
+"t1": 91.4,
+"serve_s": 87.36,
+"why": "bodies, serve seen"
+},
+{
+"t0": 94.1,
+"t1": 105.2,
+"serve_s": 99.43,
+"why": "bodies, serve seen"
+},
+{
+"t0": 106.15,
+"t1": 112.8,
+"serve_s": 107.66,
+"why": "bodies, serve seen"
+},
+{
+"t0": 113.8,
+"t1": 123.1,
+"serve_s": 117.3,
+"why": "bodies, serve seen"
+},
+{
+"t0": 127.0,
+"t1": 138.4,
+"serve_s": 129.1,
+"why": "bodies, serve seen"
+},
+{
+"t0": 139.35,
+"t1": 158.4,
+"serve_s": 140.76,
+"why": "bodies, serve seen"
+},
+{
+"t0": 159.35,
+"t1": 174.27,
+"serve_s": 161.06,
+"why": "bodies, serve seen"
+},
+{
+"t0": 175.22,
+"t1": 197.4,
+"serve_s": 175.57,
+"why": "bodies, serve seen"
+},
+{
+"t0": 200.4,
+"t1": 208.4,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 212.5,
+"t1": 217.1,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 274.7,
+"t1": 285.8,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 360.8,
+"t1": 372.7,
+"serve_s": 363.84,
+"why": "bodies, serve seen"
+},
+{
+"t0": 375.0,
+"t1": 381.6,
+"serve_s": 376.78,
+"why": "bodies, serve seen"
+},
+{
+"t0": 396.6,
+"t1": 409.0,
+"serve_s": 399.04,
+"why": "bodies, serve seen"
+},
+{
+"t0": 411.0,
+"t1": 418.1,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 420.5,
+"t1": 427.1,
+"serve_s": 422.58,
+"why": "bodies, serve seen"
+},
+{
+"t0": 428.05,
+"t1": 439.2,
+"serve_s": 433.15,
+"why": "bodies, serve seen"
+},
+{
+"t0": 444.7,
+"t1": 454.1,
+"serve_s": 445.08,
+"why": "bodies, serve seen"
+},
+{
+"t0": 459.9,
+"t1": 469.2,
+"serve_s": 460.98,
+"why": "bodies, serve seen"
+},
+{
+"t0": 474.3,
+"t1": 482.75,
+"serve_s": 476.31,
+"why": "bodies, serve seen"
+},
+{
+"t0": 483.7,
+"t1": 492.5,
+"serve_s": 484.35,
+"why": "bodies, serve seen"
+},
+{
+"t0": 493.45,
+"t1": 499.0,
+"serve_s": 495.55,
+"why": "bodies, serve seen"
+},
+{
+"t0": 499.95,
+"t1": 520.3,
+"serve_s": 504.88,
+"why": "bodies, serve seen"
+},
+{
+"t0": 521.25,
+"t1": 527.3,
+"serve_s": 526.72,
+"why": "bodies, serve seen"
+},
+{
+"t0": 530.8,
+"t1": 535.3,
+"serve_s": null,
+"why": "bodies"
+},
+{
+"t0": 541.9,
+"t1": 551.2,
+"serve_s": 543.95,
+"why": "bodies, serve seen"
+},
+{
+"t0": 552.15,
+"t1": 558.6,
+"serve_s": 555.45,
+"why": "bodies, serve seen"
+},
+{
+"t0": 560.1,
+"t1": 566.9,
+"serve_s": 561.85,
+"why": "bodies, serve seen"
+},
+{
+"t0": 567.9,
+"t1": 573.62,
+"serve_s": 568.82,
+"why": "bodies, serve seen"
+},
+{
+"t0": 574.57,
+"t1": 580.2,
+"serve_s": 575.22,
+"why": "bodies, serve seen"
+},
+{
+"t0": 581.9,
+"t1": 590.6,
+"serve_s": 584.69,
+"why": "bodies, serve seen"
+},
+{
+"t0": 591.9,
+"t1": 600.7,
+"serve_s": 594.25,
+"why": "bodies, serve seen"
+},
+{
+"t0": 603.3,
+"t1": 622.2,
+"serve_s": 609.92,
+"why": "bodies, serve seen"
+},
+{
+"t0": 623.15,
+"t1": 647.6,
+"serve_s": 632.19,
+"why": "bodies, serve seen"
+}
+],
+"info": {
+"samples": 6536,
+"both_share": 0.808,
+"segments": 45,
+"cards": 40,
+"stamped": 34,
+"model": "v1",
+"features": "69f672d813ca"
+}
+}
+}
+}

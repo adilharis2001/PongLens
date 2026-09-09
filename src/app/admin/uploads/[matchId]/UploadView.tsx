@@ -434,11 +434,13 @@ export function UploadView({
           <Fact
             label="Card assembly"
             value={
-              assembly.route === "end-on"
-                ? "End-on"
-                : assembly.route === "serve-anchored"
-                  ? "Serve-anchored"
-                  : "Not recorded"
+              assembly.route === "bodies"
+                ? "Points from the players"
+                : assembly.route === "end-on"
+                  ? "End-on"
+                  : assembly.route === "serve-anchored"
+                    ? "Serve-anchored"
+                    : "Not recorded"
             }
             detail={assembly.pipeline ? `pipeline ${assembly.pipeline}` : null}
           />
