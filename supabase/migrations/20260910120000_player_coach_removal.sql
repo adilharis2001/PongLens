@@ -579,3 +579,16 @@ grant execute on function public.player_coaches_archived_list() to authenticated
 -- functions that legitimately delete a row are definer or trigger-owned and
 -- are unaffected by this.
 revoke delete on public.player_coaches from authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 8. Make the new functions visible to the API.
+--
+-- PostgREST serves /rest/v1/rpc/... from a cached schema, so a function that
+-- exists in the database is still a 500 to every client until the cache is
+-- reloaded. Applying this migration without the notify leaves
+-- player_coaches_archived_list, remove_player_coach and restore_player_coach
+-- looking broken from the app while looking perfect from psql, which cost a
+-- confused half hour the day it was written.
+-- ---------------------------------------------------------------------------
+
+notify pgrst, 'reload schema';

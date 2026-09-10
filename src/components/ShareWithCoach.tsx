@@ -51,12 +51,26 @@ export function ShareWithCoachSheet({
   onClose,
   userId,
   matchId,
+  coachRefId,
+  title,
   onLinkCreated,
 }: {
   open: boolean;
   onClose: () => void;
   userId: string;
   matchId?: string;
+  /**
+   * Bound mode: the invite belongs to a coach already on the list.
+   *
+   * There is no name field, because we already know who. The link is
+   * attached with `update player_coaches set invite_id = ... where id = ...`,
+   * by id, so a duplicate is arithmetically impossible and casing,
+   * whitespace and later renames have nothing to get wrong. The old path
+   * matched on the typed NAME, which is why inviting a coach you had parted
+   * with minted a second row that only healed if they accepted.
+   */
+  coachRefId?: string;
+  title?: string;
   onLinkCreated?: () => void;
 }) {
   // "selected" is the Coaching-tab case (161): connect the coach now,
@@ -257,10 +271,31 @@ export function ShareWithCoachSheet({
       setError("Couldn't create the link. Try again.");
       return;
     }
-    // The name, if one was given. A failure here loses the name and not
-    // the invite: the link is the thing being asked for, and it can be
-    // named afterwards from the waiting-invite row.
-    await nameCoachInvite(supabase, userId, data.id, inviteName);
+    if (coachRefId) {
+      // Bound mode. By id, never by name, so no second row can appear and a
+      // rename cannot break the tie. If this write fails we take the link
+      // back rather than leave a live invite attached to nobody, which
+      // would be invisible on the roster and unrevokable from anywhere.
+      const { error: bindError } = await supabase
+        .from("player_coaches")
+        .update({ invite_id: data.id })
+        .eq("id", coachRefId)
+        .eq("player_id", userId);
+      if (bindError) {
+        await supabase
+          .from("coach_links")
+          .update({ status: "revoked" })
+          .eq("id", data.id);
+        setCreating(false);
+        setError("Couldn't create the link. Try again.");
+        return;
+      }
+    } else {
+      // The name, if one was given. A failure here loses the name and not
+      // the invite: the link is the thing being asked for, and it can be
+      // named afterwards from the waiting-invite row.
+      await nameCoachInvite(supabase, userId, data.id, inviteName);
+    }
 
     // The head start. Matches are QUEUED against the invite and only
     // become access when somebody accepts it (166). Entries need the
@@ -281,12 +316,12 @@ export function ShareWithCoachSheet({
         .eq("player_id", userId)
         .eq("invite_id", data.id)
         .maybeSingle();
-      const coachRefId = (mine as { id: string } | null)?.id;
-      if (coachRefId) {
+      const namedRowId = (mine as { id: string } | null)?.id;
+      if (namedRowId) {
         await supabase
           .from("lessons")
           .update({
-            coach_ref_id: coachRefId,
+            coach_ref_id: namedRowId,
             shared_with_coach_at: new Date().toISOString(),
           })
           .in("id", entryIds);
@@ -298,6 +333,7 @@ export function ShareWithCoachSheet({
   }, [
     userId,
     matchId,
+    coachRefId,
     scope,
     inviteName,
     pickedMatches,
@@ -368,7 +404,9 @@ export function ShareWithCoachSheet({
         }`}
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-base font-semibold">Share with coach</h2>
+          <h2 className="text-base font-semibold">
+            {title ?? "Share with coach"}
+          </h2>
           <button
             type="button"
             onClick={onClose}
@@ -583,17 +621,22 @@ export function ShareWithCoachSheet({
                     Your coach can watch, but not edit. They can add notes.
                   </p>
                   {/* Naming them now is what lets the journal attribute lessons
-                to this coach before they have accepted anything. */}
-                  <input
-                    type="text"
-                    value={inviteName}
-                    onChange={(e) => setInviteName(e.target.value.slice(0, 80))}
-                    maxLength={80}
-                    placeholder="Their name (optional)"
-                    aria-label="Coach name"
-                    autoComplete="off"
-                    className="mt-3 w-full rounded-xl border border-edge bg-ink/40 px-3.5 py-2.5 text-[15px] text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
-                  />
+                to this coach before they have accepted anything. In bound
+                mode there is nothing to ask: the invite already belongs to
+                a row, and asking for a name again is how a second row with
+                the same person's name gets made. */}
+                  {!coachRefId && (
+                    <input
+                      type="text"
+                      value={inviteName}
+                      onChange={(e) => setInviteName(e.target.value.slice(0, 80))}
+                      maxLength={80}
+                      placeholder="Their name (optional)"
+                      aria-label="Coach name"
+                      autoComplete="off"
+                      className="mt-3 w-full rounded-xl border border-edge bg-ink/40 px-3.5 py-2.5 text-[15px] text-zinc-100 placeholder:text-zinc-500 focus:border-cyan-glow/60 focus:outline-none"
+                    />
+                  )}
                   {/* Always exactly two choices, so they sit side by side and
                 cost one row instead of two. */}
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -754,12 +797,18 @@ export function ShareWithCoachSheet({
 export function ShareWithCoach({
   userId,
   matchId,
+  coachRefId,
+  title,
   onLinkCreated,
   buttonClassName,
   label = "Share with coach",
 }: {
   userId: string;
   matchId?: string;
+  /** Bind the invite to a coach already on the list, by id. */
+  coachRefId?: string;
+  /** What the sheet calls itself. Three doors, three honest titles. */
+  title?: string;
   onLinkCreated?: () => void;
   buttonClassName?: string;
   label?: string;
@@ -783,6 +832,8 @@ export function ShareWithCoach({
         onClose={() => setOpen(false)}
         userId={userId}
         matchId={matchId}
+        coachRefId={coachRefId}
+        title={title}
         onLinkCreated={onLinkCreated}
       />
     </>

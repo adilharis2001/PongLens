@@ -16,6 +16,14 @@ import {
 } from "@/lib/coaches/playerCoaches";
 import { UNNAMED_INVITE, nameCoachInvite } from "@/lib/coaches/nameInvite";
 import { CoachSharedWith } from "@/components/CoachSharedWith";
+import {
+  canEndAccess,
+  canSendInvite,
+  endAccessConfirm,
+  removeConfirm,
+  restoreNotice,
+  type Confirm,
+} from "@/lib/coaches/coachActions";
 
 /**
  * Player-side sharing, modelled as PEOPLE, not links. Each accepted coach is
@@ -111,6 +119,76 @@ function AccessPair({
           {label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/**
+ * A destructive action that says what it will do before it does it.
+ *
+ * Inline, the way CoachManageRows already expands, rather than a second
+ * press of the same button changing meaning under the cursor. That is a new
+ * interaction species for a destructive action and it would confirm
+ * differently from the phone, which uses a real dialog.
+ */
+function ConfirmAction({
+  label,
+  confirm,
+  busy,
+  tone,
+  onConfirm,
+}: {
+  /** What the resting button says. The confirmation asks the question. */
+  label: string;
+  confirm: Confirm;
+  busy: boolean;
+  tone: "soft" | "destructive";
+  onConfirm: () => void;
+}) {
+  const [asking, setAsking] = useState(false);
+
+  const pill =
+    tone === "destructive"
+      ? "rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-amber-300/90 transition-colors hover:border-amber-300/60 disabled:opacity-60"
+      : "rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-60";
+
+  if (!asking) {
+    return (
+      <button
+        type="button"
+        onClick={() => setAsking(true)}
+        disabled={busy}
+        className={`mt-2 block w-full sm:w-auto ${pill}`}
+      >
+        {busy ? `${confirm.confirmLabel}\u2026` : label}
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-2xl border border-edge bg-surface-2/40 p-4">
+      <p className="text-sm font-medium text-zinc-200">{confirm.title}</p>
+      <p className="mt-1 text-sm text-zinc-400">{confirm.body}</p>
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+        <button
+          type="button"
+          onClick={() => {
+            setAsking(false);
+            onConfirm();
+          }}
+          disabled={busy}
+          className={pill}
+        >
+          {busy ? `${confirm.confirmLabel}\u2026` : confirm.confirmLabel}
+        </button>
+        <button
+          type="button"
+          onClick={() => setAsking(false)}
+          className="rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
@@ -246,6 +324,7 @@ export function SharingSection({
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [removingCoach, setRemovingCoach] = useState(false);
   const [expandedCoach, setExpandedCoach] = useState<string | null>(null);
   const [pendingOpen, setPendingOpen] = useState(false);
   // The journal side of the same people (164): how many entries are
@@ -263,6 +342,38 @@ export function SharingSection({
   /** The waiting invite whose name is being typed, if any. */
   const [namingId, setNamingId] = useState<string | null>(null);
   const [inviteNameDraft, setInviteNameDraft] = useState("");
+
+  /**
+   * Take a coach off the list.
+   *
+   * One RPC, because the rules are the database's: it archives rather than
+   * deletes (both foreign keys onto the row are `on delete set null`, and
+   * that null blanks coach_name on every entry the coach ever taught), it
+   * revokes an outstanding invite so an accept cannot resurrect them under
+   * a different name, and it locks before it reads so an accept landing
+   * mid-call cannot leave them with access and no row on screen.
+   *
+   * Afterwards we land on the roster, not the feed, because that is where
+   * Put back is.
+   */
+  const removeCoach = useCallback(
+    async (id: string) => {
+      setRemovingCoach(true);
+      setError(null);
+      const supabase = createClient();
+      const { error: err } = await supabase.rpc("remove_player_coach", {
+        p_id: id,
+      });
+      setRemovingCoach(false);
+      if (err) {
+        setError("Couldn't remove them. Try again.");
+        return;
+      }
+      router.replace("/coaching/coach");
+      router.refresh();
+    },
+    [router],
+  );
 
   const fetchLinks = useCallback(async () => {
     const supabase = createClient();
@@ -596,6 +707,35 @@ export function SharingSection({
           )}
         </p>
 
+        {/* Removing a coach revokes any invite that was out, and putting
+            them back does not revive it: the list needs a PENDING link to
+            read "Invite waiting". Without this line they simply come back
+            reading "Not on PongLens" and the link is gone with no account
+            of where. */}
+        {restoreNotice(j.status) && j.status === "offline" && j.invite_id && (
+          <p className="mt-2 text-sm text-zinc-500">
+            {restoreNotice(j.status)}
+          </p>
+        )}
+
+        {/* The action this whole page was missing. A coach the player wrote
+            down, or one they have parted with, had no way to be invited:
+            the composer always started from a blank name, so the only way
+            was to type their name again and hope the find-or-create matched
+            it. This binds the new invite onto THIS row by id. */}
+        {canSendInvite(j) && (
+          <div className="mt-3">
+            <ShareWithCoach
+              userId={userId}
+              coachRefId={j.id}
+              label="Send an invite"
+              title="Send an invite"
+              onLinkCreated={() => void fetchLinks()}
+              buttonClassName="glow-cta w-full rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink sm:w-auto"
+            />
+          </div>
+        )}
+
         {invite && (
           <div className="mt-3 flex flex-wrap gap-2">
             <button
@@ -696,19 +836,30 @@ export function SharingSection({
             onRename={(id, name) => void renameCoach(id, name)}
             onMerge={(into, from) => void mergeCoach(into, from)}
           />
-          {/* Only where there is something to take back. A waiting invite
-              is removed by Revoke above, and a coach you merely wrote down
-              never had access to end. */}
-          {groupIds.length > 0 && (
-            <button
-              type="button"
-              onClick={() => void revokeLinks(groupIds)}
-              disabled={removing}
-              className="mt-2 rounded-full border border-edge px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:border-amber-500/60 hover:text-amber-200 disabled:opacity-60"
-            >
-              {removing ? "Removing…" : "Remove coach"}
-            </button>
+          {/* Ending access is not removal, and the two cannot both be
+              called Remove. This one stops them watching and keeps them on
+              the list; the one below takes them off it. Only a connected
+              coach has access to end. */}
+          {canEndAccess(j) && (
+            <ConfirmAction
+              label="End their access"
+              confirm={endAccessConfirm(j)}
+              busy={removing}
+              tone="soft"
+              onConfirm={() => void revokeLinks(groupIds)}
+            />
           )}
+
+          {/* Every standing, with no gate. Until 2026-09-10 this button was
+              wired to leave_coach and therefore hidden for a coach the
+              player had only written down, so that row was permanent. */}
+          <ConfirmAction
+            label="Remove from your list"
+            confirm={removeConfirm(j)}
+            busy={removingCoach}
+            tone="destructive"
+            onConfirm={() => void removeCoach(j.id)}
+          />
         </div>
 
         {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
