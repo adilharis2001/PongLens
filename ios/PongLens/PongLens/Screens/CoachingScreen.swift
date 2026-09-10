@@ -171,10 +171,32 @@ struct CoachingScreen: View {
                         coachCard(selected)
                     }
 
+                    // The permanent way in. The chips filter the feed; they
+                    // are not a roster, they carry no standing and no
+                    // actions, and under "All" there was no way into
+                    // anything at all.
+                    if tabDoor == .row {
+                        yourCoachesRow
+                    }
+
+                    if tabDoor == .error {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Couldn't load your coaches. Try again.")
+                                .font(.plBody)
+                                .foregroundStyle(PL.dangerText)
+                            Button("Retry") {
+                                Task { await coaching.reloadCoaches() }
+                            }
+                            .buttonStyle(PLSecondaryButtonStyle())
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .plCard(padding: 16)
+                    }
+
                     // The same first-run card Matches uses: a player who
                     // opens a tab they have never had before is owed the
                     // explanation, not a label and a button.
-                    if coaching.playerCoaches.isEmpty, coaching.loaded {
+                    if tabDoor == .empty {
                         VStack(spacing: 12) {
                             Text("👥").font(.system(size: 40))
                             Text("No coaches yet")
@@ -292,6 +314,57 @@ struct CoachingScreen: View {
                 Capsule().strokeBorder(active ? PL.cyan.opacity(0.6) : PL.edge, lineWidth: 1)
             )
             .buttonStyle(.plain)
+    }
+
+    /// Which of the row and the first-run card is on screen. One shared
+    /// function with the web, because this was `playerCoaches.isEmpty`
+    /// written out in both places, and writing down one coach hid the only
+    /// invite button in the product.
+    private var tabDoor: CoachActions.TabDoor {
+        CoachActions.tabDoor(
+            coachCount: coaching.playerCoaches.count,
+            pendingInviteCount: unnamedPendingCount,
+            state: coaching.loaded
+                ? (coaching.coachesLoadFailed ? .failed : .ready)
+                : .loading
+        )
+    }
+
+    /// Pending links nobody has named. They are not in playerCoaches,
+    /// because a row only exists once a name is typed, so a player whose
+    /// only artefact is one of these would get the first-run card and still
+    /// have no way to reach the link they already sent.
+    private var unnamedPendingCount: Int {
+        let named = Set(coaching.playerCoaches.compactMap(\.inviteId))
+        return coaching.coachLinks.filter {
+            $0.status == "pending" && !named.contains($0.id)
+        }.count
+    }
+
+    private var yourCoachesRow: some View {
+        NavigationLink(value: CoachRosterRoute()) {
+            HStack(spacing: 12) {
+                Text("Your coaches")
+                    .font(.plRowTitle)
+                    .foregroundStyle(PL.text200)
+                Spacer(minLength: 8)
+                if let waiting = CoachActions.invitesWaitingLabel(
+                    coaching.playerCoaches.filter { $0.status == "invited" }.count
+                        + unnamedPendingCount
+                ) {
+                    Text(waiting)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.cyan)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(PL.text500)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .plCard(padding: 16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func coachCard(_ coach: PlayerCoach) -> some View {

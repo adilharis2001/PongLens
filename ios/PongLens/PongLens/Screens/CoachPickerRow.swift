@@ -88,7 +88,10 @@ struct CoachPickerRow: View {
                     }
                 }
                 Divider()
-                Button(coaches.isEmpty ? "Add your coach" : "Add a coach") {
+                // Not "Add a coach": that means mint an invite, and this
+                // only writes a name down. The two sat one tap apart with
+                // the same label, and using this one hid the other.
+                Button("New coach") {
                     addingName = ""
                     addOpen = true
                 }
@@ -133,7 +136,7 @@ struct CoachPickerRow: View {
             }
         }
         .task { await onAppearReload() }
-        .alert("Add a coach", isPresented: $addOpen) {
+        .alert("New coach", isPresented: $addOpen) {
             TextField("Their name", text: $addingName)
                 .textInputAutocapitalization(.words)
             Button("Cancel", role: .cancel) {}

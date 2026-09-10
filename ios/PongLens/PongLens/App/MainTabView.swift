@@ -167,6 +167,9 @@ struct MainTabView: View {
             .navigationDestination(for: MatchPointRoute.self) { route in
                 MatchDetailScreen(match: route.match, openPointId: route.pointId)
             }
+            .navigationDestination(for: CoachRosterRoute.self) { _ in
+                CoachRosterScreen()
+            }
             .navigationDestination(for: CoachPageRoute.self) { route in
                 CoachPageScreen(coachRefId: route.coachRefId)
             }
