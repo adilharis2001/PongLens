@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/AppShell";
-import { SharingSection } from "@/components/SharingSection";
+import { CoachRoster } from "@/components/CoachRoster";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -15,9 +15,14 @@ export const metadata: Metadata = {
  * Every coach in one list, and the one place a new one is added.
  *
  * The Coaching tab is a feed of what happened, narrowed by coach; this is
- * the roster behind it, which is why the tab's empty state sends people
- * here. SharingSection is unchanged from the section that used to sit on
- * the Account page — it already owns the invite and its three scopes.
+ * the roster behind it, and the permanent "Your coaches" row on that tab is
+ * how it is reached. Until 2026-09-10 the only link to this page was inside
+ * the tab's empty state, so writing down one coach orphaned it.
+ *
+ * It renders CoachRoster rather than SharingSection's list, because that
+ * list was built on coach_links and a coach the player had only written
+ * down has none — so the coach who most needs to be here was the one who
+ * could not appear.
  */
 export default async function YourCoachesPage() {
   const supabase = await createClient();
@@ -44,7 +49,7 @@ export default async function YourCoachesPage() {
         Your coaches
       </h1>
       <div className="mt-6">
-        <SharingSection userId={user.id} />
+        <CoachRoster userId={user.id} />
       </div>
     </AppShell>
   );
