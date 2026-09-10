@@ -22,6 +22,7 @@ runStandardGameChecks()
 runAllowanceRecoveryChecks()
 runUserFacingErrorChecks()
 runLessonPreviewChecks()
+runCoachActionsChecks()
 
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {

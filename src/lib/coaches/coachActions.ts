@@ -2,12 +2,13 @@
  * What a player may do about a coach, and what the app says while doing it.
  *
  * Pure: no React, no Supabase, no platform. The twin is
- * `ios/PongLens/PongLens/Core/CoachActions.swift`, and
- * `ios/Tests/fixtures/coach-actions.json` is generated from THIS file's own
- * output so a state added on one platform fails the other platform's test.
- * That fixture is the only thing here that works without anyone remembering
- * it, which is why these rules live in one module rather than in the four
- * screens that ask them.
+ * `ios/PongLens/PongLens/Core/CoachActions.swift`, and BOTH are checked
+ * against `ios/Tests/fixtures/coach-actions.json`. Neither side produces that
+ * table; it is the spec written down once, the way this project already does
+ * it for the camera guide and the serve parity, so that comparing two ports
+ * cannot degenerate into reading the same paragraph twice and making the same
+ * mistake twice. A state added on one platform fails the other's test, which
+ * is the only thing here that works without anyone remembering it.
  *
  * The rule that put this file here: on 2026-09-10 the owner opened a new
  * account, wrote down a coach called Kory, and lost the only invite button in
@@ -19,7 +20,7 @@ import {
   type PlayerCoach,
   type PlayerCoachStatus,
   findCoachByName,
-} from "@/lib/coaches/playerCoaches";
+} from "./playerCoaches.ts";
 
 /**
  * How the coach list was last read.
