@@ -95,6 +95,21 @@ export interface MissCard {
    *  cards the admin portal additionally carries. */
   serve_s?: number | null;
   /**
+   * Which detector answered: "v3" for the serve detector the cards were
+   * actually anchored on, "motif" for the older bounce-pair rule.
+   *
+   * The two disagree, and not by a little: on Chris the motif finds 92
+   * serves and V3 finds 90, on Wayne 21 against 79. The page showed the
+   * motif's answer and called it "the serve", so a card V3 had anchored
+   * could read "Why no serve" and look like a failure. Absent on every
+   * bundle written before 2026-09-10, where the motif was the only answer.
+   */
+  serve_source?: "v3" | "motif" | null;
+  /** The bounce V3 qualified the serve on, and which half it landed on.
+   *  Null when the motif answered, which carries a pair instead. */
+  serve_arrival_s?: number | null;
+  serve_half?: "near" | "far" | null;
+  /**
    * The two bounces the serve rule actually accepted, in source seconds.
    *
    * A card carries every bounce the detector saw and they all look alike,
@@ -723,6 +738,25 @@ export function cutOffsetFor(
  * detector refuse" is now a filter rather than a length. Reading
  * `cards.length` as the refusal count is the mistake this exists to stop.
  */
+/**
+ * Which detector's answer this bundle carries.
+ *
+ * Read off the cards rather than stored at the top, because a bundle only
+ * has V3's serves if V3 ran on that match, and the page has to say so
+ * plainly: the refusal reasons below a card are always the bounce-pair
+ * rule's, and under a V3 verdict they are evidence rather than the reason.
+ * Presenting one rule's reasons as the other's is the exact confusion this
+ * whole change exists to end.
+ */
+export function serveDetector(
+  data: ServeMissData | null
+): "v3" | "motif" | null {
+  if (!data) return null;
+  if (data.cards.some((c) => c.serve_source === "v3")) return "v3";
+  if (data.cards.some((c) => c.serve_source === "motif")) return "motif";
+  return null;
+}
+
 export function refusedCards(data: ServeMissData | null): MissCard[] {
   if (!data) return [];
   return data.cards.filter((c) => c.serve_s === null || c.serve_s === undefined);

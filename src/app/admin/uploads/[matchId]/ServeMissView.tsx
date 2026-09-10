@@ -21,6 +21,7 @@ import {
   type BounceLabel,
   type MissBounce,
   type MissCard,
+  serveDetector,
   type ServeMissData,
   type TableTrackPoint,
   type TableTrackSegment,
@@ -474,17 +475,39 @@ export function ServeMissView({
         <div className="min-w-0 flex-1">
           {typeof card.serve_s === "number" ? (
             <p className="text-sm text-zinc-300">
-              Serve found {(card.serve_s - card.t0).toFixed(2)}s into the
-              card. The rings are every bounce the detector saw — green on
-              the playing surface, red off it — so the first bounce and
-              where it landed can be checked against the picture.
+              {card.serve_source === "v3" ? "V3 put the serve" : "Serve found"}{" "}
+              {(card.serve_s - card.t0).toFixed(2)}s into the card
+              {card.serve_source === "v3" &&
+                typeof card.serve_arrival_s === "number" && (
+                  <>
+                    , on a bounce{" "}
+                    {(card.serve_arrival_s - card.serve_s).toFixed(2)}s later
+                    {card.serve_half
+                      ? ` on the ${card.serve_half} half`
+                      : ""}
+                  </>
+                )}
+              . The rings are every bounce the detector saw, green on the
+              playing surface and red off it, so the first bounce and where
+              it landed can be checked against the picture.
             </p>
           ) : (
             <p className="text-sm text-zinc-300">
-              {data.reasons[why.reason] ?? reasonShort(why.reason)}
+              {serveDetector(data) === "v3"
+                ? "V3 found no serve in this card."
+                : (data.reasons[why.reason] ?? reasonShort(why.reason))}
             </p>
           )}
+          {/* The lines below are the older bounce-pair rule's walk, and on a
+              V3 match they are no longer the reason for anything — V3 does
+              not require a pair, which is the whole point of it. Kept
+              because they are still the best account of what the ball did
+              in this card, and labelled so nobody reads them as V3's
+              reasoning. */}
           <p className="mt-1 text-xs text-zinc-500">
+            {serveDetector(data) === "v3"
+              ? "What the older bounce-pair rule saw here: "
+              : ""}
             {why.bounces} bounce{why.bounces === 1 ? "" : "s"} in the card,{" "}
             {why.on_surface} on the table surface, {why.pairs} pair
             {why.pairs === 1 ? "" : "s"} tested.

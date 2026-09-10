@@ -237,6 +237,51 @@ def anchored_serves(blob, H):
         key=lambda m: m["contact"])
 
 
+# How far apart the two detectors' idea of one serve may sit and still be
+# the same serve. They measure contact differently -- V3 steps back a fixed
+# CONTACT_LOOKBACK_S from the bounce that qualified the serve, the motif
+# reads the flight -- so an exact match is not on offer. Only used to lend
+# the motif's bounce PAIR to a V3 serve for the picture; getting it wrong
+# costs two highlighted rings, never a verdict.
+SAME_SERVE_S = 1.0
+
+
+def v3_serve_list(blob):
+    """V3's serves out of the bundle, or [] when it did not run.
+
+    THE ONE THE CARDS WERE BUILT ON. The body assembler anchors a card to a
+    V3 serve, so this is the detector whose answer the portal has to show:
+    reporting the motif instead let the page say "Why no serve" on a card
+    whose start V3 had chosen, which reads as the pipeline failing when it
+    is only the page asking a different question.
+
+    Unlike anchored_serves this is NOT recomputed. V3 needs the players and
+    a table, neither of which survives into the bundle, so its answer is
+    stored rather than re-derived -- which also means it is frozen at the
+    gates the run used, and a gate change needs a reprocess to show here.
+    """
+    rows = blob.get("serves_v3")
+    if not rows:
+        return []
+    return sorted(
+        ({"contact": round(float(c), 2),
+          "arrival": round(float(a), 2),
+          "half": h} for c, a, h in rows),
+        key=lambda m: m["contact"])
+
+
+def _pair_for(serve, motifs):
+    """The bounce pair the motif accepted for this same serve, or None."""
+    if "bounces" in serve:
+        return serve["bounces"]
+    near = [m for m in motifs
+            if abs(m["contact"] - serve["contact"]) <= SAME_SERVE_S]
+    if not near:
+        return None
+    return min(near,
+               key=lambda m: abs(m["contact"] - serve["contact"]))["bounces"]
+
+
 def tracked_runs(track, t0, t1, fps):
     """Stretches inside the card where the ball was actually being tracked.
 
@@ -313,7 +358,14 @@ def build(blob, include_all=False, observation_confidence=None,
 
     track, times, bnc = bounce_pixels(blob)
     w, h = float(blob["w"]), float(blob["h"])
-    serves = anchored_serves(blob, H)
+    # Two detectors, and the cards were built on the FIRST of them. The
+    # motif is still computed because its bounce PAIR is the only thing that
+    # can pick two rings out of ten in the picture, and because on a match
+    # V3 never ran it is still the whole answer.
+    motifs = anchored_serves(blob, H)
+    v3 = v3_serve_list(blob)
+    serves = v3 or motifs
+    source = "v3" if v3 else ("motif" if motifs else None)
     cards = []
     for card in blob["cards"]:
         t0, t1 = float(card[0]), float(card[1])
@@ -333,9 +385,20 @@ def build(blob, include_all=False, observation_confidence=None,
             # none. The portal reads this to tell an anchored card from a
             # refused one; the research page only ever gets nulls.
             "serve_s": inside[0]["contact"] if inside else None,
+            # Which detector answered, so the page never presents one rule's
+            # verdict under the other's name.
+            "serve_source": (source if inside else None),
+            # The bounce V3 qualified the serve on, and which half it landed
+            # on. Null when the motif answered, which carries a pair instead.
+            "serve_arrival_s": inside[0].get("arrival") if inside else None,
+            "serve_half": inside[0].get("half") if inside else None,
             # The two bounces the serve rule accepted, so the page can pick
-            # them out of the ten the card carries.
-            "serve_bounces": inside[0]["bounces"] if inside else None,
+            # them out of the ten the card carries. When V3 answered, the
+            # pair is borrowed from the motif that named the same serve --
+            # V3 does not require a pair, which is the whole point of it, so
+            # on a serve whose second bounce was never seen this is null and
+            # the picture marks the arrival instead.
+            "serve_bounces": _pair_for(inside[0], motifs) if inside else None,
             # fractions of the frame, so the overlay survives any size
             "track": [[round(t, 2), round(x / w, 5), round(y / h, 5)]
                       for t, x, y in track[ia:ib]],

@@ -181,7 +181,8 @@ def _runs(mask, tick):
     return out
 
 
-def write_evidence_dump(path, E, cards, calib, meta, fps, route, rate, notes):
+def write_evidence_dump(path, E, cards, calib, meta, fps, route, rate, notes,
+                        serves_v3=None):
     """Every signal the assembler saw, in source seconds, for a review page.
 
     The research pages need more than the cards: to judge a boundary you
@@ -220,6 +221,20 @@ def write_evidence_dump(path, E, cards, calib, meta, fps, route, rate, notes):
         "bounces": bounces,
         "crossings": [round(float(t), 2) for t in E.cross],
         "serves": [round(float(t), 2) for t in E.serves],
+        # THE V3 DETECTOR'S OWN SERVES, which are the ones the cards were
+        # actually built on. `serves` above is the older bounce-pair motif,
+        # and the two do not agree: on Chris the motif found 92 and V3 found
+        # 90, on Wayne 21 against 79. The admin portal used to re-derive the
+        # motif and label the answer "the serve", so a card V3 had anchored
+        # could read "Why no serve" — the page contradicting the pipeline it
+        # was drawn from. Each entry is [contact, arrival, half]: where bat
+        # met ball, the bounce that qualified it, and which half that bounce
+        # landed on. Absent on a v1/v2 match and on every bundle written
+        # before 2026-09-10, which the reader treats as "V3 did not run"
+        # rather than as "V3 found nothing".
+        "serves_v3": ([[round(float(c), 2), round(float(a), 2), h]
+                       for c, a, h in serves_v3]
+                      if serves_v3 else None),
         "dense": _runs(E.ball_dense, _V2.TICK),
         "cards": [[round(c["t0"], 2), round(c["t1"], 2),
                    (None if c.get("serve_s") is None
@@ -2749,6 +2764,9 @@ def cmd_points(args):
     # write on a path where the v2 branch never assigned them.
     route = None
     v2_rate = None
+    # V3's serves, for the evidence bundle. Named out here for the same
+    # reason: the dump is written below whether or not the bodies ran.
+    v3_serves_full = None
     v2_unavailable_reason = (
         "pipeline_v1" if getattr(args, "pipeline", "v1") not in ("v2", "bodies")
         else None
@@ -2907,6 +2925,11 @@ def cmd_points(args):
                             body_corners, v2_E.track, v2_E.cross, players,
                             fps, dur, width=meta["width"])
                         v3_serves = [c for c, _a, _s in v3["serves"]]
+                        # The contacts alone are what the assembler needs;
+                        # the bundle keeps the arrival and the half too, so
+                        # the portal can mark the bounce that qualified each
+                        # serve rather than just the moment of contact.
+                        v3_serves_full = v3["serves"]
                         v3_dead = v3["dead"]
                         if not v3["boxes_complete"]:
                             print("serve v3: the players file predates the "
@@ -2993,7 +3016,8 @@ def cmd_points(args):
     # rides along too.
     if getattr(args, "evidence_dump", None) and v2_E is not None:
         write_evidence_dump(args.evidence_dump, v2_E, v2_cards,
-                            calib, meta, fps, route, v2_rate, notes)
+                            calib, meta, fps, route, v2_rate, notes,
+                            serves_v3=v3_serves_full)
 
     # 3. split spans into plays -> point windows (frames in the raw video).
     # Each play remembers its span index: cut_t0 (the point's offset inside

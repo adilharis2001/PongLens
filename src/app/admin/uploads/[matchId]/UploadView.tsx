@@ -40,6 +40,7 @@ import {
   reasonTally,
   reasonTone,
   refusedCards,
+  serveDetector,
   type BounceLabel,
   type MissBounce,
   type ServeMissData,
@@ -577,9 +578,10 @@ export function UploadView({
             </p>
             <p className="mt-2 text-sm text-zinc-400">
               {refusedCards(serveMisses).length} of {serveMisses.cards.length}{" "}
-              were built without a serve at all. A serve is accepted as a PAIR
-              of bounces, so a card with none is a card where no pair passed
-              the six rules.
+              have no serve.{" "}
+              {serveDetector(serveMisses) === "v3"
+                ? "That is the V3 detector's verdict, the same one the cards were anchored on, so this agrees with the pipeline rather than second-guessing it."
+                : "A serve is accepted as a PAIR of bounces, so a card with none is a card where no pair passed the six rules."}
             </p>
             {/* Two counts for one thing, a screen apart, reads as a bug —
                 and here it is real, in EITHER direction. The card list
@@ -600,6 +602,13 @@ export function UploadView({
                   is the current reading.
                 </p>
               )}
+            {serveDetector(serveMisses) === "v3" && (
+              <p className="mt-2 text-sm text-zinc-500">
+                The chips below are the older bounce-pair rule walked over
+                the same cards. V3 does not need a pair, so these are not
+                its reasons, they are a second reading kept beside it.
+              </p>
+            )}
             <div className="mt-3 flex flex-wrap gap-1.5">
               {reasonTally(refusedCards(serveMisses)).map(({ reason, count }) => (
                 <span
