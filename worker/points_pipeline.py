@@ -2744,6 +2744,11 @@ def cmd_points(args):
     v2_cards = None
     v2_E = None
     v2_route = None
+    # Named up here because the evidence dump is written at the END of the
+    # assembly, once the cards are final, and a bodies run can leave that
+    # write on a path where the v2 branch never assigned them.
+    route = None
+    v2_rate = None
     v2_unavailable_reason = (
         "pipeline_v1" if getattr(args, "pipeline", "v1") not in ("v2", "bodies")
         else None
@@ -2838,9 +2843,6 @@ def cmd_points(args):
                   f"({len(v2_E.serves)} serves, {len(v2_E.cross)} "
                   f"crossings, camera shape {v2_E.shape:.2f}, "
                   f"serves/min {v2_rate:.2f}) -> {route}")
-            if getattr(args, "evidence_dump", None):
-                write_evidence_dump(args.evidence_dump, v2_E, v2_cards,
-                                    calib, meta, fps, route, v2_rate, notes)
         else:
             v2_unavailable_reason = (
                 "no_table" if calib is None else "no_candidates"
@@ -2967,6 +2969,31 @@ def cmd_points(args):
             notes.append(f"points bodies requested but fell back to {kept}: "
                          f"{body_why}")
             print(f"points bodies unavailable ({body_why}) — keeping {kept}")
+
+    # 2e. The assembler's evidence, written now that the cards are FINAL.
+    #
+    # It used to be written the moment the ball side finished, which was
+    # before 2d had a chance to replace those cards with the bodies'. The
+    # admin portal finds a point's ball evidence by matching the point's
+    # start to a card's start within a tenth of a second, so on a bodies
+    # match it was looking the new points up in a list of the old ones and
+    # finding nothing: no track, no bounces, no serve overlay. It read as
+    # the ball detector having failed on that match, and it had not — the
+    # ball was in 96-100% of those points' windows the whole time. Measured
+    # on 2026-09-10: 1 of 70 points on Wayne (end-on camera, where the ball
+    # side anchors no serves at all so no start coincides), 6 of 103 on
+    # David Oh, 45 of 83 on Chris (side-on, where both sides start a card
+    # at the same detected serve about half the time), against 90-100% on
+    # every ball-first match.
+    #
+    # Everything else in the dump — the track, the bounces, the crossings,
+    # the serves — is whole-match and was always right. Only the card list
+    # was the wrong one, so this is a move rather than a rewrite. `notes` is
+    # passed by reference and copied inside, so the bodies' own sentence
+    # rides along too.
+    if getattr(args, "evidence_dump", None) and v2_E is not None:
+        write_evidence_dump(args.evidence_dump, v2_E, v2_cards,
+                            calib, meta, fps, route, v2_rate, notes)
 
     # 3. split spans into plays -> point windows (frames in the raw video).
     # Each play remembers its span index: cut_t0 (the point's offset inside
