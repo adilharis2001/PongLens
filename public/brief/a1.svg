@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" role="img" aria-label="A voice waveform feeding into a written journal entry: a lesson title, a theme heading, and three bullet points.">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="45%" r="78%"><stop offset="0" stop-color="#151c24"/><stop offset="1" stop-color="#0a0b10"/></radialGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3"/></filter>
+  </defs>
+  <rect width="320" height="240" fill="url(#bg)"/>
+
+  <g fill="#22d3ee" filter="url(#glow)" opacity="0.5">
+    <rect x="96" y="30" width="3" height="12" rx="1.5"/><rect x="105" y="22" width="3" height="28" rx="1.5"/>
+    <rect x="114" y="14" width="3" height="44" rx="1.5"/><rect x="123" y="25" width="3" height="22" rx="1.5"/>
+    <rect x="132" y="18" width="3" height="36" rx="1.5"/><rect x="141" y="28" width="3" height="16" rx="1.5"/>
+    <rect x="150" y="12" width="3" height="48" rx="1.5"/><rect x="159" y="24" width="3" height="24" rx="1.5"/>
+    <rect x="168" y="19" width="3" height="34" rx="1.5"/><rect x="177" y="27" width="3" height="18" rx="1.5"/>
+    <rect x="186" y="16" width="3" height="40" rx="1.5"/><rect x="195" y="26" width="3" height="20" rx="1.5"/>
+    <rect x="204" y="30" width="3" height="12" rx="1.5"/><rect x="213" y="23" width="3" height="26" rx="1.5"/>
+  </g>
+  <g fill="#22d3ee">
+    <rect x="96" y="30" width="3" height="12" rx="1.5"/><rect x="105" y="22" width="3" height="28" rx="1.5"/>
+    <rect x="114" y="14" width="3" height="44" rx="1.5"/><rect x="123" y="25" width="3" height="22" rx="1.5"/>
+    <rect x="132" y="18" width="3" height="36" rx="1.5"/><rect x="141" y="28" width="3" height="16" rx="1.5"/>
+    <rect x="150" y="12" width="3" height="48" rx="1.5"/><rect x="159" y="24" width="3" height="24" rx="1.5"/>
+    <rect x="168" y="19" width="3" height="34" rx="1.5"/><rect x="177" y="27" width="3" height="18" rx="1.5"/>
+    <rect x="186" y="16" width="3" height="40" rx="1.5"/><rect x="195" y="26" width="3" height="20" rx="1.5"/>
+    <rect x="204" y="30" width="3" height="12" rx="1.5"/><rect x="213" y="23" width="3" height="26" rx="1.5"/>
+  </g>
+
+  <path d="M160 68 v14 M154 77 l6 6 l6 -6" fill="none" stroke="#52525b" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <rect x="44" y="94" width="232" height="126" rx="12" fill="#14141c" stroke="#2a2a38" stroke-width="1"/>
+  <text x="62" y="120" font-size="12" font-weight="600" fill="#e4e4e7" font-family="system-ui, -apple-system, sans-serif">Receive and first attack</text>
+  <text x="62" y="142" font-size="8.5" font-weight="600" letter-spacing="0.9" fill="#67e8f9" font-family="system-ui, -apple-system, sans-serif">RECEIVE</text>
+  <circle cx="65" cy="158" r="2" fill="#52525b"/><rect x="74" y="155" width="176" height="5" rx="2.5" fill="#3f3f4a"/>
+  <circle cx="65" cy="174" r="2" fill="#52525b"/><rect x="74" y="171" width="150" height="5" rx="2.5" fill="#3f3f4a"/>
+  <text x="62" y="198" font-size="8.5" font-weight="600" letter-spacing="0.9" fill="#67e8f9" font-family="system-ui, -apple-system, sans-serif">RECOVERY</text>
+  <circle cx="65" cy="212" r="2" fill="#52525b"/><rect x="74" y="209" width="164" height="5" rx="2.5" fill="#3f3f4a"/>
+</svg>

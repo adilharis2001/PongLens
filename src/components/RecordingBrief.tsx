@@ -42,7 +42,13 @@ import { RealSetups } from "./CameraGuide";
 
 export type RecordingBriefContext = "record" | "upload" | "web";
 
-type Page = {
+/**
+ * One page of any brief. The recording brief was the first; the lesson
+ * briefs (audio, video) are the same walk with different pages, so the
+ * shell below takes them as an argument rather than being copied three
+ * times. A page that is copied is a page that drifts.
+ */
+export type BriefPage = {
   src: string;
   alt: string;
   title: string;
@@ -57,7 +63,7 @@ type Page = {
   note?: Partial<Record<RecordingBriefContext, string>>;
 };
 
-export const RECORDING_BRIEF_PAGES: Page[] = [
+export const RECORDING_BRIEF_PAGES: BriefPage[] = [
   {
     src: "/brief/p1.svg",
     alt: "Seen from above: a band of camera positions sweeps from the side of your half round to diagonally behind your corner, and the camera's view takes in the whole table.",
@@ -97,14 +103,23 @@ const FINAL_LABEL: Record<RecordingBriefContext, string> = {
   web: "Continue",
 };
 
-export function RecordingBrief({
+/**
+ * The shell: the pages side by side, the capsules, Back, and the one
+ * button out. Every brief in the app is this component with different
+ * pages — see LessonAudioBrief / LessonVideoBrief.
+ */
+export function Brief({
   open,
+  pages,
+  finalLabel,
   context = "web",
   onDone,
 }: {
   open: boolean;
-  context?: RecordingBriefContext;
+  pages: BriefPage[];
   /** The last page's button. The only way out. */
+  finalLabel: string;
+  context?: RecordingBriefContext;
   onDone: () => void;
 }) {
   const [index, setIndex] = useState(0);
@@ -113,7 +128,7 @@ export function RecordingBrief({
   const dialogRef = useRef<HTMLDivElement>(null);
   const ctaRef = useRef<HTMLButtonElement>(null);
   const startX = useRef<number | null>(null);
-  const last = RECORDING_BRIEF_PAGES.length - 1;
+  const last = pages.length - 1;
 
   useEffect(() => setMounted(true), []);
 
@@ -206,7 +221,7 @@ export function RecordingBrief({
             Back
           </button>
           <div className="flex justify-center gap-1.5" aria-hidden="true">
-            {RECORDING_BRIEF_PAGES.map((p, i) => (
+            {pages.map((p, i) => (
               <span
                 key={p.src}
                 className={`block h-1 rounded-full transition-all duration-300 ${
@@ -219,7 +234,7 @@ export function RecordingBrief({
             className="justify-self-end font-mono text-xs tabular-nums text-zinc-500"
             aria-live="polite"
           >
-            {index + 1} of {RECORDING_BRIEF_PAGES.length}
+            {index + 1} of {pages.length}
           </span>
         </div>
 
@@ -250,7 +265,7 @@ export function RecordingBrief({
             className="flex h-full w-full transition-transform duration-300 ease-out"
             style={{ transform: `translateX(-${index * 100}%)` }}
           >
-            {RECORDING_BRIEF_PAGES.map((p, i) => {
+            {pages.map((p, i) => {
               const note = p.note?.[context];
               return (
                 <div
@@ -306,12 +321,33 @@ export function RecordingBrief({
             onClick={next}
             className="glow-cta min-h-[48px] w-full rounded-full bg-cyan-glow py-3 text-[15px] font-semibold text-ink"
           >
-            {index === last ? FINAL_LABEL[context] : "Next"}
+            {index === last ? finalLabel : "Next"}
           </button>
         </div>
       </div>
     </div>,
     document.body,
+  );
+}
+
+/** The match-recording brief: the shell above, with its own pages. */
+export function RecordingBrief({
+  open,
+  context = "web",
+  onDone,
+}: {
+  open: boolean;
+  context?: RecordingBriefContext;
+  onDone: () => void;
+}) {
+  return (
+    <Brief
+      open={open}
+      pages={RECORDING_BRIEF_PAGES}
+      finalLabel={FINAL_LABEL[context]}
+      context={context}
+      onDone={onDone}
+    />
   );
 }
 

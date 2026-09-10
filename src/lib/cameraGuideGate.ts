@@ -171,3 +171,51 @@ export function recordingBriefGate({
   // not written until the walk is finished. Only a no-show carries a seed.
   return { show: d.show, seed: d.show ? null : d.persist };
 }
+
+// ---------------------------------------------------------------------------
+// The lesson briefs
+// ---------------------------------------------------------------------------
+
+/**
+ * Audio lessons and lesson videos get the same one-time walk the recording
+ * brief gets, with their own pages and their own counter. Same rule, so the
+ * same helper: shown once, and never to somebody who has plainly done this
+ * before (the back-fill), and counted only when the walk is FINISHED.
+ *
+ * `hasDoneBefore` is the per-brief version of hasAnyMatch: an account with a
+ * lesson entry already, or a coach with a lesson video already, does not need
+ * teaching and must not be interrupted.
+ */
+export const LESSON_AUDIO_BRIEF_METADATA_KEY = "lesson_audio_brief_seen";
+export const LESSON_VIDEO_BRIEF_METADATA_KEY = "lesson_video_brief_seen";
+
+export type LessonBriefKind = "audio" | "video";
+
+export function lessonBriefMetadataKey(kind: LessonBriefKind): string {
+  return kind === "audio"
+    ? LESSON_AUDIO_BRIEF_METADATA_KEY
+    : LESSON_VIDEO_BRIEF_METADATA_KEY;
+}
+
+export function lessonBriefStorageKey(
+  kind: LessonBriefKind,
+  userId: string,
+): string {
+  return `pl-lesson-${kind}-brief-seen:${userId}`;
+}
+
+export function lessonBriefGate({
+  seen,
+  hasDoneBefore,
+}: {
+  seen: number | null;
+  hasDoneBefore: boolean;
+}): RecordingBriefDecision {
+  const d = cameraGuideGate({
+    seen,
+    hasAnyMatch: hasDoneBefore,
+    shownThisSession: false,
+    max: RECORDING_BRIEF_MAX_SHOWINGS,
+  });
+  return { show: d.show, seed: d.show ? null : d.persist };
+}

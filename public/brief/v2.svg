@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" role="img" aria-label="Seen from above: the camera stands diagonally beside the table on the coach's side, close enough that the coach's voice reaches it, with the whole table in view.">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="45%" r="78%"><stop offset="0" stop-color="#151c24"/><stop offset="1" stop-color="#0a0b10"/></radialGradient>
+    <linearGradient id="cone" x1="252" y1="176" x2="120" y2="96" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#22d3ee" stop-opacity="0.30"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0.02"/></linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#113a40"/><stop offset="1" stop-color="#0c2328"/></linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3"/></filter>
+  </defs>
+  <rect width="320" height="240" fill="url(#bg)"/>
+
+  <polygon points="252,176 78,-96 -74,168" fill="url(#cone)"/>
+  <line x1="252" y1="176" x2="150" y2="16" stroke="#22d3ee" stroke-width="1.2" stroke-opacity="0.45" stroke-dasharray="4 4"/>
+  <line x1="252" y1="176" x2="62" y2="168" stroke="#22d3ee" stroke-width="1.2" stroke-opacity="0.45" stroke-dasharray="4 4"/>
+
+  <rect x="96" y="36" width="80" height="142" rx="4" fill="none" stroke="#22d3ee" stroke-width="5" stroke-opacity="0.4" filter="url(#glow)"/>
+  <rect x="96" y="36" width="80" height="142" rx="4" fill="url(#top)" stroke="#22d3ee" stroke-width="2"/>
+  <line x1="136" y1="36" x2="136" y2="178" stroke="#e5f9fd" stroke-width="1" stroke-opacity="0.4" stroke-dasharray="3 5"/>
+  <line x1="88" y1="107" x2="184" y2="107" stroke="#e879f9" stroke-width="5" stroke-opacity="0.4" filter="url(#glow)"/>
+  <line x1="88" y1="107" x2="184" y2="107" stroke="#e879f9" stroke-width="2.5"/>
+
+  <circle cx="136" cy="20" r="8" fill="#2a2a38" stroke="#5c5c68" stroke-width="1.5"/>
+  <text x="150" y="23.5" font-size="9" fill="#a1a1aa" font-family="system-ui, -apple-system, sans-serif">Student</text>
+
+  <circle cx="196" cy="194" r="9" fill="#2a2a38" stroke="#9a9aa8" stroke-width="1.8"/>
+  <text x="196" y="220" text-anchor="middle" font-size="9" fill="#d4d4d8" font-family="system-ui, -apple-system, sans-serif">Coach</text>
+
+  <g stroke="#22d3ee" stroke-opacity="0.6" fill="none" stroke-width="1.5" stroke-linecap="round">
+    <path d="M209 188 q6 -5 10 -11"/>
+    <path d="M215 195 q11 -8 18 -19"/>
+    <path d="M221 202 q17 -12 26 -28"/>
+  </g>
+
+  <g transform="translate(252 176) rotate(31)">
+    <rect x="-13" y="-8.5" width="26" height="17" rx="3" fill="#22d3ee" opacity="0.55" filter="url(#glow)"/>
+    <rect x="-13" y="-8.5" width="26" height="17" rx="3" fill="#22d3ee"/>
+    <path d="M-13 -3.5 l-9 -4 v13 l9 -4 Z" fill="#22d3ee"/>
+    <circle cx="2" cy="0" r="4" fill="#0a0a0f"/><circle cx="2" cy="0" r="1.6" fill="#22d3ee"/>
+  </g>
+  <text x="270" y="150" text-anchor="middle" font-size="9" font-weight="500" fill="#67e8f9" font-family="system-ui, -apple-system, sans-serif">Camera</text>
+</svg>

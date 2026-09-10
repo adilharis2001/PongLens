@@ -35,6 +35,8 @@ struct LessonVideoScreen: View {
     @State private var importStudent: UUID?
     @State private var error: String?
     @State private var loading = true
+    /// The one-time walk, in front of the import controls.
+    @State private var briefOpen = false
 
     private var playerImport: Bool { coaches != nil }
 
@@ -127,14 +129,31 @@ struct LessonVideoScreen: View {
                 case .failure(let failure): receive(.failure(failure))
                 }
             }
+            // The brief, once, in front of the import controls. Coach side
+            // only: its last page is about sending the recap to a student,
+            // which is not what a player importing their own lesson is
+            // doing. Decided after the first refresh, so a coach who has
+            // imported before is not interrupted.
             .task {
                 studentId = student?.id
                 await queue.resume()
                 await refresh()
+                if !playerImport {
+                    briefOpen = LessonBriefFirstRun.shouldShow(
+                        .video, app: app, hasDoneBefore: !videos.isEmpty
+                    )
+                }
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .seconds(10)) } catch { return }
                     if videos.contains(where: \.needsRefresh) || !uploads.isEmpty { await refresh() }
                 }
+            }
+            .fullScreenCover(isPresented: $briefOpen) {
+                LessonVideoBriefSheet {
+                    LessonBriefFirstRun.markDone(.video, app: app)
+                    briefOpen = false
+                }
+                .interactiveDismissDisabled()
             }
             .onChange(of: queue.items.filter { $0.state == "done" }.count) { _, _ in Task { await refresh() } }
             .onChange(of: scenePhase) { _, phase in

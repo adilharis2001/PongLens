@@ -58,3 +58,45 @@ enum RecordingBriefFirstRun {
         Task { await app.setMetadataInt(RecordingBriefGate.metadataKey, value) }
     }
 }
+
+/// The stateful half of the lesson-brief rule. Same shape as
+/// RecordingBriefFirstRun above, and for the same reasons: local write
+/// first because it cannot fail, account write second, and seen means
+/// FINISHED.
+///
+/// Twin of src/components/LessonVideoBriefFirstRun.tsx.
+@MainActor
+enum LessonBriefFirstRun {
+    static func shouldShow(
+        _ kind: LessonBriefGate.Kind, app: AppState, hasDoneBefore: Bool?
+    ) -> Bool {
+        guard let userId = app.userId, let hasDoneBefore else { return false }
+        let key = kind.storageKey(userId: userId.uuidString.lowercased())
+        let decision = LessonBriefGate.gate(
+            seen: CameraGuideGate.readSeenCount(
+                account: app.metadataValue(kind.metadataKey),
+                device: UserDefaults.standard.object(forKey: key)
+            ),
+            hasDoneBefore: hasDoneBefore
+        )
+        if let seed = decision.seed { persist(seed, kind: kind, key: key, app: app) }
+        return decision.show
+    }
+
+    static func markDone(_ kind: LessonBriefGate.Kind, app: AppState) {
+        guard let userId = app.userId else { return }
+        persist(
+            LessonBriefGate.done,
+            kind: kind,
+            key: kind.storageKey(userId: userId.uuidString.lowercased()),
+            app: app
+        )
+    }
+
+    private static func persist(
+        _ value: Int, kind: LessonBriefGate.Kind, key: String, app: AppState
+    ) {
+        UserDefaults.standard.set(value, forKey: key)
+        Task { await app.setMetadataInt(kind.metadataKey, value) }
+    }
+}

@@ -30,6 +30,13 @@ struct LessonRecordScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(JournalStore.self) private var store
+    @Environment(AppState.self) private var app
+
+    /// The one-time walk, in front of this screen's own ready state. It
+    /// lives here rather than at the two doors that present this screen
+    /// (the journal's New entry and the coach composer) so neither can be
+    /// reached without it.
+    @State private var briefOpen = false
 
     @State private var recorder = LessonRecorder()
     @State private var transcriber = LessonTranscriber()
@@ -158,6 +165,30 @@ struct LessonRecordScreen: View {
             guard !tutorialCaptureActive else { return }
             #endif
             await transcriber.prepare()
+        }
+        // The brief, before the ready screen is acted on. Nothing is
+        // decided until the journal has loaded: an empty list that has not
+        // arrived yet looks exactly like an account that has never
+        // recorded, and that is the one account the back-fill exists to
+        // skip. A capture run drives this screen and must never meet it.
+        .task {
+            #if DEBUG
+            guard !tutorialCaptureActive else { return }
+            #endif
+            briefOpen = LessonBriefFirstRun.shouldShow(
+                .audio,
+                app: app,
+                hasDoneBefore: store.loaded
+                    ? store.lessons.contains { !$0.transcript.isEmpty }
+                    : nil
+            )
+        }
+        .fullScreenCover(isPresented: $briefOpen) {
+            LessonAudioBriefSheet {
+                LessonBriefFirstRun.markDone(.audio, app: app)
+                briefOpen = false
+            }
+            .interactiveDismissDisabled()
         }
         .task {
             #if DEBUG

@@ -152,3 +152,41 @@ enum RecordingBriefGate {
         return Decision(show: d.show, seed: d.show ? nil : d.persist)
     }
 }
+
+// MARK: - The lesson briefs
+
+/// Audio lessons and lesson videos get the same one-time walk, with their
+/// own pages and their own counter. Same rule, so the same helper: shown
+/// once, never to somebody who has plainly done this before, and counted
+/// only when the walk is FINISHED.
+///
+/// Twin of the `lessonBrief*` half of src/lib/cameraGuideGate.ts.
+enum LessonBriefGate {
+    enum Kind {
+        case audio
+        case video
+
+        var metadataKey: String {
+            switch self {
+            case .audio: "lesson_audio_brief_seen"
+            case .video: "lesson_video_brief_seen"
+            }
+        }
+
+        func storageKey(userId: String) -> String {
+            switch self {
+            case .audio: "pl-lesson-audio-brief-seen:\(userId)"
+            case .video: "pl-lesson-video-brief-seen:\(userId)"
+            }
+        }
+    }
+
+    static let done = RecordingBriefGate.done
+
+    /// `hasDoneBefore` is this brief's version of hasAnyMatch: an account
+    /// with a lesson entry already, or a coach with a lesson video already,
+    /// does not need teaching and must not be interrupted.
+    static func gate(seen: Int?, hasDoneBefore: Bool) -> RecordingBriefGate.Decision {
+        RecordingBriefGate.gate(seen: seen, hasAnyMatch: hasDoneBefore)
+    }
+}

@@ -13,15 +13,16 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import sharp from "sharp";
 
-// The numbers have a hole in them: p2 was "Keep the whole table in frame",
+// The p-numbers have a hole in them: p2 was "Keep the whole table in frame",
 // deleted in September because its phone mock showed a camera square to the
 // net and argued with p1's band. The survivors keep their names rather than
 // shuffling up, so a stale reference points at nothing instead of quietly
 // at the wrong picture.
-const PAGES = [1, 3, 4, 5];
+// p* is the recording brief, a* the audio lesson, v* the lesson video.
+const PAGES = ["p1", "p3", "p4", "p5", "a1", "a2", "a3", "v1", "v2", "v3"];
 const out = "ios/PongLens/PongLens/Resources";
 for (const n of PAGES) {
-  const svg = readFileSync(`public/brief/p${n}.svg`, "utf8").replaceAll(
+  const svg = readFileSync(`public/brief/${n}.svg`, "utf8").replaceAll(
     "system-ui, -apple-system, sans-serif",
     "Helvetica Neue, Helvetica, Arial, sans-serif",
   );
@@ -37,7 +38,7 @@ for (const n of PAGES) {
       .resize(Math.round(vw * scale), Math.round(vh * scale))
       .png({ compressionLevel: 9 })
       .toBuffer();
-    writeFileSync(`${out}/brief-p${n}@${scale}x.png`, png);
+    writeFileSync(`${out}/brief-${n}@${scale}x.png`, png);
   }
 }
 console.log(`exported ${PAGES.length * 2} files to`, out);

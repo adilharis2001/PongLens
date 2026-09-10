@@ -43,6 +43,12 @@ struct RootView: View {
             // to a fresh account mid-tap, which makes checking its copy a
             // whole sign-up. Same idea as --theme-gallery above.
             RecordingBriefSheet(context: .upload, onDone: {})
+        } else if ProcessInfo.processInfo.arguments.contains("--dev-lesson-audio-brief") {
+            // The lesson briefs, without an account, for review. Same idea
+            // as --dev-recording-brief above.
+            LessonAudioBriefSheet(onDone: {})
+        } else if ProcessInfo.processInfo.arguments.contains("--dev-lesson-video-brief") {
+            LessonVideoBriefSheet(onDone: {})
         } else if ProcessInfo.processInfo.arguments.contains("--dev-camera-guide") {
             // The "Where to place the camera" sheet, without an account,
             // for the same reason.
