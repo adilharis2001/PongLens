@@ -247,7 +247,10 @@ export function LessonVideoView({
   // The Edit row stays where it was while the rebuild runs, shut rather
   // than gone: a row that vanishes reads as the menu breaking.
   const editLocked = owner && updating;
-  const canDelete = owner && !!v && !['queued', 'processing', 'uploading'].includes(v.status);
+  const canDelete = owner && !!v && !['queued', 'processing'].includes(v.status);
+  // An upload that has stalled is the one thing a coach most needs to be
+  // able to get rid of, and it is the case that used to be refused.
+  const cancellingUpload = v?.status === 'uploading';
 
   // The public link and the downloadable copy. Both are the owner's to
   // decide; a coach shared with may read the recap in the app and nothing
@@ -872,11 +875,15 @@ export function LessonVideoView({
           onCancel={() => setConfirmDelete(false)}
           className="m-auto w-[calc(100%-2rem)] max-w-md rounded-2xl border border-edge bg-surface p-6 text-zinc-100 backdrop:bg-black/75"
         >
-          <h2 className="text-xl font-semibold">Delete this lesson video?</h2>
-          <p className="mt-4 text-sm leading-relaxed text-zinc-400">The original, recap, and linked lesson entry will be deleted. This cannot be undone.</p>
+          <h2 className="text-xl font-semibold">{cancellingUpload ? 'Cancel this upload?' : 'Delete this lesson video?'}</h2>
+          <p className="mt-4 text-sm leading-relaxed text-zinc-400">
+            {cancellingUpload
+              ? 'The part of the video that has been sent so far will be thrown away. The video on your phone is untouched, and you can import it again.'
+              : 'The original, recap, and linked lesson entry will be deleted. This cannot be undone.'}
+          </p>
           <div className="mt-5 flex gap-3">
             <button className={button + ' text-amber-300'} disabled={busy} onClick={() => void action('delete')}>
-              Delete
+              {cancellingUpload ? 'Cancel the upload' : 'Delete'}
             </button>
             <button className={button} onClick={() => setConfirmDelete(false)}>
               Cancel
@@ -1008,7 +1015,7 @@ export function LessonVideoView({
               )}
               {canDelete && (
                 <button type="button" className={row + ' text-red-300'} disabled={busy} onClick={() => setConfirmDelete(true)}>
-                  Delete lesson video
+                  {cancellingUpload ? 'Cancel this upload' : 'Delete lesson video'}
                   {chevron}
                 </button>
               )}

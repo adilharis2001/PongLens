@@ -276,6 +276,11 @@ struct LessonVideoScreen: View {
                     if item.state == "failed" || item.state == "waiting" {
                         Button("Resume upload") { Task { await queue.retry(item.id); await refresh(asked: true) } }
                             .buttonStyle(PLSecondaryButtonStyle())
+                        // An upload that cannot finish needs a way out.
+                        // Resume was the only control, so a dead upload sat
+                        // in this list with nothing but a button that failed.
+                        Button("Discard this upload") { queue.discard(item.id); Task { await refresh(asked: true) } }
+                            .buttonStyle(PLSoftDestructiveButtonStyle())
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -534,9 +539,14 @@ struct LessonVideoDetailScreen: View {
                 }
             }
         }
-        .confirmationDialog("Delete this lesson video?", isPresented: $deleteOpen, titleVisibility: .visible) {
-            Button("Delete lesson video", role: .destructive) { perform("delete") }
-        } message: { Text("The original video and recap will be permanently deleted.") }
+        .confirmationDialog(cancellingUpload ? "Cancel this upload?" : "Delete this lesson video?",
+                            isPresented: $deleteOpen, titleVisibility: .visible) {
+            Button(cancellingUpload ? "Cancel the upload" : "Delete lesson video", role: .destructive) { cancelOrDelete() }
+        } message: {
+            Text(cancellingUpload
+                 ? "The part of the video that has been sent so far will be thrown away. The video on your phone is untouched, and you can import it again."
+                 : "The original video and recap will be permanently deleted.")
+        }
         .onDisappear { if !watchOpen { player?.pause() } }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { player?.pause() }
@@ -587,6 +597,20 @@ struct LessonVideoDetailScreen: View {
 
     private func watchable(_ detail: LessonVideoDetail) -> Bool {
         detail.playbackUrl != nil || detail.summaryUrl != nil
+    }
+
+    /// The lesson is still being sent up, so the destructive control is
+    /// abandoning an upload rather than deleting a finished recap.
+    private var cancellingUpload: Bool { detail?.video.status == "uploading" }
+
+    /// Cancel or delete, and take the phone's own copy of the upload with
+    /// it. Without that the queue keeps pushing parts at an upload the
+    /// server has already thrown away, and the coach is left with a failed
+    /// row instead of a stuck one.
+    private func cancelOrDelete() {
+        let wasUploading = cancellingUpload
+        perform("delete")
+        if wasUploading { Task { await LessonVideoQueue.shared.cancel(videoId: id) } }
     }
 
     /// A new recap is being made over one that can already be watched: an
@@ -807,7 +831,10 @@ struct LessonVideoDetailScreen: View {
         let hasFile = detail.file?.downloadURL != nil
         if detail.isOwner ? (watchable(detail) || originalURL(detail) != nil) : hasFile { rows.append(.export) }
         if originalURL(detail) != nil { rows.append(.watchOriginal) }
-        if detail.isOwner, !video.needsRefresh { rows.append(.delete) }
+        // An upload has no worker behind it, so it is the owner's to
+        // abandon. Refusing it left a coach whose 7 GB import stalled with a
+        // lesson that said "Uploading" for two days and no way out.
+        if detail.isOwner, !video.isProcessing { rows.append(.delete) }
         return rows
     }
 
@@ -848,7 +875,7 @@ struct LessonVideoDetailScreen: View {
         case .watchOriginal:
             CoachNavRow(label: "Watch original recording") { watchOriginal() }
         case .delete:
-            CoachNavRow(label: "Delete lesson video", tint: PL.dangerText) { deleteOpen = true }.disabled(busy)
+            CoachNavRow(label: cancellingUpload ? "Cancel this upload" : "Delete lesson video", tint: PL.dangerText) { deleteOpen = true }.disabled(busy)
         }
     }
 

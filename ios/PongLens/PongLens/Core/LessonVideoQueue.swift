@@ -132,6 +132,32 @@ final class LessonVideoQueue: NSObject {
         }
     }
 
+    /// Forget an upload the server no longer has.
+    ///
+    /// Cancelling from the lesson page deletes the row and aborts the
+    /// half-finished upload on the server. Without this the queue would go
+    /// on pushing parts at an upload that is gone, fail, and leave the coach
+    /// looking at a failed row in place of the stuck one. The copy of the
+    /// video the app made is removed with it; the original in the camera
+    /// roll is untouched and can be imported again.
+    func cancel(videoId: UUID) async {
+        guard let i = items.firstIndex(where: { $0.videoId == videoId }) else { return }
+        discard(items[i].id)
+    }
+
+    /// Drop a queued upload and the file copy it was pushing.
+    func discard(_ id: UUID) {
+        guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+        let item = items[i]
+        active.remove(id)
+        items.remove(at: i)
+        try? persist()
+        if let directory = try? Self.directory() {
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(item.fileName))
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent("part-\(id.uuidString).bin"))
+        }
+    }
+
     func retry(_ id: UUID) async {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         items[i].error = nil

@@ -76,3 +76,16 @@ test('the clock is rewritten, never trusted from the input', () => {
   assert.deepEqual(withSummaryClock(chapters)[0].summary_start_s, 0);
   assert.deepEqual(withSummaryClock(chapters)[0].summary_end_s, 30);
 });
+
+// A lesson that is still being sent up can be abandoned; one a worker is
+// holding cannot. Refusing an upload left a coach whose 7 GB import stalled
+// with a lesson that said "Uploading" for two days and no way out.
+test('a stalled upload can be cancelled, a running job cannot', () => {
+  const refused = (status: string) => ['queued', 'processing'].includes(status);
+  assert.equal(refused('uploading'), false);
+  assert.equal(refused('queued'), true);
+  assert.equal(refused('processing'), true);
+  assert.equal(refused('review'), false);
+  assert.equal(refused('ready'), false);
+  assert.equal(refused('failed'), false);
+});

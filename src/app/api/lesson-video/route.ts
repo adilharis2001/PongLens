@@ -302,7 +302,15 @@ export async function POST(req:Request){
    return NextResponse.json({ok:true,video:publicVideo(changed,true)});
   }
   if(action==='delete'){
-   if(['uploading','queued','processing'].includes(row.status))return failure('Wait for uploading and processing to finish before deleting this lesson.',409);
+   // An upload can be abandoned; a running job cannot. Only queued and
+   // processing are refused, because a worker holds the lease there and
+   // deleting the row underneath it would leave a job writing to nothing.
+   // An upload has no worker: the phone is pushing parts and nothing else
+   // is watching, so cancelling is the owner's to do. This used to refuse
+   // an upload too, and a 7 GB import that stalled at 86 per cent left a
+   // coach with a lesson that said "Uploading" for two days and no way out
+   // from either end. The abort below was always here waiting for it.
+   if(['queued','processing'].includes(row.status))return failure('Wait for processing to finish before deleting this lesson.',409);
    // Reserve deletion under the same row lock used by claims and edits.
    const {data:reserved,error:reserveError}=await db.from('lesson_videos').update({status:'failed',stage:'Deleting',lease_token:null,revision:row.revision+1}).eq('id',id).eq('status',row.status).eq('revision',row.revision).select('id').maybeSingle();
    if(reserveError)throw reserveError;if(!reserved)return failure('The lesson changed. Reload before deleting.',409);
