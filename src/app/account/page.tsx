@@ -201,7 +201,7 @@ export default async function AccountPage() {
         <div className="mt-8">
           <SectionLabel>Coaching</SectionLabel>
           <div className="overflow-hidden rounded-2xl border border-edge bg-surface">
-            <RowLink href="/coaching" label="Your coaches" />
+            <RowLink href="/coaching/coach" label="Your coaches" />
           </div>
         </div>
       )}

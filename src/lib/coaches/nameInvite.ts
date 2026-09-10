@@ -27,18 +27,32 @@ export async function nameCoachInvite(
 
   const { data: mine } = await supabase
     .from("player_coaches")
-    .select("id, display_name, coach_id")
+    .select("id, display_name, coach_id, invite_id")
     .eq("player_id", playerId)
     .is("archived_at", null);
 
   const existing = (
-    (mine as { id: string; display_name: string; coach_id: string | null }[]) ??
-    []
+    (mine as {
+      id: string;
+      display_name: string;
+      coach_id: string | null;
+      invite_id: string | null;
+    }[]) ?? []
   ).find(
     (c) =>
       c.coach_id === null &&
       c.display_name.trim().toLowerCase() === name.toLowerCase(),
   );
+
+  /* Never move a row off an invite that is still live. The match filters on
+     a null coach id, which includes a row already reading "Invite waiting",
+     so naming a SECOND invite with the same name used to re-point that row
+     and strand the first link: still pending, now named by nobody, holding
+     a queue of matches nothing could reach. The caller shows the player
+     "Dave already has an invite waiting" instead. */
+  if (existing?.invite_id && existing.invite_id !== inviteId) {
+    return false;
+  }
 
   if (existing) {
     const { error } = await supabase

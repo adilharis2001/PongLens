@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { createClient } from "@/lib/supabase/server";
 import { CoachPage } from "./CoachPage";
+import { RemovedCoach } from "./RemovedCoach";
 
 export const metadata: Metadata = {
   title: "Coach",
@@ -42,7 +43,12 @@ export default async function CoachDetailPage({
     .eq("id", id)
     .eq("player_id", user.id)
     .maybeSingle();
-  if (!coach || coach.archived_at) notFound();
+  if (!coach) notFound();
+  /* A removed coach is archived, not gone, so their page must not 404.
+     Back, a second tab and every bookmark all land here the moment somebody
+     presses Remove, and a generic not-found page tells them nothing and
+     offers no way to undo it. */
+  const removed = !!coach.archived_at;
 
   const avatarUrl =
     (user.user_metadata?.avatar_url as string | undefined) ??
@@ -51,11 +57,18 @@ export default async function CoachDetailPage({
 
   return (
     <AppShell avatarUrl={avatarUrl}>
-      <CoachPage
-        userId={user.id}
-        coachRefId={coach.id as string}
-        displayName={coach.display_name as string}
-      />
+      {removed ? (
+        <RemovedCoach
+          coachRefId={coach.id as string}
+          displayName={coach.display_name as string}
+        />
+      ) : (
+        <CoachPage
+          userId={user.id}
+          coachRefId={coach.id as string}
+          displayName={coach.display_name as string}
+        />
+      )}
     </AppShell>
   );
 }

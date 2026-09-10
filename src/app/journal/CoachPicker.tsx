@@ -167,7 +167,10 @@ export function CoachPicker({
             disabled={disabled}
             className="rounded-full border border-dashed border-edge px-3.5 py-1.5 text-xs font-medium text-zinc-500 transition-colors hover:border-cyan-glow/40 hover:text-zinc-300 disabled:opacity-60"
           >
-            {coaches.length === 0 ? "Add your coach" : "Add a coach"}
+            {/* Not "Add a coach": that means mint an invite, and this
+                only writes a name down. The two sat one tap apart with
+                the same label, and using this one hid the other. */}
+            New coach
           </button>
         )}
       </div>
