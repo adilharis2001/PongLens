@@ -75,6 +75,10 @@ final class CoachingStore {
     static let unnamedInvite = "Unnamed invite"
     var orders: [StudentOrderRow] = []
     var loaded = false
+    /// The coach list could not be read. Kept apart from "empty".
+    var coachesLoadFailed = false
+    /// Coaches the player has taken off their list.
+    var archivedCoaches: [PlayerCoach] = []
 
     init() {
         // Permanent. A player with no coach yet still opens the tab to add
@@ -108,7 +112,16 @@ final class CoachingStore {
         orders = orderRows ?? []
         let named: [PlayerCoach]? = try? await supa
             .rpc("player_coaches_list").execute().value
-        playerCoaches = named ?? []
+        // A dropped request is not an empty list. Coercing one into [] and
+        // calling it loaded told a player with six coaches that they had
+        // none, and hid the invite door with it, which is the same bug this
+        // work exists to close arriving from a new direction.
+        if let named {
+            playerCoaches = named
+            coachesLoadFailed = false
+        } else {
+            coachesLoadFailed = true
+        }
         invitedNames = Dictionary(
             playerCoaches.compactMap { row in
                 row.inviteId.map { ($0, row.displayName) }
@@ -191,6 +204,91 @@ final class CoachingStore {
         } catch { return false }
         await load(userId: userId)
         return true
+    }
+
+    /// Re-read the live list only. The full `load` needs a user id and
+    /// fetches five other things; a coach action needs just this one.
+    func reloadCoaches() async {
+        let rows: [PlayerCoach]? = try? await supa
+            .rpc("player_coaches_list").execute().value
+        if let rows {
+            playerCoaches = rows
+            coachesLoadFailed = false
+        } else {
+            coachesLoadFailed = true
+        }
+    }
+
+    /// The coaches taken off the list, for the roster's Removed section.
+    ///
+    /// A second function rather than a flag on player_coaches_list(), so
+    /// that one keeps its return shape and neither platform's decoder had
+    /// to change.
+    func loadArchivedCoaches() async {
+        let rows: [PlayerCoach]? = try? await supa
+            .rpc("player_coaches_archived_list").execute().value
+        archivedCoaches = rows ?? []
+    }
+
+    /// Take a coach off the list.
+    ///
+    /// One RPC, because the rules belong to the database: it archives
+    /// rather than deletes (both foreign keys onto the row are `on delete
+    /// set null`, and that null blanks coach_name on every entry the coach
+    /// ever taught), it revokes an outstanding invite so an accept cannot
+    /// bring them back under a different name, and it locks before it reads
+    /// so an accept landing mid-call cannot leave them with access and no
+    /// row on screen.
+    ///
+    /// Returns false so the caller can say so. The helpers beside this one
+    /// swallow their errors and return Void, which is why "Stop sharing"
+    /// once looked dead while working perfectly.
+    func removeCoach(_ id: UUID) async -> Bool {
+        struct Params: Encodable { let p_id: String }
+        do {
+            _ = try await supa
+                .rpc("remove_player_coach",
+                     params: Params(p_id: id.uuidString.lowercased()))
+                .execute()
+        } catch {
+            return false
+        }
+        playerCoaches.removeAll { $0.id == id }
+        await loadArchivedCoaches()
+        return true
+    }
+
+    /// Put one back. Answers "restored", or "merged" when the slot was
+    /// already taken by a live row for the same account and the lessons
+    /// moved onto it instead. Nil means it failed.
+    func restoreCoach(_ id: UUID) async -> String? {
+        struct Params: Encodable { let p_id: String }
+        let outcome: String? = try? await supa
+            .rpc("restore_player_coach",
+                 params: Params(p_id: id.uuidString.lowercased()))
+            .execute().value
+        guard let outcome else { return nil }
+        await reloadCoaches()
+        await loadArchivedCoaches()
+        return outcome
+    }
+
+    /// Attach a freshly minted invite to a coach already on the list.
+    ///
+    /// By id, never by name. The naming helper matches on the typed name,
+    /// which is why inviting a coach you had parted with used to mint a
+    /// second row carrying the same name that only healed if they accepted.
+    func attachInvite(coachRefId: UUID, inviteId: UUID) async -> Bool {
+        do {
+            _ = try await supa
+                .from("player_coaches")
+                .update(["invite_id": AnyJSON.string(inviteId.uuidString.lowercased())])
+                .eq("id", value: coachRefId.uuidString.lowercased())
+                .execute()
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Ending a coach ends everything with them (157): every link with

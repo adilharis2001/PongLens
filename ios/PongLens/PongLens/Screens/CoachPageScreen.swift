@@ -38,6 +38,9 @@ struct CoachPageScreen: View {
     @State private var renameDraft = ""
     @State private var mergeAsk = false
     @State private var removeAsk = false
+    @State private var endAccessAsk = false
+    @State private var removedOk = false
+    @State private var inviteOpen = false
     @State private var busy = false
     @State private var copied = false
     @State private var errorMessage: String?
@@ -45,6 +48,16 @@ struct CoachPageScreen: View {
 
     private var coach: PlayerCoach? {
         coaching.playerCoaches.first { $0.id == coachRefId }
+    }
+
+    private var removeConfirm: CoachActions.Confirm? {
+        coach.map {
+            CoachActions.removeConfirm(name: $0.displayName, status: $0.status)
+        }
+    }
+
+    private var endAccessConfirm: CoachActions.Confirm? {
+        coach.map { CoachActions.endAccessConfirm(name: $0.displayName) }
     }
 
     /// Their accepted links, which exist only once an account is behind
@@ -145,13 +158,35 @@ struct CoachPageScreen: View {
         } message: {
             Text("Your lessons with them come along, and the two become one coach.")
         }
+        // Both questions come from CoachActions, so the phone and the web
+        // ask the same thing in the same words. "Your lessons keep their
+        // name" replaces "Your lessons are kept": what a player is afraid
+        // of losing is the name on the card, not the card, and the name is
+        // what the database actually promises to keep.
         .confirmationDialog(
-            "Remove this coach?", isPresented: $removeAsk, titleVisibility: .visible
+            removeConfirm?.title ?? "Remove from your list?",
+            isPresented: $removeAsk, titleVisibility: .visible
         ) {
-            Button("Remove", role: .destructive) { remove() }
-            Button("Keep", role: .cancel) {}
+            Button(removeConfirm?.confirmLabel ?? "Remove", role: .destructive) { remove() }
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("They stop seeing your matches and the entries you shared with them. Your lessons are kept.")
+            Text(removeConfirm?.body ?? "")
+        }
+        .confirmationDialog(
+            endAccessConfirm?.title ?? "End their access?",
+            isPresented: $endAccessAsk, titleVisibility: .visible
+        ) {
+            Button(endAccessConfirm?.confirmLabel ?? "End access", role: .destructive) {
+                endAccess()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(endAccessConfirm?.body ?? "")
+        }
+        .sheet(isPresented: $inviteOpen) {
+            AllMatchesCoachInvite(coachRefId: coachRefId, title: "Send an invite")
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
         .sheet(item: $editing) { request in
             JournalNoteEditor(lesson: request.lesson, store: journal)
@@ -193,6 +228,34 @@ struct CoachPageScreen: View {
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
                         .lineLimit(1)
+                }
+            }
+
+            // The action this page was missing. A coach the player wrote
+            // down, or one they have parted with, had no way to be invited:
+            // the composer always started from a blank name, so the only
+            // route was typing their name again and hoping the
+            // find-or-create matched it. This binds the new link to THIS
+            // row by id.
+            if CoachActions.canSendInvite(status: coach.status) {
+                Button {
+                    inviteOpen = true
+                } label: {
+                    Text("Send an invite")
+                        .frame(maxWidth: .infinity, minHeight: 28)
+                }
+                .buttonStyle(PLPrimaryButtonStyle())
+                .disabled(busy)
+
+                // Removal revokes an outstanding invite and Put back does
+                // not revive it, so a coach who comes back from the removed
+                // list reads "Not on PongLens" with no account of where
+                // their link went. This is that account.
+                if let note = CoachActions.restoreNotice(status: coach.status),
+                   coach.inviteId != nil {
+                    Text(note)
+                        .font(.plCaption)
+                        .foregroundStyle(PL.text500)
                 }
             }
 
@@ -395,19 +458,31 @@ struct CoachPageScreen: View {
                 .disabled(busy)
             }
 
-            // Only where there is something to take back. A waiting invite
-            // ends at Revoke above, and a coach the player only wrote down
-            // never had access to end.
-            if !links.isEmpty {
+            // Ending access is not removal and the two cannot both be
+            // called Remove. This one stops them watching and keeps them on
+            // the list; the one below takes them off it.
+            if CoachActions.canEndAccess(status: coach.status) {
                 Button {
-                    removeAsk = true
+                    endAccessAsk = true
                 } label: {
-                    Text(busy ? "Removing…" : "Remove coach")
+                    Text("End their access")
                         .frame(maxWidth: .infinity, minHeight: 28)
                 }
-                .buttonStyle(PLSoftDestructiveButtonStyle())
+                .buttonStyle(PLSecondaryButtonStyle())
                 .disabled(busy)
             }
+
+            // Every standing, with no gate. Until 2026-09-10 this was wired
+            // to leave_coach and so hidden for a coach the player had only
+            // written down, which made that row permanent.
+            Button {
+                removeAsk = true
+            } label: {
+                Text(busy ? "Removing…" : "Remove from your list")
+                    .frame(maxWidth: .infinity, minHeight: 28)
+            }
+            .buttonStyle(PLSoftDestructiveButtonStyle())
+            .disabled(busy)
         }
     }
 
@@ -508,17 +583,41 @@ struct CoachPageScreen: View {
         }
     }
 
-    private func remove() {
+    /// Stop them watching, and keep them on the list.
+    ///
+    /// One call ends the lot: leave_coach revokes every link with them and
+    /// clears the roster binding, so the entries they were reading stop as
+    /// well as the matches. Since 2026-09-10 it no longer removes the row
+    /// as a side effect, which is why this and Remove are separate buttons.
+    private func endAccess() {
         guard let link = links.first else { return }
         busy = true
         errorMessage = nil
         Task {
-            // One call ends the lot: leave_coach revokes every link with
-            // them and clears the roster binding, so the entries they were
-            // reading stop as well as the matches.
             await coaching.revokeLink(link)
-            await coaching.load(userId: app.userId)
+            await coaching.reloadCoaches()
             busy = false
+        }
+    }
+
+    /// Take them off the list, whatever their standing.
+    ///
+    /// Archives rather than deletes, and pops back to the roster because
+    /// that is where Put back is. Both stores hold their own copy of the
+    /// coach list, so both are reloaded: refreshing one leaves a removed
+    /// coach sitting in the lesson picker.
+    private func remove() {
+        busy = true
+        errorMessage = nil
+        Task {
+            let ok = await coaching.removeCoach(coachRefId)
+            busy = false
+            guard ok else {
+                errorMessage = "Couldn't remove them. Try again."
+                return
+            }
+            await journal.loadCoaches()
+            dismiss()
         }
     }
 }

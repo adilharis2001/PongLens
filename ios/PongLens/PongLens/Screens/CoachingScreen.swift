@@ -673,6 +673,16 @@ extension CoachingScreen {
 /// from a match page (161). The QR is for handing your phone to the coach
 /// at the table — same link, no typing.
 struct AllMatchesCoachInvite: View {
+    /// Bind the invite to a coach already on the list, by id.
+    ///
+    /// Bound mode asks for no name, because we already know who. The old
+    /// path matched on the typed NAME, which is why inviting a coach you
+    /// had parted with minted a second row carrying the same name that only
+    /// healed if they ever accepted.
+    var coachRefId: UUID? = nil
+    /// What the sheet calls itself. Three doors, three honest titles.
+    var title: String = "Share with coach"
+
     @Environment(AppState.self) private var app
     @Environment(CoachingStore.self) private var coaching
     @Environment(\.dismiss) private var dismiss
@@ -726,9 +736,15 @@ struct AllMatchesCoachInvite: View {
                         // attribute lessons to this coach before they
                         // have accepted anything (164), and what makes
                         // the waiting invite say a name.
-                        TextField("Their name (optional)", text: $inviteName)
-                            .textInputAutocapitalization(.words)
-                            .autocorrectionDisabled()
+                        // In bound mode there is nothing to ask: the
+                        // invite already belongs to a row, and asking for
+                        // the name again is how a second row with the same
+                        // person's name gets made.
+                        if coachRefId == nil {
+                            TextField("Their name (optional)", text: $inviteName)
+                                .textInputAutocapitalization(.words)
+                                .autocorrectionDisabled()
+                        }
                         Picker("Access", selection: $allMatches) {
                             Text("All my matches").tag(true)
                             Text("Only matches I share").tag(false)
@@ -758,7 +774,7 @@ struct AllMatchesCoachInvite: View {
                 }
             }
             .tint(PL.cyan)
-            .navigationTitle("Share with coach")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -791,9 +807,28 @@ struct AllMatchesCoachInvite: View {
                 .single()
                 .execute()
                 .value
-            await coaching.nameInvite(
-                playerId: uid, inviteId: row.id, name: inviteName
-            )
+            if let coachRefId {
+                // By id, never by name. If the bind fails we take the link
+                // back rather than leave a live invite attached to nobody,
+                // which would show on the roster as an unnamed invite the
+                // player never made.
+                if await coaching.attachInvite(
+                    coachRefId: coachRefId, inviteId: row.id
+                ) == false {
+                    _ = try? await supa
+                        .from("coach_links")
+                        .update(["status": AnyJSON.string("revoked")])
+                        .eq("id", value: row.id.uuidString.lowercased())
+                        .execute()
+                    errorMessage = "Couldn't create the link. Try again."
+                    creating = false
+                    return
+                }
+            } else {
+                await coaching.nameInvite(
+                    playerId: uid, inviteId: row.id, name: inviteName
+                )
+            }
             await starter.apply(
                 userId: uid, inviteId: row.id, includeMatches: !allMatches
             )
