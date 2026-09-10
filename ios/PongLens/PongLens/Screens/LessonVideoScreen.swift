@@ -40,6 +40,12 @@ struct LessonVideoScreen: View {
 
     private var playerImport: Bool { coaches != nil }
 
+    /// Which door this is, and therefore which brief belongs in front of
+    /// the import controls.
+    private var briefAudience: LessonBriefGate.Kind {
+        playerImport ? .videoPlayer : .videoCoach
+    }
+
     private var uploads: [QueuedLessonVideo] {
         queue.items.filter {
             guard $0.ownerId == app.userId, $0.state != "done" else { return false }
@@ -129,28 +135,32 @@ struct LessonVideoScreen: View {
                 case .failure(let failure): receive(.failure(failure))
                 }
             }
-            // The brief, once, in front of the import controls. Coach side
-            // only: its last page is about sending the recap to a student,
-            // which is not what a player importing their own lesson is
-            // doing. Decided after the first refresh, so a coach who has
-            // imported before is not interrupted.
+            // The brief, once, in front of the import controls. Each door
+            // gets its own: a coach is sending the recap to a student, a
+            // player is keeping it, and the last page is about exactly
+            // that. Decided after the first refresh, so somebody who has
+            // imported through THIS door before is not interrupted —
+            // counted by which side the row names, because a private
+            // import names neither and cannot speak for either door.
             .task {
                 studentId = student?.id
                 await queue.resume()
                 await refresh()
-                if !playerImport {
-                    briefOpen = LessonBriefFirstRun.shouldShow(
-                        .video, app: app, hasDoneBefore: !videos.isEmpty
-                    )
-                }
+                briefOpen = LessonBriefFirstRun.shouldShow(
+                    briefAudience,
+                    app: app,
+                    hasDoneBefore: playerImport
+                        ? videos.contains { $0.coach_ref_id != nil }
+                        : videos.contains { $0.student_id != nil }
+                )
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .seconds(10)) } catch { return }
                     if videos.contains(where: \.needsRefresh) || !uploads.isEmpty { await refresh() }
                 }
             }
             .fullScreenCover(isPresented: $briefOpen) {
-                LessonVideoBriefSheet {
-                    LessonBriefFirstRun.markDone(.video, app: app)
+                LessonVideoBriefSheet(audience: briefAudience) {
+                    LessonBriefFirstRun.markDone(briefAudience, app: app)
                     briefOpen = false
                 }
                 .interactiveDismissDisabled()

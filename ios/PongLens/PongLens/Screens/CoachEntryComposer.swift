@@ -133,6 +133,12 @@ struct CoachEntryComposer: View {
                 saveAs: { transcript in
                     await save(student: student, transcript: transcript, summarize: true)
                 },
+                // Mirrors the player door's own test, read off the coach's
+                // pile instead of the player's: an entry backed by a
+                // lesson that carries words was recorded, not typed.
+                briefHasDoneBefore: workspace.loaded
+                    ? workspace.lessons.values.contains { !$0.transcript.isEmpty }
+                    : nil,
                 onSaved: {}
             )
         } else {

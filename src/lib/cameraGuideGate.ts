@@ -187,21 +187,53 @@ export function recordingBriefGate({
  * teaching and must not be interrupted.
  */
 export const LESSON_AUDIO_BRIEF_METADATA_KEY = "lesson_audio_brief_seen";
+export const LESSON_AUDIO_COACH_BRIEF_METADATA_KEY =
+  "lesson_audio_coach_brief_seen";
 export const LESSON_VIDEO_BRIEF_METADATA_KEY = "lesson_video_brief_seen";
+export const LESSON_VIDEO_PLAYER_BRIEF_METADATA_KEY =
+  "lesson_video_player_brief_seen";
 
-export type LessonBriefKind = "audio" | "video";
+/**
+ * Both lesson features have a player door and a coach door, and the two
+ * are taught different things: a player's recap saves itself privately,
+ * a coach's is sent to a student. So each door counts its own showing.
+ * One account can hold both roles, and being taught the coach's version
+ * must not rob it of the player's.
+ *
+ * `audio` and `video` keep the bare slugs they shipped with, so nobody
+ * who has already finished one is shown it a second time.
+ */
+export type LessonBriefKind =
+  | "audioPlayer"
+  | "audioCoach"
+  | "videoCoach"
+  | "videoPlayer";
+
+const LESSON_BRIEF_KEYS: Record<
+  LessonBriefKind,
+  { metadata: string; slug: string }
+> = {
+  audioPlayer: { metadata: LESSON_AUDIO_BRIEF_METADATA_KEY, slug: "audio" },
+  audioCoach: {
+    metadata: LESSON_AUDIO_COACH_BRIEF_METADATA_KEY,
+    slug: "audio-coach",
+  },
+  videoCoach: { metadata: LESSON_VIDEO_BRIEF_METADATA_KEY, slug: "video" },
+  videoPlayer: {
+    metadata: LESSON_VIDEO_PLAYER_BRIEF_METADATA_KEY,
+    slug: "video-player",
+  },
+};
 
 export function lessonBriefMetadataKey(kind: LessonBriefKind): string {
-  return kind === "audio"
-    ? LESSON_AUDIO_BRIEF_METADATA_KEY
-    : LESSON_VIDEO_BRIEF_METADATA_KEY;
+  return LESSON_BRIEF_KEYS[kind].metadata;
 }
 
 export function lessonBriefStorageKey(
   kind: LessonBriefKind,
   userId: string,
 ): string {
-  return `pl-lesson-${kind}-brief-seen:${userId}`;
+  return `pl-lesson-${LESSON_BRIEF_KEYS[kind].slug}-brief-seen:${userId}`;
 }
 
 export function lessonBriefGate({

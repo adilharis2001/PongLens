@@ -45,10 +45,15 @@ struct RootView: View {
             RecordingBriefSheet(context: .upload, onDone: {})
         } else if ProcessInfo.processInfo.arguments.contains("--dev-lesson-audio-brief") {
             // The lesson briefs, without an account, for review. Same idea
-            // as --dev-recording-brief above.
-            LessonAudioBriefSheet(onDone: {})
+            // as --dev-recording-brief above. Four of them, because each
+            // feature reads differently to the player and to the coach.
+            LessonAudioBriefSheet(audience: .audioPlayer, onDone: {})
+        } else if ProcessInfo.processInfo.arguments.contains("--dev-lesson-audio-coach-brief") {
+            LessonAudioBriefSheet(audience: .audioCoach, onDone: {})
         } else if ProcessInfo.processInfo.arguments.contains("--dev-lesson-video-brief") {
-            LessonVideoBriefSheet(onDone: {})
+            LessonVideoBriefSheet(audience: .videoCoach, onDone: {})
+        } else if ProcessInfo.processInfo.arguments.contains("--dev-lesson-video-player-brief") {
+            LessonVideoBriefSheet(audience: .videoPlayer, onDone: {})
         } else if ProcessInfo.processInfo.arguments.contains("--dev-camera-guide") {
             // The "Where to place the camera" sheet, without an account,
             // for the same reason.

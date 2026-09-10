@@ -1,15 +1,29 @@
 import SwiftUI
 
-/// The two lesson briefs: the pages only. The walk is BriefSheet, the same
-/// one the recording brief uses, so all three behave identically.
+/// The lesson briefs: the pages only. The walk is BriefSheet, the same one
+/// the recording brief uses, so they all behave identically.
 ///
 /// The words are written twice, here and in src/components/LessonBriefs.tsx,
 /// exactly as the recording brief's are. The pictures come from the same
 /// SVGs, exported by scripts/brief/export-ios.mjs.
+///
+/// FOUR BRIEFS, BECAUSE THERE ARE FOUR DOORS. Both features can be opened
+/// by a player or by a coach, and the two are not doing the same thing. A
+/// player records the lesson they are being given and keeps it; a coach
+/// records the one they are giving and files it under a student. Writing
+/// one brief for both leaves half the readers being addressed as somebody
+/// they are not, which is exactly what shipped on 2026-09-10: the coach's
+/// own recorder told them the notes would capture "what your coach kept
+/// coming back to".
+///
+/// Most of the drawings are true for either reader and are shared. Only the
+/// ENDING differs enough to need its own picture, because that is the one
+/// thing the two doors genuinely do differently.
 
 enum LessonBriefPages {
-    /// Audio lessons: iPhone only. There is no audio recorder on the web.
-    static let audio: [BriefPage] = [
+    /// The player's own recorder: the lesson they are being given.
+    /// iPhone only. There is no audio recorder on the web.
+    static let audioPlayer: [BriefPage] = [
         BriefPage(
             image: "brief-a1",
             title: "Your lesson, written up",
@@ -27,8 +41,29 @@ enum LessonBriefPages {
         ),
     ]
 
-    /// Lesson videos: the coach's side, on both platforms.
-    static let video: [BriefPage] = [
+    /// The coach's recorder: the lesson they are giving. Same three ideas,
+    /// but the person talking is the reader, and it is filed under a
+    /// student instead of landing in the reader's own journal.
+    static let audioCoach: [BriefPage] = [
+        BriefPage(
+            image: "brief-a1",
+            title: "Your lesson, written up",
+            body: "Record the lesson and PongLens writes it up for you. You get a short title, the things you kept coming back to, and the points under each one. The full transcript is saved with it, so you can go back to the exact words later."
+        ),
+        BriefPage(
+            image: "brief-a2",
+            title: "Put the phone near the net",
+            body: "Rest it near the net with the screen down and nothing covering the microphone. It only has to hear you talking, not the ball. You can lock the phone and leave it there for the whole lesson, and pause it when you take a break. A two-hour lesson is fine."
+        ),
+        BriefPage(
+            image: "brief-a3c",
+            title: "You see it before your student does",
+            body: "When you finish, the notes and the transcript come up for you to read. Fix any names or terms the microphone got wrong, then save it to your student. It waits in their file until you send it, and the recording itself is deleted once you save."
+        ),
+    ]
+
+    /// The coach importing a lesson they gave, to send back to a student.
+    static let videoCoach: [BriefPage] = [
         BriefPage(
             image: "brief-v1",
             title: "A short recap of the whole lesson",
@@ -46,14 +81,43 @@ enum LessonBriefPages {
             body: "The recap comes back for you to read through first. Rename a chapter, fix a line, or take out anything that does not belong. When you share it, it lands in your student's journal, and nothing reaches them until you do."
         ),
     ]
+
+    /// The player importing a lesson they were given. Two things genuinely
+    /// differ from the coach's: the camera has to hear the OTHER person,
+    /// and there is no sending at the end. A player's recap publishes
+    /// itself, privately, the first time they open it (Adil, 2026-09-07),
+    /// so the last page teaches where it went rather than what to press.
+    static let videoPlayer: [BriefPage] = [
+        BriefPage(
+            image: "brief-v1",
+            title: "A short recap of your lesson",
+            body: "Import a lesson you filmed and PongLens turns it into a short recap. It finds the moments where your coach was teaching you something and cuts them together into chapters, with what they said written beside each one. A ninety-minute lesson usually comes back as ten to fifteen minutes.",
+            aspect: 320.0 / 300.0
+        ),
+        BriefPage(
+            image: "brief-v2",
+            title: "Film so your coach is heard",
+            body: "The recap is built from what your coach says, so put the camera on their side of the table, angled across it and close enough to pick them up over the ball. Film landscape at 1080p and 30 fps. If the video has no sound on it, there is nothing to build a recap from."
+        ),
+        BriefPage(
+            image: "brief-v3p",
+            title: "It saves itself to your journal",
+            body: "Before you choose the video, you say who taught the lesson. The recap goes into your journal under that coach as soon as it is ready, and only you can see it. If you want your coach to have it, there is a box to tick on the recap."
+        ),
+    ]
 }
 
 struct LessonAudioBriefSheet: View {
+    /// Which recorder door this is. The coach's is the one presented by
+    /// CoachEntryComposer; the player's is the Coaching tab's own.
+    var audience: LessonBriefGate.Kind = .audioPlayer
     let onDone: () -> Void
 
     var body: some View {
         BriefSheet(
-            pages: LessonBriefPages.audio,
+            pages: audience == .audioCoach
+                ? LessonBriefPages.audioCoach
+                : LessonBriefPages.audioPlayer,
             finalLabel: "Start recording",
             onDone: onDone
         )
@@ -61,11 +125,14 @@ struct LessonAudioBriefSheet: View {
 }
 
 struct LessonVideoBriefSheet: View {
+    var audience: LessonBriefGate.Kind = .videoCoach
     let onDone: () -> Void
 
     var body: some View {
         BriefSheet(
-            pages: LessonBriefPages.video,
+            pages: audience == .videoPlayer
+                ? LessonBriefPages.videoPlayer
+                : LessonBriefPages.videoCoach,
             finalLabel: "Continue",
             onDone: onDone
         )

@@ -19,7 +19,11 @@ import sharp from "sharp";
 // shuffling up, so a stale reference points at nothing instead of quietly
 // at the wrong picture.
 // p* is the recording brief, a* the audio lesson, v* the lesson video.
-const PAGES = ["p1", "p3", "p4", "p5", "a1", "a2", "a3", "v1", "v2", "v3"];
+const PAGES = [
+  "p1", "p3", "p4", "p5",
+  "a1", "a2", "a3", "a3c",
+  "v1", "v2", "v3", "v3p",
+];
 const out = "ios/PongLens/PongLens/Resources";
 for (const n of PAGES) {
   const svg = readFileSync(`public/brief/${n}.svg`, "utf8").replaceAll(

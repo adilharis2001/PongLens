@@ -162,21 +162,35 @@ enum RecordingBriefGate {
 ///
 /// Twin of the `lessonBrief*` half of src/lib/cameraGuideGate.ts.
 enum LessonBriefGate {
+    /// Both lesson features have a player door and a coach door, and the
+    /// two are taught different things: a player's recap saves itself
+    /// privately, a coach's is sent to a student. So each door counts its
+    /// own showing. One account can hold both roles, and being taught the
+    /// coach's version must not rob it of the player's.
+    ///
+    /// `audioPlayer` and `videoCoach` keep the bare key names they shipped
+    /// with, so nobody who has already finished one is shown it again.
     enum Kind {
-        case audio
-        case video
+        case audioPlayer
+        case audioCoach
+        case videoCoach
+        case videoPlayer
 
         var metadataKey: String {
             switch self {
-            case .audio: "lesson_audio_brief_seen"
-            case .video: "lesson_video_brief_seen"
+            case .audioPlayer: "lesson_audio_brief_seen"
+            case .audioCoach: "lesson_audio_coach_brief_seen"
+            case .videoCoach: "lesson_video_brief_seen"
+            case .videoPlayer: "lesson_video_player_brief_seen"
             }
         }
 
         func storageKey(userId: String) -> String {
             switch self {
-            case .audio: "pl-lesson-audio-brief-seen:\(userId)"
-            case .video: "pl-lesson-video-brief-seen:\(userId)"
+            case .audioPlayer: "pl-lesson-audio-brief-seen:\(userId)"
+            case .audioCoach: "pl-lesson-audio-coach-brief-seen:\(userId)"
+            case .videoCoach: "pl-lesson-video-brief-seen:\(userId)"
+            case .videoPlayer: "pl-lesson-video-player-brief-seen:\(userId)"
             }
         }
     }

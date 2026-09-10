@@ -24,6 +24,14 @@ struct LessonRecordScreen: View {
     /// screen behaves identically.
     var saveAs: ((String) async -> Bool)? = nil
 
+    /// Whether THIS door has been used before, for the one-time brief.
+    /// The two doors keep their records in different places: a player's
+    /// lessons sit in their own journal, a coach's are filed under
+    /// students, so the coach's caller answers this rather than letting
+    /// the screen below read the player's list and conclude that a coach
+    /// of two years has never recorded anything.
+    var briefHasDoneBefore: Bool? = nil
+
     /// Called once the lesson has been saved, so the journal behind can
     /// reload. The entry is written from here rather than handed onward.
     let onSaved: () -> Void
@@ -37,6 +45,13 @@ struct LessonRecordScreen: View {
     /// (the journal's New entry and the coach composer) so neither can be
     /// reached without it.
     @State private var briefOpen = false
+
+    /// Which of the two doors opened this screen, and therefore which
+    /// brief belongs in front of it. `saveAs` is the coach composer's
+    /// hand-off and nothing else sets it, so it is the honest tell.
+    private var briefAudience: LessonBriefGate.Kind {
+        saveAs == nil ? .audioPlayer : .audioCoach
+    }
 
     @State private var recorder = LessonRecorder()
     @State private var transcriber = LessonTranscriber()
@@ -176,16 +191,17 @@ struct LessonRecordScreen: View {
             guard !tutorialCaptureActive else { return }
             #endif
             briefOpen = LessonBriefFirstRun.shouldShow(
-                .audio,
+                briefAudience,
                 app: app,
-                hasDoneBefore: store.loaded
-                    ? store.lessons.contains { !$0.transcript.isEmpty }
-                    : nil
+                hasDoneBefore: briefHasDoneBefore
+                    ?? (store.loaded
+                        ? store.lessons.contains { !$0.transcript.isEmpty }
+                        : nil)
             )
         }
         .fullScreenCover(isPresented: $briefOpen) {
-            LessonAudioBriefSheet {
-                LessonBriefFirstRun.markDone(.audio, app: app)
+            LessonAudioBriefSheet(audience: briefAudience) {
+                LessonBriefFirstRun.markDone(briefAudience, app: app)
                 briefOpen = false
             }
             .interactiveDismissDisabled()
