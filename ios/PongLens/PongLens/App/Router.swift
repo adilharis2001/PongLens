@@ -8,6 +8,13 @@ final class Router {
     /// the collapsed preview in Coaching. Cleared by the Journal once
     /// it has scrolled.
     var journalEntryToReveal: UUID?
+    /// The coaches roster should open when the Coaching tab next appears.
+    /// Set beside `tab = .coaching` by Account's "Your coaches" row, which
+    /// cannot push the route itself: AccountScreen renders inside BOTH
+    /// workspace roots, and only the player's registers CoachRosterRoute,
+    /// so pushing from there would be a silent no-op in coach mode.
+    /// Cleared by MainTabView once it has pushed.
+    var openCoachRoster = false
     var uploadOpen = false
     var recordOpen = false
     /// Which door opened the recorder. The details sheet reads it on stop,

@@ -354,11 +354,19 @@ struct AccountScreen: View {
             }
             .padding(16)
             rowDivider
-            // One row, and it opens the tab. Everything about a coach now
+            // One row, and it opens the roster. Everything about a coach
             // lives there: what they have shared, what you have shared
             // back, and what they can see. Two places to manage the same
             // relationship is how the two drift.
-            navRow("Your coaches") { router.tab = .coaching; dismiss() }
+            //
+            // The workspace is set first because this screen renders in
+            // both roots, and the roster route only exists in the player's.
+            navRow("Your coaches") {
+                app.setWorkspace(.player)
+                router.openCoachRoster = true
+                router.tab = .coaching
+                dismiss()
+            }
         }
     }
 

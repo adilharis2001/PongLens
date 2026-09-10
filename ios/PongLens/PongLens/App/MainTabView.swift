@@ -170,6 +170,14 @@ struct MainTabView: View {
             .navigationDestination(for: CoachRosterRoute.self) { _ in
                 CoachRosterScreen()
             }
+            // Account asked for the roster on its way out. It cannot push
+            // the route itself: that screen renders in both workspace
+            // roots and only this one registers it.
+            .onChange(of: router.openCoachRoster) { _, wanted in
+                guard wanted else { return }
+                path.append(CoachRosterRoute())
+                router.openCoachRoster = false
+            }
             .navigationDestination(for: CoachPageRoute.self) { route in
                 CoachPageScreen(coachRefId: route.coachRefId)
             }

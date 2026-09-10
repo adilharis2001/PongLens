@@ -549,10 +549,11 @@
         {
           "heading": "Quick steps",
           "steps": [
-            "Open Coaching, choose Add a coach, and create an invite link.",
+            "Open Coaching, then Your coaches, and choose Add a coach to create an invite link.",
             "Choose whether this coach can see all matches or only matches you share.",
             "Send the link. The connection is added when the coach signs in and accepts it.",
-            "Open the coach later to change that coach's match access or remove the connection."
+            "A coach you have only written down while filing a lesson is on that list too. Open them and choose Send an invite.",
+            "Open a coach later to change what they can see, end their access, or remove them from your list."
           ]
         },
         {

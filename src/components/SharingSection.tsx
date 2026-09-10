@@ -22,6 +22,7 @@ import {
   endAccessConfirm,
   removeConfirm,
   restoreNotice,
+  inviteWaitingLine,
   type Confirm,
 } from "@/lib/coaches/coachActions";
 
@@ -605,6 +606,14 @@ export function SharingSection({
     [userId, fetchLinks],
   );
 
+  const inviteUrl = useCallback(
+    (link: CoachLinkRow) =>
+      typeof window === "undefined"
+        ? ""
+        : `${window.location.origin}/coach-invite/${link.invite_token}`,
+    [],
+  );
+
   const copyInvite = useCallback(async (link: CoachLinkRow) => {
     try {
       await navigator.clipboard.writeText(
@@ -733,6 +742,22 @@ export function SharingSection({
               onLinkCreated={() => void fetchLinks()}
               buttonClassName="glow-cta w-full rounded-full bg-cyan-glow px-6 py-2.5 text-sm font-semibold text-ink sm:w-auto"
             />
+          </div>
+        )}
+
+        {invite && (
+          <div className="mt-3 rounded-2xl border border-edge bg-surface-2/30 p-4">
+            {/* This is where a player goes looking for the link, and until
+                2026-09-10 they found a bare Copy link pill with no URL on
+                it. The sentence comes from coachActions so the web and the
+                phone say the same thing: it used to name a destination,
+                and named a different one on each platform. */}
+            <p className="text-sm text-zinc-400">
+              {inviteWaitingLine(true)}
+            </p>
+            <p className="mt-2 break-all font-mono text-xs text-zinc-300">
+              {inviteUrl(invite)}
+            </p>
           </div>
         )}
 

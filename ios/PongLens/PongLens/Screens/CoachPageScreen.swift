@@ -324,8 +324,37 @@ struct CoachPageScreen: View {
         .disabled(busy)
     }
 
+    /// A waiting invite, with the link on it.
+    ///
+    /// This is where a player goes looking for the link, and until
+    /// 2026-09-10 they found a bare Copy link pill with no URL and no way
+    /// to send it. The sentence comes from CoachActions so the phone and
+    /// the web say the same thing: it used to name a destination, and named
+    /// a different one on each platform ("from Coaching" on the web, "from
+    /// Account" here) for a screen that manages none of this.
     private func inviteActions(_ invite: CoachLinkRow) -> some View {
         VStack(spacing: 10) {
+            Text(CoachActions.inviteWaitingLine(revokeIsHere: true))
+                .font(.plCaption)
+                .foregroundStyle(PL.text400)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let token = invite.inviteToken,
+               let url = URL(string: "https://www.ponglens.com/coach-invite/\(token)") {
+                Text(url.absoluteString)
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(PL.text300)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+
+                ShareLink(item: url) {
+                    Text("Share the link")
+                        .frame(maxWidth: .infinity, minHeight: 28)
+                }
+                .buttonStyle(PLSecondaryButtonStyle())
+            }
+
             if let token = invite.inviteToken {
                 Button {
                     UIPasteboard.general.string =
