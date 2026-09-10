@@ -9,7 +9,6 @@ import {
 } from "@/lib/iosBeta/client";
 import {
   COACH_INTERESTS,
-  FEEDBACK_OPTIONS,
   PLAYER_INTERESTS,
   optionsForRole,
   type BetaAnswers,
@@ -93,13 +92,11 @@ export function IosBetaSignup({
   const titleId = useId();
   const roleHelpId = useId();
   const interestHelpId = useId();
-  const feedbackHelpId = useId();
   const messageId = useId();
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
   const [role, setRole] = useState<BetaRole | null>(null);
   const [interests, setInterests] = useState<string[]>([]);
-  const [feedback, setFeedback] = useState<string[]>([]);
   const [roleError, setRoleError] = useState(false);
   const [interestError, setInterestError] = useState(false);
   const [status, setStatus] = useState<BetaSignupResult | "idle" | "loading">(
@@ -126,7 +123,6 @@ export function IosBetaSignup({
     setCompany("");
     setRole(null);
     setInterests([]);
-    setFeedback([]);
     setRoleError(false);
     setInterestError(false);
     setStatus("idle");
@@ -155,15 +151,6 @@ export function IosBetaSignup({
     if (status !== "idle") setStatus("idle");
   }
 
-  function toggleFeedback(value: string, checked: boolean) {
-    setFeedback((current) => {
-      if (!checked) return current.filter((item) => item !== value);
-      if (value === "not_now") return ["not_now"];
-      return [...current.filter((item) => item !== "not_now"), value];
-    });
-    if (status !== "idle") setStatus("idle");
-  }
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (status === "loading") return;
@@ -185,7 +172,13 @@ export function IosBetaSignup({
       formVersion: 2,
       role,
       interests: visibleInterests,
-      feedback,
+      // The form stopped asking how someone wants to be contacted about
+      // their experience (Adil, 2026-09-10). An empty list is what the
+      // intake already reads as "unanswered", so requests made from here
+      // simply carry no contact preference; the answers people gave while
+      // the question existed are untouched, and the outreach page still
+      // shows and edits them.
+      feedback: [],
     };
     const submission = submissionRef.current + 1;
     submissionRef.current = submission;
@@ -371,30 +364,8 @@ export function IosBetaSignup({
                 ) : null}
               </fieldset>
 
-              <fieldset className="mt-7" aria-describedby={feedbackHelpId}>
-                <legend className="text-sm font-medium text-zinc-200">Would you be open to sharing feedback?</legend>
-                <p id={feedbackHelpId} className="mt-1 text-sm leading-5 text-zinc-500">
-                  Choose how we can contact you about your experience. This is optional and won’t affect beta access.
-                </p>
-                <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  {FEEDBACK_OPTIONS.map((option) => (
-                    <label key={option.value} className={checkboxRow}>
-                      <input
-                        type="checkbox"
-                        disabled={isSubmitting}
-                        value={option.value}
-                        checked={feedback.includes(option.value)}
-                        onChange={(event) => toggleFeedback(option.value, event.target.checked)}
-                        className="mt-0.5 h-4 w-4 shrink-0 accent-cyan-glow"
-                      />
-                      <span>{option.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-
-              <p className="mt-6 text-sm leading-5 text-zinc-400">
-                We’ll use your email for beta access and essential beta updates, and to ask for feedback if you choose. No marketing. See our{" "}
+              <p className="mt-7 text-sm leading-5 text-zinc-400">
+                We’ll use your email for beta access and essential beta updates. No marketing. See our{" "}
                 <Link href="/privacy" className="text-cyan-glow underline decoration-cyan-glow/40 underline-offset-2">
                   privacy policy
                 </Link>.
