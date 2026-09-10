@@ -16,6 +16,10 @@ import { SharedEntryCard, type SharedEntry } from "@/app/journal/CoachShared";
 import { useFocusPoints } from "@/app/journal/useFocusPoints";
 import { journalTagsForOwner } from "@/lib/journal/tags";
 import { NewLessonSheet } from "./NewLessonSheet";
+import {
+  coachingTabDoor,
+  invitesWaitingLabel,
+} from "@/lib/coaches/coachActions";
 import { sortCoaches, type PlayerCoach,
   coachStanding,
 } from "@/lib/coaches/playerCoaches";
@@ -385,6 +389,24 @@ export function PlayerCoaching({
     </button>
   );
 
+  /* Pending links nobody has named. They are not in `coaches`, because a
+     row only exists once the player types a name, so a player whose only
+     artefact is one of these would see the first-run card and still have no
+     way to reach the link they already sent. */
+  const unnamedPending = links.filter(
+    (l) =>
+      l.status === "pending" && !coaches.some((c) => c.invite_id === l.id),
+  ).length;
+  const pendingInvites =
+    coaches.filter((c) => c.status === "invited").length + unnamedPending;
+  /* One gate, shared with the phone. This used to be `coaches.length === 0`
+     written twice in prose, and writing down one coach hid the only invite
+     button in the product. */
+  const door = coachingTabDoor(
+    coaches.length,
+    unnamedPending,
+    loaded ? "ready" : "loading",
+  );
   const noCoaches = coaches.length === 0;
 
   return (
@@ -424,10 +446,34 @@ export function PlayerCoaching({
         </div>
       )}
 
+      {/* The permanent way in. The chips filter the feed; they are not a
+          roster, they carry no standing and no actions, and under "All"
+          there was no way into anything at all. */}
+      {door === "row" && (
+        <Link
+          href="/coaching/coach"
+          className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-edge bg-surface px-4 py-3.5 transition-colors hover:border-cyan-glow/50"
+        >
+          <span className="text-sm font-medium text-zinc-200">
+            Your coaches
+          </span>
+          <span className="flex shrink-0 items-center gap-2">
+            {invitesWaitingLabel(pendingInvites) && (
+              <span className="text-xs text-cyan-glow">
+                {invitesWaitingLabel(pendingInvites)}
+              </span>
+            )}
+            <span className="text-zinc-600" aria-hidden>
+              ›
+            </span>
+          </span>
+        </Link>
+      )}
+
       {/* The same first-run card the match library uses. A player opening
           a tab they have never had before is owed the explanation, not a
           label and a button. */}
-      {noCoaches && loaded && (
+      {door === "empty" && (
         <div className="mt-6 rounded-2xl border border-edge bg-surface p-10 text-center">
           <p className="text-3xl">👥</p>
           <p className="mt-3 font-medium text-zinc-200">No coaches yet</p>
