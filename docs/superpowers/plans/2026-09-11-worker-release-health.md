@@ -26,11 +26,11 @@
 
 **Interface:** provide build/verify/runner commands; manifest is JSON with `schema`, `release_id`, `source_commit`, `files`, `runtime` and `body_model` identities. Runner sets `PONGLENS_MATCH_RELEASE`, `PONGLENS_WORKER_PY`, `PONGLENS_PIPELINE_PY`, `PONGLENS_BLURBALL_INFER`, `PONGLENS_RTMPOSE_PY`, `PONGLENS_RTMPOSE_MODEL`, `PONGLENS_RTMPOSE_DET_MODEL`, `PONGLENS_TABLE_KEYPOINT_HOME`, `PONGLENS_TABLE_KEYPOINT_PY`, `PONGLENS_BODY_MODEL`, and fixed media executable paths. Parent owns edits to worker.py / points_pipeline.py / table_keypoints.py / extract_players_rtmpose.py.
 
-- [ ] Capture and verify baseline source. Build from committed files, detect changes during collection, include body model data and Core ML helper.
-- [ ] Write tests that reject changed/missing/extra files and symlink escapes, retain unchanged output when the source checkout changes, reject missing models/runtime, and guarantee children use the resolved release directory.
-- [ ] Implement content-addressed build and verification, adapting existing release machinery where useful. Include external detector source/weights and exact dependencies; do not silently use the current TTVid checkout after sealing. Separate writable cache/log/work paths.
-- [ ] Implement stage-only installation and a runtime runner that verifies before starting, with explicit rollback targets. No live launchd operations.
-- [ ] Run focused tests and report CLI commands for preparing a real package and smoke check. Commit owned files only.
+- [x] Capture and verify baseline source. Build from committed files, detect changes during collection, include body model data and Core ML helper.
+- [x] Write tests that reject changed/missing/extra files and symlink escapes, retain unchanged output when the source checkout changes, reject missing models/runtime, and guarantee children use the resolved release directory.
+- [x] Implement content-addressed build and verification, adapting existing release machinery where useful. Include external detector source/weights and exact dependencies; do not silently use the current TTVid checkout after sealing. Separate writable cache/log/work paths.
+- [x] Implement stage-only installation and a runtime runner that verifies before starting, with explicit rollback targets. No live launchd operations.
+- [x] Run focused tests and report CLI commands for preparing a real package and smoke check. Commit owned files only.
 
 ### Task 2: Durable execution outcomes and operational health
 
@@ -38,17 +38,17 @@
 
 **Interface:** `match.json.processing` is an additive versioned object; reuse the existing unique `job_id:read_ct` attempt key shared with cost reporting. Database table `worker_processing_runs` stores attempt_key/job_id/release_id/requested_pipeline/delivered_pipeline/status/reason_code/details/start/end. `worker_processing_incidents` holds deduplicated active/recovered operational incidents. Admin RPC returns recent attempts/incidents and missing-telemetry coverage.
 
-- [ ] Write behavior tests for successful bodies, expected refusal, model mismatch/programming failure, failed pose child, failed second pass, outer legacy rebuild, V3-only degradation, missing telemetry and retry-safe persistence.
-- [ ] Carry requested configuration through every fallback; persist structured final facts from the output actually published. Snapshot release/model/config information. Do not infer success from nonempty points.
-- [ ] Add start/final records with failure-isolated persistence and retry spool outside the payload. Add incident aggregation, deduplication, recovery and an independently executable monitor. Keep existing result completion and emails unchanged.
-- [ ] Test migration in isolated PostgreSQL if available, including admin-only access and retry idempotency. Run focused worker tests plus frozen parity.
+- [x] Write behavior tests for successful bodies, expected refusal, model mismatch/programming failure, failed pose child, failed second pass, outer legacy rebuild, V3-only degradation, missing telemetry and retry-safe persistence.
+- [x] Carry requested configuration through every fallback; persist structured final facts from the output actually published. Snapshot release/model/config information. Do not infer success from nonempty points.
+- [x] Add start/final records with failure-isolated persistence and retry spool outside the payload. Add incident aggregation, deduplication, recovery and an independently executable monitor. Keep existing result completion and emails unchanged.
+- [x] Test migration in isolated PostgreSQL if available, including admin-only access and retry idempotency. Run focused worker tests plus frozen parity.
 
 ### Task 3: Admin visibility, documentation and rollout
 
 **Files:** admin processing components/types/tests, worker runbook, CLAUDE.md; rollout record under `docs/research/2026-09-11-worker-release-health/`.
 
-- [ ] Inspect rendered shipped processing screen and source. Add release identity, requested/delivered body outcome, plain-language fallback reason, incident/recovery display and missing reporting state in the existing layout.
-- [ ] Render success, expected refusal, operational fallback and unknown states on desktop and 393x660 mobile. Full `npm run build` in this worktree. Prepare screenshots for approval.
+- [x] Inspect rendered shipped processing screen and source. Add release identity, requested/delivered body outcome, plain-language fallback reason, incident/recovery display and missing reporting state in the existing layout.
+- [x] Render success, expected refusal, operational fallback and unknown states on desktop and 393x660 mobile. Full `npm run build` in this worktree. Prepare screenshots for approval.
 - [ ] Record concrete baseline, build ID, environment inventory, smoke/parity results and rollback command. Add CLAUDE.md guidance for all future chats, clearly distinguishing staged and active status.
 - [ ] Independent review of changed runtime and health paths, then packaged representative processing and rollback rehearsal.
 - [ ] Recheck concurrent root edits and queue/launcher state before drain and activation. Apply only additive operational migration after validation. Switch verified main/fast release at a job boundary. Keep hand and lesson lanes untouched unless their dependencies require an explicit coordinated release.

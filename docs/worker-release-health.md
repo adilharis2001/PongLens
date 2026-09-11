@@ -8,9 +8,10 @@ This work isolates the Mac main/fast worker from the editable checkout and recor
 | --- | --- |
 | Implementation checkout | `/Users/adil/Desktop/Projects/PongLens/.worktrees/worker-release-health` |
 | Captured production baseline | `f4156c96`; captured current root worker while root HEAD was `b425494c`. Baseline differences from origin/main are pre-existing runtime work, not this task's fixes. |
-| New release package | `77317f94`, `617381a2`, `e6e85766`, `223d2399`, with later loader-hardening verification pending final commit. |
-| Outcome integration | `c6a9fb29`, with reviewed retry/terminal-coverage fixes in `0d2f810b`. Both scoped reviews approved; final whole-change review remains. |
+| New release package | `77317f94`, `617381a2`, `e6e85766`, `223d2399`; loader hardening, claim-status clearing, smoke runner and admin integration committed in `d14efae7`. |
+| Outcome integration | `c6a9fb29`, with reviewed retry/terminal-coverage fixes in `0d2f810b`. Final fixes in `0fa465c8` recheck immediately before claims and record missing/invalid settings without changing fallback defaults. Final scoped review approved with no remaining findings. |
 | Root checkout | Remains live and editable until explicit verified activation; no source edits by this task. Documentation notice only. |
+| Concurrent-source check | Rechecked 279 existing captured worker files against `f4156c96`: executable/model files unchanged; only worker README documentation differs. Recheck again immediately before any activation. |
 | Other tasks | Scorekeeper work is excluded. Do not change scoring helpers, point timing, shared score state, hand-cut or lesson launchers. |
 | Cloud | Match Modal remains disabled. These local release IDs are not the historical `pipeline_releases`/parity identities; do not set processing_control.active_release_id to them. |
 | Web | Previewed existing admin rows on desktop and 393×660 mobile. Screenshot approval requested, not yet received. No native iOS change. |
@@ -36,6 +37,7 @@ This work isolates the Mac main/fast worker from the editable checkout and recor
 | --- | --- |
 | Attempt key | Existing `job_id:read_ct`, shared with cost reporting. A queue retry gets a different key. |
 | Start | After input gates and before ball/pose work, freeze pipeline and edge-switch choices and record the attempt. Gate refusals and library-only imports do not claim body processing happened. |
+| Configuration provenance | Valid job overrides and explicit app settings remain authoritative. Missing/invalid/unavailable pipeline settings still execute the existing V1 default but record unknown intent; each edge switch records its own source. Bounded error codes expose defaults without storing raw values. |
 | `used` | Delivered pipeline is bodies AND explicit body-stage evidence says used. Nonempty cards alone are not proof. |
 | `refused` | Expected evidence limitation, such as insufficient visibility or missing table/activity area. Keep the existing ball cards. |
 | `degraded` | A body/pose/assembly/refinement/configuration failure occurred even if usable video or body cards were delivered. |
@@ -68,29 +70,34 @@ This work isolates the Mac main/fast worker from the editable checkout and recor
 | Check | Result |
 | --- | --- |
 | Source isolation/integrity | 18 tests pass, including source edits, new/missing files, runtime edits, symlink retarget, native dependency omissions, inherited settings and loader overrides. |
-| Outcome/fallback/database/boundary tests | 40 passed in 0.97s, including 15 real PostgreSQL cases. Original cards preserved through failed pose and partially written second pass. Drain and integrity pauses clear before resumed idle polling. |
-| Frozen bodies/V3 | Packaged tests: 16 passed, three existing missing-sample numpy warnings, 128.28 seconds. No frozen feature changes to suppress warnings. |
+| Outcome/fallback/database/boundary tests | Final `0fa465c8`: 60 passed in 1.88s, including 15 real PostgreSQL cases. Original cards preserved through failed pose and partially written second pass. Drain/integrity changes during retention or either digest prevent the next claim, and lifted pauses clear. |
+| Frozen bodies/V3 | Final packaged tests: 16 passed, three existing missing-sample numpy warnings, 129.77 seconds. No frozen feature changes to suppress warnings. |
 | Body edge/table fitting | 41 tests passed. |
-| Actual staged smoke | Source `c6a9fb29`, release `5d40fbd5374f78dc796e6648d7f9a783cc05e4618efde77924e8e10b535c4205`; inspected using reviewed `ponglens-match-release-inputs-round1.json`. This is a test bundle, not yet the final activation candidate. |
-| Imports | Packaged worker imported with existing Keychain access without starting main or touching queue; fixed paths and release identity asserted. |
+| Final bundle | Source `0fa465c8`, release `c9c012af733163130a87b4cb17612ec5fa2798e26ec83392f240fcbe296b07e9`; verified and staged at `/Users/adil/Library/Application Support/PongLens/match-releases/c9c012af733163130a87b4cb17612ec5fa2798e26ec83392f240fcbe296b07e9`. Built using reviewed `/private/tmp/ponglens-match-release-inputs-round1.json`. This is the candidate, not an active release. |
+| Actual native inference | Source `d14efae7`, release `46e93cc85ecbf89185431f219298afe4f45bff4a0f5638a734ee6e15b12b8427`: imports, pose, table and loaded-native audits pass. Those model, loader and inference files are unchanged in final source `0fa465c8`. |
+| Imports | Final packaged worker imported with existing Keychain access without starting main or touching queue; fixed paths and release identity asserted. |
+| Main/fast launch resolution | Both `run --check-only` commands executed using the staged package's own runner and passed. Each resolves the same exact sealed worker source with its intended lane, using temporary external state. Neither worker was started. |
 | Pose | Saved Prabhas clip, 2 seconds, 20 samples, actual `coreml` provider. Sandbox-only attempt failed on blocked system interfaces; normal Mac execution passed. |
 | Table | Same saved clip: all 16 frames agreed; 0.48px spread. Payload verification after inference passed. |
 | Loaded native libraries | Actual imports audited in all four interpreters: worker 42, pipeline 181, pose 126, table 150 non-system loaded images, all inside verified anchors. This checks the exercised imports, not every hypothetical future plug-in. |
-| Smoke artifacts | `/private/tmp/ponglens-release-smoke-c6a9/`; script `worker/tests/smoke_match_release.py`. |
+| Smoke artifacts | `/private/tmp/ponglens-release-smoke-final/` for final imports/parity; `/private/tmp/ponglens-release-smoke-d14/` for native inference checks. Point pipeline, body/V3 algorithms, model assets, inference loaders and parity tests are byte-identical between final and d14efae7. Script: `worker/tests/smoke_match_release.py`. |
 | Database | Isolated PostgreSQL migration, RLS, permissions, final/start idempotency, missing-final retries, out-of-order spool delivery, incident recovery and notification lease/retry checks passed. Actual mail renderer exercised; sender mocked, no emails sent. |
+| Independent monitor CLI | Final packaged `processing_health.py --once` ran under `prepare_run` environment against loopback-only `ponglens_worker_health_integration`, with a fresh separate test spool and email disabled. Monitor timestamp advanced; final bundle verification passed afterwards. No production records replayed and no media worker launched. |
 | Admin rendering | Success/refusal/problem/unknown/failure/running/empty/unavailable/paused/blocked/recovery/telemetry and monitor states rendered on desktop and 393×660 mobile, using actual components with temporary sample data. Temporary preview route removed; no production data was written. 40 view tests pass. |
-| Web build | Real `npm run build` passed with own lockfile-installed dependencies and isolated `.next`; pre-existing lint/build warnings remain. Shared node_modules symlink initially broke lint and was replaced only in this worktree. |
-| Not yet verified | Final reviewed bundle, complete live activation/rollback, first real live processing outcome, web publication. |
+| Web build | Real `npm run build` passed for final `0fa465c8` with own lockfile-installed dependencies and isolated `.next`; pre-existing lint/build warnings remain. Temporary preview removed. No native iOS code changed or native testing claimed. |
+| Test resource cleanup | Local preview server stopped. Task-created PostgreSQL containers `ponglens-worker-health-20260911` and `ponglens-worker-health-integration-20260911` stopped after verification; their disposable fixture data remains recoverable with `docker start`. Other containers untouched. |
+| Not yet verified | Complete live activation/rollback, first real live processing outcome, production notification delivery, web publication. |
 
 ## Rollout gates
 
 | Order | Required evidence |
 | --- | --- |
-| 1 | Complete monitor review fixes and independent review; record the exact final implementation commit. |
-| 2 | Rebuild using reviewed native-link/behavior inputs; verify final bundle and retain an explicit verified rollback target. |
+| 1 | Complete: final implementation `0fa465c8`, independently reviewed after fixes. |
+| 2 | Candidate built, verified and permanently staged. Still establish and rehearse the explicit first-switch rollback target; older temporary bundles have known review gaps and are not approved rollback releases. |
 | 3 | Recheck root worker files and running process/queue state; do not discard newer work from another chat. |
 | 4 | Validate and apply only the additive operational migration, with email/activation timestamp still off until switch. |
 | 5 | Drain main and fast at job boundaries before switching exact launch paths. Existing legacy launchers have no drain flag, so the first switch needs a separately verified safe handoff. Do not kill active jobs. |
 | 6 | Install independent monitor and verify release pulse identity; turn on coverage only at actual activation. Keep hand/lesson/cloud unchanged. |
 | 7 | Publish admin UI only after screenshot approval, then confirm the first real point-processing attempt. Do not create fake production jobs to manufacture evidence. |
 | Integration | Do not merge the captured baseline wholesale over newer main. Keep release source authority distinct from narrowly integrating the new admin/operational changes. |
+| Launcher source | At activation, load `match_release` from the exact staged release's `worker` directory, not this developer worktree. Main, fast and the independent monitor must all use the same explicit release directory and external state; never resolve a moving alias per child. |
