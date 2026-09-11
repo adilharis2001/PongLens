@@ -23,7 +23,7 @@ export function ProcessingHealthView({ doc, unavailable = false }: { doc: Proces
               : `Point processing encountered problems on ${incident.details.affected_jobs ?? "multiple"} jobs. Check the outcomes below.`}
           </p>)}
         {doc.missing.length > 0 && !doc.incidents.some((i) => i.kind === "telemetry_missing" && !i.recovered_at) &&
-          <p className="mt-3 text-sm text-zinc-400">{doc.missing.length} completed matches have no processing record.</p>}
+          <p className="mt-3 text-sm text-zinc-400">{doc.missing.length} processing {doc.missing.length === 1 ? "attempt has" : "attempts have"} incomplete records.</p>}
         {doc.runs.length === 0 ? <p className="mt-3 text-sm text-zinc-500">No point-processing attempts have been recorded yet.</p>
           : <ul className="mt-3 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
             {doc.runs.slice(0, 10).map((run) => {

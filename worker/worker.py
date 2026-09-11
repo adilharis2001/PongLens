@@ -9152,6 +9152,28 @@ def start_pulse_monitor():
     return monitor
 
 
+def worker_claim_ready():
+    """Check mutable launch boundaries; callers must invoke directly before claim."""
+    release = os.environ.get("PONGLENS_MATCH_RELEASE")
+    if release:
+        from match_release import verify_unchanged
+        try:
+            verify_unchanged(release)
+        except Exception:
+            pulse_stage("release_invalid")
+            log.exception("release verification failed; no work will be claimed")
+            time.sleep(30)
+            return False
+    drain_file = os.environ.get("PONGLENS_DRAIN_FILE")
+    if drain_file and os.path.exists(drain_file):
+        pulse_stage("drained")
+        time.sleep(POLL_SLEEP_S)
+        return False
+    # Clear a lifted pause even when no job arrives to report a new stage.
+    pulse_stage(None)
+    return True
+
+
 def main():
     log.info("PongLens worker starting (lane=%s queue=%s supabase=%s, "
              "code=%s, yt-dlp=%s at %s)",
@@ -9173,26 +9195,10 @@ def main():
 
     while True:
         try:
-            release = os.environ.get("PONGLENS_MATCH_RELEASE")
-            if release:
-                from match_release import verify_unchanged
-                # Resolve once in the runner; no mutable checkout/current alias.
-                # Integrity failure stops claims, while pulse exposes the reason.
-                try:
-                    verify_unchanged(release)
-                except Exception:
-                    pulse_stage("release_invalid")
-                    log.exception("release verification failed; no work will be claimed")
-                    time.sleep(30)
-                    continue
-            drain_file = os.environ.get("PONGLENS_DRAIN_FILE")
-            if drain_file and os.path.exists(drain_file):
-                pulse_stage("drained")
-                time.sleep(POLL_SLEEP_S)
+            # Keep the early check: deliberately paused workers must not start
+            # retention or digest work while waiting for the launcher switch.
+            if not worker_claim_ready():
                 continue
-            # A lifted drain or repaired release must report idle even when
-            # no job arrives to clear the previous boundary status.
-            pulse_stage(None)
             if housekeeping and (
                     time.time() - last_cleanup > CLEANUP_EVERY_S
                     or last_cleanup == 0):
@@ -9209,6 +9215,10 @@ def main():
                 maybe_send_qa_closed_digest(conn)    # never raises
                 last_digest_check = time.time()
 
+            # Housekeeping can take time. A drain or release change during it
+            # must prevent this claim, not wait for the next loop iteration.
+            if not worker_claim_ready():
+                continue
             msg = read_message(conn)
             if msg is None:
                 time.sleep(POLL_SLEEP_S)

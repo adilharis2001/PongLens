@@ -204,22 +204,37 @@ def release_identity():
 def configuration(options, get_config):
     """One body configuration snapshot, retaining the existing fail-open defaults."""
     errors = []
+
+    def read(key, allowed, default):
+        try:
+            value = get_config(key)
+        except Exception:
+            reason = 'unavailable'
+        else:
+            if value in allowed:
+                return value, 'app_config'
+            reason = 'missing' if value is None else 'invalid'
+        errors.append(key + '_' + reason)
+        return default, 'default_' + reason
+
     pipeline = options.get('points_pipeline')
     source = 'job'
     if pipeline not in ('v1', 'v2', 'bodies'):
-        source = 'app_config'
-        try:
-            pipeline = get_config('points_pipeline')
-            pipeline = pipeline if pipeline in ('v2', 'bodies') else 'v1'
-        except Exception:
-            errors.append('points_pipeline')
-            source, pipeline = 'unavailable', 'v1'
-    try:
-        anchor = get_config('body_serve_anchor') == 'on'
-        close = get_config('body_rally_end') == 'on'
-    except Exception:
-        errors.append('body_card_edges')
-        anchor, close = False, False
+        if pipeline is not None:
+            errors.append('job_points_pipeline_invalid')
+        pipeline, source = read('points_pipeline', ('v1', 'v2', 'bodies'), 'v1')
+    anchor, anchor_source = read('body_serve_anchor', ('on', 'off'), 'off')
+    if anchor_source == 'default_unavailable':
+        # Preserve the existing pair-wide exception fallback and short circuit.
+        close, close_source = 'off', 'default_edge_read_failure'
+    else:
+        close, close_source = read('body_rally_end', ('on', 'off'), 'off')
+        if close_source == 'default_unavailable':
+            anchor = 'off'
+            if anchor_source == 'app_config':
+                anchor_source = 'default_edge_read_failure'
     return {'pipeline': pipeline, 'pipeline_source': source,
-            'requested_pipeline': 'unknown' if source == 'unavailable' else pipeline,
-            'serve_anchor': anchor, 'rally_end': close, 'config_errors': errors}
+            'requested_pipeline': 'unknown' if source.startswith('default_') else pipeline,
+            'serve_anchor': anchor == 'on', 'serve_anchor_source': anchor_source,
+            'rally_end': close == 'on', 'rally_end_source': close_source,
+            'config_errors': errors}
