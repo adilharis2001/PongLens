@@ -507,10 +507,11 @@ export function ServeMissView({
           from above, about 1.7 times taller than it is wide, so at the
           full width of this column it would stand 800px tall on its own
           and push the note box off the screen — the exact problem this
-          change exists to fix. 15rem measures 410px tall, which is what
-          the video column leaves once the note box has its share. */}
+          change exists to fix. 13rem measures 355px tall, which is what
+          the video column leaves once the themes and the note box have
+          had their share — the picker below it stands open now. */}
       <div className="flex min-w-0 flex-col gap-3 lg:flex-[2]">
-        <div className="w-40 shrink-0 self-start sm:w-48 lg:w-full lg:max-w-[15rem]">
+        <div className="w-40 shrink-0 self-start sm:w-48 lg:w-full lg:max-w-[13rem]">
           <Court
             card={card}
             t={t}

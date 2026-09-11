@@ -67,6 +67,7 @@ export function PointCard({
   onNoteChange,
   onThemeToggle,
   onThemeCreated,
+  onThemeDeleted,
 }: {
   row: UploadPointRow;
   serve: ServeInfo | null;
@@ -108,6 +109,7 @@ export function PointCard({
   onNoteChange?: (pointId: string, body: string) => void;
   onThemeToggle?: (pointId: string, themeId: string, on: boolean) => void;
   onThemeCreated?: (theme: Theme) => void;
+  onThemeDeleted?: (themeId: string) => void;
 }) {
   const [openMiss, setOpenMiss] = useState(false);
   const flags = pointFlags(row);
@@ -286,6 +288,7 @@ export function PointCard({
                     onNoteChange={onNoteChange}
                     onThemeToggle={onThemeToggle}
                     onThemeCreated={onThemeCreated}
+                    onThemeDeleted={onThemeDeleted ?? (() => {})}
                   />
                 )}
             </>

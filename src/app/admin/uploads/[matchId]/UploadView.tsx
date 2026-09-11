@@ -212,6 +212,22 @@ export function UploadView({
       v.some((t) => t.id === theme.id) ? v : [...v, theme]
     );
   }, []);
+  /* The delete cascades in the database, so the chips it took off other
+     cards have to come off here too — otherwise every card already tagged
+     with it keeps showing a chip for a theme that no longer exists, until
+     a reload. */
+  const dropTheme = useCallback((themeId: string) => {
+    setVocabulary((v) => v.filter((t) => t.id !== themeId));
+    setReviewThemes((m) => {
+      const next = new Map(m);
+      for (const [pointId, ids] of next) {
+        if (ids.includes(themeId)) {
+          next.set(pointId, ids.filter((id) => id !== themeId));
+        }
+      }
+      return next;
+    });
+  }, []);
 
   const reviewFor = (pointId: string) => ({
     note: reviewNotes.get(pointId) ?? "",
@@ -639,6 +655,7 @@ export function UploadView({
                   onNoteChange={setNote}
                   onThemeToggle={toggleTheme}
                   onThemeCreated={addTheme}
+                  onThemeDeleted={dropTheme}
                 />
               ))}
             </ul>
@@ -667,6 +684,7 @@ export function UploadView({
                   onNoteChange={setNote}
                   onThemeToggle={toggleTheme}
                   onThemeCreated={addTheme}
+                  onThemeDeleted={dropTheme}
                 />
               </aside>
             )}
@@ -717,6 +735,7 @@ function CardPane({
   onNoteChange,
   onThemeToggle,
   onThemeCreated,
+  onThemeDeleted,
 }: {
   row: UploadPointRow | null;
   serve: ServeInfo | null;
@@ -734,6 +753,7 @@ function CardPane({
   onNoteChange: (pointId: string, body: string) => void;
   onThemeToggle: (pointId: string, themeId: string, on: boolean) => void;
   onThemeCreated: (theme: Theme) => void;
+  onThemeDeleted: (themeId: string) => void;
 }) {
   if (!row) {
     return (
@@ -773,6 +793,7 @@ function CardPane({
       onNoteChange={onNoteChange}
       onThemeToggle={onThemeToggle}
       onThemeCreated={onThemeCreated}
+      onThemeDeleted={onThemeDeleted}
       compact
     />
   ) : null;

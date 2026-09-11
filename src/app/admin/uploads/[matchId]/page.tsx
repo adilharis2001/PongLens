@@ -194,7 +194,11 @@ export default async function AdminUploadPage({
           serveMisses={hydratedServeMisses}
           readings={readings}
           readingSummary={summary}
-          themes={themes.map((t) => ({ id: t.id, label: t.label }))}
+          themes={themes.map((t) => ({
+            id: t.id,
+            label: t.label,
+            uses: Number(t.points ?? 0),
+          }))}
           eventLabels={((labelsRes.data ?? []) as {
             t: number | string;
             label: string;
