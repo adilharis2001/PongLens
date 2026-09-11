@@ -52,21 +52,25 @@ def _inventory(root, *, anchored=False, metadata=False, filtered=False):
     def walk(path, relative, ancestors):
         if (anchored or filtered) and _skip(path):
             return
-        if path.is_symlink() and not anchored:
-            raise ReleaseError(f'Symlink in payload or source: {path}')
         try:
-            resolved = path.resolve(strict=True)
-            info = path.stat()
+            info = path.lstat()
+            symlink = stat.S_ISLNK(info.st_mode)
+            if symlink and not anchored:
+                raise ReleaseError(f'Symlink in payload or source: {path}')
+            if symlink:
+                resolved = path.resolve(strict=True)
+                info = path.stat()
         except OSError as exc:
             raise ReleaseError(f'Missing dependency: {path}') from exc
         record = {'mode': stat.S_IMODE(info.st_mode)}
-        if path.is_symlink():
+        if symlink:
             record['link'] = os.readlink(path)
             record['resolved'] = str(resolved)
         if metadata:
             record['stat'] = [info.st_dev, info.st_ino, info.st_size,
                               info.st_mtime_ns, info.st_ctime_ns]
-        if path.is_dir():
+        if stat.S_ISDIR(info.st_mode):
+            resolved = path.resolve(strict=True)
             if resolved in ancestors:
                 raise ReleaseError(f'Cyclic runtime symlink: {path}')
             record['type'] = 'directory'
@@ -74,7 +78,7 @@ def _inventory(root, *, anchored=False, metadata=False, filtered=False):
             for child in sorted(path.iterdir()):
                 walk(child, f'{relative}/{child.name}' if relative else child.name,
                      ancestors | {resolved})
-        elif path.is_file():
+        elif stat.S_ISREG(info.st_mode):
             record['type'] = 'file'
             if not metadata:
                 record['sha256'] = _hash(path)
