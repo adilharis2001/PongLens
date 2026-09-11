@@ -30,18 +30,14 @@ struct HighlightsSheet: View {
                                         .foregroundStyle(PL.text300)
                                 }
                             } else if let actionLabel = requestView.actionLabel {
-                                Button {
+                                Button(submitting ? "Starting…" : actionLabel) {
                                     if requestView.action == .score {
                                         dismiss()
                                         DispatchQueue.main.async { onScore() }
                                     } else {
                                         Task { await requestUpdate() }
                                     }
-                                } label: {
-                                    Text(submitting ? "Starting…" : actionLabel)
-                                        .frame(maxWidth: .infinity, minHeight: 28)
                                 }
-                                .buttonStyle(PLPrimaryButtonStyle())
                                 .disabled(submitting)
                             }
                             if let errorMessage {

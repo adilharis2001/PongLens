@@ -143,10 +143,10 @@ func runAutomaticHighlightsChecks() {
             contentsOfFile: "../PongLens/PongLens/Screens/MatchTools.swift",
             encoding: .utf8
         )
-        check(sheet.contains("frame(maxWidth: .infinity, minHeight: 28)"),
-              "the native score action fills the form width")
-        check(sheet.contains("buttonStyle(PLPrimaryButtonStyle())"),
-              "the native score action reuses the approved primary button")
+        check(sheet.contains("Button(submitting ? \"Starting…\" : actionLabel) {"),
+              "the native highlight request uses the standard Form action row")
+        check(!sheet.contains("buttonStyle(PLPrimaryButtonStyle())"),
+              "the native highlight request does not use the glowing primary button")
         check(sheet.contains("DispatchQueue.main.async { onScore() }"),
               "the sheet dismisses into the existing scorekeeper")
         check(tools.contains("DispatchQueue.main.async { onOpenPlayer() }"),
