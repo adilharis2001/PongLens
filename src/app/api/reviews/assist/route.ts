@@ -199,6 +199,7 @@ export async function POST(req: Request) {
         model: MODEL,
         operation: `review_${action}`,
         idempotencyKey: `openai:${String(data.id ?? crypto.randomUUID())}:${action}`,
+        subjectUserId: user.id,
       }),
     );
     await admin.from("review_assist_runs").insert({

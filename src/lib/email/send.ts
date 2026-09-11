@@ -51,6 +51,11 @@ async function defaultDependencies(): Promise<EmailDeliveryDependencies> {
     apiKey: process.env.RESEND_API_KEY ?? "",
     isSuppressed: skipIfSuppressed,
     fetch,
+    // No subject. Resend's variable rate is a real $0 on the current plan,
+    // and the send path has an address rather than an account id, so
+    // attributing a mail would buy a lookup per send and change no number.
+    // If email ever becomes a paid line, resolve the recipient to a user
+    // once at the call site and pass it down rather than looking it up here.
     async record(messageId, operation, message) {
       await recordUsage(
         [

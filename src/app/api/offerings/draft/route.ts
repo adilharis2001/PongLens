@@ -294,6 +294,7 @@ export async function POST(req: Request) {
         model: MODEL,
         operation: "offering_draft",
         idempotencyKey: `openai:${String(data.id ?? crypto.randomUUID())}:draft`,
+        subjectUserId: user.id,
       }),
     );
 

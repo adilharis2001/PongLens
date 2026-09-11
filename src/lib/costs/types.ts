@@ -28,7 +28,16 @@ export type CostUnit =
 
 export interface CostDailyPoint {
   day: string;
+  /** Run cost for the day: metered spend plus the day's share of the
+   *  recurring costs of keeping PongLens up. Build costs are not in here,
+   *  because a subscription is a flat line and plotting it teaches
+   *  nothing while swamping the spend that actually moves. */
   cost_usd: number;
+  variable_usd: number;
+  fixed_usd: number;
+  /** The day's share of what it costs to BUILD the product. Reported so a
+   *  reader can see the two side by side, never added into cost_usd. */
+  build_usd: number;
   by_provider: Record<string, number>;
 }
 
@@ -58,14 +67,59 @@ export interface CostUsageRow {
   confidence: CostConfidence;
 }
 
+/** Running PongLens for the people using it, or building it. Kept apart
+ *  everywhere: adding a Claude subscription to a Deepgram minute destroys
+ *  the only number that scales with users. */
+export type CostCategory = "run" | "build";
+
 export interface CostFixedItem {
   id: string;
   provider: string;
   label: string;
+  /** The figure on the invoice, at whatever interval it arrives. */
+  amount_usd: number;
+  recurrence: "monthly" | "annual";
+  /** Derived from amount and recurrence, so an annual bill is entered as
+   *  the annual number and divided once, in the database. */
   monthly_cost_usd: number;
+  category: CostCategory;
+  note: string | null;
   effective_from: string;
   effective_to: string | null;
   enabled: boolean;
+}
+
+/** A domain, a device, a paid dataset. Never smeared across the months as
+ *  though it recurs, so a month that contains one reads as more expensive
+ *  than a month that does not, which is the truth. */
+export interface CostOneTimeItem {
+  id: string;
+  provider: string;
+  label: string;
+  amount_usd: number;
+  incurred_on: string;
+  category: CostCategory;
+  note: string | null;
+}
+
+/** What one account cost over the period.
+ *
+ *  `attributed_usd` is money we know that person caused, because the call
+ *  that spent it said so. `allocated_usd` is their share of everything
+ *  with no single owner, divided by how much of the product they used.
+ *  The two are reported apart so the reader can see how much of the
+ *  number is a fact. */
+export interface CostPersonRow {
+  user_id: string;
+  email: string;
+  name: string | null;
+  is_coach: boolean;
+  attributed_usd: number;
+  allocated_usd: number;
+  cost_usd: number;
+  matches: number;
+  lesson_videos: number;
+  storage_bytes: number;
 }
 
 export interface CostProviderSnapshot {
@@ -91,15 +145,29 @@ export interface CostDashboardData {
   period: {
     start: string;
     end: string;
+    /** Everything: what it costs to run PongLens and what it costs to
+     *  build it. The burn rate. */
     total_usd: number;
     variable_usd: number;
     fixed_usd: number;
+    /** Serving the people who use PongLens. */
+    run_usd: number;
+    run_variable_usd: number;
+    run_fixed_usd: number;
+    /** Making PongLens. Never divided across players: nobody's upload
+     *  caused a subscription. */
+    build_usd: number;
+    build_fixed_usd: number;
+    one_time_run_usd: number;
+    one_time_build_usd: number;
   };
   daily: CostDailyPoint[];
   providers: CostProviderRow[];
   services: CostServiceRow[];
   usage: CostUsageRow[];
   fixed_items: CostFixedItem[];
+  one_time_items: CostOneTimeItem[];
+  people: CostPersonRow[];
   provider_snapshots: CostProviderSnapshot[];
   unmapped: CostUnmappedRow[];
   health: {
@@ -107,6 +175,11 @@ export interface CostDashboardData {
     last_event_at: string | null;
     latest_storage_snapshot_at: string | null;
     unmapped_count: number;
+    /** How much of the metered spend knows who caused it. This is what
+     *  says how far to trust the People tab, and it climbs on its own as
+     *  more call sites learn to name a subject. */
+    attributed_usd: number;
+    unattributed_usd: number;
   };
   simulation_baseline: {
     registered_users: number;

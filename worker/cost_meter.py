@@ -1,4 +1,10 @@
-"""Anonymous, best-effort platform cost metering for the PongLens worker."""
+"""Best-effort platform cost metering for the PongLens worker.
+
+Events may name the account whose work caused them, so the admin cost page
+can report per-player cost as a fact rather than dividing the total by
+activity counts. Metering still never changes a job's outcome: a missing
+or malformed subject costs the attribution, never the charge.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +12,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 import time
 import uuid
 from contextlib import contextmanager
@@ -53,6 +60,17 @@ def _positive(value: Any) -> float:
     except (TypeError, ValueError):
         return 0.0
     return parsed if math.isfinite(parsed) and parsed > 0 else 0.0
+
+
+_UUID = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _subject(value: Any) -> str | None:
+    text = str(value or "").strip()
+    return text.lower() if _UUID.match(text) else None
 
 
 def _dict(value: Any) -> dict:
@@ -157,6 +175,12 @@ class CostMeter:
             "idempotency_key": key,
             "metadata": metadata,
         }
+        # A malformed subject loses the attribution, never the cost. Mirrors
+        # the same rule in src/lib/costs/meter.ts and in record_cost_usage:
+        # metering is best-effort, so a bad id must not cost us a real charge.
+        subject = _subject(raw.get("subject_user_id"))
+        if subject:
+            normalized["subject_user_id"] = subject
         occurred_at = raw.get("occurred_at")
         if isinstance(occurred_at, str) and occurred_at:
             normalized["occurred_at"] = occurred_at
@@ -186,6 +210,7 @@ class CostMeter:
         model: str,
         operation: str,
         idempotency_key: str,
+        subject_user_id: str | None = None,
     ) -> list[dict]:
         usage = _dict(response.get("usage"))
         details = _dict(
@@ -204,6 +229,7 @@ class CostMeter:
             "service": "AI",
             "operation": operation,
             "sku": model,
+            "subject_user_id": subject_user_id,
         }
         miss_unit = (
             "cache_write_token"

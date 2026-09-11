@@ -113,6 +113,7 @@ export async function sortRecollectPoints(args: {
       idempotencyKey: `openai:${String(
         data?.id ?? crypto.randomUUID(),
       )}:recollect-topics`,
+      subjectUserId: args.job.userId,
     }),
   );
 

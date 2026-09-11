@@ -15,6 +15,9 @@ test("month projection uses the trailing seven complete days", () => {
   const daily: CostDailyPoint[] = Array.from({ length: 10 }, (_, index) => ({
     day: `2026-07-${String(index + 19).padStart(2, "0")}`,
     cost_usd: index < 3 ? 2 : 7,
+    variable_usd: index < 3 ? 2 : 7,
+    fixed_usd: 0,
+    build_usd: 0,
     by_provider: {},
   }));
 

@@ -122,6 +122,7 @@ function parseTakeaways(raw: string): Takeaways | "off_topic" | null {
 
 async function distillOnce(
   transcript: string,
+  subjectUserId: string,
   prompt: string = PROMPT,
   operation: string = "lesson_summary"
 ): Promise<Takeaways | "off_topic" | null> {
@@ -153,6 +154,7 @@ async function distillOnce(
     model: DISTILL_MODEL,
     operation,
     idempotencyKey: `openai:${String(data.id ?? crypto.randomUUID())}:lesson`,
+    subjectUserId,
   }));
   const raw = data?.choices?.[0]?.message?.content ?? "";
   return parseTakeaways(raw);
@@ -211,19 +213,22 @@ function windows(text: string): string[] {
 }
 
 async function distill(
-  transcript: string
+  transcript: string,
+  subjectUserId: string
 ): Promise<Takeaways | "off_topic" | null> {
   // A typed note takes the note instructions. Anything longer is a
   // session, whether it was recorded or pasted in.
   if (transcript.length < NOTE_CHARS) {
-    return distillOnce(transcript, NOTE_PROMPT, "lesson_note");
+    return distillOnce(transcript, subjectUserId, NOTE_PROMPT, "lesson_note");
   }
   if (transcript.length <= SINGLE_SHOT_CHARS) {
-    return distillOnce(transcript);
+    return distillOnce(transcript, subjectUserId);
   }
 
   const parts = windows(transcript);
-  const results = await Promise.all(parts.map((part) => distillOnce(part)));
+  const results = await Promise.all(
+    parts.map((part) => distillOnce(part, subjectUserId)),
+  );
 
   const usable = results.filter(
     (r): r is Takeaways => r !== null && r !== "off_topic"
@@ -238,6 +243,7 @@ async function distill(
 
   const merged = await distillOnce(
     JSON.stringify(usable),
+    subjectUserId,
     MERGE_PROMPT,
     "lesson_merge"
   );
@@ -336,7 +342,7 @@ export async function POST(req: Request) {
     if (!transcript || transcript.length > 200000) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
-    const result = await distill(transcript);
+    const result = await distill(transcript, user.id);
     if (result === "off_topic") {
       return NextResponse.json({ takeaways: null, offTopic: true });
     }
@@ -427,7 +433,7 @@ async function distillAndFinish(
   transcript: string,
   { recollect = true }: { recollect?: boolean } = {},
 ) {
-  const result = await distill(transcript).catch((e) => {
+  const result = await distill(transcript, userId).catch((e) => {
     console.error("lesson distill threw:", e);
     return null;
   });

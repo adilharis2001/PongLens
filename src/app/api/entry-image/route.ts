@@ -131,6 +131,7 @@ export async function POST(req: Request) {
       idempotencyKey: `openai:${String(
         data.id ?? crypto.randomUUID()
       )}:entry-image`,
+      subjectUserId: user.id,
     }));
     allowed =
       JSON.parse(data?.choices?.[0]?.message?.content ?? "")?.allowed === true;

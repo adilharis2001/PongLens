@@ -378,6 +378,11 @@ class Runtime:
   try:from worker.cost_meter import CostMeter
   except ModuleNotFoundError:from cost_meter import CostMeter
   self.meter=CostMeter(None)
+  # Whose lesson the worker is on, stamped onto every cost it meters
+  # while processing it. Set in process() rather than passed down,
+  # because the model and transcription calls are three levels below
+  # the row and a future fourth would silently miss the argument.
+  self.subject=None
   self.url=load_secret('SUPABASE_URL','ponglens-supabase-url').rstrip('/')
   service=load_secret('SUPABASE_SERVICE_ROLE_KEY','ponglens-service-role')
   self.headers={'apikey':service,'Authorization':'Bearer '+service,'Content-Type':'application/json'}
@@ -402,7 +407,7 @@ class Runtime:
  def stage(self,row,text):self.update(row,stage=text)
  def meter_events(self,events):
   try:
-   normalized=[{**e,'source':e.get('source','internal'),'metadata':e.get('metadata',{})} for e in events if float(e.get('quantity',0))>0]
+   normalized=[{'subject_user_id':self.subject,**e,'source':e.get('source','internal'),'metadata':e.get('metadata',{})} for e in events if float(e.get('quantity',0))>0]
    self.rest('rpc/record_cost_usage','POST',{'p_events':[e for e in normalized if e]})
   except Exception:log.warning('Lesson cost metering failed',exc_info=True)
  def model(self,system,content):
@@ -908,7 +913,7 @@ def render_share_file(playback,edit,directory,on_progress=lambda x:None):
  return output
 
 def process(rt,row):
- stop=threading.Event();lease_lost=threading.Event();attempt_keys=[]
+ stop=threading.Event();lease_lost=threading.Event();attempt_keys=[];rt.subject=row.get('owner_id')
  def heartbeat():
   while not stop.wait(45):
    try:
@@ -964,7 +969,7 @@ def process(rt,row):
   message=str(e) if isinstance(e,ValueError) or str(e).startswith(('Part of the audio','The lesson could not')) else 'The recap could not be completed. Your original and completed work are kept. Retry to continue.'
   try:rt.update(row,status='failed',stage=None,error=message[:600],lease_until=None)
   except Exception:log.exception('Could not save failure state')
- finally:stop.set();thread.join(timeout=2)
+ finally:stop.set();thread.join(timeout=2);rt.subject=None
 
 def process_share_render(rt,claim):
  """Prepare the copy of a recap that a coach can hand to somebody outside

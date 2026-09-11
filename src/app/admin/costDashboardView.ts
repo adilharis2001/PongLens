@@ -1,6 +1,7 @@
 import type {
   CostConfidence,
   CostDashboardData,
+  CostPersonRow,
   ProviderCostCoefficient,
   SimulationBaseline,
 } from "../../lib/costs/types.ts";
@@ -451,4 +452,141 @@ export function buildSimulationBaseline(
         ? (computeSeconds * 0.2) / retainedPoints
         : 5,
   };
+}
+
+/**
+ * The three numbers the cost page opens with.
+ *
+ * Run and build are never summed into each other, only alongside each
+ * other. Run cost is ~$12 a month and build cost is ~$400: put them in one
+ * figure and the number that scales with users disappears into the number
+ * that does not, which is how the page stopped being able to answer "what
+ * does a player cost me".
+ */
+export interface BurnSummary {
+  runUsd: number;
+  buildUsd: number;
+  totalUsd: number;
+  days: number;
+  /** Run cost per day over the period, for a projection that means something. */
+  runPerDayUsd: number;
+  monthlyRunFixedUsd: number;
+  monthlyBuildFixedUsd: number;
+  /** Recurring cost per month, whatever interval each item is billed at. */
+  monthlyFixedUsd: number;
+  /**
+   * What a month costs if nothing changes: the observed run rate carried
+   * forward thirty days, plus the recurring cost of building. This is the
+   * burn rate — the one number that answers "what does keeping PongLens
+   * alive cost me" without hiding either half inside the other.
+   */
+  monthlyAtThisRateUsd: number;
+  /**
+   * The share of METERED spend that knows who caused it, 0 to 1.
+   *
+   * This is the honesty dial on the People tab. It is not a health
+   * problem when it is low — it says how much of that tab is measured
+   * and how much is an estimate — and it climbs on its own as more call
+   * sites learn to name a subject.
+   */
+  attributedShare: number;
+}
+
+function days(startIso: string, endIso: string): number {
+  const start = Date.parse(startIso);
+  const end = Date.parse(endIso);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return 1;
+  return Math.max(1, Math.round((end - start) / 86_400_000));
+}
+
+/**
+ * `visible` narrows the summary to the days the reader has selected. The
+ * daily series carries its own variable / run-fixed / build split for
+ * exactly this reason: the RPC is fetched once over 90 days, and
+ * re-querying it every time somebody presses "7 days" would buy nothing
+ * the client cannot already add up.
+ */
+export function buildBurnSummary(
+  data: CostDashboardData,
+  visible?: CostDashboardData["daily"],
+): BurnSummary {
+  const period = data.period;
+  const scoped = visible != null && visible.length > 0;
+  const firstDay = scoped ? visible[0]!.day : null;
+  const lastDay = scoped ? visible[visible.length - 1]!.day : null;
+  const oneTime = (category: "run" | "build") =>
+    data.one_time_items
+      .filter(
+        (item) =>
+          item.category === category &&
+          (!scoped ||
+            (item.incurred_on >= firstDay! && item.incurred_on <= lastDay!)),
+      )
+      .reduce((sum, item) => sum + numeric(item.amount_usd), 0);
+  const runUsd = scoped
+    ? visible.reduce((sum, point) => sum + numeric(point.cost_usd), 0) +
+      oneTime("run")
+    : numeric(period.run_usd);
+  const buildUsd = scoped
+    ? visible.reduce((sum, point) => sum + numeric(point.build_usd), 0) +
+      oneTime("build")
+    : numeric(period.build_usd);
+  const span = scoped ? visible.length : days(period.start, period.end);
+  const enabled = data.fixed_items.filter((item) => item.enabled);
+  const monthly = (category: "run" | "build") =>
+    enabled
+      .filter((item) => item.category === category)
+      .reduce((sum, item) => sum + numeric(item.monthly_cost_usd), 0);
+  const monthlyRunFixedUsd = monthly("run");
+  const monthlyBuildFixedUsd = monthly("build");
+  const attributed = numeric(data.health.attributed_usd);
+  const metered = attributed + numeric(data.health.unattributed_usd);
+  return {
+    runUsd,
+    buildUsd,
+    totalUsd: scoped ? runUsd + buildUsd : numeric(period.total_usd),
+    days: span,
+    runPerDayUsd: runUsd / span,
+    monthlyRunFixedUsd,
+    monthlyBuildFixedUsd,
+    monthlyFixedUsd: monthlyRunFixedUsd + monthlyBuildFixedUsd,
+    monthlyAtThisRateUsd: (runUsd / span) * 30 + monthlyBuildFixedUsd,
+    attributedShare: metered > 0 ? attributed / metered : 0,
+  };
+}
+
+export type PeopleFilter = "all" | "coaches" | "players";
+
+/**
+ * People who cost something, dearest first. Rows arriving at zero are
+ * dropped by the RPC already; this filters by workspace and keeps the
+ * order stable when two people cost the same.
+ */
+export function buildPeopleRows(
+  data: CostDashboardData,
+  filter: PeopleFilter = "all",
+): CostPersonRow[] {
+  return data.people
+    .filter((row) =>
+      filter === "all"
+        ? true
+        : filter === "coaches"
+          ? row.is_coach
+          : !row.is_coach,
+    )
+    .slice()
+    .sort(
+      (a, b) =>
+        numeric(b.cost_usd) - numeric(a.cost_usd) ||
+        (a.name ?? a.email).localeCompare(b.name ?? b.email),
+    );
+}
+
+/** Storage in the units a person reads, not the units R2 bills in. */
+export function formatStoredBytes(bytes: number): string {
+  const value = numeric(bytes);
+  if (value <= 0) return "None";
+  if (value < 1_000_000) return `${Math.round(value / 1000)} KB`;
+  if (value < 1_000_000_000) return `${(value / 1_000_000).toFixed(0)} MB`;
+  return `${(value / 1_000_000_000).toFixed(1)} GB`;
 }

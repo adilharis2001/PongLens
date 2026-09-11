@@ -211,6 +211,7 @@ export async function POST(req: Request) {
         model: MODEL,
         operation: "profile_draft",
         idempotencyKey: `openai:${String(data.id ?? crypto.randomUUID())}:profile`,
+        subjectUserId: user.id,
       }),
     );
 

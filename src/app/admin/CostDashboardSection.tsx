@@ -2,16 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { formatCost, simulatePlatformCost } from "@/lib/costs/calculations";
+import type { CostDashboardData, SimulationInputs } from "@/lib/costs/types";
 import {
-  formatCost,
-  projectMonthEnd,
-  simulatePlatformCost,
-} from "@/lib/costs/calculations";
-import type {
-  CostDashboardData,
-  SimulationInputs,
-} from "@/lib/costs/types";
-import {
+  buildBurnSummary,
   buildFeatureCostRows,
   buildProviderCheckRows,
   buildSimulationBaseline,
@@ -19,14 +13,46 @@ import {
   COST_SCALE_PRESETS,
   hasCostData,
 } from "./costDashboardView";
+import { CostBuildingTab } from "./CostBuildingTab";
+import { CostPeopleTab } from "./CostPeopleTab";
+
+/**
+ * The cost page, in four tabs.
+ *
+ * It used to be one long scroll with a single total at the top, and that
+ * total quietly answered the wrong question: it mixed what PongLens costs
+ * to RUN (about twelve dollars a month, and it grows with players) with
+ * what it costs to BUILD (about four hundred, and it does not). Whichever
+ * way you read the one number, the other half was hidden inside it.
+ *
+ * So the split is the organising idea, not a filter on top of one:
+ *
+ *   Overview  the three figures, and the shape of the last N days
+ *   Running   what serving players actually costs, by vendor and feature
+ *   Building  every bill that is not metered, and where they are entered
+ *   People    what each account costs
+ *
+ * The range selector refetches rather than filtering what is already
+ * loaded. It costs one query per press and it means every tab — People
+ * included — is talking about the same days, which a client-side filter
+ * could not give, because cost per person is computed in the database.
+ */
 
 type RangeKey = "7d" | "30d" | "month" | "90d";
+type TabKey = "overview" | "running" | "building" | "people";
 
 const RANGES: { key: RangeKey; label: string }[] = [
   { key: "7d", label: "7 days" },
   { key: "30d", label: "30 days" },
   { key: "month", label: "This month" },
   { key: "90d", label: "90 days" },
+];
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: "overview", label: "Overview" },
+  { key: "running", label: "Running" },
+  { key: "building", label: "Building" },
+  { key: "people", label: "People" },
 ];
 
 const INITIAL_SIMULATION: SimulationInputs = {
@@ -44,11 +70,23 @@ const INITIAL_SIMULATION: SimulationInputs = {
   includeFixedCosts: true,
 };
 
+function rangeStart(range: RangeKey, now: Date): Date {
+  const start = new Date(now);
+  if (range === "month") {
+    start.setUTCDate(1);
+  } else {
+    start.setUTCDate(start.getUTCDate() - (range === "7d" ? 7 : range === "30d" ? 30 : 90) + 1);
+  }
+  start.setUTCHours(0, 0, 0, 0);
+  return start;
+}
+
 export function CostDashboardSection() {
   const [data, setData] = useState<CostDashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState<RangeKey>("30d");
+  const [tab, setTab] = useState<TabKey>("overview");
   const [simulationInputs, setSimulationInputs] =
     useState<SimulationInputs>(INITIAL_SIMULATION);
 
@@ -56,13 +94,11 @@ export function CostDashboardSection() {
     setLoading(true);
     setError(null);
     const end = new Date();
-    const start = new Date(end);
-    start.setUTCDate(start.getUTCDate() - 90);
     const supabase = createClient();
     const { data: payload, error: rpcError } = await supabase.rpc(
       "get_platform_cost_dashboard",
       {
-        p_start: start.toISOString(),
+        p_start: rangeStart(range, end).toISOString(),
         p_end: end.toISOString(),
       },
     );
@@ -73,57 +109,16 @@ export function CostDashboardSection() {
     }
     setData(payload as CostDashboardData);
     setLoading(false);
-  }, []);
+  }, [range]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const visibleDaily = useMemo(() => {
-    if (!data) return [];
-    const now = new Date();
-    let start: string;
-    if (range === "month") {
-      start = `${now.getUTCFullYear()}-${String(
-        now.getUTCMonth() + 1,
-      ).padStart(2, "0")}-01`;
-    } else {
-      const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
-      const date = new Date(now);
-      date.setUTCDate(date.getUTCDate() - days + 1);
-      start = date.toISOString().slice(0, 10);
-    }
-    return data.daily.filter((point) => point.day >= start);
-  }, [data, range]);
-
-  const scopedData = useMemo(() => {
-    if (!data) return null;
-    const costs = new Map<string, number>();
-    for (const point of visibleDaily) {
-      for (const [provider, rawCost] of Object.entries(point.by_provider)) {
-        costs.set(provider, (costs.get(provider) ?? 0) + Number(rawCost || 0));
-      }
-    }
-    const lastByProvider = new Map(
-      data.providers.map((row) => [row.provider, row.last_event_at]),
-    );
-    return {
-      ...data,
-      providers: [...costs].map(([provider, cost_usd]) => ({
-        provider,
-        cost_usd,
-        last_event_at: lastByProvider.get(provider) ?? null,
-      })),
-    };
-  }, [data, visibleDaily]);
-
-  const projection = useMemo(
-    () => projectMonthEnd(data?.daily ?? []),
-    [data],
-  );
+  const burn = useMemo(() => (data ? buildBurnSummary(data) : null), [data]);
   const vendorRows = useMemo(
-    () => (scopedData ? buildVendorRows(scopedData) : []),
-    [scopedData],
+    () => (data ? buildVendorRows(data) : []),
+    [data],
   );
   const providerCheckRows = useMemo(
     () => (data ? buildProviderCheckRows(data) : []),
@@ -140,29 +135,61 @@ export function CostDashboardSection() {
       simulationInputs,
     );
   }, [data, simulationInputs]);
-  const selectedTotal = visibleDaily.reduce(
-    (sum, point) => sum + Number(point.cost_usd || 0),
-    0,
-  );
-  const trailing7 = (data?.daily ?? [])
-    .slice(-7)
-    .reduce((sum, point) => sum + Number(point.cost_usd || 0), 0);
+
+  const daily = data?.daily ?? [];
   const maxDaily = Math.max(
     0.000001,
-    ...visibleDaily.map((point) => Number(point.cost_usd || 0)),
+    ...daily.map((point) => Number(point.cost_usd || 0)),
   );
 
   return (
     <section aria-label="Platform costs">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => void load()}
-          disabled={loading}
-          className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white disabled:opacity-50"
-        >
-          {loading ? "Refreshing…" : "Refresh"}
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* A grid on phones so all four sit on one line at 393px. Wrapping
+            put "People" alone on a second row, which reads as a mistake and
+            costs a third of the header to say nothing. */}
+        <div className="grid w-full grid-cols-4 gap-1 rounded-full border border-edge p-1 sm:flex sm:w-auto">
+          {TABS.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setTab(option.key)}
+              className={`rounded-full px-2 py-1.5 text-sm transition-colors sm:px-4 ${
+                tab === option.key
+                  ? "bg-zinc-100 text-zinc-950"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap gap-1 rounded-full border border-edge p-1">
+            {RANGES.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => setRange(option.key)}
+                className={`rounded-full px-3 py-1 text-xs transition-colors ${
+                  range === option.key
+                    ? "bg-zinc-100 text-zinc-950"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => void load()}
+            disabled={loading}
+            className="rounded-full border border-edge px-4 py-1.5 text-sm text-zinc-300 transition-colors hover:text-white disabled:opacity-50"
+          >
+            {loading ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -178,7 +205,7 @@ export function CostDashboardSection() {
 
       {loading && !data ? (
         <div className="mt-4 h-32 animate-pulse rounded-2xl border border-edge bg-surface" />
-      ) : data && !hasCostData(data) ? (
+      ) : data && burn && !hasCostData(data) ? (
         <div className="mt-4 rounded-2xl border border-edge bg-surface p-6">
           <p className="text-sm font-medium text-zinc-200">
             The cost meter is ready.
@@ -189,274 +216,354 @@ export function CostDashboardSection() {
             without changing this dashboard.
           </p>
         </div>
-      ) : data ? (
+      ) : data && burn ? (
         <>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              label="Month to date"
-              value={formatCost(projection.monthToDateUsd)}
-              detail="Live internal metered estimate"
-            />
-            <MetricCard
-              label="Projected month"
-              value={formatCost(projection.projectedMonthEndUsd)}
-              detail={`${formatCost(
-                projection.trailingDailyAverageUsd,
-              )}/day trailing average`}
-            />
-            <MetricCard
-              label="Last 7 days"
-              value={formatCost(trailing7)}
-              detail="Internally metered and priced"
-            />
-            <MetricCard
-              label="Synthetic compute"
-              value={formatCost(simulation?.syntheticComputeUsd ?? 0)}
-              detail="Scenario only — excluded from actual spend"
-              accent
-            />
-          </div>
-
-          <div className="mt-6 rounded-2xl border border-edge bg-surface p-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold text-zinc-200">
-                  Daily spend
-                </h3>
-                <p className="mt-1 text-xs text-zinc-500">
-                  {formatCost(selectedTotal)} in the selected period
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-1 rounded-full border border-edge p-1">
-                {RANGES.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => setRange(option.key)}
-                    className={`rounded-full px-3 py-1 text-xs transition-colors ${
-                      range === option.key
-                        ? "bg-zinc-100 text-zinc-950"
-                        : "text-zinc-400 hover:text-white"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div
-              className="mt-5 flex h-40 items-end gap-px border-b border-edge/70"
-              role="img"
-              aria-label="Daily estimated platform cost bar chart"
-            >
-              {visibleDaily.map((point) => (
-                <div
-                  key={point.day}
-                  className="group relative min-w-0 flex-1 rounded-t-sm bg-cyan-glow/65 transition-colors hover:bg-cyan-glow"
-                  style={{
-                    height: `${Math.max(
-                      2,
-                      (Number(point.cost_usd || 0) / maxDaily) * 100,
-                    )}%`,
-                  }}
-                  title={`${point.day}: ${formatCost(point.cost_usd)}`}
-                >
-                  <span className="sr-only">
-                    {point.day}: {formatCost(point.cost_usd)}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <div className="mt-2 flex justify-between text-[11px] text-zinc-600">
-              <span>{visibleDaily[0]?.day ?? "No activity"}</span>
-              <span>{visibleDaily.at(-1)?.day ?? ""}</span>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.6fr)]">
-            <div className="overflow-hidden rounded-2xl border border-edge bg-surface">
-              <div className="border-b border-edge px-5 py-4">
-                <h3 className="text-sm font-semibold text-zinc-200">
-                  Vendor breakdown
-                </h3>
-                <p className="mt-1 text-xs text-zinc-500">
-                  Platform totals only. No user or match attribution.
-                </p>
-              </div>
-              <div className="hidden overflow-x-auto md:block">
-                <table className="w-full min-w-[660px] text-left text-sm">
-                  <thead className="text-xs text-zinc-500">
-                    <tr>
-                      <th className="px-5 py-3 font-medium">Vendor</th>
-                      <th className="px-3 py-3 font-medium">Estimated</th>
-                      <th className="px-3 py-3 font-medium">Share</th>
-                      <th className="px-3 py-3 font-medium">Primary usage</th>
-                      <th className="px-5 py-3 text-right font-medium">
-                        Confidence
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-edge/60">
-                    {vendorRows.map((row) => (
-                      <tr key={row.provider}>
-                        <td className="px-5 py-3 font-medium text-zinc-200">
-                          {row.provider}
-                          {row.reportedCostUsd != null && (
-                            <span className="mt-0.5 block text-[11px] font-normal text-zinc-600">
-                              Provider: {formatCost(row.reportedCostUsd)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3 tabular-nums text-zinc-200">
-                          {formatCost(row.costUsd)}
-                        </td>
-                        <td className="px-3 py-3 tabular-nums text-zinc-400">
-                          {(row.share * 100).toFixed(1)}%
-                        </td>
-                        <td className="max-w-xs px-3 py-3 text-xs text-zinc-500">
-                          {row.usageSummary.join(" · ") || "Fixed or estimated"}
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <ConfidenceBadge confidence={row.confidence} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <ul className="divide-y divide-edge/60 md:hidden">
-                {vendorRows.map((row) => (
-                  <li key={row.provider} className="space-y-3 px-4 py-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium text-zinc-200">
-                          {row.provider}
-                        </p>
-                        <p className="mt-0.5 text-xs text-zinc-500">
-                          {row.usageSummary.join(" · ") ||
-                            "Fixed or estimated"}
-                        </p>
-                      </div>
-                      <p className="shrink-0 tabular-nums text-zinc-200">
-                        {formatCost(row.costUsd)}
-                      </p>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs tabular-nums text-zinc-500">
-                        {(row.share * 100).toFixed(1)}% of estimate
-                      </span>
-                      <ConfidenceBadge confidence={row.confidence} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="rounded-2xl border border-edge bg-surface p-5">
-              <h3 className="text-sm font-semibold text-zinc-200">
-                Data health
-              </h3>
-              <dl className="mt-4 space-y-3 text-sm">
-                <HealthRow
-                  label="Latest usage"
-                  value={
-                    data.health.last_event_at
-                      ? new Date(data.health.last_event_at).toLocaleString()
-                      : "Waiting for first event"
-                  }
+          {tab === "overview" && (
+            <>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <MetricCard
+                  label="Running"
+                  value={formatCost(burn.runUsd)}
+                  detail={`Serving players over ${burn.days} ${
+                    burn.days === 1 ? "day" : "days"
+                  }`}
                 />
-                <HealthRow
-                  label="Storage snapshot"
-                  value={
-                    data.health.latest_storage_snapshot_at
-                      ? new Date(
-                          data.health.latest_storage_snapshot_at,
-                        ).toLocaleString()
-                      : "Not collected yet"
-                  }
+                <MetricCard
+                  label="Building"
+                  value={formatCost(burn.buildUsd)}
+                  detail="Subscriptions and tools that make the product"
                 />
-                <HealthRow
-                  label="Unmapped usage"
-                  value={
-                    data.health.unmapped_count > 0
-                      ? `${data.health.unmapped_count} event(s)`
-                      : "None"
-                  }
-                  warning={data.health.unmapped_count > 0}
+                <MetricCard
+                  label="Total burn"
+                  value={formatCost(burn.totalUsd)}
+                  detail="Everything, for the selected period"
                 />
-              </dl>
-            </div>
-          </div>
+                <MetricCard
+                  label="A month at this rate"
+                  value={formatCost(burn.monthlyAtThisRateUsd)}
+                  detail={`${formatCost(burn.runPerDayUsd)}/day running, plus ${formatCost(
+                    burn.monthlyBuildFixedUsd,
+                  )} building`}
+                  accent
+                />
+              </div>
 
-          <div className="mt-6 overflow-hidden rounded-2xl border border-edge bg-surface">
-            <div className="border-b border-edge px-5 py-4">
-              <h3 className="text-sm font-semibold text-zinc-200">
-                Feature breakdown
-              </h3>
-              <p className="mt-1 text-xs text-zinc-500">
-                Metered provider cost by product feature for the dashboard
-                period.
-              </p>
-            </div>
-            {featureRows.length > 0 ? (
-              <ul className="divide-y divide-edge/60">
-                {featureRows.map((row) => (
-                  <li
-                    key={row.feature}
-                    className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-zinc-200">
-                        {row.feature}
-                      </p>
-                      <p className="mt-1 truncate text-xs text-zinc-500">
-                        {row.providers.join(", ")} ·{" "}
-                        {row.usageSummary.join(" · ")}
-                      </p>
-                    </div>
-                    <p className="shrink-0 text-sm font-medium tabular-nums text-zinc-200">
-                      {formatCost(row.costUsd)}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="px-5 py-6 text-sm text-zinc-500">
-                Feature costs will appear after the first metered request.
-              </p>
-            )}
-          </div>
-
-          <div className="mt-6 overflow-hidden rounded-2xl border border-edge bg-surface">
-            <div className="border-b border-edge px-4 py-4 sm:px-5">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
+              <div className="mt-6 rounded-2xl border border-edge bg-surface p-5">
+                <div className="flex flex-wrap items-baseline justify-between gap-3">
                   <h3 className="text-sm font-semibold text-zinc-200">
-                    Provider reconciliation
+                    Running cost per day
                   </h3>
-                  <p className="mt-1 max-w-2xl text-xs leading-relaxed text-zinc-500">
-                    Dollar totals are used when a provider supplies them.
-                    Otherwise PongLens prices provider-metered usage. Daily
-                    checks may lag recent activity.
+                  <p className="text-xs text-zinc-500">
+                    The dim part of each bar is the recurring floor; the bright
+                    part is what the day itself spent.
                   </p>
                 </div>
-                <span className="rounded-full border border-edge px-2.5 py-1 text-[11px] text-zinc-500">
-                  No double counting
-                </span>
+                <div
+                  className="mt-5 flex h-40 items-end gap-px border-b border-edge/70"
+                  role="img"
+                  aria-label="Running cost per day"
+                >
+                  {daily.map((point) => {
+                    const total = Number(point.cost_usd || 0);
+                    const variable = Number(point.variable_usd || 0);
+                    return (
+                      <div
+                        key={point.day}
+                        className="group relative flex min-w-0 flex-1 flex-col justify-end"
+                        style={{ height: "100%" }}
+                        title={`${point.day}: ${formatCost(total)} (${formatCost(
+                          variable,
+                        )} metered)`}
+                      >
+                        <div
+                          className="w-full rounded-t-sm bg-cyan-glow/70 transition-colors group-hover:bg-cyan-glow"
+                          style={{
+                            height: `${
+                              (Math.min(variable, total) / maxDaily) * 100
+                            }%`,
+                          }}
+                        />
+                        <div
+                          className="w-full bg-cyan-glow/20"
+                          style={{
+                            height: `${
+                              (Math.max(0, total - variable) / maxDaily) * 100
+                            }%`,
+                          }}
+                        />
+                        <span className="sr-only">
+                          {point.day}: {formatCost(total)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex justify-between text-[11px] text-zinc-600">
+                  <span>{daily[0]?.day ?? "No activity"}</span>
+                  <span>{daily.at(-1)?.day ?? ""}</span>
+                </div>
               </div>
-            </div>
-            <ul className="grid gap-px bg-edge/60 md:grid-cols-2 xl:grid-cols-3">
-              {providerCheckRows.map((row) => (
-                <ProviderCheckCard key={row.provider} row={row} />
-              ))}
-            </ul>
-          </div>
 
-          <Simulator
-            inputs={simulationInputs}
-            setInputs={setSimulationInputs}
-            result={simulation}
-          />
+              <div className="mt-6 overflow-hidden rounded-2xl border border-edge bg-surface">
+                <div className="border-b border-edge px-5 py-4">
+                  <h3 className="text-sm font-semibold text-zinc-200">
+                    Where the running cost went
+                  </h3>
+                </div>
+                {vendorRows.length > 0 ? (
+                  <ul className="divide-y divide-edge/60">
+                    {vendorRows.slice(0, 6).map((row) => (
+                      <li
+                        key={row.provider}
+                        className="flex items-center gap-4 px-5 py-3"
+                      >
+                        <span className="w-28 shrink-0 truncate text-sm text-zinc-200">
+                          {row.provider}
+                        </span>
+                        <span className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2">
+                          <span
+                            className="block h-full rounded-full bg-cyan-glow/70"
+                            style={{ width: `${Math.max(1, row.share * 100)}%` }}
+                          />
+                        </span>
+                        <span className="w-20 shrink-0 text-right text-sm tabular-nums text-zinc-300">
+                          {formatCost(row.costUsd)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="px-5 py-6 text-sm text-zinc-500">
+                    Nothing metered in this period.
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+
+          {tab === "running" && (
+            <>
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <MetricCard
+                  label="Metered"
+                  value={formatCost(burn.runUsd - data.period.run_fixed_usd)}
+                  detail="Charged per call, per minute, per byte"
+                />
+                <MetricCard
+                  label="Recurring"
+                  value={formatCost(data.period.run_fixed_usd)}
+                  detail={`${formatCost(burn.monthlyRunFixedUsd)} a month`}
+                />
+                <MetricCard
+                  label="Running, total"
+                  value={formatCost(burn.runUsd)}
+                  detail={`${formatCost(burn.runPerDayUsd)} a day`}
+                />
+              </div>
+
+              <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.6fr)]">
+                <div className="overflow-hidden rounded-2xl border border-edge bg-surface">
+                  <div className="border-b border-edge px-5 py-4">
+                    <h3 className="text-sm font-semibold text-zinc-200">
+                      Vendor breakdown
+                    </h3>
+                  </div>
+                  <div className="hidden overflow-x-auto md:block">
+                    <table className="w-full min-w-[660px] text-left text-sm">
+                      <thead className="text-xs text-zinc-500">
+                        <tr>
+                          <th className="px-5 py-3 font-medium">Vendor</th>
+                          <th className="px-3 py-3 font-medium">Estimated</th>
+                          <th className="px-3 py-3 font-medium">Share</th>
+                          <th className="px-3 py-3 font-medium">
+                            Primary usage
+                          </th>
+                          <th className="px-5 py-3 text-right font-medium">
+                            Confidence
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-edge/60">
+                        {vendorRows.map((row) => (
+                          <tr key={row.provider}>
+                            <td className="px-5 py-3 font-medium text-zinc-200">
+                              {row.provider}
+                              {row.reportedCostUsd != null && (
+                                <span className="mt-0.5 block text-[11px] font-normal text-zinc-600">
+                                  Provider: {formatCost(row.reportedCostUsd)}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-3 tabular-nums text-zinc-200">
+                              {formatCost(row.costUsd)}
+                            </td>
+                            <td className="px-3 py-3 tabular-nums text-zinc-400">
+                              {(row.share * 100).toFixed(1)}%
+                            </td>
+                            <td className="max-w-xs px-3 py-3 text-xs text-zinc-500">
+                              {row.usageSummary.join(" · ") ||
+                                "Fixed or estimated"}
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <ConfidenceBadge confidence={row.confidence} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <ul className="divide-y divide-edge/60 md:hidden">
+                    {vendorRows.map((row) => (
+                      <li key={row.provider} className="space-y-3 px-4 py-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="font-medium text-zinc-200">
+                              {row.provider}
+                            </p>
+                            <p className="mt-0.5 text-xs text-zinc-500">
+                              {row.usageSummary.join(" · ") ||
+                                "Fixed or estimated"}
+                            </p>
+                          </div>
+                          <p className="shrink-0 tabular-nums text-zinc-200">
+                            {formatCost(row.costUsd)}
+                          </p>
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs tabular-nums text-zinc-500">
+                            {(row.share * 100).toFixed(1)}% of estimate
+                          </span>
+                          <ConfidenceBadge confidence={row.confidence} />
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="rounded-2xl border border-edge bg-surface p-5">
+                  <h3 className="text-sm font-semibold text-zinc-200">
+                    Data health
+                  </h3>
+                  <dl className="mt-4 space-y-3 text-sm">
+                    <HealthRow
+                      label="Latest usage"
+                      value={
+                        data.health.last_event_at
+                          ? new Date(data.health.last_event_at).toLocaleString()
+                          : "Waiting for first event"
+                      }
+                    />
+                    <HealthRow
+                      label="Storage snapshot"
+                      value={
+                        data.health.latest_storage_snapshot_at
+                          ? new Date(
+                              data.health.latest_storage_snapshot_at,
+                            ).toLocaleString()
+                          : "Not collected yet"
+                      }
+                    />
+                    <HealthRow
+                      label="Unpriced usage"
+                      value={
+                        data.health.unmapped_count > 0
+                          ? `${data.health.unmapped_count} event(s)`
+                          : "None"
+                      }
+                      warning={data.health.unmapped_count > 0}
+                    />
+                    <HealthRow
+                      label="Knows who caused it"
+                      value={`${Math.round(burn.attributedShare * 100)}% of metered spend`}
+                    />
+                  </dl>
+                </div>
+              </div>
+
+              <div className="mt-6 overflow-hidden rounded-2xl border border-edge bg-surface">
+                <div className="border-b border-edge px-5 py-4">
+                  <h3 className="text-sm font-semibold text-zinc-200">
+                    Feature breakdown
+                  </h3>
+                </div>
+                {featureRows.length > 0 ? (
+                  <ul className="divide-y divide-edge/60">
+                    {featureRows.map((row) => (
+                      <li
+                        key={row.feature}
+                        className="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-zinc-200">
+                            {row.feature}
+                          </p>
+                          <p className="mt-1 truncate text-xs text-zinc-500">
+                            {row.providers.join(", ")} ·{" "}
+                            {row.usageSummary.join(" · ")}
+                          </p>
+                        </div>
+                        <p className="shrink-0 text-sm font-medium tabular-nums text-zinc-200">
+                          {formatCost(row.costUsd)}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="px-5 py-6 text-sm text-zinc-500">
+                    Feature costs will appear after the first metered request.
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-6 overflow-hidden rounded-2xl border border-edge bg-surface">
+                <div className="border-b border-edge px-4 py-4 sm:px-5">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h3 className="text-sm font-semibold text-zinc-200">
+                        Provider reconciliation
+                      </h3>
+                      <p className="mt-1 max-w-2xl text-xs leading-relaxed text-zinc-500">
+                        Dollar totals are used when a provider supplies them.
+                        Otherwise PongLens prices provider-metered usage. Daily
+                        checks may lag recent activity.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-edge px-2.5 py-1 text-[11px] text-zinc-500">
+                      No double counting
+                    </span>
+                  </div>
+                </div>
+                <ul className="grid gap-px bg-edge/60 md:grid-cols-2 xl:grid-cols-3">
+                  {providerCheckRows.map((row) => (
+                    <ProviderCheckCard key={row.provider} row={row} />
+                  ))}
+                </ul>
+              </div>
+
+              <Simulator
+                inputs={simulationInputs}
+                setInputs={setSimulationInputs}
+                result={simulation}
+              />
+            </>
+          )}
+
+          {tab === "building" && (
+            <CostBuildingTab
+              fixedItems={data.fixed_items}
+              oneTimeItems={data.one_time_items}
+              monthlyBuildUsd={burn.monthlyBuildFixedUsd}
+              monthlyRunUsd={burn.monthlyRunFixedUsd}
+              onChanged={() => void load()}
+            />
+          )}
+
+          {tab === "people" && (
+            <CostPeopleTab
+              data={data}
+              attributedShare={burn.attributedShare}
+            />
+          )}
         </>
       ) : null}
     </section>
