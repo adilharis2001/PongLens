@@ -102,12 +102,18 @@ for and leaves a neighbouring screen worse, say that before building it.
 
 ## The processing page has to keep up with the worker
 
-**Worker release/health work, 2026-09-11:** staged in
-`.worktrees/worker-release-health` on `codex/worker-release-health`, not yet
-activated. Read that checkout's `docs/worker-release-health.md` before
+**Worker release/health work, 2026-09-11:** main/fast run corrected sealed
+release `beb02a6c...` with independent monitoring. The original `c9c012af...`
+and rollback `b8f833e3...` have a model-cache bug and must not be reactivated.
+Read `.worktrees/worker-release-health/docs/worker-release-health.md` in the
+root checkout (or `docs/worker-release-health.md` in this release worktree) before
 changing worker launchers, runtime dependencies or body fallback reporting.
-It records the exact source baseline, verification and remaining rollout
-gates; do not merge the captured runtime baseline wholesale over newer main.
+The correction and latest handoff are committed locally; older published
+notes are historical. All library caches, including `TORCH_HOME`, must stay
+outside the release; sealed model loaders must use the packaged assets.
+Release checks must include actual offline side-change detection and verify
+integrity after inference, not only the body pass. Do not merge the captured
+runtime baseline wholesale over newer main.
 
 **`/admin/processing` is the only place anyone can see whether the workers
 are alive and what they are doing.** The worker changes often, and this
