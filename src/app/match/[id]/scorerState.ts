@@ -127,8 +127,9 @@ export class ScorePlaybackRun {
       return;
     }
 
+    const previousRun = this.run;
     this.invalidate();
-    this.armAtStart(event);
+    this.armAtStart(event, previousRun);
   }
 
   observation(event: ScorePlaybackEvent): number | undefined {
@@ -146,8 +147,29 @@ export class ScorePlaybackRun {
     return event.time;
   }
 
-  private armAtStart(event: ScorePlaybackEvent): void {
-    if (event.time > event.start + START_EPSILON_S) return;
+  private armAtStart(
+    event: ScorePlaybackEvent,
+    previousRun?: {
+      pointId: string;
+      start: number;
+      end: number;
+      sourceKey: string;
+      lastTime: number;
+    },
+  ): void {
+    const crossedStartContinuously =
+      previousRun !== undefined &&
+      previousRun.pointId !== event.pointId &&
+      previousRun.sourceKey === event.sourceKey &&
+      previousRun.lastTime <= event.start &&
+      event.time >= event.start &&
+      event.time - previousRun.lastTime <= MAX_START_CROSSING_STEP_S;
+    if (
+      event.time > event.start + START_EPSILON_S &&
+      !crossedStartContinuously
+    ) {
+      return;
+    }
     this.run = {
       pointId: event.pointId,
       start: event.start,
@@ -159,6 +181,8 @@ export class ScorePlaybackRun {
 }
 
 const START_EPSILON_S = 0.05;
+/** One 250 ms browser timeupdate at the supported 2x ceiling. */
+const MAX_START_CROSSING_STEP_S = 0.5;
 
 function eligibleMedia(event: ScorePlaybackEvent): boolean {
   return (

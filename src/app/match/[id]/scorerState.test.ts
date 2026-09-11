@@ -133,6 +133,30 @@ test("a continuous foreground cut run records its current cut clock", () => {
   assert.equal(run.observation({ ...event, time: 60 }), 60);
 });
 
+test("a continuous accelerated step across a point start arms the next point", () => {
+  const run = new ScorePlaybackRun();
+  const previous = {
+    ...event,
+    pointId: "previous",
+    start: 0,
+    end: 9,
+    time: 0,
+  };
+  run.observe(previous);
+  run.observe({ ...previous, time: 8.7 });
+
+  const next = {
+    ...event,
+    pointId: "next",
+    start: 9,
+    end: 12,
+    time: 9.1,
+  };
+  run.observe(next);
+
+  assert.equal(run.observation({ ...next, time: 9.5 }), 9.5);
+});
+
 test("an invalidated run cannot re-arm from a mid-rally resume", () => {
   const run = new ScorePlaybackRun();
   run.observe(event);

@@ -157,6 +157,27 @@ func runScorerStateChecks() async {
         near(run.observation(event.with(time: 60)), 60,
              "ordinary continuous playback records the current cut time")
 
+        let previous = ScorePlaybackEvent(
+            pointId: uuid(101), start: 0, end: 9, time: 0,
+            playing: true, ready: true, foreground: true, sourceKey: "cut"
+        )
+        run.observe(previous)
+        run.observe(previous.with(time: 8.7))
+        let accelerated = ScorePlaybackEvent(
+            pointId: uuid(102), start: 9, end: 12, time: 9.1,
+            playing: true, ready: true, foreground: true, sourceKey: "cut"
+        )
+        run.observe(accelerated)
+        near(run.observation(accelerated.with(time: 9.5)), 9.5,
+             "a continuous accelerated step across the start arms the next point")
+
+        let stalePoint = accelerated.with(
+            pointId: uuid(103), start: 80, end: 90, time: 83
+        )
+        run.observe(stalePoint)
+        check(run.observation(stalePoint.with(time: 84)) == nil,
+              "a multi-second jump to another point cannot masquerade as continuity")
+
         run.invalidate()
         run.observe(event.with(time: 59))
         check(run.observation(event.with(time: 60)) == nil,

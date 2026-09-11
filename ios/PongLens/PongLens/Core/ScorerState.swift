@@ -161,8 +161,9 @@ final class ScorePlaybackRun {
             }
             return
         }
+        let previousRun = run
         invalidate()
-        armAtStart(event)
+        armAtStart(event, after: previousRun)
     }
 
     func observation(_ event: ScorePlaybackEvent) -> Double? {
@@ -174,8 +175,15 @@ final class ScorePlaybackRun {
         return event.time
     }
 
-    private func armAtStart(_ event: ScorePlaybackEvent) {
-        guard event.time <= event.start + startEpsilon else { return }
+    private func armAtStart(_ event: ScorePlaybackEvent, after previousRun: Run? = nil) {
+        let crossedStartContinuously = previousRun.map {
+            $0.pointId != event.pointId && $0.sourceKey == event.sourceKey
+                && $0.lastTime <= event.start && event.time >= event.start
+                && event.time - $0.lastTime <= maxStartCrossingStep
+        } ?? false
+        guard event.time <= event.start + startEpsilon || crossedStartContinuously else {
+            return
+        }
         run = Run(
             pointId: event.pointId,
             start: event.start,
@@ -184,6 +192,10 @@ final class ScorePlaybackRun {
             lastTime: event.time
         )
     }
+
+    /// One 200 ms periodic observer tick at the supported 2x ceiling, with
+    /// enough room to match the web timeupdate cadence.
+    private let maxStartCrossingStep = 0.5
 
     private func eligible(_ event: ScorePlaybackEvent) -> Bool {
         event.sourceKey == "cut" && event.playing && event.ready
