@@ -69,6 +69,12 @@ struct AutomaticHighlightsRequestView: Hashable {
     let body: String
     let actionLabel: String?
     let running: Bool
+    let action: AutomaticHighlightsRequestAction?
+}
+
+enum AutomaticHighlightsRequestAction: Hashable {
+    case request
+    case score
 }
 
 func automaticHighlightsRequestView(status: String) -> AutomaticHighlightsRequestView? {
@@ -78,24 +84,44 @@ func automaticHighlightsRequestView(status: String) -> AutomaticHighlightsReques
             title: "Generate highlights?",
             body: "Highlights haven't been generated for this match. You can generate them from Tools.",
             actionLabel: "Generate highlights",
-            running: false
+            running: false,
+            action: .request
         )
     case "needs_update":
         AutomaticHighlightsRequestView(
             title: "Update highlights",
             body: "This match changed after these highlights were prepared. Update them to use your latest rally edits.",
             actionLabel: "Update highlights",
-            running: false
+            running: false,
+            action: .request
         )
     case "updating":
         AutomaticHighlightsRequestView(
             title: "Highlights",
             body: "Your rally clips are still updating. You can update highlights when they’re ready.",
             actionLabel: nil,
-            running: true
+            running: true,
+            action: nil
         )
     default: nil
     }
+}
+
+func automaticHighlightsRequestView(
+    response: AutomaticHighlightsResponse
+) -> AutomaticHighlightsRequestView? {
+    if response.status == "needs_scoring" {
+        guard let scored = response.scoredPoints,
+              let scorable = response.scorablePoints else { return nil }
+        return AutomaticHighlightsRequestView(
+            title: "Score more of this match",
+            body: "Score at least 75% of the points before generating highlights. You've scored \(scored) of \(scorable).",
+            actionLabel: "Score the Match",
+            running: false,
+            action: .score
+        )
+    }
+    return automaticHighlightsRequestView(status: response.status)
 }
 
 /// The worker-authored automatic highlight. Clients render this contract;
@@ -105,6 +131,33 @@ struct AutomaticHighlightsResponse: Codable, Hashable {
     let url: URL?
     let durationS: Double?
     let manifest: AutomaticHighlightManifest?
+    let scoredPoints: Int?
+    let scorablePoints: Int?
+    let requiredPoints: Int?
+    let requiredPercent: Int?
+    let eligible: Bool?
+
+    init(
+        status: String,
+        url: URL?,
+        durationS: Double?,
+        manifest: AutomaticHighlightManifest?,
+        scoredPoints: Int? = nil,
+        scorablePoints: Int? = nil,
+        requiredPoints: Int? = nil,
+        requiredPercent: Int? = nil,
+        eligible: Bool? = nil
+    ) {
+        self.status = status
+        self.url = url
+        self.durationS = durationS
+        self.manifest = manifest
+        self.scoredPoints = scoredPoints
+        self.scorablePoints = scorablePoints
+        self.requiredPoints = requiredPoints
+        self.requiredPercent = requiredPercent
+        self.eligible = eligible
+    }
 
     var summary: String {
         switch status {
@@ -117,6 +170,11 @@ struct AutomaticHighlightsResponse: Codable, Hashable {
             return "\(n) \(n == 1 ? "rally" : "rallies") · "
                 + String(format: "%d:%02d", seconds / 60, seconds % 60)
         case "rendering": return "Preparing highlights"
+        case "needs_scoring":
+            guard let scoredPoints, let scorablePoints else {
+                return "Highlights unavailable"
+            }
+            return "\(scoredPoints) of \(scorablePoints) scored"
         case "needs_generation": return "Generate"
         case "needs_update": return "Update needed"
         case "updating": return "Updating rally clips"
@@ -132,6 +190,7 @@ struct AutomaticHighlightManifest: Codable, Hashable {
     let maxSeconds: Double
     let pointsRevision: String
     let durationS: Double
+    let scoredOnly: Bool?
     let points: [AutomaticHighlightPoint]
 
     enum CodingKeys: String, CodingKey {
@@ -139,6 +198,7 @@ struct AutomaticHighlightManifest: Codable, Hashable {
         case maxSeconds = "max_seconds"
         case pointsRevision = "points_revision"
         case durationS = "duration_s"
+        case scoredOnly = "scored_only"
     }
 
     /// During the 0.3-second dissolve the incoming rally owns the overlap.

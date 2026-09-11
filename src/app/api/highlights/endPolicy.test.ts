@@ -7,7 +7,15 @@ import {
   automaticHighlightEnd,
   highlightManifestIsFresh,
   highlightPointsRevision,
+  supportsScoredHighlights,
 } from "./endPolicy.ts";
+
+test("only scored match types can request new highlights", () => {
+  assert.equal(supportsScoredHighlights("match"), true);
+  assert.equal(supportsScoredHighlights("tournament"), true);
+  assert.equal(supportsScoredHighlights("practice"), false);
+  assert.equal(supportsScoredHighlights("drills"), false);
+});
 
 test("only missing version-2 evidence asks the worker to remeasure rallies", () => {
   const base = {

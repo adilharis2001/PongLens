@@ -9,6 +9,7 @@ import {
   automaticHighlightReadDecision,
   automaticHighlightRequestDecision,
   highlightManifestIsFresh,
+  supportsScoredHighlights,
   type AutomaticHighlightRevisionPoint,
 } from "./endPolicy";
 
@@ -220,6 +221,14 @@ export async function GET(req: Request) {
     }
 
     if (
+      !supportsScoredHighlights(match.match_type) &&
+      decision.status !== "rendering" &&
+      decision.status !== "updating"
+    ) {
+      return response({ status: "unavailable" });
+    }
+
+    if (
       (decision.status === "needs_generation" ||
         decision.status === "needs_scoring") &&
       (!match.cut_path || match.status !== "ready")
@@ -313,6 +322,9 @@ export async function POST(req: Request) {
     }
     if (requestDecision === "current") {
       return response({ code: "highlights_current" }, 409);
+    }
+    if (!supportsScoredHighlights(match.match_type)) {
+      return response({ code: "highlights_unavailable" }, 409);
     }
     if (requestDecision === "score_required") {
       return response(

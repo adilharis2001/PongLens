@@ -75,6 +75,33 @@ func runAutomaticHighlightsChecks() {
         check(response?.summary == summary, "\(status) state copy matches web")
     }
 
+    let gatedJSON = """
+    {
+      "status":"needs_scoring",
+      "scoredPoints":7,
+      "scorablePoints":10,
+      "requiredPoints":8,
+      "requiredPercent":75,
+      "eligible":false
+    }
+    """.data(using: .utf8)!
+    do {
+        let gated = try JSONDecoder().decode(
+            AutomaticHighlightsResponse.self, from: gatedJSON
+        )
+        check(gated.summary == "7 of 10 scored", "score gate summary matches web")
+        let view = automaticHighlightsRequestView(response: gated)
+        check(view?.title == "Score more of this match", "score gate uses the shared sheet title")
+        check(
+            view?.body == "Score at least 75% of the points before generating highlights. You've scored 7 of 10.",
+            "score gate explains the exact coverage"
+        )
+        check(view?.actionLabel == "Score the Match", "score gate has one scoring action")
+        check(view?.action == .score, "score gate opens the existing scorekeeper")
+    } catch {
+        check(false, "score gate response decodes: \(error)")
+    }
+
     let generation = automaticHighlightsRequestView(status: "needs_generation")
     check(generation?.title == "Generate highlights?", "legacy matches use the generation title")
     check(generation?.actionLabel == "Generate highlights", "legacy matches require one explicit action")
@@ -95,4 +122,36 @@ func runAutomaticHighlightsChecks() {
     let updating = automaticHighlightsRequestView(status: "updating")
     check(updating?.running == true, "edited rally clips report their existing work")
     check(updating?.actionLabel == nil, "refresh cannot race rally clip edits")
+
+    let manifestWithMarker = """
+    {
+      "v":2,"rule":"quality-first-v2","max_seconds":150,
+      "points_revision":"abc","duration_s":0,"scored_only":true,"points":[]
+    }
+    """.data(using: .utf8)!
+    let decodedManifest = try? JSONDecoder().decode(
+        AutomaticHighlightManifest.self, from: manifestWithMarker
+    )
+    check(decodedManifest?.scoredOnly == true, "new scored-only manifests remain additive")
+
+    do {
+        let sheet = try String(
+            contentsOfFile: "../PongLens/PongLens/Screens/HighlightsSheet.swift",
+            encoding: .utf8
+        )
+        let tools = try String(
+            contentsOfFile: "../PongLens/PongLens/Screens/MatchTools.swift",
+            encoding: .utf8
+        )
+        check(sheet.contains("frame(maxWidth: .infinity, minHeight: 28)"),
+              "the native score action fills the form width")
+        check(sheet.contains("buttonStyle(PLPrimaryButtonStyle())"),
+              "the native score action reuses the approved primary button")
+        check(sheet.contains("DispatchQueue.main.async { onScore() }"),
+              "the sheet dismisses into the existing scorekeeper")
+        check(tools.contains("DispatchQueue.main.async { onOpenPlayer() }"),
+              "the Tools card wires Highlights to its existing player action")
+    } catch {
+        check(false, "native Highlights UI source is readable: \(error)")
+    }
 }

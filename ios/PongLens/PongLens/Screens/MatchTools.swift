@@ -99,10 +99,15 @@ struct ToolsSection: View {
             HighlightsSheet(
                 match: match,
                 model: model,
-                scored: score.confirmedCount > 0
-            ) { response in
-                automaticHighlights = response
-            }
+                scored: score.confirmedCount > 0,
+                onChanged: { response in
+                    automaticHighlights = response
+                },
+                onScore: {
+                    highlightsOpen = false
+                    DispatchQueue.main.async { onOpenPlayer() }
+                }
+            )
                 .presentationBackground(PL.surface)
                 .presentationDragIndicator(.visible)
         }

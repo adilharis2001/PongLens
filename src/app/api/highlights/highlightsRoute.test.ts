@@ -29,6 +29,7 @@ test("highlight route is authenticated, owner-only, availability guarded, and sc
   assert.match(route, /highlights_score_required/);
   assert.match(route, /scoredPoints/);
   assert.match(route, /scorablePoints/);
+  assert.match(route, /supportsScoredHighlights\(match\.match_type\)/);
 });
 
 const matchId = "10000000-0000-4000-8000-000000000001";

@@ -32,6 +32,10 @@ export type AutomaticHighlightRevisionPoint = AutomaticHighlightEndPoint & {
 export const TAP_END_TAIL_S = 0.2;
 export const DETECTOR_END_TAIL_S = 0.25;
 
+export function supportsScoredHighlights(matchType: string | null | undefined): boolean {
+  return matchType !== "practice" && matchType !== "drills";
+}
+
 export type AutomaticHighlightReadStatus =
   | "ready"
   | "rendering"
