@@ -1,6 +1,6 @@
 # Worker release and body-processing health
 
-This work isolates the Mac main/fast worker from the editable checkout and records body-processing health separately from delivery of usable video. The implementation is staged on `codex/worker-release-health`; production has not been switched and the operational migration has not been applied. Read this record before changing launchers, runtime dependencies or body fallback reporting.
+This work isolates the Mac main/fast worker from the editable checkout and records body-processing health separately from delivery of usable video. Adil approved production rollout on 2026-09-11; both fixed-release workers and independent monitoring are active from 16:17:58 UTC. Read this record before changing launchers, runtime dependencies or body fallback reporting.
 
 ## Status and ownership
 
@@ -10,11 +10,11 @@ This work isolates the Mac main/fast worker from the editable checkout and recor
 | Captured production baseline | `f4156c96`; captured current root worker while root HEAD was `b425494c`. Baseline differences from origin/main are pre-existing runtime work, not this task's fixes. |
 | New release package | `77317f94`, `617381a2`, `e6e85766`, `223d2399`; loader hardening, claim-status clearing, smoke runner and admin integration committed in `d14efae7`. |
 | Outcome integration | `c6a9fb29`, with reviewed retry/terminal-coverage fixes in `0d2f810b`. Final fixes in `0fa465c8` recheck immediately before claims and record missing/invalid settings without changing fallback defaults. Final scoped review approved with no remaining findings. |
-| Root checkout | Remains live and editable until explicit verified activation; no source edits by this task. Documentation notice only. |
+| Root checkout | No longer supplies main/fast worker source. Still contains other tasks' unfinished work and the externally anchored worker Python environment; do not clean, reset or upgrade it. Documentation notice only. |
 | Concurrent-source check | Rechecked 279 existing captured worker files against `f4156c96`: executable/model files unchanged; only worker README documentation differs. Recheck again immediately before any activation. |
 | Other tasks | Scorekeeper work is excluded. Do not change scoring helpers, point timing, shared score state, hand-cut or lesson launchers. |
 | Cloud | Match Modal remains disabled. These local release IDs are not the historical `pipeline_releases`/parity identities; do not set processing_control.active_release_id to them. |
-| Web | Previewed existing admin rows on desktop and 393×660 mobile. Screenshot approval requested, not yet received. No native iOS change. |
+| Web | Previewed existing admin rows on desktop and 393×660 mobile. Adil approved screenshots and production rollout on 2026-09-11. No native iOS change. Narrow integration is based on main `c355e039`, not the captured worker baseline. |
 
 ## Fixed-release contract
 
@@ -61,8 +61,8 @@ This work isolates the Mac main/fast worker from the editable checkout and recor
 | Operational incident | Two different degraded/failed body-requested jobs within 24 hours, grouped by release. Retrying one failed job is not two failures. |
 | Recovery | Two later explicit body successes on the same release. Expected refusals, silence, elapsed time and another release succeeding are not recovery. |
 | Coverage | Unknown/incomplete telemetry is a separate incident. A running retry must not erase unresolved reporting; a terminal job with an explicit started attempt counts even without a published match. |
-| Email | Defaults off; uses durable lease, stable incident idempotency key, existing approved renderer/sender/suppression checks and admin recipient only. No test email has been sent. |
-| Activation timestamp | `worker_processing_health_control.expected_after` stays null until real rollout. Historic uninstrumented jobs are not newly failing jobs. |
+| Email | Enabled at production activation; uses durable lease, stable incident idempotency key, existing approved renderer/sender/suppression checks and admin recipient only. No test email has been sent and actual production email delivery is not yet verified. |
+| Activation timestamp | `worker_processing_health_control.expected_after` is `2026-09-11 16:17:58.611383+00`. Historic uninstrumented jobs are not newly failing jobs. |
 | Admin read | Additive `admin_processing_health()` RPC; existing overview, scorekeeper and job-completion contracts remain unchanged. |
 
 ## Verification evidence
@@ -86,18 +86,35 @@ This work isolates the Mac main/fast worker from the editable checkout and recor
 | Admin rendering | Success/refusal/problem/unknown/failure/running/empty/unavailable/paused/blocked/recovery/telemetry and monitor states rendered on desktop and 393×660 mobile, using actual components with temporary sample data. Temporary preview route removed; no production data was written. 40 view tests pass. |
 | Web build | Real `npm run build` passed for final `0fa465c8` with own lockfile-installed dependencies and isolated `.next`; pre-existing lint/build warnings remain. Temporary preview removed. No native iOS code changed or native testing claimed. |
 | Test resource cleanup | Local preview server stopped. Task-created PostgreSQL containers `ponglens-worker-health-20260911` and `ponglens-worker-health-integration-20260911` stopped after verification; their disposable fixture data remains recoverable with `docker start`. Other containers untouched. |
-| Not yet verified | Complete live activation/rollback, first real live processing outcome, production notification delivery, web publication. |
+| Not yet verified | Full production rollback flip, first real live processing outcome and production notification delivery. Web publication and live UI verification are the last rollout steps. |
 
 ## Rollout gates
 
 | Order | Required evidence |
 | --- | --- |
 | 1 | Complete: final implementation `0fa465c8`, independently reviewed after fixes. |
-| 2 | Candidate built, verified and permanently staged. Still establish and rehearse the explicit first-switch rollback target; older temporary bundles have known review gaps and are not approved rollback releases. |
-| 3 | Recheck root worker files and running process/queue state; do not discard newer work from another chat. |
-| 4 | Validate and apply only the additive operational migration, with email/activation timestamp still off until switch. |
-| 5 | Drain main and fast at job boundaries before switching exact launch paths. Existing legacy launchers have no drain flag, so the first switch needs a separately verified safe handoff. Do not kill active jobs. |
-| 6 | Install independent monitor and verify release pulse identity; turn on coverage only at actual activation. Keep hand/lesson/cloud unchanged. |
+| 2 | Complete: candidate and explicit sealed rollback built, verified and permanently staged. See the operational handoff below; older temporary bundles are not approved rollback releases. |
+| 3 | Complete: rechecked 279 existing captured worker files immediately before rollout; only worker README documentation differs. Other tasks' unfinished source is preserved. |
+| 4 | Complete: applied only `20260911143000_worker_processing_health.sql` and its migration ledger entry in one production transaction. SHA-256 `a014473d761a39a1a78daff4072f0c99c97d31df7a5df6a0729a9b5e81ff3fad`. Admin RPC rejects anonymous and non-admin authenticated reads; all four operational tables have RLS. |
+| 5 | Complete: both idle legacy workers stopped under the rehearsed queue claim barrier. Both fixed-release workers started paused and reported the correct full release identity before activation. |
+| 6 | Complete: independent monitor's first run exited 0 and advanced production heartbeat at 16:16:44 UTC. Coverage/email enabled at 16:17:58 UTC, then both worker drain files removed. Hand/lesson/cloud unchanged. |
 | 7 | Publish admin UI only after screenshot approval, then confirm the first real point-processing attempt. Do not create fake production jobs to manufacture evidence. |
 | Integration | Do not merge the captured baseline wholesale over newer main. Keep release source authority distinct from narrowly integrating the new admin/operational changes. |
 | Launcher source | At activation, load `match_release` from the exact staged release's `worker` directory, not this developer worktree. Main, fast and the independent monitor must all use the same explicit release directory and external state; never resolve a moving alias per child. |
+
+## Operational handoff, 2026-09-11
+
+| Item | Exact record |
+| --- | --- |
+| Primary source | `0fa465c8`, published on `codex/worker-release-health`. Full release ID `c9c012af733163130a87b4cb17612ec5fa2798e26ec83392f240fcbe296b07e9`. |
+| Rollback source | `21d83b9d`, published on `codex/worker-release-rollback`. Full release ID `b8f833e35e2af1633e70dc3f473842d4df90f7676c95b7ce1aeb000ce0dcd98f`. Both releases live under `/Users/adil/Library/Application Support/PongLens/match-releases/`. |
+| Rollback meaning | Captured baseline processing with the reviewed fixed-path/cache/drain/integrity adapters only, without new outcome reporting. All 204 other worker functions and the processing algorithms match the captured baseline. Shared runtime anchors must still verify. |
+| Rollback verification | 18 release tests, 10 boundary tests, 16 frozen-parity tests, imports and both staged lane check-only commands passed. Independently reviewed. No full production rollback flip was performed. |
+| First handoff | Empty main/fast queues, no processing jobs, fresh idle exact-PID pulses and no worker children were checked while SHARE locks on only those two queue tables prevented a claim race. Both legacy processes exited before releasing the locks. The claim barrier was rehearsed on isolated PostgreSQL. No active job was killed. |
+| Main/fast startup | Existing applet wrappers retained at `/Users/adil/Applications/PongLensWorker.app` and `PongLensWorkerFast.app`; scripts resolve the explicit sealed release through its own runner. Same ad-hoc signer and identifier. Both reported the correct release with `drained` before activation. |
+| State and logs | `/Users/adil/Library/Caches/PongLens/match-runtime/<release-id>/`; logs under `logs/`, pause files `drain-main` and `drain-fast`. Health spool remains `/Users/adil/Library/Application Support/PongLensProcessingHealth/spool`. |
+| Independent monitor | LaunchAgent `com.adil.ponglens-processing-health`, 60-second interval, exact sealed `processing_health.py --once` under the verified environment. Does not claim media work. |
+| Original launch backups | `/Users/adil/Library/Application Support/PongLens/launcher-backups/20260911-worker-release-health/` contains the original main/fast app bundles and plists. These are emergency recovery artifacts, not the preferred fixed rollback. |
+| Future rollback procedure | Create both active state's drain files; wait for fresh `drained` pulses and no active jobs; verify the rollback bundle; boot out only main/fast and the monitor; replace their explicit release and state paths with the rollback ID; start both rollback workers paused and verify identity before unpausing. Turn coverage/email off for the uninstrumented rollback and preserve all outcome records. Never point workers at the editable checkout. |
+| Other work | Hand worker remains PID 13780; hand/lesson launchers and disabled match cloud were not changed. Scorekeeper source and shared scoring contracts excluded. |
+| Web release | 53 processing/admin tests and full `npm run build` passed in an isolated latest-main checkout with its own dependencies and `.next`. Independent narrow-integration review approved. Publish by fast-forwarding main and pushing through Vercel Git integration, never branch `vercel --prod`. |
