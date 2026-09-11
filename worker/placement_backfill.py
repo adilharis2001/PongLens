@@ -120,7 +120,6 @@ def validate_placements(
 ARTIFACT_POINT_FIELDS = frozenset({
     "idx", "t0", "t1", "clip_t0", "clip_t1", "cut_t0", "clip",
     "server_side", "server", "suggestion", "placement",
-    "rally_end_cut_s",
 })
 
 

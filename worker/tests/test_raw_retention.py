@@ -60,14 +60,6 @@ class RawSweepCursor:
             protected = self.connection.library_paths | self.connection.job_referenced_paths
             self.rows = [(path,) for path in paths if path in protected]
             return
-        if normalized.startswith(
-            "select raw_path from public.match_processing_versions"
-        ):
-            self.rows = [
-                (path,) for path in paths
-                if path in self.connection.version_referenced_paths
-            ]
-            return
         raise AssertionError(f"unexpected SQL: {normalized}")
 
     def fetchall(self):
@@ -83,7 +75,6 @@ class RawSweepConnection:
         # Raws whose source job belongs to a live match row that predates
         # matches.raw_path (legacy uploads, YouTube imports before 096).
         self.job_referenced_paths = job_referenced_paths or set()
-        self.version_referenced_paths = set()
         self.queries = []
 
     def cursor(self):
@@ -299,23 +290,6 @@ class RawRetentionTests(unittest.TestCase):
             )
 
         self.assertEqual([key for _, key in client.deleted], [orphan_key])
-
-    def test_version_referenced_raw_never_ages_out_without_a_job_link(self):
-        now = datetime.now(timezone.utc)
-        kept_key = "owner/retained-version.mp4"
-        kept_path = f"r2://{worker.R2_RAW_BUCKET}/{kept_key}"
-        connection = RawSweepConnection({})
-        connection.version_referenced_paths.add(kept_path)
-        client = RawSweepR2([{
-            "Key": kept_key, "LastModified": now - timedelta(days=400),
-        }])
-        with patch.object(worker, "r2", return_value=client), patch.object(
-            worker, "ledger_negate_keys"
-        ):
-            worker.r2_sweep_prefix(
-                connection, worker.R2_RAW_BUCKET, "", worker.ORPHAN_RAW_DAYS
-            )
-        self.assertEqual(client.deleted, [])
 
     def test_kept_original_never_expires_its_placement_retry(self):
         match = {

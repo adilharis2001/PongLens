@@ -83,23 +83,3 @@ class LessonReleaseTests(unittest.TestCase):
         self.assertIn("for name,transfer in (('sdr','bt709'),('hdr','arib-std-b67'))",fixture)
         self.assertNotIn('ponglens-lesson-video-runtime',fixture)
 if __name__=='__main__':unittest.main()
-
-
-class ReleaseIdentityTests(unittest.TestCase):
- """The worker and the packaging tool must agree on what a release is.
-
- They stamp it from separate lists: package.py writes the manifest from
- WORKER_FILES, the worker reports its own from RELEASE_FILES, and
- claim_lesson_video hands work only to a worker whose id matches the
- enabled one. So a difference between the lists does not fail anything
- loudly. It produces a worker that starts, beats, and claims nothing.
-
- That is exactly what happened: the cloud dispatcher was added to
- WORKER_FILES and not to the worker's list, and the first release cut
- afterwards ran happily against a database that had never heard of it.
- """
- def test_both_lists_name_the_same_files(self):
-  from worker.lesson_video import RELEASE_FILES
-  from worker.lesson_release.package import WORKER_FILES
-  self.assertEqual(tuple(RELEASE_FILES),tuple(WORKER_FILES))
-

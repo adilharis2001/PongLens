@@ -367,7 +367,7 @@ def refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0=None):
 
 
 def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
-                     anchor=True, close=True):
+                     anchor=True, close=True, bt_endline=None):
     """Move each card's edges to what the ball saw, and nothing else.
 
     `serves` are the V3 detector's contacts, `dead` its ball-going-dead runs.
@@ -384,6 +384,15 @@ def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
     sv = sorted(float(x) for x in (serves or []))
     cr = np.asarray(sorted(float(x) for x in cross), float)
     ev = np.asarray(sorted([float(x) for x in cross] + [float(x) for x in bt_table]), float)
+    # the hit-long bounces, kept apart from `ev` on purpose: they are only
+    # ever a single step past the last on-table event, never an event the
+    # reading may start from. See _ball_end.
+    # `if bt_endline is None`, never `bt_endline or []`: this arrives as a
+    # numpy array from points_v2, and asking a numpy array for its truth
+    # value raises. That mistake took the whole body stage down on
+    # 2026-09-10 and the match fell back to end-on ball cards.
+    lg = np.asarray(sorted(float(x) for x in
+                           ([] if bt_endline is None else bt_endline)), float)
     runs = sorted((float(a), float(b)) for a, b in (dead or []))
     out = []
     anchored = closed = on_dead = 0
@@ -422,7 +431,7 @@ def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
                     t0 = start
                     c["serve_s"] = s
         if close:
-            end, src = _ball_end(t0, t1, c.get("serve_s"), ev, cr, runs)
+            end, src = _ball_end(t0, t1, c.get("serve_s"), ev, cr, runs, lg)
             if end is not None:
                 stop = min(t1, end + END_BUF_S)
                 if stop - t0 >= V2.MIN_CARD_S and t1 - stop > 0.05:
@@ -450,15 +459,35 @@ def _add_why(why, phrase):
     return why if phrase in why else f"{why}, {phrase}"
 
 
-def _ball_end(t0, t1, serve_s, ev, cr, runs):
+def _ball_end(t0, t1, serve_s, ev, cr, runs, long_bt=None):
     """(the moment the point stopped, how we know) or (None, None).
 
-    Two readings, and the first is the better one. A DEAD RUN is the ball
-    dribbling to a stop on the table, which is the point ending; it is rare,
-    about one card in twenty, and where it fires it lands a couple of seconds
-    before the tracker stops seeing the ball at all. Otherwise the LAST net
-    crossing or table bounce inside the card, which is where the ball was last
-    seen doing something.
+    Three readings, best first. A DEAD RUN is the ball dribbling to a stop on
+    the table, which is the point ending; it is rare, about one card in
+    twenty, and where it fires it lands a couple of seconds before the tracker
+    stops seeing the ball at all. Otherwise the LAST net crossing or table
+    bounce inside the card, which is where the ball was last seen doing
+    something -- and then ONE STEP past it, below.
+
+    THE LAST SHOT OF A POINT IS NOT ON THE TABLE. A point ends when somebody
+    hits it long or wide, and that ball lands past the end line, on the floor.
+    `ev` is built from crossings and points_v2's bt_table, which excludes the
+    floor by construction, so reading the end from `ev` alone anchors on the
+    SECOND-TO-LAST shot and stops the card 1.5 s after that, while the ball is
+    still in the air. Adil tagged eight such cards on 2026-09-10; the ball
+    detector was running continuously across the cut on seven of them.
+
+    The other half of this pipeline has always known: points_pipeline ends a
+    point on exactly this event and calls it "missed table (long/wide)". So
+    `long_bt` (points_v2 bt_endline) is offered here, and the reading takes
+    ONE step to the first such bounce that is inside the card and within
+    EXTEND_GAP_S of the last on-table event. One step, never a chain: a rally
+    ends on one shot, and a chain would follow the ball across the floor.
+
+    This CANNOT lengthen a card. The caller takes min(t1, end + END_BUF_S),
+    so moving `end` later can only make the trim smaller; the ceiling is the
+    end the body model already chose. test_the_end_is_never_pushed_out pins
+    that and needs no change.
     """
     inside = ev[(ev >= t0) & (ev <= t1)]
     if not len(inside):
@@ -471,7 +500,12 @@ def _ball_end(t0, t1, serve_s, ev, cr, runs):
             continue        # the ball crossed the net again: it was not dead
         if a > t0:
             return a, "dead"
-    return float(inside[-1]), "last"
+    last = float(inside[-1])
+    if long_bt is not None and len(long_bt):
+        step = long_bt[(long_bt > last) & (long_bt <= min(t1, last + EXTEND_GAP_S))]
+        if len(step):
+            return float(step[0]), "long"
+    return last, "last"
 
 
 def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=None,
@@ -511,7 +545,10 @@ def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=
     if anchor or close:
         resolved, edges = anchor_and_close(
             resolved, v3_serves, cross, bt_table, v3_dead, duration,
-            anchor=anchor, close=close)
+            anchor=anchor, close=close,
+            # getattr, not attribute access: highlight_backfill hands this
+            # pass a SimpleNamespace carrying only the fields it needs.
+            bt_endline=getattr(evidence, "bt_endline", None))
         resolved = V2.resolve(resolved)
     info = dict(samples=int(len(T)), both_share=round(share, 3), segments=len(segs),
                 cards=len(resolved), stamped=sum(1 for d in resolved if d.get("serve_s") is not None),

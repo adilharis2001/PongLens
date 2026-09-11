@@ -101,9 +101,9 @@ def point_tracks(blob, blurball=None):
 
     A SECOND artifact rather than more of serves.json, and the reason is
     who reads it. serves.json goes to the browser, which is why its track
-    is thinned to every third frame. This one is read on the server and is
-    undecimated. The admin trail may receive its time/x/y rows, but the
-    confidence column and winner-rule work stay on the server.
+    is thinned to every third frame — enough to draw a trail, not enough to
+    judge whether the ball crossed the net. This one is read on the server,
+    never sent, and is undecimated.
 
     Times are SOURCE seconds, the same clock the placement candidates use,
     so the reader hands the rules a clip origin of zero and nothing converts
@@ -196,18 +196,8 @@ def main():
             prod = blob.get("prod_cards")
             if prod:
                 blob["cards"] = prod
-            blurball = os.path.join(args.workroot, name, "blurball.jsonl")
-            confidence_path = blurball if os.path.exists(blurball) else None
-            confidence = (blurball_confidence(confidence_path)
-                          if confidence_path else None)
             try:
-                page = trim_for_transport(build(
-                    blob,
-                    include_all=True,
-                    observation_confidence=confidence,
-                    confidence_provenance=(CONF_MEASURED if confidence is not None
-                                           else "missing"),
-                ))
+                page = trim_for_transport(build(blob, include_all=True))
             except ValueError as e:
                 print(f"{name[:8]}  skipped: {e}")
                 failed += 1

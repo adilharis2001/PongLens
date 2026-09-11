@@ -47,8 +47,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -63,7 +62,7 @@ try:
         PostgresCostAlertStore,
         deliver_cost_alerts,
     )
-    from worker.cost_meter import CostMeter, sql_savepoint, stable_key
+    from worker.cost_meter import CostMeter, stable_key
     from worker.email_templates import (
         RenderedEmail,
         admin_job_failure_message,
@@ -80,7 +79,7 @@ try:
     )
 except ModuleNotFoundError:  # direct `python worker/worker.py` execution
     from cost_alerts import PostgresCostAlertStore, deliver_cost_alerts
-    from cost_meter import CostMeter, sql_savepoint, stable_key
+    from cost_meter import CostMeter, stable_key
     from email_templates import (
         RenderedEmail,
         admin_job_failure_message,
@@ -90,7 +89,6 @@ except ModuleNotFoundError:  # direct `python worker/worker.py` execution
         qa_digest_message,
         render_email,
         upload_failed_message,
-    hand_cut_failed_message,
     )
     from cost_reconcile import (
         record_r2_storage_snapshot,
@@ -340,19 +338,12 @@ WORKER_DIR = os.path.dirname(os.path.abspath(__file__))
 # app_config.reclip_lane; a lane with no process reading it is a queue
 # nobody drains, so the switch flips only after the second process runs.
 #   python3 worker.py --lane fast       or       WORKER_LANE=fast
-# The hand-cut lane (20260908140000) is a third process reading only
-# 'jobs_hand': a match cut from the owner's own marks, no detector. It has
-# its own queue so the main lane, which may be running code from before
-# that kind existed, never reads a job it cannot run.
-#   python3 worker.py --lane hand       or       WORKER_LANE=hand
-_LANE_ARG = (sys.argv[sys.argv.index("--lane") + 1:][:1] or [None])[0] \
-    if "--lane" in sys.argv else None
-LANE = _LANE_ARG or os.environ.get("WORKER_LANE", "main")
-if LANE not in ("main", "fast", "hand"):
-    LANE = "main"
-QUEUE_NAME = {"fast": "jobs_fast", "hand": "jobs_hand"}.get(LANE, "jobs")
+LANE = "fast" if "--lane" in sys.argv and \
+    sys.argv[sys.argv.index("--lane") + 1:][:1] == ["fast"] \
+    else os.environ.get("WORKER_LANE", "main")
+QUEUE_NAME = "jobs_fast" if LANE == "fast" else "jobs"
 LOG_PATH = os.path.join(
-    WORKER_DIR, "worker.log" if LANE == "main" else f"worker-{LANE}.log")
+    WORKER_DIR, "worker-fast.log" if LANE == "fast" else "worker.log")
 
 # Under launchd the wrapper already appends stdout to worker.log, so a
 # stdout handler there would double every line. The stream handler is for
@@ -598,7 +589,7 @@ def update_job(conn, job_id: str, **fields):
 def ledger_append(conn, user_id: str, kind: str, num_bytes: int,
                   r2_key: str | None = None, match_id: str | None = None):
     try:
-        with sql_savepoint(conn), conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "insert into public.storage_ledger "
                 "(user_id, match_id, kind, bytes, r2_key) "
@@ -615,7 +606,7 @@ def ledger_negate_keys(conn, r2_keys: list[str]):
     if not r2_keys:
         return
     try:
-        with sql_savepoint(conn), conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute("select public._ledger_negate_keys(%s)", (r2_keys,))
     except Exception as e:
         log.warning("  ledger negate failed (non-fatal): %s", e)
@@ -987,30 +978,6 @@ def notify_upload_failed(conn, user_id: str, kind: str,
         return False
 
 
-def notify_hand_cut_failed(conn, user_id: str | None, job_id: str | None,
-                           message: str | None) -> bool:
-    """Tell the player their hand cut did not finish. Never raises.
-
-    Same contract as notify_upload_failed: only what a person can act on,
-    and True when the mail actually went out."""
-    try:
-        if not user_id:
-            return False
-        match_id = get_job_match_id(conn, job_id) if job_id else None
-        rendered = render_email(hand_cut_failed_message(
-            f"{APP_URL}/match/{match_id}" if match_id else DASHBOARD_URL,
-            message or "We couldn't finish cutting this match.",
-        ))
-        to = get_user_email(conn, user_id)
-        if to:
-            send_email(to, rendered)
-            return True
-        return False
-    except Exception as e:
-        log.warning("  hand cut failure email failed (non-fatal): %s", e)
-        return False
-
-
 def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
                         user_id: str | None, user_message: str | None,
                         terminal: bool = True):
@@ -1035,9 +1002,8 @@ def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
     # attempt sent its own pair, so one upload whose video never arrived
     # produced two "we couldn't process your video" to the player and two
     # "[Action needed]" to the admin, thirty minutes apart, for a single
-    # event. A deterministic failure is terminal on its first attempt
-    # (`terminal` is computed that way), so the private-video and
-    # wrong-sport messages still reach the uploader immediately.
+    # event. A deterministic failure is terminal on its first attempt, so
+    # the private-video and wrong-sport messages still go out at once.
     if not terminal:
         return
     uploader_emailed = False
@@ -1046,12 +1012,6 @@ def send_failure_emails(conn, e: Exception, job_id: str | None, kind: str,
         # A failed content check is an upload outcome too (097).
         uploader_emailed = notify_upload_failed(conn, user_id, kind,
                                                 user_message)
-    elif kind == "hand_cut" and terminal:
-        # A person is waiting on this one too, and the raw page promised
-        # the email. Only once the queue has given up: an attempt that will
-        # run again is not news.
-        uploader_emailed = notify_hand_cut_failed(conn, user_id, job_id,
-                                                  user_message)
     if job_id and not (isinstance(e, UserFacingError) and uploader_emailed):
         notify_job_failed(conn, job_id, str(e))
 
@@ -1101,11 +1061,30 @@ def check_match_row_alive(conn, match_id):
 # App config (migration 014) — non-secret settings the app + worker share.
 # ---------------------------------------------------------------------------
 def get_config(conn, key: str) -> str | None:
-    with sql_savepoint(conn), conn.cursor() as cur:
+    with conn.cursor() as cur:
         cur.execute("select value from public.app_config where key = %s",
                     (key,))
         row = cur.fetchone()
     return row[0] if row else None
+
+
+def players_device(conn) -> str:
+    """Which chip reads the players: app_config.players_device.
+
+    Same contract as points_pipeline and game_end_detection — read per job so
+    one UPDATE moves the body stage between the processor and the GPU with no
+    deploy and no restart, and a config read that errors FAILS SAFE to the
+    processor, which is slower and can never be wrong for a new reason.
+    PONGLENS_PLAYERS_DEVICE still overrides, for a one-off run by hand.
+    """
+    env = os.environ.get("PONGLENS_PLAYERS_DEVICE")
+    if env:
+        return env
+    try:
+        value = get_config(conn, "players_device")
+    except Exception:                                        # noqa: BLE001
+        return "cpu"
+    return value if value in ("cpu", "coreml") else "cpu"
 
 
 def automatic_highlights_enabled(value: str | None, user_id: str) -> bool:
@@ -1744,6 +1723,12 @@ def run_blurball(
     return blurball_out
 
 
+# What detect_ball did, beside the detections it wrote. Read by the job
+# flow (rerun_points_on_vision_crop) and turned into a sentence for
+# match.json (detections_note_from_sidecar).
+BALL_CROP_SIDECAR = "ball_crop.json"
+
+
 def detect_ball(
     input_video: str,
     workdir: str,
@@ -1782,11 +1767,41 @@ def detect_ball(
     Fails open in every direction — no table, no usable box, a failed
     encode — because a match processed on full-frame detections is the
     outcome we have today, and a match that fails to process is not.
+
+    Two additions on 2026-09-06. THE CROP IS SKIPPED WHEN THE TABLE READS
+    END-ON (points_endon.crop_allowed): on the Westchester bench the crop
+    took the end-on assembler from 74% to 71% clean and lost three rallies
+    whose ball left the box sideways, and the extra serves it found there
+    were the mid-rally kind. And WHAT HAPPENED IS WRITTEN DOWN: ball_crop.json
+    beside the detections says which box was used, whose corners, or why
+    there was none, so the points stage can put it in match.json and the
+    job flow can decide whether a second pass on a vision-calibrated table
+    is worth running. The lab had to reproduce production from scratch to
+    learn that Anton's matches were detected on the full frame.
     """
+    sidecar = os.path.join(workdir, BALL_CROP_SIDECAR)
+
+    def record(box, corners_from, reason=None, shape=None):
+        # A record, never a reason to fail.
+        try:
+            with open(sidecar, "w") as fh:
+                json.dump({"box": [int(v) for v in box] if box else None,
+                           "corners_from": corners_from,
+                           "reason": reason,
+                           "shape": (round(float(shape), 3)
+                                     if shape is not None else None)}, fh)
+        except Exception:                                   # noqa: BLE001
+            log.warning("  table crop: could not write %s", sidecar,
+                        exc_info=True)
+
     if not table_crop:
+        record(None, None, "crop off")
         return run_blurball(input_video, workdir, attempt_key=attempt_key,
                             on_progress=on_progress)
     box = None
+    corners_from = "job" if corners else None
+    reason = None
+    shape = None
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import points_endon
@@ -1796,17 +1811,31 @@ def detect_ball(
         else:
             calib = keypoint_calibrate(input_video, workdir)
             corners = (calib or {}).get("corners_px")
-        if corners:
-            meta = probe(input_video)
-            box = points_endon.ball_crop_box(
-                corners, meta["width"], meta["height"])
-        if box is None:
-            log.info("  table crop: no usable box, detecting on the full frame")
+            corners_from = "keypoints" if corners else None
+        if not corners:
+            reason = "no table"
+        else:
+            allowed, shape = points_endon.crop_allowed(corners)
+            if not allowed:
+                reason = "end-on table"
+                log.info("  table crop: skipped, the table reads end-on "
+                         "(shape %.2f, under %.2f); the full frame keeps "
+                         "the sideways ball", shape,
+                         points_endon.CROP_MIN_SHAPE)
+            else:
+                meta = probe(input_video)
+                box = points_endon.ball_crop_box(
+                    corners, meta["width"], meta["height"])
+                if box is None:
+                    reason = "no usable box"
+        if box is None and reason != "end-on table":
+            log.info("  table crop: %s, detecting on the full frame", reason)
     except Exception:                                       # noqa: BLE001
         log.warning("  table crop: calibration failed, full frame",
                     exc_info=True)
-        box = None
+        box, reason = None, "calibration failed"
     if box is None:
+        record(None, corners_from, reason, shape)
         return run_blurball(input_video, workdir, attempt_key=attempt_key,
                             on_progress=on_progress)
 
@@ -1821,6 +1850,7 @@ def detect_ball(
             check=True, timeout=2 * 3600)
     except Exception:                                       # noqa: BLE001
         log.warning("  table crop: encode failed, full frame", exc_info=True)
+        record(None, corners_from, "encode failed", shape)
         return run_blurball(input_video, workdir, attempt_key=attempt_key,
                             on_progress=on_progress)
 
@@ -1838,6 +1868,7 @@ def detect_ball(
             os.remove(path)
         except OSError:
             pass
+    record(box, corners_from, None, shape)
     return shifted
 
 
@@ -1992,53 +2023,6 @@ def run_placement_reconstruction(
     return json.loads(output_path.read_text())
 
 
-class MatchVersionChanged(RuntimeError):
-    """A processing result no longer owns its originating match/version."""
-
-
-def job_processing_version(options: dict) -> str:
-    # Old queue messages without an identity cannot safely be assigned the
-    # currently active version: publication may have happened while queued.
-    try:
-        return str(uuid.UUID(str(options.get("processing_version_id"))))
-    except (ValueError, TypeError, AttributeError) as error:
-        raise MatchVersionChanged("derived job has no processing version") from error
-
-
-@contextmanager
-def locked_match_version(conn, match_id: str, processing_version_id: str):
-    """Serialize a short derived-data write with publication and restore.
-
-    The privileged worker bypasses RLS. A WHERE/EXISTS check alone is not
-    sufficient: publication could commit after that statement's snapshot.
-    All current-projection writes therefore lock the same match row first.
-    Existing caller transactions keep the lock until their own commit.
-    """
-    owns_transaction = conn.autocommit
-    try:
-        if owns_transaction:
-            conn.autocommit = False
-        with (nullcontext() if owns_transaction else sql_savepoint(conn)):
-            with conn.cursor() as cur:
-                cur.execute(
-                    "select active_processing_version_id::text from public.matches "
-                    "where id = %s for update", (match_id,),
-                )
-                row = cur.fetchone()
-                if not processing_version_id or not row or row[0] != str(processing_version_id):
-                    raise MatchVersionChanged("match processing version changed")
-            yield
-        if owns_transaction:
-            conn.commit()
-    except Exception:
-        if owns_transaction:
-            conn.rollback()
-        raise
-    finally:
-        if owns_transaction:
-            conn.autocommit = True
-
-
 def load_backfill_record(
     conn,
     match_id: str,
@@ -2050,7 +2034,6 @@ def load_backfill_record(
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "select m.id::text as match_id, m.status, "
-            "m.active_processing_version_id::text as processing_version_id, "
             "j.input_path, j.options as job_options, m.match_json_path "
             "from public.matches m "
             "left join public.jobs j on j.id = m.job_id "
@@ -2062,9 +2045,9 @@ def load_backfill_record(
             raise RuntimeError(f"placement backfill: match {match_id} not found")
         cur.execute(
             "select to_jsonb(p) - 'id' - 'match_id' as point "
-            f"from public.points p where p.match_id = %s and p.processing_version_id = %s "
+            f"from public.points p where p.match_id = %s "
             f"order by p.idx{point_lock}",
-            (match_id, match["processing_version_id"]),
+            (match_id,),
         )
         points = [row["point"] for row in cur.fetchall()]
     record = dict(match)
@@ -2571,7 +2554,6 @@ def _update_backfill_rows(
     conn,
     match_id: str,
     placements: dict[int, dict | None],
-    *, processing_version_id: str,
 ) -> None:
     with conn.cursor() as cur:
         for index in sorted(placements):
@@ -2579,8 +2561,8 @@ def _update_backfill_rows(
             serialized = None if payload is None else json.dumps(payload)
             cur.execute(
                 "update public.points set placement = %s::jsonb "
-                "where match_id = %s and idx = %s and processing_version_id = %s",
-                (serialized, match_id, index, processing_version_id),
+                "where match_id = %s and idx = %s",
+                (serialized, match_id, index),
             )
             if cur.rowcount != 1:
                 raise RuntimeError(
@@ -2590,7 +2572,7 @@ def _update_backfill_rows(
 
 
 def _assert_backfill_record_unchanged(expected: dict, current: dict) -> None:
-    fields = ("match_id", "processing_version_id", "status", "input_path", "match_json_path")
+    fields = ("match_id", "status", "input_path", "match_json_path")
 
     def point_inputs(record: dict) -> list[dict]:
         inputs = copy.deepcopy(record.get("points") or [])
@@ -2612,13 +2594,11 @@ def _restore_backfill_database(
     conn,
     match_id: str,
     original_placements: dict[int, dict | None],
-    *, processing_version_id: str,
 ) -> None:
     original_autocommit = conn.autocommit
     try:
         conn.autocommit = False
-        _update_backfill_rows(conn, match_id, original_placements,
-                              processing_version_id=processing_version_id)
+        _update_backfill_rows(conn, match_id, original_placements)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -2634,12 +2614,10 @@ def _compensate_backfill(
     match_json_path: str,
     original_match_path: str | Path,
     cause: Exception,
-    *, processing_version_id: str,
 ) -> None:
     failures = []
     try:
-        _restore_backfill_database(conn, match_id, original_placements,
-                                   processing_version_id=processing_version_id)
+        _restore_backfill_database(conn, match_id, original_placements)
     except Exception as error:
         failures.append(f"database restore failed: {error}")
     try:
@@ -2665,13 +2643,12 @@ def verify_backfill(
     match_json_path: str,
     placements: dict[int, dict],
     expected_match: dict,
-    *, processing_version_id: str,
 ) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "select idx, placement from public.points "
-            "where match_id = %s and processing_version_id = %s order by idx",
-            (match_id, processing_version_id),
+            "where match_id = %s order by idx",
+            (match_id,),
         )
         database = {int(index): placement for index, placement in cur.fetchall()}
     if database != placements:
@@ -2699,7 +2676,6 @@ def verify_placement_attempt(
     placements: dict[int, dict],
     expected_match: dict,
     mapped_points: int,
-    *, processing_version_id: str,
 ) -> None:
     """Verify both placement stores and the terminal lifecycle row."""
     if job_field not in {
@@ -2713,14 +2689,13 @@ def verify_placement_attempt(
         match_json_path,
         placements,
         expected_match,
-        processing_version_id=processing_version_id,
     )
     with conn.cursor() as cur:
         cur.execute(
             "select placement_status, placement_mapped_points, "
             f"placement_failure_code, {job_field}::text "
-            "from public.matches where id = %s and active_processing_version_id = %s",
-            (match_id, processing_version_id),
+            "from public.matches where id = %s",
+            (match_id,),
         )
         row = cur.fetchone()
     if row != ("ready", mapped_points, None, job_id):
@@ -2778,8 +2753,7 @@ def backfill_placement_for_match(conn, match_id: str) -> BackfillResult:
             conn.autocommit = False
             current = load_backfill_record(conn, match_id, for_update=True)
             _assert_backfill_record_unchanged(record, current)
-            _update_backfill_rows(conn, match_id, placements,
-                                  processing_version_id=record["processing_version_id"])
+            _update_backfill_rows(conn, match_id, placements)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -2799,7 +2773,6 @@ def backfill_placement_for_match(conn, match_id: str) -> BackfillResult:
                 record["match_json_path"],
                 placements,
                 output["match"],
-                processing_version_id=record["processing_version_id"],
             )
         except Exception as error:
             _compensate_backfill(
@@ -2809,7 +2782,6 @@ def backfill_placement_for_match(conn, match_id: str) -> BackfillResult:
                 record["match_json_path"],
                 match_path,
                 error,
-                processing_version_id=record["processing_version_id"],
             )
         statuses = [placement.get("status") for placement in placements.values()]
         return BackfillResult(
@@ -2879,8 +2851,6 @@ def load_placement_attempt_record(
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "select m.id::text as match_id, m.user_id::text as user_id, "
-            "m.active_processing_version_id::text as processing_version_id, "
-            "a.options->>'processing_version_id' as job_processing_version_id, "
             "m.status, m.placement_status, m.placement_retry_count, "
             "m.placement_mapped_points, m.placement_failure_code, "
             "m.placement_retry_expires_at, "
@@ -2896,9 +2866,8 @@ def load_placement_attempt_record(
             "j.input_path, j.options as job_options, m.match_json_path "
             "from public.matches m "
             "left join public.jobs j on j.id = m.job_id "
-            "left join public.jobs a on a.id = %s "
             f"where m.id = %s{match_lock}",
-            (job_id, match_id),
+            (match_id,),
         )
         match = cur.fetchone()
         if not match:
@@ -2917,9 +2886,6 @@ def load_placement_attempt_record(
             )
         if record.get("status") != "ready":
             raise RuntimeError("placement attempt requires a ready match")
-        if (not record.get("job_processing_version_id")
-                or record["job_processing_version_id"] != record["processing_version_id"]):
-            raise MatchVersionChanged("placement job processing version changed")
         terminal_statuses = (
             {"ready", "retry_available", "final_failed"}
             if attempt.name == "normal"
@@ -2936,9 +2902,9 @@ def load_placement_attempt_record(
 
         cur.execute(
             "select to_jsonb(p) - 'id' - 'match_id' as point "
-            f"from public.points p where p.match_id = %s and p.processing_version_id = %s "
+            f"from public.points p where p.match_id = %s "
             f"order by p.idx{point_lock}",
-            (match_id, record["processing_version_id"]),
+            (match_id,),
         )
         points = [row["point"] for row in cur.fetchall()]
 
@@ -3101,7 +3067,6 @@ def _assert_placement_record_unchanged(
 ) -> None:
     fields = (
         "match_id",
-        "processing_version_id",
         "user_id",
         "status",
         "placement_status",
@@ -3169,7 +3134,6 @@ def _update_placement_lifecycle(
     status: str,
     mapped_points: int,
     failure_code: str | None,
-    processing_version_id: str,
 ) -> None:
     if attempt.job_field not in {
         "placement_generation_job_id",
@@ -3180,8 +3144,8 @@ def _update_placement_lifecycle(
         cur.execute(
             "update public.matches set placement_status = %s, "
             "placement_mapped_points = %s, placement_failure_code = %s "
-            f"where id = %s and {attempt.job_field} = %s and active_processing_version_id = %s",
-            (status, mapped_points, failure_code, match_id, job_id, processing_version_id),
+            f"where id = %s and {attempt.job_field} = %s",
+            (status, mapped_points, failure_code, match_id, job_id),
         )
         if cur.rowcount != 1:
             raise RuntimeError(
@@ -3225,7 +3189,6 @@ def _commit_placement_lifecycle(
             status=resolved_status,
             mapped_points=mapped_points,
             failure_code=resolved_failure_code,
-            processing_version_id=record["processing_version_id"],
         )
         conn.commit()
         return resolved_status, resolved_failure_code
@@ -3246,8 +3209,7 @@ def _restore_placement_database(
     original_autocommit = conn.autocommit
     try:
         conn.autocommit = False
-        _update_backfill_rows(conn, record["match_id"], original_placements,
-                              processing_version_id=record["processing_version_id"])
+        _update_backfill_rows(conn, record["match_id"], original_placements)
         _update_placement_lifecycle(
             conn,
             record["match_id"],
@@ -3256,7 +3218,6 @@ def _restore_placement_database(
             status=record["placement_status"],
             mapped_points=int(record["placement_mapped_points"]),
             failure_code=record.get("placement_failure_code"),
-            processing_version_id=record["processing_version_id"],
         )
         conn.commit()
     except Exception:
@@ -3332,10 +3293,6 @@ def placement_for_match(
         record.get("source_expired")
         or not record.get("input_path")
         or not record.get("match_json_path")
-        # No ball track and no calibrated table: nothing to draw, and
-        # placement_backfill would raise on the missing source.fps after a
-        # full detector run. Terminal, before anything expensive.
-        or match_cut_source(conn, match_id) == "manual"
     ):
         source_failure = (
             "source_expired"
@@ -3504,8 +3461,7 @@ def placement_for_match(
                 for_update=True,
             )
             _assert_placement_record_unchanged(record, current)
-            _update_backfill_rows(conn, match_id, placements,
-                                  processing_version_id=record["processing_version_id"])
+            _update_backfill_rows(conn, match_id, placements)
             _update_placement_lifecycle(
                 conn,
                 match_id,
@@ -3514,7 +3470,6 @@ def placement_for_match(
                 status="ready",
                 mapped_points=mapped,
                 failure_code=None,
-                processing_version_id=record["processing_version_id"],
             )
             conn.commit()
         except Exception:
@@ -3540,7 +3495,6 @@ def placement_for_match(
                 placements,
                 output["match"],
                 mapped,
-                processing_version_id=record["processing_version_id"],
             )
         except Exception as error:
             _compensate_placement(
@@ -3684,231 +3638,6 @@ def get_job_options(conn, job_id: str, payload: dict) -> dict:
     return opts if isinstance(opts, dict) else {}
 
 
-@dataclass(frozen=True)
-class MatchProcessingDestination:
-    """Publishing policy for the one match-media workflow.
-
-    Active/create mode preserves ordinary processing and its ledger. Candidate
-    mode writes only version-scoped artifacts, points, and terminal state.
-    """
-
-    match_id: str
-    user_id: str
-    job_id: str
-    source_path: str
-    options: dict
-    match_state: dict
-    issue_id: str | None = None
-    source_version_id: str | None = None
-    processing_version_id: str | None = None
-    release_id: str | None = None
-    effective_settings: dict | None = None
-    activates_match: bool = False
-
-    def __post_init__(self):
-        if not self.activates_match and not all((
-                self.issue_id, self.source_version_id, self.processing_version_id)):
-            # A null point version invokes the legacy active-version trigger.
-            # Refuse incomplete candidates before any media or database write.
-            raise ValueError("candidate destination requires explicit version and issue identities")
-
-    @classmethod
-    def active(cls, job_id: str, user_id: str, source_path: str,
-               options: dict) -> "MatchProcessingDestination":
-        return cls(
-            match_id=str(options.get("match_id") or uuid.uuid4()),
-            user_id=user_id, job_id=job_id, source_path=source_path,
-            options=options, match_state={}, activates_match=True,
-            processing_version_id=options.get("processing_version_id"),
-        )
-
-    @property
-    def storage_prefix(self) -> str:
-        if self.activates_match:
-            return f"points/{self.user_id}/{self.match_id}"
-        return (f"points/{self.user_id}/{self.match_id}/versions/"
-                f"{self.processing_version_id}")
-
-    @property
-    def r2_prefix(self) -> str:
-        return f"r2://{R2_MEDIA_BUCKET}/{self.storage_prefix}"
-
-    @property
-    def cut_key(self) -> str:
-        if self.activates_match:
-            return f"results/{self.user_id}/{self.job_id}.mp4"
-        return (f"results/{self.user_id}/{self.match_id}/versions/"
-                f"{self.processing_version_id}.mp4")
-
-
-def load_match_reprocess_destination(conn, job_id: str) -> MatchProcessingDestination:
-    """Read reprocess facts from Postgres, never from its queue payload."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "select jsonb_build_object("
-            "'match_id', m.id::text, 'user_id', m.user_id::text, "
-            "'job_id', j.id::text, 'issue_id', i.id::text, "
-            "'source_version_id', v.source_version_id::text, "
-            "'processing_version_id', v.id::text, 'raw_path', v.raw_path, "
-            "'options', j.options, 'match_state', to_jsonb(m)) "
-            "from public.jobs j "
-            "join public.match_processing_versions v on v.job_id = j.id "
-            "join public.match_processing_versions source on source.id = v.source_version_id "
-            "join public.matches m on m.id = v.match_id "
-            "join public.match_processing_feedback i on i.id = v.issue_id "
-            "where j.id = %s and j.kind = 'match_reprocess' "
-            "and v.status = 'candidate' and m.status = 'ready' "
-            "and i.status in ('reprocess_queued', 'reprocessing') "
-            "and i.replacement_job_id = j.id "
-            "and i.replacement_version_id = v.id "
-            "and i.source_version_id = v.source_version_id "
-            "and m.active_processing_version_id = v.source_version_id "
-            "and j.options->>'match_id' = m.id::text "
-            "and j.options->>'issue_id' = i.id::text "
-            "and j.options->>'source_version_id' = v.source_version_id::text "
-            "and j.options->>'processing_version_id' = v.id::text",
-            (job_id,),
-        )
-        row = cur.fetchone()
-    record = row if isinstance(row, dict) else (row[0] if row else None)
-    if not isinstance(record, dict):
-        raise RuntimeError("match reprocess job no longer has its candidate")
-    required = (
-        "match_id", "user_id", "job_id", "issue_id", "source_version_id",
-        "processing_version_id", "options", "match_state",
-    )
-    if any(not record.get(key) for key in required):
-        raise RuntimeError("match reprocess job has incomplete database facts")
-    if not isinstance(record["options"], dict) or not isinstance(
-            record["match_state"], dict):
-        raise RuntimeError("match reprocess job has invalid database facts")
-    return MatchProcessingDestination(
-        match_id=str(record["match_id"]), user_id=str(record["user_id"]),
-        job_id=str(record["job_id"]), issue_id=str(record["issue_id"]),
-        source_version_id=str(record["source_version_id"]),
-        processing_version_id=str(record["processing_version_id"]),
-        source_path=str(record["raw_path"] or ""), options=record["options"],
-        match_state=record["match_state"],
-    )
-
-
-def save_match_reprocess_candidate(
-    conn, destination: MatchProcessingDestination, *, cut_path: str,
-    thumb_path: str | None, match_json_path: str, match_state: dict,
-) -> None:
-    """Make one candidate ready, leaving the active match projection alone."""
-    release_id = destination.release_id
-    with conn.cursor() as cur:
-        cur.execute(
-            "update public.match_processing_versions "
-            "set cut_path = %s, thumb_path = %s, match_json_path = %s, "
-            "settings = %s, release_id = %s, match_state = %s, "
-            "completed_at = now(), status = 'ready' "
-            "where id = %s and match_id = %s and job_id = %s "
-            "and status = 'candidate'",
-            (cut_path, thumb_path, match_json_path,
-             json.dumps(destination.effective_settings or {}), release_id,
-             json.dumps(match_state), destination.processing_version_id,
-             destination.match_id, destination.job_id),
-        )
-        if cur.rowcount != 1:
-            raise RuntimeError("candidate version changed before it was saved")
-        cur.execute(
-            "update public.match_processing_feedback "
-            "set status = 'candidate_ready', updated_at = now() "
-            "where id = %s and replacement_job_id = %s "
-            "and status in ('reprocess_queued', 'reprocessing')",
-            (destination.issue_id, destination.job_id),
-        )
-        if cur.rowcount != 1:
-            raise RuntimeError("match reprocess issue changed before completion")
-        cur.execute(
-            "select public.record_match_version_event("
-            "%s, 'candidate_ready', %s, null, %s::jsonb)",
-            (destination.issue_id, "A new version is ready for review.",
-             json.dumps({"versionId": destination.processing_version_id,
-                         "jobId": destination.job_id})),
-        )
-
-
-def fail_match_reprocess(conn, destination: MatchProcessingDestination,
-                         error: Exception) -> None:
-    """Terminally fail only the candidate and its feedback request."""
-    message = str(error)[:500] or "Reprocessing did not finish."
-    with conn.cursor() as cur:
-        cur.execute(
-            "update public.match_processing_versions "
-            "set status = 'failed' where id = %s and match_id = %s "
-            "and job_id = %s and status = 'candidate'",
-            (destination.processing_version_id, destination.match_id,
-             destination.job_id),
-        )
-        cur.execute(
-            "update public.match_processing_feedback "
-            "set status = 'execution_failed', updated_at = now() "
-            "where id = %s and replacement_job_id = %s "
-            "and status in ('reprocess_queued', 'reprocessing')",
-            (destination.issue_id, destination.job_id),
-        )
-        cur.execute(
-            "select public.record_match_version_event("
-            "%s, 'execution_failed', %s, null, %s::jsonb)",
-            (destination.issue_id,
-             "Reprocessing did not finish. Your current match has not changed.",
-             json.dumps({"versionId": destination.processing_version_id,
-                         "jobId": destination.job_id, "error": message})),
-        )
-
-
-def finalize_match_reprocess_success(
-    conn, destination: MatchProcessingDestination, *, cut_path: str,
-    thumb_path: str | None, match_json_path: str, match_state: dict,
-    point_indices: list[int],
-) -> None:
-    """Commit the candidate, issue event and terminal job state together."""
-    original_autocommit = conn.autocommit
-    try:
-        conn.autocommit = False
-        # A retry may legitimately find fewer cards. Delete only the stale
-        # tail of THIS inactive candidate before making it reviewable; active
-        # points have a different processing_version_id and cannot match.
-        with conn.cursor() as cur:
-            cur.execute(
-                "delete from public.points where processing_version_id = %s "
-                "and not (idx = any(%s))",
-                (destination.processing_version_id, point_indices),
-            )
-        save_match_reprocess_candidate(
-            conn, destination, cut_path=cut_path, thumb_path=thumb_path,
-            match_json_path=match_json_path, match_state=match_state)
-        update_job(conn, destination.job_id, status="done", result_path=cut_path,
-                   progress=100)
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.autocommit = original_autocommit
-
-
-def finalize_match_reprocess_failure(
-    conn, destination: MatchProcessingDestination, error: Exception,
-) -> None:
-    """Commit terminal candidate/issue/job failure as one retry-safe unit."""
-    original_autocommit = conn.autocommit
-    try:
-        conn.autocommit = False
-        fail_match_reprocess(conn, destination, error)
-        update_job(conn, destination.job_id, status="failed", progress=100,
-                   error=str(error)[:500])
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.autocommit = original_autocommit
-
-
 # ---------------------------------------------------------------------------
 # Points stage (SPEC.md §6) — runs on the ORIGINAL video after the cut.
 # Outputs: r2://ponglens-media/points/<userId>/<matchId>/{NN.mp4,match.json},
@@ -3944,27 +3673,6 @@ def probe_duration_s(path: str) -> float | None:
         return float(_ffprobe_streams(path)["format"]["duration"])
     except Exception:
         return None
-
-
-def probe_source_fps(path: str) -> float | None:
-    """The video's real frame rate, or None if it cannot be read.
-
-    `avg_frame_rate` rather than `r_frame_rate`: the latter is the timebase
-    tick rate and reads 600 or 90000 on plenty of phone footage, which
-    would land a nonsense number in the column the 60fps comparison is
-    built on. Anything outside a sane camera range is refused rather than
-    rounded, because a wrong number here is worse than a missing one — a
-    missing one shows up as null and gets excluded, a wrong one quietly
-    joins the other side of the comparison.
-    """
-    try:
-        streams = _ffprobe_streams(path)["streams"]
-        video = next(s for s in streams if s.get("codec_type") == "video")
-        num, den = (video.get("avg_frame_rate") or "0/0").split("/")
-        fps = float(num) / float(den)
-    except Exception:
-        return None
-    return fps if 10.0 <= fps <= 240.0 else None
 
 
 def apply_trim(local_input: str, workdir: str,
@@ -4104,22 +3812,23 @@ def claim_processing_for(conn, user_id: str, match_id: str,
 def refund_processing_spend_direct(conn, job_id: str):
     """Compensating ledger rows when a claimed job fails for good. Personal
     spends only (an order-funded review moves no personal minutes), and the
-    spend-identity unique index makes a double call harmless. Mirrors the
+    not-exists guard makes a double call harmless. Mirrors the
     refund_processing_spend RPC, which the worker cannot call: its direct
     Postgres session has no auth.role()."""
     with conn.cursor() as cur:
         cur.execute(
             "insert into public.processing_ledger "
             "(user_id, minutes, kind, funding, billing_mode, match_id, "
-            " job_id, order_id, note, reverses_id) "
+            " job_id, order_id, note) "
             "select l.user_id, -l.minutes, 'refund', l.funding, "
             "l.billing_mode, l.match_id, l.job_id, l.order_id, "
-            "'processing failed', l.id "
+            "'processing failed' "
             "from public.processing_ledger l "
             "where l.job_id = %s and l.kind = 'spend' "
             "and l.funding = 'personal' "
-            "on conflict (reverses_id) where kind = 'refund' do nothing",
-            (job_id,),
+            "and not exists (select 1 from public.processing_ledger r "
+            "where r.job_id = %s and r.kind = 'refund')",
+            (job_id, job_id),
         )
         if cur.rowcount:
             log.info("  refunded %d minute spend(s) for job %s",
@@ -4137,202 +3846,13 @@ def mark_library_match_failed(conn, match_id: str):
         )
 
 
-class OrdinaryReconciliationRetry(RuntimeError):
-    """Terminal bookkeeping must retry without invoking processing failure policy."""
-
-
-def archive_ordinary_delivery(conn, msg: dict):
-    """Reconcile completed or abandoned ordinary work before acknowledging it.
-
-    A crash can land between match-ready and job-done. Deleting a queued
-    library match leaves its spend attached to the job. Neither case may
-    reopen media work, but dropping the message first loses its bookkeeping.
-    Lock order matches publication/claim, and the receipt and archive commit
-    together so failed bookkeeping remains retryable.
-    """
-    payload = msg["message"]
-    if isinstance(payload, str):
-        payload = json.loads(payload)
-    job_id, user_id = payload["job_id"], payload["user_id"]
-    owns_transaction = conn.autocommit
-    try:
-        if owns_transaction:
-            conn.autocommit = False
-        with conn.cursor() as cur:
-            cur.execute(
-                "select coalesce(j.options->>'match_id', "
-                "(select m.id::text from public.matches m where m.job_id=j.id "
-                "and m.user_id=j.user_id order by m.created_at desc,m.id desc limit 1)) "
-                "from public.jobs j where j.id=%s and j.user_id=%s "
-                "and j.kind in ('deadspace_cut','youtube_import')", (job_id, user_id),
-            )
-            hint = cur.fetchone()
-            match_id = hint[0] if hint else None
-            match = None
-            if match_id:
-                cur.execute(
-                    "select status,job_id::text,cut_path,active_processing_version_id::text from public.matches "
-                    "where id=%s and user_id=%s for update", (match_id, user_id),
-                )
-                match = cur.fetchone()
-            cur.execute(
-                "select j.status,j.options->>'match_id',j.error,j.options->>'processing_version_id', "
-                "j.options->>'originating_match_job_id', "
-                "exists(select 1 from public.jobs newer where newer.user_id=j.user_id "
-                "and newer.kind in ('deadspace_cut','youtube_import') "
-                "and newer.options->>'match_id'=j.options->>'match_id' "
-                "and (newer.created_at,newer.id)>(j.created_at,j.id)) "
-                "from public.jobs j where j.id=%s and j.user_id=%s "
-                "and j.kind in ('deadspace_cut','youtube_import') for update of j", (job_id, user_id),
-            )
-            job = cur.fetchone()
-            # If the row's identity changed while acquiring locks, let a new
-            # delivery reconcile that row instead of using a stale match read.
-            identity_changed = job and job[1] is not None and job[1] != match_id
-            if not identity_changed:
-                if job and job[0] not in {"done", "cancelled"}:
-                    if match and match[0] == "ready" and match[1] == str(job_id) and match[2]:
-                        update_job(conn, job_id, status="done", result_path=match[2],
-                                   progress=100, error=None, user_message=None)
-                    elif match_id and match is None:
-                        refund_processing_spend_direct(conn, job_id)
-                        update_job(conn, job_id, status="cancelled", progress=100,
-                                   error="originating match was deleted")
-                    elif job[5]:
-                        # A newer same-owner claim already makes this attempt
-                        # terminal, even inside its retry budget. Reconcile its
-                        # charge without touching the newer claim's match.
-                        refund_processing_spend_direct(conn, job_id)
-                        update_job(conn, job_id, status="failed", progress=100,
-                                   error=job[2] or "processing claim was superseded")
-                    elif msg["read_ct"] > MAX_READ_CT and (not match or match[0] != "ready"):
-                        refund_processing_spend_direct(conn, job_id)
-                        update_job(conn, job_id, status="failed", progress=100,
-                                   error=job[2] or "processing attempt limit reached")
-                        # Fail only the still-owned unfinished projection;
-                        # an older exhausted claim cannot fail a newer job's
-                        # match or another published processing version.
-                        if (match and not job[5]
-                                and match[1] in {str(job_id), job[4]}
-                                and (job[3] is None or job[3] == match[3])):
-                            mark_library_match_failed(conn, match_id)
-                archive_message(conn, msg["msg_id"])
-        if owns_transaction:
-            conn.commit()
-    except Exception as error:
-        if owns_transaction:
-            try:
-                conn.rollback()
-            except Exception:
-                log.exception("could not roll back ordinary reconciliation")
-        raise OrdinaryReconciliationRetry("ordinary terminal bookkeeping did not commit") from error
-    finally:
-        if owns_transaction and not conn.closed:
-            try:
-                conn.autocommit = True
-            except Exception as error:
-                raise OrdinaryReconciliationRetry("ordinary reconciliation connection must recover") from error
-
-
-@contextmanager
-def locked_ordinary_match_attempt(conn, match_id: str, user_id: str, job_id: str,
-                                  *, claim: bool = False, expected_version_id=None):
-    """Authorize a library attempt before reclaim or destructive publication.
-
-    Library claims precede matches.job_id being assigned to the processing
-    job. Freeze that original job/version while the match is still unready;
-    never bind an old queue message to an already-published cut. Lock order
-    agrees with publish/restore (match before job), and the caller keeps the
-    lock across output writes so a late compute result cannot overwrite even
-    a retained media object before its point replacement is refused.
-    """
-    owns_transaction = conn.autocommit
-    try:
-        if owns_transaction:
-            conn.autocommit = False
-        with conn.cursor() as cur:
-            cur.execute(
-                "select user_id::text,status,active_processing_version_id::text,job_id::text "
-                "from public.matches where id = %s for update", (match_id,),
-            )
-            match = cur.fetchone()
-            if not match or match[0] != str(user_id) or match[1] == "ready":
-                raise MatchVersionChanged("ordinary match attempt is stale or no longer owned")
-            version_id, current_job_id = match[2], match[3]
-            cur.execute(
-                "select j.user_id::text,j.kind,j.status,j.options,j.user_message, "
-                "exists(select 1 from public.processing_ledger l where l.job_id=j.id and l.kind='refund'), "
-                "exists(select 1 from public.jobs newer where newer.kind in ('deadspace_cut','youtube_import','hand_cut') "
-                "and newer.user_id=j.user_id and newer.options->>'match_id'=%s "
-                "and (newer.created_at,newer.id)>(j.created_at,j.id)) "
-                "from public.jobs j where j.id = %s for update of j", (match_id, job_id),
-            )
-            job = cur.fetchone()
-            allowed = {"queued", "processing", "failed"} if claim else {"processing"}
-            if (not job or job[0] != str(user_id)
-                    or job[1] not in {"deadspace_cut", "youtube_import", "hand_cut"}
-                    or job[2] not in allowed or job[4] or job[5] or job[6]
-                    or (job[2] == "failed" and match[1] == "failed")):
-                raise MatchVersionChanged("ordinary processing job is terminal or stale")
-            options = job[3] or {}
-            if options.get("match_id") != str(match_id):
-                raise MatchVersionChanged("ordinary job no longer has its originating match")
-            origin_version = options.get("processing_version_id")
-            origin_job = options.get("originating_match_job_id")
-            if claim:
-                origin_version = origin_version or version_id
-                origin_job = origin_job or current_job_id
-            if (not origin_version or str(origin_version) != version_id
-                    or (expected_version_id is not None and str(expected_version_id) != version_id)
-                    or current_job_id not in {str(job_id), origin_job}):
-                raise MatchVersionChanged("ordinary job originating processing version changed")
-            if claim:
-                cur.execute(
-                    "update public.jobs set options=options||%s::jsonb where id=%s",
-                    (json.dumps({"processing_version_id": version_id,
-                                 "originating_match_job_id": origin_job}), job_id),
-                )
-        yield version_id
-        if owns_transaction:
-            conn.commit()
-    except Exception:
-        if owns_transaction:
-            conn.rollback()
-        raise
-    finally:
-        if owns_transaction:
-            conn.autocommit = True
-
-
-def match_cut_source(conn, match_id: str) -> str:
-    """'manual' when the owner marked this match's points by hand, else 'auto'.
-
-    The column arrives with the hand-cut migration, and this worker can be
-    running before that has happened. Asking for a column that does not
-    exist aborts the transaction, which would fail every library job at
-    publish, so the read first asks whether it can ask. No column yet means
-    nothing hand-marked exists to protect."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "select 1 from information_schema.columns "
-            "where table_schema = 'public' and table_name = 'matches' "
-            "and column_name = 'cut_source'")
-        if not cur.fetchone():
-            return "auto"
-        cur.execute("select cut_source from public.matches where id = %s",
-                    (match_id,))
-        got = cur.fetchone()
-    return "manual" if got and got[0] == "manual" else "auto"
-
-
 def create_match(conn, match_id: str, user_id: str, job_id: str,
                  cut_path: str, opponent_name: str | None = None,
                  match_type: str | None = None, venue: str | None = None,
                  played_at: str | None = None, user_side: str | None = None,
                  first_server: str | None = None,
                  placement_requested: bool = False,
-                 existing: bool = False,
-                 hand_cut: bool = False):
+                 existing: bool = False):
     """Insert the match row. played_at is the video's capture date (ISO
     string) when we could read one; NULL/None falls back to now(). user_side
     ('near'/'far') is the end the uploader played from, tagged in the upload
@@ -4355,29 +3875,13 @@ def create_match(conn, match_id: str, user_id: str, job_id: str,
         if MATCH_STRUCTURE_ENABLED
         else None
     )
-    guard = (locked_ordinary_match_attempt(conn, match_id, user_id, job_id)
-             if existing else nullcontext(None))
-    with guard as version_id, conn.cursor() as cur:
+    with conn.cursor() as cur:
         if existing:
-            # THE GUARD, and it goes here rather than in claim_processing,
-            # because the jobs INSERT policy is user_id-only by deliberate
-            # decision: a client can create a deadspace_cut job directly,
-            # and an admin re-run does not go through the UI at all. This is
-            # the one place the destruction actually happens.
-            #
-            # UserFacingError rather than a bare raise, so the existing
-            # handler refunds the minutes and fails the job instead of
-            # retrying into the same wall.
-            if not hand_cut and match_cut_source(conn, match_id) == "manual":
-                raise UserFacingError(
-                    "This match was marked by hand. Processing it "
-                    "would delete every point you marked.")
             # A re-run after a failed points stage would stack a second
-            # set of rows onto the leftovers. Only that attempt's still-
-            # unpublished version may be cleared; historical annotations
-            # and candidate points are outside this destructive operation.
-            cur.execute("delete from public.points where match_id = %s and processing_version_id = %s",
-                        (match_id, version_id))
+            # set of rows onto the leftovers; clear them first. Every
+            # reference cascades (notes, tags, share links, cut labels).
+            cur.execute("delete from public.points where match_id = %s",
+                        (match_id,))
             cur.execute(
                 "update public.matches set job_id = %s, cut_path = %s, "
                 "status = 'processing', "
@@ -4639,9 +4143,7 @@ def publish_card_diagnosis(outdir: str, key_prefix: str,
     if not os.path.exists(dump):
         return 0
     import points_v2
-    from publish_card_diagnosis import (blurball_confidence,
-                                        trim_for_transport,
-                                        write_point_tracks)
+    from publish_card_diagnosis import trim_for_transport, write_point_tracks
     from research_serve_misses import build as build_card_diagnosis
 
     # The serve rule reads two of its constants from app_config per job, so
@@ -4661,19 +4163,8 @@ def publish_card_diagnosis(outdir: str, key_prefix: str,
     with open(dump) as fh:
         blob = json.load(fh)
     blob.setdefault("match_id", key_prefix.rsplit("/", 1)[-1])
-    confidence_path = (
-        blurball_out if blurball_out and os.path.exists(blurball_out) else None
-    )
-    confidence = (blurball_confidence(confidence_path)
-                  if confidence_path else None)
     try:
-        page = trim_for_transport(build_card_diagnosis(
-            blob,
-            include_all=True,
-            observation_confidence=confidence,
-            confidence_provenance=("measured" if confidence is not None
-                                   else "missing"),
-        ))
+        page = trim_for_transport(build_card_diagnosis(blob, include_all=True))
     except ValueError as e:
         # No table quad; there is nothing to project bounces against.
         log.info("  card diagnosis skipped: %s", e)
@@ -4686,10 +4177,10 @@ def publish_card_diagnosis(outdir: str, key_prefix: str,
     r2().upload_file(dest, R2_MEDIA_BUCKET, f"{key_prefix}/serves.json",
                      ExtraArgs={"ContentType": "application/json"})
 
-    # The undecimated track, for the winner rules and the admin trail. The
-    # browser receives only time/x/y after the server strips confidence;
-    # all winner-rule work stays on the server. Built from the same dump,
-    # so the two artifacts cannot describe different cards.
+    # The undecimated track, for the winner rules. Read on the server and
+    # never sent to a browser, which is why it can be full rate where
+    # serves.json cannot. Built from the same dump, so the two cannot
+    # describe different cards.
     # BlurBall's own detections, confidence and all. Without them the two
     # rules that read the track cannot be trusted and the reader ignores it.
     tracks = write_point_tracks(
@@ -4710,27 +4201,18 @@ def insert_points(
     match_id: str,
     points: list[dict],
     prefix: str,
-    *,
-    processing_version_id: str | None = None,
 ) -> dict[int, dict]:
     inserted = {}
     with conn.cursor() as cur:
         for p in points:
             point_id = str(uuid.uuid4())
             cur.execute(
-                "insert into public.points (id, match_id, processing_version_id, idx, t0, t1, "
+                "insert into public.points (id, match_id, idx, t0, t1, "
                 "clip_path, server, placement, suggestion, cut_t0, "
                 "rally_end_cut_s, highlight_evidence) "
-                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
-                "on conflict (processing_version_id, idx) do update set "
-                "t0 = excluded.t0, t1 = excluded.t1, clip_path = excluded.clip_path, "
-                "server = excluded.server, placement = excluded.placement, "
-                "suggestion = excluded.suggestion, cut_t0 = excluded.cut_t0, "
-                "rally_end_cut_s = excluded.rally_end_cut_s, "
-                "highlight_evidence = excluded.highlight_evidence returning id",
-                (point_id, match_id, processing_version_id, p["idx"], p["t0"], p["t1"],
-                 f"{prefix}/{p['clip']}" if p.get("clip") else None,
-                 p.get("server"),
+                "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (point_id, match_id, p["idx"], p["t0"], p["t1"],
+                 f"{prefix}/{p['clip']}", p.get("server"),
                  json.dumps(p["placement"]) if p.get("placement") else None,
                  json.dumps(p["suggestion"]) if p.get("suggestion")
                  else None,
@@ -4738,10 +4220,8 @@ def insert_points(
                  json.dumps(p["highlight_evidence"])
                  if p.get("highlight_evidence") else None),
             )
-            row = cur.fetchone()
-            stored_point_id = str(row[0]) if row else point_id
             inserted[int(p["idx"])] = {
-                "id": stored_point_id,
+                "id": point_id,
                 "idx": int(p["idx"]),
                 "t0": float(p["t0"]),
                 "t1": float(p["t1"]),
@@ -4751,8 +4231,7 @@ def insert_points(
                     float(p["rally_end_cut_s"])
                     if p.get("rally_end_cut_s") is not None else None
                 ),
-                "clip_path": (f"{prefix}/{p['clip']}"
-                              if p.get("clip") else None),
+                "clip_path": f"{prefix}/{p['clip']}",
                 "deleted": False,
                 "edited": False,
                 "is_let": False,
@@ -4970,7 +4449,7 @@ def side_change_config(conn) -> dict | None:
 
 
 def run_side_change_stage(conn, match_id: str, workdir: str,
-                          outdir: str, *, job_id: str) -> None:
+                          outdir: str) -> None:
     """Post-ready enrichment: detect side changes, persist the evidence.
 
     Every failure is logged and swallowed — the match is already ready
@@ -4989,14 +4468,14 @@ def run_side_change_stage(conn, match_id: str, workdir: str,
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "select user_id, match_type, status, match_json_path, active_processing_version_id::text "
-                "from public.matches where id = %s and job_id = %s",
-                (match_id, job_id),
+                "select user_id, match_type, status, match_json_path "
+                "from public.matches where id = %s",
+                (match_id,),
             )
             row = cur.fetchone()
         if not row or row[2] != "ready":
             return
-        user_id, match_type, _, match_json_path, version_id = row
+        user_id, match_type, _, match_json_path = row
         if match_type in SIDE_CHANGE_SKIP_TYPES:
             return
         output = os.path.join(workdir, "side-changes.json")
@@ -5019,8 +4498,8 @@ def run_side_change_stage(conn, match_id: str, workdir: str,
         with conn.cursor() as cur:
             cur.execute(
                 "select id, idx, t0, t1 from public.points "
-                "where match_id = %s and processing_version_id = %s",
-                (match_id, version_id),
+                "where match_id = %s",
+                (match_id,),
             )
             points_by_idx = {
                 int(r[1]): {"id": r[0], "t0": float(r[2]),
@@ -5028,11 +4507,11 @@ def run_side_change_stage(conn, match_id: str, workdir: str,
                 for r in cur.fetchall()
             }
         mapped = map_point_ids(evidence, points_by_idx)
-        with locked_match_version(conn, match_id, version_id), conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "update public.matches set match_structure = %s "
-                "where id = %s and active_processing_version_id = %s",
-                (json.dumps(compact_evidence(mapped)), match_id, version_id),
+                "where id = %s",
+                (json.dumps(compact_evidence(mapped)), match_id),
             )
         # Full diagnostics land beside match.json; the ledger row keeps
         # the bytes attached to the match so deletion frees them.
@@ -5223,6 +4702,8 @@ def run_points_subprocess(
     serve_merge_s: str = SERVE_MERGE_S_DEFAULT,
     placement_serve_seed: bool = False,
     attempt_key: str = "manual",
+    calibration_json: str | None = None,
+    detections_note: str | None = None,
     players_json: str | None = None,
     serve_anchor: bool = False,
     rally_end: bool = False,
@@ -5231,9 +4712,9 @@ def run_points_subprocess(
     cut can keep exactly the per-point segments (dead-space round 4).
     Returns the outdir whose match.json carries cut_segments.
 
-    players_json is the skeleton file from extract_players_rtmpose.py; with
-    pipeline 'bodies' the child hands the cards to the body-first assembler
-    and keeps the ball's own cards beside them in match.json."""
+    calibration_json hands a previous run's table back so the ladder is
+    not asked twice (the second detection pass); detections_note is the
+    sentence about what the detector saw, written into match.json."""
     strictness = options.get("strictness", "normal")
     if strictness not in VALID_STRICTNESS:
         strictness = "normal"
@@ -5266,6 +4747,10 @@ def run_points_subprocess(
         cmd.append("--placement")
         if placement_serve_seed:
             cmd.append("--placement-serve-seed")
+    if calibration_json:
+        cmd += ["--calibration-json", calibration_json]
+    if detections_note:
+        cmd += ["--detections-note", detections_note]
     if pipeline == "bodies" and players_json:
         cmd += ["--players", players_json]
         # The two card edges (spec 2026-09-09). Passed as flags rather than
@@ -5276,8 +4761,9 @@ def run_points_subprocess(
         if rally_end:
             cmd.append("--rally-end")
     log.info("  points pipeline (strictness=%s placement=%s cut=plays "
-             "pipeline=%s)…",
-             strictness, bool(options.get("placement")), pipeline)
+             "pipeline=%s%s)…",
+             strictness, bool(options.get("placement")), pipeline,
+             " calibration reused" if calibration_json else "")
     # The points pipeline reaches the same paid vision call the placement
     # retry does, through vision_calibrate's colour-independent fallback.
     # Without this the child cannot report it and an upload's table
@@ -5292,6 +4778,160 @@ def run_points_subprocess(
         scope="points-vision",
     )
     return outdir
+
+
+def read_ball_crop_sidecar(workdir: str) -> dict:
+    """What detect_ball did, or an empty record if it did not say."""
+    try:
+        with open(os.path.join(workdir, BALL_CROP_SIDECAR)) as fh:
+            side = json.load(fh)
+        return side if isinstance(side, dict) else {}
+    except Exception:                                       # noqa: BLE001
+        return {}
+
+
+def detections_note_from_sidecar(side: dict) -> str:
+    """The sentence match.json keeps about the detector's view."""
+    box = side.get("box")
+    if box and len(box) == 4:
+        x, y, w, h = box
+        return (f"detections: crop {w}x{h} at ({x},{y}), corners from "
+                f"{side.get('corners_from') or 'unknown'}")
+    reason = side.get("reason")
+    return "detections: full frame" + (f" ({reason})" if reason else "")
+
+
+def second_pass_wanted(ball_crop: bool, side: dict,
+                       calibration: dict | None) -> tuple[bool, str]:
+    """Whether to detect again on a crop cut from the vision table.
+
+    Pure, so it can be tested. The first pass is kept unless every one of
+    these holds: the crop is on, the first pass ran on the full frame for
+    a reason other than the table reading end-on, the points stage found
+    a table through the vision calibrator, and that table does not read
+    end-on either.
+    """
+    if not ball_crop:
+        return False, "crop off"
+    if side.get("box"):
+        return False, "first pass already cropped"
+    if side.get("reason") == "end-on table":
+        return False, "table reads end-on"
+    if not calibration or not calibration.get("ok"):
+        return False, "no calibration"
+    if calibration.get("source") != "vision":
+        return False, f"calibration from {calibration.get('source')}"
+    corners = calibration.get("table_corners_px")
+    if not isinstance(corners, dict) or len(corners) != 4:
+        return False, "no corners"
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import points_endon
+    allowed, shape = points_endon.crop_allowed(corners)
+    if not allowed:
+        return False, f"vision table reads end-on (shape {shape:.2f})"
+    return True, "vision table found after a full-frame detection"
+
+
+def append_match_note(match_json_path: str, note: str) -> None:
+    """Best effort: a note that cannot be written is logged, not raised."""
+    try:
+        with open(match_json_path) as fh:
+            mj = json.load(fh)
+        mj.setdefault("notes", []).append(note)
+        with open(match_json_path, "w") as fh:
+            json.dump(mj, fh, indent=1)
+    except Exception:                                       # noqa: BLE001
+        log.warning("  could not append a note to %s", match_json_path,
+                    exc_info=True)
+
+
+def rerun_points_on_vision_crop(
+    local_input: str,
+    blurball_out: str,
+    workdir: str,
+    options: dict,
+    *,
+    ball_crop: bool,
+    points_kwargs: dict,
+) -> str:
+    """The second detection pass, for a table the vision calibrator found.
+
+    detect_ball crops only around a table the free keypoint rung found,
+    because the vision rung validates its proposals against the ball
+    detections and so cannot run before them. An upload the keypoint rung
+    declines was therefore detected on the full frame: Anton's PingPod
+    booth, ball two pixels across, 13 serves where the crop finds 48. This
+    runs detection again on the crop cut from the vision table and rebuilds
+    the points from it, handing the first pass's calibration back so the
+    paid call is made once.
+
+    Fails open at every step. The first pass's points_out and detections
+    are set aside, not deleted, and come back with a note if the second
+    pass raises, produces no crop, or produces no points. A match processed
+    on full-frame detections is what we had; a match that fails is not.
+
+    Returns the outdir to read match.json from (points_out either way).
+    """
+    outdir = os.path.join(workdir, "points_out")
+    side = read_ball_crop_sidecar(workdir)
+    try:
+        with open(os.path.join(outdir, "match.json")) as fh:
+            calibration = json.load(fh).get("calibration")
+    except Exception:                                       # noqa: BLE001
+        calibration = None
+    wanted, why = second_pass_wanted(ball_crop, side, calibration)
+    if not wanted:
+        log.info("  second pass: not needed (%s)", why)
+        return outdir
+    log.info("  second pass: %s; detecting again on the crop", why)
+
+    keep = outdir + ".fullframe"
+    keep_det = blurball_out + ".fullframe"
+    shutil.rmtree(keep, ignore_errors=True)
+    os.replace(outdir, keep)
+    shutil.copyfile(blurball_out, keep_det)
+    # The first pass's vision spend was metered when it returned; moving
+    # its sidecar aside keeps the second run from reporting it twice.
+    usage = Path(workdir) / "points-cost-usage.jsonl"
+    if usage.is_file():
+        usage.replace(usage.with_name("points-cost-usage.pass1.jsonl"))
+    try:
+        pulse_stage("ball_recrop")
+        corners = calibration["table_corners_px"]
+        new_det = detect_ball(local_input, workdir,
+                              attempt_key=points_kwargs.get("attempt_key",
+                                                            "manual"),
+                              table_crop=True, corners=corners)
+        side2 = read_ball_crop_sidecar(workdir)
+        if not side2.get("box"):
+            raise RuntimeError("no crop box on the second pass "
+                               f"({side2.get('reason')})")
+        pulse_stage("points")
+        run_points_subprocess(
+            local_input, new_det, workdir, options,
+            calibration_json=os.path.join(keep, "calibration.json"),
+            detections_note=detections_note_from_sidecar(side2)
+            + ", second pass",
+            **points_kwargs)
+        with open(os.path.join(outdir, "match.json")) as fh:
+            if not json.load(fh).get("points"):
+                raise RuntimeError("the second pass produced no points")
+        log.info("  second pass: done, points rebuilt on the cropped "
+                 "detections")
+        return outdir
+    except Exception as e:                                  # noqa: BLE001
+        log.warning("  second pass failed (%s); keeping the full-frame "
+                    "points", e, exc_info=True)
+        shutil.rmtree(outdir, ignore_errors=True)
+        os.replace(keep, outdir)
+        try:
+            os.replace(keep_det, blurball_out)
+        except OSError:
+            pass
+        append_match_note(os.path.join(outdir, "match.json"),
+                          f"second pass failed ({e}); kept the full-frame "
+                          "points")
+        return outdir
 
 
 # ---------------------------------------------------------------------------
@@ -5376,7 +5016,7 @@ def run_body_points_pass(conn, job_id: str, local_input: str, blurball_out: str,
            "--rect", ",".join(str(int(v)) for v in rect),
            "--corners", corners_json,
            "--model", RTMPOSE_MODEL, "--backend", RTMPOSE_BACKEND,
-           "--device", os.environ.get("PONGLENS_PLAYERS_DEVICE", "cpu"),
+           "--device", players_device(conn),
            "--sample-fps", "10", "--progress", progress_path]
     if duration > 0:
         cmd += ["--end", f"{duration:.3f}"]
@@ -5467,34 +5107,6 @@ def _note_body_fallback(mj_path: str, why: str) -> None:
         log.warning("  bodies: could not write the fallback note", exc_info=True)
 
 
-def processing_pipeline_settings(conn, options: dict, attempt_key: str) -> tuple[bool, dict | None, dict]:
-    """The one detector/assembler configuration shared by active and candidate runs."""
-    ball_crop = options.get("ball_crop")
-    if ball_crop is None:
-        ball_crop = ball_crop_enabled(conn)
-    corners = options.get("ball_crop_corners")
-    if not (isinstance(corners, dict) and len(corners) == 4
-            and all(isinstance(v, (list, tuple)) and len(v) == 2
-                    for v in corners.values())):
-        corners = None
-    serve_pad, serve_merge = serve_motif_settings(conn)
-    # The job's own option wins over the config, like ball_crop above: this
-    # is how one match is recut by the other assembler without flipping the
-    # switch for everyone (spec 2026-09-08, section 3.2).
-    pipeline = options.get("points_pipeline")
-    if pipeline not in ("v1", "v2", "bodies"):
-        pipeline = points_pipeline_version(conn)
-    anchor, rally_end = body_card_edges(conn)
-    return bool(ball_crop), corners, dict(
-        pipeline=pipeline,
-        endon_fallback=endon_fallback_enabled(conn),
-        serve_surface_pad=serve_pad, serve_merge_s=serve_merge,
-        placement_serve_seed=placement_serve_seed_enabled(conn),
-        serve_anchor=anchor, rally_end=rally_end,
-        attempt_key=attempt_key,
-    )
-
-
 def run_points_stage(
     conn,
     job_id: str,
@@ -5508,35 +5120,25 @@ def run_points_stage(
     *,
     attempt_key: str = "manual",
     cut_local_path: str | None = None,
-    destination: MatchProcessingDestination | None = None,
-    points_outdir: str | None = None,
 ):
-    """Upload point artifacts, prepare results, and persist to one destination.
-
-    Ordinary publishing remains fail-soft after the cut ships. Candidate
-    failures propagate to the candidate-only transaction in process_job.
-    played_at is the capture date the caller extracted (ISO string or None).
-    """
+    """Break the original video into points. Failure here never fails the
+    job (the cut already shipped): the match row is marked failed.
+    played_at is the capture date the caller extracted (ISO string or None)."""
     strictness = options.get("strictness", "normal")
     if strictness not in VALID_STRICTNESS:
         strictness = "normal"
     # A library job (096) fills in the row created at upload; everything
     # else mints a fresh match, exactly as before.
     library_id = options.get("match_id")
-    destination = destination or MatchProcessingDestination.active(
-        job_id, user_id, "", options)
-    match_id = destination.match_id
+    match_id = str(library_id) if library_id else str(uuid.uuid4())
     # Upload-form metadata rides on jobs.options.meta. Opponent/venue/type
     # stay editable in the UI all the way through processing, so read meta
     # fresh from the row at match creation — a value typed after the
     # processing lock still lands on the match.
     meta = options.get("meta") if isinstance(options.get("meta"), dict) else {}
-    if destination.activates_match:
-        fresh_meta = get_job_options(conn, job_id, {}).get("meta")
-        if isinstance(fresh_meta, dict):
-            meta = fresh_meta
-    else:
-        meta = destination.match_state
+    fresh_meta = get_job_options(conn, job_id, {}).get("meta")
+    if isinstance(fresh_meta, dict):
+        meta = fresh_meta
     opponent_name = (meta.get("opponent_name") or "").strip()[:120] or None
     venue = (meta.get("venue") or "").strip()[:120] or None
     match_type = meta.get("match_type")
@@ -5552,14 +5154,13 @@ def run_points_stage(
     # Backfill only: on the commerce path register_upload already wrote it
     # at completion, and the owner may have answered on the raw page since.
     first_server = meta_first_server(meta)
-    if destination.activates_match:
-        create_match(conn, match_id, user_id, job_id, cut_result_path,
-                     opponent_name=opponent_name, match_type=match_type,
-                     venue=venue, played_at=played_at, user_side=user_side,
-                     first_server=first_server,
-                     placement_requested=bool(options.get("placement")),
-                     existing=bool(library_id))
-    outdir = points_outdir or os.path.join(workdir, "points_out")
+    create_match(conn, match_id, user_id, job_id, cut_result_path,
+                 opponent_name=opponent_name, match_type=match_type,
+                 venue=venue, played_at=played_at, user_side=user_side,
+                 first_server=first_server,
+                 placement_requested=bool(options.get("placement")),
+                 existing=bool(library_id))
+    outdir = os.path.join(workdir, "points_out")
     try:
         # Dead-space round 4: the points stage normally already ran BEFORE
         # the cut (run_points_subprocess, plays mode) so the cut could use
@@ -5586,15 +5187,6 @@ def run_points_stage(
 
         with open(os.path.join(outdir, "match.json")) as fh:
             match_json = json.load(fh)
-        if destination.effective_settings is not None:
-            destination = replace(destination, effective_settings={
-                **destination.effective_settings,
-                # The assembler can fall back even with v2 configured. Keep
-                # its reported outcome separate from the requested settings.
-                "actual_pipeline": match_json.get("pipeline"),
-                "actual_cut_mode": match_json.get("cut_mode"),
-                "pipeline_options": match_json.get("options") or {},
-            })
         points = match_json["points"]
         if not points:
             raise RuntimeError("points pipeline found no points")
@@ -5616,8 +5208,8 @@ def run_points_stage(
                         "stale points_pipeline output? (match %s)",
                         missing_cut_t0, len(points), match_id)
 
-        key_prefix = destination.storage_prefix
-        r2_prefix = destination.r2_prefix
+        key_prefix = f"points/{user_id}/{match_id}"
+        r2_prefix = f"r2://{R2_MEDIA_BUCKET}/{key_prefix}"
         clip_bytes = 0
         for p in points:
             local = os.path.join(outdir, p["clip"])
@@ -5691,52 +5283,17 @@ def run_points_stage(
 
         # Storage ledger: rows carry match_id, so match deletion (010
         # trigger) frees them; r2_key is the folder prefix for reference.
-        if destination.activates_match:
-            ledger_append(conn, user_id, "clip", clip_bytes,
-                          f"{r2_prefix}/", match_id)
-            ledger_append(conn, user_id, "other", other_bytes,
-                          f"{r2_prefix}/", match_id)
+        ledger_append(conn, user_id, "clip", clip_bytes,
+                      f"{r2_prefix}/", match_id)
+        ledger_append(conn, user_id, "other", other_bytes,
+                      f"{r2_prefix}/", match_id)
 
         inserted_points = insert_points(
             conn,
             match_id,
             points,
             r2_prefix,
-            processing_version_id=destination.processing_version_id,
         )
-        state = copy.deepcopy(destination.match_state)
-        state.update({
-            "status": "ready", "job_id": job_id, "cut_path": cut_result_path,
-            "match_json_path": f"{r2_prefix}/match.json", "thumb_path": thumb_path,
-        })
-        clip_pads = (match_json.get("options") or {}).get("clip_pads")
-        if clip_pads:
-            state["clip_pads"] = clip_pads
-        if "story_crop" in match_json:
-            state["story_crop"] = match_json["story_crop"]
-        mapped = count_drawable_placements(points)
-        placement_status, placement_failure_code = placement_outcome(
-            requested=bool(options.get("placement")),
-            mapped_points=mapped, calibration=match_json.get("calibration"),
-        )
-        state.update({
-            "placement_status": placement_status, "placement_mapped_points": mapped,
-            "placement_failure_code": placement_failure_code,
-        })
-        if structure_evidence is not None and not destination.activates_match:
-            state["match_structure"] = map_structure_point_ids(
-                structure_evidence, inserted_points)
-        if not destination.activates_match:
-            finalize_match_reprocess_success(
-                conn, destination, cut_path=state["cut_path"], thumb_path=thumb_path,
-                match_json_path=state["match_json_path"], match_state=state,
-                point_indices=list(inserted_points),
-            )
-            return match_id
-
-        # Everything below publishes to the active match. Candidate processing
-        # has already finished without changing live state or running any
-        # match-only enrichment.
         if structure_evidence is not None:
             persist_match_structure(
                 conn,
@@ -5749,6 +5306,7 @@ def run_points_stage(
         # 048): the app's playhead mapping prefers these over the frozen
         # per-strictness fallback table. Best-effort — a pre-clip_pads
         # points_pipeline output simply leaves the column null.
+        clip_pads = (match_json.get("options") or {}).get("clip_pads")
         if clip_pads:
             with conn.cursor() as cur:
                 cur.execute(
@@ -5769,26 +5327,27 @@ def run_points_stage(
                     (json.dumps(match_json["story_crop"])
                      if match_json["story_crop"] else None, match_id),
                 )
+        mapped = count_drawable_placements(points)
+        placement_status, placement_failure_code = placement_outcome(
+            requested=bool(options.get("placement")),
+            mapped_points=mapped,
+            calibration=match_json.get("calibration"),
+        )
+
         finish_match(
             conn,
             match_id,
-            state["status"],
-            state["match_json_path"],
-            thumb_path=state["thumb_path"],
-            placement_status=state["placement_status"],
-            placement_mapped_points=state["placement_mapped_points"],
-            placement_failure_code=state["placement_failure_code"],
+            "ready",
+            f"{r2_prefix}/match.json",
+            thumb_path=thumb_path,
+            placement_status=placement_status,
+            placement_mapped_points=mapped,
+            placement_failure_code=placement_failure_code,
         )
         log.info("  match %s ready: %d points -> %s",
                  match_id, len(points), r2_prefix)
         return match_id
     except Exception as e:
-        if (not destination.activates_match or isinstance(e, MatchVersionChanged)
-                or (isinstance(e, psycopg2.Error) and not conn.autocommit)):
-            # A library publication is atomic under the match lock. An SQL
-            # failure must roll it back and reach the normal job retry path,
-            # not be swallowed into a false 'done' after an aborted commit.
-            raise
         log.exception("  points stage failed (cut already delivered): %s", e)
         try:
             finish_match(conn, match_id, "failed")
@@ -6172,7 +5731,7 @@ RECLIP_DYN_POST_MAX_S = 2.0
 RECLIP_DYN_GAP_KEEP_S = 0.2
 _RECUT_KEY_RE = re.compile(
     r"^r2://" + re.escape(R2_MEDIA_BUCKET)
-    + r"/points/[^/]+/[^/]+/(?:versions/[^/]+/)?\d{2,}-[0-9a-f]{8}\.mp4$")
+    + r"/points/[^/]+/[^/]+/\d{2}-[0-9a-f]{8}\.mp4$")
 
 
 def _presigned_get(path: str | None, expires_s: int = 6 * 3600) -> str | None:
@@ -6221,8 +5780,7 @@ class _CutMap:
                     float(p["cut_t0"]), float(p["t1"]))
             except (KeyError, TypeError, ValueError):
                 continue
-        self.dynamic_tails = (bool(mj)
-                              and (mj or {}).get("pipeline") not in ("v2", "hand-v1"))
+        self.dynamic_tails = bool(mj) and (mj or {}).get("pipeline") != "v2"
 
     def locate(self, idx: int, c0: float, c1: float) -> float | None:
         """Cut second where the source window [c0, c1] starts, or None
@@ -6242,12 +5800,10 @@ class _CutMap:
         return (b[1] - b[3]) if b else None
 
 
-def _load_match_json(conn, match_id: str, workdir: str,
-                     *, processing_version_id: str) -> dict | None:
+def _load_match_json(conn, match_id: str, workdir: str) -> dict | None:
     with conn.cursor() as cur:
-        cur.execute("select match_json_path from public.match_processing_versions "
-                    "where match_id = %s and id = %s",
-                    (match_id, processing_version_id))
+        cur.execute("select match_json_path from public.matches where id = %s",
+                    (match_id,))
         row = cur.fetchone()
     loc = parse_r2_path((row[0] if row else None) or "")
     if not loc:
@@ -6262,427 +5818,23 @@ def _load_match_json(conn, match_id: str, workdir: str,
         return None
 
 
-# ---------------------------------------------------------------------------
-# Hand-cut matches (2026-09-07)
-# ---------------------------------------------------------------------------
-# The owner marked the points themselves on the original upload, and the
-# marks are frozen in hand_cut_drafts. This turns them into a normal match:
-# a real cut video built from the marked windows, a clip per point, points
-# rows, and status ready.
-#
-# The whole trick is that the automatic pipeline's BACK HALF never needed
-# the ball. points_pipeline's `cut --segments` reads cut_segments out of a
-# match.json and concatenates ffmpeg range extracts; it does not open the
-# detections file at all. So the same three functions that map a source
-# second onto the cut clock for a detected match do it for a hand-marked
-# one, and a hand-cut match is indistinguishable downstream.
-#
-# Design: docs/superpowers/specs/2026-09-07-hand-cut-design.md
-
-
-def _hand_cut_segments(marks: list[dict], dur: float, pre: float, post: float):
-    """Cut segments and per-mark cut_t0, through the pipeline's own maths.
-
-    Mirrors cmd_points' plays branch exactly: the CLIP pads go inside each
-    window and SEGMENT_PADS (0.15) are the head/tail handed to
-    play_cut_segments. That 0.15 is described in points_pipeline as a
-    rounding whisker, and it is what keeps a clip's anchor INSIDE its
-    segment rather than exactly on the boundary, where an ffmpeg seek can
-    shave the first frames of the pre pad.
-    """
-    sys.path.insert(0, os.path.dirname(POINTS_PIPELINE))
-    from points_pipeline import (  # noqa: E402
-        SEGMENT_PADS, play_cut_segments, segment_cut_offsets, cut_position,
-    )
-    seg_head, seg_tail = SEGMENT_PADS["normal"]
-    windows = [
-        (max(0.0, float(m["t0"]) - pre), min(dur, float(m["t1"]) + post))
-        for m in marks
-    ]
-    segments = play_cut_segments(windows, dur, seg_head, seg_tail)
-    offsets = segment_cut_offsets(segments)
-    anchors = [
-        round(cut_position(segments, offsets,
-                           max(0.0, float(m["t0"]) - pre)), 2)
-        for m in marks
-    ]
-    return segments, offsets, anchors
-
-
-def _hand_cut_rollback(conn, match_id: str, job_id: str, *, release: bool,
-                       ledger_keys: list[str] | None = None) -> None:
-    """Undo a hand cut that did not publish.
-
-    Every attempt takes the match back to 'uploaded' with no cut and no
-    points, so the raw page is what opens. What ELSE comes back depends on
-    whether the job will run again:
-
-    - a retryable failure (a network hiccup, an encoder crash) keeps the
-      draft submitted and the job linked, because the queue redelivers the
-      same message and the next attempt must find the marks frozen and the
-      lock's job still in place;
-    - a terminal one (release=True) hands the marks back to the player: the
-      draft unfreezes so it can be edited and sent again, cut_source
-      returns to 'auto' so nothing protects points that no longer exist,
-      and the job link clears so the next claim starts clean.
-
-    Only the job the match still points at may undo anything. A stale
-    queue message for a job the player has already replaced must not
-    delete the replacement's points; it only negates its own storage rows.
-    """
-    if ledger_keys:
-        ledger_negate_keys(conn, ledger_keys)
-    try:
-        with conn.cursor() as cur:
-            cur.execute("select job_id::text from public.matches where id = %s",
-                        (match_id,))
-            row = cur.fetchone()
-            if not row or row[0] != str(job_id):
-                log.info("  hand cut: match %s has moved on from job %s; "
-                         "nothing to undo", match_id, job_id)
-                return
-            cur.execute("delete from public.points where match_id = %s",
-                        (match_id,))
-            cur.execute(
-                "update public.matches set status = 'uploaded', "
-                "cut_path = null where id = %s", (match_id,))
-            if release:
-                cur.execute(
-                    "update public.matches set cut_source = 'auto', "
-                    "job_id = null where id = %s", (match_id,))
-                cur.execute(
-                    "update public.hand_cut_drafts set submitted_at = null "
-                    "where match_id = %s", (match_id,))
-    except Exception:
-        log.warning("  hand cut: rollback failed for %s", match_id,
-                    exc_info=True)
-
-
-def hand_cut_release(conn, job_id: str, payload: dict) -> None:
-    """A terminal failure, seen from the generic handler: hand the marks
-    back. Idempotent, and a no-op for a job the match no longer points at."""
-    try:
-        options = get_job_options(conn, job_id, payload)
-    except Exception:
-        options = (payload.get("options") or {})
-    match_id = options.get("match_id") if isinstance(options, dict) else None
-    if match_id:
-        _hand_cut_rollback(conn, str(match_id), str(job_id), release=True)
-
-
-def process_hand_cut(conn, job_id: str, user_id: str, payload: dict,
-                     attempt_key: str) -> None:
-    """Build a match from the owner's own marks."""
-    match_id = (payload.get("options") or {}).get("match_id")
-    if not match_id:
-        raise RuntimeError("hand_cut job missing options.match_id")
-
-    pulse_stage("marks")
-    with conn.cursor() as cur:
-        cur.execute(
-            "select m.user_id, m.raw_path, m.duration_s, m.played_at, "
-            "       d.marks, d.submitted_at "
-            "from public.matches m "
-            "join public.hand_cut_drafts d on d.match_id = m.id "
-            "where m.id = %s",
-            (match_id,),
-        )
-        row = cur.fetchone()
-    if not row:
-        raise UserFacingError("The marks for this match could not be found.")
-    owner_id, raw_path, duration_s, played_at, marks, submitted_at = row
-    # options.match_id is client-writable JSON: never touch a match the
-    # job's creator does not own.
-    if str(owner_id) != str(user_id):
-        raise RuntimeError("hand_cut: job user does not own the match")
-    if submitted_at is None:
-        # Only a terminal failure unfreezes the draft, and that also ends
-        # the job, so a message arriving here is a stale redelivery of a
-        # job that has already been handed back. Nothing left to redo.
-        raise UserFacingError(
-            "These marks were already handed back. Open the match and "
-            "send them again.")
-    with conn.cursor() as cur:
-        cur.execute("select 1 from public.points where match_id = %s limit 1",
-                    (match_id,))
-        if cur.fetchone():
-            raise UserFacingError("This match already has points.")
-
-    marks = [m for m in (marks or []) if m.get("t0") is not None
-             and m.get("t1") is not None]
-    marks.sort(key=lambda m: float(m["t0"]))
-    if not marks:
-        raise UserFacingError("No points were marked.")
-
-    pre, post = 1.2, 1.3
-    workdir = tempfile.mkdtemp(prefix=f"ponglens-handcut-{str(job_id)[:8]}-")
-    # Storage rows this attempt writes, so a rollback can negate exactly
-    # them: the cut by its own key, the clips by their folder prefix.
-    ledger_keys: list[str] = []
-    try:
-        pulse_stage("download")
-        update_job(conn, job_id, status="processing", progress=8, error=None)
-        local_raw = os.path.join(workdir, "source.mp4")
-        try:
-            _download_backfill_object(raw_path, Path(local_raw))
-        except Exception as e:
-            # A missing object is final; anything else (a dropped
-            # connection, a throttled bucket) is worth the queue's retry.
-            text = str(e)
-            if "404" in text or "NoSuchKey" in text or "Not Found" in text:
-                raise UserFacingError(
-                    "The original video is no longer available.") from e
-            raise
-        dur = probe_duration_s(local_raw) or float(duration_s or 0)
-        if not dur or dur <= 0:
-            raise UserFacingError("The original video could not be read.")
-        marks = [m for m in marks if float(m["t0"]) < dur]
-        for m in marks:
-            m["t1"] = min(float(m["t1"]), dur)
-        if not marks:
-            raise UserFacingError(
-                "Every mark is past the end of the video.")
-
-        pulse_stage("cut")
-        update_job(conn, job_id, progress=20)
-        segments, offsets, anchors = _hand_cut_segments(marks, dur, pre, post)
-
-        outdir = os.path.join(workdir, "points_out")
-        os.makedirs(os.path.join(outdir, "points"), exist_ok=True)
-        points = []
-        for i, (m, cut_t0) in enumerate(zip(marks, anchors), start=1):
-            t0, t1 = float(m["t0"]), float(m["t1"])
-            points.append({
-                "idx": i,
-                "t0": round(t0, 2),
-                "t1": round(t1, 2),
-                # clip_t0/clip_t1/cut_t0/t1 are what _CutMap.born reads, so
-                # a later re-cut of one of THESE points takes the flat-pad
-                # branch. A card inserted or split later has no born entry;
-                # _CutMap.dynamic_tails is what keeps it off the dynamic
-                # tail, by pipeline name.
-                "clip_t0": round(max(0.0, t0 - pre), 2),
-                "clip_t1": round(min(dur, t1 + post), 2),
-                "cut_t0": cut_t0,
-                "clip": f"points/{i:02d}.mp4",
-                "server": None,
-                "placement": None,
-                "suggestion": None,
-            })
-        kept = sum(b - a for a, b in segments)
-        match_json = {
-            "version": 3,
-            # NOT "v2". Labelling it v2 would make the admin uploads page
-            # count serve marks, find none, and report that the end-on
-            # assembler ran on a match no detector ever touched.
-            "pipeline": "hand-v1",
-            "source": {"duration": round(dur, 2)},
-            "options": {"clip_pads": {"pre": pre, "post": post}},
-            "cut_mode": "plays",
-            "cut_segments": [[round(a, 2), round(b, 2)] for a, b in segments],
-            "notes": [
-                f"hand cut v1: {len(points)} points marked by the owner, "
-                f"keeping {kept:.1f}s of {dur:.1f}s",
-                "detections: none (marked by hand)",
-            ],
-            "points": points,
-        }
-        mj_path = os.path.join(outdir, "match.json")
-        with open(mj_path, "w") as fh:
-            json.dump(match_json, fh)
-
-        cut_local = os.path.join(workdir, "result.mp4")
-        with COST_METER.timed_stage("hand_cut_encoding", attempt_key):
-            subprocess.run(
-                [VENV_PY, POINTS_PIPELINE, "cut",
-                 "--video", local_raw, "--out", cut_local,
-                 "--segments", mj_path],
-                check=True, cwd=workdir, timeout=3 * 3600)
-        if not os.path.exists(cut_local) or os.path.getsize(cut_local) == 0:
-            raise RuntimeError("hand cut produced no video")
-
-        # A second, independent read of the same arithmetic before anything
-        # is published. _CutMap.locate is what every later re-cut uses, so
-        # if the two disagree the match would play every chip at the wrong
-        # second and nothing would error. Fail with the draft intact.
-        sys.path.insert(0, os.path.dirname(POINTS_PIPELINE))
-        from points_pipeline import hand_cut_length_tolerance  # noqa: E402
-        probe_cut = probe_duration_s(cut_local) or 0.0
-        if abs(probe_cut - kept) > hand_cut_length_tolerance(len(segments)):
-            raise RuntimeError(
-                f"hand cut length {probe_cut:.1f}s does not match the "
-                f"segments' {kept:.1f}s")
-        verify = _CutMap(match_json)
-        for p in points:
-            got = verify.locate(int(p["idx"]), p["clip_t0"], p["clip_t1"])
-            if got is None or abs(got - float(p["cut_t0"])) > 0.05:
-                raise RuntimeError(
-                    f"cut_t0 disagreement on point {p['idx']}: "
-                    f"{p['cut_t0']} vs {got}")
-
-        pulse_stage("upload")
-        update_job(conn, job_id, progress=40)
-        result_key = f"results/{user_id}/{job_id}.mp4"
-        result_path = f"r2://{R2_MEDIA_BUCKET}/{result_key}"
-        r2().upload_file(cut_local, R2_MEDIA_BUCKET, result_key,
-                         ExtraArgs={"ContentType": "video/mp4"})
-        ledger_keys.append(result_path)
-        ledger_append(conn, user_id, "cut", os.path.getsize(cut_local),
-                      result_path, match_id)
-
-        pulse_stage("points")
-        # Clips come off the finished cut by range, on process_reclip's own
-        # encode ladder. Named NN.mp4, NOT the hex form: _RECUT_KEY_RE
-        # matches only the hex form and process_reclip deletes and
-        # ledger-negates anything matching it, so an original clip must stay
-        # outside that regex.
-        cut_url = _presigned_get(result_path)
-        key_prefix = f"points/{user_id}/{match_id}"
-        r2_prefix = f"r2://{R2_MEDIA_BUCKET}/{key_prefix}"
-        clip_bytes = 0
-        thumb_path = None
-        failed_clips: set[int] = set()
-        with COST_METER.timed_stage("point_clip_encoding", attempt_key):
-            for n, p in enumerate(points, start=1):
-                c0 = verify.locate(int(p["idx"]), p["clip_t0"], p["clip_t1"])
-                span = float(p["clip_t1"]) - float(p["clip_t0"])
-                local_clip = os.path.join(outdir, p["clip"])
-                ok = _encode_clip(cut_url or cut_local, c0 or 0.0, span,
-                                  local_clip)
-                if not ok:
-                    # The point stays; only its file is missing. It is
-                    # inserted below with no clip and marked edited, which
-                    # is what asks the reclip trigger to cut it again. The
-                    # timeline is the truth and the clip catches up.
-                    log.warning("  hand cut: clip %s failed to encode",
-                                p["idx"])
-                    p["clip"] = None
-                    failed_clips.add(int(p["idx"]))
-                    continue
-                clip_bytes += os.path.getsize(local_clip)
-                r2().upload_file(
-                    local_clip, R2_MEDIA_BUCKET,
-                    f"{key_prefix}/{n:02d}.mp4",
-                    ExtraArgs={"ContentType": "video/mp4"})
-                p["clip"] = f"{n:02d}.mp4"
-                if thumb_path is None:
-                    # The first rally's serve, the way the automatic path
-                    # picks its poster. Without this the library card keeps
-                    # the walk-in frame the content check wrote.
-                    thumb_local = os.path.join(workdir, "match_thumb.webp")
-                    thumb_name = f"thumb-{job_id}.webp"
-                    if extract_thumb(local_clip, thumb_local, pre):
-                        r2().upload_file(
-                            thumb_local, R2_MEDIA_BUCKET,
-                            f"{key_prefix}/{thumb_name}",
-                            ExtraArgs={"ContentType": "image/webp"})
-                        clip_bytes += os.path.getsize(thumb_local)
-                        thumb_path = f"{r2_prefix}/{thumb_name}"
-                update_job(conn, job_id,
-                           progress=40 + int(45 * n / max(len(points), 1)))
-        if clip_bytes:
-            ledger_keys.append(f"{r2_prefix}/")
-            ledger_append(conn, user_id, "clip", clip_bytes,
-                          f"{r2_prefix}/", match_id)
-
-        with open(mj_path, "w") as fh:
-            json.dump(match_json, fh)
-        r2().upload_file(mj_path, R2_MEDIA_BUCKET,
-                         f"{key_prefix}/match.json",
-                         ExtraArgs={"ContentType": "application/json"})
-
-        pulse_stage("publish")
-        update_job(conn, job_id, progress=90)
-        create_match(conn, match_id, user_id, job_id, result_path,
-                     played_at=played_at, existing=True,
-                     hand_cut=True)
-        for p in points:
-            p["rally_end_cut_s"] = None
-            p["highlight_evidence"] = None
-        inserted = insert_points(conn, match_id, points, r2_prefix)
-        with conn.cursor() as cur:
-            for p, m in zip(points, marks):
-                row_id = (inserted.get(int(p["idx"])) or {}).get("id")
-                if not row_id:
-                    continue
-                is_let = bool(m.get("let"))
-                winner = None if is_let else m.get("w")
-                # edited=true on a point with no clip is the reclip
-                # request: the trigger fires on that update and queues one
-                # re-cut for the match.
-                cur.execute(
-                    "update public.points set confirmed_winner = %s, "
-                    "is_let = %s, confirmed_how = %s, starred = %s, "
-                    "edited = (edited or %s) "
-                    "where id = %s",
-                    (winner, is_let, "let" if is_let else None,
-                     bool(m.get("star")), int(p["idx"]) in failed_clips,
-                     row_id),
-                )
-            cur.execute(
-                "update public.matches set clip_pads = %s where id = %s",
-                (json.dumps({"pre": pre, "post": post}), match_id),
-            )
-        finish_match(conn, match_id, "ready", f"{r2_prefix}/match.json",
-                     thumb_path=thumb_path)
-        log.info("  hand cut published: match %s, %d points (%d clips "
-                 "left for reclip)", match_id, len(points), len(failed_clips))
-    except MatchVersionChanged:
-        # The match has moved on to another job (a resubmission overtook
-        # this message). Nothing of this attempt reached the database, so
-        # only its storage rows need undoing.
-        ledger_negate_keys(conn, ledger_keys)
-        raise
-    except UserFacingError:
-        _hand_cut_rollback(conn, match_id, job_id, release=True,
-                           ledger_keys=ledger_keys)
-        raise
-    except Exception:
-        _hand_cut_rollback(conn, match_id, job_id, release=False,
-                           ledger_keys=ledger_keys)
-        raise
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
-
-
-def _encode_clip(src: str, seek: float, span: float, out: str) -> bool:
-    """One point clip, by range, on process_reclip's own encode ladder:
-    hardware first, libx264 behind it, 8-bit either way so a 10-bit source
-    never yields a clip some players refuse to open."""
-    try:
-        _run_ffmpeg_encoded(
-            ["-ss", f"{seek:.2f}", "-i", src, "-t", f"{span:.2f}",
-             "-vf", "scale=720:-2"],
-            ["-c:v", "h264_videotoolbox", "-b:v", "2500k",
-             "-allow_sw", "1", "-pix_fmt", "yuv420p"],
-            ["-c:v", "libx264", "-preset", "medium", "-crf", "23",
-             "-pix_fmt", "yuv420p"],
-            ["-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", out],
-        )
-    except Exception:
-        return False
-    return os.path.exists(out) and os.path.getsize(out) > 0
-
-
 def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
     options = get_job_options(conn, job_id, payload)
     match_id = options.get("match_id")
     if not match_id:
         raise RuntimeError("reclip job missing options.match_id")
-    version_id = job_processing_version(options)
 
     with conn.cursor() as cur:
         cur.execute(
-            "select m.user_id, coalesce(v.raw_path,j.input_path), j.options, m.clip_pads "
+            "select m.user_id, j.input_path, j.options, m.clip_pads "
             "from public.matches m "
-            "join public.match_processing_versions v on v.id = m.active_processing_version_id "
-            "left join public.jobs j on j.id = v.job_id "
-            "where m.id = %s and v.id = %s",
-            (match_id, version_id),
+            "left join public.jobs j on j.id = m.job_id "
+            "where m.id = %s",
+            (match_id,),
         )
         row = cur.fetchone()
     if not row:
-        raise MatchVersionChanged(f"reclip: match {match_id} version changed")
+        raise RuntimeError(f"reclip: match {match_id} not found")
     owner_id, input_path, src_options, stored_pads = row
     # options.match_id is client-writable JSON: never touch a match the
     # job's creator doesn't own.
@@ -6705,9 +5857,9 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
         cur.execute(
             "select id, idx, t0, t1, tight_start, tight_end, clip_path "
             "from public.points "
-            "where match_id = %s and processing_version_id = %s and edited and not deleted "
+            "where match_id = %s and edited and not deleted "
             "and t0 is not null and t1 is not null order by idx",
-            (match_id, version_id),
+            (match_id,),
         )
         targets = cur.fetchall()
     if not targets:
@@ -6718,9 +5870,8 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "select t0 from public.points where match_id = %s "
-            "and processing_version_id = %s "
             "and not deleted and t0 is not null order by t0",
-            (match_id, version_id),
+            (match_id,),
         )
         starts = [float(r[0]) for r in cur.fetchall()]
 
@@ -6729,11 +5880,9 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
     try:
         # Sources, by URL. Nothing is downloaded whole.
         prefer_cut = (get_config(conn, RECLIP_SOURCE_KEY) or "cut_first") != "raw"
-        cut_map = _CutMap(_load_match_json(conn, match_id, workdir,
-                                          processing_version_id=version_id)) \
+        cut_map = _CutMap(_load_match_json(conn, match_id, workdir)) \
             if prefer_cut else None
-        cut_url = _cut_video_url(conn, match_id, 6 * 3600,
-                                 processing_version_id=version_id) if prefer_cut else None
+        cut_url = _cut_video_url(conn, match_id, 6 * 3600) if prefer_cut else None
         raw_url = _presigned_get(input_path)
         raw_local: str | None = None
         if raw_url is None and input_path:
@@ -6766,7 +5915,7 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
                  bool(cut_url), bool(raw_url), bool(raw_local))
 
         update_job(conn, job_id, progress=30)
-        key_prefix = f"points/{owner_id}/{match_id}/versions/{version_id}"
+        key_prefix = f"points/{owner_id}/{match_id}"
         done = 0
         kept = 0
         failed: list[str] = []
@@ -6807,11 +5956,11 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
                 # stale clip with a label beats no clip; the apps label it)
                 # and clear the flag so nothing spins for a file that can
                 # never come.
-                with locked_match_version(conn, match_id, version_id), conn.cursor() as cur:
+                with conn.cursor() as cur:
                     cur.execute(
                         "update public.points set edited = false "
-                        "where id = %s and t0 = %s and t1 = %s and processing_version_id = %s",
-                        (pid, t0, t1, version_id),
+                        "where id = %s and t0 = %s and t1 = %s",
+                        (pid, t0, t1),
                     )
                 kept += 1
                 continue
@@ -6851,30 +6000,25 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
             # claim the edit only if t0/t1 didn't change while we were
             # cutting; if they did, the trigger has already queued a
             # follow-up job that redoes this point
-            try:
-                with locked_match_version(conn, match_id, version_id), conn.cursor() as cur:
-                    cur.execute(
-                        "update public.points set clip_path = %s, edited = false "
-                        "where id = %s and t0 = %s and t1 = %s and processing_version_id = %s",
-                        (f"r2://{R2_MEDIA_BUCKET}/{key}", pid, t0, t1, version_id),
-                    )
-                    claimed = cur.rowcount == 1
-            except MatchVersionChanged:
-                delete_unreferenced_clip_object(conn, f"r2://{R2_MEDIA_BUCKET}/{key}")
-                raise
-            except Exception:
-                # A failed commit can have an uncertain outcome. The reference
-                # check retains the object if the database did publish it.
-                delete_unreferenced_clip_object(conn, f"r2://{R2_MEDIA_BUCKET}/{key}")
-                raise
-            if not claimed:
-                delete_unreferenced_clip_object(conn, f"r2://{R2_MEDIA_BUCKET}/{key}")
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update public.points set clip_path = %s, edited = false "
+                    "where id = %s and t0 = %s and t1 = %s",
+                    (f"r2://{R2_MEDIA_BUCKET}/{key}", pid, t0, t1),
+                )
+                claimed = cur.rowcount == 1
             # The previous re-cut object is dead weight the moment the new
             # one is claimed: delete it and give its bytes back. An
             # ORIGINAL clip (NN.mp4) stays — its bytes were booked under
             # the match prefix as one row and cannot be netted out alone.
             if claimed and old_path and _RECUT_KEY_RE.match(old_path):
-                delete_unreferenced_clip_object(conn, old_path)
+                loc = parse_r2_path(old_path)
+                try:
+                    if loc:
+                        r2().delete_object(Bucket=loc[0], Key=loc[1])
+                    ledger_negate_keys(conn, [old_path])
+                except Exception as e:                          # noqa: BLE001
+                    log.warning("  reclip: old clip not removed (%s)", e)
             done += 1
             log.info("  reclip: point idx %s cut from %s with %s in %.1fs "
                      "(%.1fs of video)", idx, src_kind, encoder,
@@ -6889,49 +6033,25 @@ def process_reclip(conn, job_id: str, user_id: str, payload: dict) -> None:
         # another pass through the same door the apps use. A point that
         # failed here is left for the retry the queue already gives a
         # failed job, not re-requested in a loop.
-        with locked_match_version(conn, match_id, version_id), conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "select count(*) from public.points "
-                "where match_id = %s and processing_version_id = %s and edited and not deleted "
+                "where match_id = %s and edited and not deleted "
                 "and t0 is not null and t1 is not null "
                 "and not (id::text = any(%s))",
-                (match_id, version_id, failed),
+                (match_id, failed),
             )
             (pending,) = cur.fetchone()
-            if pending:
-                log.info("  reclip: %d point(s) changed mid-run; requesting "
-                         "another pass", pending)
+        if pending:
+            log.info("  reclip: %d point(s) changed mid-run; requesting "
+                     "another pass", pending)
+            with conn.cursor() as cur:
                 cur.execute("select public.request_reclip(%s)", (match_id,))
         if failed and not done:
             raise RuntimeError(
                 f"reclip: every clip failed ({len(failed)}) for {match_id}")
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
-
-
-def delete_unreferenced_clip_object(conn, path: str) -> None:
-    """Delete a fresh or superseded recut only when no version still uses it."""
-    loc = parse_r2_path(path)
-    if not loc:
-        return
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "select exists(select 1 from public.points where clip_path = %s "
-                "union all select 1 from public.match_reels "
-                "where manifest @> jsonb_build_object('points',jsonb_build_array(jsonb_build_object('clip_path',%s::text))) "
-                "union all select 1 from public.tag_reels "
-                "where manifest @> jsonb_build_object('points',jsonb_build_array(jsonb_build_object('clip_path',%s::text))) "
-                "union all select 1 from public.match_processing_version_reels "
-                "where record->'manifest' @> jsonb_build_object('points',jsonb_build_array(jsonb_build_object('clip_path',%s::text))))",
-                (path, path, path, path),
-            )
-            if cur.fetchone()[0]:
-                return
-        r2().delete_object(Bucket=loc[0], Key=loc[1])
-        ledger_negate_keys(conn, [path])
-    except Exception:
-        log.warning("  unreferenced recut cleanup failed: %s", path, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -7555,47 +6675,46 @@ def render_auto_highlights(manifest: dict, cut_local: str,
 def _write_auto_highlight_state(conn, match_id: str, status: str,
                                 manifest: dict, *, r2_key=None,
                                 duration_s=None, size_bytes=None,
-                                error=None, processing_version_id: str,
-                                expected_updated_at=None):
-    with locked_match_version(conn, match_id, processing_version_id), conn.cursor() as cur:
+                                error=None):
+    with conn.cursor() as cur:
         cur.execute(
             "insert into public.match_reels "
             "(match_id, scope, status, show_score, manifest, r2_key, "
-            "duration_s, size_bytes, error, updated_at) "
-            "values (%s, %s, %s, false, %s, %s, %s, %s, %s, clock_timestamp()) "
+            "duration_s, size_bytes, error) "
+            "values (%s, %s, %s, false, %s, %s, %s, %s, %s) "
             "on conflict (match_id, scope) do update set "
             "status = excluded.status, show_score = false, "
             "manifest = excluded.manifest, r2_key = excluded.r2_key, "
             "duration_s = excluded.duration_s, "
-            "size_bytes = excluded.size_bytes, error = excluded.error, "
-            "updated_at = excluded.updated_at "
-            "where %s::timestamptz is null or match_reels.updated_at = %s "
-            "returning updated_at",
+            "size_bytes = excluded.size_bytes, error = excluded.error",
             (match_id, "highlights", status, json.dumps(manifest), r2_key,
-             duration_s, size_bytes, error, expected_updated_at, expected_updated_at),
+             duration_s, size_bytes, error),
         )
-        row = cur.fetchone()
-        if not row:
-            raise MatchVersionChanged("automatic highlight request changed")
-        return row[0]
 
 
 def _delete_auto_highlight_object(conn, key: str | None):
-    delete_unreferenced_tag_reel_object(conn, key)
+    if not key:
+        return
+    try:
+        r2().delete_object(Bucket=R2_MEDIA_BUCKET, Key=key)
+        ledger_negate_keys(conn, [f"r2://{R2_MEDIA_BUCKET}/{key}"])
+    except Exception as exc:  # retention remains the final safety net
+        log.warning("  automatic highlight old revision cleanup failed: %s",
+                    exc)
 
 
 def prepare_auto_highlights(conn, user_id: str, match_id: str,
                             points: list[dict], cut_local: str, workdir: str,
-                            *, enabled: bool, processing_version_id: str) -> str:
+                            *, enabled: bool) -> str:
     """Select, render, and store highlights without ever failing the match."""
     if not enabled:
         return "off"
 
     from highlights import build_manifest
 
-    old_key, key, claimed_at = None, None, None
+    old_key = None
     try:
-        with sql_savepoint(conn), conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "select r2_key from public.match_reels "
                 "where match_id = %s and scope = 'highlights'",
@@ -7607,22 +6726,18 @@ def prepare_auto_highlights(conn, user_id: str, match_id: str,
         manifest = build_manifest(points)
         if not manifest["points"]:
             _write_auto_highlight_state(
-                conn, match_id, "empty", manifest, r2_key=None,
-                processing_version_id=processing_version_id,
+                conn, match_id, "empty", manifest, r2_key=None
             )
             _delete_auto_highlight_object(conn, old_key)
             log.info("  automatic highlights: no qualifying rallies")
             return "empty"
 
-        claimed_at = _write_auto_highlight_state(
-            conn, match_id, "rendering", manifest,
-            processing_version_id=processing_version_id)
+        _write_auto_highlight_state(conn, match_id, "rendering", manifest)
         output, rendered_manifest = render_auto_highlights(
             manifest, cut_local, workdir
         )
         revision = rendered_manifest["points_revision"][:16]
-        key = (f"reels/{match_id}-v-{processing_version_id}-highlights-"
-               f"{revision}-{uuid.uuid4().hex}.mp4")
+        key = f"reels/{match_id}-highlights-{revision}.mp4"
         size = os.path.getsize(output)
         r2().upload_file(
             output, R2_MEDIA_BUCKET, key,
@@ -7635,15 +6750,10 @@ def prepare_auto_highlights(conn, user_id: str, match_id: str,
             r2_key=key,
             duration_s=round(float(rendered_manifest["duration_s"]), 2),
             size_bytes=size,
-            processing_version_id=processing_version_id,
-            expected_updated_at=claimed_at,
         )
         if old_key and old_key != key:
             _delete_auto_highlight_object(conn, old_key)
         return "ready"
-    except MatchVersionChanged:
-        _delete_auto_highlight_object(conn, key)
-        return "stale"
     except Exception as exc:  # fail-soft by product contract
         log.exception("  automatic highlights failed for match %s", match_id)
         try:
@@ -7655,17 +6765,12 @@ def prepare_auto_highlights(conn, user_id: str, match_id: str,
                 "duration_s": 0.0,
                 "points": [],
             }
-            if claimed_at is not None:
-                _write_auto_highlight_state(
-                    conn, match_id, "failed", failed_manifest,
-                    error=str(exc)[:500], processing_version_id=processing_version_id,
-                    expected_updated_at=claimed_at,
-                )
+            _write_auto_highlight_state(
+                conn, match_id, "failed", failed_manifest,
+                error=str(exc)[:500],
+            )
         except Exception:
             log.exception("  failed to record automatic highlight failure")
-        # Cleanup owns a separate reference check. A rejected failure-state
-        # write must not skip cleanup of an already-uploaded unused object.
-        _delete_auto_highlight_object(conn, key)
         return "failed"
 
 
@@ -8097,24 +7202,17 @@ def notify_reel_done(conn, user_id: str, match_id: str):
         log.warning("  reel email failed (non-fatal): %s", e)
 
 
-def _cut_video_path(conn, match_id: str, *, processing_version_id: str | None = None) -> str | None:
+def _cut_video_path(conn, match_id: str) -> str | None:
     """The match's cut video location, or None. matches.cut_path, falling
     back to the source job's result exactly like /api/media-url does."""
     with conn.cursor() as cur:
-        if processing_version_id:
-            cur.execute(
-                "select v.cut_path, j.result_path, j.status "
-                "from public.match_processing_versions v "
-                "left join public.jobs j on j.id = v.job_id "
-                "where v.match_id = %s and v.id = %s",
-                (match_id, processing_version_id),
-            )
-        else:
-            cur.execute(
-                "select m.cut_path, j.result_path, j.status "
-                "from public.matches m left join public.jobs j on j.id = m.job_id "
-                "where m.id = %s", (match_id,),
-            )
+        cur.execute(
+            "select m.cut_path, j.result_path, j.status "
+            "from public.matches m "
+            "left join public.jobs j on j.id = m.job_id "
+            "where m.id = %s",
+            (match_id,),
+        )
         row = cur.fetchone()
     if not row:
         return None
@@ -8122,15 +7220,14 @@ def _cut_video_path(conn, match_id: str, *, processing_version_id: str | None = 
     return cut_path or (result_path if job_status == "done" else None)
 
 
-def _cut_video_url(conn, match_id: str, expires_s: int = 3600,
-                    *, processing_version_id: str | None = None) -> str | None:
+def _cut_video_url(conn, match_id: str, expires_s: int = 3600) -> str | None:
     """A signed URL for the cut video that ffmpeg can range-seek.
 
     Returns None for a legacy Supabase-Storage path or a cut that retention
     has already taken; the caller then falls back to downloading, or to the
     preview clip.
     """
-    path = _cut_video_path(conn, match_id, processing_version_id=processing_version_id)
+    path = _cut_video_path(conn, match_id)
     loc = parse_r2_path(path or "")
     if not loc:
         return None
@@ -8145,14 +7242,25 @@ def _cut_video_url(conn, match_id: str, expires_s: int = 3600,
         return None
 
 
-def _fetch_cut_video(conn, match_id: str, workdir: str,
-                     *, processing_version_id: str | None = None) -> str | None:
+def _fetch_cut_video(conn, match_id: str, workdir: str) -> str | None:
     """Download the match's full-resolution cut video ONCE per render —
     matches.cut_path, falling back to the source job's result path exactly
     like /api/media-url does. Returns the local path, or None (a legacy
     cut swept before commerce; live matches keep theirs) — the caller then
     falls back to the 720p preview clips."""
-    path = _cut_video_path(conn, match_id, processing_version_id=processing_version_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            "select m.cut_path, j.result_path, j.status "
+            "from public.matches m "
+            "left join public.jobs j on j.id = m.job_id "
+            "where m.id = %s",
+            (match_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+    cut_path, result_path, job_status = row
+    path = cut_path or (result_path if job_status == "done" else None)
     if not path:
         return None
     local = os.path.join(workdir, "cut_source.mp4")
@@ -8172,222 +7280,68 @@ def _fetch_cut_video(conn, match_id: str, workdir: str,
     return None
 
 
-@dataclass(frozen=True)
-class TagReelAttempt:
-    tag_id: str
-    job_id: str
-    owner_id: str
-    manifest: dict
-    source_versions: tuple
-    claimed_at: datetime
-    output_key: str
-    previous_key: str | None
-
-
-def locked_tag_reel_sources(conn, manifest: dict) -> tuple:
-    """Snapshot the exact points/versions while blocking version publication.
-
-    Publication locks matches FOR UPDATE. Hold shared locks on those same
-    rows until the tag claim/completion commits, so its version check cannot
-    become stale between the SELECT and the final tag write. Missing point
-    IDs stay in the snapshot and are refused rather than disappearing in a
-    join. Match locks are always acquired in ID order for cross-match tags.
-    """
-    encoded = json.dumps(manifest)
-    with conn.cursor() as cur:
-        cur.execute(
-            "select m.id from public.matches m where m.id in ("
-            "select point.match_id from jsonb_array_elements(%s::jsonb->'points') p "
-            "join public.points point on point.id::text = p.value->>'point_id') "
-            "order by m.id for share",
-            (encoded,),
-        )
-        cur.fetchall()
-        cur.execute(
-            "select p.value->>'point_id', point.match_id::text, "
-            "point.processing_version_id::text, m.active_processing_version_id::text "
-            "from jsonb_array_elements(%s::jsonb->'points') with ordinality p(value,n) "
-            "left join public.points point on point.id::text = p.value->>'point_id' "
-            "left join public.matches m on m.id = point.match_id order by p.n",
-            (encoded,),
-        )
-        return tuple(cur.fetchall())
-
-
-def claim_tag_reel_attempt(conn, job_id: str, user_id: str,
-                           tag_id: str) -> TagReelAttempt | None:
-    original_autocommit = conn.autocommit
-    try:
-        conn.autocommit = False
-        with conn.cursor() as cur:
-            cur.execute(
-                "select t.owner_id, r.manifest, r.r2_key from public.tag_reels r "
-                "join public.tags t on t.id = r.tag_id where r.tag_id = %s "
-                "for update of r", (tag_id,),
-            )
-            row = cur.fetchone()
-            if not row:
-                raise RuntimeError(f"tag reel: no tag_reels row for {tag_id}")
-            owner_id, manifest, previous_key = row
-            if str(owner_id) != str(user_id):
-                raise RuntimeError("tag reel: job user does not own the tag")
-            if not isinstance(manifest, dict) or not manifest.get("points"):
-                raise RuntimeError("tag reel: empty manifest")
-            sources = locked_tag_reel_sources(conn, manifest)
-            if not all(match_id and version and version == active
-                       for _point, match_id, version, active in sources):
-                cur.execute(
-                    "update public.tag_reels set status = 'failed', "
-                    "error = 'Match version changed.', updated_at = clock_timestamp() "
-                    "where tag_id = %s", (tag_id,),
-                )
-                update_job(conn, job_id, status="cancelled", progress=100,
-                           error="Tag reel source version changed.")
-                conn.commit()
-                return None
-            cur.execute(
-                "update public.tag_reels set status = 'rendering', error = null, "
-                "updated_at = clock_timestamp() where tag_id = %s returning updated_at",
-                (tag_id,),
-            )
-            attempt = TagReelAttempt(tag_id, job_id, str(owner_id),
-                                     copy.deepcopy(manifest), sources,
-                                     cur.fetchone()[0],
-                                     f"reels/tag-{tag_id}-v-{stable_key(sources)[:16]}-"
-                                     f"{uuid.uuid4().hex}.mp4", previous_key)
-        conn.commit()
-        return attempt
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.autocommit = original_autocommit
-
-
-def finish_tag_reel_attempt(conn, attempt: TagReelAttempt, *, key=None,
-                            duration=None, size=None, error=None) -> bool:
-    """Publish only this attempt; a superseded attempt terminally cancels.
-
-    The exact manifest and claim timestamp together are the request identity.
-    Even an identical new request or a retry owns a different timestamp. A
-    stale completion must not change that newer request's status or output.
-    """
-    original_autocommit = conn.autocommit
-    try:
-        conn.autocommit = False
-        with conn.cursor() as cur:
-            cur.execute(
-                "select manifest, updated_at, status from public.tag_reels "
-                "where tag_id = %s for update", (attempt.tag_id,),
-            )
-            row = cur.fetchone()
-            owns_request = bool(row and row[0] == attempt.manifest
-                                and row[1] == attempt.claimed_at
-                                and row[2] == "rendering")
-            sources_current = owns_request and locked_tag_reel_sources(
-                conn, attempt.manifest) == attempt.source_versions
-            if not sources_current:
-                if owns_request:
-                    cur.execute(
-                        "update public.tag_reels set status = 'failed', "
-                        "error = 'Match version changed.', updated_at = clock_timestamp() "
-                        "where tag_id = %s", (attempt.tag_id,),
-                    )
-                update_job(conn, attempt.job_id, status="cancelled", progress=100,
-                           error="Tag reel request or source version changed.")
-            elif error is not None:
-                cur.execute(
-                    "update public.tag_reels set status = 'failed', "
-                    "error = %s, updated_at = clock_timestamp() where tag_id = %s",
-                    (str(error)[:500], attempt.tag_id),
-                )
-            else:
-                cur.execute(
-                    "update public.tag_reels set status = 'ready', r2_key = %s, "
-                    "duration_s = %s, size_bytes = %s, error = null, "
-                    "updated_at = clock_timestamp() where tag_id = %s",
-                    (key, round(duration, 2), size, attempt.tag_id),
-                )
-                update_job(conn, attempt.job_id, status="done", progress=100)
-        conn.commit()
-        return bool(sources_current)
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.autocommit = original_autocommit
-
-
-def delete_unreferenced_tag_reel_object(conn, key: str | None) -> None:
-    """Retire an attempt's unused output without deleting any retained reel.
-
-    Named tag exports have no timed sweep. Immutable attempt keys therefore
-    need explicit cleanup after a confirmed stale completion or replacement.
-    A failed reference check always keeps the object.
-    """
-    if not key:
-        return
-    try:
-        with sql_savepoint(conn), conn.cursor() as cur:
-            cur.execute(
-                "select exists(select 1 from public.tag_reels where r2_key = %s "
-                "union all select 1 from public.match_reels where r2_key = %s "
-                "union all select 1 from public.match_processing_version_reels "
-                "where record->>'r2_key' = %s)", (key, key, key),
-            )
-            if cur.fetchone()[0]:
-                return
-        r2().delete_object(Bucket=R2_MEDIA_BUCKET, Key=key)
-        ledger_negate_keys(conn, [f"r2://{R2_MEDIA_BUCKET}/{key}"])
-    except Exception:
-        log.warning("  unused tag reel cleanup failed: %s", key, exc_info=True)
-
-
-def process_tag_reel(conn, job_id: str, user_id: str, tag_id: str) -> bool:
+def process_tag_reel(conn, job_id: str, user_id: str, tag_id: str) -> None:
     """Cross-match tag reel (042): render the tag_reels manifest — point
     preview clips across every match carrying the tag — with a single-title
     card and no scorebug (a cross-match score would be incoherent)."""
-    attempt = claim_tag_reel_attempt(conn, job_id, user_id, tag_id)
-    if attempt is None:
-        return False
+    with conn.cursor() as cur:
+        cur.execute(
+            "select t.owner_id, r.manifest from public.tag_reels r "
+            "join public.tags t on t.id = r.tag_id where r.tag_id = %s",
+            (tag_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise RuntimeError(f"tag reel: no tag_reels row for {tag_id}")
+    owner_id, manifest = row
+    if str(owner_id) != str(user_id):
+        raise RuntimeError("tag reel: job user does not own the tag")
+    if not isinstance(manifest, dict) or not manifest.get("points"):
+        raise RuntimeError("tag reel: empty manifest")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "update public.tag_reels set status = 'rendering', "
+            "updated_at = now() where tag_id = %s",
+            (tag_id,),
+        )
     update_job(conn, job_id, progress=15)
 
     workdir = tempfile.mkdtemp(prefix=f"ponglens-tagreel-{str(job_id)[:8]}-")
-    uploaded_key = None
     try:
         t0 = time.time()
         # cut_local stays None: the clips span many matches, so every
         # point renders from its own preview clip (seg bounds are null).
-        out = render_reel(copy.deepcopy(attempt.manifest), False, workdir, None)
+        out = render_reel(manifest, False, workdir, None)
         update_job(conn, job_id, progress=80)
 
-        key = attempt.output_key
+        key = f"reels/tag-{tag_id}.mp4"
         r2_uri = f"r2://{R2_MEDIA_BUCKET}/{key}"
         size = os.path.getsize(out)
         duration = _video_duration_s(out)
         r2().upload_file(out, R2_MEDIA_BUCKET, key,
                          ExtraArgs={"ContentType": "video/mp4"})
-        uploaded_key = key
-        ledger_append(conn, attempt.owner_id, "reel", size, r2_uri)
-        if not finish_tag_reel_attempt(conn, attempt, key=key,
-                                       duration=duration, size=size):
-            delete_unreferenced_tag_reel_object(conn, key)
-            log.info("  tag reel attempt cancelled: %s", job_id)
-            return False
-        delete_unreferenced_tag_reel_object(conn, attempt.previous_key)
+        ledger_negate_keys(conn, [r2_uri])
+        ledger_append(conn, str(owner_id), "reel", size, r2_uri)
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "update public.tag_reels set status = 'ready', "
+                "r2_key = %s, duration_s = %s, size_bytes = %s, "
+                "error = null, updated_at = now() where tag_id = %s",
+                (key, round(duration, 2), size, tag_id),
+            )
         log.info("  tag reel ready: %s (%.1fs video, %d KB, rendered "
                  "in %.0fs)",
                  r2_uri, duration, size // 1024, time.time() - t0)
-        return True
     except Exception as e:
         try:
-            still_current = finish_tag_reel_attempt(conn, attempt, error=e)
-            # Only a confirmed failure/cancellation may retire uploaded bytes.
-            # A finalization error can occur after upload and ledger booking;
-            # the same reference guard protects current/historical outputs.
-            delete_unreferenced_tag_reel_object(conn, uploaded_key)
-            if not still_current:
-                return False
+            with conn.cursor() as cur:
+                cur.execute(
+                    "update public.tag_reels set status = 'failed', "
+                    "error = %s, updated_at = now() where tag_id = %s",
+                    (str(e)[:500], tag_id),
+                )
         except Exception:
             log.exception("  failed to mark tag reel failed")
         raise
@@ -8395,14 +7349,14 @@ def process_tag_reel(conn, job_id: str, user_id: str, tag_id: str) -> bool:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-def _load_highlight_points(conn, match_id: str, *, processing_version_id: str) -> list[dict]:
-    with locked_match_version(conn, match_id, processing_version_id), conn.cursor() as cur:
+def _load_highlight_points(conn, match_id: str) -> list[dict]:
+    with conn.cursor() as cur:
         cur.execute(
             "select id, idx, t0, t1, cut_t0, scored_at_cut_s, "
             "rally_end_cut_s, confirmed_winner, "
             "clip_path, deleted, edited, is_let, highlight_evidence "
-            "from public.points where match_id = %s and processing_version_id = %s order by idx, id",
-            (match_id, processing_version_id),
+            "from public.points where match_id = %s order by idx, id",
+            (match_id,),
         )
         return [
             dict(zip(("id", "idx", "t0", "t1", "cut_t0",
@@ -8413,12 +7367,12 @@ def _load_highlight_points(conn, match_id: str, *, processing_version_id: str) -
         ]
 
 
-def _wait_for_highlight_points(conn, match_id: str, *, processing_version_id: str) -> list[dict]:
+def _wait_for_highlight_points(conn, match_id: str) -> list[dict]:
     """Let the lightweight reclip finish before spending on a new reel."""
     from highlight_backfill import highlight_points_are_updating
     deadline = time.monotonic() + 120
     while True:
-        points = _load_highlight_points(conn, match_id, processing_version_id=processing_version_id)
+        points = _load_highlight_points(conn, match_id)
         if not highlight_points_are_updating(points):
             return points
         if time.monotonic() >= deadline:
@@ -8452,8 +7406,6 @@ def _prepare_automatic_highlight_manifest(
     match_id: str,
     requested_refresh: bool,
     job_id: str,
-    *,
-    processing_version_id: str,
 ) -> dict:
     from highlight_backfill import (
         highlight_evidence_refresh_needed,
@@ -8463,20 +7415,16 @@ def _prepare_automatic_highlight_manifest(
     from highlights import build_manifest
 
     last_error: Exception | None = None
-    # A hand-cut match has no detections to refresh from; the refresh path
-    # would run the whole detector over the original to find none. Its
-    # points simply never qualify.
-    hand_cut = match_cut_source(conn, match_id) == "manual"
     for _attempt in range(2):
         try:
-            points = _wait_for_highlight_points(conn, match_id, processing_version_id=processing_version_id)
-            if not hand_cut and (requested_refresh or highlight_evidence_refresh_needed(points)):
-                refresh_match_evidence_for_render(conn, match_id, processing_version_id=processing_version_id)
+            points = _wait_for_highlight_points(conn, match_id)
+            if requested_refresh or highlight_evidence_refresh_needed(points):
+                refresh_match_evidence_for_render(conn, match_id)
                 requested_refresh = False
                 update_job(conn, job_id, progress=12)
-                points = _wait_for_highlight_points(conn, match_id, processing_version_id=processing_version_id)
+                points = _wait_for_highlight_points(conn, match_id)
             manifest = build_manifest(points)
-            current = _load_highlight_points(conn, match_id, processing_version_id=processing_version_id)
+            current = _load_highlight_points(conn, match_id)
             if highlight_revision_is_current(
                 manifest["points_revision"], current, scored_only=True
             ):
@@ -8486,10 +7434,6 @@ def _prepare_automatic_highlight_manifest(
             )
         except HighlightRefreshObsoleteError:
             raise
-        except MatchVersionChanged as error:
-            raise HighlightRefreshObsoleteError(
-                f"match {match_id} changed version during highlight preparation"
-            ) from error
         except BackfillConsistencyError as error:
             last_error = error
         time.sleep(0.25)
@@ -8498,24 +7442,19 @@ def _prepare_automatic_highlight_manifest(
     ) from last_error
 
 
-def _mark_reel_failed(conn, match_id: str, scope: str, error: Exception, *,
-                      processing_version_id: str, expected_updated_at,
-                      rendering: bool = False) -> None:
+def _mark_reel_failed(conn, match_id: str, scope: str, error: Exception) -> None:
     try:
-        with locked_match_version(conn, match_id, processing_version_id), conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "update public.match_reels set status = 'failed', "
-                "error = %s where match_id = %s and scope = %s and updated_at = %s"
-                + (" and status = 'rendering'" if rendering else ""),
-                (str(error)[:500], match_id, scope, expected_updated_at),
+                "error = %s where match_id = %s and scope = %s",
+                (str(error)[:500], match_id, scope),
             )
-    except MatchVersionChanged:
-        pass
     except Exception:
         log.exception("  failed to mark reel failed")
 
 
-def process_reel(conn, job_id: str, user_id: str, payload: dict) -> bool | None:
+def process_reel(conn, job_id: str, user_id: str, payload: dict) -> None:
     options = get_job_options(conn, job_id, payload)
     match_id = options.get("match_id")
     if not match_id:
@@ -8525,7 +7464,8 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> bool | None:
         if tag_id and re.fullmatch(
                 r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}"
                 r"-[0-9a-f]{12}", str(tag_id)):
-            return process_tag_reel(conn, job_id, user_id, str(tag_id))
+            process_tag_reel(conn, job_id, user_id, str(tag_id))
+            return
         raise RuntimeError("reel job missing options.match_id")
     # scope 'starred' (default, back-compat with pre-028 jobs already in the
     # queue), 'full' (whole match), or 'tag:<uuid>' (036: one export per
@@ -8546,24 +7486,20 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> bool | None:
     with conn.cursor() as cur:
         cur.execute(
             "select m.user_id, r.show_score, r.manifest, m.story_crop, "
-            "r.r2_key, m.active_processing_version_id, r.updated_at "
+            "r.r2_key "
             "from public.match_reels r "
             "join public.matches m on m.id = r.match_id "
-            "where r.match_id = %s and r.scope = %s "
-            "and not (r.status = 'failed' and r.error = 'Match version changed.')",
+            "where r.match_id = %s and r.scope = %s",
             (match_id, scope),
         )
         row = cur.fetchone()
     if not row:
         raise RuntimeError(f"reel: no match_reels row for {match_id}/{scope}")
-    owner_id, show_score, manifest, story_crop, old_key, active_version_id, requested_at = row
+    owner_id, show_score, manifest, story_crop, old_key = row
     # options.match_id is client-influenced: never render a match the job's
     # creator doesn't own.
     if str(owner_id) != str(user_id):
         raise RuntimeError("reel: job user does not own the match")
-    origin_version_id = job_processing_version(options)
-    if str(origin_version_id) != str(active_version_id):
-        raise RuntimeError("reel: match version changed before rendering")
     automatic = scope == "highlights"
     if automatic:
         requested_refresh = (
@@ -8573,42 +7509,31 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> bool | None:
         try:
             _require_highlight_generation_eligibility(conn, str(match_id))
             manifest = _prepare_automatic_highlight_manifest(
-                conn, str(match_id), requested_refresh, job_id,
-                processing_version_id=origin_version_id,
+                conn, str(match_id), requested_refresh, job_id
             )
         except Exception as error:
-            _mark_reel_failed(conn, str(match_id), scope, error,
-                              processing_version_id=origin_version_id,
-                              expected_updated_at=requested_at)
+            _mark_reel_failed(conn, str(match_id), scope, error)
             raise
         if not manifest["points"]:
-            _write_auto_highlight_state(conn, match_id, "empty", manifest,
-                                       processing_version_id=origin_version_id,
-                                       expected_updated_at=requested_at)
+            _write_auto_highlight_state(conn, match_id, "empty", manifest)
             _delete_auto_highlight_object(conn, old_key)
             return
     elif not isinstance(manifest, dict) or not manifest.get("points"):
         raise RuntimeError("reel: empty manifest")
 
-    with locked_match_version(conn, match_id, origin_version_id), conn.cursor() as cur:
+    with conn.cursor() as cur:
         cur.execute(
             "update public.match_reels set status = 'rendering', "
-            "manifest = %s, error = null, updated_at = clock_timestamp() "
-            "where match_id = %s and scope = %s and updated_at = %s returning updated_at",
-            (json.dumps(manifest), match_id, scope, requested_at),
+            "manifest = %s, error = null "
+            "where match_id = %s and scope = %s",
+            (json.dumps(manifest), match_id, scope),
         )
-        claimed = cur.fetchone()
-        if not claimed:
-            raise MatchVersionChanged("reel request changed before rendering")
-        claimed_at = claimed[0]
     update_job(conn, job_id, progress=15)
 
     workdir = tempfile.mkdtemp(prefix=f"ponglens-reel-{str(job_id)[:8]}-")
-    uploaded_key = None
     try:
         t0 = time.time()
-        cut_local = _fetch_cut_video(conn, match_id, workdir,
-                                     processing_version_id=origin_version_id) \
+        cut_local = _fetch_cut_video(conn, match_id, workdir) \
             if automatic else None
         if automatic and cut_local is None:
             raise RuntimeError("automatic highlights cut is unavailable")
@@ -8619,19 +7544,16 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> bool | None:
             # render reads seconds out of the cut, not the whole thing —
             # so hand ffmpeg a signed URL and let it range-seek. A named
             # export still downloads, because it walks the entire video.
-            cut_local = (_cut_video_url(conn, match_id, processing_version_id=origin_version_id) if vertical
-                         else _fetch_cut_video(conn, match_id, workdir,
-                                                processing_version_id=origin_version_id))
+            cut_local = (_cut_video_url(conn, match_id) if vertical
+                         else _fetch_cut_video(conn, match_id, workdir))
             if vertical and cut_local is None:
-                cut_local = _fetch_cut_video(conn, match_id, workdir,
-                                             processing_version_id=origin_version_id)
+                cut_local = _fetch_cut_video(conn, match_id, workdir)
         if automatic:
             out, manifest = render_auto_highlights(
                 manifest, cut_local, workdir
             )
             from highlight_backfill import highlight_revision_is_current
-            current_points = _load_highlight_points(
-                conn, str(match_id), processing_version_id=origin_version_id)
+            current_points = _load_highlight_points(conn, str(match_id))
             if not highlight_revision_is_current(
                 manifest["points_revision"], current_points, scored_only=True
             ):
@@ -8650,38 +7572,33 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> bool | None:
         # alongside it (tag:<uuid> -> -tag-<uuid>). Vertical share renders
         # get a v- prefix, which is also what the retention sweep matches
         # on — they are regenerable in seconds and must not accumulate.
-        version_key = str(origin_version_id).replace("-", "")[:16]
-        key = (f"reels/{match_id}-v-{version_key}-highlights-"
+        key = (f"reels/{match_id}-highlights-"
                f"{manifest['points_revision'][:16]}.mp4" if automatic
-               else f"reels/{match_id}-v-{version_key}.mp4" if scope == "starred"
-               else f"reels/{match_id}-v-{version_key}-full.mp4" if scope == "full"
-               else f"reels/v-{match_id}-v-{version_key}-{scope.replace(':', '-')}.mp4"
+               else f"reels/{match_id}.mp4" if scope == "starred"
+               else f"reels/{match_id}-full.mp4" if scope == "full"
+               else f"reels/v-{match_id}-{scope.replace(':', '-')}.mp4"
                if vertical
-               else f"reels/{match_id}-v-{version_key}-{scope.replace(':', '-')}.mp4")
-        # An attempt never overwrites an object that a retained version (or
-        # another request for the same version) may already reference.
-        key = f"{key[:-4]}-{uuid.uuid4().hex}.mp4"
+               else f"reels/{match_id}-{scope.replace(':', '-')}.mp4")
         r2_uri = f"r2://{R2_MEDIA_BUCKET}/{key}"
         size = os.path.getsize(out)
         duration = _video_duration_s(out)
         r2().upload_file(out, R2_MEDIA_BUCKET, key,
                          ExtraArgs={"ContentType": "video/mp4"})
-        uploaded_key = key
+        # one key per (match, scope), overwritten on re-render: zero the
+        # previous balance before booking the new bytes
+        ledger_negate_keys(conn, [r2_uri])
         ledger_append(conn, str(owner_id), "reel", size, r2_uri, match_id)
 
-        with locked_match_version(conn, match_id, origin_version_id), conn.cursor() as cur:
+        with conn.cursor() as cur:
             cur.execute(
                 "update public.match_reels set status = 'ready', "
                 "r2_key = %s, duration_s = %s, size_bytes = %s, "
-                "manifest = %s, error = null, updated_at = clock_timestamp() "
-                "where match_id = %s and scope = %s and status = 'rendering' "
-                "and updated_at = %s",
+                "manifest = %s, error = null "
+                "where match_id = %s and scope = %s",
                 (key, round(duration, 2), size, json.dumps(manifest),
-                 match_id, scope, claimed_at),
+                 match_id, scope),
             )
-            if cur.rowcount != 1:
-                raise MatchVersionChanged("reel request changed during rendering")
-        if old_key and old_key != key:
+        if automatic and old_key and old_key != key:
             _delete_auto_highlight_object(conn, old_key)
         log.info("  reel ready: %s (scope=%s, %.1fs video, %d KB, rendered "
                  "in %.0fs)",
@@ -8692,16 +7609,8 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> bool | None:
         # suppressed for the same reason, in match_reels_notify (135).
         if not vertical and not automatic:
             notify_reel_done(conn, str(owner_id), match_id)
-    except MatchVersionChanged:
-        delete_unreferenced_tag_reel_object(conn, uploaded_key)
-        update_job(conn, job_id, status="cancelled", progress=100,
-                   error="Match version or reel request changed.")
-        return False
     except Exception as e:
-        _mark_reel_failed(conn, str(match_id), scope, e,
-                          processing_version_id=origin_version_id,
-                          expected_updated_at=claimed_at, rendering=True)
-        delete_unreferenced_tag_reel_object(conn, uploaded_key)
+        _mark_reel_failed(conn, str(match_id), scope, e)
         raise
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -9067,177 +7976,6 @@ def delete_rejected_raw(conn, input_path: str | None):
                     "catch it): %s", e)
 
 
-def run_match_processing_workflow(
-    conn, destination: MatchProcessingDestination, local_input: str,
-    workdir: str, *, attempt_key: str, played_at: str | None = None,
-) -> tuple[str, str | None]:
-    """The one detection, assembly, cutting, and publication workflow.
-
-    Only policy differs: ordinary runs keep the existing span fallback and
-    active-match publisher; candidates fail closed and finalize the isolated
-    version. Both consume the same settings, production detection pass, artifact
-    uploader, metadata preparation, and point persistence code.
-    """
-    options = destination.options
-    job_id, user_id = destination.job_id, destination.user_id
-    active = destination.activates_match
-    wants_points = not active or bool(options.get("points"))
-    strictness = options.get("strictness", "normal")
-    if strictness not in VALID_STRICTNESS:
-        strictness = "normal"
-    outdir = os.path.join(workdir, "points_out")
-    if wants_points:
-        start_pct = 15 if active else 10
-        last_pct = [start_pct]
-
-        def blurball_progress(fraction: float) -> None:
-            pct = start_pct + int(fraction * (45 - start_pct))
-            if pct > last_pct[0]:
-                last_pct[0] = pct
-                update_job(conn, job_id, progress=pct)
-
-        ball_crop, crop_corners, points_kwargs = processing_pipeline_settings(
-            conn, options, attempt_key)
-        # Frozen at execution, not approval: configuration can change while
-        # queued, and a source version's release says nothing about this run.
-        # The pulse identity is captured when the running process starts;
-        # rereading git here could label already-loaded code as a newer deploy.
-        destination = replace(destination,
-            release_id=(_PULSE_CODE_VERSION if _PULSE_CODE_VERSION != "unknown" else None),
-            effective_settings={
-                "strictness": strictness, "placement": bool(options.get("placement")),
-                "ball_crop": ball_crop, "ball_crop_corners": crop_corners,
-                "cut_mode": "plays",
-                **{key: value for key, value in points_kwargs.items() if key != "attempt_key"},
-                "match_structure_enabled": MATCH_STRUCTURE_ENABLED,
-                "rtmpose_backend": RTMPOSE_BACKEND, "rtmpose_device": RTMPOSE_DEVICE,
-                "trim_start_s": options.get("trim_start_s"),
-                "trim_end_s": options.get("trim_end_s"),
-            })
-        pulse_stage("ball" if active else "candidate_points")
-        blurball_out = detect_ball(
-            local_input, workdir, attempt_key=attempt_key,
-            on_progress=blurball_progress, table_crop=ball_crop, corners=crop_corners)
-        update_job(conn, job_id, progress=45)
-        segments_json = None
-        try:
-            pulse_stage("points" if active else "candidate_points")
-            outdir = run_points_subprocess(
-                local_input, blurball_out, workdir, options,
-                **points_kwargs)
-            if active and points_kwargs.get("pipeline") == "bodies":
-                # THE BODY-FIRST ASSEMBLER (spec 2026-09-08). The pass above
-                # built the ball's cards and, with them, the table and the
-                # evidence the players' pass needs. Read the players, then
-                # rebuild the points with the bodies deciding. Fails open to
-                # the cards already on disk.
-                outdir = run_body_points_pass(
-                    conn, job_id, local_input, blurball_out, workdir, options,
-                    points_kwargs=points_kwargs)
-            mj = os.path.join(outdir, "match.json")
-            with open(mj) as fh:
-                if json.load(fh).get("cut_segments"):
-                    segments_json = mj
-        except Exception as error:
-            if not active:
-                raise
-            # Preserve ordinary behavior: deliver the span cut, then retry
-            # the points stage in legacy spans mode against that cut's clock.
-            log.warning("  early points stage failed (%s) — "
-                        "falling back to the span cut", error)
-            outdir = os.path.join(workdir, "points_out")
-            shutil.rmtree(outdir, ignore_errors=True)
-        pulse_stage("cut" if active else "candidate_prepare")
-        result = run_cut(local_input, workdir, blurball_out, strictness,
-                         segments_json=segments_json, attempt_key=attempt_key)
-    else:
-        last_pct = [15]
-
-        def pipeline_progress(fraction: float) -> None:
-            pct = 15 + int(fraction * 60)
-            if pct > last_pct[0]:
-                last_pct[0] = pct
-                update_job(conn, job_id, progress=pct)
-
-        pulse_stage("ball")
-        result, blurball_out = run_pipeline(
-            local_input, workdir, strictness, attempt_key=attempt_key,
-            on_progress=pipeline_progress)
-    guard = (locked_ordinary_match_attempt(
-        conn, destination.match_id, user_id, job_id,
-        expected_version_id=destination.processing_version_id)
-        if active and options.get("match_id") is not None else nullcontext())
-    with guard:
-        update_job(conn, job_id, progress=(60 if wants_points else 85) if active else 65)
-        pulse_stage("upload" if active else "candidate_save")
-        if parse_r2_path(destination.source_path):
-            result_path = f"r2://{R2_MEDIA_BUCKET}/{destination.cut_key}"
-            log.info("  uploading %s", result_path)
-            r2().upload_file(result, R2_MEDIA_BUCKET, destination.cut_key,
-                             ExtraArgs={"ContentType": "video/mp4"})
-            if active:
-                # The ordinary match row may not exist yet; its deletion trigger
-                # frees this ledger balance by matches.cut_path as before.
-                ledger_append(conn, user_id, "cut", os.path.getsize(result), result_path)
-        else:
-            if not active:
-                raise RuntimeError("match reprocess source is missing or unreadable")
-            result_path = f"{user_id}/{job_id}.mp4"
-            storage_upload("results", result_path, result)
-
-        points_match_id = None
-        if wants_points:
-            update_job(conn, job_id, progress=70)
-            pulse_stage("publish" if active else "candidate_save")
-            points_match_id = run_points_stage(
-                conn, job_id, user_id, local_input, blurball_out, workdir, options,
-                result_path, played_at=played_at, attempt_key=attempt_key,
-                cut_local_path=result, destination=destination, points_outdir=outdir)
-    return result_path, points_match_id
-
-
-def process_match_reprocess(
-    conn, job_id: str, attempt_key: str,
-    destination: MatchProcessingDestination | None = None,
-) -> str:
-    """Build a reviewable candidate from a retained raw, never the live row.
-
-    Resolve/download the authoritative source, then enter the same workflow
-    as ordinary processing with a candidate publishing destination.
-    """
-    destination = destination or load_match_reprocess_destination(conn, job_id)
-    source = parse_r2_path(destination.source_path)
-    if source is None:
-        raise RuntimeError("match reprocess source is missing or unreadable")
-    options = destination.options
-
-    with conn.cursor() as cur:
-        cur.execute(
-            "update public.match_processing_feedback "
-            "set status = 'reprocessing', updated_at = now() "
-            "where id = %s and replacement_job_id = %s "
-            "and status = 'reprocess_queued'",
-            (destination.issue_id, destination.job_id),
-        )
-
-    workdir = tempfile.mkdtemp(prefix=f"ponglens-reprocess-{job_id[:8]}-")
-    try:
-        pulse_stage("candidate_prepare")
-        ext = os.path.splitext(destination.source_path)[1] or ".mp4"
-        local_input = os.path.join(workdir, f"input{ext}")
-        r2().download_file(source[0], source[1], local_input)
-        if not os.path.exists(local_input) or os.path.getsize(local_input) == 0:
-            raise RuntimeError("match reprocess source is missing or unreadable")
-        update_job(conn, job_id, progress=10)
-        local_input = apply_source_trim(local_input, workdir, options)
-
-        result_path, _match_id = run_match_processing_workflow(
-            conn, destination, local_input, workdir, attempt_key=attempt_key)
-        return result_path
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
-
-
 def process_job(conn, msg) -> None:
     payload = msg["message"]
     if isinstance(payload, str):
@@ -9263,79 +8001,22 @@ def process_job(conn, msg) -> None:
     #
     # One statement, so the race closes in both directions: either this
     # update wins and a concurrent cancel then finds 'processing' and
-    # refuses, or the cancel wins and this matches nothing. Ordinary failed
-    # jobs retry only inside their attempt budget, before a terminal failure
-    # or ready match. Candidate terminal states remain independently guarded.
-    ordinary = kind in {"deadspace_cut", "youtube_import"}
-    claim_guard = nullcontext()
-    claimed = None
-    if ordinary:
-        with conn.cursor() as cur:
-            cur.execute(
-                "select options from public.jobs where id=%s and user_id=%s and kind=%s "
-                "and status in ('queued','processing','failed') and user_message is null "
-                "and not exists(select 1 from public.processing_ledger l where l.job_id=jobs.id and l.kind='refund') "
-                "and not exists(select 1 from public.matches m where m.job_id=jobs.id and m.status='ready')",
-                (job_id, user_id, kind),
-            )
-            pending = cur.fetchone()
-        if pending is None or msg["read_ct"] > MAX_READ_CT:
-            archive_ordinary_delivery(conn, msg)
-            return
-        match_id = (pending[0] or {}).get("match_id")
-        if match_id is not None:
-            claim_guard = locked_ordinary_match_attempt(conn, match_id, user_id, job_id, claim=True)
-    try:
-        with claim_guard, conn.cursor() as cur:
-            cur.execute(
-                "update public.jobs set status = 'processing' "
-                "where id = %s and status <> 'cancelled' "
-                "and (kind <> 'match_reprocess' or status in ('queued', 'processing')) "
-                "and (kind not in ('deadspace_cut','youtube_import') or status in ('queued','processing','failed')) "
-                "returning id",
-                (job_id,),
-            )
-            claimed = cur.fetchone()
-    except MatchVersionChanged:
-        log.info("  ordinary job %s no longer owns its match version", job_id)
+    # refuses, or the cancel wins and this matches nothing. A retry
+    # (read_ct > 1) still matches, since only 'cancelled' is excluded.
+    with conn.cursor() as cur:
+        cur.execute(
+            "update public.jobs set status = 'processing' "
+            "where id = %s and status <> 'cancelled' returning id",
+            (job_id,),
+        )
+        claimed = cur.fetchone()
     if claimed is None:
-        log.info("  job %s is no longer eligible for processing", job_id)
-        if ordinary:
-            archive_ordinary_delivery(conn, msg)
-        else:
-            archive_message(conn, msg["msg_id"])
+        log.info("  job %s was cancelled or removed before pickup — "
+                 "archiving the message, doing nothing", job_id)
+        archive_message(conn, msg["msg_id"])
         return
 
     pulse_job(job_id, kind)
-
-    if kind == "match_reprocess":
-        # The database constructs the candidate publishing destination. The
-        # shared workflow cannot enter any active mutation branch in this mode.
-        destination = None
-        try:
-            destination = load_match_reprocess_destination(conn, job_id)
-            process_match_reprocess(conn, job_id, attempt_key, destination)
-        except Exception as error:  # candidate failure must never touch live data
-            if destination is not None:
-                try:
-                    finalize_match_reprocess_failure(conn, destination, error)
-                except Exception:
-                    # The terminal transition is itself retryable. Do not let
-                    # the outer error handler turn this into a failed job and
-                    # archive the only message that can finish the candidate.
-                    log.exception("  candidate terminal failure bookkeeping failed")
-                    return
-            else:
-                # There is no safe candidate identity to mutate. Leave the
-                # message live for investigation rather than falsely
-                # completing it.
-                raise
-            archive_message(conn, msg["msg_id"])
-            return
-        archive_message(conn, msg["msg_id"])
-        log.info("  reprocess candidate ready: match=%s version=%s",
-                 destination.match_id, destination.processing_version_id)
-        return
 
     if kind == "placement_generate":
         pulse_stage("placement")
@@ -9393,19 +8074,6 @@ def process_job(conn, msg) -> None:
         )
         return
 
-    if kind == "hand_cut":
-        # The owner marked the points themselves; no detector runs at all.
-        pulse_stage("marks")
-        update_job(conn, job_id, status="processing", progress=5, error=None)
-        process_hand_cut(conn, job_id, user_id, payload, attempt_key)
-        update_job(conn, job_id, status="done", progress=100)
-        archive_message(conn, msg["msg_id"])
-        # The raw page promised this email, and it is the same promise the
-        # automatic path keeps. The bell rides the ready trigger.
-        notify_job_done(conn, job_id, user_id)
-        log.info("  hand cut done: job %s", job_id)
-        return
-
     if kind == "reclip":
         # lightweight path: no blurball pipeline, just ffmpeg re-cuts
         pulse_stage("reclip")
@@ -9423,7 +8091,7 @@ def process_job(conn, msg) -> None:
         update_job(conn, job_id, status="processing", progress=5, error=None)
         try:
             with COST_METER.timed_stage("reel_encoding", attempt_key):
-                completed = process_reel(conn, job_id, user_id, payload)
+                process_reel(conn, job_id, user_id, payload)
         except HighlightRefreshObsoleteError as error:
             # A player changed the source rallies after asking for this reel.
             # The failed reel exposes Update needed. Archive this exact queue
@@ -9433,11 +8101,6 @@ def process_job(conn, msg) -> None:
             )
             archive_message(conn, msg["msg_id"])
             log.info("  reel job %s became stale and was archived", job_id)
-            return
-        if completed is False:
-            # The renderer already committed its stale-attempt cancellation.
-            # Never turn that terminal outcome into a completed job.
-            archive_message(conn, msg["msg_id"])
             return
         update_job(conn, job_id, status="done", progress=100)
         archive_message(conn, msg["msg_id"])
@@ -9633,20 +8296,6 @@ def process_job(conn, msg) -> None:
             if played_at:
                 log.info("  capture date from creation_time: %s", played_at)
 
-        # What frame rate the owner actually filmed at (165). Read from
-        # the source BEFORE the trim, and stored whatever happens next —
-        # a job that later fails a gate still answers "was this 60fps?".
-        if options.get("match_id") is not None:
-            src_fps = probe_source_fps(local_input)
-            if src_fps is not None:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "update public.matches set source_fps = %s "
-                        "where id = %s and source_fps is null",
-                        (src_fps, options["match_id"]))
-                conn.commit()
-                log.info("  source frame rate %.3f fps", src_fps)
-
         # Library job (096): cut the working copy down to the claimed
         # window before anything expensive sees it. Skipped when the
         # window is effectively the whole file.
@@ -9688,19 +8337,145 @@ def process_job(conn, msg) -> None:
             raise UserFacingError(BROADCAST_REJECT_MSG)
         update_job(conn, job_id, progress=15)
 
-        destination = MatchProcessingDestination.active(
-            job_id, user_id, input_path, options)
-        try:
-            result_path, points_match_id = run_match_processing_workflow(
-                conn, destination, local_input, workdir,
-                attempt_key=attempt_key, played_at=played_at)
-        except MatchVersionChanged:
-            # A different delivery completed/published while compute ran.
-            # Do not let the outer failure handler mark the active match or
-            # refund/overwrite the now-terminal original job.
-            log.info("  ordinary job %s lost publication ownership", job_id)
-            archive_ordinary_delivery(conn, msg)
-            return
+        if options.get("points"):
+            # Dead-space round 4: points BEFORE the cut, so the cut keeps
+            # the per-point segments instead of whole activity spans (the
+            # span cut measured 82-99% of the source — the ball moving
+            # between rallies chained every span together). If the points
+            # stage crashes here, fall back to the legacy span cut so the
+            # match still ships with video; run_points_stage retries in
+            # spans mode and owns the failure path.
+            # 15 -> 45 is minutes of inference on a long video, and it
+            # used to be two stamps with silence between them. Written
+            # only when the whole number changes, so a 45k-frame video
+            # costs thirty small updates rather than one per log line.
+            last_pct = [15]
+
+            def blurball_progress(fraction: float) -> None:
+                pct = 15 + int(fraction * 30)
+                if pct > last_pct[0]:
+                    last_pct[0] = pct
+                    update_job(conn, job_id, progress=pct)
+
+            # the job's own option wins in either direction; absent, the
+            # app_config switch decides
+            ball_crop = options.get("ball_crop")
+            if ball_crop is None:
+                ball_crop = ball_crop_enabled(conn)
+            crop_corners = options.get("ball_crop_corners")
+            if not (isinstance(crop_corners, dict) and len(crop_corners) == 4
+                    and all(isinstance(v, (list, tuple)) and len(v) == 2
+                            for v in crop_corners.values())):
+                crop_corners = None
+            pulse_stage("ball")
+            blurball_out = detect_ball(local_input, workdir,
+                                       attempt_key=attempt_key,
+                                       on_progress=blurball_progress,
+                                       table_crop=bool(ball_crop),
+                                       corners=crop_corners)
+            update_job(conn, job_id, progress=45)
+            segments_json = None
+            try:
+                pulse_stage("points")
+                serve_pad, serve_merge = serve_motif_settings(conn)
+                # The job's own option wins over the config, like ball_crop
+                # above: one match recut by the other assembler without
+                # flipping the switch (spec 2026-09-08, section 3.2).
+                _pipeline = options.get("points_pipeline")
+                if _pipeline not in ("v1", "v2", "bodies"):
+                    _pipeline = points_pipeline_version(conn)
+                _anchor, _rally_end = body_card_edges(conn)
+                points_kwargs = dict(
+                    pipeline=_pipeline,
+                    serve_anchor=_anchor,
+                    rally_end=_rally_end,
+                    endon_fallback=endon_fallback_enabled(conn),
+                    serve_surface_pad=serve_pad,
+                    serve_merge_s=serve_merge,
+                    placement_serve_seed=placement_serve_seed_enabled(conn),
+                    attempt_key=attempt_key)
+                outdir = run_points_subprocess(
+                    local_input, blurball_out, workdir, options,
+                    detections_note=detections_note_from_sidecar(
+                        read_ball_crop_sidecar(workdir)),
+                    **points_kwargs)
+                # A table the vision calibrator found only now, after a
+                # full-frame detection: detect again on its crop and
+                # rebuild the points. Keeps the first pass on any failure.
+                outdir = rerun_points_on_vision_crop(
+                    local_input, blurball_out, workdir, options,
+                    ball_crop=bool(ball_crop), points_kwargs=points_kwargs)
+                if points_kwargs.get("pipeline") == "bodies":
+                    # THE BODY-FIRST ASSEMBLER (spec 2026-09-08). Read the
+                    # players, then rebuild the points with the bodies
+                    # deciding. Fails open to the cards already on disk.
+                    outdir = run_body_points_pass(
+                        conn, job_id, local_input, blurball_out, workdir,
+                        options, points_kwargs=points_kwargs)
+                mj = os.path.join(outdir, "match.json")
+                with open(mj) as fh:
+                    if json.load(fh).get("cut_segments"):
+                        segments_json = mj
+            except Exception as e:
+                log.warning("  early points stage failed (%s) — "
+                            "falling back to the span cut", e)
+                shutil.rmtree(os.path.join(workdir, "points_out"),
+                              ignore_errors=True)
+            pulse_stage("cut")
+            result = run_cut(local_input, workdir, blurball_out,
+                             strictness, segments_json=segments_json,
+                             attempt_key=attempt_key)
+        else:
+            # Same reporting as the points path, over a wider band: this
+            # branch has nothing between inference and the finished cut.
+            last_pct = [15]
+
+            def pipeline_progress(fraction: float) -> None:
+                pct = 15 + int(fraction * 60)
+                if pct > last_pct[0]:
+                    last_pct[0] = pct
+                    update_job(conn, job_id, progress=pct)
+
+            pulse_stage("ball")
+            result, blurball_out = run_pipeline(
+                local_input,
+                workdir,
+                strictness,
+                attempt_key=attempt_key,
+                on_progress=pipeline_progress,
+            )
+        update_job(conn, job_id, progress=60 if options.get("points") else 85)
+
+        pulse_stage("upload")
+        if r2_input:
+            result_key = f"results/{user_id}/{job_id}.mp4"
+            result_path = f"r2://{R2_MEDIA_BUCKET}/{result_key}"
+            log.info("  uploading %s", result_path)
+            r2().upload_file(
+                result, R2_MEDIA_BUCKET, result_key,
+                ExtraArgs={"ContentType": "video/mp4"},
+            )
+            # match_id doesn't exist yet; the 010 delete trigger frees this
+            # row by key (matches.cut_path), retention by key too.
+            ledger_append(conn, user_id, "cut", os.path.getsize(result),
+                          result_path)
+        else:
+            result_path = f"{user_id}/{job_id}.mp4"
+            log.info("  uploading results/%s (legacy Supabase path)",
+                     result_path)
+            storage_upload("results", result_path, result)
+
+        # SPEC.md §6: point-by-point breakdown on the ORIGINAL video
+        points_match_id = None
+        if options.get("points"):
+            update_job(conn, job_id, progress=70)
+            pulse_stage("publish")
+            points_match_id = run_points_stage(
+                conn, job_id, user_id, local_input,
+                blurball_out, workdir, options, result_path,
+                played_at=played_at,
+                attempt_key=attempt_key,
+                cut_local_path=result)
 
         update_job(conn, job_id, status="done", result_path=result_path,
                    progress=100)
@@ -9715,7 +8490,7 @@ def process_job(conn, msg) -> None:
         if points_match_id:
             run_side_change_stage(
                 conn, points_match_id, workdir,
-                os.path.join(workdir, "points_out"), job_id=job_id)
+                os.path.join(workdir, "points_out"))
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -9797,35 +8572,23 @@ def r2_raw_sweep(conn, older_than_days: int):
                 (paths,),
             )
             upload_created_at = dict(cur.fetchall())
-            # A raw referenced by ANY live match/version is the user's stored
-            # video and never ages out: by matches.raw_path, any retained
-            # processing version, or the source job of a legacy match. Only
-            # a raw no match row reaches (deleted match, rejected or
-            # abandoned upload) expires here.
+            # A raw referenced by ANY live match is the user's stored video
+            # and never ages out: by matches.raw_path (every upload since
+            # commerce, 096) or by the source job of a legacy match whose
+            # row predates the column. Only a raw no match row reaches
+            # (deleted match, rejected or abandoned upload) expires here.
             cur.execute(
                 "select raw_path from public.matches "
                 "where raw_path = any(%s) "
                 "union "
                 "select j.input_path from public.jobs j "
                 "where j.input_path = any(%s) "
-                "and (exists (select 1 from public.matches m "
+                "and exists (select 1 from public.matches m "
                 "            where m.job_id = j.id "
-                "            or m.id::text = j.options->>'match_id') "
-                "     or exists (select 1 "
-                "                from public.match_processing_versions v "
-                "                join public.matches m on m.id = v.match_id "
-                "                where v.raw_path = j.input_path))",
+                "            or m.id::text = j.options->>'match_id')",
                 (paths, paths),
             )
             library_paths = {row[0] for row in cur.fetchall()}
-            # A retained version is independently durable. Do not infer this
-            # through jobs: a historical version can outlive job cleanup.
-            cur.execute(
-                "select raw_path from public.match_processing_versions "
-                "where raw_path = any(%s)",
-                (paths,),
-            )
-            library_paths.update(row[0] for row in cur.fetchall())
         expired = []
         for obj, path in zip(objects, paths):
             if path in library_paths:
@@ -9954,9 +8717,8 @@ def entry_image_sweep(conn):
 
 
 def _referenced_cut_paths(conn) -> set[str]:
-    """Cut videos any match version references: matches.cut_path, plus the
-    result of the match's source job for rows that predate the column and
-    candidate/historical version cuts.
+    """Cut videos any live match references: matches.cut_path, plus the
+    result of the match's source job for rows that predate the column.
     These persist with the match, whatever their age and whatever the
     commerce flag says — a flag flip must never start deleting a player's
     video. Only cuts of DELETED matches (no row) expire on the orphan
@@ -9968,29 +8730,14 @@ def _referenced_cut_paths(conn) -> set[str]:
             "union "
             "select j.result_path from public.jobs j "
             "join public.matches m on m.job_id = j.id "
-            "where j.result_path like %s "
-            "union "
-            "select cut_path from public.match_processing_versions "
-            "where cut_path like %s",
+            "where j.result_path like %s",
             (f"r2://{R2_MEDIA_BUCKET}/results/%",
-             f"r2://{R2_MEDIA_BUCKET}/results/%",
              f"r2://{R2_MEDIA_BUCKET}/results/%"),
         )
         return {row[0] for row in cur.fetchall() if row[0]}
 
 
 SHARE_RENDER_RETENTION_DAYS = 7
-
-
-def _referenced_version_reel_keys(conn) -> set[str]:
-    """Objects archived with a historical processing version are durable."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "select record->>'r2_key' "
-            "from public.match_processing_version_reels "
-            "where record ? 'r2_key'",
-        )
-        return {row[0] for row in cur.fetchall() if row[0]}
 
 
 def share_render_sweep(conn):
@@ -10006,7 +8753,6 @@ def share_render_sweep(conn):
     Row and object are removed together, and the ledger is zeroed so the
     bytes leave the player's storage allowance with them.
     """
-    protected = _referenced_version_reel_keys(conn)
     with conn.cursor() as cur:
         # 'v:%%', not 'v:%'. This statement carries a parameter, so psycopg2
         # scans it for placeholders and reads a lone % as the start of one —
@@ -10019,7 +8765,7 @@ def share_render_sweep(conn):
             "  and updated_at < now() - make_interval(days => %s)",
             (SHARE_RENDER_RETENTION_DAYS,),
         )
-        rows = [row for row in cur.fetchall() if row[2] not in protected]
+        rows = cur.fetchall()
     if not rows:
         return
     keys = [r[2] for r in rows]
@@ -10396,11 +9142,6 @@ def main():
                     # job must never leave the page claiming it is still
                     # running.
                     pulse_job(None, None)
-            except OrdinaryReconciliationRetry as e:
-                # A ready result is not a processing failure because its
-                # acknowledgment failed. The transaction already rolled
-                # back; leave the delivery live even beyond the compute cap.
-                log.warning("ordinary reconciliation remains retryable: %s", e)
             except Exception as e:
                 log.exception("job failed: %s", e)
                 payload = msg["message"]
@@ -10434,16 +9175,6 @@ def main():
                         if lib_match:
                             refund_processing_spend_direct(conn, job_id)
                             mark_library_match_failed(conn, str(lib_match))
-                    # Hand cut: nothing was charged, so no refund. The
-                    # marks go back to the player and the match returns to
-                    # 'uploaded' with nothing protecting points that no
-                    # longer exist. Idempotent with the handler's own
-                    # rollback.
-                    if job_id and kind == "hand_cut" and (
-                        isinstance(e, UserFacingError)
-                        or msg["read_ct"] >= MAX_READ_CT
-                    ):
-                        hand_cut_release(conn, job_id, payload)
                     if isinstance(e, UserFacingError):
                         # Deterministic failure (private video, too long…):
                         # retrying can't succeed, archive right away.

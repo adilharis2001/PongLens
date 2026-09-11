@@ -40,6 +40,17 @@ when he asked about them or needs them to act.
 
 ---
 
+**Reports and pages: three sentences, then pictures.** He does not read long
+documents. Writing one spends his money and returns nothing — he has said so
+directly (2026-09-11, after a 250 KB HTML report on the Brian match). So any
+report, page or artifact opens with a summary of THREE SENTENCES AT MOST that
+stands on its own, and everything below it is evidence. Evidence means visual:
+charts, timelines, tables, annotated frames, clips of the actual match. Prose
+paragraphs inside an artifact are a failure, not thoroughness. If something
+needs more than three sentences to explain, it needs a diagram instead. The
+same applies to a chat reply: the answer first, in as few sentences as carry
+it, and the working only if he asks.
+
 ## Judgement
 
 **Do not agree because agreeing is easy, and do not object to look
@@ -353,10 +364,43 @@ at this level:
 - **A wrong table is worse than no table.** Every detector in the ladder
   refuses rather than guesses, and a match with no calibration still
   processes — points, clips and scoring never needed the table.
-- **The ladder is keypoints, then Luna, then Sol, then refuse**, ordered by
-  measured accuracy against 62 hand-marked matches. `keypoint_calibrate` in
-  `points_pipeline.py` is the entry point. About one match in ten falls
-  through to the paid step.
+- **The ladder is keypoints, then Sol, then Luna, then refuse.**
+  `keypoint_calibrate` in `points_pipeline.py` is the entry point. About one
+  match in ten falls through to the paid step. This line said "keypoints, then
+  Luna, then Sol" for two weeks after the code stopped doing that on
+  2026-08-26; if you are reading the order off this file, check it against
+  `VISION_MODEL` before you rely on it.
+- **A second vision model was added beside Sol and taken out again the same
+  day. Do not re-propose it without reading why.** Gemini 3.8 Flash was pooled
+  with Sol and both ranked by `select_by_shape`. On 57 hand-marked frames it
+  looked safe: pooling never made an answer worse and improved four. On the
+  FIRST real upload it touched it stored half a table with one corner on the
+  barrier — 25 serves where the same video gave 91 a week earlier, and every
+  point logged "missed table". Reverted, code removed.
+  Three things came out of it that outlive the experiment:
+  - **The corpus could not have caught it, and neither can the next one.**
+    Scoring each model's best answer separately never puts them in
+    competition, which is the only thing production does. Any future
+    multi-model comparison has to be measured by competition, on the input
+    production actually sends, and even then a 57-frame corpus does not
+    contain every camera. Louis's table was not in it.
+  - **`select_by_shape` treats "cannot be scored" as "worst possible".**
+    `shape_error` returns None on some camera angles — 6% of Sol's proposals
+    and 25% of Gemini's — and None sorts as +inf, so a correct table that
+    cannot be scored loses to a wrong one that can. With a single model this
+    is survivable, because all-None falls through to `select_consensus` and
+    one model's trials agree with each other. **This is a live defect in the
+    Sol-only path too** and it is the first thing to fix here.
+  - **Only the winning proposal is stored, so a bad calibration cannot be
+    diagnosed after the fact.** Reconstructing the Louis failure needed the
+    video, the old match and fresh API calls. Log every proposal and its
+    score.
+  Full record, including the numbers that looked good:
+  `docs/research/2026-09-10-gemini-table-calibration/`.
+- **Cost is not an argument in this area.** The paid rung runs on about one
+  match in ten, so the whole vision spend is under a cent per match whatever
+  the mix. A cheaper model is worth nothing here; a wrong table costs a
+  placement map that looks normal and is fiction.
 - **Colour is not a table detector.** The retired pink-rim calibrator scored
   0.5% at LYTTC and 7.6% at PingPod, because PingPod's signage and barriers
   are magenta too. The defect was never "pink doesn't generalise" — it is
@@ -390,6 +434,49 @@ at this level:
   anything a user downloads, and the weights carry no stated licence at all.
 - **CPU only.** MPS aborts with SIGABRT inside Metal on the first inference,
   reproducibly, and takes the process with it.
+
+---
+
+## Ball detection: the crop, the second pass and the router
+
+Full record: `docs/research/2026-09-06-endon-routing.md` and the two specs
+of that date. The rules that cost a round each:
+
+- **The crop is skipped when the table reads end-on** (`points_endon.
+  crop_allowed`, shape under 0.40). The crop was tuned for serves and it
+  finds them; but on the Westchester bench it took the end-on assembler
+  from 74% to 71% clean and lost three rallies whose ball left the box
+  sideways, and losing a rally is the one outcome the scorecard forbids.
+  Do not re-enable it there for the serves: on an end-on camera they are
+  the mid-rally kind.
+- **A vision-calibrated upload is detected twice.** The vision calibrator
+  validates its table against the ball detections, so it cannot run
+  before them; the worker detects on the full frame, calibrates, then
+  detects again on the crop and rebuilds the points, handing the first
+  pass's table back through `--calibration-json` so the paid call is made
+  once. Fails open to the first pass at every step. Do not "optimise" the
+  order by calibrating first; that is the circularity the second pass
+  exists for.
+- **match.json says what the detector saw** (`detections: crop ... corners
+  from ...` or `detections: full frame (...)`). The lab had to reproduce
+  production from scratch to learn that Anton's matches were detected on
+  the full frame. A match must never need reproducing to answer that.
+- **The router counts serves per candidate point, never per minute.** Dead
+  time is 30 to 63% of the video minutes even after the dead-space cut,
+  and per-ACTIVE-minute misroutes Tripp. The veto (`table_share < 0.57`)
+  keeps a match off the serve-anchored assembler when the drawn table is
+  not where the ball bounces (a net-post diamond, the PingPod W37 booth);
+  both numbers are in every match's note so the next revision argues from
+  the corpus.
+- **The end-on assembler borrows serves; it does not anchor on them.**
+  Detected contacts are candidates for its segmentation and stamps on the
+  cards that hold them (`serve_s`, cap 4.5 s). This does not change the
+  clean rate anywhere; it gives end-on matches serves for placement. On a
+  genuinely end-on camera four stamps in ten are mid-rally pairs, and
+  placement's own checks are what stand between them and a wrong dot.
+- **The note is parsed by the admin uploads page.** Anything new goes at
+  the END of the "points v2" sentence (`uploadView.ts` reads the front
+  with a regex), and the page's mirrored thresholds move with the worker's.
 
 ---
 
@@ -784,13 +871,3 @@ calls this" is never what keeps a row private — the RLS policy is.
 - **State what was verified and what was not.** "Typecheck passed" is the
   sentence most likely to be used to skip a real check, so it is the one
   that must not be wrong.
-- **Production is whatever `main` is. Never `vercel --prod` from a branch
-  or a local checkout.** Vercel's production branch is `main`, and a CLI
-  production deploy from anywhere else takes over www.ponglens.com with a
-  build that lacks everything merged to main since that branch forked —
-  silently, with no error, and it stays that way until the next push to
-  main. On 2026-09-06 one such deploy landed 32 seconds after a main
-  deploy and removed the processing page and Build 141's web changes from
-  production; nothing noticed except the owner. Merge to main and let the
-  push deploy. To undo a bad deploy, promote a previous main build in
-  Vercel rather than deploying from a branch.

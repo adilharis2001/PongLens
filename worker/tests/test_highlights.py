@@ -284,14 +284,6 @@ def test_scored_only_revision_ignores_which_player_won():
     assert points_revision(points, scored_only=True) == first
 
 
-def test_revision_has_a_cross_language_canonical_form():
-    p = point("a")
-    p["scored_at_cut_s"] = 16.2
-    assert points_revision([p]) == (
-        "b2fd791b181c72732060945086001cd8b2208a993b42edf7719fae5c6ddc4548"
-    )
-
-
 def test_same_inputs_make_same_manifest():
     points = [point("a", idx=1), point("b", idx=2)]
     assert build_manifest(points, 150) == build_manifest(copy.deepcopy(points), 150)

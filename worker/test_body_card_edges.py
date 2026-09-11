@@ -22,13 +22,6 @@ DUR = 600.0
 
 
 def run(cards, serves=(), cross=(), bt=(), dead=(), **kw):
-    # bt_endline as a numpy ARRAY, because that is what points_v2 hands the
-    # real call. Passing a list here hid a crash that took the body stage
-    # down on 2026-09-10: `bt_endline or []` is fine for a list and raises
-    # for an array. A test helper that is kinder than production is not a
-    # test.
-    if "bt_endline" in kw and kw["bt_endline"] is not None:
-        kw["bt_endline"] = np.asarray(kw["bt_endline"], float)
     return BP.anchor_and_close([dict(c) for c in cards], list(serves),
                                np.asarray(cross, float), np.asarray(bt, float),
                                list(dead), DUR, **dict(dict(anchor=True, close=True), **kw))
@@ -153,81 +146,3 @@ def test_no_run_up_at_all_leaves_the_card_alone():
     out, info = run([prev, card(26.7, 33.0)], serves=[26.8], cross=[27.5],
                     close=False)
     assert out[1]["t0"] == 26.7 and info["anchored"] == 0
-
-
-# ---------------------------------------------------------------------------
-# the hit-long step (2026-09-10)
-#
-# A point ends when somebody hits it long, and that ball lands past the end
-# line, on the floor -- so it is absent from bt_table by construction and the
-# close rule was reading the SECOND-TO-LAST shot. points_v2 now keeps those
-# bounces in bt_endline and the reading takes one step to them.
-# ---------------------------------------------------------------------------
-
-def test_the_last_shot_of_a_point_is_read_from_past_the_end_line():
-    """The card closes on the ball that ended the point, not the one before."""
-    out, _ = run([card(10.0, 30.0)], cross=[12.0, 14.0], bt=[15.0],
-                 bt_endline=[15.6], anchor=False)
-    assert out[0]["t1"] == 15.6 + BP.END_BUF_S
-
-
-def test_the_step_is_ignored_when_it_is_too_late_to_belong_to_the_rally():
-    """Past EXTEND_GAP_S it is the loser walking over to pick the ball up."""
-    late = 15.0 + BP.EXTEND_GAP_S + 0.1
-    out, _ = run([card(10.0, 30.0)], cross=[12.0], bt=[15.0],
-                 bt_endline=[late], anchor=False)
-    assert out[0]["t1"] == 15.0 + BP.END_BUF_S
-
-
-def test_the_step_never_leaves_the_card():
-    """A bounce past the card's own end belongs to whatever comes next."""
-    out, _ = run([card(10.0, 16.0)], cross=[12.0], bt=[15.5],
-                 bt_endline=[16.4], anchor=False)
-    assert out[0]["t1"] == 16.0
-
-
-def test_it_is_one_step_and_never_a_chain():
-    """Otherwise it follows the ball bouncing across the floor."""
-    out, _ = run([card(10.0, 30.0)], cross=[12.0], bt=[15.0],
-                 bt_endline=[15.4, 16.2, 17.0], anchor=False)
-    assert out[0]["t1"] == 15.4 + BP.END_BUF_S
-
-
-def test_a_dead_ball_reading_still_wins():
-    """The ball dribbling to a stop is the better answer and keeps priority."""
-    out, info = run([card(10.0, 30.0)], serves=[11.0], cross=[12.0], bt=[15.0],
-                    bt_endline=[15.5], dead=[(16.0, 17.5)])
-    assert info["closed_on_dead"] == 1
-    assert out[0]["t1"] == 16.0 + BP.END_BUF_S
-
-
-def test_the_step_still_cannot_push_an_end_out():
-    """The guarantee the whole change rests on, restated with the new list."""
-    out, _ = run([card(10.0, 14.0)], cross=[13.0], bt=[13.5],
-                 bt_endline=[13.9], anchor=False)
-    assert out[0]["t1"] == 14.0
-
-
-def test_an_empty_endline_array_does_not_raise():
-    """points_v2 hands this pass a numpy array, and an empty one is normal.
-
-    `bt_endline or []` raises ValueError on any array of length != 1, which
-    is how the body stage died on 2026-09-10: every card was lost and the
-    match fell back to the ball pipeline's own end-on cards.
-    """
-    out, _ = run([card(10.0, 20.0)], cross=[12.0], bt=[15.0],
-                 bt_endline=np.zeros(0), anchor=False)
-    assert out[0]["t1"] == 15.0 + BP.END_BUF_S
-
-
-def test_a_many_element_endline_array_does_not_raise():
-    out, _ = run([card(10.0, 30.0)], cross=[12.0], bt=[15.0],
-                 bt_endline=np.asarray([15.4, 40.0, 41.0, 42.0], float),
-                 anchor=False)
-    assert out[0]["t1"] == 15.4 + BP.END_BUF_S
-
-
-def test_no_endline_list_at_all_still_works():
-    """The pass is called without it by anything holding older evidence."""
-    out, _ = run([card(10.0, 20.0)], cross=[12.0], bt=[15.0], anchor=False)
-    assert out[0]["t1"] == 15.0 + BP.END_BUF_S

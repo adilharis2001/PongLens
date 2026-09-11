@@ -12,6 +12,7 @@ What is in it, so you can go straight to the part you need:
 | Section | When you need it |
 | --- | --- |
 | Talking to Adil | Every reply. He knows the product completely and the code barely at all. |
+| Reports and pages | Any artifact. Three sentences at the top, evidence below it, and the evidence is visual — never walls of prose. |
 | Judgement | Before agreeing, before objecting, before reversing a position. |
 | Think in surfaces | Any change. There are four surfaces and they drift apart quietly. |
 | One processing pipeline, two execution locations | Anything touching the worker or the models. |
@@ -74,3 +75,31 @@ Approved implementation references: `src/components/AllowanceRequest.tsx`,
 `AllowanceRequestRow.swift` / `AllowanceRecoveryView.swift` components.
 The local preview URL is temporary; these committed sources and the
 standards above are the durable reference for future tasks.
+
+## Mandatory visual-reference gate
+
+This gate applies to every user-visible UI change. It is a release
+requirement, not a suggestion, and it still applies when a shared design
+component appears close enough.
+
+1. Before editing, name the exact shipped screen or component that will be
+   used as the visual reference. Inspect its rendered state and its source.
+2. If Adil names or shows a reference screen, that specific screen outranks
+   a generic design-system component. Reproduce its hierarchy, spacing,
+   alignment, sizing, container treatment and button treatment. Do not
+   substitute a different existing pattern merely because it is reusable.
+3. Before touching SwiftUI, read `ios/AGENTS.override.md`. Before touching
+   web UI, read `src/AGENTS.override.md`. Root-started tasks do not discover
+   nested instruction files automatically, so this explicit read is
+   mandatory.
+4. If no shipped analogue exists, or two plausible references conflict,
+   stop and ask Adil which direction to use before inventing a pattern.
+5. Render every changed state on every affected surface. For web, verify
+   desktop and 393×660 mobile. For native iOS, use the simulator; a web
+   screenshot does not count as native verification.
+6. Show Adil screenshots of the rendered change and obtain approval before
+   publishing web UI or uploading an iOS build, unless he explicitly waives
+   screenshot review for that change.
+7. Tests that search source code for a style or component name do not prove
+   visual consistency. Use rendered or snapshot coverage where practical,
+   and always perform the screenshot comparison above.

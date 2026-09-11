@@ -295,20 +295,6 @@ def upload_failed_message(source: str, safe_reason: str) -> EmailMessage:
     )
 
 
-def hand_cut_failed_message(match_url: str, safe_reason: str) -> EmailMessage:
-    return EmailMessage(
-        template_id="match.hand-cut-failed", template_version=1, category="match", audience="player",
-        subject="We couldn't finish cutting your match", preheader="Your marks are saved. Open the match to send them again.",
-        heading="This match couldn't be cut",
-        blocks=[
-            {"type": "paragraph", "text": safe_reason},
-            {"type": "paragraph", "text": "The points you marked are saved. Open the match, check the marks and send them again."},
-        ],
-        action={"label": "Open your match", "url": match_url},
-        reason="You received this because a match you marked by hand could not finish cutting.",
-    )
-
-
 def export_ready_message(match_url: str) -> EmailMessage:
     return EmailMessage(
         template_id="match.export-ready", template_version=1, category="match", audience="player",
@@ -341,7 +327,6 @@ def worker_outcome_fixtures() -> list[dict[str, Any]]:
         {"id": "match.ready", "message": match_ready_message("Maya vs. Alex.mov", "https://www.ponglens.com/match/preview")},
         {"id": "match.upload-failed", "message": upload_failed_message("upload", "We could not find enough playable table tennis footage in this video.")},
         {"id": "match.import-failed", "message": upload_failed_message("youtube", "That video is private or unavailable.")},
-        {"id": "match.hand-cut-failed", "message": hand_cut_failed_message("https://www.ponglens.com/match/preview", "The original video could not be read.")},
         {"id": "match.export-ready", "message": export_ready_message("https://www.ponglens.com/match/preview")},
         {"id": "ops.job-failed", "message": admin_job_failure_message("12345678-0000-0000-0000-preview", "decoder stopped at frame 91", "https://www.ponglens.com/admin/uploads/preview")},
     ]

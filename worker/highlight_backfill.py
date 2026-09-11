@@ -224,13 +224,13 @@ class HighlightBackfillResult:
     qualifying: int
 
 
-def _load_points(conn, match_id: str, *, processing_version_id: str, for_update: bool = False):
+def _load_points(conn, match_id: str, *, for_update: bool = False):
     lock = " for update" if for_update else ""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            "select * from public.points where match_id = %s and processing_version_id = %s "
+            "select * from public.points where match_id = %s "
             f"order by t0, idx{lock}",
-            (match_id, processing_version_id),
+            (match_id,),
         )
         return [dict(row) for row in cur.fetchall()]
 
@@ -262,9 +262,7 @@ def _diagnostic_from_video(production_worker, conn, record, video, workdir):
     return build(blob, include_all=True)
 
 
-def _prepare_diagnostic(
-    conn, match_id: str, *, processing_version_id: str | None = None
-):
+def _prepare_diagnostic(conn, match_id: str):
     try:
         from . import worker as production_worker
     except ImportError:
@@ -272,8 +270,7 @@ def _prepare_diagnostic(
 
     with conn.cursor() as cur:
         cur.execute(
-            "select m.user_id::text, m.cut_path, coalesce(m.raw_path,j.input_path), j.options, "
-            "m.active_processing_version_id::text, m.match_json_path "
+            "select m.user_id::text, m.cut_path, j.input_path, j.options "
             "from public.matches m left join public.jobs j on j.id = m.job_id "
             "where m.id = %s and m.status = 'ready'",
             (match_id,),
@@ -281,23 +278,16 @@ def _prepare_diagnostic(
         row = cur.fetchone()
     if not row:
         raise RuntimeError(f"highlight backfill match {match_id} is not ready")
-    user_id, cut_path, input_path, job_options, version_id, match_json_path = row
-    if processing_version_id is not None and version_id != str(processing_version_id):
-        raise production_worker.MatchVersionChanged("match processing version changed")
+    user_id, cut_path, input_path, job_options = row
     record = {"match_id": match_id, "job_options": job_options or {}}
     workdir = tempfile.mkdtemp(prefix=f"ponglens-highlight-v2-{match_id[:8]}-")
     try:
         path = os.path.join(workdir, "serves.json")
-        # Candidate diagnostics live beside their version's match.json, not
-        # in the original unversioned prefix left by the first processing run.
-        location = production_worker.parse_r2_path(match_json_path or "")
-        bucket = location[0] if location else production_worker.R2_MEDIA_BUCKET
-        key = (f"{location[1].rsplit('/', 1)[0]}/serves.json" if location and '/' in location[1]
-               else f"points/{user_id}/{match_id}/serves.json")
+        key = f"points/{user_id}/{match_id}/serves.json"
         clock = "source"
         try:
             production_worker.r2().download_file(
-                bucket, key, path
+                production_worker.R2_MEDIA_BUCKET, key, path
             )
             with open(path) as handle:
                 diagnostic = json.load(handle)
@@ -326,11 +316,11 @@ def _prepare_diagnostic(
                 )
                 clock = "cut"
 
-        original = _load_points(conn, match_id, processing_version_id=version_id)
+        original = _load_points(conn, match_id)
         receipts = build_receipts_from_diagnostic(
             original, diagnostic, diagnostic_clock=clock
         )
-        return production_worker, original, receipts, version_id
+        return production_worker, original, receipts
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -352,25 +342,20 @@ def _result(match_id: str, points, receipts) -> HighlightBackfillResult:
 
 def analyze_match_from_diagnostic(conn, match_id: str) -> HighlightBackfillResult:
     """Perform every recovery read and calculation without a database write."""
-    _worker, points, receipts, _version = _prepare_diagnostic(conn, match_id)
+    _worker, points, receipts = _prepare_diagnostic(conn, match_id)
     return _result(match_id, points, receipts)
 
 
 def _write_match_receipts(
-    conn, match_id: str, *, delete_reel: bool,
-    processing_version_id: str | None = None,
+    conn, match_id: str, *, delete_reel: bool
 ) -> HighlightBackfillResult:
-    production_worker, original, receipts, version_id = _prepare_diagnostic(
-        conn, match_id, processing_version_id=processing_version_id
-    )
+    production_worker, original, receipts = _prepare_diagnostic(conn, match_id)
     before = [protected_point_snapshot(point) for point in original]
 
     old_autocommit = conn.autocommit
     try:
         conn.autocommit = False
-        # Lock order agrees with publish/restore: match first, then points.
-        with production_worker.locked_match_version(conn, match_id, version_id):
-            locked = _load_points(conn, match_id, processing_version_id=version_id, for_update=True)
+        locked = _load_points(conn, match_id, for_update=True)
         if [protected_point_snapshot(point) for point in locked] != before:
             raise production_worker.BackfillConsistencyError(
                 f"match {match_id} changed before highlight evidence write"
@@ -379,8 +364,8 @@ def _write_match_receipts(
             for point_id, receipt in receipts.items():
                 cur.execute(
                     "update public.points set highlight_evidence = %s::jsonb "
-                    "where id = %s and match_id = %s and processing_version_id = %s",
-                    (json.dumps(receipt), point_id, match_id, version_id),
+                    "where id = %s and match_id = %s",
+                    (json.dumps(receipt), point_id, match_id),
                 )
             if delete_reel:
                 # The administrative backfill predates explicit refresh:
@@ -397,7 +382,7 @@ def _write_match_receipts(
     finally:
         conn.autocommit = old_autocommit
 
-    stored = _load_points(conn, match_id, processing_version_id=version_id)
+    stored = _load_points(conn, match_id)
     if [protected_point_snapshot(point) for point in stored] != before:
         raise production_worker.BackfillConsistencyError(
             f"match {match_id} non-highlight point fields changed"
@@ -418,10 +403,7 @@ def backfill_match_from_diagnostic(conn, match_id: str) -> HighlightBackfillResu
 
 
 def refresh_match_evidence_for_render(
-    conn, match_id: str, *, processing_version_id: str
+    conn, match_id: str
 ) -> HighlightBackfillResult:
     """Refresh edited rally receipts without deleting the queued reel row."""
-    return _write_match_receipts(
-        conn, match_id, delete_reel=False,
-        processing_version_id=processing_version_id,
-    )
+    return _write_match_receipts(conn, match_id, delete_reel=False)

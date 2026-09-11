@@ -67,9 +67,37 @@ def main() -> int:
     a = ap.parse_args()
 
     from rtmlib import RTMPose
-    det = _create_det_model(a.det_model, a.backend, a.device)
+    # "coreml" is this Mac's GPU. rtmlib builds the session itself and knows
+    # nothing about MLProgram, so the tools are built for cpu and the sessions
+    # swapped underneath. Anything that fails here degrades to the processor
+    # rather than failing the match.
+    rtm_device = "cpu" if a.device == "coreml" else a.device
+    det = _create_det_model(a.det_model, a.backend, rtm_device)
     pose = RTMPose(onnx_model=a.model, model_input_size=(192, 256),
-                   to_openpose=False, backend=a.backend, device=a.device)
+                   to_openpose=False, backend=a.backend, device=rtm_device)
+
+    def pose_call(img, bb):
+        return pose(img, bboxes=bb)          # rtmlib's own one-at-a-time loop
+
+    provider = "cpu"
+    if a.device == "coreml":
+        try:
+            from rtm_accel import accelerate, pose_fixed_batch2
+            accelerate(det, pose, cache_dir=os.path.expanduser(
+                "~/Library/Caches/PongLens/coreml-cache"))
+
+            def pose_call(img, bb):          # noqa: F811
+                return pose_fixed_batch2(pose, img, bb)
+
+            provider = "coreml"
+            # Say which provider actually TOOK the nodes. A silent fall back
+            # to the processor keeps the answers correct and only shows up in
+            # the clock, so it has to be visible in the log.
+            print(f"  providers: det={det.session.get_providers()} "
+                  f"pose={pose.session.get_providers()}", flush=True)
+        except Exception as exc:                               # noqa: BLE001
+            print(f"  coreml unavailable ({exc}); falling back to cpu",
+                  file=sys.stderr, flush=True)
 
     x0, y0, w, h = [int(round(float(v))) for v in a.rect.split(",")]
     corners_src = json.loads(a.corners)
@@ -146,7 +174,7 @@ def main() -> int:
             if sides:
                 bb = np.asarray([ch[s]["box"] if isinstance(ch[s], dict) else ch[s]
                                  for s in sides], dtype=np.float32)
-                kps, scs = pose(sub, bboxes=bb)
+                kps, scs = pose_call(sub, bb)
                 for i, s in enumerate(sides):
                     box = bb[i]
                     rec[s] = {"box": [round(float(v), 1) for v in box],
@@ -183,6 +211,8 @@ def main() -> int:
     cap.release()
     out = {"sample_fps": a.sample_fps, "rect": [x0, y0, w, h],
            "video": os.path.basename(a.video), "device": a.device,
+           # which chip actually produced these skeletons
+           "provider": provider,
            "det_model": os.path.basename(str(a.det_model)),
            "frames": frames, "samples": samples, "both": both,
            "keypoints": "COCO-17: nose,l_eye,r_eye,l_ear,r_ear,l_shoulder,r_shoulder,"

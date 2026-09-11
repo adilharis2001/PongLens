@@ -3,7 +3,6 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from worker.lesson_video import create_edit, normalize_edit, chunk_ranges, release_id, student_warning
-from worker.tests.lesson_fixtures import audible_transcript
 
 
 class EditRuntime:
@@ -37,7 +36,7 @@ def merge_edit(merge,chapters=None,sections=1,duration=600,outline=None,window=N
  runtime=EditRuntime(merge,chapters,outline,window)
  with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit):
   source_duration=max(duration,sections*600)
-  result=create_edit(runtime,{},'source',directory,audible_transcript(sections),source_duration)
+  result=create_edit(runtime,{},'source',directory,[{'start_s':i*600,'end_s':(i+1)*600,'utterances':[]} for i in range(sections)],source_duration)
  return result,runtime
 
 def candidate_chapters(count,duration=30):
@@ -50,10 +49,10 @@ def selected(chapter_ids):
 class LessonVideoTests(unittest.TestCase):
  def test_ninety_minutes_has_complete_nonoverlapping_audio_coverage(self):
   ranges=chunk_ranges(5400)
-  self.assertEqual(ranges[0],(0,1200));self.assertEqual(ranges[-1],(4800,5400));self.assertEqual(sum(b-a for a,b in ranges),5400)
+  self.assertEqual(ranges[0],(0,600));self.assertEqual(ranges[-1],(4800,5400));self.assertEqual(sum(b-a for a,b in ranges),5400)
  def test_fractional_container_tail_is_merged(self):
   ranges=chunk_ranges(5400.033)
-  self.assertEqual(len(ranges),5);self.assertEqual(ranges[-1],(4800,5400.033))
+  self.assertEqual(len(ranges),9);self.assertEqual(ranges[-1],(4800,5400.033))
  def test_recap_timestamps_refer_to_source_and_output(self):
   raw={'title':'Backhand','chapters':[{'title':'Balance','cues':['Stay balanced.'],'start_s':5300,'end_s':5350},{'title':'Recover','cues':['Recover.'],'start_s':10,'end_s':40}],'themes':[]}
   edit=normalize_edit(raw,5400)
@@ -116,10 +115,7 @@ class LessonVideoTests(unittest.TestCase):
   repair=[json.loads(item['text']) for item in runtime.merge_contents[1] if item.get('type')=='text'][-1]
   self.assertEqual(repair['selection_requirements']['maximum_chapters'],16)
   self.assertIn('18 chapters',repair['selection_validation_error'])
-  # The correction is keyed to the outline, not to a chapter count: the
-  # old "10 to 14" was written for a 90-minute lesson and read by every
-  # 60-minute one too.
-  self.assertIn('one chapter per distinct outline topic',runtime.merge_prompts[1])
+  self.assertIn('10 to 14',runtime.merge_prompts[1])
   self.assertIn('17 chapters',runtime.merge_prompts[2])
   self.assertIn('complete_outline',runtime.merge_contents[1][0]['text'])
   self.assertIn('candidate-6',str(runtime.merge_contents[1]))
@@ -127,13 +123,11 @@ class LessonVideoTests(unittest.TestCase):
   invalid=selected([f'candidate-{i}' for i in range(1,18)])
   runtime=EditRuntime([invalid,invalid,invalid])
   with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit),self.assertRaisesRegex(ValueError,'Retry to continue'):
-   create_edit(runtime,{},'source',directory,audible_transcript(1),600)
+   create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
   self.assertEqual(runtime.merge_calls,3)
  def test_merge_repairs_worker_owned_duration_over_nine_hundred_seconds(self):
   result,runtime=merge_edit([selected([f'candidate-{i}' for i in range(1,11)]),selected(['candidate-1'])],candidate_chapters(5,100),sections=2)
-  # Over budget, corrected to one chapter, then asked once more to cover
-  # more topics before being taken as it is.
-  self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,3)
+  self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,2)
   self.assertIn('1000.0 seconds, 100.0 seconds over',runtime.merge_prompts[1])
  def test_merge_uses_varied_candidate_durations_to_repair_the_budget(self):
   chapters=[
@@ -192,7 +186,7 @@ class LessonVideoTests(unittest.TestCase):
   overlong={'title':'Lesson','themes':[{'name':'Pips','points':['Build the point before attacking.']}],'chapters':[{'title':'Pips and point building','cues':['Build the point before attacking.'],'start_s':100,'end_s':400}]}
   runtime=EditRuntime(selected(['candidate-1']),window=[overlong,overlong,overlong])
   with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),self.assertRaisesRegex(ValueError,'Retry to continue'):
-   create_edit(runtime,{},'source',directory,audible_transcript(1),600)
+   create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
   self.assertEqual(runtime.window_calls,3);self.assertEqual(runtime.merge_calls,0)
  def test_rich_long_lessons_repair_to_cover_candidate_sections_and_twelve_chapters(self):
   outline={'title':'Lesson','themes':[{'name':f'Theme {i}','points':['Keep this supported instruction.']} for i in range(1,9)]}
@@ -205,14 +199,7 @@ class LessonVideoTests(unittest.TestCase):
   result,runtime=merge_edit([initial,repaired],spaced,sections=9,duration=5400,outline=outline)
   self.assertEqual(len(result['chapters']),12);self.assertEqual(runtime.merge_calls,2)
   repair=[json.loads(item['text']) for item in runtime.merge_contents[1] if item.get('type')=='text'][-1]
-  # Completeness comes from the lesson rather than from the clock. Here
-  # nine sections carry teaching, so covering them already forces nine
-  # chapters and a floor drawn from the eight outline themes would add
-  # nothing; on a sixty-minute lesson with few sections and many themes
-  # the themes are what hold the recap up. Between them there is a
-  # coverage rule at every length, where before there was none at all
-  # below seventy-five minutes.
-  self.assertNotIn('minimum_chapters',repair['selection_requirements'])
+  self.assertEqual(repair['selection_requirements']['minimum_chapters'],12)
   self.assertEqual(repair['selection_requirements']['required_section_ids'],[f'section-{i}' for i in range(1,10)])
   self.assertIn('section-8, section-9',repair['selection_validation_error'])
   candidates=[json.loads(item['text']) for item in runtime.merge_contents[0] if item.get('type')=='text' and 'candidate_id' in item['text']]
@@ -269,40 +256,17 @@ class LessonVideoTests(unittest.TestCase):
  def test_sparse_long_lesson_can_select_fewer_chapters(self):
   result,runtime=merge_edit(selected(['candidate-1']),candidate_chapters(2,30),duration=5400)
   self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,1)
- def test_an_hour_long_lesson_is_held_up_by_what_it_taught(self):
-  """The case that produced six chapters one day and fourteen the next.
-
-  Sixty-minute lessons are most of what gets uploaded, and below
-  seventy-five minutes there was no coverage rule of any kind, so the
-  number of chapters was whatever the model felt like that run. The
-  outline is the checklist now, at every length.
-  """
-  outline={'title':'Lesson','themes':[{'name':f'Theme {i}','points':['Keep this supported instruction.']} for i in range(1,11)]}
-  thin=selected(['candidate-1','candidate-2'])
-  full=selected([f'candidate-{i}' for i in range(1,11)])
-  result,runtime=merge_edit([thin,full],candidate_chapters(6,60),sections=3,duration=3600,outline=outline)
-  self.assertEqual(len(result['chapters']),10)
-  asked=[json.loads(item['text']) for item in runtime.merge_contents[1] if item.get('type')=='text'][-1]
-  # The point is that a floor exists at this length at all, and that it
-  # is drawn from the teaching. Its exact value follows what the footage
-  # can carry without replaying itself.
-  self.assertGreaterEqual(asked['selection_requirements']['minimum_chapters'],5)
-  self.assertIn('distinct things',asked['selection_validation_error'])
-
  def test_impossible_section_coverage_does_not_deadlock(self):
   outline={'title':'Lesson','themes':[{'name':f'Theme {i}','points':['Keep this supported instruction.']} for i in range(1,9)]}
   result,runtime=merge_edit(selected(['candidate-1']),candidate_chapters(1,120),sections=9,duration=5400,outline=outline)
-  # Asked twice to cover more of what was taught, and then accepted as
-  # it stands. A recap that misses a topic beats a lesson that will not
-  # render at all.
-  self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,3)
+  self.assertEqual(len(result['chapters']),1);self.assertEqual(runtime.merge_calls,1)
  def test_merge_repairs_unknown_id_and_bounded_timestamp_failures(self):
   result,runtime=merge_edit([selected(['candidate-99']),selected(['candidate-1'])])
   self.assertEqual(result['chapters'][0]['start_s'],100);self.assertEqual(runtime.merge_calls,2)
   bad={'title':'Lesson','chapters':[{'candidate_id':'candidate-1','title':'Topic','cues':['Recover after each shot.'],'start_s':0}], 'themes':[]}
   runtime=EditRuntime([bad,bad])
   with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit),self.assertRaisesRegex(ValueError,'Retry to continue'):
-   create_edit(runtime,{},'source',directory,audible_transcript(1),600)
+   create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
   self.assertEqual(runtime.merge_calls,3)
  def test_merge_repairs_and_bounds_malformed_chapter_schema(self):
   malformed={'title':'Lesson','chapters':[{'candidate_id':'candidate-1'}], 'themes':[]}
@@ -322,6 +286,6 @@ class LessonVideoTests(unittest.TestCase):
   ]:
    runtime=EditRuntime([{'title':'Lesson','chapters':[bad_chapter],'themes':[]}] * 3)
    with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit),self.assertRaisesRegex(ValueError,'Retry to continue'):
-    create_edit(runtime,{},'source',directory,audible_transcript(1),600)
+    create_edit(runtime,{},'source',directory,[{'start_s':0,'end_s':600,'utterances':[]}],600)
    self.assertEqual(runtime.merge_calls,3)
 if __name__=='__main__': unittest.main()

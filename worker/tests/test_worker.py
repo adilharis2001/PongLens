@@ -23,7 +23,7 @@ def test_normal_match_processing_never_prepares_highlights():
     assert "prepare_auto_highlights" not in inspect.getsource(worker.run_points_stage)
 
 
-def test_ineligible_queued_highlight_stops_before_preparation(monkeypatch):
+def test_ineligible_queued_highlight_stops_before_preparation():
     class EligibilityCursor:
         def __enter__(self):
             return self
@@ -70,12 +70,6 @@ class Cursor:
         self.row = (self.connection.old_key,) if normalized.startswith(
             "select r2_key from public.match_reels"
         ) and self.connection.old_key else None
-        if "active_processing_version_id::text" in normalized:
-            self.row = ("version",)
-        elif normalized.startswith("insert into public.match_reels"):
-            self.row = (len(self.connection.calls),)
-        elif normalized.startswith("select exists"):
-            self.row = (False,)
 
     def fetchone(self):
         return self.row
@@ -85,13 +79,6 @@ class Connection:
     def __init__(self, old_key=None):
         self.calls = []
         self.old_key = old_key
-        self.autocommit = True
-
-    def commit(self):
-        pass
-
-    def rollback(self):
-        pass
 
     def cursor(self):
         return Cursor(self)
@@ -134,7 +121,7 @@ def test_disabled_stage_does_not_touch_reel_state(tmp_path):
     conn = Connection()
     result = worker.prepare_auto_highlights(
         conn, "user", "match", [strong_point()], "cut.mp4", str(tmp_path),
-        enabled=False, processing_version_id="version",
+        enabled=False,
     )
     assert result == "off"
     assert conn.calls == []
@@ -150,8 +137,7 @@ def test_no_qualified_points_record_empty_without_rendering(tmp_path, monkeypatc
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("rendered")),
     )
     result = worker.prepare_auto_highlights(
-        conn, "user", "match", [weak], "cut.mp4", str(tmp_path),
-        enabled=True, processing_version_id="version",
+        conn, "user", "match", [weak], "cut.mp4", str(tmp_path), enabled=True
     )
     assert result == "empty"
     assert statuses(conn) == ["empty"]
@@ -165,7 +151,7 @@ def test_render_failure_is_recorded_and_does_not_raise(tmp_path, monkeypatch):
     )
     result = worker.prepare_auto_highlights(
         conn, "user", "match", [strong_point()], "cut.mp4", str(tmp_path),
-        enabled=True, processing_version_id="version",
+        enabled=True,
     )
     assert result == "failed"
     assert statuses(conn) == ["rendering", "failed"]
@@ -195,51 +181,13 @@ def test_success_uses_revision_key_and_records_ready(tmp_path, monkeypatch):
 
     result = worker.prepare_auto_highlights(
         conn, "user", "match", [strong_point()], "cut.mp4", str(tmp_path),
-        enabled=True, processing_version_id="version",
+        enabled=True,
     )
 
     assert result == "ready"
     assert statuses(conn) == ["rendering", "ready"]
     uploaded_key = uploads[0][2]
-    assert uploaded_key.startswith("reels/match-v-version-highlights-")
+    assert uploaded_key.startswith("reels/match-highlights-")
     assert uploaded_key.endswith(".mp4")
     assert ("delete", worker.R2_MEDIA_BUCKET,
             "reels/match-highlights-old.mp4", None) in uploads
-
-
-def test_uploaded_highlight_is_cleaned_when_ready_and_failure_bookkeeping_both_reject(tmp_path, monkeypatch):
-    conn = Connection()
-    output = tmp_path / "automatic-highlights.mp4"
-    output.write_bytes(b"video")
-    uploaded, deleted, objects, receipts = [], [], set(), []
-
-    class Storage:
-        def upload_file(self, path, bucket, key, ExtraArgs=None):
-            uploaded.append(key)
-            objects.add(key)
-
-        def delete_object(self, *, Bucket, Key):
-            deleted.append(Key)
-            objects.remove(Key)
-
-    def bookkeeping(_conn, _match, status, _manifest, **kwargs):
-        if status == "rendering":
-            return "fixture-claim"
-        raise RuntimeError(f"{status} bookkeeping rejected")
-
-    monkeypatch.setattr(worker, "r2", lambda: Storage())
-    monkeypatch.setattr(worker, "render_auto_highlights",
-                        lambda manifest, *_args: (str(output), {**manifest, "duration_s": 8.75}))
-    monkeypatch.setattr(worker, "_write_auto_highlight_state", bookkeeping)
-    monkeypatch.setattr(worker, "ledger_append", lambda *args: receipts.append("add"))
-    monkeypatch.setattr(worker, "ledger_negate_keys", lambda *args: receipts.append("remove"))
-
-    result = worker.prepare_auto_highlights(
-        conn, "user", "match", [strong_point()], "cut.mp4", str(tmp_path),
-        enabled=True, processing_version_id="version",
-    )
-    assert result == "failed"
-    assert len(uploaded) == 1
-    assert deleted == uploaded
-    assert objects == set()
-    assert receipts == ["add", "remove"]

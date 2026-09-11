@@ -30,7 +30,6 @@ from worker.worker import (
 MATCH_ID = "20000000-0000-0000-0000-000000000001"
 USER_ID = "30000000-0000-0000-0000-000000000002"
 JOB_ID = "40000000-0000-0000-0000-000000000003"
-VERSION_ID = "50000000-0000-0000-0000-000000000004"
 
 
 class RecordingCursor:
@@ -47,26 +46,12 @@ class RecordingCursor:
         self.calls.append((" ".join(query.split()), params))
 
     def fetchone(self):
-        query = self.calls[-1][0]
-        if "from public.matches where id = %s for update" in query:
-            return (USER_ID, "processing", VERSION_ID, JOB_ID)
-        if "from public.jobs j" in query:
-            return (USER_ID, "deadspace_cut", "processing",
-                    {"match_id": MATCH_ID, "processing_version_id": VERSION_ID},
-                    None, False, False)
         return (MATCH_ID,)
 
 
 class RecordingConnection:
     def __init__(self):
         self.calls = []
-        self.autocommit = True
-
-    def commit(self):
-        pass
-
-    def rollback(self):
-        pass
 
     def cursor(self):
         return RecordingCursor(self.calls)

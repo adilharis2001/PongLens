@@ -527,7 +527,7 @@ class Evidence:
         bnc = bounces(track, scale)
         self.cross = np.asarray(crossings(track, H, fps), float)
 
-        bt, bt_table, bt_table_landings = [], [], []
+        bt, bt_table, bt_table_landings, bt_endline = [], [], [], []
         for f, x, y in bnc:
             p = project(H, x, y)
             if not p or not in_corridor(*p):
@@ -540,9 +540,22 @@ class Evidence:
                 bt_table.append(landing_t)
                 side = "far" if p[1] < L_M / 2.0 else "near"
                 bt_table_landings.append((landing_t, side))
+            elif -0.15 <= p[0] <= W_M + 0.15:
+                # PAST AN END LINE, STILL IN LINE WITH THE TABLE: the ball
+                # was hit long. This is how most points actually finish, and
+                # bt_table cannot contain it by construction — which is why
+                # a card whose end is read from bt_table alone stops on the
+                # second-to-last shot. Kept separate so nothing that reads
+                # bt_table changes; only body_points._ball_end looks here.
+                # The width test is the same +/-0.15 m as the surface test
+                # above, so the court alongside (3-5 m away at Westchester)
+                # and the floor beside the table are both excluded; how far
+                # past the end line is already bounded by in_corridor, 1.5 m.
+                bt_endline.append(f / fps)
         self.bt = np.asarray(bt, float)
         self.bt_table = np.asarray(bt_table, float)
         self.bt_table_landings = bt_table_landings
+        self.bt_endline = np.asarray(bt_endline, float)
 
         motifs = serve_motifs(track, bnc, H, fps, scale, self.cross)
         # No gate test on a calibrated match: serve_motifs already proved
