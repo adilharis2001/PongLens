@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { SectionHeading } from "@/components/SectionHeading";
+import { ProcessingHealthSection } from "./ProcessingHealthSection";
 import {
   agoLabel,
   buildWorkerRows,
@@ -26,6 +27,8 @@ import {
 const REFRESH_MS = 10_000;
 
 const STATE_LABEL: Record<WorkerState, string> = {
+  blocked: "Blocked",
+  paused: "Paused",
   working: "Working",
   idle: "Idle",
   silent: "Not responding",
@@ -50,6 +53,8 @@ const STATE_LABEL: Record<WorkerState, string> = {
  * nothing at all — a status page that cries wolf stops being read.
  */
 const STATE_DOT: Record<WorkerState, string> = {
+  blocked: "bg-amber-400",
+  paused: "bg-zinc-500",
   working: "bg-cyan-glow",
   idle: "bg-zinc-500",
   silent: "bg-amber-400",
@@ -59,6 +64,8 @@ const STATE_DOT: Record<WorkerState, string> = {
 };
 
 const STATE_TEXT: Record<WorkerState, string> = {
+  blocked: "text-amber-300",
+  paused: "text-zinc-400",
   working: "text-cyan-glow",
   idle: "text-zinc-400",
   silent: "text-amber-300",
@@ -82,7 +89,7 @@ function Kind({ kind }: { kind: string }) {
   );
 }
 
-function WorkerCard({ row }: { row: WorkerRow }) {
+export function WorkerCard({ row }: { row: WorkerRow }) {
   return (
     <li className="px-4 py-4 sm:px-5">
       <div className="flex items-baseline justify-between gap-3">
@@ -265,6 +272,8 @@ export function ProcessingSection() {
           </div>
         </div>
       )}
+
+      <ProcessingHealthSection />
 
       {/* ---------------------------------------------------------- waiting */}
       <div className="mt-8 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">

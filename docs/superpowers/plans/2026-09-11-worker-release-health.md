@@ -36,7 +36,7 @@
 
 **Files:** create `worker/processing_outcome.py`, `worker/processing_health.py`, corresponding tests and `supabase/migrations/20260911143000_worker_processing_health.sql`; modify narrow integration in `worker/worker.py`, `worker/points_pipeline.py`, `worker/body_points.py`, pose/table runtime path selection.
 
-**Interface:** `match.json.processing` is an additive versioned object; attempt UUID created once at job start. Database table `worker_processing_runs` stores attempt_key/job_id/release_id/requested_pipeline/delivered_pipeline/status/reason_code/details/start/end. `worker_processing_incidents` holds deduplicated active/recovered operational incidents. Admin RPC returns recent attempts/incidents and missing-telemetry coverage.
+**Interface:** `match.json.processing` is an additive versioned object; reuse the existing unique `job_id:read_ct` attempt key shared with cost reporting. Database table `worker_processing_runs` stores attempt_key/job_id/release_id/requested_pipeline/delivered_pipeline/status/reason_code/details/start/end. `worker_processing_incidents` holds deduplicated active/recovered operational incidents. Admin RPC returns recent attempts/incidents and missing-telemetry coverage.
 
 - [ ] Write behavior tests for successful bodies, expected refusal, model mismatch/programming failure, failed pose child, failed second pass, outer legacy rebuild, V3-only degradation, missing telemetry and retry-safe persistence.
 - [ ] Carry requested configuration through every fallback; persist structured final facts from the output actually published. Snapshot release/model/config information. Do not infer success from nonempty points.

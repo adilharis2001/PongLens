@@ -270,6 +270,16 @@ class ReleaseTests(unittest.TestCase):
         self.assertNotEqual(first_cache, second_cache)
         self.assertEqual(list(second_cache.iterdir()), [])
 
+    def test_ambient_loader_overrides_cannot_select_unsealed_native_code(self):
+        release = self.built()
+        overrides = {'DYLD_LIBRARY_PATH': '/unsealed', 'DYLD_INSERT_LIBRARIES': '/unsealed/x.dylib',
+                     'LD_PRELOAD': '/unsealed/x.so', 'PYTHONUSERBASE': '/unsealed',
+                     '__PYVENV_LAUNCHER__': '/unsealed/python'}
+        with patch.dict(os.environ, overrides):
+            _, env, _ = prepare_run(release, self.root / 'state')
+        for name in overrides:
+            self.assertTrue(name not in env, name)
+
     def test_sealing_cannot_reduce_required_sixteen_table_frames(self):
         self.config['behavior_env'] = {'PONGLENS_TABLE_KEYPOINT_FRAMES': '1'}
         with self.assertRaises(ReleaseError): self.built()

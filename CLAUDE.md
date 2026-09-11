@@ -102,6 +102,13 @@ for and leaves a neighbouring screen worse, say that before building it.
 
 ## The processing page has to keep up with the worker
 
+**Worker release/health work, 2026-09-11:** staged in
+`.worktrees/worker-release-health` on `codex/worker-release-health`, not yet
+activated. Read that checkout's `docs/worker-release-health.md` before
+changing worker launchers, runtime dependencies or body fallback reporting.
+It records the exact source baseline, verification and remaining rollout
+gates; do not merge the captured runtime baseline wholesale over newer main.
+
 **`/admin/processing` is the only place anyone can see whether the workers
 are alive and what they are doing.** The worker changes often, and this
 page falls behind it silently: nothing breaks, the page simply stops

@@ -9190,6 +9190,9 @@ def main():
                 pulse_stage("drained")
                 time.sleep(POLL_SLEEP_S)
                 continue
+            # A lifted drain or repaired release must report idle even when
+            # no job arrives to clear the previous boundary status.
+            pulse_stage(None)
             if housekeeping and (
                     time.time() - last_cleanup > CLEANUP_EVERY_S
                     or last_cleanup == 0):

@@ -47,6 +47,8 @@ export type WorkerState =
    *  progress is moving underneath it. */
   | "working"
   | "idle"
+  | "paused"
+  | "blocked"
   /** It was reporting, and went quiet while still holding a job. The one
    *  state on this page that is genuinely an alarm. */
   | "silent"
@@ -196,6 +198,8 @@ export function isKnownKind(kind: string | null | undefined): boolean {
 
 /** The stages a worker reports, as sentences rather than log tokens. */
 const STAGE_LABELS: Record<string, string> = {
+  release_invalid: "Release verification failed",
+  drained: "Paused for a release change",
   download: "Downloading the video",
   import: "Downloading from YouTube",
   content_check: "Checking what the video is",
@@ -307,7 +311,7 @@ export function agoLabel(iso: string | null | undefined, now: Date): string {
  * ---------------------------------------------------------------------- */
 
 export function workerState(
-  pulse: { beat_at: string; job_id: string | null } | null,
+  pulse: { beat_at: string; job_id: string | null; stage?: string | null } | null,
   opts: {
     now: Date;
     /** The lane is switched off by configuration. */
@@ -330,6 +334,8 @@ export function workerState(
   const stale = opts.staleAfterS ?? BEAT_STALE_S;
   const age = pulse ? secondsBetween(pulse.beat_at, opts.now) : null;
   if (age !== null && age <= stale) {
+    if (pulse?.stage === "release_invalid") return "blocked";
+    if (pulse?.stage === "drained") return "paused";
     return pulse?.job_id ? "working" : "idle";
   }
   // No heartbeat. The job's own progress can still settle it.
@@ -400,6 +406,8 @@ function pulseDetail(p: WorkerPulse, now: Date): string {
 }
 
 const STATE_DETAIL: Record<WorkerState, string> = {
+  blocked: "Release verification failed. No new work will be accepted.",
+  paused: "Paused for a release change. No new work will be accepted.",
   // Only reached if a row is working with neither a pulse nor a moving job
   // to describe it, which the states above make impossible. Kept total.
   working: "Working.",

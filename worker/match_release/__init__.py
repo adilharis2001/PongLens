@@ -340,8 +340,11 @@ def prepare_run(path, state, lane='main'):
     if root == state or root in state.parents or state in root.parents:
         raise ReleaseError('Writable state must be separate from the release')
     env = dict(os.environ)
-    for key in ('PYTHONHOME', 'PYTHONPATH', 'PYTHONSTARTUP', 'VIRTUAL_ENV'):
-        env.pop(key, None)
+    # A checked dependency can still be replaced at load time by these
+    # search-path/injection overrides. Set our own Python controls below.
+    for key in tuple(env):
+        if key.startswith(('PYTHON', 'DYLD_', 'LD_')) or key in ('VIRTUAL_ENV', '__PYVENV_LAUNCHER__'):
+            env.pop(key)
     if 'behavior_env' not in manifest:
         raise ReleaseError('Release lacks sealed behavior settings; rebuild before running')
     behavior = behavior_environment(manifest['behavior_env'])
