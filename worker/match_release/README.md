@@ -14,7 +14,8 @@ Python environments and native libraries stay at their existing locations, with 
 | Loader environment | Remove inherited Python, DYLD and LD loader/search overrides and virtual-environment hints before applying approved paths. Native smoke checks enumerate the libraries actually loaded by each interpreter and reject paths outside verified anchors. |
 | Live updates | Do not run pip, Homebrew upgrades, OS updates or yt-dlp self-update while a release uses those anchors. Create separately located runtimes for future independently upgradable releases. |
 | Verification | First use in each process hashes everything. Subsequent checks compare file inventories including inode, ctime, mtime and size; changes trigger complete content comparison. Cache is process-local, never trusted from disk. |
-| Caches | Work/logs/temp caches outside payload. Python gets a fresh empty bytecode prefix and cannot write bytecode. CoreML gets a fresh empty directory on every worker launch, preventing reuse of unverified compiled graphs from earlier launches. Table torchhub source remains inside payload; table loader must use existing local hub code without network refresh. |
+| Caches | Work/logs/temp caches, including `TORCH_HOME`, stay outside payload. Python gets a fresh empty bytecode prefix and cannot write bytecode. CoreML gets a fresh empty directory on every worker launch, preventing reuse of unverified compiled graphs from earlier launches. Table torchhub source remains inside payload and is passed explicitly as local source; it is not the shared library cache. |
+| Model loading | Sealed pose and person-detector loaders resolve and hash the packaged asset before invoking the inference library. The side-change detector's legacy default URL resolves to the packaged detector, never a download. Missing/altered models, symlinks and external overrides fail before loading. Unsealed research selections retain their previous behavior. |
 | CoreML tradeoff | First GPU use after a worker launch must compile models again; children can reuse that launch's cache. Old launch caches remain outside the payload and can be removed after their worker has drained and exited. |
 | Trust | Integrity checks detect accidental drift; they are not signatures, sandboxing, or protection against an attacker who can rewrite both the runner and its manifest. No filesystem lock can prevent an administrator editing an active dependency mid-call. |
 | Scope | Server-side Mac bundle only. Never distribute table detector assets to players; never upload this bundle to Modal. |
@@ -60,6 +61,7 @@ python3 -m worker.match_release run \
 | --- | --- |
 | Integrity | `python3 -m unittest worker.tests.test_match_release` |
 | Actual pose | Use `prepare_run` environment and its `PONGLENS_RTMPOSE_PY` to run sealed `worker/extract_players_rtmpose.py` against a known short clip with sealed pose and detector models. Confirm actual provider and output. |
+| Offline model coverage | Run `worker/tests/smoke_match_release.py` modes `pose`, `table`, `side-changes`, and `ball` against actual video and fresh external test state. These deny network connections and recheck release integrity after inference. Side-change smoke deliberately omits the detector override, matching production; table smoke must report success and sixteen sampled frames. Repeat side-change smoke against the same state. |
 | Point parity | Run packaged points assembly on representative frozen input; compare card decisions with captured baseline. |
 | Both lanes | `run ... --lane main --check-only` and `--lane fast --check-only`; confirm separate drain files and appropriate logs. |
 | Rollback | Record and verify an explicit previous release directory and its runtime anchors before changing either launcher. This package does not select a rollback for you. |
@@ -76,7 +78,8 @@ python3 -m worker.match_release run \
 | `PONGLENS_WORKER_PY`, `PONGLENS_PIPELINE_PY` | Exact checked interpreters; preserve venv executable spelling. |
 | `PONGLENS_BLURBALL_INFER`, `PONGLENS_BLURBALL_HOME` | Copied wrapper and detector tree. |
 | `PONGLENS_RTMPOSE_PY`, `PONGLENS_RTMPOSE_MODEL`, `PONGLENS_RTMPOSE_DET_MODEL`, `DET_MODEL` | Pose interpreter and copied model files; no model URL fallback. |
-| `PONGLENS_TABLE_KEYPOINT_HOME`, `PONGLENS_TABLE_KEYPOINT_PY`, `TORCH_HOME` | Copied table assets, checked interpreter, sealed hub seed. |
+| `PONGLENS_TABLE_KEYPOINT_HOME`, `PONGLENS_TABLE_KEYPOINT_PY` | Copied table assets (including explicitly loaded local hub source) and checked interpreter. |
+| `TORCH_HOME` | Writable `<state>/cache/torch`, outside the sealed release. Never point a general library cache at packaged source. |
 | `PONGLENS_FFMPEG`, `PONGLENS_FFPROBE`, `PONGLENS_YTDLP` | Exact checked media executables. PATH contains sealed wrappers ahead of system tools. |
 | `PONGLENS_STATE_DIR`, `PONGLENS_WORK_DIR`, `PONGLENS_LOG_DIR`, `PONGLENS_COREML_CACHE` | Writable state outside payload; worker adapters must honor these. |
 | `PONGLENS_DRAIN_FILE` | `<state>/drain-main` or `<state>/drain-fast`; checked before a new claim by worker integration. |

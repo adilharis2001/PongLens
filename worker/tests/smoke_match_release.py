@@ -4,6 +4,7 @@ Outputs/logs are written only beneath the supplied test-state directory.
 Run from the isolated checkout using an explicit content-addressed release.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,7 +20,7 @@ def main():
     parser.add_argument('--release', type=Path, required=True)
     parser.add_argument('--state', type=Path, required=True)
     parser.add_argument('--video', type=Path, required=True)
-    parser.add_argument('--mode', choices=('imports', 'pose', 'table', 'parity', 'native'), required=True)
+    parser.add_argument('--mode', choices=('imports', 'pose', 'table', 'side-changes', 'ball', 'parity', 'native'), required=True)
     args = parser.parse_args()
     release = args.release.resolve(strict=True)
     state = args.state.resolve()
@@ -27,11 +28,35 @@ def main():
     report = {'release_id': verify(release)['release_id'], 'mode': args.mode}
     worker = release / 'worker'
     def run(command, name, timeout=600):
-        completed = subprocess.run([str(x) for x in command], env=env, cwd=cwd,
+        command = [str(x) for x in command]
+        if name in ('pose', 'table', 'side-changes', 'ball'):
+            # Exercise real native models with HTTP/TCP denied, not a warm
+            # download cache or a mocked inference engine. Unix sockets used
+            # by macOS accelerators remain available.
+            offline = """import socket,runpy,sys
+original_connect=socket.socket.connect
+original_connect_ex=socket.socket.connect_ex
+def connect(self,address):
+    if self.family in (socket.AF_INET,socket.AF_INET6):
+        raise RuntimeError('Model smoke forbids network access')
+    return original_connect(self,address)
+def connect_ex(self,address):
+    if self.family in (socket.AF_INET,socket.AF_INET6):
+        raise RuntimeError('Model smoke forbids network access')
+    return original_connect_ex(self,address)
+socket.socket.connect=connect
+socket.socket.connect_ex=connect_ex
+sys.argv=sys.argv[1:]
+runpy.run_path(sys.argv[0],run_name='__main__')
+"""
+            command = [command[0], '-c', offline, *command[1:]]
+        completed = subprocess.run(command, env=env, cwd=cwd,
                                    capture_output=True, text=True, timeout=timeout)
         (state / (name + '.log')).write_text(completed.stdout + '\n' + completed.stderr)
         if completed.returncode:
             raise RuntimeError(f'{name} failed with exit {completed.returncode}; inspect {state / (name + ".log")}')
+        if 'Downloading:' in completed.stdout + completed.stderr:
+            raise RuntimeError(f'{name} attempted to download a model')
         return completed.stdout
     if args.mode == 'imports':
         code = """import os,runpy
@@ -65,6 +90,45 @@ print('Worker imported without running main; fixed source/interpreter/media iden
         run([env['PONGLENS_TABLE_KEYPOINT_PY'], worker / 'table_keypoints.py',
              '--video', args.video, '--out', output], 'table')
         report['result'] = json.loads(output.read_text())
+        assert report['result'].get('ok'), report['result']
+        assert report['result'].get('frames_sampled') == 16, report['result']
+    elif args.mode == 'side-changes':
+        meta = json.loads(run([env['PONGLENS_FFPROBE'], '-v', 'error', '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height', '-of', 'json', args.video], 'video'))['streams'][0]
+        w, h = meta['width'], meta['height']
+        clips = state / 'side-change-clips'
+        clips.mkdir(exist_ok=True)
+        for idx, start in ((1, 0), (2, 2)):
+            run([env['PONGLENS_FFMPEG'], '-v', 'error', '-y', '-ss', str(start), '-i', args.video,
+                 '-t', '2', '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '24',
+                 clips / f'point-{idx:03d}.mp4'], f'clip-{idx}')
+        match = {'width': w, 'height': h, 'calibration': {'ok': True, 'width': w, 'height': h,
+                 'table_corners_px': {'A_near_1': [w*.25,h*.8], 'B_near_2': [w*.75,h*.8],
+                                      'C_far_2': [w*.6,h*.4], 'D_far_1': [w*.4,h*.4]}},
+                 'points': [{'idx': idx, 't0': start, 't1': start+2, 'cut_t0': 0}
+                            for idx, start in ((1, 0), (2, 2))]}
+        source = state / 'side-change-match.json'
+        source.write_text(json.dumps(match))
+        output = state / 'side-changes.json'
+        # Deliberately omit --det-model, exactly as production does. This was
+        # the missed default path that downloaded into the old release.
+        run([env['PONGLENS_RTMPOSE_PY'], worker / 'extract_side_changes_rtmpose.py',
+             '--clips-dir', clips, '--match-json', source, '--output', output,
+             '--model', env['PONGLENS_RTMPOSE_MODEL'], '--backend', env['PONGLENS_RTMPOSE_BACKEND'],
+             '--device', env['PONGLENS_RTMPOSE_DEVICE']], 'side-changes')
+        result = json.loads(output.read_text())
+        assert result['compute']['frames_decoded'] == 14, result['compute']
+        assert result['coverage']['total'] == 2
+        detector_sha = hashlib.sha256(Path(env['PONGLENS_RTMPOSE_DET_MODEL']).read_bytes()).hexdigest()
+        assert result['model']['det_checkpoint_sha256'] == detector_sha
+        report['result'] = {key: result[key] for key in ('status', 'model', 'coverage', 'compute')}
+    elif args.mode == 'ball':
+        output = state / 'ball.jsonl'
+        run([env['PONGLENS_PIPELINE_PY'], env['PONGLENS_BLURBALL_INFER'], '--video', args.video,
+             '--out', output, '--device', 'mps', '--max-frames', '12'], 'ball')
+        records = [json.loads(line) for line in output.read_text().splitlines() if line.strip()]
+        assert records, 'Ball model produced no frame records'
+        report['frames'] = len(records)
     elif args.mode == 'native':
         manifest = verify(release)
         roots = [Path(root).resolve() for entry in manifest['runtime'].values() for root in entry['roots']]

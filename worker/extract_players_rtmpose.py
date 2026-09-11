@@ -43,6 +43,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from extract_side_changes_rtmpose import (        # noqa: E402
     DET_MODEL_URL, _create_det_model, choose_players, dedupe_boxes)
+from extract_match_structure_rtmpose import _create_pose_model  # noqa: E402
 
 
 def main() -> int:
@@ -66,15 +67,13 @@ def main() -> int:
     ap.add_argument("--progress", default=None)
     a = ap.parse_args()
 
-    from rtmlib import RTMPose
     # "coreml" is this Mac's GPU. rtmlib builds the session itself and knows
     # nothing about MLProgram, so the tools are built for cpu and the sessions
     # swapped underneath. Anything that fails here degrades to the processor
     # rather than failing the match.
     rtm_device = "cpu" if a.device == "coreml" else a.device
     det = _create_det_model(a.det_model, a.backend, rtm_device)
-    pose = RTMPose(onnx_model=a.model, model_input_size=(192, 256),
-                   to_openpose=False, backend=a.backend, device=rtm_device)
+    pose, _ = _create_pose_model(a.model, a.backend, rtm_device)
 
     def pose_call(img, bb):
         return pose(img, bboxes=bb)          # rtmlib's own one-at-a-time loop

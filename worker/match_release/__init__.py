@@ -331,6 +331,31 @@ def verify_unchanged(path):
     return manifest
 
 
+def resolve_model_asset(model, asset, *, default_url=None):
+    """Bind an inference loader to the checked local model in a sealed run.
+
+    Legacy research runs keep their explicit path/URL. A sealed caller may
+    use its historical default URL as a name for the packaged asset, never
+    as permission to download it. All other outside overrides fail closed.
+    """
+    release = os.environ.get('PONGLENS_MATCH_RELEASE')
+    if not release:
+        return str(model)
+    if asset not in ('pose', 'detector'):
+        raise ReleaseError('Unsupported inference asset')
+    root, manifest = _manifest(release)
+    relative = ASSETS[asset]
+    path = root / relative
+    requested = str(model)
+    if requested != default_url and Path(requested).expanduser().resolve() != path:
+        raise ReleaseError(f'Unsealed {asset} model selection')
+    expected = manifest['files'].get(relative, {})
+    if (not path.is_file() or path.resolve() != path or
+            expected.get('type') != 'file' or _hash(path) != expected.get('sha256')):
+        raise ReleaseError(f'Sealed {asset} model missing or changed')
+    return str(path)
+
+
 def prepare_run(path, state, lane='main'):
     root = Path(path).resolve(strict=True)
     manifest = verify(root)
@@ -370,7 +395,9 @@ def prepare_run(path, state, lane='main'):
         'PONGLENS_TABLE_KEYPOINT_HOME': str(root / ASSETS['table']),
         'PONGLENS_TABLE_KEYPOINT_PY': runtime['table']['executable'],
         'PONGLENS_BODY_MODEL': manifest['body_model']['version'],
-        'TORCH_HOME': str(root / ASSETS['table'] / 'torchhub'),
+        # rtmlib also consumes TORCH_HOME, not only torch. Never use the
+        # immutable table source seed as any library's writable cache.
+        'TORCH_HOME': str(state / 'cache/torch'),
         'PONGLENS_WORK_DIR': str(state / 'work'),
         'PONGLENS_LOG_DIR': str(state / 'logs'),
         'PONGLENS_STATE_DIR': str(state),

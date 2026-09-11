@@ -6,6 +6,7 @@ import sys
 import shutil
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from worker.match_release import build, verify, verify_unchanged, prepare_run, stage, ReleaseError
@@ -107,6 +108,78 @@ class ReleaseTests(unittest.TestCase):
         self.assertFalse((destination.parent / 'current').exists())
         (destination / 'worker/worker.py').write_text('broken')
         with self.assertRaises(ReleaseError): stage(release, destination.parent)
+
+    def test_torch_and_library_caches_cannot_pollute_release(self):
+        release = self.built()
+        _, env, _ = prepare_run(release, self.root / 'state')
+        # rtmlib uses TORCH_HOME ahead of XDG_CACHE_HOME. Simulate its actual
+        # cache layout: a new checkpoint must not invalidate both queue lanes.
+        checkpoint = Path(env['TORCH_HOME']) / 'hub/checkpoints/new-model.onnx'
+        self.assertFalse(checkpoint.is_relative_to(release))
+        self.put(checkpoint, 'library-generated cache')
+        self.assertEqual(verify(release)['release_id'], release.name)
+
+    def test_side_change_default_uses_packaged_detector_without_downloading(self):
+        from worker import extract_side_changes_rtmpose as side
+        release = self.built()
+        def load(**kwargs):
+            self.assertEqual(kwargs['onnx_model'], str(release / 'models/rtmpose/rtmdet-person.onnx'))
+            return Path(kwargs['onnx_model']).read_bytes()
+        with patch.dict(os.environ, {'PONGLENS_MATCH_RELEASE': str(release)}), \
+             patch.dict(sys.modules, {'rtmlib': SimpleNamespace(RTMDet=load)}):
+            self.assertEqual(side._create_det_model(side.DET_MODEL_URL, 'onnxruntime', 'cpu'), b'detector')
+            self.assertEqual(side._det_checkpoint_sha(side.DET_MODEL_URL),
+                             __import__('hashlib').sha256(b'detector').hexdigest())
+        verify(release)
+
+    def test_sealed_detector_missing_modified_or_override_never_reaches_loader(self):
+        from worker import extract_side_changes_rtmpose as side
+        for fault in ('missing', 'modified', 'remote', 'outside', 'symlink'):
+            with self.subTest(fault=fault):
+                release = self.built()
+                target = release / 'models/rtmpose/rtmdet-person.onnx'
+                requested = side.DET_MODEL_URL
+                original = target.read_bytes()
+                if fault == 'missing': target.unlink()
+                elif fault == 'modified': target.write_bytes(b'changed')
+                elif fault == 'remote': requested = 'https://example.invalid/unreviewed.onnx'
+                elif fault == 'outside': requested = str(self.root / 'detector')
+                elif fault == 'symlink':
+                    target.unlink()
+                    target.symlink_to(self.root / 'detector')
+                def forbidden(**kwargs):
+                    self.fail('An unsealed model reached the inference/download library')
+                try:
+                    with patch.dict(os.environ, {'PONGLENS_MATCH_RELEASE': str(release)}), \
+                         patch.dict(sys.modules, {'rtmlib': SimpleNamespace(RTMDet=forbidden)}):
+                        with self.assertRaises(RuntimeError):
+                            side._create_det_model(requested, 'onnxruntime', 'cpu')
+                finally:
+                    if target.is_symlink(): target.unlink()
+                    target.write_bytes(original)
+
+    def test_unsealed_research_detector_keeps_its_explicit_selection(self):
+        from worker import extract_side_changes_rtmpose as side
+        with patch.dict(os.environ, {}, clear=True), \
+             patch.dict(sys.modules, {'rtmlib': SimpleNamespace(RTMDet=lambda **kw: kw['onnx_model'])}):
+            self.assertEqual(side._create_det_model('research.onnx', 'onnxruntime', 'cpu'), 'research.onnx')
+
+    def test_sealed_pose_rejects_unreviewed_path_before_loading(self):
+        from worker import extract_match_structure_rtmpose as structure
+        release = self.built()
+        def forbidden(**kwargs):
+            self.fail('An unsealed pose model reached the inference/download library')
+        with patch.dict(os.environ, {'PONGLENS_MATCH_RELEASE': str(release)}), \
+             patch.dict(sys.modules, {'rtmlib': SimpleNamespace(RTMPose=forbidden)}):
+            with self.assertRaises(RuntimeError):
+                structure._create_pose_model(self.root / 'pose', 'onnxruntime', 'cpu')
+
+    def test_unsealed_pose_url_is_not_mangled_into_a_filesystem_path(self):
+        from worker import extract_match_structure_rtmpose as structure
+        url = 'https://example.invalid/research-pose.onnx'
+        with patch.dict(os.environ, {}, clear=True), \
+             patch.dict(sys.modules, {'rtmlib': SimpleNamespace(RTMPose=lambda **kw: kw['onnx_model'])}):
+            self.assertEqual(structure._create_pose_model(url, 'onnxruntime', 'cpu')[0], url)
 
     def test_manifest_tamper_and_external_symlink_escape_rejected(self):
         release = self.built()
