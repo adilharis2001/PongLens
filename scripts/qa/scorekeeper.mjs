@@ -88,7 +88,9 @@ try {
           const expected=scenario==='scorekeeper-full-card'?8:6.5;
           await f.page.waitForFunction(expected=>{const v=document.querySelector('video');return v.paused&&v.currentTime>=expected-0.05;},expected);
           const time=await f.page.evaluate(()=>document.querySelector('video').currentTime);
-          assert.ok(Math.abs(time-expected)<0.1,`current playback policy stops at ${expected}, got ${time}`);
+          // Current playback pauses on the next ~250ms media tick; it does
+          // not seek backward onto the exact threshold. Preserve that policy.
+          assert.ok(time>=expected-0.05&&time<expected+0.35,`current playback policy stops at the first media tick after ${expected}, got ${time}`);
           assert.deepEqual(f.writes,[],'playback policy alone does not write score or ending');
           assert.deepEqual(f.errors,[],'no browser runtime errors');
           await f.page.screenshot({path:output+`qa-${surface}-${scenario}.png`});
