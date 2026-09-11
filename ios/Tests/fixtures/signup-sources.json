@@ -1,0 +1,59 @@
+{
+  "note": "How did you hear about us? — the answers onboarding offers, written down once. The web list (src/lib/auth/signupSource.ts) and the iOS list (Core/SignupSource.swift) are both tested against this file, and the check constraint in supabase/migrations/20260911090000_signup_source.sql accepts exactly these values. Order is the order they are shown in, and it is part of the spec: the two answers that name a person come first, because they are the ones worth the most and the ones people scroll past.",
+
+  "options": [
+    {
+      "value": "coach",
+      "label": "A coach",
+      "detailLabel": "Your coach's name",
+      "detailPlaceholder": "Alex"
+    },
+    {
+      "value": "player",
+      "label": "A friend or another player",
+      "detailLabel": "Their name",
+      "detailPlaceholder": "Alex"
+    },
+    {
+      "value": "club",
+      "label": "My club",
+      "detailLabel": "Which club?",
+      "detailPlaceholder": "Your club's name"
+    },
+    { "value": "search", "label": "Google or another search" },
+    { "value": "youtube", "label": "YouTube" },
+    { "value": "instagram", "label": "Instagram" },
+    { "value": "tiktok", "label": "TikTok" },
+    { "value": "forum", "label": "Reddit or a forum" },
+    { "value": "event", "label": "A tournament or event" },
+    {
+      "value": "other",
+      "label": "Other",
+      "detailLabel": "Where was it?",
+      "detailPlaceholder": "A podcast, a shop, a newsletter"
+    }
+  ],
+
+  "detailMaxLength": 120,
+  "detailLengthNote": "Counted in Unicode code points, which is what Postgres char_length() counts, so a string either app accepts is a string the column accepts. Swift's String.count counts grapheme clusters instead and would let a 121-code-point answer through to a constraint violation at the end of onboarding, so the Swift side counts unicodeScalars.",
+
+  "detailCases": [
+    { "name": "an ordinary name", "input": "Anton Berman", "expected": "Anton Berman" },
+    { "name": "leading and trailing space", "input": "  Anton  ", "expected": "Anton" },
+    { "name": "runs of space collapse", "input": "Anton   Berman", "expected": "Anton Berman" },
+    { "name": "a newline is space too", "input": "Anton\nBerman", "expected": "Anton Berman" },
+    { "name": "a tab is space too", "input": "Anton\tBerman", "expected": "Anton Berman" },
+    { "name": "nothing but space is nothing", "input": "   ", "expected": null },
+    { "name": "empty is nothing", "input": "", "expected": null },
+    {
+      "name": "over the limit is cut to the limit",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "an emoji counts as one character, not four bytes",
+      "input": "🏓🏓🏓",
+      "expected": "🏓🏓🏓"
+    }
+  ]
+}

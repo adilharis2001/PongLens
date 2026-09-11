@@ -4,10 +4,11 @@ import Supabase
 /// First-login setup, mirroring the web's steps and its gate: a missing
 /// display name OR a missing player_profiles row routes here.
 ///
-/// Three steps at most — which side of the table you are on, your name,
-/// how you play — and the ones that do not apply are skipped. A coach
-/// answers the first two and lands on the coaching side; "both" answers
-/// all three and starts on the playing side with coaching one switch away.
+/// Four steps at most — which side of the table you are on, your name, how
+/// you heard about us, how you play — and the ones that do not apply are
+/// skipped. A coach answers all but the last and lands on the coaching side;
+/// "both" answers everything and starts on the playing side with coaching
+/// one switch away.
 struct OnboardingScreen: View {
     let needsName: Bool
     /// Anyone holding a coach_links row. Coaches are here to review someone
@@ -34,16 +35,35 @@ struct OnboardingScreen: View {
     @State private var handedness: String?
     @State private var grip: String?
     @State private var level: String?
+    @State private var source: String?
+    @State private var sourceDetail = ""
+    /// The name field only exists while an answer that asks for one is
+    /// picked, so it takes the keyboard the moment it appears — the same
+    /// thing the web's autoFocus does.
+    @FocusState private var detailFocused: Bool
     @State private var saving = false
     @State private var errorMessage: String?
     @State private var autoFinished = false
+
+    /// 0 name, 1 how you heard about us, 2 how you play. The role card is
+    /// its own gate ahead of all three.
+    private enum Step {
+        static let name = 0
+        static let source = 1
+        static let play = 2
+    }
 
     init(needsName: Bool, isCoach: Bool = false, isNew: Bool = true, onDone: @escaping () -> Void) {
         self.needsName = needsName
         self.isCoach = isCoach
         self.isNew = isNew
         self.onDone = onDone
-        _step = State(initialValue: needsName ? 0 : 1)
+        // A brand-new account that arrived with a name answers the source
+        // question first; an invite-born coach is never asked and goes
+        // straight to the playing questions it will also skip.
+        _step = State(initialValue: needsName
+            ? Step.name
+            : (isNew && !isCoach ? Step.source : Step.play))
     }
 
     /// Web caps the field at 120 characters and rejects anything over 80 on
@@ -76,6 +96,11 @@ struct OnboardingScreen: View {
     private var askingRole: Bool { isNew && !isCoach && !roleChosen }
     private var coachOnly: Bool { isCoach || role == "coach" }
     private var alsoCoach: Bool { role == "both" }
+    /// Where a signup came from, asked of accounts that arrived on their
+    /// own. An invite-born coach is not asked: a player sent them, and we
+    /// know it. Same condition the role card keys on, and the same people:
+    /// the two questions bracket the flow.
+    private var asksSource: Bool { isNew && !isCoach }
 
     /// The dots: which steps this account will walk, and where it is.
     /// Counted from what the account arrived with, never from the card
@@ -83,16 +108,19 @@ struct OnboardingScreen: View {
     /// the row does not resize while choosing.
     private var stepCount: Int {
         var n = 0
-        if isNew && !isCoach { n += 1 }
+        if asksSource { n += 1 }
         if needsName { n += 1 }
+        if asksSource { n += 1 }
         if !isCoach { n += 1 }
         return n
     }
     private var stepIndex: Int {
         if askingRole { return 0 }
-        var i = (isNew && !isCoach) ? 1 : 0
-        if step == 0 { return i }
+        var i = asksSource ? 1 : 0
+        if step == Step.name { return i }
         if needsName { i += 1 }
+        if step == Step.source { return i }
+        if asksSource { i += 1 }
         return i
     }
 
@@ -141,8 +169,10 @@ struct OnboardingScreen: View {
                         .padding(.vertical, 24)
                     } else if askingRole {
                         roleStep
-                    } else if step == 0 {
+                    } else if step == Step.name {
                         nameStep
+                    } else if step == Step.source {
+                        sourceStep
                     } else {
                         profileStep
                     }
@@ -282,11 +312,14 @@ struct OnboardingScreen: View {
         guard role != nil else { return }
         roleChosen = true
         if role == "coach", !needsName {
+            // Nothing left to answer about their game, but a coach who came
+            // looking is a signup like any other, so the source question is
+            // still asked and its Continue is what finishes.
             app.setWorkspace(.coach)
-            await saveProfile(setupDone: false)
+            step = Step.source
             return
         }
-        step = needsName ? 0 : 1
+        step = needsName ? Step.name : Step.source
     }
 
     // MARK: - Name
@@ -329,6 +362,103 @@ struct OnboardingScreen: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 24)
+    }
+
+    // MARK: - How you heard about us
+
+    private var sourceStep: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("How did you hear about us?")
+                .font(.plPageTitle)
+                .tracking(-0.6)
+                .foregroundStyle(PL.textBody)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 8) {
+                ForEach(SignupSource.options, id: \.value) { option in
+                    let active = source == option.value
+                    Button {
+                        withAnimation(.easeOut(duration: 0.15)) {
+                            source = active ? nil : option.value
+                            // Whatever was typed belonged to the answer that
+                            // was showing. A coach's name under "Which club?"
+                            // is worse than an empty field.
+                            sourceDetail = ""
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Text(option.label)
+                                .font(.plRowTitle)
+                                .foregroundStyle(active ? PL.cyan : PL.text100)
+                                .multilineTextAlignment(.leading)
+                            Spacer(minLength: 8)
+                            if active {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 18, weight: .medium))
+                                    .foregroundStyle(PL.cyan)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            active ? PL.cyan.opacity(0.08) : PL.ink.opacity(0.4),
+                            in: RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: PL.rField, style: .continuous)
+                                .strokeBorder(active ? PL.cyan.opacity(0.6) : PL.edge, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            // The half that is worth the most. A coach's name is the thing
+            // that turns "coaches are working" into "this coach is".
+            if let picked = SignupSource.option(source), let label = picked.detailLabel {
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionHeading(label)
+                    // No textContentType: the same field asks for a coach's
+                    // name, a club and a free answer, and iOS would offer
+                    // the phone owner's own name for all three.
+                    TextField(picked.detailPlaceholder ?? "", text: $sourceDetail)
+                        .plField()
+                        .focused($detailFocused)
+                        .onAppear { detailFocused = true }
+                }
+            }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.plCaption)
+                    .foregroundStyle(PL.dangerText)
+            }
+
+            // Same one-button shape as the playing questions: nothing here
+            // is required, and the button says which it is about to do.
+            Button {
+                Task { await continueFromSource() }
+            } label: {
+                Text(saving ? "Saving…" : (source != nil ? "Continue" : "Skip for now"))
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PLPrimaryButtonStyle())
+            .disabled(saving)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .plCard(padding: 24)
+    }
+
+    /// A coach has nothing left to answer, so their Continue finishes the
+    /// flow; everyone else goes on to the playing questions and finishes
+    /// there, which keeps this to one write either way.
+    private func continueFromSource() async {
+        if coachOnly {
+            await saveProfile(setupDone: false)
+        } else {
+            step = Step.play
+        }
     }
 
     // MARK: - How you play
@@ -465,10 +595,16 @@ struct OnboardingScreen: View {
                 if role == "coach" {
                     app.setWorkspace(.coach)
                 }
+                // A coach who arrived through a player's invite is never
+                // asked where they came from, so they finish here.
+                if asksSource {
+                    step = Step.source
+                    return
+                }
                 await saveProfile(setupDone: false)
                 return
             }
-            step = 1
+            step = asksSource ? Step.source : Step.play
         } catch {
             errorMessage = "We couldn't save your name. Try again."
             saving = false
@@ -498,6 +634,28 @@ struct OnboardingScreen: View {
                     setup_done_at: setupDone ? ISO8601DateFormatter().string(from: Date()) : nil
                 ))
                 .execute()
+            // How they found us, if they said. Deliberately after the
+            // profile and deliberately unchecked: this row is for us, and
+            // failing to write it is not a reason to hold somebody on the
+            // last screen of setup. Skipping the question writes nothing,
+            // so an account created after this shipped with no row here is
+            // one that skipped.
+            if let source {
+                struct SourceUpsert: Encodable {
+                    let user_id: String
+                    let source: String
+                    let detail: String?
+                }
+                _ = try? await supa
+                    .from("signup_sources")
+                    .upsert(SourceUpsert(
+                        user_id: uid.uuidString.lowercased(),
+                        source: source,
+                        detail: SignupSource.asksForDetail(source)
+                            ? SignupSource.normalizeDetail(sourceDetail) : nil
+                    ))
+                    .execute()
+            }
             if alsoCoach {
                 // Both sides: the playing side first, coaching one switch
                 // away, and the flag so the switch offers itself.

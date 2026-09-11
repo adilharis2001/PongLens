@@ -24,6 +24,7 @@ runUserFacingErrorChecks()
 runLessonPreviewChecks()
 runCoachActionsChecks()
 runMatchPointLinkChecks()
+runSignupSourceChecks()
 
 print("\n\(checks - failures)/\(checks) checks passed")
 if failures > 0 {

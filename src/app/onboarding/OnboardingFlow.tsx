@@ -3,15 +3,26 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { displayNameError, normalizeDisplayName } from "@/lib/auth/profile";
+import {
+  SIGNUP_DETAIL_MAX_LENGTH,
+  SIGNUP_SOURCES,
+  asksForDetail,
+  normalizeSignupDetail,
+  signupSourceOption,
+  type SignupSource,
+} from "@/lib/auth/signupSource";
 import { createClient } from "@/lib/supabase/client";
 import { setWorkspace } from "@/lib/workspace";
 
 /**
  * First-login setup, cut to what actually changes something:
  *
- *   name  — only when the account has none (email sign-ins; Google
- *           arrives with one).
- *   play  — handedness, grip and level, on one screen.
+ *   name   — only when the account has none (email sign-ins; Google
+ *            arrives with one).
+ *   source — how did you hear about us. Brand-new accounts only, and a
+ *            coach arriving through an invite is never asked, because the
+ *            invite already answered it.
+ *   play   — handedness, grip and level, on one screen.
  *
  * It used to be three screens and eight questions, with rubbers and
  * playing style in the middle, and it ended on a pair of buttons — Done
@@ -154,16 +165,31 @@ export function OnboardingFlow({
   // (roleChosen). "both" walks the playing questions and flags the coach.
   const [role, setRole] = useState<"player" | "coach" | "both" | null>(null);
   const [roleChosen, setRoleChosen] = useState(!(isNew && !isCoach));
-  const [step, setStep] = useState<"name" | "play">(
-    needsName ? "name" : "play"
+  const [step, setStep] = useState<"name" | "source" | "play">(
+    needsName ? "name" : isNew && !isCoach ? "source" : "play"
   );
   const [name, setName] = useState("");
   const [handedness, setHandedness] = useState<Handedness | null>(null);
   const [grip, setGrip] = useState<Grip | null>(null);
   const [level, setLevel] = useState<Level | null>(null);
+  const [source, setSource] = useState<SignupSource | null>(null);
+  const [sourceDetail, setSourceDetail] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const autoFinished = useRef(false);
+
+  // Where a signup came from, asked of accounts that arrived on their own.
+  // An invite-born coach is not asked: a player sent them, and we know it.
+  const asksSource = isNew && !isCoach;
+  // What the source question leads to. A coach has nothing left to answer,
+  // so their Continue finishes; everyone else goes on to the playing
+  // questions and finishes there.
+  const [afterSource, setAfterSource] = useState<"coaching" | "play">("play");
+
+  const goToSource = (after: "coaching" | "play") => {
+    setAfterSource(after);
+    setStep("source");
+  };
 
   /** Writes the profile row. `setupDone` stamps the playing questions as
    *  answered or explicitly skipped (159); the coach paths leave it empty
@@ -206,6 +232,23 @@ export function OnboardingFlow({
       setError("We couldn't save that. Try again.");
       return;
     }
+    // How they found us, if they said. Deliberately after the profile and
+    // deliberately unchecked: this row is for us, and failing to write it is
+    // not a reason to hold somebody on the last screen of setup. Skipping
+    // the question writes nothing, so an account created after this shipped
+    // with no row here is one that skipped.
+    if (source) {
+      await supabase.from("signup_sources").upsert(
+        {
+          user_id: user.id,
+          source,
+          detail: asksForDetail(source)
+            ? normalizeSignupDetail(sourceDetail)
+            : null,
+        },
+        { onConflict: "user_id" }
+      );
+    }
     if (role === "both") {
       // Both sides: the playing side first, coaching one switch away, and
       // the flag so the switch offers itself.
@@ -247,10 +290,14 @@ export function OnboardingFlow({
       } = await supabase.auth.getUser();
       await supabase.auth.updateUser({ data: { is_coach: true } });
       if (user) setWorkspace(user.id, "coach");
+      if (asksSource) {
+        goToSource("coaching");
+        return;
+      }
       void finish({}, "/coaching", false);
       return;
     }
-    setStep("play");
+    setStep(asksSource ? "source" : "play");
   };
 
   // A coach who arrived with a name (Google) has nothing to answer:
@@ -282,6 +329,10 @@ export function OnboardingFlow({
         } = await supabase.auth.getUser();
         await supabase.auth.updateUser({ data: { is_coach: true } });
         if (user) setWorkspace(user.id, "coach");
+        if (asksSource) {
+          goToSource("coaching");
+          return;
+        }
         void finish({}, "/coaching", false);
       }
     };
@@ -366,6 +417,89 @@ export function OnboardingFlow({
             {saving ? "Saving…" : "Continue"}
           </button>
         </form>
+      </>
+    );
+  }
+
+  if (step === "source") {
+    const picked = signupSourceOption(source);
+    const continueFromSource = () => {
+      if (afterSource === "coaching") {
+        void finish({}, "/coaching", false);
+        return;
+      }
+      setStep("play");
+    };
+    return (
+      <>
+        <h1 className="text-center text-xl font-semibold">
+          How did you hear about us?
+        </h1>
+
+        {/* grid, not space-y: a button is inline-block, so a plain stack
+            leaves each row shrink-wrapped to its own label. */}
+        <div className="mt-6 grid gap-2">
+          {SIGNUP_SOURCES.map((option) => (
+            <Choice
+              key={option.value}
+              selected={source === option.value}
+              onClick={() => {
+                setSource(source === option.value ? null : option.value);
+                // Whatever was typed belonged to the answer that was
+                // showing. A coach's name under "Which club?" is worse
+                // than an empty field.
+                setSourceDetail("");
+              }}
+            >
+              <span className="block text-left">{option.label}</span>
+            </Choice>
+          ))}
+        </div>
+
+        {/* The half that is worth the most. A coach's name is the thing
+            that turns "coaches are working" into "this coach is". */}
+        {picked?.detailLabel && (
+          <div className="mt-4">
+            <label
+              htmlFor="signup-source-detail"
+              className="block text-sm font-medium text-zinc-200"
+            >
+              {picked.detailLabel}
+            </label>
+            <input
+              id="signup-source-detail"
+              type="text"
+              autoFocus
+              // The same field asks for a coach's name, a club and a free
+              // answer, so there is nothing sensible for the browser to
+              // fill and offering the reader's own name is a wrong guess.
+              autoComplete="off"
+              maxLength={SIGNUP_DETAIL_MAX_LENGTH}
+              disabled={saving}
+              value={sourceDetail}
+              onChange={(event) => setSourceDetail(event.target.value)}
+              placeholder={picked.detailPlaceholder ?? ""}
+              className="mt-2 w-full rounded-xl border border-edge bg-surface-2 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-cyan-glow/60 focus:ring-2 focus:ring-cyan-glow/15 disabled:cursor-not-allowed disabled:opacity-60"
+            />
+          </div>
+        )}
+
+        {error && (
+          <p role="alert" className="mt-3 text-center text-xs text-red-400">
+            {error}
+          </p>
+        )}
+
+        {/* Same one-button shape as the last screen: nothing here is
+            required, and the button says which it is about to do. */}
+        <button
+          type="button"
+          onClick={continueFromSource}
+          disabled={saving}
+          className="glow-cta mt-6 w-full rounded-full bg-cyan-glow px-5 py-3 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {saving ? "Saving…" : source ? "Continue" : "Skip for now"}
+        </button>
       </>
     );
   }
