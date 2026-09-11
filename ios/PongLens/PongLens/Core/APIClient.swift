@@ -111,7 +111,14 @@ enum API {
         var recovered = false
         while true {
             let session = try await supa.auth.session
+            #if DEBUG && targetEnvironment(simulator)
+            let transport = ScorekeeperQAFixture.isEnabled
+                ? ScorekeeperQAFixture.urlSession
+                : URLSession.shared
+            let (data, response) = try await transport.data(for: build(session.accessToken))
+            #else
             let (data, response) = try await URLSession.shared.data(for: build(session.accessToken))
+            #endif
             guard let http = response as? HTTPURLResponse else {
                 throw URLError(.badServerResponse)
             }
