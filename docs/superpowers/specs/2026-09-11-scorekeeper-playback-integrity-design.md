@@ -4,6 +4,7 @@ Keep the winner, the observed ending, and the video used to show a point separat
 
 | Document control | Value |
 | --- | --- |
+| Baseline correction, September 11 | The original audit below used divergent local code. Unchanged app behavior now follows freshly fetched shared main `fd9e529c`; current serve toggles, whole-card scoring, bidirectional Join and four-second/edge Add offers must be preserved. See `2026-09-11-scorekeeper-current-app-status.md` and the amended implementation plan for current evidence; historical source maps and test results below are not current-version verification. |
 | Date / status | September 11, 2026. Adil approved implementation on web desktop, mobile web and native iOS, in an isolated worktree. Deployment remains separate. |
 | Approved decisions | Only a first answer during uninterrupted playback may create end evidence; preserve the exact clip revision cited by a coach; ask before a moved game boundary loses or changes a manually named winner. #5 remains on hold. |
 | Numbering | Uses the **revised ranking** from the second audit: #3 is Undo; #5 is missing-point access; #7 is stale clip caching; #8 is missed pauses. |

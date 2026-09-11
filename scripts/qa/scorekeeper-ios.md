@@ -51,7 +51,7 @@ xcrun simctl launch --terminate-running-process \
 
 `--qa-delay-ms` is clamped to 0–30000 milliseconds. `--qa-fail-write` accepts a positive one-based request ordinal, and `--qa-start-point` accepts 1–3 with point 2 as its fallback.
 
-The current deployed playback flags are reproduced in the fixture: `tap_end_playback=on`, `keep_score_full_card=on`, `rally_end_respects_card=on`, and `unscored_rally_end=off`. A scored point therefore keeps its whole card in Keep score; fixture point 1 ends at 8.0 seconds, not the older tap-plus-guard stop at 6.5 seconds.
+The current app's default playback flags are reproduced in the fixture: `tap_end_playback=on`, `keep_score_full_card=on`, `rally_end_respects_card=on`, and `unscored_rally_end=off`. A scored point therefore keeps its whole card in Keep score; fixture point 1 ends at 8.0 seconds, not the older tap-plus-guard stop at 6.5 seconds.
 
 Dismiss the player to compare current local fields with accepted remote fields, inspect submitted/accepted/failed event order, check that unexpected requests remain zero, and reopen without resetting the model. The JSONL evidence is at `$QA_DATA/Documents/scorekeeper-qa-events.jsonl`; it is truncated at fixture process start and contains no headers or credentials.
 

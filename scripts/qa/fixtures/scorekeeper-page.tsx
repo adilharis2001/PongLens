@@ -33,7 +33,9 @@ const points: Point[] = [0, 1, 2].map((index) => ({
 }));
 
 export default function ScorekeeperFixture() {
-  const missingClip = useSearchParams().get("case") === "missing-clip";
+  const params = useSearchParams();
+  const missingClip = params.get("case") === "missing-clip";
+  const keepScoreFullCard = params.get("full-card") !== "off";
   const fixturePoints = missingClip ? points.map((p,index) => index === 1
     ? {...p,idx:4,t0:10,t1:16,cut_t0:8}
     : index === 2 ? {...p,idx:2,t0:16,t1:22,cut_t0:10} : p) : points;
@@ -43,6 +45,6 @@ export default function ScorekeeperFixture() {
     ends={{
       tapEnd: true,
       rallyEnd: {on: false, bufferS: 0.5, tightBufferS: null, respectsCard: true},
-      keepScoreFullCard: true,
+      keepScoreFullCard,
     }} hasOriginal={false} />;
 }

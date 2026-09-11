@@ -50,7 +50,7 @@ async function fixture(viewport, scenario) {
     if(url.hostname!=='127.0.0.1') return route.abort();
     return route.continue();
   });
-  await page.goto(origin+'/qa-scorekeeper'+(scenario==='missing-own-clip'?'?case=missing-clip':''));
+  await page.goto(origin+'/qa-scorekeeper'+(scenario==='missing-own-clip'?'?case=missing-clip':scenario==='scorekeeper-tap-stop'?'?full-card=off':''));
   await page.getByRole('button',{name:/Score the Match/}).click();
   await page.getByRole('button',{name:'Undo last tap',exact:true}).waitFor();
   const serveSwitch=page.getByRole('switch',{name:'You serve. Press to give the serve to Alex.',exact:true});
@@ -70,7 +70,7 @@ async function fixture(viewport, scenario) {
 
 try {
   for(const [surface,viewport] of [['desktop',{width:1440,height:900}],['mobile',{width:393,height:660}]]) {
-    const regressions=['correction','clear','skip','paused-first-answer','live-first-answer','scrubbed-first-answer','auto-paused-first-answer','failed-clear','failed-undo','immediate-undo','undo-then-correction','undo-after-close','undo-after-reopen','undo-after-navigation','undo-after-pause','join-then-score','missing-own-clip'];
+    const regressions=['correction','clear','skip','paused-first-answer','live-first-answer','scrubbed-first-answer','auto-paused-first-answer','failed-clear','failed-undo','immediate-undo','undo-then-correction','undo-after-close','undo-after-reopen','undo-after-navigation','undo-after-pause','join-then-score','backward-join-then-score','missing-own-clip','scorekeeper-full-card','scorekeeper-tap-stop'];
     const scenarios=process.env.QA_SCENARIO==='reference'
       ? ['reference']
       : regressions.filter(name=>!process.env.QA_SCENARIO||process.env.QA_SCENARIO===name);
@@ -83,8 +83,20 @@ try {
           results.push(`${surface} reference: PASS`);
           continue;
         }
+        if(['scorekeeper-full-card','scorekeeper-tap-stop'].includes(scenario)) {
+          await f.selectPoint(1,{paused:false});
+          const expected=scenario==='scorekeeper-full-card'?8:6.5;
+          await f.page.waitForFunction(expected=>{const v=document.querySelector('video');return v.paused&&v.currentTime>=expected-0.05;},expected);
+          const time=await f.page.evaluate(()=>document.querySelector('video').currentTime);
+          assert.ok(Math.abs(time-expected)<0.1,`current playback policy stops at ${expected}, got ${time}`);
+          assert.deepEqual(f.writes,[],'playback policy alone does not write score or ending');
+          assert.deepEqual(f.errors,[],'no browser runtime errors');
+          await f.page.screenshot({path:output+`qa-${surface}-${scenario}.png`});
+          results.push(`${surface} ${scenario}: PASS`);
+          continue;
+        }
         const firstAnswer=scenario.endsWith('first-answer')||scenario==='missing-own-clip';
-        await f.selectPoint(firstAnswer?2:1,{paused:!['live-first-answer','scrubbed-first-answer','auto-paused-first-answer','missing-own-clip'].includes(scenario),...(scenario==='missing-own-clip'?{start:8}:{})});
+        await f.selectPoint(firstAnswer||scenario==='backward-join-then-score'?2:1,{paused:!['live-first-answer','scrubbed-first-answer','auto-paused-first-answer','missing-own-clip'].includes(scenario),...(scenario==='missing-own-clip'?{start:8}:{})});
         if(scenario==='missing-own-clip') {
           // A settled replay at the virtual start must still be ineligible
           // when the card's required standalone media could not load.
@@ -93,10 +105,12 @@ try {
           await f.page.evaluate(()=>document.querySelector('video').play());
           await f.page.waitForFunction(()=>document.querySelector('video').currentTime>=8.2);
         }
-        if(scenario==='join-then-score') {
+        if(['join-then-score','backward-join-then-score'].includes(scenario)) {
           await f.page.getByRole('button',{name:/^Modify\s*split/}).click();
           const modal=f.page.getByRole('heading',{name:'Modify point',exact:true}).locator('..').locator('..');
-          await modal.getByRole('button',{name:/^Join.*merge with next$/}).click();
+          await modal.getByRole('button',{name:/^Join\s*merge neighbours$/}).click();
+          const direction=modal.getByRole('button',{name:scenario==='backward-join-then-score'?'← Previous':'Next →',exact:true});
+          assert.equal(await direction.getAttribute('aria-pressed'),'true','current default Join direction is retained');
           await modal.getByRole('button',{name:'Alex',exact:true}).click();
           await modal.getByRole('button',{name:'Join 2 points',exact:true}).click();
           const saved=f.page.waitForResponse(r=>r.request().method()==='PATCH' && new URL(r.url()).port==='3218').catch(()=>null);
@@ -106,6 +120,10 @@ try {
           assert.equal(await f.page.getByRole('button',{name:/^Go to point \d+,/}).count(),2,'merged-away card stays removed after scorer save');
           assert.match(await f.page.getByRole('button',{name:'Open point 1',exact:true}).innerText(),/15\.0s/,'survivor keeps joined timing');
           assert.equal(f.writes.length,1,'one winner write after join');
+          assert.equal(f.writes[0].id,'eq.33333333-3333-4333-8333-000000000001','score targets surviving point even when joining backward');
+          assert.equal(f.writes[0].patch.confirmed_winner,'opponent');
+          assert.equal(f.writes[0].patch.scored_at_cut_s,6,'winner-only correction preserves survivor ending');
+          assert.deepEqual(f.errors,[],'no browser runtime errors');
           await f.page.screenshot({path:output+`qa-${surface}-${scenario}.png`});
           results.push(`${surface} ${scenario}: PASS`);
           continue;
