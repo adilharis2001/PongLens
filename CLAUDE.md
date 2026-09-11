@@ -91,6 +91,12 @@ for and leaves a neighbouring screen worse, say that before building it.
 
 ## The processing page has to keep up with the worker
 
+**Worker release/health rollout, 2026-09-11:** integration is in progress,
+not yet active. Read `docs/worker-release-health.md` before changing worker
+launchers, runtime dependencies or body fallback reporting. The sealed runtime
+source remains on `codex/worker-release-health`; do not merge its captured
+baseline wholesale over newer main.
+
 **`/admin/processing` is the only place anyone can see whether the workers
 are alive and what they are doing.** The worker changes often, and this
 page falls behind it silently: nothing breaks, the page simply stops
