@@ -70,4 +70,3 @@ values (
   )
 )
 on conflict (key) do nothing;
-

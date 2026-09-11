@@ -182,13 +182,11 @@ test("a missing reel can be explicitly requested once rally clips are settled", 
   );
 });
 
-test("fresh reel states remain terminal or in flight without another enqueue", () => {
+test("ready and in-flight reel states do not enqueue again", () => {
   for (const [reelStatus, status] of [
     ["ready", "ready"],
     ["queued", "rendering"],
     ["rendering", "rendering"],
-    ["empty", "empty"],
-    ["failed", "failed"],
   ] as const) {
     assert.deepEqual(
       automaticHighlightReadDecision({
@@ -198,6 +196,31 @@ test("fresh reel states remain terminal or in flight without another enqueue", (
         pointsUpdating: false,
       }),
       { status },
+    );
+  }
+});
+
+test("eligible empty and failed legacy reels can be explicitly generated again", () => {
+  for (const reelStatus of ["empty", "failed"] as const) {
+    assert.deepEqual(
+      automaticHighlightReadDecision({
+        hasReel: true,
+        reelStatus,
+        manifestFresh: true,
+        pointsUpdating: false,
+        scoreEligible: true,
+      }),
+      { status: "needs_generation" },
+    );
+    assert.equal(
+      automaticHighlightRequestDecision({
+        hasReel: true,
+        reelStatus,
+        manifestFresh: true,
+        pointsUpdating: false,
+        scoreEligible: true,
+      }),
+      "enqueue",
     );
   }
 });

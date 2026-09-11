@@ -68,6 +68,9 @@ export function automaticHighlightReadDecision({
   }
   if (!scoreEligible) return { status: "needs_scoring" };
   if (!hasReel) return { status: "needs_generation" };
+  if (reelStatus === "empty" || reelStatus === "failed") {
+    return { status: "needs_generation" };
+  }
   if (!manifestFresh) {
     return {
       status: pointsUpdating ? "updating" : "needs_update",
@@ -98,7 +101,7 @@ export function automaticHighlightRequestDecision({
     return "rendering";
   }
   if (pointsUpdating) return "clips_updating";
-  if (hasReel && manifestFresh) return "current";
+  if (hasReel && manifestFresh && reelStatus === "ready") return "current";
   if (!scoreEligible) return "score_required";
   return "enqueue";
 }
