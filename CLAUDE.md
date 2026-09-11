@@ -169,6 +169,48 @@ surface, not just this one:
 
 ---
 
+## What a cost has to say about itself
+
+**`/admin/costs` answers two questions, and they must never be added
+together.** What PongLens costs to RUN for the people using it is about $79
+a month and grows with players. What it costs to BUILD is about $392 and
+does not. One total hides whichever half you were not looking at, which is
+what the page did until 2026-09-11. The split lives in
+`get_platform_cost_dashboard`, not in the page, so nothing downstream can
+sum them by accident; and build costs are never divided across players,
+because nobody's upload caused a subscription.
+
+- **A new paid call site names the account that caused it.** Pass
+  `subjectUserId` to `openAIUsageEvents` / `deepgramUsageEvents` /
+  `resendEmailEvent`, or `subject_user_id` in the worker. Without it the
+  page falls back to dividing the pot by activity counts, and that goes
+  wrong SILENTLY the first time an expensive feature is not one of the
+  counts. Lesson videos were not: Deepgram is 94% lesson-video audio and was
+  being split by voice-note count, so a coach running twenty recaps read as
+  nearly free while a player who left one voice note absorbed their bill.
+  Nothing errored and no test failed. `routeMetering.test.ts` asserts the
+  pattern per route; add a row when you add a route.
+- **A cost with no single owner stays unowned, on purpose.** A nightly
+  sweep, a warm-up, admin tooling. Guessing is worse than admitting: the
+  People tab reports what share of spend is measured, so a missing owner
+  shows up in that number and a wrong one hides inside it. Where a call site
+  is deliberately unattributed, say why there (`r2.ts` and `send.ts` do).
+- **A metered SKU with no matching rate prices at zero and says nothing.**
+  The rate lookup joins on provider, service, sku AND unit, so a rate filed
+  under the wrong service never meets its events — `gpt-audio` sat under a
+  service called "Audio" while the worker recorded "AI", and every audio
+  check on a lesson recap cost nothing for a week. `health.unmapped_count`
+  is the check; it should be 0.
+- **`effective_from` on a rate is when the PRICE started, not when somebody
+  wrote the row.** whisper-1 was dated a day late and 105 minutes of
+  transcription priced at zero.
+- **A feature is not finished when it spends money, but when the page can
+  name what it spent.** New operation names get a plain-English label in
+  `featureForOperation` (`costDashboardView.ts`), the same way a new job kind
+  gets one on the processing page.
+
+---
+
 ## Copy
 
 **Plain, natural English. Never try to sound clever.** Not witty, punchy,
