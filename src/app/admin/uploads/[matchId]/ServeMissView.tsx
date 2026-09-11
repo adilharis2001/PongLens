@@ -1,6 +1,14 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { netSegmentFromQuad } from "../../../research/serve-accuracy/netDeath";
 import { NORMAL_SPEED_IDX, SPEEDS, SpeedMenu } from "../../../match/[id]/SpeedMenu";
 import { CardTimeline } from "./CardTimeline";
@@ -12,16 +20,11 @@ import {
   bounceLabelCopy,
   labelFor,
   courtTrajectory,
-  inferredBounceMarkerTitle,
-  inferredBounceMarkers,
-  reasonShort,
-  reasonTone,
   tablePathSegments,
   tableTrailAt,
   type BounceLabel,
   type MissBounce,
   type MissCard,
-  serveDetector,
   type ServeMissData,
   type TableTrackPoint,
   type TableTrackSegment,
@@ -115,6 +118,7 @@ export function ServeMissView({
   videoUrl,
   labels,
   onLabel,
+  side,
 }: {
   data: ServeMissData;
   card: MissCard;
@@ -126,6 +130,10 @@ export function ServeMissView({
   labels?: ReadonlyMap<string, BounceLabel>;
   /** Files one correction; null withdraws it. Storage is the caller's. */
   onLabel?: (bounce: MissBounce, label: BounceLabel | null) => void;
+  /** Rendered in the right-hand column under the map. The upload page's
+   *  pane fills this with the note box, the themes and the card's
+   *  readings; the phone and the themes page leave it empty. */
+  side?: ReactNode;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -356,13 +364,10 @@ export function ServeMissView({
     };
   }, [data, card, cutOffset, cutT0, labels]);
 
-  const why = card.why;
-  const inferred = useMemo(() => inferredBounceMarkers(card), [card]);
-
   return (
     <div className="mt-3 rounded-2xl border border-edge bg-surface-2/40 p-3">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
-      <div className="min-w-0 lg:flex-[2]">
+      <div className="min-w-0 lg:flex-[3]">
       {/* Sized on the div, never the video: a media element has no
           intrinsic size until metadata arrives, and the canvas measures
           the video, so a self-sized video makes the overlay jump. */}
@@ -462,8 +467,26 @@ export function ServeMissView({
 
       </div>
 
-      <div className="flex min-w-0 flex-row gap-3 lg:flex-1">
-        <div className="w-24 shrink-0 sm:w-32 lg:w-40">
+      {/* The right-hand column: the map, then whatever the caller wants
+          beside the footage. On the upload page that is the note box, the
+          themes and the card's readings, so a pass down the list never has
+          to scroll this pane to reach them.
+
+          The prose that used to sit here is gone on purpose. It restated
+          in words what the map already shows, and the map is what gets
+          read — the bounces, which half each landed on, and the path
+          between them. The bounce-pair rule's walk is still on the
+          timeline under the video, where it can be read against the
+          footage instead of beside it.
+
+          The map is capped, not stretched. Its viewBox is a table seen
+          from above, about 1.7 times taller than it is wide, so at the
+          full width of this column it would stand 800px tall on its own
+          and push the note box off the screen — the exact problem this
+          change exists to fix. 15rem measures 410px tall, which is what
+          the video column leaves once the note box has its share. */}
+      <div className="flex min-w-0 flex-col gap-3 lg:flex-[2]">
+        <div className="w-40 shrink-0 self-start sm:w-48 lg:w-full lg:max-w-[15rem]">
           <Court
             card={card}
             t={t}
@@ -472,97 +495,7 @@ export function ServeMissView({
             onSelect={onLabel ? selectBounce : undefined}
           />
         </div>
-        <div className="min-w-0 flex-1">
-          {typeof card.serve_s === "number" ? (
-            <p className="text-sm text-zinc-300">
-              {card.serve_source === "v3" ? "V3 put the serve" : "Serve found"}{" "}
-              {(card.serve_s - card.t0).toFixed(2)}s into the card
-              {card.serve_source === "v3" &&
-                typeof card.serve_arrival_s === "number" && (
-                  <>
-                    , on a bounce{" "}
-                    {(card.serve_arrival_s - card.serve_s).toFixed(2)}s later
-                    {card.serve_half
-                      ? ` on the ${card.serve_half} half`
-                      : ""}
-                  </>
-                )}
-              . The rings are every bounce the detector saw, green on the
-              playing surface and red off it, so the first bounce and where
-              it landed can be checked against the picture.
-            </p>
-          ) : (
-            <p className="text-sm text-zinc-300">
-              {serveDetector(data) === "v3"
-                ? "V3 found no serve in this card."
-                : (data.reasons[why.reason] ?? reasonShort(why.reason))}
-            </p>
-          )}
-          {/* The lines below are the older bounce-pair rule's walk, and on a
-              V3 match they are no longer the reason for anything — V3 does
-              not require a pair, which is the whole point of it. Kept
-              because they are still the best account of what the ball did
-              in this card, and labelled so nobody reads them as V3's
-              reasoning. */}
-          <p className="mt-1 text-xs text-zinc-500">
-            {serveDetector(data) === "v3"
-              ? "What the older bounce-pair rule saw here: "
-              : ""}
-            {why.bounces} bounce{why.bounces === 1 ? "" : "s"} in the card,{" "}
-            {why.on_surface} on the table surface, {why.pairs} pair
-            {why.pairs === 1 ? "" : "s"} tested.
-            {card.crossings.length > 0 &&
-              ` ${card.crossings.length} net crossing${card.crossings.length === 1 ? "" : "s"}.`}
-          </p>
-          {why.detail.length > 0 && (
-            <ul className="mt-2 space-y-1">
-              {why.detail.slice(0, 8).map(([a, b, rule], i) => (
-                <li
-                  key={`${a}-${b}-${i}`}
-                  className="flex items-center gap-2 text-xs"
-                >
-                  <span
-                    className="inline-block h-2 w-2 shrink-0 rounded-full"
-                    style={{ background: reasonTone(rule) }}
-                  />
-                  <span className="tabular-nums text-zinc-500">
-                    {(a - card.t0).toFixed(2)}s + {(b - a).toFixed(2)}s
-                  </span>
-                  <span className="min-w-0 text-zinc-400">
-                    {reasonShort(rule)}
-                  </span>
-                </li>
-              ))}
-              {why.detail.length > 8 && (
-                <li className="text-xs text-zinc-600">
-                  and {why.detail.length - 8} more pairs
-                </li>
-              )}
-            </ul>
-          )}
-          {inferred.length > 0 && (
-            <div className="mt-4 border-t border-edge pt-3">
-              <p className="text-sm font-medium text-zinc-300">
-                Inferred bounce evidence
-              </p>
-              <ul className="mt-2 space-y-2">
-                {inferred.slice(0, 8).map((marker) => (
-                  <li key={marker.id} className="text-xs text-zinc-400">
-                    <p className="text-zinc-300">
-                      {inferredBounceMarkerTitle(marker, card.t0)}
-                    </p>
-                    <p className="mt-0.5 text-zinc-500">{marker.missDetail}</p>
-                  </li>
-                ))}
-                {inferred.length > 8 && (
-                  <li className="text-xs text-zinc-600">
-                    and {inferred.length - 8} more diagnostic candidates
-                  </li>
-                )}
-              </ul>
-            </div>
-          )}
-        </div>
+        {side}
       </div>
       </div>
     </div>

@@ -45,6 +45,7 @@ export function CardReview({
   onNoteChange,
   onThemeToggle,
   onThemeCreated,
+  compact = false,
 }: {
   pointId: string;
   note: string;
@@ -53,6 +54,10 @@ export function CardReview({
   onNoteChange: (pointId: string, body: string) => void;
   onThemeToggle: (pointId: string, themeId: string, on: boolean) => void;
   onThemeCreated: (theme: Theme) => void;
+  /** Set when this sits in the column beside the footage. Drops the top
+   *  margin it needs when stacked, and a row of the note box, because the
+   *  column has to hold the map and the readings as well. */
+  compact?: boolean;
 }) {
   const [draft, setDraft] = useState(note);
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
@@ -139,7 +144,13 @@ export function CardReview({
   const exact = vocabulary.some((t) => t.label.toLowerCase() === q);
 
   return (
-    <div className="mt-3 rounded-2xl border border-edge bg-surface p-4">
+    <div
+      className={
+        compact
+          ? "rounded-2xl border border-edge bg-surface p-3"
+          : "mt-3 rounded-2xl border border-edge bg-surface p-4"
+      }
+    >
       <div className="flex flex-wrap items-center gap-1.5">
         {applied.map((t) => (
           <button
@@ -224,7 +235,7 @@ export function CardReview({
           if (timer.current) clearTimeout(timer.current);
           if (draft !== note) save(draft);
         }}
-        rows={3}
+        rows={compact ? 2 : 3}
         placeholder="What did you notice about this card?"
         className="mt-3 w-full resize-y rounded-xl border border-edge bg-surface-2/40 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-cyan-glow/50"
       />

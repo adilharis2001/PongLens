@@ -42,16 +42,35 @@ function name(
 export function CardFacts({
   reading,
   names,
+  compact = false,
 }: {
   reading: CardReading;
   names: { user: string; opponent: string };
+  /** Set when this sits in the column beside the footage rather than
+   *  across the page. What decides the grid here is the COLUMN's width,
+   *  and `lg:grid-cols-4` keys off the window instead — in a 400px column
+   *  it would still lay out four tracks and wrap every value onto three
+   *  lines. Two tracks, always, when the caller says so. */
+  compact?: boolean;
 }) {
   const r = reading;
   const called = r.winner !== null;
 
   return (
-    <div className="mt-3 rounded-2xl border border-edge bg-surface-2/40 p-4">
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-4">
+    <div
+      className={
+        compact
+          ? "rounded-2xl border border-edge bg-surface-2/40 p-3"
+          : "mt-3 rounded-2xl border border-edge bg-surface-2/40 p-4"
+      }
+    >
+      <dl
+        className={
+          compact
+            ? "grid grid-cols-2 gap-x-4 gap-y-2.5"
+            : "grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-4"
+        }
+      >
         <Fact label="You tapped">
           {!r.sideKnown ? (
             <span className="text-zinc-500">no end recorded</span>
