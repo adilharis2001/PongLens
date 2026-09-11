@@ -87,6 +87,25 @@ struct SplitNudge: Equatable {
     let certain: Bool
 }
 
+/// A successful score operation eventually yields the exact before/after
+/// receipt Undo needs. The placeholder keeps invocation order while the
+/// write is pending, including an immediate Undo tap.
+struct PendingScoreUndo {
+    let actionId: Int
+    let pointId: UUID
+    let replayAt: Double?
+    let command: Task<ScorerCommandReceipt?, Never>
+}
+
+enum PlayerUndoStep {
+    case score(PendingScoreUndo)
+    case existing(ScoreUndo)
+
+    static func bulkDelete(pointIds: [UUID], cutT0: Double?) -> PlayerUndoStep {
+        .existing(.bulkDelete(pointIds: pointIds, cutT0: cutT0))
+    }
+}
+
 /// The full-screen takeover: watch mode with the web's gestures, and Keep
 /// score — ticker, chip strip, winner buttons, auto-pause at each rally's
 /// end with the web's tuned rules (PAUSE_BEAT 1.2, re-arm 1.5, play guard
@@ -128,6 +147,7 @@ struct PlayerTakeover: View {
 
     @Environment(\.dismiss) var dismiss
     @Environment(AppState.self) var app
+    @Environment(\.scenePhase) var scenePhase
     @State var player = AVPlayer()
     @State var currentT: Double = 0
     @State var lastTick: Double?
@@ -151,6 +171,7 @@ struct PlayerTakeover: View {
     /// on the original, the one source that can be a link the retention
     /// sweep outlived.
     @State var itemStatus: NSKeyValueObservation?
+    @State var timeControlStatus: NSKeyValueObservation?
     @State var loadFailed = false
     /// The cut link lives six hours. One fresh link is minted when the
     /// item fails; a second failure is a real one and says so.
@@ -192,6 +213,10 @@ struct PlayerTakeover: View {
     @State var detourBase: Double = 0
     /// Visible cards the cut cannot show, per ownClipIds + a real clip.
     @State var ownClips: Set<UUID> = []
+    /// Full geometry verdict, before intersecting with clip_path or a URL
+    /// that happened to load. A failed own-clip fetch must not turn the
+    /// main cut fallback into evidence for a virtual point clock.
+    @State var ownClipCandidates: Set<UUID> = []
     /// Their preloaded items, so the swap starts with frames in hand.
     @State var clipItems: [UUID: AVPlayerItem] = [:]
     /// The clip_path each item was minted for (see loadOwnClips).
@@ -206,7 +231,16 @@ struct PlayerTakeover: View {
     /// actually watching it. Nil between runs.
     @State var runStartT: Double?
     @State var lastPlayAt = Date.distantPast
-    @State var undoStack: [ScoreUndo] = []
+    @State var scorePlaybackRun = ScorePlaybackRun()
+    @State var scorerSessionEffects = ScorerSessionEffects()
+    /// A periodic callback may still arrive while AVPlayer is seeking.
+    /// Only the completion of the newest seek makes capture eligible again;
+    /// an older completion cannot settle a newer navigation.
+    @State var scoreSeekGeneration = 0
+    @State var scoreSeekSettledGeneration = 0
+    @State var undoStack: [PlayerUndoStep] = []
+    @State var nextScoreActionId = 0
+    @State var scoreUndoInFlight = false
     @State var setupOpen = false
     /// One of the sheet's own buttons closed it, so onDismiss must not
     /// treat the close as a decline. Reset as the sheet goes away.
@@ -561,14 +595,20 @@ struct PlayerTakeover: View {
                 showChrome(autoHide: false)
             }
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { scorePlaybackRun.invalidate() }
+        }
         // A game closing is an announcement, not an event to acknowledge.
         .onChange(of: runningScore.games.count) { _, _ in watchGameBoundary() }
         .onDisappear {
+            scorerSessionEffects.close()
             if let observer { player.removeTimeObserver(observer) }
             for token in clipEndObservers {
                 NotificationCenter.default.removeObserver(token)
             }
             itemStatus?.invalidate()
+            timeControlStatus?.invalidate()
+            scorePlaybackRun.invalidate()
             player.pause()
             releaseForcedLandscape()
         }
@@ -805,7 +845,7 @@ struct PlayerTakeover: View {
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
                         .multilineTextAlignment(.center)
-                    Button("Close") { dismiss() }
+                    Button("Close") { closeTakeover() }
                         .buttonStyle(PLSecondaryButtonStyle())
                         .padding(.top, 4)
                 }
@@ -868,13 +908,13 @@ struct PlayerTakeover: View {
                 HStack(alignment: .top, spacing: 8) {
                     if isHighlights {
                         Button("Share") {
-                            player.pause()
+                            pauseForInteraction()
                             onShareHighlight?()
                         }
                         .buttonStyle(PLSecondaryButtonStyle())
                     } else {
                         overlayButton("questionmark", label: "Gestures") {
-                            player.pause()
+                            pauseForInteraction()
                             gesturesOpen = true
                         }
                     }
@@ -895,7 +935,7 @@ struct PlayerTakeover: View {
                     }
                     Spacer()
                     Button {
-                        dismiss()
+                        closeTakeover()
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 13, weight: .semibold))
@@ -1183,7 +1223,7 @@ struct PlayerTakeover: View {
     /// flow: draw, save, and the picture rides the next note.
     func captureFrame() {
         guard let asset = player.currentItem?.asset else { return }
-        player.pause()
+        pauseForInteraction()
         let time = player.currentTime()
         let generator = AVAssetImageGenerator(asset: asset)
         generator.requestedTimeToleranceBefore = .zero
@@ -1403,6 +1443,7 @@ struct PlayerTakeover: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
                         guard duration > 0, w > 0 else { return }
+                        scorePlaybackRun.invalidate()
                         scrubbing = true
                         scrubT = min(seekMax, max(0, g.location.x / w * seekMax))
                     }
@@ -1527,7 +1568,7 @@ struct PlayerTakeover: View {
                 // it is right while paused and right straight after a seek.
                 Button {
                     guard let target = tapTarget else { return }
-                    player.pause()
+                    pauseForInteraction()
                     sharePoint = target
                 } label: {
                     Image(systemName: "square.and.arrow.up")
@@ -1541,7 +1582,7 @@ struct PlayerTakeover: View {
             }
             if notesStore != nil {
                 transportIcon("square.and.pencil", "Add a note") {
-                    player.pause()
+                    pauseForInteraction()
                     noteComposerOpen = true
                 }
                 transportIcon("scribble.variable", "Draw on this frame") {
@@ -1550,7 +1591,7 @@ struct PlayerTakeover: View {
             }
             if let onTagPoint {
                 transportIcon("square.grid.2x2", "Add to a pattern") {
-                    player.pause()
+                    pauseForInteraction()
                     if let target = displayTarget { onTagPoint(target) }
                 }
             }
@@ -1563,7 +1604,7 @@ struct PlayerTakeover: View {
                 Button {
                     let at = currentT
                     player.pause()
-                    dismiss()
+                    closeTakeover()
                     onKeepScore(at)
                 } label: {
                     Text("Score the Match")
@@ -1696,7 +1737,10 @@ struct PlayerTakeover: View {
 
             // Controls: the web pad's full row.
             HStack(spacing: 6) {
-                padControl("Undo", icon: "arrow.uturn.backward", disabled: undoStack.isEmpty) { undo() }
+                padControl(
+                    "Undo", icon: "arrow.uturn.backward",
+                    disabled: undoStack.isEmpty || scoreUndoInFlight
+                ) { undo() }
                 padControl("Replay", icon: "gobackward") { replayTarget() }
                 padSpeedMenu()
                 padControl("Star", icon: target?.starred == true ? "star.fill" : "star") {
@@ -1715,7 +1759,7 @@ struct PlayerTakeover: View {
                 }
                 padControl("Details", icon: "arrow.up.forward.square", disabled: target == nil || onOpenPoint == nil) {
                     guard let target, let i = points.firstIndex(of: target) else { return }
-                    dismiss()
+                    closeTakeover()
                     onOpenPoint?(i)
                 }
             }
@@ -1726,7 +1770,7 @@ struct PlayerTakeover: View {
                 dispositionButton("Delete", sub: "dead space", tint: PL.dangerText, enabled: target != nil) { tapDelete() }
                 dispositionButton("Modify", sub: "split · join · adjust", tint: PL.cyan, enabled: target != nil) {
                     if let target {
-                        player.pause()
+                        pauseForInteraction()
                         modifyPoint = target
                     }
                 }
@@ -1843,7 +1887,7 @@ struct PlayerTakeover: View {
         let serveInfo = target.flatMap { serving[$0.id] }
         return HStack(spacing: 10) {
             overlayButton("questionmark", label: "Gestures") {
-                player.pause()
+                pauseForInteraction()
                 gesturesOpen = true
             }
             (Text("\(score.current.you)").foregroundColor(PL.cyan)
@@ -1863,7 +1907,7 @@ struct PlayerTakeover: View {
                 ProgressView().controlSize(.mini).tint(PL.text300)
             }
             Button {
-                dismiss()
+                closeTakeover()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 14, weight: .semibold))
@@ -1925,7 +1969,7 @@ struct PlayerTakeover: View {
                 enabled: target != nil, tall: true
             ) {
                 if let target {
-                    player.pause()
+                    pauseForInteraction()
                     modifyPoint = target
                 }
             }
@@ -1984,7 +2028,7 @@ struct PlayerTakeover: View {
             miniControl("chevron.left", label: "Back", wide: true) { step(-1) }
             miniControl(
                 "arrow.uturn.backward", label: "Undo",
-                disabled: undoStack.isEmpty, wide: true
+                disabled: undoStack.isEmpty || scoreUndoInFlight, wide: true
             ) { undo() }
             miniControl("gobackward", label: "Replay", wide: true) { replayTarget() }
             miniSpeedMenu(wide: true)
@@ -2025,7 +2069,7 @@ struct PlayerTakeover: View {
                 disabled: target == nil || onOpenPoint == nil, wide: true
             ) {
                 guard let target, let i = points.firstIndex(of: target) else { return }
-                dismiss()
+                closeTakeover()
                 onOpenPoint?(i)
             }
             miniControl("chevron.right", label: "Next", wide: true) { step(1) }
@@ -2377,12 +2421,9 @@ struct PlayerTakeover: View {
             return "The video skips \(skipped) seconds here. Add a missing rally."
         }()
         return Button {
-            // player.pause(), NOT a bare pause(): Swift resolves a bare
-            // pause() to the POSIX pause(2) system call from Darwin, which
-            // blocks the calling thread until a signal arrives. On the main
-            // thread that hangs the whole app and the watchdog then kills
-            // it — it compiles without a murmur, and it shipped in build 75.
-            player.pause()
+            // The named helper pauses AVPlayer; a bare pause() resolves to
+            // Darwin's blocking POSIX call and once hung the app (build 75).
+            pauseForInteraction()
             insertSeam = seamPair
         } label: {
             Image(systemName: "plus")
@@ -2508,7 +2549,7 @@ struct PlayerTakeover: View {
     func openPoint(_ p: MatchPoint) {
         guard let i = points.firstIndex(of: p) else { return }
         chipPill = nil
-        dismiss()
+        closeTakeover()
         onOpenPoint?(i)
     }
 
@@ -2774,7 +2815,7 @@ struct PlayerTakeover: View {
                         .font(.plBody)
                         .foregroundStyle(PL.text400)
                 }
-                Button("Done") { dismiss() }
+                Button("Done") { closeTakeover() }
                     .buttonStyle(PLPrimaryButtonStyle())
             }
             .padding(28)
@@ -2790,7 +2831,7 @@ struct PlayerTakeover: View {
     func startReview(_ ids: [UUID]) {
         reviewQueue = ids
         reviewIndex = 0
-        phase = .review
+        setScorePhase(.review)
         seekToReview()
     }
 
@@ -2798,24 +2839,104 @@ struct PlayerTakeover: View {
         guard reviewQueue.indices.contains(reviewIndex),
               let p = points.first(where: { $0.id == reviewQueue[reviewIndex] }),
               let cutT0 = p.cutT0 else {
-            phase = .summary
+            setScorePhase(.summary)
             return
         }
         seek(to: cutT0)
         play()
     }
 
+    /// Build capture evidence from AVPlayer itself, never from the view's
+    /// cached phase/playhead alone. The playing point is resolved from the
+    /// physical cut clock so a pinned review/end target cannot relabel it.
+    func scorePlaybackEvent(_ point: MatchPoint, at time: Double) -> ScorePlaybackEvent? {
+        guard let start = point.cutT0, let end = paddedEnd(point, pad), !point.edited else {
+            return nil
+        }
+        let actualCut = isCut && detourId == nil && player.currentItem === cutItem
+        guard let sourceKey = scorePlaybackSourceKey(
+            actualCut: actualCut,
+            requiresOwnClip: ownClipCandidates.contains(point.id),
+            latestSeekSettled: scoreSeekGeneration == scoreSeekSettledGeneration
+        ) else { return nil }
+        return ScorePlaybackEvent(
+            pointId: point.id,
+            start: start,
+            end: end,
+            time: time,
+            playing: player.rate > 0 && player.timeControlStatus == .playing,
+            ready: player.currentItem?.status == .readyToPlay,
+            foreground: scenePhase == .active,
+            sourceKey: sourceKey
+        )
+    }
+
+    func observeScorePlayback() {
+        guard mode == .score, phase == .play, !scrubbing, !isHighlights,
+              detourId == nil, let cutItem, player.currentItem === cutItem
+        else {
+            scorePlaybackRun.invalidate()
+            return
+        }
+        let time = player.currentTime().seconds
+        guard time.isFinite,
+              let id = playingPointId(points, at: time),
+              let point = points.first(where: { $0.id == id }),
+              let event = scorePlaybackEvent(point, at: time)
+        else {
+            scorePlaybackRun.invalidate()
+            return
+        }
+        scorePlaybackRun.observe(event)
+    }
+
+    func scoreObservation(_ point: MatchPoint) -> Double? {
+        guard mode == .score, phase == .play, !scrubbing, !isHighlights,
+              detourId == nil, let cutItem, player.currentItem === cutItem
+        else { return nil }
+        let time = player.currentTime().seconds
+        guard time.isFinite,
+              playingPointId(points, at: time) == point.id,
+              let event = scorePlaybackEvent(point, at: time)
+        else { return nil }
+        return scorePlaybackRun.observation(event)
+    }
+
     // MARK: - Scoring actions
 
-    /// Snapshot the scorer-owned fields of a point so Undo can put them
-    /// back. Taken BEFORE the write, always, including on the paths that
-    /// return early — except the ones that change nothing, which must not
-    /// spend the user's next Undo on a no-op.
+    /// Star still uses the older point snapshot. Score actions carry an
+    /// operation receipt instead, so Undo cannot restore unrelated fields.
     func pushUndo(_ p: MatchPoint) {
-        undoStack.append(.tap(
+        undoStack.append(.existing(.tap(
             pointId: p.id, winner: p.confirmedWinner, isLet: p.isLet,
             scoredAt: p.scoredAtCutS, starred: p.starred
-        ))
+        )))
+    }
+
+    func recordScoreUndo(
+        point: MatchPoint,
+        command: Task<ScorerCommandReceipt?, Never>
+    ) {
+        nextScoreActionId += 1
+        let entry = PendingScoreUndo(
+            actionId: nextScoreActionId,
+            pointId: point.id,
+            replayAt: point.cutT0,
+            command: command
+        )
+        undoStack.append(.score(entry))
+        let owner = scorerSessionEffects.capture()
+        Task {
+            guard await command.value == nil,
+                  scorerSessionEffects.sameSession(owner) else { return }
+            undoStack.removeAll { step in
+                if case .score(let candidate) = step {
+                    return candidate.actionId == entry.actionId
+                }
+                return false
+            }
+            showToast("Couldn't save. Tap again.")
+        }
     }
 
     /// The big winner buttons. `thenWhy` is the bubble in the opponent
@@ -2831,8 +2952,6 @@ struct PlayerTakeover: View {
         // nothing to undo; pushing an entry anyway would spend the next
         // Undo on a no-op.
         let noOp = thenWhy && target.confirmedWinner == side && !target.isLet
-        if !noOp { pushUndo(target) }
-
         let hadOutcome = target.confirmedWinner != nil || target.isLet
         // The big button TOGGLES — tapping the winner it already shows
         // clears it, which is how a mis-score is corrected. Why never
@@ -2845,9 +2964,13 @@ struct PlayerTakeover: View {
 
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         lastScored = next == nil ? nil : (id: target.id, at: Date())
-        if next != target.confirmedWinner || target.isLet {
-            let stamp = phase == .play && next != nil ? currentT : nil
-            Task { await model.tapWinner(target, side, scoredAt: stamp, force: next != nil) }
+        if !noOp, next != target.confirmedWinner || target.isLet {
+            let observation = !hadOutcome && next != nil ? scoreObservation(target) : nil
+            let command = model.queueWinner(
+                target, side, scoredAt: observation,
+                observationTiming: ScorerTimingGuard(target), force: next != nil
+            )
+            recordScoreUndo(point: target, command: command)
         }
 
         if phase == .review {
@@ -2875,7 +2998,7 @@ struct PlayerTakeover: View {
         }
 
         if thenWhy, next != nil {
-            player.pause()
+            pauseForInteraction()
             endPausedId = nil
             // The winner this tap just set, applied locally: `target` was
             // read before the write, so handing it over as-is would open on
@@ -2910,8 +3033,8 @@ struct PlayerTakeover: View {
             return
         }
         let hadOutcome = target.confirmedWinner != nil
-        pushUndo(target)
-        Task { await model.tapSkip(target) }
+        let command = model.queueSkip(target)
+        recordScoreUndo(point: target, command: command)
         showFlash("Skipped")
         endPausedId = nil
         if phase == .review {
@@ -2929,7 +3052,7 @@ struct PlayerTakeover: View {
 
     func tapDelete() {
         guard let target = tapTarget else { return }
-        undoStack.append(.delete(pointId: target.id, cutT0: target.cutT0))
+        undoStack.append(.existing(.delete(pointId: target.id, cutT0: target.cutT0)))
         Task { await model.softDelete(target) }
         showFlash("Removed")
         endPausedId = nil
@@ -3011,7 +3134,7 @@ struct PlayerTakeover: View {
 
     func nextReview() {
         if reviewIndex + 1 >= reviewQueue.count {
-            phase = .summary
+            setScorePhase(.summary)
         } else {
             reviewIndex += 1
             seekToReview()
@@ -3052,9 +3175,9 @@ struct PlayerTakeover: View {
     /// along: reopening a game clears the answer in the same write, so undo
     /// has to carry it back.
     func applyGameOverride(_ p: MatchPoint, _ value: GameEndOverride?) {
-        undoStack.append(.override(
+        undoStack.append(.existing(.override(
             pointId: p.id, previous: p.gameEndOverride, previousWinner: p.gameWinnerOverride
-        ))
+        )))
         Task { await model.setBoundary(p, next: value) }
     }
 
@@ -3089,45 +3212,80 @@ struct PlayerTakeover: View {
     // MARK: - Undo
 
     func undo() {
-        guard let entry = undoStack.popLast() else { return }
-        switch entry {
-        case .tap(let id, let winner, let isLet, let scoredAt, let starred):
-            guard let current = points.first(where: { $0.id == id }) else { return }
-            Task { await model.restoreScorerFields(
-                current, winner: winner, isLet: isLet, scoredAt: scoredAt,
-                deleted: false, starred: starred
-            ) }
-            replay(at: current.cutT0)
-        case .delete(let id, let cutT0):
-            // The point is not in the visible list any more, so the seek
-            // target had to travel with the entry.
-            guard let current = model.points.first(where: { $0.id == id }) else { return }
-            Task { await model.restoreScorerFields(
-                current, winner: current.confirmedWinner, isLet: current.isLet,
-                scoredAt: current.scoredAtCutS, deleted: false, starred: current.starred
-            ) }
-            replay(at: cutT0)
-        case .override(let id, let previous, let previousWinner):
-            // Overrides never moved playback, so undo doesn't either.
-            guard let current = model.points.first(where: { $0.id == id }) else { return }
+        guard !scoreUndoInFlight, let step = undoStack.popLast() else { return }
+        switch step {
+        case .score(let pending):
+            let originalIndex = undoStack.count
+            // This synchronous call reserves the queue slot before the
+            // receipt exists. A score tapped while Undo waits belongs after
+            // the restoration, never between the original write and Undo.
+            let restore = model.queueRestore(
+                pending.pointId, after: pending.command
+            )
+            scoreUndoInFlight = true
+            let owner = scorerSessionEffects.capture()
             Task {
-                await model.setBoundary(current, next: previous)
-                if let previousWinner, previous == .end {
-                    await model.setGameWinner(current, previousWinner)
+                let receipt = await pending.command.value
+                let restored = await restore.value
+                guard scorerSessionEffects.sameSession(owner) else { return }
+                guard receipt != nil else {
+                    scoreUndoInFlight = false
+                    return
                 }
-            }
-            freshBoundary = nil
-        case .bulkDelete(let ids, let cutT0):
-            Task {
-                for id in ids {
-                    guard let p = model.points.first(where: { $0.id == id }) else { continue }
-                    await model.restoreScorerFields(
-                        p, winner: p.confirmedWinner, isLet: p.isLet,
-                        scoredAt: p.scoredAtCutS, deleted: false, starred: p.starred
+                if restored != nil {
+                    if scorerSessionEffects.owns(owner) {
+                        replay(at: pending.replayAt)
+                    }
+                } else {
+                    undoStack.insert(
+                        .score(pending), at: min(originalIndex, undoStack.count)
                     )
+                    if scorerSessionEffects.owns(owner) {
+                        showToast("Couldn't save. Tap again.")
+                    }
                 }
+                scoreUndoInFlight = false
             }
-            replay(at: cutT0)
+        case .existing(let entry):
+            switch entry {
+            case .tap(let id, let winner, let isLet, let scoredAt, let starred):
+                guard let current = points.first(where: { $0.id == id }) else { return }
+                Task { await model.restoreScorerFields(
+                    current, winner: winner, isLet: isLet, scoredAt: scoredAt,
+                    deleted: false, starred: starred
+                ) }
+                replay(at: current.cutT0)
+            case .delete(let id, let cutT0):
+                // The point is not in the visible list any more, so the seek
+                // target had to travel with the entry.
+                guard let current = model.points.first(where: { $0.id == id }) else { return }
+                Task { await model.restoreScorerFields(
+                    current, winner: current.confirmedWinner, isLet: current.isLet,
+                    scoredAt: current.scoredAtCutS, deleted: false, starred: current.starred
+                ) }
+                replay(at: cutT0)
+            case .override(let id, let previous, let previousWinner):
+                // Overrides never moved playback, so undo doesn't either.
+                guard let current = model.points.first(where: { $0.id == id }) else { return }
+                Task {
+                    await model.setBoundary(current, next: previous)
+                    if let previousWinner, previous == .end {
+                        await model.setGameWinner(current, previousWinner)
+                    }
+                }
+                freshBoundary = nil
+            case .bulkDelete(let ids, let cutT0):
+                Task {
+                    for id in ids {
+                        guard let p = model.points.first(where: { $0.id == id }) else { continue }
+                        await model.restoreScorerFields(
+                            p, winner: p.confirmedWinner, isLet: p.isLet,
+                            scoredAt: p.scoredAtCutS, deleted: false, starred: p.starred
+                        )
+                    }
+                }
+                replay(at: cutT0)
+            }
         }
     }
 
@@ -3142,7 +3300,19 @@ struct PlayerTakeover: View {
 
     // MARK: - Playback plumbing
 
+    func closeTakeover() {
+        scorerSessionEffects.close()
+        dismiss()
+    }
+
+    func setScorePhase(_ next: ScorePhase) {
+        scorerSessionEffects.navigate()
+        phase = next
+    }
+
     func start() async {
+        scorerSessionEffects.open()
+        scoreUndoInFlight = false
         // Keep score writes scored_at_cut_s straight off this player's
         // clock, so scoring against the original would file every rally at
         // a second in the wrong file. Both call sites open the original in
@@ -3157,7 +3327,22 @@ struct PlayerTakeover: View {
         attachCutItem(AVPlayerItem(url: videoURL))
         // Which cards the cut cannot show, and their clips — fetched now
         // so a detour never starts with an empty player.
+        ownClipCandidates = ownClipIds(
+            model.points, pad: pad,
+            cutDuration: duration > 0 ? duration : nil
+        )
         Task { await loadOwnClips() }
+        timeControlStatus = player.observe(\.timeControlStatus, options: [.new]) { _, change in
+            let transition = ScorePlaybackTransportChange(
+                isPlaying: change.newValue == .playing
+            )
+            Task { @MainActor in
+                transition.apply(
+                    onPlaying: { observeScorePlayback() },
+                    onInterrupted: { scorePlaybackRun.invalidate() }
+                )
+            }
+        }
         observer = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.2, preferredTimescale: 600),
             queue: .main
@@ -3241,6 +3426,7 @@ struct PlayerTakeover: View {
         let prev = lastTick
         currentT = t
         isPlaying = player.rate > 0
+        observeScorePlayback()
         // The buffered bar reads the CUT's ranges; a clip's would paint at
         // the wrong offset, so a detour just leaves the bar alone.
         loaded = detourId != nil ? [] : (player.currentItem?.loadedTimeRanges ?? []).compactMap {
@@ -3256,7 +3442,9 @@ struct PlayerTakeover: View {
            let d = player.currentItem?.duration.seconds, d.isFinite, d > 0 {
             duration = d
             // The one-sided room rules (a card at the match's edge) need
-            // the file's real length, so ask again now that it is known.
+            // the file's real length. Mark candidates synchronously so a
+            // signing request cannot briefly make one capture-eligible.
+            refreshOwnClipCandidates()
             Task { await loadOwnClips() }
         }
 
@@ -3463,6 +3651,17 @@ struct PlayerTakeover: View {
         showFlash("Game \(count) · \(g.you)-\(g.them)")
     }
 
+    /// Opening a sheet deliberately pauses both cut and detour playback
+    /// and supersedes any Undo replay still waiting for persistence.
+    func pauseForInteraction() {
+        scorerSessionEffects.pauseForInteraction {
+            scorePlaybackRun.invalidate()
+            // A detour replaces this player's item, so this pauses either
+            // source without changing which footage is selected.
+            player.pause()
+        }
+    }
+
     /// Chrome follows playback, not a toggle. Pausing always shows it —
     /// you stopped to do something. Playing shows it and then takes it away
     /// after a beat, so the footage is unobstructed while it runs and one
@@ -3473,6 +3672,7 @@ struct PlayerTakeover: View {
     /// drawing, the end of the file): the bar was left hidden, and the next
     /// play SHOWED it mid-rally.
     func togglePlay() {
+        scorerSessionEffects.navigate()
         if player.rate > 0 {
             player.pause()
             showChrome(autoHide: false)
@@ -3506,6 +3706,7 @@ struct PlayerTakeover: View {
     }
 
     func play() {
+        scorePlaybackRun.invalidate()
         lastPlayAt = Date()
         runStartT = currentT
         endPausedId = nil
@@ -3516,6 +3717,10 @@ struct PlayerTakeover: View {
     }
 
     func seek(to seconds: Double) {
+        scorerSessionEffects.navigate()
+        scorePlaybackRun.invalidate()
+        scoreSeekGeneration += 1
+        let seekGeneration = scoreSeekGeneration
         lastTick = nil
         let sec = max(0, seconds)
         // Whose footage lives at this position? Every navigation lands
@@ -3532,9 +3737,12 @@ struct PlayerTakeover: View {
         player.seek(
             to: CMTime(seconds: sec, preferredTimescale: 600),
             toleranceBefore: .zero, toleranceAfter: .zero
-        ) { _ in
+        ) { finished in
             Task { @MainActor in
                 if pendingSeekEpoch == epoch { pendingSeekEpoch = nil }
+                guard finished, scoreSeekGeneration == seekGeneration else { return }
+                scoreSeekSettledGeneration = seekGeneration
+                observeScorePlayback()
             }
         }
         // A completion that never comes — the item replaced under the seek,
@@ -3565,6 +3773,8 @@ struct PlayerTakeover: View {
     /// site and the periodic observer working untouched.
     func enterDetour(_ p: MatchPoint, at t: Double, andPlay: Bool) {
         guard let item = clipItems[p.id], let base = p.cutT0 else { return }
+        scorerSessionEffects.navigate()
+        scorePlaybackRun.invalidate()
         let wasPlaying = player.rate > 0
         if cutItem == nil { cutItem = player.currentItem }
         detourId = p.id
@@ -3587,6 +3797,8 @@ struct PlayerTakeover: View {
     /// caller's to set — every exit is followed by a seek, a play, or both.
     func exitDetour() {
         guard detourId != nil else { return }
+        scorerSessionEffects.navigate()
+        scorePlaybackRun.invalidate()
         detourId = nil
         lastTick = nil
         if let cutItem, player.currentItem !== cutItem {
@@ -3680,7 +3892,7 @@ struct PlayerTakeover: View {
             seek(to: nt)
             play()
         } else if mode == .score, phase == .play {
-            phase = .summary
+            setScorePhase(.summary)
         } else {
             player.pause()
         }
@@ -3696,11 +3908,13 @@ struct PlayerTakeover: View {
     /// usual reason), the end of the file closes a scoring session.
     func attachCutItem(_ item: AVPlayerItem, resumeAt: Double? = nil,
                        resumePlaying: Bool = false) {
+        scorePlaybackRun.invalidate()
         player.replaceCurrentItem(with: item)
         cutItem = item
         itemStatus = item.observe(\.status, options: [.new]) { item, _ in
             Task { @MainActor in
                 guard item.status == .failed else { return }
+                scorePlaybackRun.invalidate()
                 if remintedCut {
                     loadFailed = true
                     return
@@ -3714,12 +3928,24 @@ struct PlayerTakeover: View {
             object: item, queue: .main
         ) { _ in
             Task { @MainActor in
-                if mode == .score { phase = .summary }
+                scorePlaybackRun.invalidate()
+                if mode == .score { setScorePhase(.summary) }
             }
         }
         if let resumeAt {
-            player.seek(to: CMTime(seconds: resumeAt, preferredTimescale: 600),
-                        toleranceBefore: .zero, toleranceAfter: .zero)
+            scoreSeekGeneration += 1
+            let seekGeneration = scoreSeekGeneration
+            player.seek(
+                to: CMTime(seconds: resumeAt, preferredTimescale: 600),
+                toleranceBefore: .zero, toleranceAfter: .zero
+            ) { finished in
+                guard finished else { return }
+                Task { @MainActor in
+                    guard scoreSeekGeneration == seekGeneration else { return }
+                    scoreSeekSettledGeneration = seekGeneration
+                    observeScorePlayback()
+                }
+            }
             if resumePlaying { player.play() }
         }
     }
@@ -3752,12 +3978,17 @@ struct PlayerTakeover: View {
         }
     }
 
-    func loadOwnClips() async {
-        guard isCut else { return }
-        let flagged = ownClipIds(
+    func refreshOwnClipCandidates() {
+        ownClipCandidates = ownClipIds(
             model.points, pad: pad,
             cutDuration: duration > 0 ? duration : nil
         )
+    }
+
+    func loadOwnClips() async {
+        guard isCut else { return }
+        refreshOwnClipCandidates()
+        let flagged = ownClipCandidates
         let eligible = Set(points.filter(\.hasClip).map(\.id))
         ownClips = flagged.intersection(eligible)
         // A card whose file changed (a re-cut writes a fresh key) gets a

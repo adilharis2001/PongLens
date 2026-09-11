@@ -72,6 +72,13 @@ import {
   SPEEDS as SPEED_VALUES,
   SpeedMenu,
 } from "./SpeedMenu";
+import {
+  ScorePlaybackRun,
+  ScorerSessionEffects,
+  isScorerFailure,
+  type ScorerCommandReceipt,
+  type ScorerCommandResult,
+} from "./scorerState";
 
 /**
  * The Player: ONE takeover playback surface that owns the ONLY
@@ -409,9 +416,9 @@ type Phase = "play" | "summary" | "review";
 type UndoEntry =
   | {
       type: "tap";
+      actionId: number;
       pointId: string;
-      prevWinner: "user" | "opponent" | null;
-      prevSkipped: boolean;
+      receipt: Promise<ScorerCommandReceipt | null>;
     }
   | {
       /** Player-originated soft delete; undo restores deleted:false. */
@@ -708,7 +715,12 @@ export const Player = forwardRef<
       /** Cut-video playhead at the tap — Keep score's flowing session
        *  only, where the video sits at the rally's end (067). */
       scoredAtCutS?: number
-    ) => void;
+    ) => Promise<ScorerCommandResult>;
+    /** Restore one successful score/Skip command as a coupled snapshot. */
+    onRestoreScorer: (
+      pointId: string,
+      pending: Promise<ScorerCommandReceipt | null>
+    ) => Promise<ScorerCommandResult>;
     /**
      * Admin, on their own match (089). Shows the serve-start label under
      * the pad. The DB trigger enforces the same rule, so this only decides
@@ -726,7 +738,10 @@ export const Player = forwardRef<
       meta: ServeStartMeta | null
     ) => void;
     /** Mark/unmark a point skipped (is_let column). */
-    onSetSkipped: (point: Point, value: boolean) => void;
+    onSetSkipped: (
+      point: Point,
+      value: boolean
+    ) => Promise<ScorerCommandResult>;
     onSetServer: (point: Point, value: "user" | "opponent") => void;
     /**
      * Add a card for a rally the cut missed, between two neighbours.
@@ -861,6 +876,7 @@ export const Player = forwardRef<
     onSaveNames,
     onSaveFirstServer,
     onSetWinner,
+    onRestoreScorer,
     canLabelServeStart = false,
     onSetServeStart,
     onSetSkipped,
@@ -1329,8 +1345,54 @@ export const Player = forwardRef<
   showControlsRef.current = showControls;
 
   // Score-mode session state.
-  const [phase, setPhase] = useState<Phase>("play");
+  const [phase, setPhaseState] = useState<Phase>("play");
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const scorerActionId = useRef(0);
+  const scorerUndoInFlight = useRef<number | null>(null);
+  const scorerSessionEffects = useRef(new ScorerSessionEffects());
+  const setPhase = useCallback((next: Phase) => {
+    scorerSessionEffects.current.navigate();
+    setPhaseState(next);
+  }, []);
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number | null>(null);
+  const showToast = useCallback((text: string, ms = 1500) => {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    setToast(text);
+    toastTimer.current = window.setTimeout(() => setToast(null), ms);
+  }, []);
+  useEffect(() => () => scorerSessionEffects.current.close(), []);
+  const recordScorerUndo = useCallback(
+    (
+      pointId: string,
+      command: Promise<ScorerCommandResult>
+    ) => {
+      const actionId = ++scorerActionId.current;
+      const owner = scorerSessionEffects.current.capture();
+      const receipt = command.catch<ScorerCommandResult>(() => ({ failed: true })).then((result) => {
+        if (isScorerFailure(result)) {
+          if (scorerSessionEffects.current.sameSession(owner)) {
+            showToast("Couldn't save. Tap again.");
+          }
+          return null;
+        }
+        return result;
+      });
+      setUndoStack((stack) => [
+        ...stack,
+        { type: "tap", actionId, pointId, receipt },
+      ]);
+      void receipt.then((saved) => {
+        if (saved || !scorerSessionEffects.current.sameSession(owner)) return;
+        setUndoStack((stack) =>
+          stack.filter(
+            (entry) => entry.type !== "tap" || entry.actionId !== actionId
+          )
+        );
+      });
+    },
+    [showToast]
+  );
   // Modify modal: the point it was opened for (null = closed), and an
   // in-flight guard for the split/join orchestration round-trips.
   const [modifyPoint, setModifyPoint] = useState<Point | null>(null);
@@ -1348,8 +1410,6 @@ export const Player = forwardRef<
   const [draftYou, setDraftYou] = useState("");
   const [draftThem, setDraftThem] = useState("");
   const namesPromptedRef = useRef(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<number | null>(null);
   const [boundary, setBoundary] = useState<{
     game: number;
     you: number;
@@ -1600,6 +1660,16 @@ export const Player = forwardRef<
   // every optimistic points update.
   const pointsRef = useRef(points);
   pointsRef.current = points;
+  const scorePlaybackRun = useRef(new ScorePlaybackRun());
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") {
+        scorePlaybackRun.current.invalidate();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
 
   // Latest deleted spans, same reasoning (auto-skip runs per timeupdate).
   const deletedSpansRef = useRef(deletedSpans);
@@ -1782,12 +1852,18 @@ export const Player = forwardRef<
   // still occupy cut footage — and only a visible card whose clip the
   // worker has already produced can take a detour: a fresh insert stays on
   // the cut (today's behaviour) until processing finishes.
+  const ownClipCandidates = useMemo(
+    () => ownClipIds([...points, ...removedPoints], pad, duration || null),
+    [points, removedPoints, pad, duration]
+  );
+  const ownClipCandidatesRef = useRef(ownClipCandidates);
+  ownClipCandidatesRef.current = ownClipCandidates;
   const ownClipSet = useMemo(() => {
-    const ids = ownClipIds([...points, ...removedPoints], pad, duration || null);
+    const ids = ownClipCandidates;
     if (ids.size === 0) return ids;
     const byId = new Map(points.map((p) => [p.id, p]));
     return new Set([...ids].filter((id) => byId.get(id)?.clip_path));
-  }, [points, removedPoints, pad, duration]);
+  }, [points, ownClipCandidates]);
   const ownClipSetRef = useRef(ownClipSet);
   ownClipSetRef.current = ownClipSet;
 
@@ -1924,6 +2000,8 @@ export const Player = forwardRef<
 
   const exitDetour = useCallback(() => {
     if (detourRef.current === null) return;
+    scorerSessionEffects.current.navigate();
+    scorePlaybackRun.current.invalidate();
     detourRef.current = null;
     setDetourId(null);
     detourTickRef.current = null;
@@ -1938,6 +2016,8 @@ export const Player = forwardRef<
     const url = clipUrlsRef.current.get(p.id);
     const dv = detourVideoRef.current;
     if (!url || !dv || p.cut_t0 === null) return;
+    scorerSessionEffects.current.navigate();
+    scorePlaybackRun.current.invalidate();
     // Pin FIRST: the pause below flushes one last timeupdate/pause pair
     // off the main element, and both handlers key off this ref to stand
     // down during a detour.
@@ -1957,6 +2037,8 @@ export const Player = forwardRef<
 
   const seekTo = useCallback(
     (t: number) => {
+      scorerSessionEffects.current.navigate();
+      scorePlaybackRun.current.invalidate();
       const clamped = Math.max(0, t);
       setPlayheadT(clamped);
       // Kill the crossing detector's previous tick SYNCHRONOUSLY: a
@@ -1995,11 +2077,14 @@ export const Player = forwardRef<
    *  main element under an active detour leaves sound running behind
    *  whatever just opened. */
   const pauseBoth = useCallback(() => {
+    scorerSessionEffects.current.navigate();
+    scorePlaybackRun.current.invalidate();
     videoRef.current?.pause();
     detourVideoRef.current?.pause();
   }, []);
 
   const onLoadedMetadata = useCallback((v: HTMLVideoElement) => {
+    scorePlaybackRun.current.invalidate();
     setDuration(v.duration || 0);
     // Portrait-shot footage gates the landscape affordances (see the
     // fullscreen section).
@@ -2016,6 +2101,50 @@ export const Player = forwardRef<
     }
   }, []);
 
+  const scorePlaybackEvent = useCallback(
+    (point: Point, video: HTMLVideoElement) => {
+      if (point.cut_t0 === null || point.edited) return null;
+      const end = paddedEnd(point, padRef.current);
+      if (end === null) return null;
+      return {
+        pointId: point.id,
+        start: Number(point.cut_t0),
+        end,
+        time: video.currentTime,
+        playing: !video.paused && !video.seeking && !video.ended,
+        ready: video.readyState >= 2,
+        foreground: document.visibilityState === "visible",
+        sourceKey: "cut",
+        requiresOwnClip: ownClipCandidatesRef.current.has(point.id),
+      };
+    },
+    []
+  );
+
+  const observeScorePlayback = useCallback(
+    (video: HTMLVideoElement) => {
+      if (
+        modeRef.current !== "score" ||
+        phase !== "play" ||
+        video !== videoRef.current ||
+        detourRef.current !== null ||
+        highlightAssetRef.current !== null ||
+        scrubbing.current
+      ) {
+        scorePlaybackRun.current.invalidate();
+        return;
+      }
+      const pointId = playingPointId(pointsRef.current, video.currentTime);
+      const point = pointId
+        ? pointsRef.current.find((candidate) => candidate.id === pointId)
+        : null;
+      const event = point ? scorePlaybackEvent(point, video) : null;
+      if (event) scorePlaybackRun.current.observe(event);
+      else scorePlaybackRun.current.invalidate();
+    },
+    [phase, scorePlaybackEvent]
+  );
+
   const reviewPoint =
     phase === "review"
       ? (points.find((p) => p.id === reviewIds[reviewIdx]) ?? null)
@@ -2023,6 +2152,7 @@ export const Player = forwardRef<
 
   const onTime = useCallback(
     (v: HTMLVideoElement) => {
+      observeScorePlayback(v);
       // The highlight file is already one continuous timeline. Nothing in
       // the match-cut playhead (detours, deleted spans, tap tails, score
       // pauses) may seek inside it.
@@ -2268,7 +2398,7 @@ export const Player = forwardRef<
         if (end !== null && v.currentTime >= end) v.pause();
       }
     },
-    [phase, reviewPoint, deadSpanEnd, pinEndPause, detourPointOf, enterDetour, playNow]
+    [phase, reviewPoint, deadSpanEnd, pinEndPause, detourPointOf, enterDetour, playNow, observeScorePlayback]
   );
 
   /**
@@ -2395,7 +2525,7 @@ export const Player = forwardRef<
     } else if (modeRef.current === "score" && phase === "play") {
       setPhase("summary");
     }
-  }, [exitDetour, seekTo, playNow, phase]);
+  }, [exitDetour, seekTo, playNow, phase, setPhase]);
   const onDetourDoneRef = useRef(onDetourDone);
   onDetourDoneRef.current = onDetourDone;
 
@@ -2615,6 +2745,28 @@ export const Player = forwardRef<
     );
   }, [phase, reviewIds, reviewIdx, playheadT]);
 
+  const scoreObservation = useCallback(
+    (point: Point): number | undefined => {
+      const video = videoRef.current;
+      if (
+        phase !== "play" ||
+        modeRef.current !== "score" ||
+        !video ||
+        activeVideo() !== video ||
+        detourRef.current !== null ||
+        highlightAssetRef.current !== null ||
+        playingPointId(pointsRef.current, video.currentTime) !== point.id
+      ) {
+        return undefined;
+      }
+      const event = scorePlaybackEvent(point, video);
+      return event
+        ? scorePlaybackRun.current.observation(event)
+        : undefined;
+    },
+    [activeVideo, phase, scorePlaybackEvent]
+  );
+
   // Serve ball: the server of the rally the surface is ABOUT — targetId,
   // the same pin-first, hold-aware answer the chip ring, ticker score and
   // taps use. It used to read the raw WYSIWYG resolver instead, which
@@ -2675,6 +2827,8 @@ export const Player = forwardRef<
   modeRef.current = mode;
 
   const openTakeover = useCallback((m: Mode) => {
+    scorerSessionEffects.current.open();
+    scorerUndoInFlight.current = null;
     if (modeRef.current === null) {
       window.history.pushState({ player: true }, "");
       openChangeRef.current(true);
@@ -2715,6 +2869,8 @@ export const Player = forwardRef<
   useEffect(() => {
     if (!open) return;
     const onPop = () => {
+      scorerSessionEffects.current.close();
+      modeRef.current = null;
       pauseBoth();
       exitDetour(); // closing hands the surface back to the cut
       const video = videoRef.current;
@@ -2740,9 +2896,10 @@ export const Player = forwardRef<
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [open, pinEndPause, pauseBoth, exitDetour, videoUrl]);
+  }, [open, pinEndPause, pauseBoth, exitDetour, videoUrl, setPhase]);
 
   const exit = useCallback(() => {
+    scorerSessionEffects.current.close();
     // The component never unmounts, so a zoom left on would still be there
     // the next time the takeover opens. Closing is the reset.
     resetZoom();
@@ -2758,12 +2915,6 @@ export const Player = forwardRef<
       document.body.style.overflow = prev;
     };
   }, [open]);
-
-  const showToast = useCallback((text: string, ms = 1500) => {
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    setToast(text);
-    toastTimer.current = window.setTimeout(() => setToast(null), ms);
-  }, []);
 
   const openWatch = useCallback(
     (seekT?: number) => {
@@ -2894,6 +3045,7 @@ export const Player = forwardRef<
   }, [
     gamesCount,
     seekTo,
+    setPhase,
     snapLanding,
     playheadT,
     openTakeover,
@@ -2953,6 +3105,7 @@ export const Player = forwardRef<
   // ------------------------------------------------------------- controls
 
   const togglePause = useCallback(() => {
+    scorerSessionEffects.current.navigate();
     const v = activeVideo();
     if (!v) return;
     if (v.paused) playNow();
@@ -3448,7 +3601,7 @@ export const Player = forwardRef<
   const nextReview = useCallback(() => {
     if (reviewIdx + 1 >= reviewIds.length) setPhase("summary");
     else setReviewIdx(reviewIdx + 1);
-  }, [reviewIdx, reviewIds.length]);
+  }, [reviewIdx, reviewIds.length, setPhase]);
   const nextReviewRef = useRef(nextReview);
   nextReviewRef.current = nextReview;
 
@@ -3921,21 +4074,10 @@ export const Player = forwardRef<
       markHintDone("score");
       setScoreHint(false);
       // A bubble tap on a point already given to this side changes nothing
-      // to undo; pushing an entry anyway would spend the user's next Undo
-      // on a no-op.
+      // to undo; recording a command anyway would spend the user's next
+      // Undo on a no-op.
       const noOp =
         opts?.thenWhy && p.confirmed_winner === side && !p.is_let;
-      if (!noOp) {
-        setUndoStack((s) => [
-          ...s,
-          {
-            type: "tap",
-            pointId: p.id,
-            prevWinner: p.confirmed_winner,
-            prevSkipped: p.is_let,
-          },
-        ]);
-      }
       const hadOutcome = p.confirmed_winner !== null || p.is_let;
       /**
        * The big button TOGGLES — tapping the winner it already shows clears
@@ -3950,18 +4092,10 @@ export const Player = forwardRef<
         : p.confirmed_winner === side
           ? null
           : side;
-      if (next !== p.confirmed_winner || p.is_let) {
-        // The training label (067): where the playhead sat when the human
-        // called the point. Only the flowing session — in review or on
-        // chip corrections the playhead says nothing about the rally end.
-        // On a detour the stamp is the VIRTUAL clock, which is what every
-        // consumer of this card's numbers reads.
-        const v = activeVideo();
+      if (!noOp && (next !== p.confirmed_winner || p.is_let)) {
         const atCut =
-          phase === "play" && next !== null && v && v.readyState >= 1
-            ? Math.round(nowT(0) * 100) / 100
-            : undefined;
-        onSetWinner(p, next, atCut);
+          !hadOutcome && next !== null ? scoreObservation(p) : undefined;
+        recordScorerUndo(p.id, onSetWinner(p, next, atCut));
       }
       lastScoredRef.current = next === null ? null : { id: p.id, at: Date.now() };
       if (phase === "review") {
@@ -4029,6 +4163,8 @@ export const Player = forwardRef<
     [
       resolveTargetPoint,
       onSetWinner,
+      recordScorerUndo,
+      scoreObservation,
       phase,
       advanceFrom,
       pinEndPause,
@@ -4057,16 +4193,7 @@ export const Player = forwardRef<
       return;
     }
     const hadOutcome = p.confirmed_winner !== null;
-    setUndoStack((s) => [
-      ...s,
-      {
-        type: "tap",
-        pointId: p.id,
-        prevWinner: p.confirmed_winner,
-        prevSkipped: p.is_let,
-      },
-    ]);
-    onSetSkipped(p, true);
+    recordScorerUndo(p.id, onSetSkipped(p, true));
     showFlash("Skipped");
     if (phase === "review") {
       window.setTimeout(() => nextReviewRef.current(), 400);
@@ -4095,6 +4222,7 @@ export const Player = forwardRef<
   }, [
     resolveTargetPoint,
     onSetSkipped,
+    recordScorerUndo,
     phase,
     showFlash,
     seekTo,
@@ -4854,6 +4982,48 @@ export const Player = forwardRef<
   const undo = useCallback(() => {
     const e = undoStack[undoStack.length - 1];
     if (!e) return;
+    if (e.type === "tap") {
+      if (scorerUndoInFlight.current !== null) return;
+      scorerUndoInFlight.current = e.actionId;
+      const owner = scorerSessionEffects.current.capture();
+      // Reserve Undo before awaiting its original receipt, so a subsequent
+      // score cannot overtake the restore in this point's command queue.
+      const restore = onRestoreScorer(e.pointId, e.receipt);
+      void (async () => {
+        const receipt = await e.receipt;
+        const restored = await restore;
+        if (!scorerSessionEffects.current.sameSession(owner)) return;
+        if (!receipt) {
+          setUndoStack((stack) =>
+            stack.filter(
+              (entry) =>
+                entry.type !== "tap" || entry.actionId !== e.actionId
+            )
+          );
+          return;
+        }
+        if (!restored || isScorerFailure(restored)) {
+          if (scorerSessionEffects.current.owns(owner)) {
+            showToast("Couldn't fully undo. Try again.");
+          }
+          return;
+        }
+        setUndoStack((stack) =>
+          stack.filter(
+            (entry) => entry.type !== "tap" || entry.actionId !== e.actionId
+          )
+        );
+        if (scorerSessionEffects.current.owns(owner) && receipt.timing.cut_t0 !== null && phase !== "review") {
+          seekTo(Number(receipt.timing.cut_t0));
+          playNow();
+        }
+      })().finally(() => {
+        if (scorerUndoInFlight.current === e.actionId) {
+          scorerUndoInFlight.current = null;
+        }
+      });
+      return;
+    }
     setUndoStack((s) => s.slice(0, -1));
     if (e.type === "delete") {
       // Restore the deleted point and replay it (it isn't in the visible
@@ -4977,22 +5147,12 @@ export const Player = forwardRef<
       })();
       return;
     }
-    const p = pointsRef.current.find((pt) => pt.id === e.pointId);
-    if (!p) return;
-    if (p.confirmed_winner !== e.prevWinner) onSetWinner(p, e.prevWinner);
-    if (p.is_let !== e.prevSkipped) onSetSkipped(p, e.prevSkipped);
-    // Seek back to the undone point so it plays out and re-arms (undo
-    // after a paused-at-end advance lands back on the undone rally, whose
-    // end will pause again once it's unscored).
-    if (p.cut_t0 !== null && phase !== "review") {
-      seekTo(Number(p.cut_t0)); // zoom persists
-      playNow();
-    }
   }, [
     undoStack,
     onUndoDelete,
     onUnsplit,
     onAdjustTiming,
+    onRestoreScorer,
     onSetWinner,
     onSetSkipped,
     onSetGameOverride,
@@ -5059,7 +5219,7 @@ export const Player = forwardRef<
     setReviewIds(ids); // zoom persists into review
     setReviewIdx(0);
     setPhase("review");
-  }, [unscored, pinEndPause]);
+  }, [unscored, pinEndPause, setPhase]);
 
   // Seek to the reviewed point whenever review advances. Reads points via
   // ref so a score tap (points identity change) never re-seeks/loops the
@@ -5400,6 +5560,7 @@ export const Player = forwardRef<
             // playback always wins over drawing.
             crossOrigin={corsOff ? undefined : "anonymous"}
             onError={() => {
+              scorePlaybackRun.current.invalidate();
               if (!corsOff) {
                 corsRetryT.current = videoRef.current?.currentTime ?? 0;
                 setCorsOff(true);
@@ -5422,10 +5583,23 @@ export const Player = forwardRef<
             onProgress={(e) => onProgress(e.currentTarget)}
             // Buffering visibility: waiting/stalled show the spinner,
             // anything that means frames are moving again clears it.
-            onWaiting={() => setStalled(true)}
-            onStalled={() => setStalled(true)}
-            onPlaying={() => setStalled(false)}
-            onCanPlay={() => setStalled(false)}
+            onWaiting={() => {
+              scorePlaybackRun.current.invalidate();
+              setStalled(true);
+            }}
+            onStalled={() => {
+              scorePlaybackRun.current.invalidate();
+              setStalled(true);
+            }}
+            onPlaying={(e) => {
+              setStalled(false);
+              observeScorePlayback(e.currentTarget);
+            }}
+            onCanPlay={(e) => {
+              setStalled(false);
+              observeScorePlayback(e.currentTarget);
+            }}
+            onSeeking={() => scorePlaybackRun.current.invalidate()}
             onSeeked={(e) => {
               setPlayheadT(e.currentTarget.currentTime);
               // A jump is not continuous playback: never let the crossing
@@ -5443,6 +5617,7 @@ export const Player = forwardRef<
                 window.clearTimeout(nudgeHoldTimer.current);
                 nudgeHoldTimer.current = null;
               }
+              observeScorePlayback(e.currentTarget);
             }}
             onPlay={(e) => {
               setPaused(false);
@@ -5471,8 +5646,10 @@ export const Player = forwardRef<
               setPill((cur) =>
                 cur && Date.now() - cur.shownAt > 600 ? null : cur
               );
+              observeScorePlayback(e.currentTarget);
             }}
             onPause={() => {
+              scorePlaybackRun.current.invalidate();
               // The handoff INTO a detour pauses this element while the
               // clip takes over — playback is not stopping, so the paused
               // chrome must not flash.
@@ -5482,6 +5659,7 @@ export const Player = forwardRef<
               setStalled(false);
             }}
             onEnded={() => {
+              scorePlaybackRun.current.invalidate();
               if (mode === "score" && phase === "play") setPhase("summary");
             }}
             className="h-full w-full select-none bg-black object-contain [-webkit-touch-callout:none]"
@@ -5514,6 +5692,7 @@ export const Player = forwardRef<
           controlsList="nodownload noplaybackrate noremoteplayback"
           onContextMenu={(e) => e.preventDefault()}
           onLoadedMetadata={(e) => {
+            scorePlaybackRun.current.invalidate();
             const at = detourPendingSeek.current;
             if (at !== null) {
               e.currentTarget.currentTime = at;
@@ -5521,7 +5700,9 @@ export const Player = forwardRef<
             }
           }}
           onTimeUpdate={(e) => onDetourTime(e.currentTarget)}
+          onSeeking={() => scorePlaybackRun.current.invalidate()}
           onSeeked={(e) => {
+            scorePlaybackRun.current.invalidate();
             if (detourRef.current === null) return;
             setPlayheadT(detourBaseRef.current + e.currentTarget.currentTime);
             detourTickRef.current = null;
@@ -5533,6 +5714,7 @@ export const Player = forwardRef<
           }}
           onEnded={onDetourDone}
           onPlay={(e) => {
+            scorePlaybackRun.current.invalidate();
             // The muted priming play (openTakeover) lands here with no
             // detour pinned; everything below is for real playback only.
             if (detourRef.current === null) return;
@@ -5549,21 +5731,26 @@ export const Player = forwardRef<
                 : SPEEDS[speedIdx];
           }}
           onPause={() => {
+            scorePlaybackRun.current.invalidate();
             if (detourRef.current === null) return;
             setPaused(true);
             setControlsVisible(true);
             setStalled(false);
           }}
           onWaiting={() => {
+            scorePlaybackRun.current.invalidate();
             if (detourRef.current !== null) setStalled(true);
           }}
           onStalled={() => {
+            scorePlaybackRun.current.invalidate();
             if (detourRef.current !== null) setStalled(true);
           }}
           onPlaying={() => {
+            scorePlaybackRun.current.invalidate();
             if (detourRef.current !== null) setStalled(false);
           }}
           onCanPlay={() => {
+            scorePlaybackRun.current.invalidate();
             if (detourRef.current !== null) setStalled(false);
           }}
           className={`pointer-events-none absolute inset-0 h-full w-full select-none bg-black object-contain [-webkit-touch-callout:none] ${

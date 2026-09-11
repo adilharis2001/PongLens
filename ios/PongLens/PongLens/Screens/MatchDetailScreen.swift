@@ -85,6 +85,37 @@ final class MatchDetailModel {
     var minutesBalance: Int?
     var needsMoreMinutes = false
 
+    /// Scoring commands read from the model when their turn begins. The
+    /// queue is per point, so two quick corrections cannot finish out of
+    /// order while an unrelated point remains free to save independently.
+    @ObservationIgnored @MainActor private lazy var scorerCommands = ScorerCommands(
+        read: { [weak self] id in
+            self?.points.first(where: { $0.id == id }).map(ScorerCommandPoint.init)
+        },
+        apply: { [weak self] id, state in
+            guard let self, let i = points.firstIndex(where: { $0.id == id }) else { return }
+            points[i].confirmedWinner = state.winner
+            points[i].isLet = state.isLet
+            points[i].scoredAtCutS = state.scoredAt
+        },
+        persist: { id, state in
+            do {
+                try await supa
+                    .from("points")
+                    .update([
+                        "confirmed_winner": state.winner.map { .string($0.rawValue) } ?? .null,
+                        "is_let": .bool(state.isLet),
+                        "scored_at_cut_s": state.scoredAt.map { .double($0) } ?? .null,
+                    ] as [String: AnyJSON])
+                    .eq("id", value: id.uuidString.lowercased())
+                    .execute()
+                return true
+            } catch {
+                return false
+            }
+        }
+    )
+
     var jobRunning: Bool { job?.running ?? false }
 
     /// The visible timeline: non-deleted, ordered by source time (idx tiebreak).
@@ -391,9 +422,9 @@ final class MatchDetailModel {
         case failed
     }
 
-    /// Optimistic column-scoped patch with rollback — the whole scorer
-    /// write surface goes through here. Returns false on a failed save so
-    /// callers can flash "Couldn't save. Tap again." the way the web does.
+    /// Generic optimistic patch for non-scorekeeper point controls. Scorer
+    /// writes use their per-point command queue below; existing star, delete
+    /// and bulk-edit callers keep this independent behavior.
     @discardableResult
     func patch(
         _ point: MatchPoint,
@@ -425,30 +456,46 @@ final class MatchDetailModel {
     /// `force` is the Why bubble's contract: it means "they won it, and here
     /// is why I lost", so on a point already theirs it re-affirms instead of
     /// toggling the score off. Saying why must never cost you the score.
-    func tapWinner(
-        _ point: MatchPoint, _ side: Winner, scoredAt: Double? = nil, force: Bool = false
-    ) async {
-        if point.confirmedWinner == side, !force {
-            await patch(
-                point,
-                fields: ["confirmed_winner": .null, "scored_at_cut_s": .null]
-            ) {
-                $0.confirmedWinner = nil
-                $0.scoredAtCutS = nil
-            }
-        } else {
-            var fields: [String: AnyJSON] = [
-                "confirmed_winner": .string(side.rawValue),
-                "is_let": .bool(false),
-            ]
-            let stamp = scoredAt.map { (($0 * 100).rounded()) / 100 }
-            if let stamp { fields["scored_at_cut_s"] = .double(stamp) }
-            await patch(point, fields: fields) {
-                $0.confirmedWinner = side
-                $0.isLet = false
-                if let stamp { $0.scoredAtCutS = stamp }
-            }
+    @MainActor
+    func queueWinner(
+        _ point: MatchPoint, _ side: Winner, scoredAt: Double? = nil,
+        observationTiming: ScorerTimingGuard? = nil, force: Bool = false
+    ) -> Task<ScorerCommandReceipt?, Never> {
+        let stamp = scoredAt.flatMap { value in
+            value.isFinite ? ((value * 100).rounded()) / 100 : nil
         }
+        return scorerCommands.beginWinner(
+            point.id, side: side, observation: stamp,
+            observationTiming: observationTiming, force: force
+        )
+    }
+
+    @MainActor @discardableResult
+    func tapWinner(
+        _ point: MatchPoint, _ side: Winner, scoredAt: Double? = nil,
+        observationTiming: ScorerTimingGuard? = nil, force: Bool = false
+    ) async -> ScorerCommandReceipt? {
+        await queueWinner(
+            point, side, scoredAt: scoredAt,
+            observationTiming: observationTiming, force: force
+        ).value
+    }
+
+    /// Score Undo restores only the fields named in its receipt. Starred,
+    /// deleted and every structural field may have changed independently.
+    @MainActor @discardableResult
+    func restoreScorer(_ receipt: ScorerCommandReceipt) async -> ScorerCommandReceipt? {
+        await scorerCommands.restore(receipt)
+    }
+
+    /// Reserve Undo immediately, while the original receipt is still
+    /// pending, so a later score cannot enter this point's queue ahead of it.
+    @MainActor
+    func queueRestore(
+        _ pointId: UUID,
+        after pending: Task<ScorerCommandReceipt?, Never>
+    ) -> Task<ScorerCommandReceipt?, Never> {
+        scorerCommands.beginRestore(pointId, after: pending)
     }
 
     /// Undo support: writes a set of scorer fields back in one patch. Takes
@@ -479,20 +526,14 @@ final class MatchDetailModel {
         }
     }
 
-    func tapSkip(_ point: MatchPoint) async {
-        if point.isLet {
-            await patch(point, fields: ["is_let": .bool(false)]) {
-                $0.isLet = false
-            }
-        } else {
-            await patch(
-                point,
-                fields: ["is_let": .bool(true), "confirmed_winner": .null]
-            ) {
-                $0.isLet = true
-                $0.confirmedWinner = nil
-            }
-        }
+    @MainActor @discardableResult
+    func tapSkip(_ point: MatchPoint) async -> ScorerCommandReceipt? {
+        await queueSkip(point).value
+    }
+
+    @MainActor
+    func queueSkip(_ point: MatchPoint) -> Task<ScorerCommandReceipt?, Never> {
+        scorerCommands.beginSkip(point.id)
     }
 
     func toggleStar(_ point: MatchPoint) async {

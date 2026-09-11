@@ -96,6 +96,13 @@ import {
   scrollToReadyPlacement,
   showPlacementDeepDive,
 } from "@/lib/placement/placementRetry";
+import {
+  ScorerCommands,
+  applySynchronousStateUpdate,
+  scorerTimingGuard,
+  type ScorerCommandReceipt,
+  type ScorerCommandResult,
+} from "./scorerState";
 
 /** Source-video timestamp as m:ss. */
 function formatClock(seconds: number) {
@@ -507,6 +514,12 @@ export function MatchView({
   const router = useRouter();
   const refreshActiveSnapshot = useCallback(() => router.refresh(), [router]);
   const [points, setPoints] = useState<Point[]>(initialPoints);
+  const pointsRef = useRef(points);
+  const updatePoints = useCallback(
+    (update: Point[] | ((current: Point[]) => Point[])) =>
+      applySynchronousStateUpdate(pointsRef, setPoints, update),
+    []
+  );
   const [notes, setNotes] = useState<Note[]>(initialNotes);
   const [tagVocab, setTagVocab] = useState<Tag[]>(initialTags);
   const [pointTags, setPointTags] = useState<PointTag[]>(initialPointTags);
@@ -790,22 +803,25 @@ export function MatchView({
     [match]
   );
 
-  const toggleStar = useCallback(async (point: Point) => {
-    const next = !point.starred;
-    setPoints((ps) =>
-      ps.map((p) => (p.id === point.id ? { ...p, starred: next } : p))
-    );
-    const supabase = createClient();
-    const { error } = await supabase
-      .from("points")
-      .update({ starred: next })
-      .eq("id", point.id);
-    if (error) {
-      setPoints((ps) =>
-        ps.map((p) => (p.id === point.id ? { ...p, starred: !next } : p))
+  const toggleStar = useCallback(
+    async (point: Point) => {
+      const next = !point.starred;
+      updatePoints((ps) =>
+        ps.map((p) => (p.id === point.id ? { ...p, starred: next } : p))
       );
-    }
-  }, []);
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("points")
+        .update({ starred: next })
+        .eq("id", point.id);
+      if (error) {
+        updatePoints((ps) =>
+          ps.map((p) => (p.id === point.id ? { ...p, starred: !next } : p))
+        );
+      }
+    },
+    [updatePoints]
+  );
 
 
   const noteCountByPoint = useMemo(() => {
@@ -1548,12 +1564,33 @@ export function MatchView({
   // optimistic write committed would otherwise put the old timing back for
   // one cycle (a removed point reappearing, an Adjust snapping back).
   const touchedAt = useRef<Map<string, number>>(new Map());
-  const updatePoint = useCallback((pointId: string, patch: Partial<Point>) => {
-    touchedAt.current.set(pointId, Date.now());
-    setPoints((ps) =>
-      ps.map((p) => (p.id === pointId ? { ...p, ...patch } : p))
-    );
-  }, []);
+  const updatePoint = useCallback(
+    (pointId: string, patch: Partial<Point>) => {
+      touchedAt.current.set(pointId, Date.now());
+      updatePoints((current) =>
+        current.map((p) => (p.id === pointId ? { ...p, ...patch } : p))
+      );
+    },
+    [updatePoints]
+  );
+
+  const scorerCommands = useMemo(
+    () =>
+      new ScorerCommands({
+        read: (pointId) =>
+          pointsRef.current.find((point) => point.id === pointId) ?? null,
+        apply: (pointId, state) => updatePoint(pointId, state),
+        persist: async (pointId, state) => {
+          const supabase = createClient();
+          const { error } = await supabase
+            .from("points")
+            .update(state)
+            .eq("id", pointId);
+          return !error;
+        },
+      }),
+    [updatePoint]
+  );
 
   // Optimistic confirmed_winner write; shared by the card taps and
   // Keep-score mode. confirmed_how stays untouched (set in the point view).
@@ -1561,32 +1598,18 @@ export function MatchView({
   // counted, so a non-null winner clears is_let in the SAME write (a row
   // must never be both a let and a scored point).
   const setWinner = useCallback(
-    async (
+    (
       point: Point,
       next: "user" | "opponent" | null,
       scoredAtCutS?: number
-    ) => {
-      const prev = point.confirmed_winner;
-      const prevLet = point.is_let;
-      const clearLet = next !== null && prevLet;
-      if (prev === next && !clearLet) return;
-      const patch: Partial<Point> = {
-        confirmed_winner: next,
-        // The playhead label rides with the score and dies with it (067).
-        scored_at_cut_s:
-          next === null ? null : (scoredAtCutS ?? point.scored_at_cut_s ?? null),
-        ...(clearLet ? { is_let: false } : {}),
-      };
-      updatePoint(point.id, patch);
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update(patch)
-        .eq("id", point.id);
-      if (error)
-        updatePoint(point.id, { confirmed_winner: prev, is_let: prevLet });
-    },
-    [updatePoint]
+    ): Promise<ScorerCommandResult> =>
+      scorerCommands.winner(
+        point.id,
+        next,
+        scoredAtCutS,
+        scorerTimingGuard(point)
+      ),
+    [scorerCommands]
   );
 
   // Admin-only serve-start label (089). Deliberately NOT coupled to the
@@ -1637,28 +1660,15 @@ export function MatchView({
   // confirmed_winner: a skipped point never scores, so skipping clears the
   // winner in the SAME write (DB constraint points_let_never_scored).
   const setSkipped = useCallback(
-    async (point: Point, next: boolean) => {
-      const prevLet = point.is_let;
-      const prevWinner = point.confirmed_winner;
-      const clearWinner = next && prevWinner !== null;
-      if (prevLet === next && !clearWinner) return;
-      const patch: Partial<Point> = {
-        is_let: next,
-        ...(clearWinner ? { confirmed_winner: null } : {}),
-      };
-      updatePoint(point.id, patch);
-      const supabase = createClient();
-      const { error } = await supabase
-        .from("points")
-        .update(patch)
-        .eq("id", point.id);
-      if (error)
-        updatePoint(point.id, {
-          is_let: prevLet,
-          confirmed_winner: prevWinner,
-        });
-    },
-    [updatePoint]
+    (point: Point, next: boolean): Promise<ScorerCommandResult> =>
+      scorerCommands.skip(point.id, next),
+    [scorerCommands]
+  );
+
+  const restoreScorer = useCallback(
+    (pointId: string, pending: Promise<ScorerCommandReceipt | null>): Promise<ScorerCommandResult> =>
+      scorerCommands.beginRestore(pointId, pending),
+    [scorerCommands]
   );
 
   // Inline Skip tap on a card: skip a scored/unscored point, un-skip back
@@ -1823,7 +1833,7 @@ export function MatchView({
     async (target: string | string[]) => {
       const ids = new Set(Array.isArray(target) ? target : [target]);
       dismissSnackbar();
-      setPoints((ps) =>
+      updatePoints((ps) =>
         ps.map((p) => (ids.has(p.id) ? { ...p, deleted: false } : p))
       );
       const supabase = createClient();
@@ -1832,11 +1842,11 @@ export function MatchView({
         .update({ deleted: false })
         .in("id", [...ids]);
       if (error)
-        setPoints((ps) =>
+        updatePoints((ps) =>
           ps.map((p) => (ids.has(p.id) ? { ...p, deleted: true } : p))
         );
     },
-    [dismissSnackbar]
+    [dismissSnackbar, updatePoints]
   );
 
   // Soft delete: hide from the timeline immediately, undoable for a bit.
@@ -1899,7 +1909,7 @@ export function MatchView({
       const idx = visiblePoints.findIndex((p) => p.id === point.id);
       if (idx < 1) return;
       const ids = new Set(visiblePoints.slice(0, idx).map((p) => p.id));
-      setPoints((ps) =>
+      updatePoints((ps) =>
         ps.map((p) => (ids.has(p.id) ? { ...p, deleted: true } : p))
       );
       if (snackbarTimer.current) window.clearTimeout(snackbarTimer.current);
@@ -1914,13 +1924,13 @@ export function MatchView({
         .update({ deleted: true })
         .in("id", [...ids]);
       if (error) {
-        setPoints((ps) =>
+        updatePoints((ps) =>
           ps.map((p) => (ids.has(p.id) ? { ...p, deleted: false } : p))
         );
         dismissSnackbar();
       }
     },
-    [visiblePoints, dismissSnackbar, undoDelete]
+    [visiblePoints, dismissSnackbar, undoDelete, updatePoints]
   );
 
   // The pad's "match starts here" sweep: same write as deleteAllBefore but
@@ -1931,7 +1941,7 @@ export function MatchView({
       const idx = visiblePoints.findIndex((p) => p.id === point.id);
       if (idx < 1) return;
       const ids = new Set(visiblePoints.slice(0, idx).map((p) => p.id));
-      setPoints((ps) =>
+      updatePoints((ps) =>
         ps.map((p) => (ids.has(p.id) ? { ...p, deleted: true } : p))
       );
       const supabase = createClient();
@@ -1940,11 +1950,11 @@ export function MatchView({
         .update({ deleted: true })
         .in("id", [...ids]);
       if (error)
-        setPoints((ps) =>
+        updatePoints((ps) =>
           ps.map((p) => (ids.has(p.id) ? { ...p, deleted: false } : p))
         );
     },
-    [visiblePoints]
+    [visiblePoints, updatePoints]
   );
 
   // The owner's own name: their tagged side's name (a null user_side falls
@@ -2183,11 +2193,16 @@ export function MatchView({
   // every reload within four seconds of an edit, leaving cards on
   // "Updating clip" until some later edit happened to queue a job.
 
-  const addSplitPoint = useCallback((newPoint: Point) => {
-    setPoints((ps) =>
-      ps.some((p) => p.id === newPoint.id) ? ps : [...ps, newPoint]
-    );
-  }, []);
+  const addSplitPoint = useCallback(
+    (newPoint: Point) => {
+      updatePoints((current) =>
+        current.some((p) => p.id === newPoint.id)
+          ? current
+          : [...current, newPoint]
+      );
+    },
+    [updatePoints]
+  );
 
   /**
    * Add a card for a rally the cut missed.
@@ -2401,7 +2416,7 @@ export function MatchView({
               parent_edited: u.prevEdited,
             });
             if (error) return;
-            setPoints((ps) =>
+            updatePoints((ps) =>
               ps
                 .filter((p) => p.id !== u.childId)
                 .map((p) =>
@@ -2443,6 +2458,7 @@ export function MatchView({
       setWinner,
       setSkipped,
       dismissSnackbar,
+      updatePoints,
     ]
   );
 
@@ -2464,7 +2480,7 @@ export function MatchView({
       if (!plan) return false;
       const drop = new Set(plan.mergedIds);
       const sid = plan.survivor.id;
-      setPoints((ps) =>
+      updatePoints((ps) =>
         ps
           .filter((p) => !drop.has(p.id))
           .map((p) => (p.id === sid ? { ...p, ...plan.survivorPatch } : p))
@@ -2477,7 +2493,7 @@ export function MatchView({
       if (sid !== point.id) setActivePointId(sid);
       return true;
     },
-    [visiblePoints, setWinner, setSkipped]
+    [visiblePoints, setWinner, setSkipped, updatePoints]
   );
 
   // While clips are regenerating, poll so the fresh clip arrives without a
@@ -2499,7 +2515,7 @@ export function MatchView({
           .eq("match_id", match.id);
         if (!data) return;
         const now = Date.now();
-        setPoints((ps) =>
+        updatePoints((ps) =>
           ps.map((p) => {
             const fresh = data.find((d) => d.id === p.id);
             if (!fresh) return p;
@@ -2511,7 +2527,7 @@ export function MatchView({
       })();
     }, 8000);
     return () => window.clearInterval(iv);
-  }, [hasPendingClips, match.id]);
+  }, [hasPendingClips, match.id, updatePoints]);
 
   const onTaggingChange = useCallback(
     (patch: {
@@ -3031,12 +3047,13 @@ export function MatchView({
               namesPrompt={namesPrompt}
               onSaveNames={(you, them) => void saveNames(you, them)}
               onSaveFirstServer={(v) => void saveFirstServer(v)}
-              onSetWinner={(p, v, at) => void setWinner(p, v, at)}
+              onSetWinner={setWinner}
+              onRestoreScorer={restoreScorer}
               canLabelServeStart={canLabelServeStart}
               onSetServeStart={(p, at, meta) =>
                 void setServeStart(p, at, meta)
               }
-              onSetSkipped={(p, v) => void setSkipped(p, v)}
+              onSetSkipped={setSkipped}
               onSetServer={(p, v) => void setServerOverride(p, v)}
               onInsertPoint={isOwner ? insertMissingPoint : undefined}
               onSetGameOverride={(p, v) => void setGameEndOverride(p, v)}
@@ -3053,7 +3070,7 @@ export function MatchView({
                 addSplitPoint(child);
               }}
               onUnsplit={(parentId, patch, childId) => {
-                setPoints((ps) =>
+                updatePoints((ps) =>
                   ps
                     .filter((p) => p.id !== childId)
                     .map((p) => (p.id === parentId ? { ...p, ...patch } : p))
@@ -3061,7 +3078,7 @@ export function MatchView({
               }}
               onMerge={(survivorId, patch, removedIds) => {
                 const drop = new Set(removedIds);
-                setPoints((ps) =>
+                updatePoints((ps) =>
                   ps
                     .filter((p) => !drop.has(p.id))
                     .map((p) => (p.id === survivorId ? { ...p, ...patch } : p))
