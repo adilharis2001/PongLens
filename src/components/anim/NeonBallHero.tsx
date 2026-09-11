@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { motion, useReducedMotion } from "motion/react";
 
 const STAGE_W = 800;
 const STAGE_H = 500;
+const subscribeToHydration = () => () => {};
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
 
 /**
  * Fast, flat rally. The table top sits at y=323; the ball (r=7) travels by
@@ -73,7 +76,11 @@ function ballStyle(size: number, opacity: number): CSSProperties {
 }
 
 export function NeonBallHero({ background = false }: { background?: boolean }) {
-  const reduced = useReducedMotion();
+  const prefersReduced = useReducedMotion();
+  const hydrated = useSyncExternalStore(subscribeToHydration, clientSnapshot, serverSnapshot);
+  // Match the server's static frame on the first client render. The browser's
+  // motion preference is not available to SSR; branching on it breaks hydration.
+  const reduced = !hydrated || prefersReduced;
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 

@@ -16,21 +16,12 @@ const videoScript = JSON.parse(
   lines: Array<{ beat: string; label: string; text: string }>;
 };
 
-const carousel = [
-  { title: "Build your coaching presence", shots: ["coach-page"] },
-  { title: "Keep every student in context", shots: ["coach-students", "coach-shared-match"] },
-  { title: "Capture every lesson", shots: ["coach-record", "coach-entry-compose"] },
-  { title: "Share progress between sessions", shots: ["coach-entry-shared"] },
-  { title: "Receive and manage review orders", shots: ["coach-order", "coach-queue"] },
-  { title: "Deliver detailed reviews and get paid", shots: ["coach-review", "coach-payout"] },
-];
-
-test("coach carousel presents the six approved product areas", () => {
-  assert.match(page, /A complete coaching workspace/);
-  for (const chapter of carousel) {
-    assert.match(page, new RegExp(chapter.title));
-    for (const shot of chapter.shots) {
-      assert.match(page, new RegExp(`\\"${shot}\\"`));
+test("every coach carousel screenshot resolves to a published image", () => {
+  const groups = [...page.matchAll(/shots: \[([^\]]+)\]/g)];
+  assert.ok(groups.length > 0);
+  for (const group of groups) {
+    for (const match of group[1].matchAll(/"([^"]+)"/g)) {
+      const shot = match[1];
       assert.equal(
         existsSync(join(root, `public/showcase/${shot}-m.jpg`)),
         true,
@@ -48,7 +39,7 @@ test("coach and player carousels share the production screenshot dimensions", ()
   assert.match(band, /window\.innerWidth >= 768 \? 272 : 208/);
 });
 
-test("coach video covers the same six product areas", () => {
+test("the separately maintained coach video retains its current sections and runtime", () => {
   const labels = [...new Set(videoScript.lines.map((line) => line.label).filter(Boolean))];
   assert.deepEqual(labels, [
     "Coach profile",

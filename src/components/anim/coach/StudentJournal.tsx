@@ -8,7 +8,7 @@ export function StudentJournal() {
   return (
     <div
       role="img"
-      aria-label="A private lesson entry with notes, a photo and a link"
+      aria-label="A shared coaching journal with the coach's advice and the student's reflections"
       className="absolute inset-0 flex items-center justify-center bg-[#0a0a12] px-8"
     >
       <div className="w-full max-w-[270px] rounded-xl border border-edge bg-surface-2/80 p-4">
@@ -17,7 +17,7 @@ export function StudentJournal() {
             Forehand timing
           </span>
           <span className="rounded-full bg-zinc-700/60 px-2 py-0.5 text-[9px] text-zinc-400">
-            Private
+            Shared
           </span>
         </div>
         <div className="mt-3 space-y-1.5">
@@ -42,20 +42,9 @@ export function StudentJournal() {
             />
           ))}
         </div>
-        <div className="mt-4 flex gap-2">
-          <div className="relative h-12 w-16 overflow-hidden rounded-lg border border-edge bg-[#151526]">
-            <span className="absolute bottom-0 left-0 h-7 w-full bg-cyan-glow/10 [clip-path:polygon(0_100%,42%_18%,64%_62%,78%_38%,100%_100%)]" />
-            <span className="absolute right-2 top-2 size-2 rounded-full bg-magenta-glow/60" />
-          </div>
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-edge bg-ink/50 px-2.5">
-            <span className="text-sm text-cyan-glow">↗</span>
-            <span className="min-w-0">
-              <span className="block truncate text-[10px] text-zinc-300">
-                Footwork drill
-              </span>
-              <span className="block text-[9px] text-zinc-600">video</span>
-            </span>
-          </div>
+        <div className="mt-4 space-y-3 border-t border-edge pt-3 text-[10px]">
+          <div><span className="text-cyan-glow">Coach&apos;s notes</span><p className="mt-1 text-zinc-400">Recover before the next ball.</p></div>
+          <div><span className="text-magenta-soft">Student&apos;s journal</span><p className="mt-1 text-zinc-400">A shorter swing helped in practice.</p></div>
         </div>
       </div>
     </div>

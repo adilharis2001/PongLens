@@ -437,7 +437,7 @@ export default async function Home() {
             </Link>
 
             {/* Where it runs: the web today, plus the self-serve iPhone beta. */}
-            <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+            <div id="ios-beta" className="mt-2 flex scroll-mt-24 flex-wrap items-center justify-center gap-3">
               <span className="flex items-center gap-2 rounded-full border border-cyan-glow/30 bg-surface/60 px-4 py-2">
                 <svg
                   aria-hidden

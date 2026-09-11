@@ -6,7 +6,7 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { NeonBallHero } from "@/components/anim/NeonBallHero";
 import { FindingPoints } from "@/components/anim/coach/FindingPoints";
-import { JournalShare } from "@/components/anim/coach/JournalShare";
+import { LessonRecap } from "@/components/anim/coach/LessonRecap";
 import { LessonRecording } from "@/components/anim/coach/LessonRecording";
 import { StudentJournal } from "@/components/anim/coach/StudentJournal";
 import { StudentRoster } from "@/components/anim/coach/StudentRoster";
@@ -21,7 +21,7 @@ import { COACH_CUTS } from "@/lib/videoCuts";
 import { COACH_LENGTH } from "@/lib/videos";
 
 const description =
-  "A complete coaching workspace for table tennis coaches. Build your profile, manage students, share lessons, review matches and run paid reviews.";
+  "Manage your table tennis students, share match feedback and turn recorded lessons into coaching notes and video recaps with PongLens.";
 
 export const metadata: Metadata = {
   title: "PongLens for coaches",
@@ -58,63 +58,62 @@ const glow = (text: string) => (
 
 const chapters: Chapter[] = [
   {
-    shots: ["coach-page"],
-    title: "Build your coaching presence",
+    shots: ["coach-students", "coach-student-current"],
+    title: "Manage your students",
     caption: (
       <>
-        Present your experience, coaching approach and review offerings on
-        {" "}{glow("one coach profile")} you can share with players.
+        Keep each student&apos;s lessons, notes and shared matches together.
+        See {glow("what you worked on last time")} before the next session.
       </>
     ),
   },
   {
-    shots: ["coach-students", "coach-shared-match"],
-    title: "Keep every student in context",
+    shots: ["coach-shared-match", "coach-points"],
+    title: "Review shared matches",
     caption: (
       <>
-        Keep each student&apos;s lessons, journal entries, shared materials and
-        matches together, so the {glow("full coaching relationship")} stays
-        visible.
+        Review the matches your students share. Connect your feedback to
+        {" "}{glow("specific points")} and bring those observations into training.
       </>
     ),
   },
   {
-    shots: ["coach-record", "coach-entry-compose"],
-    title: "Capture every lesson",
+    shots: ["coach-record", "coach-summary-current"],
+    title: "Record a lesson",
     caption: (
       <>
-        Record the session as audio or video, write lesson notes and preserve
-        the details students need {glow("after training")}.
+        Record the lesson&apos;s audio on iPhone. PongLens prepares
+        {" "}{glow("a transcript and coaching notes")} for you to review.
       </>
     ),
   },
   {
-    shots: ["coach-entry-shared"],
-    title: "Share progress between sessions",
+    shots: ["coach-summary-current", "coach-entry-shared", "coach-student-current"],
+    title: "Share lesson notes",
     caption: (
       <>
-        Give students access to their coaching journal, so feedback, goals and
-        lesson history remain {glow("useful over time")}.
+        Share your coaching notes and read the reflections your students share.
+        Keep both sides of the lesson together to {glow("revisit between sessions")}.
       </>
     ),
   },
   {
-    shots: ["coach-order", "coach-queue"],
-    title: "Receive and manage review orders",
+    shots: ["coach-recap-current", "coach-recap-chapters-current"],
+    title: "Revisit a lesson on video",
     caption: (
       <>
-        Receive a player&apos;s match and questions together, choose which reviews
-        to accept and keep {glow("every active order")} visible.
+        Turn a recorded lesson into {glow("a recap organised into chapters")}.
+        Review it and share the explanations and demonstrations with your student.
       </>
     ),
   },
   {
-    shots: ["coach-review", "coach-payout"],
-    title: "Deliver detailed reviews and get paid",
+    shots: ["coach-page", "coach-offering", "coach-order"],
+    title: "Offer paid match reviews",
     caption: (
       <>
-        Connect feedback to the relevant points, share the completed review
-        with the player and receive {glow("payouts through PongLens")}.
+        Offer professional reviews through your coach profile. Set your price,
+        receive requests and {glow("get paid through PongLens")}.
       </>
     ),
   },
@@ -122,64 +121,62 @@ const chapters: Chapter[] = [
 
 const features = [
   {
-    title: "One place for every student",
+    title: "Your students",
     copy: (
       <>
-        Each student has a complete coaching record, with their lessons,
-        recordings, shared materials and {glow("matches kept together")}.
+        Keep each student&apos;s lessons, notes and shared matches together.
+        See {glow("what you worked on last time")} before the next session.
       </>
     ),
     anim: <StudentRoster />,
   },
   {
-    title: "A shared coaching journal",
+    title: "Shared matches and feedback",
     copy: (
       <>
-        Build a lasting record of what you worked on, what changed and what
-        comes next. Share the entries each student needs
-        {" "}{glow("between sessions")}.
-      </>
-    ),
-    anim: <StudentJournal />,
-  },
-  {
-    title: "Lesson recording",
-    copy: (
-      <>
-        Capture a full lesson as audio, with video recording coming soon.
-        PongLens prepares the transcript and {glow("structured notes")} for
-        you to review.
-      </>
-    ),
-    anim: <LessonRecording />,
-  },
-  {
-    title: "Shared with students",
-    copy: (
-      <>
-        Share the lesson entries each student needs, so your coaching stays
-        with them {glow("when the session ends")}.
-      </>
-    ),
-    anim: <JournalShare />,
-  },
-  {
-    title: "Match feedback in context",
-    copy: (
-      <>
-        Open a student&apos;s matches beside their lesson history. Write, draw
-        or leave a voice note on the points that
-        {" "}{glow("show exactly what you mean")}.
+        Review the matches your students share. Write, draw or leave a voice
+        note on {glow("individual points")} to explain what needs work.
       </>
     ),
     anim: <FindingPoints />,
   },
   {
-    title: "Paid reviews, built in",
+    title: "Lesson recordings and summaries",
     copy: (
       <>
-        Offer structured remote match reviews with your own scope, price and
-        turnaround. PongLens {glow("handles the order, payment and delivery")}.
+        Record a lesson on your iPhone. PongLens prepares a transcript and
+        {" "}{glow("coaching notes")} for you to review and share.
+      </>
+    ),
+    anim: <LessonRecording />,
+  },
+  {
+    title: "A shared coaching journal",
+    copy: (
+      <>
+        Share lesson notes and read the entries your student shares with you.
+        Keep {glow("your advice and their reflections")} together between sessions.
+      </>
+    ),
+    anim: <StudentJournal />,
+  },
+  {
+    title: "Lesson video recaps",
+    copy: (
+      <>
+        Upload a lesson video and get {glow("a recap organised into chapters")}.
+        Revisit a particular explanation or demonstration without watching the
+        whole recording.
+      </>
+    ),
+    anim: <LessonRecap />,
+  },
+  {
+    title: "Paid match reviews",
+    copy: (
+      <>
+        Offer professional match reviews through your coach profile. Set your
+        price and manage {glow("requests, feedback and payments")} in PongLens.
       </>
     ),
     anim: <TermsDial />,
@@ -189,7 +186,7 @@ const features = [
 const faqs = [
   {
     q: "What can I use PongLens for as a coach?",
-    a: "PongLens brings your whole coaching practice together. Build a coach profile, manage students, keep and share lesson journals, record sessions, review matches, and receive paid review orders from the same workspace.",
+    a: "Manage your students, review shared matches and keep lesson notes together. Record lessons on iPhone, share summaries and prepare video recaps. You can also offer paid match reviews.",
   },
   {
     q: "Do my students need a PongLens account?",
@@ -197,26 +194,31 @@ const faqs = [
   },
   {
     q: "What can I see from a student’s account?",
-    a: "Only the matches they give you access to. When they join, they choose whether to share every match or share them one at a time. You cannot see the rest of their account or their private journal.",
+    a: "You can see the matches and lesson entries they choose to share with you. Their other journal entries and account information remain private.",
   },
   {
     q: "How does lesson recording work?",
-    a: "On iPhone, put your phone near the table and record the lesson. PongLens turns the recording into an editable transcript and prepares the main points for you to review. Video lesson recording is coming soon.",
+    a: "Record the lesson’s audio in the iPhone app. PongLens prepares a transcript and coaching notes that you can review, edit and share with your student.",
+  },
+  {
+    q: "Can I upload a lesson video?",
+    a: "Yes. Upload a recorded lesson and PongLens prepares a recap organised into chapters. Review it before sharing it with your student.",
   },
   {
     q: "Can I edit an entry after sharing it?",
     a: "Yes. Shared entries are live. Your student sees the updated version in their journal, and you can stop sharing whenever you need to.",
   },
   {
-    q: "Does the coach workspace work on both iPhone and the web?",
-    a: "Student management, lesson entries and shared matches are available on iPhone and the web. Long lesson recording is currently on iPhone. Paid review orders are managed on the web.",
+    q: "Does it work on iPhone and the web?",
+    a: "Student records, shared notes, matches and video recaps are available on iPhone and the web. Audio lesson recording is on iPhone. Paid review orders are managed on the web.",
+    link: { href: "/#ios-beta", label: "Join the iPhone beta" },
   },
   {
     q: "What does it cost?",
-    a: "Managing students, sharing lesson entries and reviewing shared matches is free. If you sell a paid match review, a small platform fee comes off the order. Card processing is included.",
+    a: "Managing students, sharing lesson entries and reviewing shared matches is free. Video storage and processing use your account’s allowances. A platform fee applies to paid match reviews.",
   },
   {
-    q: "Can I still offer paid match reviews?",
+    q: "Can I offer paid match reviews?",
     a: "Yes. You choose the price, what the review covers and how many days you need. The student sends a match and their questions, and nothing starts until you accept.",
   },
   {
@@ -240,13 +242,13 @@ const jsonLd = {
     {
       "@type": "Service",
       "@id": "https://www.ponglens.com/coaches#service",
-      name: "Coaching workspace for table tennis coaches",
-      serviceType: "Table tennis coaching workspace",
+      name: "PongLens for table tennis coaches",
+      serviceType: "Table tennis coaching",
       provider: { "@id": "https://www.ponglens.com/#organization" },
       audience: { "@type": "Audience", audienceType: "Table tennis coaches" },
       areaServed: "Worldwide",
       description:
-        "A complete coaching workspace bringing coach profiles, students, lesson journals, recordings, shared notes, review orders, match feedback and payouts together.",
+        "Manage students, share match feedback and lesson notes, and prepare lesson summaries and video recaps. Coaches can also offer paid match reviews.",
     },
     {
       "@type": "VideoObject",
@@ -321,21 +323,20 @@ export default function CoachesPage() {
                   around every student.
                 </h1>
                 <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
-                  Keep lesson journals, recordings, shared notes and match
-                  feedback together. Your students can carry your coaching into
-                  practice, and you can return to every session with the full
-                  picture.
+                  Keep each student&apos;s matches, lesson notes and recordings
+                  together. Share feedback, prepare lesson summaries and give
+                  students video recaps they can revisit between sessions.
                 </p>
-                <div className="mt-10 flex flex-wrap items-center justify-center gap-4 lg:justify-start">
+                <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row sm:flex-wrap lg:justify-start">
                   <Link
                     href="/coaching/start"
-                    className="glow-cta rounded-full bg-cyan-glow px-8 py-3.5 text-base font-semibold text-ink sm:text-lg"
+                    className="glow-cta inline-flex min-h-11 w-full items-center justify-center rounded-full bg-cyan-glow px-8 py-3.5 text-base font-semibold text-ink sm:w-auto sm:text-lg"
                   >
-                    Create your coaching workspace
+                    Start coaching
                   </Link>
                   <Link
                     href="#how"
-                    className="rounded-full px-5 py-3.5 text-base font-medium text-zinc-300 transition-colors hover:text-white sm:text-lg"
+                    className="inline-flex min-h-11 w-full items-center justify-center rounded-full border border-edge px-5 py-3.5 text-base font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white sm:w-auto sm:text-lg"
                   >
                     See it in action ↓
                   </Link>
@@ -362,8 +363,8 @@ export default function CoachesPage() {
                 <div className="relative z-0">
                   <PhoneFrame device="tablet">
                     <Image
-                      src="/showcase/coach-student-t.jpg"
-                      alt="A student's lesson journal and shared matches in the coach workspace"
+                      src="/showcase/coach-student-current-t.jpg"
+                      alt="A student's lesson notes, shared matches and video recaps in PongLens"
                       width={1180}
                       height={820}
                       priority
@@ -419,7 +420,7 @@ export default function CoachesPage() {
         <section id="steps" className="scroll-mt-20 py-20 sm:py-28">
           <div className="mx-auto max-w-6xl px-6">
             <h2 className="text-center text-3xl font-bold tracking-tight sm:text-4xl">
-              A complete coaching workspace
+              Coaching on PongLens
             </h2>
             <div className="mt-14">
               <WalkthroughBand chapters={chapters} subMs={7000} />
@@ -446,6 +447,11 @@ export default function CoachesPage() {
                   </summary>
                   <p className="mt-3 max-w-2xl leading-relaxed text-zinc-400">
                     {faq.a}
+                    {faq.link && (
+                      <Link href={faq.link.href} className="mt-4 flex min-h-11 w-full items-center justify-center rounded-full border border-edge px-5 py-2.5 text-sm font-medium text-zinc-200 transition-colors hover:border-cyan-glow/50 hover:text-white sm:w-fit">
+                        {faq.link.label}
+                      </Link>
+                    )}
                   </p>
                 </details>
               ))}
@@ -456,17 +462,14 @@ export default function CoachesPage() {
         <section className="bg-band border-y border-edge">
           <div className="mx-auto flex max-w-6xl flex-col items-center gap-6 px-6 py-16 text-center">
             <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-              Bring your coaching{" "}
-              <span className="text-magenta-soft">into one place</span>.
+              Bring your students and{" "}
+              <span className="text-magenta-soft">lessons together</span>.
             </h2>
-            <p className="max-w-xl text-zinc-400">
-              Keep every student, lesson and match connected in PongLens.
-            </p>
             <Link
               href="/coaching/start"
-              className="glow-cta rounded-full bg-cyan-glow px-8 py-3 text-base font-semibold text-ink"
+              className="glow-cta inline-flex min-h-11 w-full items-center justify-center rounded-full bg-cyan-glow px-8 py-3 text-base font-semibold text-ink sm:w-auto"
             >
-              Create your coaching workspace
+              Start coaching
             </Link>
           </div>
         </section>
