@@ -81,6 +81,8 @@ def qualifies(point: dict) -> bool:
     """Return true when a v2 receipt proves sustained back-and-forth play."""
     if not isinstance(point, dict):
         return False
+    if point.get("confirmed_winner") not in ("user", "opponent"):
+        return False
     if point.get("deleted") or point.get("edited") or point.get("is_let"):
         return False
     if not point.get("clip_path") or _segment_bounds(point) is None:
@@ -160,7 +162,7 @@ def select_highlights(points: list[dict], max_seconds: float) -> list[dict]:
     )
 
 
-def points_revision(points: list[dict]) -> str:
+def points_revision(points: list[dict], *, scored_only: bool = False) -> str:
     """Hash only fields that can change the rendered automatic artifact."""
     def canonical_number(value: Any) -> str | None:
         number = _number(value)
@@ -178,7 +180,7 @@ def points_revision(points: list[dict]) -> str:
         # Arrays plus decimal strings are deliberate: JSON object key order and
         # float formatting differ between Python and JavaScript. The API must
         # reproduce this hash to reject a stale stored reel.
-        rows.append([
+        row = [
             str(point["id"]),
             canonical_number(point.get("idx")),
             canonical_number(point.get("t0")),
@@ -198,7 +200,12 @@ def points_revision(points: list[dict]) -> str:
             canonical_number(evidence.get("table_bounces")),
             canonical_number(evidence.get("observed_end_s")),
             evidence.get("end_source"),
-        ])
+        ]
+        if scored_only:
+            row.append(
+                point.get("confirmed_winner") in ("user", "opponent")
+            )
+        rows.append(row)
     canonical = json.dumps(
         rows, separators=(",", ":"), allow_nan=False, ensure_ascii=False
     ).encode("utf-8")
@@ -243,7 +250,8 @@ def build_manifest(points: list[dict], max_seconds: float = AUTO_MAX_S) -> dict:
         # The receipt set, not only today's winners. A later evidence-only
         # recovery that promotes a previously weak rally must make the
         # artifact stale even when every already-selected point is unchanged.
-        "points_revision": points_revision(points),
+        "points_revision": points_revision(points, scored_only=True),
+        "scored_only": True,
         "duration_s": round(output_cursor, 3),
         "points": manifest_points,
     }

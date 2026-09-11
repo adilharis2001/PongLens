@@ -1927,6 +1927,10 @@ class HighlightRefreshObsoleteError(BackfillConsistencyError):
     """The match changed, so this explicit refresh must not retry later."""
 
 
+class HighlightScoreRequiredError(HighlightRefreshObsoleteError):
+    """The queued match no longer has enough scored points for highlights."""
+
+
 def run_blurball_only(
     input_video: str | Path,
     workdir: str | Path,
@@ -5765,32 +5769,6 @@ def run_points_stage(
                     (json.dumps(match_json["story_crop"])
                      if match_json["story_crop"] else None, match_id),
                 )
-        # The cut and every detector receipt are still local here. Rendering
-        # now avoids another R2 download and means a newly-ready match never
-        # exposes a half-prepared highlight. This stage is deliberately
-        # fail-soft inside prepare_auto_highlights.
-        if cut_local_path:
-            with conn.cursor() as cur:
-                cur.execute("select active_processing_version_id::text from public.matches "
-                            "where id = %s and job_id = %s", (match_id, job_id))
-                version_row = cur.fetchone()
-            if not version_row:
-                raise MatchVersionChanged("match processing job changed before highlights")
-            with COST_METER.timed_stage(
-                    "automatic_highlight_encoding", attempt_key):
-                prepare_auto_highlights(
-                    conn,
-                    user_id,
-                    match_id,
-                    list(inserted_points.values()),
-                    cut_local_path,
-                    workdir,
-                    enabled=automatic_highlights_enabled(
-                        get_config(conn, "automatic_highlights"), user_id
-                    ),
-                    processing_version_id=version_row[0],
-                )
-
         finish_match(
             conn,
             match_id,
@@ -8421,14 +8399,14 @@ def _load_highlight_points(conn, match_id: str, *, processing_version_id: str) -
     with locked_match_version(conn, match_id, processing_version_id), conn.cursor() as cur:
         cur.execute(
             "select id, idx, t0, t1, cut_t0, scored_at_cut_s, "
-            "rally_end_cut_s, "
+            "rally_end_cut_s, confirmed_winner, "
             "clip_path, deleted, edited, is_let, highlight_evidence "
             "from public.points where match_id = %s and processing_version_id = %s order by idx, id",
             (match_id, processing_version_id),
         )
         return [
             dict(zip(("id", "idx", "t0", "t1", "cut_t0",
-                      "scored_at_cut_s", "rally_end_cut_s", "clip_path",
+                      "scored_at_cut_s", "rally_end_cut_s", "confirmed_winner", "clip_path",
                       "deleted", "edited", "is_let", "highlight_evidence"),
                      values))
             for values in cur.fetchall()
@@ -8448,6 +8426,25 @@ def _wait_for_highlight_points(conn, match_id: str, *, processing_version_id: st
                 "highlight rally clips did not finish updating"
             )
         time.sleep(1)
+
+
+def _require_highlight_generation_eligibility(conn, match_id: str) -> dict:
+    with conn.cursor() as cur:
+        cur.execute(
+            "select scored_points, scorable_points, required_points, "
+            "required_percent, eligible "
+            "from public.highlight_generation_eligibility(%s)",
+            (match_id,),
+        )
+        row = cur.fetchone()
+    if not row or not bool(row[4]):
+        raise HighlightScoreRequiredError("highlights_score_required")
+    return {
+        "scored_points": int(row[0]),
+        "scorable_points": int(row[1]),
+        "required_points": int(row[2]),
+        "required_percent": int(row[3]),
+    }
 
 
 def _prepare_automatic_highlight_manifest(
@@ -8481,7 +8478,7 @@ def _prepare_automatic_highlight_manifest(
             manifest = build_manifest(points)
             current = _load_highlight_points(conn, match_id, processing_version_id=processing_version_id)
             if highlight_revision_is_current(
-                manifest["points_revision"], current
+                manifest["points_revision"], current, scored_only=True
             ):
                 return manifest
             last_error = BackfillConsistencyError(
@@ -8574,6 +8571,7 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> bool | None:
             and manifest.get("refresh_evidence") is True
         )
         try:
+            _require_highlight_generation_eligibility(conn, str(match_id))
             manifest = _prepare_automatic_highlight_manifest(
                 conn, str(match_id), requested_refresh, job_id,
                 processing_version_id=origin_version_id,
@@ -8635,7 +8633,7 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> bool | None:
             current_points = _load_highlight_points(
                 conn, str(match_id), processing_version_id=origin_version_id)
             if not highlight_revision_is_current(
-                manifest["points_revision"], current_points
+                manifest["points_revision"], current_points, scored_only=True
             ):
                 raise HighlightRefreshObsoleteError(
                     f"match {match_id} changed while highlights rendered"

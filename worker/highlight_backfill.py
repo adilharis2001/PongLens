@@ -43,6 +43,7 @@ def highlight_evidence_refresh_needed(points: list[dict[str, Any]]) -> bool:
         not point.get("deleted")
         and not point.get("edited")
         and not point.get("is_let")
+        and point.get("confirmed_winner") in ("user", "opponent")
         and bool(point.get("clip_path"))
         and not (
             isinstance(point.get("highlight_evidence"), dict)
@@ -55,10 +56,12 @@ def highlight_evidence_refresh_needed(points: list[dict[str, Any]]) -> bool:
 def highlight_revision_is_current(
     expected_revision: str,
     points: list[dict[str, Any]],
+    *,
+    scored_only: bool = False,
 ) -> bool:
     return (
         not highlight_points_are_updating(points)
-        and points_revision(points) == expected_revision
+        and points_revision(points, scored_only=scored_only) == expected_revision
     )
 
 

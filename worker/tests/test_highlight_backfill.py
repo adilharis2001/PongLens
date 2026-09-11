@@ -30,7 +30,7 @@ def point(point_id="p1", *, start=10.0, end=20.0, hits=1):
         "deleted": False,
         "edited": False,
         "is_let": False,
-        "confirmed_winner": "you",
+        "confirmed_winner": "user",
         "suggestion": {"n_hits": hits},
         "highlight_evidence": None,
     }
@@ -69,8 +69,17 @@ def test_refresh_ignores_ineligible_missing_evidence():
     ]) is False
     assert highlight_evidence_refresh_needed([
         {"deleted": False, "edited": False, "is_let": False,
-         "clip_path": "point.mp4", "highlight_evidence": None},
+         "confirmed_winner": "user", "clip_path": "point.mp4",
+         "highlight_evidence": None},
     ]) is True
+
+
+def test_refresh_ignores_unscored_rallies():
+    assert highlight_evidence_refresh_needed([
+        {"deleted": False, "edited": False, "is_let": False,
+         "confirmed_winner": None, "clip_path": "point.mp4",
+         "highlight_evidence": None},
+    ]) is False
 
 
 def test_revision_guard_rejects_an_edit_started_after_the_snapshot():
