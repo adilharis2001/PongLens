@@ -27,10 +27,12 @@ function summary(state: HighlightState | null) {
 export function HighlightsRow({
   matchId,
   onPlay,
+  onScore,
   onStateChange,
 }: {
   matchId: string;
   onPlay: (asset: HighlightAsset, onDownload: () => void) => void;
+  onScore: () => void;
   onStateChange?: (state: HighlightState | null) => void;
 }) {
   const [state, setState] = useState<HighlightState | null>(null);
@@ -121,6 +123,7 @@ export function HighlightsRow({
     }
     if (
       state?.status === "needs_generation" ||
+      state?.status === "needs_scoring" ||
       state?.status === "needs_update" ||
       state?.status === "updating" ||
       state?.status === "rendering"
@@ -141,6 +144,11 @@ export function HighlightsRow({
       });
       const body = (await response.json().catch(() => ({}))) as {
         code?: string;
+        scoredPoints?: number;
+        scorablePoints?: number;
+        requiredPoints?: number;
+        requiredPercent?: number;
+        eligible?: boolean;
       };
       if (!response.ok) {
         if (body.code === "highlights_current") {
@@ -151,6 +159,10 @@ export function HighlightsRow({
         if (body.code === "rally_clips_updating") {
           setState({ status: "updating" });
           setRefreshSequence((value) => value + 1);
+          return;
+        }
+        if (body.code === "highlights_score_required") {
+          setState(parseHighlightResponse({ status: "needs_scoring", ...body }));
           return;
         }
         throw new Error(
@@ -177,6 +189,7 @@ export function HighlightsRow({
   const actionable =
     state?.status === "ready" ||
     state?.status === "needs_generation" ||
+    state?.status === "needs_scoring" ||
     state?.status === "needs_update" ||
     state?.status === "updating" ||
     state?.status === "rendering";
@@ -267,7 +280,14 @@ export function HighlightsRow({
                   <button
                     type="button"
                     disabled={submitting}
-                    onClick={() => void requestUpdate()}
+                    onClick={() => {
+                      if (requestView.actionKind === "score") {
+                        close();
+                        onScore();
+                        return;
+                      }
+                      void requestUpdate();
+                    }}
                     className="glow-cta mt-5 min-h-11 w-full rounded-full bg-cyan-glow px-4 py-2.5 text-sm font-semibold text-ink transition-opacity hover:opacity-90 disabled:cursor-wait disabled:opacity-50"
                   >
                     {submitting ? "Starting…" : requestView.actionLabel}

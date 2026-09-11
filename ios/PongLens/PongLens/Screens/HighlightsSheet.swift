@@ -7,6 +7,7 @@ struct HighlightsSheet: View {
     let model: MatchDetailModel
     let scored: Bool
     let onChanged: (AutomaticHighlightsResponse) -> Void
+    let onScore: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -29,9 +30,18 @@ struct HighlightsSheet: View {
                                         .foregroundStyle(PL.text300)
                                 }
                             } else if let actionLabel = requestView.actionLabel {
-                                Button(submitting ? "Starting…" : actionLabel) {
-                                    Task { await requestUpdate() }
+                                Button {
+                                    if requestView.action == .score {
+                                        dismiss()
+                                        DispatchQueue.main.async { onScore() }
+                                    } else {
+                                        Task { await requestUpdate() }
+                                    }
+                                } label: {
+                                    Text(submitting ? "Starting…" : actionLabel)
+                                        .frame(maxWidth: .infinity, minHeight: 28)
                                 }
+                                .buttonStyle(PLPrimaryButtonStyle())
                                 .disabled(submitting)
                             }
                             if let errorMessage {
@@ -103,7 +113,7 @@ struct HighlightsSheet: View {
     }
 
     private var requestView: AutomaticHighlightsRequestView? {
-        automaticHighlightsRequestView(status: response?.status ?? "")
+        response.flatMap { automaticHighlightsRequestView(response: $0) }
     }
 
     private var detents: Set<PresentationDetent> {
@@ -154,7 +164,9 @@ struct HighlightsSheet: View {
             submitting = false
             await loadUntilSettled()
         } catch let APIError.http(_, code) {
-            if code == "highlights_current" || code == "rally_clips_updating" {
+            if code == "highlights_current"
+                || code == "rally_clips_updating"
+                || code == "highlights_score_required" {
                 submitting = false
                 await loadUntilSettled()
                 return

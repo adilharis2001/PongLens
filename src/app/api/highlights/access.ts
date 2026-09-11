@@ -1,4 +1,4 @@
-export function automaticHighlightsEnabled(
+export function highlightsEnabled(
   value: string | null | undefined,
   userId: string,
 ) {

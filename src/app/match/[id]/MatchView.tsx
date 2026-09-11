@@ -3147,6 +3147,7 @@ export function MatchView({
             {hasCutOffsets && !handCut && (
               <HighlightsRow
                 matchId={match.id}
+                onScore={() => playerRef.current?.openScore()}
                 onPlay={(asset, onDownload) =>
                   playerRef.current?.openHighlights(asset, onDownload)
                 }

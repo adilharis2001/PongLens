@@ -36,6 +36,7 @@ def point(
         "deleted": False,
         "edited": False,
         "is_let": False,
+        "confirmed_winner": "user",
         "highlight_evidence": {
             "v": 2,
             "status": "ready",
@@ -55,6 +56,12 @@ def point(
 
 def test_exact_crossing_threshold_qualifies():
     assert qualifies(point("p"))
+
+
+def test_unscored_rally_never_qualifies():
+    p = point("unscored")
+    p["confirmed_winner"] = None
+    assert not qualifies(p)
 
 
 def test_postgres_numeric_timestamps_qualify():
@@ -232,6 +239,7 @@ def test_manifest_output_positions_include_crossfade_overlap():
     assert b["output_start_s"] == pytest.approx(7.25 - XFADE_S)
     assert b["output_end_s"] == pytest.approx(7.25 - XFADE_S + 6.25)
     assert manifest["duration_s"] == pytest.approx(b["output_end_s"])
+    assert manifest["scored_only"] is True
 
 
 def test_revision_is_deterministic_and_changes_with_membership_bounds_or_version():
@@ -260,6 +268,20 @@ def test_revision_changes_when_a_scoring_tap_is_added():
     first = points_revision(points)
     points[0]["scored_at_cut_s"] = 16.2
     assert points_revision(points) != first
+
+
+def test_scored_only_revision_changes_when_a_point_is_unscored():
+    points = [point("a")]
+    first = points_revision(points, scored_only=True)
+    points[0]["confirmed_winner"] = None
+    assert points_revision(points, scored_only=True) != first
+
+
+def test_scored_only_revision_ignores_which_player_won():
+    points = [point("a")]
+    first = points_revision(points, scored_only=True)
+    points[0]["confirmed_winner"] = "opponent"
+    assert points_revision(points, scored_only=True) == first
 
 
 def test_revision_has_a_cross_language_canonical_form():

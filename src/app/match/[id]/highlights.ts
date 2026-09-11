@@ -16,6 +16,7 @@ export type HighlightManifest = {
   max_seconds: number;
   points_revision: string;
   duration_s: number;
+  scored_only?: boolean;
   points: HighlightManifestPoint[];
 };
 
@@ -29,6 +30,14 @@ export type HighlightAsset = {
 export type HighlightState =
   | HighlightAsset
   | {
+      status: "needs_scoring";
+      scoredPoints: number;
+      scorablePoints: number;
+      requiredPoints: number;
+      requiredPercent: 75;
+      eligible?: false;
+    }
+  | {
       status:
         | "rendering"
         | "needs_generation"
@@ -39,7 +48,16 @@ export type HighlightState =
         | "failed";
     };
 
-const nonPlayable = new Set([
+type HighlightSimpleStatus =
+  | "rendering"
+  | "needs_generation"
+  | "needs_update"
+  | "updating"
+  | "empty"
+  | "unavailable"
+  | "failed";
+
+const nonPlayable = new Set<HighlightSimpleStatus>([
   "rendering",
   "needs_generation",
   "needs_update",
@@ -52,8 +70,21 @@ const nonPlayable = new Set([
 export function parseHighlightResponse(value: unknown): HighlightState {
   if (!value || typeof value !== "object") return { status: "failed" };
   const row = value as Record<string, unknown>;
-  if (typeof row.status === "string" && nonPlayable.has(row.status)) {
-    return { status: row.status as Exclude<HighlightState, HighlightAsset>["status"] };
+  if (row.status === "needs_scoring") {
+    if (
+      Number.isInteger(row.scoredPoints) &&
+      Number.isInteger(row.scorablePoints) &&
+      Number.isInteger(row.requiredPoints) &&
+      row.requiredPercent === 75 &&
+      row.eligible === false
+    ) {
+      return row as HighlightState;
+    }
+    return { status: "failed" };
+  }
+  const simpleStatus = row.status as HighlightSimpleStatus;
+  if (typeof row.status === "string" && nonPlayable.has(simpleStatus)) {
+    return { status: simpleStatus };
   }
   const manifest = row.manifest as HighlightManifest | undefined;
   if (
@@ -76,6 +107,7 @@ export type HighlightLifecycleView = {
   sheetTitle: string;
   body: string;
   actionLabel: string | null;
+  actionKind?: "score";
   shouldPoll: boolean;
 };
 
@@ -83,6 +115,15 @@ export function highlightLifecycleView(
   state: Exclude<HighlightState, HighlightAsset>,
 ): HighlightLifecycleView {
   switch (state.status) {
+    case "needs_scoring":
+      return {
+        rowSummary: `${state.scoredPoints} of ${state.scorablePoints} scored`,
+        sheetTitle: "Score more of this match",
+        body: `Score at least 75% of the points before generating highlights. You've scored ${state.scoredPoints} of ${state.scorablePoints}.`,
+        actionLabel: "Score the Match",
+        actionKind: "score",
+        shouldPoll: false,
+      };
     case "needs_generation":
       return {
         rowSummary: "Generate",

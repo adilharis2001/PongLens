@@ -1,3 +1,7 @@
+import inspect
+
+import pytest
+
 import worker
 
 
@@ -13,6 +17,40 @@ def test_automatic_highlights_switch_supports_one_user_canary():
     assert worker.automatic_highlights_enabled("off", "user-a") is False
     assert worker.automatic_highlights_enabled("user:user-b", "user-a") is False
     assert worker.automatic_highlights_enabled(None, "user-a") is False
+
+
+def test_normal_match_processing_never_prepares_highlights():
+    assert "prepare_auto_highlights" not in inspect.getsource(worker.run_points_stage)
+
+
+def test_ineligible_queued_highlight_stops_before_preparation(monkeypatch):
+    class EligibilityCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, params=None):
+            self.query = " ".join(query.split())
+            self.params = params
+
+        def fetchone(self):
+            return (2, 4, 3, 75, False)
+
+    class EligibilityConnection:
+        def cursor(self):
+            return EligibilityCursor()
+
+    with pytest.raises(worker.HighlightScoreRequiredError):
+        worker._require_highlight_generation_eligibility(
+            EligibilityConnection(), "match-id"
+        )
+
+    source = inspect.getsource(worker.process_reel)
+    assert source.index("_require_highlight_generation_eligibility") < source.index(
+        "_prepare_automatic_highlight_manifest"
+    )
 
 
 class Cursor:
@@ -71,6 +109,7 @@ def strong_point():
         "deleted": False,
         "edited": False,
         "is_let": False,
+        "confirmed_winner": "user",
         "highlight_evidence": {
             "v": 2,
             "status": "ready",

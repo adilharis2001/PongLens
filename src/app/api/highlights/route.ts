@@ -2,13 +2,14 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MEDIA_BUCKET, presignGet } from "@/lib/r2";
-import { automaticHighlightsEnabled } from "./access";
+import { highlightsEnabled } from "./access";
 import { highlightShareMediaKey } from "../share/highlightShare";
 import {
   automaticHighlightEvidenceRefreshNeeded,
   automaticHighlightReadDecision,
   automaticHighlightRequestDecision,
   highlightManifestIsFresh,
+  supportsScoredHighlights,
   type AutomaticHighlightRevisionPoint,
 } from "./endPolicy";
 
@@ -34,7 +35,16 @@ type HighlightManifest = {
   max_seconds: number;
   points_revision: string;
   duration_s: number;
+  scored_only?: boolean;
   points: ManifestPoint[];
+};
+
+type HighlightEligibility = {
+  scoredPoints: number;
+  scorablePoints: number;
+  requiredPoints: number;
+  requiredPercent: number;
+  eligible: boolean;
 };
 
 function response(body: object, status = 200) {
@@ -65,7 +75,7 @@ async function loadPoints(
   const { data: rows, error } = await supabase
     .from("points")
     .select(
-      "id,idx,t0,t1,cut_t0,scored_at_cut_s,rally_end_cut_s,clip_path,deleted,edited,is_let,highlight_evidence",
+      "id,idx,t0,t1,cut_t0,scored_at_cut_s,rally_end_cut_s,confirmed_winner,clip_path,deleted,edited,is_let,highlight_evidence",
     )
     .eq("match_id", matchId);
   if (error || !rows) return null;
@@ -86,6 +96,37 @@ async function loadPoints(
   })) as AutomaticHighlightRevisionPoint[];
 }
 
+async function loadEligibility(
+  admin: ReturnType<typeof createAdminClient>,
+  matchId: string,
+): Promise<HighlightEligibility> {
+  const { data, error } = await admin.rpc(
+    "highlight_generation_eligibility",
+    { p_match_id: matchId },
+  );
+  const row = Array.isArray(data) ? data[0] : data;
+  if (error || !row || typeof row !== "object") {
+    throw error ?? new Error("highlight score coverage unavailable");
+  }
+  const value = row as Record<string, unknown>;
+  const eligibility = {
+    scoredPoints: Number(value.scored_points),
+    scorablePoints: Number(value.scorable_points),
+    requiredPoints: Number(value.required_points),
+    requiredPercent: Number(value.required_percent),
+    eligible: value.eligible === true,
+  };
+  if (
+    !Number.isInteger(eligibility.scoredPoints) ||
+    !Number.isInteger(eligibility.scorablePoints) ||
+    !Number.isInteger(eligibility.requiredPoints) ||
+    eligibility.requiredPercent !== 75
+  ) {
+    throw new Error("highlight score coverage is invalid");
+  }
+  return eligibility;
+}
+
 function initialManifest(refreshEvidence = false) {
   return {
     v: 2,
@@ -93,6 +134,7 @@ function initialManifest(refreshEvidence = false) {
     max_seconds: 150,
     points_revision: "",
     duration_s: 0,
+    scored_only: true,
     points: [],
     ...(refreshEvidence ? { refresh_evidence: true } : {}),
   };
@@ -124,12 +166,15 @@ export async function GET(req: Request) {
 
   try {
     const admin = createAdminClient();
-    const { data: config } = await admin
-      .from("app_config")
-      .select("value")
-      .eq("key", "automatic_highlights")
-      .maybeSingle();
-    if (!automaticHighlightsEnabled(config?.value, user.id)) {
+    const [{ data: config }, eligibility] = await Promise.all([
+      admin
+        .from("app_config")
+        .select("value")
+        .eq("key", "highlights_enabled")
+        .maybeSingle(),
+      loadEligibility(admin, matchId),
+    ]);
+    if (!highlightsEnabled(config?.value, user.id)) {
       return response({ status: "unavailable" });
     }
 
@@ -152,6 +197,7 @@ export async function GET(req: Request) {
       reelStatus: reel?.status ?? null,
       manifestFresh,
       pointsUpdating: points.some((point) => !point.deleted && point.edited),
+      scoreEligible: eligibility.eligible,
     });
 
     if (decision.status === "ready") {
@@ -175,10 +221,22 @@ export async function GET(req: Request) {
     }
 
     if (
-      decision.status === "needs_generation" &&
+      !supportsScoredHighlights(match.match_type) &&
+      decision.status !== "rendering" &&
+      decision.status !== "updating"
+    ) {
+      return response({ status: "unavailable" });
+    }
+
+    if (
+      (decision.status === "needs_generation" ||
+        decision.status === "needs_scoring") &&
       (!match.cut_path || match.status !== "ready")
     ) {
       return response({ status: "unavailable" });
+    }
+    if (decision.status === "needs_scoring") {
+      return response({ status: decision.status, ...eligibility });
     }
     return response({ status: decision.status });
   } catch (error) {
@@ -222,12 +280,15 @@ export async function POST(req: Request) {
 
   try {
     const admin = createAdminClient();
-    const { data: config } = await admin
-      .from("app_config")
-      .select("value")
-      .eq("key", "automatic_highlights")
-      .maybeSingle();
-    if (!automaticHighlightsEnabled(config?.value, user.id)) {
+    const [{ data: config }, eligibility] = await Promise.all([
+      admin
+        .from("app_config")
+        .select("value")
+        .eq("key", "highlights_enabled")
+        .maybeSingle(),
+      loadEligibility(admin, matchId),
+    ]);
+    if (!highlightsEnabled(config?.value, user.id)) {
       return response({ code: "highlights_unavailable" }, 403);
     }
 
@@ -251,6 +312,7 @@ export async function POST(req: Request) {
       pointsUpdating: points.some(
         (point) => !point.deleted && point.edited,
       ),
+      scoreEligible: eligibility.eligible,
     });
     if (requestDecision === "rendering") {
       return response({ status: "rendering" }, 202);
@@ -260,6 +322,15 @@ export async function POST(req: Request) {
     }
     if (requestDecision === "current") {
       return response({ code: "highlights_current" }, 409);
+    }
+    if (!supportsScoredHighlights(match.match_type)) {
+      return response({ code: "highlights_unavailable" }, 409);
+    }
+    if (requestDecision === "score_required") {
+      return response(
+        { code: "highlights_score_required", ...eligibility },
+        409,
+      );
     }
 
     const { error: enqueueError } = await supabase.rpc("enqueue_reel", {
@@ -273,6 +344,13 @@ export async function POST(req: Request) {
     if (enqueueError) {
       if (String(enqueueError.message).includes("render_queue_full")) {
         return response({ code: "render_queue_full" }, 429);
+      }
+      if (String(enqueueError.message).includes("highlights_score_required")) {
+        const latest = await loadEligibility(admin, matchId);
+        return response(
+          { code: "highlights_score_required", ...latest },
+          409,
+        );
       }
       throw enqueueError;
     }
