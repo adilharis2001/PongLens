@@ -511,8 +511,15 @@ struct LessonVideoDetailScreen: View {
                     }
                     attribution(detail)
                     actions(detail)
-                    if let edit = detail.video.edit, !edit.chapters.isEmpty {
-                        chapters(edit, enabled: watchable(detail))
+                    if let edit = detail.video.edit {
+                        // The two cards bracket the clips here the way
+                        // they bracket them in the video. A lesson that
+                        // stated neither shows neither.
+                        focusList("Lesson goals", edit.goals ?? [])
+                        if !edit.chapters.isEmpty {
+                            chapters(edit, enabled: watchable(detail))
+                        }
+                        focusList("Things to work on", edit.work_on ?? [])
                     }
                     manage(detail)
                 } else if error == nil {
@@ -772,6 +779,25 @@ struct LessonVideoDetailScreen: View {
             }
             .frame(maxWidth: .infinity)
             .plCard(padding: 16)
+        }
+    }
+
+    /// What the lesson set out to do, or what to practise next: the same
+    /// grouped card the chapters sit in, reading as words rather than as
+    /// rows anybody can press. An empty list draws nothing at all, not a
+    /// heading over a blank card.
+    @ViewBuilder
+    private func focusList(_ title: String, _ lines: [String]) -> some View {
+        if !lines.isEmpty {
+            CoachGroup(title) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                    Text(line)
+                        .font(.plBody).foregroundStyle(PL.text100)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                    if index < lines.count - 1 { CoachRowDivider() }
+                }
+            }
         }
     }
 
@@ -1783,9 +1809,11 @@ private struct LessonVideoEditSheet: View {
                             .foregroundStyle(PL.text100)
                             .plCard(padding: 16)
                     }
+                    focusSection(.goals)
                     ForEach(draft.chapters) { chapter in
                         chapterCard(chapter)
                     }
+                    focusSection(.workOn)
                     Text("Saving prepares a new recap. Review it again before saving or sharing.")
                         .font(.plCaption).foregroundStyle(PL.text400)
                     if let error { Text(error).font(.plBody).foregroundStyle(PL.dangerText) }
@@ -1863,6 +1891,105 @@ private struct LessonVideoEditSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .plCard(padding: 16)
         .disabled(busy)
+    }
+
+    /// The two lists that bracket the clips. One shape, two headings.
+    private enum FocusList {
+        case goals, workOn
+        var heading: String { self == .goals ? "Lesson goals" : "Things to work on" }
+        var placeholder: String { self == .goals ? "Goal" : "Something to work on" }
+        var addLabel: String { self == .goals ? "Add a goal" : "Add something to work on" }
+        var removeLabel: String { self == .goals ? "Remove this goal" : "Remove this line" }
+        var limit: Int { self == .goals ? LessonVideoEditDraft.maxGoals : LessonVideoEditDraft.maxWorkOn }
+    }
+
+    private func lines(_ list: FocusList) -> [LessonVideoEditDraft.Line] {
+        switch list {
+        case .goals: draft.goals
+        case .workOn: draft.workOn
+        }
+    }
+
+    /// One line, found by id rather than by where it sits, for the reason
+    /// written over `chapterCard`.
+    private func focusText(_ list: FocusList, _ lineId: UUID) -> Binding<String> {
+        Binding(
+            get: {
+                switch list {
+                case .goals: draft.goalText(lineId)
+                case .workOn: draft.workOnText(lineId)
+                }
+            },
+            set: { text in
+                switch list {
+                case .goals: draft.setGoalText(lineId, text)
+                case .workOn: draft.setWorkOnText(lineId, text)
+                }
+            }
+        )
+    }
+
+    /// A list a coach can take down to nothing.
+    ///
+    /// Unlike a chapter's points, the last row here may go: a lesson with
+    /// no goals left is a recap with no goals card, which is a real
+    /// answer. So the remove control stays on the final row and an empty
+    /// list never blocks Save.
+    private func focusSection(_ list: FocusList) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeading(list.heading)
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(lines(list)) { line in
+                    HStack(alignment: .top, spacing: 4) {
+                        TextField(list.placeholder, text: focusText(list, line.id), axis: .vertical)
+                            .font(.plBody)
+                            .foregroundStyle(PL.text200)
+                            .lineLimit(2...6)
+                            .focused($focus, equals: line.id)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .writingSurface()
+                        Button { remove(line: line.id, from: list) } label: {
+                            Image(systemName: "xmark.circle")
+                                .font(.system(size: 18))
+                        }
+                        .buttonStyle(RemoveControlStyle())
+                        .accessibilityLabel(list.removeLabel)
+                    }
+                }
+                if lines(list).count < list.limit {
+                    Button { addLine(to: list) } label: {
+                        Label(list.addLabel, systemImage: "plus.circle")
+                            .font(.plBody)
+                            .foregroundStyle(PL.cyan)
+                            .frame(minHeight: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .plCard(padding: 16)
+            .disabled(busy)
+        }
+    }
+
+    private func addLine(to list: FocusList) {
+        guard lines(list).count < list.limit else { return }
+        let line = LessonVideoEditDraft.Line(text: "")
+        switch list {
+        case .goals: draft.goals.append(line)
+        case .workOn: draft.workOn.append(line)
+        }
+        // A render behind the append, the same as a chapter's points.
+        DispatchQueue.main.async { focus = line.id }
+    }
+
+    private func remove(line lineId: UUID, from list: FocusList) {
+        if focus == lineId { focus = nil }
+        switch list {
+        case .goals: draft.goals.removeAll { $0.id == lineId }
+        case .workOn: draft.workOn.removeAll { $0.id == lineId }
+        }
     }
 
     /// The chapter's title, found by id rather than by where it sits.

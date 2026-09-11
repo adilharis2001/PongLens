@@ -84,6 +84,18 @@ struct LessonVideoEdit: Codable, Equatable {
     var chapters: [Chapter]
     var themes: [Theme]
     var warning: String?
+    /// What the lesson set out to improve, shown on a card before the
+    /// first clip.
+    ///
+    /// Optional in both directions. A lesson that stated no goals has no
+    /// key at all, which is how an older row decodes and how a recap
+    /// whose last goal has been deleted is saved: an empty list would
+    /// draw an empty heading on the page and an empty card into the
+    /// video. Twins of `goals` and `work_on` in
+    /// `src/lib/lessonVideo/model.ts`.
+    var goals: [String]? = nil
+    /// What to practise afterwards, shown on a card after the last clip.
+    var work_on: [String]? = nil
     struct Chapter: Codable, Equatable {
         var title: String
         var cues: [String]
@@ -427,13 +439,26 @@ struct LessonVideoEditDraft: Equatable {
         let summary_start_s: Double?
         let summary_end_s: Double?
     }
+    /// One line of the goals card or the things-to-work-on card, with an
+    /// id of its own for the same reason a cue has one.
+    struct Line: Identifiable, Equatable {
+        let id: UUID
+        var text: String
+        init(id: UUID = UUID(), text: String) { self.id = id; self.text = text }
+    }
     var title: String
     var chapters: [Chapter]
     var themes: [LessonVideoEdit.Theme]
     var warning: String?
+    var goals: [Line]
+    var workOn: [Line]
 
     /// Three points is the space the rendered chapter panel has.
     static let maxCuesPerChapter = 3
+    /// What the cards have room for, and what the server trims to.
+    static let maxGoals = 5
+    static let maxWorkOn = 6
+    static let focusLineLimit = 180
 
     // Reading and writing a row BY ID, never by where it sits.
     //
@@ -465,6 +490,20 @@ struct LessonVideoEditDraft: Equatable {
         else { return }
         chapters[chapterIndex].cues[cueIndex].text = text
     }
+
+    func goalText(_ lineId: UUID) -> String { Self.text(goals, lineId) }
+    mutating func setGoalText(_ lineId: UUID, _ text: String) { Self.setText(&goals, lineId, text) }
+    func workOnText(_ lineId: UUID) -> String { Self.text(workOn, lineId) }
+    mutating func setWorkOnText(_ lineId: UUID, _ text: String) { Self.setText(&workOn, lineId, text) }
+
+    private static func text(_ lines: [Line], _ lineId: UUID) -> String {
+        lines.first(where: { $0.id == lineId })?.text ?? ""
+    }
+
+    private static func setText(_ lines: inout [Line], _ lineId: UUID, _ text: String) {
+        guard let index = lines.firstIndex(where: { $0.id == lineId }) else { return }
+        lines[index].text = text
+    }
     /// The server's own trims (validateEdit on web): a longer value is
     /// cut there anyway, so it is cut here first and what is saved is
     /// what was on screen.
@@ -484,6 +523,8 @@ struct LessonVideoEditDraft: Equatable {
         }
         themes = edit.themes
         warning = edit.warning
+        goals = (edit.goals ?? []).map { Line(text: $0) }
+        workOn = (edit.work_on ?? []).map { Line(text: $0) }
     }
 
     /// Why Save is off, or nil when it may go. A disabled button with
@@ -502,8 +543,14 @@ struct LessonVideoEditDraft: Equatable {
     /// The edit as it will be stored: everything trimmed, blank points
     /// dropped, the server's length limits applied. Themes and the warning
     /// pass through untouched; the sheet never shows them.
+    ///
+    /// A list a coach has emptied travels as no key rather than as an
+    /// empty array, because the recap then has no goals card at all,
+    /// which is not the same thing as a card with nothing on it.
     func cleaned() -> LessonVideoEdit {
-        LessonVideoEdit(
+        let goalLines = Self.lines(goals, limit: Self.maxGoals)
+        let workOnLines = Self.lines(workOn, limit: Self.maxWorkOn)
+        return LessonVideoEdit(
             title: Self.trim(title, limit: Self.titleLimit),
             chapters: chapters.map { chapter in
                 LessonVideoEdit.Chapter(
@@ -514,8 +561,15 @@ struct LessonVideoEditDraft: Equatable {
                 )
             },
             themes: themes,
-            warning: warning
+            warning: warning,
+            goals: goalLines.isEmpty ? nil : goalLines,
+            work_on: workOnLines.isEmpty ? nil : workOnLines
         )
+    }
+
+    /// Trimmed, blanks dropped, capped at what the card holds.
+    private static func lines(_ lines: [Line], limit: Int) -> [String] {
+        Array(lines.map { trim($0.text, limit: focusLineLimit) }.filter { !$0.isEmpty }.prefix(limit))
     }
 
     private static func trim(_ value: String, limit: Int? = nil) -> String {

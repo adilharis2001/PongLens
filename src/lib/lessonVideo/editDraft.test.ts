@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {canAddCue, canRemoveCue, draftBlocker, draftFromEdit, draftSnapshot, editFromDraft, MAX_DRAFT_CUES} from './editDraft.ts';
-import {validateEdit, type LessonEdit} from './model.ts';
+import {canAddCue, canAddLine, canRemoveCue, draftBlocker, draftFromEdit, draftSnapshot, editFromDraft, MAX_DRAFT_CUES} from './editDraft.ts';
+import {MAX_GOALS, MAX_WORK_ON, validateEdit, type LessonEdit} from './model.ts';
 
 const edit:LessonEdit={
  title:'Backhand lesson',
@@ -73,4 +73,51 @@ test('a chapter keeps its last line and stops at three',()=>{
  draft.chapters[0].cues.push({id:'x',text:''});
  assert.equal(draft.chapters[0].cues.length,MAX_DRAFT_CUES);
  assert.equal(canAddCue(draft.chapters[0]),false);
+});
+
+test('a lesson that stated no goals keeps none through the editor',()=>{
+ const draft=draftFromEdit(edit);
+ assert.deepEqual(draft.goals,[]);
+ assert.deepEqual(draft.work_on,[]);
+ const saved=editFromDraft(draft);
+ assert.equal('goals' in saved,false);
+ assert.equal('work_on' in saved,false);
+});
+
+test('goals and follow-ups round-trip, and an emptied list loses its key',()=>{
+ const bracketed:LessonEdit={...edit,goals:['Serve short.'],work_on:['Third ball.','Footwork drill.']};
+ const draft=draftFromEdit(bracketed);
+ assert.equal(draft.goals.length,1);
+ assert.equal(draft.work_on.length,2);
+ assert.deepEqual(editFromDraft(draft),bracketed);
+ // Every line has its own key, so two blank ones can sit on screen at once.
+ const ids=[...draft.goals.map((g)=>g.id),...draft.work_on.map((w)=>w.id)];
+ assert.equal(new Set(ids).size,ids.length);
+ // Deleting the last goal is a real answer, not a blocked state.
+ draft.goals=[];
+ draft.work_on=[{id:'a',text:'  '}];
+ const saved=editFromDraft(draft);
+ assert.equal('goals' in saved,false);
+ assert.equal('work_on' in saved,false);
+ assert.equal(draftBlocker(draft),null);
+ assert.ok(validateEdit(saved,200));
+});
+
+test('the two lists stop at their own limits',()=>{
+ const draft=draftFromEdit({...edit,goals:Array.from({length:MAX_GOALS},(_x,i)=>`Goal ${i}`),work_on:['One thing.']});
+ assert.equal(canAddLine(draft.goals,MAX_GOALS),false);
+ assert.equal(canAddLine(draft.work_on,MAX_WORK_ON),true);
+ draft.goals=draft.goals.slice(0,1);
+ assert.equal(canAddLine(draft.goals,MAX_GOALS),true);
+ draft.work_on=Array.from({length:MAX_WORK_ON},(_x,i)=>({id:`w${i}`,text:`Work ${i}`}));
+ assert.equal(canAddLine(draft.work_on,MAX_WORK_ON),false);
+});
+
+test('an added-then-abandoned blank goal is not a change',()=>{
+ const before=draftSnapshot(draftFromEdit(edit));
+ const draft=draftFromEdit(edit);
+ draft.goals.push({id:'g',text:''});
+ assert.equal(draftSnapshot(draft),before);
+ draft.goals[0].text='Serve short.';
+ assert.notEqual(draftSnapshot(draft),before);
 });

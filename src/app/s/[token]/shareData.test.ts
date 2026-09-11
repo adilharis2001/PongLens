@@ -80,3 +80,14 @@ test("highlight timeline is sorted by output time", () => {
   );
   assert.deepEqual(result.map((entry) => entry.pointId), ["p1", "p2"]);
 });
+
+test("a bracketing list is sanitised, never trusted", () => {
+  assert.deepEqual(
+    shareData.publicLessonLines([" Serve short. ", 7, "", null, "Third ball."]),
+    ["Serve short.", "Third ball."],
+  );
+  // Absent is normal: a lesson that stated neither renders nothing.
+  assert.deepEqual(shareData.publicLessonLines(undefined), []);
+  assert.deepEqual(shareData.publicLessonLines(null), []);
+  assert.deepEqual(shareData.publicLessonLines("Serve short."), []);
+});

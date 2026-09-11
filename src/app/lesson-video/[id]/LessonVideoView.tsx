@@ -5,9 +5,10 @@ import { LessonPlayback } from './LessonPlayback';
 import { UpLink } from '@/components/UpLink';
 import { AutoTextarea } from '@/components/AutoTextarea';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import type { LessonVideo } from '@/lib/lessonVideo/model';
+import { MAX_FOCUS_LINE, MAX_GOALS, MAX_WORK_ON, type LessonVideo } from '@/lib/lessonVideo/model';
 import {
   canAddCue,
+  canAddLine,
   canRemoveCue,
   draftBlocker,
   draftFromEdit,
@@ -17,6 +18,7 @@ import {
   MAX_CUE_LENGTH,
   MAX_RECAP_TITLE_LENGTH,
   nextDraftId,
+  type DraftCue,
   type EditDraft,
 } from '@/lib/lessonVideo/editDraft';
 import {
@@ -108,6 +110,33 @@ interface Detail {
 
 function Label({ children }: { children: React.ReactNode }) {
   return <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">{children}</h2>;
+}
+
+/**
+ * One of the two lists that bracket a recap: what the lesson set out to
+ * improve, and what to practise afterwards. The same words the video draws
+ * on its first and last cards, read here without pressing play.
+ *
+ * A lesson that stated neither has neither, so an absent list renders
+ * nothing at all rather than a heading with a gap under it.
+ */
+function FocusList({ heading, lines }: { heading: string; lines: string[] }) {
+  if (!lines.length) return null;
+  return (
+    <section className="mt-8" aria-label={heading}>
+      <Label>{heading}</Label>
+      <div className={card}>
+        <ul className="space-y-3 px-5 py-4">
+          {lines.map((line, index) => (
+            <li key={index} className="flex gap-3">
+              <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
+              <span className="min-w-0 flex-1 text-sm font-medium leading-snug text-zinc-100">{line}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
 }
 
 const chevron = (
@@ -401,6 +430,91 @@ export function LessonVideoView({
   function removeChapter(chapterId: string) {
     updateDraft((draft) => (draft.chapters.length > 1 ? { ...draft, chapters: draft.chapters.filter((c) => c.id !== chapterId) } : draft));
   }
+  /* The two lists that bracket the recap. They differ from a chapter's
+     points in one way that matters: they may go all the way to empty. A
+     coach who removes the last goal is saying this lesson had none, and
+     the recap comes back without a goals card. */
+  function updateLines(key: 'goals' | 'work_on', change: (lines: DraftCue[]) => DraftCue[]) {
+    updateDraft((draft) => ({ ...draft, [key]: change(draft[key]) }));
+  }
+  function addLine(key: 'goals' | 'work_on', limit: number) {
+    const id = nextDraftId();
+    updateLines(key, (lines) => (canAddLine(lines, limit) ? [...lines, { id, text: '' }] : lines));
+    setFocusId(id);
+  }
+  function removeLine(key: 'goals' | 'work_on', lineId: string) {
+    updateLines(key, (lines) => lines.filter((line) => line.id !== lineId));
+  }
+  /** One bracketing list in the editor, built from the same pieces as a
+   *  chapter's points: a bullet, a field that grows, a remove control and a
+   *  pill to add another. Called as a function rather than mounted as a
+   *  component, so a keystroke does not remount the field being typed in. */
+  function focusFields(
+    draft: EditDraft,
+    spec: {
+      key: 'goals' | 'work_on';
+      heading: string;
+      lineLabel: string;
+      placeholder: string;
+      addLabel: string;
+      removeLabel: string;
+      limit: number;
+    }
+  ) {
+    const lines = draft[spec.key];
+    return (
+      <div className="mt-6 border-t border-edge pt-5">
+        <p className="text-sm text-zinc-400">{spec.heading}</p>
+        <ul className="mt-3 space-y-1.5">
+          {lines.map((line, i) => (
+            <li key={line.id} className="flex gap-2">
+              <span className="mt-[18px] h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
+              <AutoTextarea
+                value={line.text}
+                onChange={(e) => {
+                  const text = e.target.value.slice(0, MAX_FOCUS_LINE);
+                  updateLines(spec.key, (all) => all.map((x) => (x.id === line.id ? { ...x, text } : x)));
+                }}
+                rows={1}
+                maxLength={MAX_FOCUS_LINE}
+                placeholder={spec.placeholder}
+                aria-label={`${spec.lineLabel} ${i + 1}`}
+                ref={(el) => {
+                  if (el && focusId === line.id) {
+                    el.focus();
+                    setFocusId(null);
+                  }
+                }}
+                className="min-w-0 flex-1 rounded-lg border border-transparent bg-surface-2/40 px-2 py-1.5 text-[15px] text-zinc-200 outline-none hover:border-edge focus:border-cyan-glow/50 focus:bg-surface-2/60"
+              />
+              <button
+                type="button"
+                onClick={() => removeLine(spec.key, line.id)}
+                aria-label={spec.removeLabel}
+                title={spec.removeLabel}
+                className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-surface-2 hover:text-amber-300"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                  <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+                </svg>
+              </button>
+            </li>
+          ))}
+        </ul>
+        {canAddLine(lines, spec.limit) && (
+          <div className="mt-2.5">
+            <button
+              type="button"
+              onClick={() => addLine(spec.key, spec.limit)}
+              className="rounded-full border border-edge px-3.5 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white"
+            >
+              {spec.addLabel}
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   // Escape goes through the same guard as Cancel. Stopping the keydown's
   // default keeps the browser's own close-on-Escape from running ahead of
@@ -489,6 +603,8 @@ export function LessonVideoView({
               <Actions />
             </aside>
 
+            <FocusList heading="Lesson goals" lines={edit?.goals ?? []} />
+
             {edit && edit.chapters.length > 0 && (
               <section className="mt-8" aria-label="Chapters">
                 <Label>Chapters</Label>
@@ -511,6 +627,8 @@ export function LessonVideoView({
                 </div>
               </section>
             )}
+
+            <FocusList heading="Things to work on" lines={edit?.work_on ?? []} />
           </div>
 
           <aside className="hidden lg:block lg:w-[340px] lg:shrink-0">
@@ -606,6 +724,15 @@ export function LessonVideoView({
               onChange={(e) => updateDraft((draft) => ({ ...draft, title: e.target.value }))}
             />
           </label>
+          {focusFields(editing, {
+            key: 'goals',
+            heading: 'Lesson goals',
+            lineLabel: 'Goal',
+            placeholder: 'One goal for the lesson',
+            addLabel: 'Add a goal',
+            removeLabel: 'Remove this goal',
+            limit: MAX_GOALS,
+          })}
           {editing.chapters.map((ch, i) => (
             <div className="mt-6 border-t border-edge pt-5" key={ch.id}>
               <label className="block text-sm text-zinc-400">
@@ -680,6 +807,15 @@ export function LessonVideoView({
               </div>
             </div>
           ))}
+          {focusFields(editing, {
+            key: 'work_on',
+            heading: 'Things to work on',
+            lineLabel: 'Thing to work on',
+            placeholder: 'One thing to work on',
+            addLabel: 'Add something to work on',
+            removeLabel: 'Remove this line',
+            limit: MAX_WORK_ON,
+          })}
           <div className="mt-6 border-t border-edge pt-5">
             <button
               type="button"

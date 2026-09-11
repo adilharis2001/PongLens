@@ -42,6 +42,7 @@ import {
   starredContextLine,
   tagContextLine,
   publicLessonChapters,
+  publicLessonLines,
   type ResolvedShareEntry,
   type ResolvedShareLessonRecap,
   type ResolvedShareLink,
@@ -438,6 +439,8 @@ export default async function SharePage({
     if (recap) {
       const recapSupportEmail = await getSupportEmail();
       const chapters = publicLessonChapters(recap.chapters);
+      const goals = publicLessonLines(recap.goals);
+      const workOn = publicLessonLines(recap.work_on);
       const coach = (recap.owner_name ?? "").trim();
       const custom = recap.title?.trim() || null;
       // Two shapes rather than one, so the name is never said twice: the
@@ -468,6 +471,8 @@ export default async function SharePage({
               <LessonRecapView
                 token={token}
                 chapters={chapters}
+                goals={goals}
+                workOn={workOn}
                 canDownload={Boolean(recap.download_key)}
                 downloadBytes={
                   recap.download_key && Number.isFinite(bytes) && bytes > 0

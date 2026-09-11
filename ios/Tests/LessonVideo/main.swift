@@ -309,3 +309,72 @@ check(live.chapters.count == 1, "and writing to it changes nothing")
 live.setChapterTitle(liveChapter, "Renamed")
 check(live.chapterTitle(liveChapter) == "Renamed", "a chapter that is there still takes an edit")
 print("lesson editor row lookup checks passed")
+
+// The two cards that bracket the recap: what decodes, what is sent, and
+// what a coach who deletes the last line gets. Twin of the worker's own
+// limits, and of MAX_GOALS / MAX_WORK_ON / MAX_FOCUS_LINE on web.
+func focusEdit(_ tail: String) throws -> LessonVideoEdit {
+    try JSONDecoder().decode(LessonVideoEdit.self, from: Data("""
+    {"title":"Forehand","chapters":[{"title":"Stance","cues":["Stay low."],"start_s":0,"end_s":30}],"themes":[]\(tail)}
+    """.utf8))
+}
+// A row from before the lesson had either list, which is most of them.
+let plainEdit = try focusEdit("")
+check(plainEdit.goals == nil && plainEdit.work_on == nil, "a lesson that stated neither decodes with neither")
+let bracketed = try focusEdit(#","goals":["Serve shorter."],"work_on":["Ten minutes of footwork.","Serve to the wide forehand."]"#)
+check(bracketed.goals == ["Serve shorter."], "the goals card decodes")
+check(bracketed.work_on?.count == 2, "and so does the one after the clips")
+// Absent must stay absent on the way back out: an empty list would draw
+// an empty heading on the page and an empty card into the video.
+let plainJSON = String(data: try JSONEncoder().encode(plainEdit), encoding: .utf8)!
+check(!plainJSON.contains("goals") && !plainJSON.contains("work_on"), "no goals means no key, not an empty list")
+
+var focusDraft = LessonVideoEditDraft(bracketed)
+check(focusDraft.goals.count == 1 && focusDraft.workOn.count == 2, "the sheet opens on the stored lines")
+check(Set(focusDraft.goals.map(\.id)).isDisjoint(with: Set(focusDraft.workOn.map(\.id))), "every line has an id of its own")
+check(focusDraft.blocker == nil, "a recap with both lists saves")
+let bracketedBack = focusDraft.cleaned()
+check(bracketedBack.goals == bracketed.goals && bracketedBack.work_on == bracketed.work_on, "both lists travel back unchanged")
+
+// Trimming, blanks and the caps.
+focusDraft.goals = ["  Serve shorter. ", "   ", "Loop the first ball."].map { LessonVideoEditDraft.Line(text: $0) }
+let trimmed = focusDraft.cleaned()
+check(trimmed.goals == ["Serve shorter.", "Loop the first ball."], "blank goals are dropped and the rest trimmed")
+focusDraft.goals = (0..<9).map { LessonVideoEditDraft.Line(text: "Goal \($0)") }
+focusDraft.workOn = (0..<9).map { LessonVideoEditDraft.Line(text: "Work on \($0)") }
+let capped = focusDraft.cleaned()
+check(capped.goals?.count == 5 && capped.work_on?.count == 6, "the cards hold five goals and six follow-ups")
+check(capped.goals?.last == "Goal 4", "the caps keep the first lines, in order")
+focusDraft.goals = [LessonVideoEditDraft.Line(text: String(repeating: "g", count: 400))]
+check(focusDraft.cleaned().goals?[0].count == 180, "a long line is cut to what the card holds")
+
+// A coach who deletes the last goal means the recap has no goals card.
+// That must save, and must send no key.
+focusDraft.goals = []
+focusDraft.workOn = []
+check(focusDraft.blocker == nil, "an emptied list never blocks save")
+let emptied = focusDraft.cleaned()
+check(emptied.goals == nil && emptied.work_on == nil, "an emptied list round-trips to absent, not to []")
+let emptiedJSON = String(data: try JSONEncoder().encode(emptied), encoding: .utf8)!
+check(!emptiedJSON.contains("goals") && !emptiedJSON.contains("work_on"), "and the request carries neither key")
+// Blanks only is the same answer: nothing was written, so nothing is sent.
+focusDraft.goals = [LessonVideoEditDraft.Line(text: "   ")]
+check(focusDraft.cleaned().goals == nil, "a card of blank lines is a card that is not there")
+
+// Every row is read by id, so the row the X has just removed can be read
+// once more without a crash.
+var focusLive = LessonVideoEditDraft(bracketed)
+let firstGoal = focusLive.goals[0].id
+let doomedLine = focusLive.workOn[1].id
+check(focusLive.workOnText(doomedLine) == "Serve to the wide forehand.", "a line reads by its id")
+focusLive.workOn.removeAll { $0.id == doomedLine }
+check(focusLive.workOnText(doomedLine) == "", "a removed line reads as empty, not a crash")
+focusLive.setWorkOnText(doomedLine, "typed into a row that is gone")
+check(focusLive.workOn.count == 1, "and writing to it changes nothing")
+focusLive.goals.removeAll { $0.id == firstGoal }
+check(focusLive.goalText(firstGoal) == "" && focusLive.goals.isEmpty, "the last goal may go")
+focusLive.setGoalText(UUID(), "nowhere")
+check(focusLive.goals.isEmpty, "and a line that never existed writes nowhere")
+check(LessonVideoEditDraft.maxGoals == 5 && LessonVideoEditDraft.maxWorkOn == 6
+      && LessonVideoEditDraft.focusLineLimit == 180, "the web's limits, mirrored")
+print("lesson goals and things to work on checks passed")
