@@ -99,8 +99,8 @@ except ModuleNotFoundError:  # direct `python worker/worker.py` execution
 # Configuration
 # ---------------------------------------------------------------------------
 TTVID = "/Users/adil/Desktop/Projects/TTVid"
-VENV_PY = f"{TTVID}/vendor/venv/bin/python"          # numpy+cv2 (+torch)
-BLURBALL_INFER = f"{TTVID}/vendor/blurball_infer.py"
+VENV_PY = os.environ.get("PONGLENS_PIPELINE_PY", f"{TTVID}/vendor/venv/bin/python")
+BLURBALL_INFER = os.environ.get("PONGLENS_BLURBALL_INFER", f"{TTVID}/vendor/blurball_infer.py")
 POINTS_PIPELINE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "points_pipeline.py")
 # Also under VENV_PY: it needs scipy, which the worker's own venv does not
@@ -148,7 +148,8 @@ VALID_STRICTNESS = ("tight", "normal", "loose")
 # updates itself (`yt-dlp -U`) instead of waiting on a packager, which is
 # the property that matters when the breakage is upstream and dated.
 YTDLP = next(
-    (p for p in (os.environ.get("YTDLP_PATH"),
+    (p for p in (os.environ.get("PONGLENS_YTDLP"),
+                 os.environ.get("YTDLP_PATH"),
                  os.path.expanduser("~/.local/bin/yt-dlp"),
                  shutil.which("yt-dlp"),
                  "/opt/homebrew/bin/yt-dlp")
@@ -343,7 +344,8 @@ LANE = "fast" if "--lane" in sys.argv and \
     else os.environ.get("WORKER_LANE", "main")
 QUEUE_NAME = "jobs_fast" if LANE == "fast" else "jobs"
 LOG_PATH = os.path.join(
-    WORKER_DIR, "worker-fast.log" if LANE == "fast" else "worker.log")
+    os.environ.get("PONGLENS_LOG_DIR", WORKER_DIR),
+    "worker-fast.log" if LANE == "fast" else "worker.log")
 
 # Under launchd the wrapper already appends stdout to worker.log, so a
 # stdout handler there would double every line. The stream handler is for
@@ -8959,6 +8961,9 @@ def _code_version() -> str:
     """git describe of the checkout the daemon actually loaded, so
     worker.log shows when a long-lived daemon is running stale code
     (root cause of the 2026-07-22 NULL-cut_t0 matches)."""
+    if os.environ.get("PONGLENS_MATCH_RELEASE"):
+        with open(os.path.join(os.environ["PONGLENS_MATCH_RELEASE"], "manifest.json")) as fh:
+            return "release " + json.load(fh)["release_id"]
     try:
         out = subprocess.run(
             ["git", "-C", os.path.dirname(os.path.abspath(__file__)),
@@ -9092,6 +9097,28 @@ def start_pulse_monitor():
     return monitor
 
 
+def worker_claim_ready():
+    """Check mutable launch boundaries; callers must invoke directly before claim."""
+    release = os.environ.get("PONGLENS_MATCH_RELEASE")
+    if release:
+        from match_release import verify_unchanged
+        try:
+            verify_unchanged(release)
+        except Exception:
+            pulse_stage("release_invalid")
+            log.exception("release verification failed; no work will be claimed")
+            time.sleep(30)
+            return False
+    drain_file = os.environ.get("PONGLENS_DRAIN_FILE")
+    if drain_file and os.path.exists(drain_file):
+        pulse_stage("drained")
+        time.sleep(POLL_SLEEP_S)
+        return False
+    # Clear a lifted pause even when no job arrives to report a new stage.
+    pulse_stage(None)
+    return True
+
+
 def main():
     log.info("PongLens worker starting (lane=%s queue=%s supabase=%s, "
              "code=%s, yt-dlp=%s at %s)",
@@ -9113,6 +9140,10 @@ def main():
 
     while True:
         try:
+            # Keep the early check: deliberately paused workers must not start
+            # retention or digest work while waiting for the launcher switch.
+            if not worker_claim_ready():
+                continue
             if housekeeping and (
                     time.time() - last_cleanup > CLEANUP_EVERY_S
                     or last_cleanup == 0):
@@ -9129,6 +9160,10 @@ def main():
                 maybe_send_qa_closed_digest(conn)    # never raises
                 last_digest_check = time.time()
 
+            # Housekeeping can take time. A drain or release change during it
+            # must prevent this claim, not wait for the next loop iteration.
+            if not worker_claim_ready():
+                continue
             msg = read_message(conn)
             if msg is None:
                 time.sleep(POLL_SLEEP_S)

@@ -83,8 +83,9 @@ def main() -> int:
     if a.device == "coreml":
         try:
             from rtm_accel import accelerate, pose_fixed_batch2
-            accelerate(det, pose, cache_dir=os.path.expanduser(
-                "~/Library/Caches/PongLens/coreml-cache"))
+            accelerate(det, pose, cache_dir=os.environ.get(
+                "PONGLENS_COREML_CACHE", os.path.expanduser(
+                    "~/Library/Caches/PongLens/coreml-cache")))
 
             def pose_call(img, bb):          # noqa: F811
                 return pose_fixed_batch2(pose, img, bb)

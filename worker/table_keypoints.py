@@ -87,6 +87,20 @@ def load_model(device="cpu"):
     original_hub_load = torch.hub.load
 
     def hub_load(*args, **kwargs):
+        if os.environ.get("PONGLENS_MATCH_RELEASE"):
+            # No remote repository lookup or mutable cache in a sealed run.
+            if not args or args[0] != "KieDani/SegformerPlusPlus":
+                raise RuntimeError("unrecognised table backbone dependency")
+            local = os.path.join(MODEL_HOME, "torchhub", "hub",
+                                 "KieDani_SegformerPlusPlus_main")
+            if not os.path.isfile(os.path.join(local, "hubconf.py")):
+                raise RuntimeError("sealed table backbone missing")
+            args = (local, *args[1:])
+            kwargs["source"] = "local"
+            # The full table checkpoint below supplies every trained weight.
+            # Upstream hardcodes pretrained=True even with pretraining=False;
+            # bypass that redundant ImageNet download in a sealed process.
+            kwargs["pretrained"] = False
         kwargs.setdefault("trust_repo", True)
         return original_hub_load(*args, **kwargs)
 
