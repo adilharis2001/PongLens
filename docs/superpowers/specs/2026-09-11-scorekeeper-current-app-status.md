@@ -14,7 +14,12 @@ The old branch is preserved, but it is not the release candidate: it started fro
 | Native target | Debug build-for-testing and Release simulator build passed; fixture excluded from Release |
 | Rendered references | Approved serve switch verified on desktop1440x900, mobile393x660 and native portrait/landscape before scorer changes |
 | Current-version bug reproduction | Web correction changed prior6s to replay0.13/0.09s; native correction after fullcardpause changed6s to8s; web missing-failure feedback and pendingUndo ordering also reproduced |
-| Scorer fix port / post-port checks | Pending |
+| Scorer fix port | Applied selectively on current app; real web build and native Debug/Release builds pass |
+| Post-port logic checks | Web scorer41/41, match-structure141/141, scorecard15/15; native scorer89/89 and fullFoundation1045/1045 |
+| Post-port rendered web | 40/40 passed at desktop1440x900 and mobile393x660, including backwardJoin and current whole-card on/off behavior |
+| Post-port native | Correction, Clear, Skip, ordinaryUndo and portrait delayedUndo+Gestures verified through real controls and accepted synthetic saves; remaining scenarios in progress |
+| Independent review | One capture edge case remains: fast continuous playback can miss the narrow new-rally eligibility window. Fix and re-verification in progress |
+| Testing model | GPT-5.6 Sol owns remaining regression/build and actual-screen checks, as requested by Adil |
 
 | Must remain intact | Boundary |
 | --- | --- |
@@ -31,4 +36,5 @@ The old branch is preserved, but it is not the release candidate: it started fro
 | Old audit source map and UI results | Historical only; not evidence of current app verification |
 | Locked dependencies | Installer reported six audit vulnerabilities and a deprecated package; no dependency upgrade bundled into this repair |
 | Existing build warnings | Recorded; build passed without suppressing checks |
+| Full standalone TypeScript check | Ten diagnostics remain in six unchanged current-baseline test files; not claimed passing |
 | Broader nine-issue program | Not represented as completed by correction/Undo containment |
