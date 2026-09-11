@@ -2,7 +2,11 @@ export const MAX_BYTES = 20 * 1024 ** 3;
 export const MAX_SECONDS = 10800;
 export const PART_SIZE = 64 * 1024 ** 2;
 export interface LessonChapter { title: string; cues: string[]; start_s: number; end_s: number; summary_start_s?: number; summary_end_s?: number }
-export interface LessonEdit { title: string; chapters: LessonChapter[]; themes: {name:string;points:string[]}[]; warning?:string }
+/** Up to five goals and six follow-ups; a lesson that stated neither has neither. */
+export const MAX_GOALS=5;
+export const MAX_WORK_ON=6;
+export const MAX_FOCUS_LINE=180;
+export interface LessonEdit { title: string; chapters: LessonChapter[]; themes: {name:string;points:string[]}[]; warning?:string; /** What the lesson set out to improve, shown on a card before the first clip. */ goals?:string[]; /** What to practise afterwards, shown on a card after the last clip. */ work_on?:string[] }
 /** A lesson names the student it was made for, or the coach it was made with, never both. */
 export interface LessonVideo {/** Can the other person see it today. From the API only; never stored. */shared?:boolean; id:string; owner_id:string; student_id:string|null; coach_ref_id:string|null; lesson_id:string|null; original_name:string;file_size:number;duration_s:number;status:string;stage:string|null;error:string|null;edit:LessonEdit|null;created_at:string;updated_at:string;revision:number }
 export function validateImport(bytes:number, seconds:number):string|null {
@@ -36,7 +40,16 @@ export function validateEdit(input:unknown,duration:number):LessonEdit|null {
    if(name&&points.length)themes.push({name,points});
   }
  }
- return {title,chapters,themes,...(clean(e.warning,600)?{warning:clean(e.warning,600)}:{})};
+ // The two lists that bracket the recap. Kept optional: a lesson that
+ // never said what it was for gets no goals card rather than an invented
+ // one, and the worker's own limits are mirrored here so what is saved is
+ // what was on screen.
+ const list=(value:unknown,limit:number)=>Array.isArray(value)
+  ?value.map(x=>clean(x,MAX_FOCUS_LINE)).filter(Boolean).slice(0,limit)
+  :[];
+ const goals=list(e.goals,MAX_GOALS);
+ const work_on=list(e.work_on,MAX_WORK_ON);
+ return {title,chapters,themes,...(clean(e.warning,600)?{warning:clean(e.warning,600)}:{}),...(goals.length?{goals}:{}),...(work_on.length?{work_on}:{})};
 }
 /**
  * Who may open a recap, given the answer the database already worked out.
