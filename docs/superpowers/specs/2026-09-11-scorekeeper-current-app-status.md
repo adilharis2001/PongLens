@@ -20,8 +20,8 @@ The old branch is preserved but is not the release candidate; the repaired versi
 | Post-port native | Correction, Clear, Skip, ordinaryUndo and portrait delayedUndo+Gestures verified through real controls and accepted synthetic saves; remaining scenarios in progress |
 | Independent review | Whole branch fd9e529c..f1bf2920 code-clean; no Critical, Important or Minor findings |
 | Final native build | Clean Debug and Release simulator builds passed on f1bf2920 |
-| Production web | f1bf2920 fast-forwarded to remote main; Vercel deployment4R8k2ytbE7JQUZGNETbbmFJgF4uL succeeded; www.ponglens.com returnedHTTP200 |
-| TestFlight | Version1.0 build191 metadata prepared; physical-device Release archive/upload in progress, not yet available |
+| Production web | Reviewed scorerf1bf2920 published through main; final build-number/checklist mainebf92f2e deployment7xPf7Zw2WH5yAkTevmE4iCSpbVNS succeeded; www.ponglens.com returnedHTTP200 |
+| TestFlight | Version1.0 build191 archive and upload succeeded. Apple accepted deliveryddf67e4b-6744-4ad1-95b7-3985cd628d63 at16:04EDT onSeptember11; processing started, TestFlight availability not yet confirmed. Existing tester groups untouched |
 | Testing model | GPT-5.6 Sol owns remaining regression/build and actual-screen checks, as requested by Adil |
 
 | Must remain intact | Boundary |
