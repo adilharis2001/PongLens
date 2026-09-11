@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { Point } from "@/lib/types";
 import {
@@ -809,6 +816,29 @@ function CardPane({
     effectivePad(pad, row.tight_start, row.tight_end).pre
   );
 
+  /* What gets used on every single card goes beside the footage: the map
+     the bounces are read off, then the themes and the note box. Measured
+     at 1512x900 the two of them stand 571px against the video column's
+     584, so a pass down the list never scrolls to reach either.
+
+     The readings do NOT come up here, though they were the first thing
+     tried. In this column they are 444px tall on their own and push the
+     pane 271px past the window — worse than the stack they replaced. They
+     go full width underneath instead, where the same fourteen boxes lay
+     out in four tracks rather than two and take about 240px. */
+  const sidePanel = review ? (
+    <CardReview
+      pointId={row.id}
+      note={review.note}
+      themeIds={review.themeIds}
+      vocabulary={vocabulary}
+      onNoteChange={onNoteChange}
+      onThemeToggle={onThemeToggle}
+      onThemeCreated={onThemeCreated}
+      compact
+    />
+  ) : null;
+
   return (
     <div className="rounded-2xl border border-edge bg-surface p-4">
       <div className="flex items-baseline justify-between gap-2">
@@ -858,8 +888,6 @@ function CardPane({
         ))}
       </p>
 
-      {reading && <CardFacts reading={reading} names={names} />}
-
       {miss && serveMisses ? (
         <ServeMissView
           data={serveMisses}
@@ -868,6 +896,7 @@ function CardPane({
           videoUrl={videoUrl}
           labels={eventLabels}
           onLabel={onEventLabel}
+          side={sidePanel}
         />
       ) : (
         <PlainCardClip
@@ -875,20 +904,11 @@ function CardPane({
           videoUrl={videoUrl}
           pad={pad}
           ends={ends}
+          side={sidePanel}
         />
       )}
 
-      {review && (
-        <CardReview
-          pointId={row.id}
-          note={review.note}
-          themeIds={review.themeIds}
-          vocabulary={vocabulary}
-          onNoteChange={onNoteChange}
-          onThemeToggle={onThemeToggle}
-          onThemeCreated={onThemeCreated}
-        />
-      )}
+      {reading && <CardFacts reading={reading} names={names} />}
     </div>
   );
 }
@@ -905,11 +925,15 @@ function PlainCardClip({
   videoUrl,
   pad,
   ends,
+  side,
 }: {
   row: UploadPointRow;
   videoUrl: string | null;
   pad: ClipPad;
   ends: EndOptions;
+  /** The same column the diagnosed view carries, so the note box sits in
+   *  one place whether or not a card happens to have a diagnosis. */
+  side?: ReactNode;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const start = row.cut_t0 === null ? null : Number(row.cut_t0);
@@ -933,33 +957,40 @@ function PlainCardClip({
 
   if (!videoUrl || start === null) {
     return (
-      <p className="mt-3 text-sm text-zinc-500">
-        This card has no place in the cut file, so there is nothing to play.
-      </p>
+      <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-start">
+        <p className="min-w-0 text-sm text-zinc-500 lg:flex-[3]">
+          This card has no place in the cut file, so there is nothing to
+          play.
+        </p>
+        <div className="flex min-w-0 flex-col gap-3 lg:flex-[2]">{side}</div>
+      </div>
     );
   }
 
   return (
-    <div className="mt-3">
-      <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
-        <video
-          ref={ref}
-          src={videoUrl}
-          preload="metadata"
-          playsInline
-          controls
-          onTimeUpdate={(e) => {
-            const v = e.currentTarget;
-            if (stop !== null && v.currentTime >= stop && !v.paused) {
-              v.pause();
-            }
-          }}
-          className="absolute inset-0 h-full w-full"
-        />
+    <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-start">
+      <div className="min-w-0 lg:flex-[3]">
+        <div className="relative aspect-video overflow-hidden rounded-xl bg-black">
+          <video
+            ref={ref}
+            src={videoUrl}
+            preload="metadata"
+            playsInline
+            controls
+            onTimeUpdate={(e) => {
+              const v = e.currentTarget;
+              if (stop !== null && v.currentTime >= stop && !v.paused) {
+                v.pause();
+              }
+            }}
+            className="absolute inset-0 h-full w-full"
+          />
+        </div>
+        <p className="mt-2 text-xs text-zinc-600">
+          Stops where the player&rsquo;s own playback stops.
+        </p>
       </div>
-      <p className="mt-2 text-xs text-zinc-600">
-        Stops where the player&rsquo;s own playback stops.
-      </p>
+      <div className="flex min-w-0 flex-col gap-3 lg:flex-[2]">{side}</div>
     </div>
   );
 }
