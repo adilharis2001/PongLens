@@ -119,6 +119,7 @@ export function ServeMissView({
   labels,
   onLabel,
   side,
+  autoPlay = false,
 }: {
   data: ServeMissData;
   card: MissCard;
@@ -134,6 +135,12 @@ export function ServeMissView({
    *  pane fills this with the note box, the themes and the card's
    *  readings; the phone and the themes page leave it empty. */
   side?: ReactNode;
+  /** Start playing as soon as the card changes, instead of parking on the
+   *  first frame. Opt-in: on the upload page's pane every card arrives
+   *  from a click and is meant to be watched, but the themes page renders
+   *  a whole list of these and every one of them starting at once is not
+   *  a review surface, it is a wall of noise. */
+  autoPlay?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -170,12 +177,29 @@ export function ServeMissView({
     setSelectedT(null);
   }, [card.t0]);
 
-  // Park the poster inside the card rather than at the top of the match.
+  // Park the poster inside the card rather than at the top of the match,
+  // and roll it if the caller asked. Playing has to happen INSIDE the seek
+  // rather than after it: before metadata arrives currentTime cannot be
+  // set, so a play() next to the seek would start the file from wherever
+  // it happened to be — the top of the match on a fresh load.
+  //
+  // The rejection is swallowed rather than reported. The picture here is
+  // muted, so a browser will not refuse it, but the promise also rejects
+  // when the next card interrupts this one — which is normal use, not a
+  // fault, and there is nothing a message could tell anyone to do.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     const seek = () => {
+      // The last card's frame time must not outlive it. The draw loop
+      // stops playback once the picture passes this card's end, and it
+      // reads that from `frameTime` — so a value left over from a card
+      // further down the match reads as "already past the end" and pauses
+      // the new one on its first tick. Harmless while a card change left
+      // the video parked; not harmless now one starts playing by itself.
+      frameTime.current = null;
       v.currentTime = cutT0;
+      if (autoPlay) void v.play().catch(() => {});
     };
     if (v.readyState >= 1) seek();
     else v.addEventListener("loadedmetadata", seek, { once: true });
@@ -183,7 +207,7 @@ export function ServeMissView({
     return () => {
       v.pause();
     };
-  }, [cutT0]);
+  }, [cutT0, autoPlay]);
 
   // playbackRate survives a seek but not a change of src, and this video's
   // src is a presigned URL that can be renewed under it. Setting

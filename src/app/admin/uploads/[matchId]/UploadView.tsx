@@ -835,6 +835,7 @@ function CardPane({
           labels={eventLabels}
           onLabel={onEventLabel}
           side={sidePanel}
+          autoPlay
         />
       ) : (
         <PlainCardClip
@@ -843,6 +844,7 @@ function CardPane({
           pad={pad}
           ends={ends}
           side={sidePanel}
+          autoPlay
         />
       )}
 
@@ -864,6 +866,7 @@ function PlainCardClip({
   pad,
   ends,
   side,
+  autoPlay = false,
 }: {
   row: UploadPointRow;
   videoUrl: string | null;
@@ -872,6 +875,12 @@ function PlainCardClip({
   /** The same column the diagnosed view carries, so the note box sits in
    *  one place whether or not a card happens to have a diagnosis. */
   side?: ReactNode;
+  /** Roll as soon as the card changes. Unlike the diagnosed view this
+   *  picture carries its sound, so a browser may refuse to start it
+   *  without a gesture it recognises; the refusal is swallowed and the
+   *  controls are right there, which is the same place the old behaviour
+   *  left you. */
+  autoPlay?: boolean;
 }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const start = row.cut_t0 === null ? null : Number(row.cut_t0);
@@ -884,6 +893,7 @@ function PlainCardClip({
     if (!v || start === null) return;
     const seek = () => {
       v.currentTime = start;
+      if (autoPlay) void v.play().catch(() => {});
     };
     if (v.readyState >= 1) seek();
     else v.addEventListener("loadedmetadata", seek, { once: true });
@@ -891,7 +901,7 @@ function PlainCardClip({
       // A <video> removed from the document keeps playing, with sound.
       v.pause();
     };
-  }, [start]);
+  }, [start, autoPlay]);
 
   if (!videoUrl || start === null) {
     return (
