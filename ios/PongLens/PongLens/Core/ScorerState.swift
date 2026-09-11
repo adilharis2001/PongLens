@@ -114,10 +114,22 @@ struct ScorePlaybackEvent: Equatable, Sendable {
 /// changed again, so it must not re-read that mutable status.
 struct ScorePlaybackTransportChange: Equatable, Sendable {
     let isPlaying: Bool
+    let isWaiting: Bool
 
-    func apply(onPlaying: () -> Void, onInterrupted: () -> Void) {
+    init(isPlaying: Bool, isWaiting: Bool = false) {
+        self.isPlaying = isPlaying
+        self.isWaiting = isWaiting
+    }
+
+    func apply(
+        onPlaying: () -> Void,
+        onWaiting: () -> Void = {},
+        onInterrupted: () -> Void
+    ) {
         if isPlaying {
             onPlaying()
+        } else if isWaiting {
+            onWaiting()
         } else {
             onInterrupted()
         }
@@ -137,23 +149,51 @@ final class ScorePlaybackRun {
     }
 
     private var run: Run?
+    private var successfulSeek: Run?
     private let startEpsilon = 0.05
 
     func invalidate() {
+        run = nil
+        successfulSeek = nil
+    }
+
+    /// Waiting before the first playable frame may follow a completed seek.
+    /// It retires any active run, but the seek's exact opening proof remains
+    /// pending until the first eligible sample or an explicit interruption.
+    func waitForPlayback() {
         run = nil
     }
 
     func observe(_ event: ScorePlaybackEvent) {
         guard eligible(event) else {
-            invalidate()
+            run = nil
+            if let successfulSeek,
+               (!sameRun(successfulSeek, event)
+                || event.foreground == false
+                || event.sourceKey != "cut"
+                || event.time + startEpsilon < event.start
+                || event.time - event.start > maxStartCrossingStep) {
+                self.successfulSeek = nil
+            }
             return
         }
-        let sameRun = run.map {
-            $0.pointId == event.pointId && $0.start == event.start
-                && $0.end == event.end && $0.sourceKey == event.sourceKey
-        } ?? false
-        if sameRun {
-            if event.time + startEpsilon < run!.lastTime {
+        if let successfulSeek {
+            self.successfulSeek = nil
+            guard sameRun(successfulSeek, event), event.time + startEpsilon >= event.start,
+                  event.time <= event.end,
+                  event.time - event.start <= maxStartCrossingStep
+            else { return }
+            run = Run(
+                pointId: event.pointId,
+                start: event.start,
+                end: event.end,
+                sourceKey: event.sourceKey,
+                lastTime: event.time
+            )
+            return
+        }
+        if let currentRun = run, sameRun(currentRun, event) {
+            if event.time + startEpsilon < currentRun.lastTime {
                 invalidate()
                 armAtStart(event)
             } else {
@@ -173,18 +213,22 @@ final class ScorePlaybackRun {
     /// bridge no more than one supported observer step.
     func observeAfterSuccessfulSeek(_ event: ScorePlaybackEvent, target: Double) {
         invalidate()
-        guard eligible(event), abs(target - event.start) <= startEpsilon,
+        guard event.sourceKey == "cut", event.foreground,
+              event.start.isFinite, event.end.isFinite, event.time.isFinite,
+              event.end >= event.start,
+              abs(target - event.start) <= startEpsilon,
               event.time + startEpsilon >= event.start,
               event.time <= event.end,
               event.time - event.start <= maxStartCrossingStep
         else { return }
-        run = Run(
+        successfulSeek = Run(
             pointId: event.pointId,
             start: event.start,
             end: event.end,
             sourceKey: event.sourceKey,
             lastTime: event.time
         )
+        if eligible(event) { observe(event) }
     }
 
     func observation(_ event: ScorePlaybackEvent) -> Double? {
@@ -217,6 +261,11 @@ final class ScorePlaybackRun {
     /// One 200 ms periodic observer tick at the supported 2x ceiling, with
     /// enough room to match the web timeupdate cadence.
     private let maxStartCrossingStep = 0.5
+
+    private func sameRun(_ run: Run, _ event: ScorePlaybackEvent) -> Bool {
+        run.pointId == event.pointId && run.start == event.start
+            && run.end == event.end && run.sourceKey == event.sourceKey
+    }
 
     private func eligible(_ event: ScorePlaybackEvent) -> Bool {
         event.sourceKey == "cut" && event.playing && event.ready

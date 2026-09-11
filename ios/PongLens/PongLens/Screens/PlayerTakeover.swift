@@ -3336,13 +3336,20 @@ struct PlayerTakeover: View {
             cutDuration: duration > 0 ? duration : nil
         )
         Task { await loadOwnClips() }
-        timeControlStatus = player.observe(\.timeControlStatus, options: [.new]) { _, change in
+        timeControlStatus = player.observe(\.timeControlStatus, options: [.new]) { observed, _ in
+            // `change.newValue` is nil for this AVPlayer KVO path on the
+            // current runtime. Read once at the callback boundary, before
+            // hopping to the main actor, so a later transport transition
+            // cannot relabel the event.
+            let status = observed.timeControlStatus
             let transition = ScorePlaybackTransportChange(
-                isPlaying: change.newValue == .playing
+                isPlaying: status == .playing,
+                isWaiting: status == .waitingToPlayAtSpecifiedRate
             )
             Task { @MainActor in
                 transition.apply(
                     onPlaying: { observeScorePlayback() },
+                    onWaiting: { scorePlaybackRun.waitForPlayback() },
                     onInterrupted: { scorePlaybackRun.invalidate() }
                 )
             }

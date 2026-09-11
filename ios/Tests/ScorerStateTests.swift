@@ -219,6 +219,20 @@ func runScorerStateChecks() async {
         )
         check(run.observation(event.with(time: 56)) == nil,
               "a delayed waiting callback still retires the run after recovery")
+
+        var startupWaits = 0
+        var startupInterruptions = 0
+        ScorePlaybackTransportChange(
+            isPlaying: false, isWaiting: true
+        ).apply(
+            onPlaying: {},
+            onWaiting: { startupWaits += 1 },
+            onInterrupted: { startupInterruptions += 1 }
+        )
+        eq(startupWaits, 1,
+           "a waiting callback is distinguished from a deliberate pause")
+        eq(startupInterruptions, 0,
+           "startup waiting cannot masquerade as a deliberate pause")
     }
 
     suite("only a successful opening seek can bridge settlement delay") {
@@ -230,9 +244,20 @@ func runScorerStateChecks() async {
               "an ordinary first observation after the start stays ineligible")
 
         let settled = ScorePlaybackRun()
-        settled.observeAfterSuccessfulSeek(delayed, target: 50)
+        let startup = event.with(time: 50, playing: false, ready: false)
+        settled.observeAfterSuccessfulSeek(startup, target: 50)
+        settled.waitForPlayback()
+        settled.observe(startup)
+        settled.observe(delayed)
         near(settled.observation(delayed.with(time: 50.4)), 50.4,
-             "a completed exact opening seek preserves its start proof")
+             "a completed exact opening seek survives pre-play settlement")
+
+        let cancelled = ScorePlaybackRun()
+        cancelled.observeAfterSuccessfulSeek(startup, target: 50)
+        cancelled.invalidate()
+        cancelled.observe(delayed)
+        check(cancelled.observation(delayed.with(time: 50.4)) == nil,
+              "an explicit interruption cancels pending seek proof")
 
         for (label, invalidEvent, target) in [
             ("a mid-rally seek target", delayed, 55.0),
