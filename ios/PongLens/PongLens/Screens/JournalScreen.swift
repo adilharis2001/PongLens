@@ -861,18 +861,10 @@ struct AskPanelView: View {
 
     private func target(for source: AskState.Source) -> SourceTarget {
         let href = source.href
-        if href.hasPrefix("/match/") {
-            let rest = href.dropFirst("/match/".count)
-            let pieces = rest.split(separator: "?", maxSplits: 1)
-            guard let first = pieces.first,
-                  let matchId = UUID(uuidString: String(first)),
-                  let match = library.matches.first(where: { $0.id == matchId })
+        if let link = MatchPointLink(href: href) {
+            guard let match = library.matches.first(where: { $0.id == link.matchId })
             else { return .none }
-            var pointId: UUID?
-            if pieces.count > 1, pieces[1].hasPrefix("p=") {
-                pointId = UUID(uuidString: String(pieces[1].dropFirst(2)))
-            }
-            return .match(match, pointId: pointId)
+            return .match(match, pointId: link.pointId)
         }
         // An answer that came from a filmed lesson opens the recap, which
         // is where the coach actually said it.

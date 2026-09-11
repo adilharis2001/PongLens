@@ -4,7 +4,11 @@ import SwiftUI
 /// tinted, relative times on the trailing edge, "Mark all read" up top.
 struct NotificationsPanel: View {
     let store: NotificationsStore
-    let onOpenMatch: (UUID) -> Void
+    /// The match a row opens, and the point inside it when the row names
+    /// one. A coach's note is written against a point, and the href the
+    /// server put on the row carries it; the web follows that link to the
+    /// point's own view, and so does this.
+    let onOpenMatch: (UUID, UUID?) -> Void
     let onOpenMatchFeedback: (UUID) -> Void
     /// Rows without a match (a coach's shared entry, a student joining)
     /// hand their href here; each tab view maps it to its own tab.
@@ -76,7 +80,7 @@ struct NotificationsPanel: View {
             } else if let matchId = row.matchFeedbackId {
                 onOpenMatchFeedback(matchId)
             } else if let matchId = row.matchId {
-                onOpenMatch(matchId)
+                onOpenMatch(matchId, row.pointId)
             } else {
                 onOpenHref(row.href)
             }

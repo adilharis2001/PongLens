@@ -137,6 +137,12 @@ struct CoachTabView: View {
             .navigationDestination(for: MatchRow.self) { match in
                 MatchDetailScreen(match: match)
             }
+            // A note in the bell pushes this one. Without it registered
+            // here the push is dropped and the tap does nothing, which is
+            // worse than the top of the match.
+            .navigationDestination(for: MatchPointRoute.self) { route in
+                MatchDetailScreen(match: route.match, openPointId: route.pointId)
+            }
             .appRoutes()
         }
         .environment(router)
@@ -172,9 +178,15 @@ struct CoachTabView: View {
         .sheet(isPresented: $bellOpen) {
             NotificationsPanel(
                 store: notifications,
-                onOpenMatch: { matchId in
+                onOpenMatch: { matchId, pointId in
                     bellOpen = false
-                    if let match = library.matches.first(where: { $0.id == matchId }) {
+                    guard let match = library.matches.first(where: { $0.id == matchId })
+                    else { return }
+                    // Same as the playing root: a note names a point, and
+                    // that point is what the tap is asking for.
+                    if let pointId {
+                        path.append(MatchPointRoute(match: match, pointId: pointId))
+                    } else {
                         path.append(match)
                     }
                 },

@@ -165,6 +165,14 @@ struct NotificationRow: Codable, Identifiable, Hashable {
     /// win over matchId, which otherwise opens the ordinary native match.
     var opensHrefDirectly: Bool { href.hasPrefix("/admin/") }
 
+    /// The point a note was left on, read off the href the trigger wrote
+    /// (`/match/<id>?p=<point id>`, migration 031). The web's bell follows
+    /// that link and opens that point, so a tap that stops at the top of
+    /// the match is the two platforms disagreeing about one notification.
+    /// Nil for every other kind, and for a note left on the match rather
+    /// than on a point.
+    var pointId: UUID? { MatchPointLink(href: href)?.pointId }
+
     enum CodingKeys: String, CodingKey {
         case id, kind, title, body, href
         case matchId = "match_id"

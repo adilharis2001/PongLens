@@ -276,9 +276,18 @@ struct MainTabView: View {
         .sheet(isPresented: $bellOpen) {
             NotificationsPanel(
                 store: notifications,
-                onOpenMatch: { matchId in
+                onOpenMatch: { matchId, pointId in
                     bellOpen = false
-                    if let match = library.matches.first(where: { $0.id == matchId }) {
+                    guard let match = library.matches.first(where: { $0.id == matchId })
+                    else { return }
+                    // "Anton left a note" is about one rally, and the
+                    // rally is what the tap is asking to see. The web's
+                    // bell opens it; landing on the top of the match
+                    // leaves the note several taps away in a list that
+                    // does not say which row it is on.
+                    if let pointId {
+                        path.append(MatchPointRoute(match: match, pointId: pointId))
+                    } else {
                         path.append(match)
                     }
                 },
