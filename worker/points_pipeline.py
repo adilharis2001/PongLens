@@ -2950,7 +2950,11 @@ def cmd_points(args):
     # portal can show both answers on every match. Fails open at every step:
     # any refusal or error leaves the cards the ball side built and says so
     # in the note.
+    processing = {"schema": 1, "body": {"status": "not_requested"},
+                  "edges": {"status": "not_requested"}}
     if getattr(args, "pipeline", "v1") == "bodies":
+        from processing_outcome import failure as processing_failure
+        processing["body"] = {"status": "error", "reason_code": "players_file_missing"}
         body_why = None
         if not getattr(args, "players", None):
             body_why = "no players file"
@@ -2990,6 +2994,7 @@ def cmd_points(args):
                               or getattr(args, "rally_end", False))
                 if want_edges and calib is None:
                     v3_why = "no table"
+                    processing["edges"] = {"status": "refused", "reason_code": "no_table"}
                 elif want_edges:
                     try:
                         import serve_v3
@@ -3003,6 +3008,7 @@ def cmd_points(args):
                         # serve rather than just the moment of contact.
                         v3_serves_full = v3["serves"]
                         v3_dead = v3["dead"]
+                        processing["edges"] = {"status": "ready", "serves": len(v3_serves)}
                         if not v3["boxes_complete"]:
                             print("serve v3: the players file predates the "
                                   "all-boxes record; person rules see only "
@@ -3012,6 +3018,7 @@ def cmd_points(args):
                               f"{v3['dropped_unpaired']} unpaired), "
                               f"{len(v3_dead)} dead-ball runs")
                     except Exception as exc:                    # noqa: BLE001
+                        processing["edges"] = processing_failure("serve_v3", exc)
                         v3_why = f"{type(exc).__name__}: {exc}"
                         print(f"serve v3 unavailable ({v3_why}) — "
                               f"the bodies keep their own edges")
@@ -3028,6 +3035,13 @@ def cmd_points(args):
                 if not body_cards:
                     raise body_points.BodyPointsUnavailable(
                         "the body assembler produced no cards")
+                processing["body"] = {"status": "used", "samples": body_info["samples"],
+                                      "both_share": body_info["both_share"], "cards": len(body_cards)}
+                processing["body_model"] = body_info["model"]
+                processing["edges"].update(
+                    anchor_requested=bool(getattr(args, "serve_anchor", False)),
+                    close_requested=bool(getattr(args, "rally_end", False)),
+                    anchored=body_info.get("anchored", 0), closed=body_info.get("closed", 0))
                 ball_cards = [dict(t0=round(float(c["t0"]), 2), t1=round(float(c["t1"]), 2),
                                    serve_s=(round(float(c["serve_s"]), 2)
                                             if c.get("serve_s") is not None else None),
@@ -3058,6 +3072,7 @@ def cmd_points(args):
                       f"({body_info['stamped']} with a serve) replace "
                       f"{len(ball_cards)} ball cards ({window_note})")
             except Exception as exc:                            # noqa: BLE001
+                processing["body"] = processing_failure("body", exc)
                 body_why = f"{type(exc).__name__}: {exc}"
         if body_why is not None:
             kept = (f"{v2_route}" if v2_cards is not None else "v1")
@@ -3460,6 +3475,7 @@ def cmd_points(args):
         # which card assembly cut this match — the provenance that makes
         # "what am I looking at" answerable during the v2 rollout
         "pipeline": pipeline_used,
+        "processing": processing,
         # The ball side's own cards when the bodies cut the match, so the
         # admin portal can show both answers. None otherwise.
         "ball_cards": ball_cards,

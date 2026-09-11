@@ -57,6 +57,11 @@ import psycopg2.extras
 import requests
 from botocore.exceptions import ClientError
 
+if __package__:
+    from . import processing_outcome
+else:
+    import processing_outcome
+
 try:
     from worker.cost_alerts import (
         PostgresCostAlertStore,
@@ -99,8 +104,8 @@ except ModuleNotFoundError:  # direct `python worker/worker.py` execution
 # Configuration
 # ---------------------------------------------------------------------------
 TTVID = "/Users/adil/Desktop/Projects/TTVid"
-VENV_PY = f"{TTVID}/vendor/venv/bin/python"          # numpy+cv2 (+torch)
-BLURBALL_INFER = f"{TTVID}/vendor/blurball_infer.py"
+VENV_PY = os.environ.get("PONGLENS_PIPELINE_PY", f"{TTVID}/vendor/venv/bin/python")
+BLURBALL_INFER = os.environ.get("PONGLENS_BLURBALL_INFER", f"{TTVID}/vendor/blurball_infer.py")
 POINTS_PIPELINE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "points_pipeline.py")
 # Also under VENV_PY: it needs scipy, which the worker's own venv does not
@@ -148,7 +153,8 @@ VALID_STRICTNESS = ("tight", "normal", "loose")
 # updates itself (`yt-dlp -U`) instead of waiting on a packager, which is
 # the property that matters when the breakage is upstream and dated.
 YTDLP = next(
-    (p for p in (os.environ.get("YTDLP_PATH"),
+    (p for p in (os.environ.get("PONGLENS_YTDLP"),
+                 os.environ.get("YTDLP_PATH"),
                  os.path.expanduser("~/.local/bin/yt-dlp"),
                  shutil.which("yt-dlp"),
                  "/opt/homebrew/bin/yt-dlp")
@@ -343,7 +349,8 @@ LANE = "fast" if "--lane" in sys.argv and \
     else os.environ.get("WORKER_LANE", "main")
 QUEUE_NAME = "jobs_fast" if LANE == "fast" else "jobs"
 LOG_PATH = os.path.join(
-    WORKER_DIR, "worker-fast.log" if LANE == "fast" else "worker.log")
+    os.environ.get("PONGLENS_LOG_DIR", WORKER_DIR),
+    "worker-fast.log" if LANE == "fast" else "worker.log")
 
 # Under launchd the wrapper already appends stdout to worker.log, so a
 # stdout handler there would double every line. The stream handler is for
@@ -5000,7 +5007,8 @@ def run_body_points_pass(conn, job_id: str, local_input: str, blurball_out: str,
     width, height = int(src.get("width") or 1920), int(src.get("height") or 1080)
     duration = float(src.get("duration") or 0.0)
     if not corners and not gate.get("bbox"):
-        _note_body_fallback(mj_path, "no table and no activity gate to stand in for it")
+        _note_body_fallback(mj_path, "no table and no activity gate to stand in for it",
+                            outcome={"status": "refused", "reason_code": "no_table"})
         return outdir
     rect, window_word = players_window(corners, gate.get("bbox"), width, height)
     if corners:
@@ -5048,7 +5056,8 @@ def run_body_points_pass(conn, job_id: str, local_input: str, blurball_out: str,
         log.info("  bodies: players read in %.0f s", time.perf_counter() - started)
     except Exception as exc:                                    # noqa: BLE001
         log.warning("  bodies: pose pass failed (%s); keeping the ball cards", exc)
-        _note_body_fallback(mj_path, f"pose pass failed: {exc}")
+        _note_body_fallback(mj_path, f"pose pass failed: {exc}",
+                            outcome=processing_outcome.failure("pose", exc))
         return outdir
 
     keep = outdir + ".ballfirst"
@@ -5086,11 +5095,12 @@ def run_body_points_pass(conn, job_id: str, local_input: str, blurball_out: str,
         log.warning("  bodies: second pass failed (%s); restoring the ball cards", exc)
         shutil.rmtree(outdir, ignore_errors=True)
         os.replace(keep, outdir)
-        _note_body_fallback(mj_path, f"second pass failed: {exc}")
+        _note_body_fallback(mj_path, f"second pass failed: {exc}",
+                            outcome=processing_outcome.failure("assembly", exc))
         return outdir
 
 
-def _note_body_fallback(mj_path: str, why: str) -> None:
+def _note_body_fallback(mj_path: str, why: str, *, outcome: dict | None = None) -> None:
     """Say in match.json that the bodies were asked for and did not cut it."""
     try:
         with open(mj_path) as fh:
@@ -5099,6 +5109,8 @@ def _note_body_fallback(mj_path: str, why: str) -> None:
         kept = mj.get("pipeline") or "v1"
         notes.append(f"points bodies requested but fell back to {kept}: {why}")
         mj["notes"] = notes
+        mj.setdefault("processing", {"schema": 1})["body"] = outcome or {
+            "status": "error", "reason_code": "body_exception"}
         tmp = mj_path + ".tmp"
         with open(tmp, "w") as fh:
             json.dump(mj, fh)
@@ -5120,6 +5132,7 @@ def run_points_stage(
     *,
     attempt_key: str = "manual",
     cut_local_path: str | None = None,
+    processing_run=None,
 ):
     """Break the original video into points. Failure here never fails the
     job (the cut already shipped): the match row is marked failed.
@@ -5185,6 +5198,14 @@ def run_points_stage(
                 scope="points-vision",
             )
 
+        if processing_run is not None:
+            try:
+                processing_run.match_id = match_id
+                processing_run.attach(os.path.join(outdir, "match.json"))
+            except Exception:
+                log.warning("processing metadata unavailable (non-fatal)", exc_info=True)
+                processing_run.status = "unknown"
+                processing_run.reason_code = "metadata_write_failed"
         with open(os.path.join(outdir, "match.json")) as fh:
             match_json = json.load(fh)
         points = match_json["points"]
@@ -8208,6 +8229,7 @@ def process_job(conn, msg) -> None:
     if options.get("match_id") is not None:
         check_match_row_alive(conn, options["match_id"])
 
+    processing_run = None
     workdir = tempfile.mkdtemp(prefix=f"ponglens-{job_id[:8]}-")
     try:
         # Capture date for the match's played_at: yt-dlp upload_date for
@@ -8349,6 +8371,13 @@ def process_job(conn, msg) -> None:
             # used to be two stamps with silence between them. Written
             # only when the whole number changes, so a 45k-frame video
             # costs thirty small updates rather than one per log line.
+            body_settings = processing_outcome.configuration(
+                options, lambda key: get_config(conn, key))
+            release_id, body_model = processing_outcome.release_identity()
+            processing_run = processing_outcome.ProcessingRun(
+                attempt_key, str(job_id), body_settings["requested_pipeline"],
+                body_settings, release_id, body_model)
+            publish_processing_run(processing_run)
             last_pct = [15]
 
             def blurball_progress(fraction: float) -> None:
@@ -8381,10 +8410,9 @@ def process_job(conn, msg) -> None:
                 # The job's own option wins over the config, like ball_crop
                 # above: one match recut by the other assembler without
                 # flipping the switch (spec 2026-09-08, section 3.2).
-                _pipeline = options.get("points_pipeline")
-                if _pipeline not in ("v1", "v2", "bodies"):
-                    _pipeline = points_pipeline_version(conn)
-                _anchor, _rally_end = body_card_edges(conn)
+                _pipeline = body_settings["pipeline"]
+                _anchor = body_settings["serve_anchor"]
+                _rally_end = body_settings["rally_end"]
                 points_kwargs = dict(
                     pipeline=_pipeline,
                     serve_anchor=_anchor,
@@ -8417,6 +8445,7 @@ def process_job(conn, msg) -> None:
                     if json.load(fh).get("cut_segments"):
                         segments_json = mj
             except Exception as e:
+                processing_run.body = processing_outcome.failure("assembly", e)
                 log.warning("  early points stage failed (%s) — "
                             "falling back to the span cut", e)
                 shutil.rmtree(os.path.join(workdir, "points_out"),
@@ -8475,7 +8504,14 @@ def process_job(conn, msg) -> None:
                 blurball_out, workdir, options, result_path,
                 played_at=played_at,
                 attempt_key=attempt_key,
-                cut_local_path=result)
+                cut_local_path=result,
+                processing_run=processing_run)
+            if processing_run is not None:
+                processing_run.finished_at = processing_outcome.now()
+                if not points_match_id:
+                    processing_run.status = "failed"
+                    processing_run.reason_code = "publication_failed"
+                publish_processing_run(processing_run)
 
         update_job(conn, job_id, status="done", result_path=result_path,
                    progress=100)
@@ -8492,6 +8528,11 @@ def process_job(conn, msg) -> None:
                 conn, points_match_id, workdir,
                 os.path.join(workdir, "points_out"))
     finally:
+        if processing_run is not None and processing_run.finished_at is None:
+            processing_run.finished_at = processing_outcome.now()
+            processing_run.status = "failed"
+            processing_run.reason_code = "processing_failed"
+            publish_processing_run(processing_run)
         shutil.rmtree(workdir, ignore_errors=True)
 
 
@@ -8959,14 +9000,33 @@ def _code_version() -> str:
     """git describe of the checkout the daemon actually loaded, so
     worker.log shows when a long-lived daemon is running stale code
     (root cause of the 2026-07-22 NULL-cut_t0 matches)."""
+    if os.environ.get("PONGLENS_MATCH_RELEASE"):
+        return "release " + processing_outcome.release_identity()[0]
     try:
         out = subprocess.run(
             ["git", "-C", os.path.dirname(os.path.abspath(__file__)),
              "log", "-1", "--format=%h %s"],
             capture_output=True, text=True, timeout=10)
-        return out.stdout.strip() or "unknown"
+        return "unsealed " + (out.stdout.strip() or "unknown")
     except Exception:
         return "unknown"
+
+
+def publish_processing_run(run):
+    """Health uses a separate bounded connection, never the job transaction."""
+    def send(record):
+        connection = psycopg2.connect(
+            DATABASE_URL, connect_timeout=5,
+            options="-c statement_timeout=5000 -c lock_timeout=2000")
+        try:
+            connection.autocommit = True
+            processing_outcome.database_sender(connection)(record)
+        finally:
+            connection.close()
+    try:
+        processing_outcome.publish(run.record(), send)
+    except Exception:
+        log.warning("processing health unavailable (non-fatal)", exc_info=True)
 
 
 def _ytdlp_version() -> str:
@@ -9113,6 +9173,23 @@ def main():
 
     while True:
         try:
+            release = os.environ.get("PONGLENS_MATCH_RELEASE")
+            if release:
+                from match_release import verify_unchanged
+                # Resolve once in the runner; no mutable checkout/current alias.
+                # Integrity failure stops claims, while pulse exposes the reason.
+                try:
+                    verify_unchanged(release)
+                except Exception:
+                    pulse_stage("release_invalid")
+                    log.exception("release verification failed; no work will be claimed")
+                    time.sleep(30)
+                    continue
+            drain_file = os.environ.get("PONGLENS_DRAIN_FILE")
+            if drain_file and os.path.exists(drain_file):
+                pulse_stage("drained")
+                time.sleep(POLL_SLEEP_S)
+                continue
             if housekeeping and (
                     time.time() - last_cleanup > CLEANUP_EVERY_S
                     or last_cleanup == 0):
