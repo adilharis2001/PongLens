@@ -7,7 +7,76 @@ import platform
 import shutil
 import subprocess
 
-from . import ReleaseError, build, verify, stage, prepare_run
+from . import BEHAVIOR_DEFAULTS, ReleaseError, behavior_environment, build, verify, stage, prepare_run
+
+
+def _native_dependency_roots(roots):
+    """Read installed Mach-O linkage, including dependencies absent from brew metadata."""
+    magics = {b'\xfe\xed\xfa\xce', b'\xce\xfa\xed\xfe', b'\xfe\xed\xfa\xcf',
+              b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe', b'\xbe\xba\xfe\xca',
+              b'\xca\xfe\xba\xbf', b'\xbf\xba\xfe\xca'}
+    seen, pending, anchors = set(), [], set()
+
+    def collect(root):
+        root = Path(root)
+        paths = [root] if root.is_file() else root.rglob('*')
+        for path in paths:
+            if not path.is_file() or (path.suffix not in ('.so', '.dylib') and not os.access(path, os.X_OK)):
+                continue
+            resolved = path.resolve(strict=True)
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            with resolved.open('rb') as stream:
+                if stream.read(4) in magics:
+                    pending.append(resolved)
+
+    for root in roots:
+        collect(root)
+    while pending:
+        batch, pending = pending[:64], pending[64:]
+        identities = subprocess.check_output(['/usr/bin/otool', '-D', *map(str, batch)], text=True)
+        install_ids, owner = {}, None
+        for line in identities.splitlines():
+            if line.endswith(':'):
+                owner = Path(line[:-1].split(' (architecture ', 1)[0])
+            elif owner and line.strip():
+                install_ids[owner] = line.strip()
+        output = subprocess.check_output(['/usr/bin/otool', '-L', *map(str, batch)], text=True)
+        owner = None
+        for line in output.splitlines():
+            if not line.startswith('\t'):
+                if line.endswith(':'):
+                    owner = Path(line[:-1].split(' (architecture ', 1)[0])
+                continue
+            dependency = line.strip().split(' (', 1)[0]
+            # -L prints a dylib's own install-name first. Build-machine install
+            # IDs in Python wheels are not dependencies loaded from that path.
+            if dependency == install_ids.get(owner):
+                continue
+            if dependency.startswith('@loader_path/') and owner:
+                dependency = str(owner.parent / dependency[len('@loader_path/'):])
+            if not dependency.startswith('/') or dependency.startswith(('/usr/lib/', '/System/')):
+                continue
+            path = Path(dependency).absolute()
+            path.resolve(strict=True)
+            # Preserve the nearest dynamic link through which dyld loads this
+            # file, and recursively inventory its target. Direct Cellar references
+            # still get an individual file anchor.
+            anchor = next((p for p in [path, *path.parents] if p.is_symlink()), path)
+            if str(anchor) not in anchors:
+                anchors.add(str(anchor))
+                collect(anchor)
+    # Do not repeat thousands of library file inventories already covered by
+    # a prefix tree. A newly discovered symlink still needs its own link record.
+    original = [Path(root).absolute() for root in roots]
+    def covered(anchor):
+        path = Path(anchor)
+        return any(path == root or root in path.parents or
+                   (not path.is_symlink() and
+                    (path.resolve() == root.resolve() or root.resolve() in path.resolve().parents))
+                   for root in original)
+    return sorted(anchor for anchor in anchors if not covered(anchor))
 
 
 def _python_runtime(executable):
@@ -48,7 +117,8 @@ def local_config(repo):
         executable = executable.resolve(strict=True)
         runtime[name] = {'executable': str(executable), 'roots': [str(executable)]}
     # Homebrew's dependency graph includes libraries loaded by Python extensions
-    # and ffmpeg. Anchor complete versioned Cellar trees, not mutable opt symlinks.
+    # and ffmpeg. Preserve opt links: native libraries load through those links,
+    # so checking only the old Cellar directory would miss a brew link retarget.
     if platform.system() != 'Darwin':
         raise ReleaseError('Automatic discovery supports the production Mac only; provide reviewed explicit runtime roots')
     brew = shutil.which('brew')
@@ -68,7 +138,11 @@ def local_config(repo):
     roots = []
     for formula in sorted(dependencies):
         prefix = subprocess.check_output([brew, '--prefix', formula], text=True, env=environment).strip()
-        roots.append(str(Path(prefix).resolve(strict=True)))
+        dependency = Path(prefix).absolute()
+        dependency.resolve(strict=True)  # Require a live target, keep link spelling.
+        roots.append(str(dependency))
+    roots.extend(_native_dependency_roots([
+        *roots, *(p for entry in runtime.values() for p in entry['roots'])]))
     runtime['worker']['roots'].extend(p for p in roots if p not in runtime['worker']['roots'])
     runtime['worker']['identity']['os_build'] = subprocess.check_output(['sw_vers', '-buildVersion'], text=True).strip()
     version = subprocess.check_output(['git', '-C', str(repo), 'show', 'HEAD:worker/body_model/CURRENT'], text=True).strip()
@@ -77,7 +151,9 @@ def local_config(repo):
         'table': str(home / 'ponglens-models/table-keypoints'),
         'pose': str(cache / 'rtmpose-production/end2end.onnx'),
         'detector': str(home / '.cache/rtmlib/hub/checkpoints/rtmdet_m_8xb32-100e_coco-obj365-person-235e8209.onnx'),
-    }, 'runtime': runtime}
+    }, 'runtime': runtime,
+        'behavior_env': behavior_environment({key: os.environ.get(key, default)
+                                               for key, default in BEHAVIOR_DEFAULTS.items()})}
 
 
 def main():

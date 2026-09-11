@@ -15,6 +15,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+from urllib.parse import urlsplit
 
 
 class ReleaseError(RuntimeError):
@@ -25,8 +26,47 @@ RUNTIMES = ('worker', 'pipeline', 'rtmpose', 'table', 'ffmpeg', 'ffprobe', 'ytdl
 ASSETS = {'blurball': 'models/blurball', 'table': 'models/table-keypoints',
           'pose': 'models/rtmpose/end2end.onnx',
           'detector': 'models/rtmpose/rtmdet-person.onnx'}
+# Audited non-secret environment readers in worker.py, points_pipeline.py,
+# table_keypoints.py and the RTMPose scripts. None seals absence, particularly
+# the players-device override: absence preserves the per-job app_config choice.
+BEHAVIOR_DEFAULTS = {
+    'PONGLENS_TABLE_KEYPOINT_FRAMES': '16',
+    'PONGLENS_TABLE_KEYPOINT_MODEL': 'segformerpp_b0',
+    'PONGLENS_RTMPOSE_BACKEND': 'onnxruntime',
+    'PONGLENS_RTMPOSE_DEVICE': 'mps',
+    'PONGLENS_RTMPOSE_STRUCTURE_ENABLED': None,
+    'PONGLENS_PLAYERS_DEVICE': None,
+    'PONGLENS_VISION_HEALTH_GATE': None,
+    'WORKER_CONTENT_CHECK_MODEL': 'gpt-5-nano',
+    'WORKER_SKIP_CONTENT_CHECK': None,
+    'WORKER_SKIP_BROADCAST_CHECK': None,
+    'WORKER_OPENAI_BASE_URL': 'https://api.openai.com/v1',
+    'WORKER_PLACEMENT_VISION_MODEL': 'gpt-5.6-sol',
+    'WORKER_PLACEMENT_VISION_ESCALATION_MODEL': 'gpt-5.6-luna',
+    'WORKER_TITLE_OPPONENT_MODEL': 'gpt-5-nano',
+}
 _runtime_cache = {}
 _payload_cache = {}
+
+
+def behavior_environment(overrides=None):
+    """Seal only reviewed behavior settings; never serialize arbitrary env."""
+    overrides = {} if overrides is None else overrides
+    if not isinstance(overrides, dict) or set(overrides) - set(BEHAVIOR_DEFAULTS):
+        raise ReleaseError('Unknown behavior environment setting')
+    values = dict(BEHAVIOR_DEFAULTS, **overrides)
+    if any(value is not None and not isinstance(value, str) for value in values.values()):
+        raise ReleaseError('Behavior settings must be strings or null for absence')
+    if values['PONGLENS_TABLE_KEYPOINT_FRAMES'] not in (None, '16'):
+        raise ReleaseError('The approved table detector requires sixteen frames')
+    endpoint = values['WORKER_OPENAI_BASE_URL']
+    if endpoint is not None:
+        parsed = urlsplit(endpoint)
+        if (parsed.scheme not in ('https', 'http') or not parsed.hostname or
+                parsed.username is not None or parsed.password is not None or
+                parsed.query or parsed.fragment):
+            raise ReleaseError('Behavior endpoint must be an HTTP(S) URL without credentials, query or fragment')
+    return values
 
 
 def _canonical(value):
@@ -154,6 +194,7 @@ def _anchor_runtime(config):
 def build(repo, output, config, commit='HEAD'):
     """Read committed worker files; capture external assets; never set current."""
     repo, output = Path(repo).resolve(), Path(output).resolve()
+    behavior = behavior_environment(config.get('behavior_env'))
     commit = _git(repo, 'rev-parse', f'{commit}^{{commit}}').decode().strip()
     output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.building-', dir=output) as temporary:
@@ -203,6 +244,7 @@ def build(repo, output, config, commit='HEAD'):
             '        os._exit(78)\n')
         manifest = {'schema': 1, 'source_commit': commit,
                     'files': _payload_inventory(payload), 'runtime': runtime,
+                    'behavior_env': behavior,
                     'body_model': {'version': version, 'files': _inventory(model)},
                     'adapters': {'blurball_original_sha256': original,
                                  'blurball_repo': 'PONGLENS_BLURBALL_HOME'}}
@@ -300,6 +342,16 @@ def prepare_run(path, state, lane='main'):
     env = dict(os.environ)
     for key in ('PYTHONHOME', 'PYTHONPATH', 'PYTHONSTARTUP', 'VIRTUAL_ENV'):
         env.pop(key, None)
+    if 'behavior_env' not in manifest:
+        raise ReleaseError('Release lacks sealed behavior settings; rebuild before running')
+    behavior = behavior_environment(manifest['behavior_env'])
+    if set(manifest['behavior_env']) != set(BEHAVIOR_DEFAULTS):
+        raise ReleaseError('Release behavior inventory is incomplete; rebuild before running')
+    for key, value in behavior.items():
+        if value is None:
+            env.pop(key, None)
+        else:
+            env[key] = value
     runtime = manifest['runtime']
     env.update({
         'PONGLENS_MATCH_RELEASE': str(root),
@@ -315,7 +367,6 @@ def prepare_run(path, state, lane='main'):
         'PONGLENS_TABLE_KEYPOINT_HOME': str(root / ASSETS['table']),
         'PONGLENS_TABLE_KEYPOINT_PY': runtime['table']['executable'],
         'PONGLENS_BODY_MODEL': manifest['body_model']['version'],
-        'PONGLENS_COREML_CACHE': str(state / 'coreml-cache'),
         'TORCH_HOME': str(root / ASSETS['table'] / 'torchhub'),
         'PONGLENS_WORK_DIR': str(state / 'work'),
         'PONGLENS_LOG_DIR': str(state / 'logs'),
@@ -332,11 +383,14 @@ def prepare_run(path, state, lane='main'):
         'PONGLENS_FFPROBE': runtime['ffprobe']['executable'],
         'PONGLENS_YTDLP': runtime['ytdlp']['executable'],
     })
-    for name in ('work', 'logs', 'cache/matplotlib', 'tmp', 'coreml-cache'):
+    for name in ('work', 'logs', 'cache/matplotlib', 'tmp'):
         (state / name).mkdir(parents=True, exist_ok=True)
     # Avoid reading existing runtime __pycache__ files. This fresh directory is
     # shared by children, and PYTHONDONTWRITEBYTECODE keeps it empty.
     env['PYTHONPYCACHEPREFIX'] = tempfile.mkdtemp(prefix='python-cache-', dir=state / 'tmp')
+    # Compiled CoreML graphs are executable model state. Never reuse an
+    # unverified cache left by an earlier worker launch, even for the same ID.
+    env['PONGLENS_COREML_CACHE'] = tempfile.mkdtemp(prefix='coreml-cache-', dir=state / 'tmp')
     return [runtime['worker']['executable'], str(root / 'worker/worker.py'), '--lane', lane], env, str(state / 'work')
 
 

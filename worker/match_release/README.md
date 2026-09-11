@@ -9,10 +9,12 @@ Python environments and native libraries stay at their existing locations, with 
 | Build source | An explicit Git commit; checkout edits and untracked files cannot enter the worker payload. External assets are inventoried before and after copying. |
 | Identity | SHA-256 of canonical manifest excluding `release_id`; manifest seals every payload file and runtime anchor. No timestamp in the identity. |
 | External code | BlurBall and table trees copied, excluding Git history, bytecode caches and Finder metadata. The BlurBall wrapper's one hardcoded repository assignment is replaced with its sealed environment path; original wrapper hash is recorded. |
-| Runtime | Existing Python environment, base interpreter, package files, Homebrew dependency trees and macOS build. Symlink targets are checked too. Package names and versions are recorded by local inspection. |
+| Runtime | Existing Python environment, base interpreter, package files, Homebrew dependency trees and macOS build. Inspection reads installed Mach-O linkage recursively as well as Homebrew metadata, since metadata can omit loaded libraries. Original Homebrew opt links and their target contents are sealed together; retargeting a link fails even when the old Cellar directory remains. Package names and versions are recorded by local inspection. |
+| Behavior environment | Fourteen audited non-secret settings are sealed in `behavior_env`. Runner overwrites inherited values or removes them for a sealed `null`; changing a reviewed setting changes release identity. Old bundles without this inventory cannot run through the updated runner. |
 | Live updates | Do not run pip, Homebrew upgrades, OS updates or yt-dlp self-update while a release uses those anchors. Create separately located runtimes for future independently upgradable releases. |
 | Verification | First use in each process hashes everything. Subsequent checks compare file inventories including inode, ctime, mtime and size; changes trigger complete content comparison. Cache is process-local, never trusted from disk. |
-| Caches | Work/logs/CoreML/temp caches outside payload. Python gets a fresh empty bytecode prefix and cannot write bytecode. Table torchhub source remains inside payload; table loader must use existing local hub code without network refresh. |
+| Caches | Work/logs/temp caches outside payload. Python gets a fresh empty bytecode prefix and cannot write bytecode. CoreML gets a fresh empty directory on every worker launch, preventing reuse of unverified compiled graphs from earlier launches. Table torchhub source remains inside payload; table loader must use existing local hub code without network refresh. |
+| CoreML tradeoff | First GPU use after a worker launch must compile models again; children can reuse that launch's cache. Old launch caches remain outside the payload and can be removed after their worker has drained and exited. |
 | Trust | Integrity checks detect accidental drift; they are not signatures, sandboxing, or protection against an attacker who can rewrite both the runner and its manifest. No filesystem lock can prevent an administrator editing an active dependency mid-call. |
 | Scope | Server-side Mac bundle only. Never distribute table detector assets to players; never upload this bundle to Modal. |
 
@@ -22,7 +24,7 @@ Python environments and native libraries stay at their existing locations, with 
 | --- | --- |
 | Commit implementation in the isolated release branch | Build includes the path adapters and health reporting, not just captured baseline `f4156c96`. |
 | Inspect paths | Generates local JSON build inputs with interpreter/package identities and native dependencies. |
-| Review JSON | `body_model` must match the accepted frozen version. Paths must point to the intended runtime environments. |
+| Review JSON | `body_model` must match the accepted frozen version. Paths must point to the intended runtime environments. `behavior_env` records the inspecting shell's allowlisted settings or baseline defaults; review against the intended launch configuration. Credentials are never copied; credential-bearing or query-bearing API URLs are rejected. |
 | Build and verify | Produces `<output>/<64-character-release-id>/manifest.json`. Never writes `current`. |
 | Stage | Copies and re-verifies into an install directory; leaves launchd and existing aliases untouched. |
 | Check only | Resolves exact paths, verifies, creates empty runtime directories, and prints the worker command without running it. |
@@ -77,6 +79,29 @@ python3 -m worker.match_release run \
 | `PONGLENS_FFMPEG`, `PONGLENS_FFPROBE`, `PONGLENS_YTDLP` | Exact checked media executables. PATH contains sealed wrappers ahead of system tools. |
 | `PONGLENS_STATE_DIR`, `PONGLENS_WORK_DIR`, `PONGLENS_LOG_DIR`, `PONGLENS_COREML_CACHE` | Writable state outside payload; worker adapters must honor these. |
 | `PONGLENS_DRAIN_FILE` | `<state>/drain-main` or `<state>/drain-fast`; checked before a new claim by worker integration. |
+
+| Sealed behavior setting | Baseline | Runtime distinction |
+| --- | --- | --- |
+| `PONGLENS_TABLE_KEYPOINT_FRAMES` | `16` | Builds reject a different count; sealed null uses the source default of sixteen. |
+| `PONGLENS_TABLE_KEYPOINT_MODEL` | `segformerpp_b0` | Model name, not a mutable external path. |
+| `PONGLENS_RTMPOSE_BACKEND` | `onnxruntime` | Startup backend selection. |
+| `PONGLENS_RTMPOSE_DEVICE` | `mps` | Existing structure/device default, preserved. |
+| `PONGLENS_RTMPOSE_STRUCTURE_ENABLED` | absent | Sealed absence keeps the optional structure path off. |
+| `PONGLENS_PLAYERS_DEVICE` | absent | Keeps the per-job app_config device choice active; no inherited shell override. |
+| `PONGLENS_VISION_HEALTH_GATE` | absent | Existing opt-in gate stays off. |
+| `WORKER_CONTENT_CHECK_MODEL` | `gpt-5-nano` | Content model selection. |
+| `WORKER_SKIP_CONTENT_CHECK` | absent | Content gate remains enabled. |
+| `WORKER_SKIP_BROADCAST_CHECK` | absent | Broadcast gate remains enabled. |
+| `WORKER_OPENAI_BASE_URL` | `https://api.openai.com/v1` | HTTP(S) URL without userinfo, query or fragment. |
+| `WORKER_PLACEMENT_VISION_MODEL` | `gpt-5.6-sol` | Calibration model selection. |
+| `WORKER_PLACEMENT_VISION_ESCALATION_MODEL` | `gpt-5.6-luna` | Existing fallback model environment name. |
+| `WORKER_TITLE_OPPONENT_MODEL` | `gpt-5-nano` | Title extraction model. |
+
+| Unsealed by design | Reason |
+| --- | --- |
+| Credentials | Remain in the inherited secret environment or Keychain, outside manifest. |
+| Per-job app_config settings and authorized job overrides | Live choices captured by the parent's outcome recording; this package does not replace those reads. |
+| Lane, drain path, work/log paths | Operational values resolved by runner arguments, not processing model choices. |
 
 ```python
 from worker.match_release import prepare_run, verify_unchanged
