@@ -316,8 +316,9 @@ export default function CoachesPage() {
             <div className="xl:flex xl:items-center xl:gap-16">
               <div className="mx-auto max-w-3xl lg:mx-0 xl:flex-1">
                 <h1 className="text-4xl font-bold leading-tight tracking-tight sm:text-6xl lg:text-7xl">
-                  A coaching hub built around{" "}
-                  <span className="text-cyan-glow text-glow">every student.</span>
+                  A coaching hub for{" "}
+                  <span className="text-cyan-glow text-glow">table tennis</span>, built
+                  around every student.
                 </h1>
                 <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-zinc-300 sm:text-xl lg:mx-0">
                   Keep lesson journals, recordings, shared notes and match
