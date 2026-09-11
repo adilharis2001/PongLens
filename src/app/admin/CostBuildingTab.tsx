@@ -221,7 +221,13 @@ export function CostBuildingTab({
 
       <section className="overflow-hidden rounded-2xl border border-edge bg-surface">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-edge px-5 py-4">
-          <h3 className="text-sm font-semibold text-zinc-200">Every month</h3>
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-200">Every month</h3>
+            <p className="mt-1 text-xs text-zinc-500">
+              Anything billed again and again. Mark it Running or Building
+              and it counts under that heading everywhere on this page.
+            </p>
+          </div>
           <button
             type="button"
             className={SECONDARY}
@@ -316,7 +322,8 @@ export function CostBuildingTab({
           <div>
             <h3 className="text-sm font-semibold text-zinc-200">One-time</h3>
             <p className="mt-1 text-xs text-zinc-500">
-              Counted in the month it was paid, never spread across months.
+              Bought once. Counted in the month it was paid, never spread
+              across months.
             </p>
           </div>
           <button
@@ -324,7 +331,7 @@ export function CostBuildingTab({
             className={SECONDARY}
             onClick={() => setOneTimeDraft(emptyOneTime())}
           >
-            Add a purchase
+            Add a one-time cost
           </button>
         </div>
 
