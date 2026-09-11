@@ -29,7 +29,8 @@ def evaluate(runs, incidents, now):
     """
     latest = {}
     for run in sorted((r for r in runs if r.get('finished_at')),
-                      key=lambda r: stamp(r['finished_at'])):
+                      key=lambda r: (stamp(r.get('started_at') or r['finished_at']),
+                                     stamp(r['finished_at']), r.get('attempt_key', ''))):
         latest[run['job_id']] = run
     groups = {}
     for run in latest.values():
@@ -75,25 +76,51 @@ def refresh(connection):
                 return
             cur.execute("select now() as now")
             now = cur.fetchone()['now']
-            # Keep the latest fact for each job, including unresolved unknown
-            # outcomes. Ageing out is not evidence that reporting recovered.
-            cur.execute("select distinct on (job_id) * from public.worker_processing_runs order by job_id,started_at desc")
+            # A retry merely starting cannot supersede the last completed fact.
+            # Attempt order, not spool arrival or completion order, decides which
+            # final is authoritative when old records arrive late.
+            cur.execute("""select distinct on (job_id) * from public.worker_processing_runs
+                where finished_at is not null
+                order by job_id,started_at desc,finished_at desc,attempt_key desc""")
             runs = list(cur.fetchall())
             cur.execute("select * from public.worker_processing_incidents where recovered_at is null or recovered_at >= now() - interval '7 days'")
             incidents = list(cur.fetchall())
             changes = evaluate(runs, incidents, now)
+            # Persist only an observation, never an invented processing final.
+            # This evidence survives a job moving back to processing for retry.
+            cur.execute("""insert into public.worker_processing_reporting_gaps
+                    (gap_key,attempt_key,job_id,attempt_started_at,terminal_at)
+                select r.attempt_key,r.attempt_key,r.job_id,r.started_at,j.updated_at
+                from public.worker_processing_runs r
+                join public.jobs j on j.id=r.job_id
+                where r.finished_at is null and j.status in ('done','failed')
+                  and j.updated_at >= r.started_at
+                  and j.updated_at < now()-interval '10 minutes'
+                on conflict (gap_key) do nothing""")
+            # Older workers may have published a match without any attempt row.
+            # Preserve that observed gap too, without inventing an attempt ID.
+            cur.execute("""insert into public.worker_processing_reporting_gaps
+                    (gap_key,attempt_key,job_id,attempt_started_at,terminal_at)
+                select 'job:'||j.id::text,null,j.id,j.created_at,j.updated_at
+                from public.jobs j cross join public.worker_processing_health_control c
+                where c.expected_after is not null and j.created_at >= c.expected_after
+                  and j.status in ('done','failed') and j.updated_at < now()-interval '10 minutes'
+                  and j.options->>'points'='true' and j.kind in ('deadspace_cut','youtube_import')
+                  and not exists(select 1 from public.worker_processing_runs r where r.job_id=j.id)
+                  and exists(select 1 from public.matches m where m.job_id=j.id and m.match_json_path is not null)
+                on conflict (gap_key) do nothing""")
             cur.execute('select * from public.worker_processing_missing()')
-            missing = list(cur.fetchall())
-            latest = {}
-            for run in sorted(runs, key=lambda r: stamp(r['started_at'])):
-                latest[run['job_id']] = run
-            missing.extend({'job_id': r['job_id'], 'finished_at': stamp(r['finished_at'])}
-                           for r in latest.values() if r['status'] == 'unknown' and r.get('finished_at'))
+            missing = {r['job_id']: stamp(r['finished_at']) for r in cur.fetchall()}
+            for run in runs:
+                if run['status'] == 'unknown':
+                    missing[run['job_id']] = max(stamp(run['finished_at']),
+                        missing.get(run['job_id'], stamp(run['finished_at'])))
             gap = next((i for i in incidents if i['kind'] == 'telemetry_missing' and not i['recovered_at']), None)
             if missing:
                 changes.append({'action': 'update' if gap else 'open', 'id': gap['id'] if gap else None,
                     'kind': 'telemetry_missing', 'release_id': 'unknown',
-                    'last_fault_at': max(r['finished_at'] for r in missing).isoformat(),
+                    'last_fault_at': max(list(missing.values()) +
+                        ([stamp(gap['last_fault_at'])] if gap else [])).isoformat(),
                     'details': {'affected_jobs': len(missing)}})
             elif gap:
                 changes.append({'action': 'recover', 'id': gap['id'], 'recovered_at': now.isoformat()})
@@ -127,7 +154,7 @@ def alert_message(incident):
         heading='Point processing needs attention',
         blocks=[{'type': 'paragraph', 'text': explanation}],
         reason='You receive processing alerts as the PongLens administrator.',
-        action={'label': 'Open processing', 'href': 'https://www.ponglens.com/admin/processing'},
+        action={'label': 'Open processing', 'url': 'https://www.ponglens.com/admin/processing'},
         support=False)
 
 

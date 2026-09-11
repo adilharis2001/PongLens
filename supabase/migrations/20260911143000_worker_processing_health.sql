@@ -21,6 +21,17 @@ create table public.worker_processing_runs (
 create index worker_processing_runs_job on public.worker_processing_runs(job_id, started_at desc);
 create index worker_processing_runs_time on public.worker_processing_runs(started_at desc);
 
+-- A monitor observation is evidence of missing reporting, not a fabricated
+-- worker outcome. Retain it across retries; the actual run can still finalize.
+create table public.worker_processing_reporting_gaps (
+  gap_key text primary key check (length(gap_key) between 1 and 210),
+  attempt_key text unique references public.worker_processing_runs(attempt_key),
+  job_id uuid not null,
+  attempt_started_at timestamptz not null,
+  terminal_at timestamptz not null,
+  observed_at timestamptz not null default now()
+);
+
 create table public.worker_processing_health_control (
   singleton boolean primary key default true check (singleton),
   -- Set only at actual activation: historical jobs are not new outages.
@@ -50,18 +61,24 @@ create unique index worker_processing_one_incident on public.worker_processing_i
 alter table public.worker_processing_runs enable row level security;
 alter table public.worker_processing_incidents enable row level security;
 alter table public.worker_processing_health_control enable row level security;
+alter table public.worker_processing_reporting_gaps enable row level security;
 create policy "Admin reads processing runs" on public.worker_processing_runs
   for select to authenticated using (public.is_admin());
 create policy "Admin reads processing incidents" on public.worker_processing_incidents
   for select to authenticated using (public.is_admin());
 create policy "Admin reads processing health control" on public.worker_processing_health_control
   for select to authenticated using (public.is_admin());
+create policy "Admin reads processing reporting gaps" on public.worker_processing_reporting_gaps
+  for select to authenticated using (public.is_admin());
 revoke all on public.worker_processing_runs, public.worker_processing_incidents,
-  public.worker_processing_health_control from public, anon, authenticated;
+  public.worker_processing_health_control, public.worker_processing_reporting_gaps from public, anon, authenticated;
 grant select on public.worker_processing_runs, public.worker_processing_incidents,
-  public.worker_processing_health_control to authenticated;
+  public.worker_processing_health_control, public.worker_processing_reporting_gaps to authenticated;
 grant all on public.worker_processing_runs, public.worker_processing_incidents,
   public.worker_processing_health_control to service_role;
+-- Supabase default privileges may otherwise leave UPDATE/DELETE granted.
+revoke all on public.worker_processing_reporting_gaps from service_role;
+grant select,insert on public.worker_processing_reporting_gaps to service_role;
 
 create function public.record_worker_processing_run(p_record jsonb) returns void
 language plpgsql security definer set search_path = public, pg_temp as $$
@@ -102,17 +119,39 @@ grant execute on function public.record_worker_processing_run(jsonb) to service_
 -- Missing records remain unknown, never labelled as a successful body pass.
 create function public.worker_processing_missing() returns table(job_id uuid, finished_at timestamptz)
 language sql stable security definer set search_path=public,pg_temp as $$
-  select j.id,j.updated_at from public.jobs j
-  cross join public.worker_processing_health_control c
-  where c.expected_after is not null and j.created_at >= c.expected_after
-    and j.status in ('done','failed') and j.updated_at < now() - interval '10 minutes'
-    and j.options->>'points' = 'true' and j.kind in ('deadspace_cut','youtube_import')
-    and not exists (select 1 from public.worker_processing_runs r
-      where r.job_id=j.id and r.finished_at is not null)
-    -- Rejected inputs / library-only downloads never reach point processing.
-    and exists (select 1 from public.matches m where m.job_id=j.id
-      and m.match_json_path is not null)
-  order by j.updated_at desc limit 100;
+  with observed as (
+    select g.job_id,g.terminal_at as finished_at from public.worker_processing_reporting_gaps g
+    left join public.worker_processing_runs r using (attempt_key)
+    where (g.attempt_key is null or r.finished_at is null)
+      and not exists (select 1 from public.worker_processing_runs later
+        where later.job_id=g.job_id and later.finished_at is not null
+          and later.started_at >= g.attempt_started_at)
+  ), unfinished as (
+    select r.job_id,coalesce(g.terminal_at,j.updated_at) as finished_at
+    from public.worker_processing_runs r
+    left join public.worker_processing_reporting_gaps g using (attempt_key)
+    left join public.jobs j on j.id=r.job_id
+    where r.finished_at is null
+      and (g.attempt_key is not null or (j.status in ('done','failed')
+        and j.updated_at >= r.started_at and j.updated_at < now()-interval '10 minutes'))
+      and not exists (select 1 from public.worker_processing_runs later
+        where later.job_id=r.job_id and later.finished_at is not null
+          and later.started_at >= r.started_at)
+  ), unpublished as (
+    select j.id as job_id,j.updated_at as finished_at from public.jobs j
+    cross join public.worker_processing_health_control c
+    where c.expected_after is not null and j.created_at >= c.expected_after
+      and j.status in ('done','failed') and j.updated_at < now() - interval '10 minutes'
+      and j.options->>'points' = 'true' and j.kind in ('deadspace_cut','youtube_import')
+      and not exists (select 1 from public.worker_processing_runs r where r.job_id=j.id)
+      -- Without an explicit start, publication is the proof this input reached
+      -- processing. A rejected input or library-only download has neither.
+      and exists (select 1 from public.matches m where m.job_id=j.id
+        and m.match_json_path is not null)
+  )
+  select coverage.job_id,max(coverage.finished_at) as finished_at from
+    (select * from observed union all select * from unfinished union all select * from unpublished) coverage
+  group by coverage.job_id order by finished_at desc limit 100;
 $$;
 revoke all on function public.worker_processing_missing() from public,anon,authenticated;
 grant execute on function public.worker_processing_missing() to service_role;
@@ -124,8 +163,17 @@ begin
   return jsonb_build_object(
     'as_of',now(),
     'control',(select to_jsonb(c) from public.worker_processing_health_control c),
-    'runs',coalesce((select jsonb_agg(to_jsonb(r) order by r.started_at desc) from
-      (select * from public.worker_processing_runs order by started_at desc limit 30) r),'[]'),
+    'runs',coalesce((select jsonb_agg(
+      case when r.finished_at is null and (g.attempt_key is not null or
+        (j.status in ('done','failed') and j.updated_at >= r.started_at
+          and j.updated_at < now()-interval '10 minutes'))
+      then to_jsonb(r) || jsonb_build_object('status','unknown','reason_code','missing_final_outcome',
+        'details',r.details || jsonb_build_object('outcome_inferred',true,
+          'terminal_job_at',coalesce(g.terminal_at,j.updated_at)))
+      else to_jsonb(r) end order by r.started_at desc) from
+      (select * from public.worker_processing_runs order by started_at desc limit 30) r
+      left join public.worker_processing_reporting_gaps g using (attempt_key)
+      left join public.jobs j on j.id=r.job_id),'[]'),
     'incidents',coalesce((select jsonb_agg(to_jsonb(i) order by i.opened_at desc) from
       (select id,kind,release_id,opened_at,last_fault_at,recovered_at,details,notified_at
        from public.worker_processing_incidents order by opened_at desc limit 20) i),'[]'),
@@ -142,10 +190,16 @@ do $$ begin
     grant execute on function public.record_worker_processing_run(jsonb) to ponglens_worker;
     grant execute on function public.worker_processing_missing() to ponglens_worker;
     grant select on public.worker_processing_runs to ponglens_worker;
+    revoke all on public.worker_processing_reporting_gaps from ponglens_worker;
+    grant select,insert on public.worker_processing_reporting_gaps to ponglens_worker;
     grant select,insert,update on public.worker_processing_incidents to ponglens_worker;
     grant select,update on public.worker_processing_health_control to ponglens_worker;
     create policy "Worker reads processing runs" on public.worker_processing_runs
       for select to ponglens_worker using (true);
+    create policy "Worker reads processing reporting gaps" on public.worker_processing_reporting_gaps
+      for select to ponglens_worker using (true);
+    create policy "Worker observes processing reporting gaps" on public.worker_processing_reporting_gaps
+      for insert to ponglens_worker with check (true);
     create policy "Worker manages processing incidents" on public.worker_processing_incidents
       for all to ponglens_worker using (true) with check (true);
     create policy "Worker updates processing health" on public.worker_processing_health_control

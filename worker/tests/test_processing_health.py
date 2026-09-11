@@ -57,9 +57,19 @@ def test_admin_alert_contains_no_job_or_exception_details():
     assert message.subject == 'Point processing needs attention'
     assert message.audience == 'admin'
     assert 'private' not in str(message)
-    assert message.action['href'] == 'https://www.ponglens.com/admin/processing'
+    from email_templates import render_email
+    rendered = render_email(message)
+    assert 'https://www.ponglens.com/admin/processing' in rendered.html
 
 
 def test_already_recovered_before_monitor_woke_does_not_send_stale_alarm():
     assert evaluate([run('1', 'degraded', 20), run('2', 'degraded', 10),
                      run('3', 'used', 5), run('4', 'used', 1)], [], NOW) == []
+
+
+def test_late_older_completion_does_not_replace_newer_attempt_failure():
+    older = {**run('1', 'used', 1), 'started_at': (NOW - timedelta(minutes=60)).isoformat()}
+    newer = {**run('1', 'degraded', 10), 'started_at': (NOW - timedelta(minutes=20)).isoformat()}
+    changes = evaluate([older, newer, run('2', 'degraded', 5)], [], NOW)
+    assert changes[0]['action'] == 'open'
+    assert changes[0]['details']['affected_jobs'] == 2
