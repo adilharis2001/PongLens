@@ -33,12 +33,12 @@
 - Produces: private `app_config.highlights_enabled`, copied from `automatic_highlights`.
 - Updates: `enqueue_reel` to raise `highlights_score_required` for an ineligible `highlights` scope.
 
-- [ ] Write a migration contract test proving active-version isolation, deleted/Skip exclusion, exact 75% arithmetic, private config, and queue enforcement.
-- [ ] Run the test and confirm it fails because the migration is absent.
-- [ ] Add the behavior-neutral SQL function and copied feature flag in the first migration.
-- [ ] Add the owner-checked enqueue guard in the second migration without changing other reel scopes, so it can be applied after the API deploy.
-- [ ] Run the migration contract test and existing migration/reel tests.
-- [ ] Commit the database contract.
+- [x] Write a migration contract test proving active-version isolation, deleted/Skip exclusion, exact 75% arithmetic, private config, and queue enforcement.
+- [x] Run the test and confirm it fails because the migration is absent.
+- [x] Add the behavior-neutral SQL function and copied feature flag in the first migration.
+- [x] Add the owner-checked enqueue guard in the second migration without changing other reel scopes, so it can be applied after the API deploy.
+- [x] Run the migration contract test and existing migration/reel tests.
+- [x] Commit the database contract.
 
 ### Task 2: Worker becomes manual-only and scored-only
 
@@ -55,12 +55,12 @@
 - `points_revision(points, scored_only=True)` includes only the scored/unscored boolean for new manifests; legacy freshness remains available for old manifests.
 - `process_reel` reads and rechecks database eligibility before evidence recovery or rendering.
 
-- [ ] Add failing tests that normal processing never calls `prepare_auto_highlights`, unscored rallies never qualify, winner corrections do not alter the scored-only revision, and unscoring does.
-- [ ] Run the focused worker tests and confirm the new assertions fail.
-- [ ] Remove the automatic post-processing call while retaining evidence insertion creation and persistence.
-- [ ] Add `confirmed_winner` to highlight point loads and scored-only selection/revision metadata.
-- [ ] Add the pre-compute eligibility check to the worker; mark an obsolete queued request without running recovery or FFmpeg.
-- [ ] Run focused worker tests and commit.
+- [x] Add failing tests that normal processing never calls `prepare_auto_highlights`, unscored rallies never qualify, winner corrections do not alter the scored-only revision, and unscoring does.
+- [x] Run the focused worker tests and confirm the new assertions fail.
+- [x] Remove the automatic post-processing call while retaining evidence insertion creation and persistence.
+- [x] Add `confirmed_winner` to highlight point loads and scored-only selection/revision metadata.
+- [x] Add the pre-compute eligibility check to the worker; mark an obsolete queued request without running recovery or FFmpeg.
+- [x] Run focused worker tests and commit.
 
 ### Task 3: API lifecycle and backward compatibility
 
@@ -77,11 +77,11 @@
 - POST maps ineligible requests to `highlights_score_required` without enqueueing.
 - `highlightManifestIsFresh` uses legacy revision for ready manifests without `scored_only` and scored-only revision for new manifests.
 
-- [ ] Add failing tests for below/exact threshold, read-only GET, POST rejection, in-flight priority, legacy-ready grandfathering, and old empty/failed regeneration.
-- [ ] Run the API tests and confirm the failures.
-- [ ] Implement the new feature-flag name, eligibility read, lifecycle ordering, response fields, and stable error mapping.
-- [ ] Run all highlight API and match lifecycle tests.
-- [ ] Commit the API contract.
+- [x] Add failing tests for below/exact threshold, read-only GET, POST rejection, in-flight priority, legacy-ready grandfathering, and old empty/failed regeneration.
+- [x] Run the API tests and confirm the failures.
+- [x] Implement the new feature-flag name, eligibility read, lifecycle ordering, response fields, and stable error mapping.
+- [x] Run all highlight API and match lifecycle tests.
+- [x] Commit the API contract.
 
 ### Task 4: Existing web Highlights sheet gains the score gate
 
@@ -95,12 +95,12 @@
 - `HighlightState.needs_scoring` carries score coverage.
 - `HighlightsRow` receives `onScore()` and uses it for the sole primary action below 75%.
 
-- [ ] Add failing presentation tests for the exact row summary, title, body, action label, and full-width action treatment.
-- [ ] Read `PlacementToolsRow.tsx`, `AllowanceRequest.tsx`, and `AllowanceRecovery.tsx` completely before editing.
-- [ ] Extend parsing and lifecycle presentation without changing the ready/share layout.
-- [ ] Wire `Score the Match` to the existing player scorekeeper and preserve current focus/scroll behavior.
-- [ ] Run highlight and match tests, then inspect desktop and 393x660 mobile web.
-- [ ] Commit the web UI.
+- [x] Add failing presentation tests for the exact row summary, title, body, action label, and full-width action treatment.
+- [x] Read `PlacementToolsRow.tsx`, `AllowanceRequest.tsx`, and `AllowanceRecovery.tsx` completely before editing.
+- [x] Extend parsing and lifecycle presentation without changing the ready/share layout.
+- [x] Wire `Score the Match` to the existing player scorekeeper and preserve current focus/scroll behavior.
+- [x] Run highlight and match tests, then inspect desktop and 393x660 mobile web.
+- [x] Commit the web UI.
 
 ### Task 5: Native iOS Highlights sheet gains the same gate
 
@@ -115,12 +115,12 @@
 - `AutomaticHighlightsRequestView` exposes the same title/body/action as web.
 - `HighlightsSheet` receives `onScore` and dismisses before opening the existing scorekeeper.
 
-- [ ] Add failing native tests for below-threshold copy, exact threshold behavior, and action identity.
-- [ ] Read the full placement request sheet and approved allowance request/recovery views before editing.
-- [ ] Add the lifecycle fields and full-width existing-style score action without new pills, panels, or colors.
-- [ ] Wire the action through `ToolsSection` to the existing scorekeeper.
-- [ ] Run iOS tests, build the simulator target, and visually inspect the native sheet.
-- [ ] Commit the iOS UI.
+- [x] Add failing native tests for below-threshold copy, exact threshold behavior, and action identity.
+- [x] Read the full placement request sheet and approved allowance request/recovery views before editing.
+- [x] Add the lifecycle fields and full-width existing-style score action without new pills, panels, or colors.
+- [x] Wire the action through `ToolsSection` to the existing scorekeeper.
+- [x] Run iOS tests, build the simulator target, and visually inspect the native sheet.
+- [x] Commit the iOS UI.
 
 ### Task 6: Release verification and rollout evidence
 
@@ -130,9 +130,9 @@
 **Interfaces:**
 - Produces verification evidence for database, worker, web, iOS, and the shared Mac/Modal worker release.
 
-- [ ] Run focused TypeScript and Python suites.
-- [ ] Run the real `npm run build` in this isolated worktree.
-- [ ] Run native iOS unit tests and a simulator build.
-- [ ] Capture/inspect desktop web, 393x660 mobile web, and native iOS states.
-- [ ] Review the branch diff against the approved spec and verify no unrelated files changed.
-- [ ] Prepare the migration/web/iOS/worker deployment sequence; do not claim production until every deployed surface is verified.
+- [x] Run focused TypeScript and Python suites.
+- [x] Run the real `npm run build` in this isolated worktree.
+- [x] Run native iOS unit tests and a simulator build.
+- [x] Capture/inspect desktop web, 393x660 mobile web, and native iOS states.
+- [x] Review the branch diff against the approved spec and verify no unrelated files changed.
+- [x] Prepare the migration/web/iOS/worker deployment sequence; do not claim production until every deployed surface is verified.
