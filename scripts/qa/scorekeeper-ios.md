@@ -5,7 +5,7 @@ This fixture opens the shipped `PlayerTakeover` and `MatchDetailModel` with a lo
 ## Build and install
 
 ```sh
-QA_DEVICE=E2E2EA3-19DD-40A7-98C4-329D09277032
+QA_DEVICE=E2EE2EA3-19DD-40A7-98C4-329D09277032
 QA_DERIVED=/private/tmp/ponglens-scorekeeper-current-native
 QA_PACKAGES=/Users/adil/Library/Developer/Xcode/DerivedData/PongLens-ayxrpyljajmbsafjsrfgauijvgzl/SourcePackages
 
