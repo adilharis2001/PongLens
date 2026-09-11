@@ -43,11 +43,6 @@ import {
   cutOffsetFor,
   labelKey,
   missForPoint,
-  reasonShort,
-  reasonTally,
-  reasonTone,
-  refusedCards,
-  serveDetector,
   type BounceLabel,
   type MissBounce,
   type ServeMissData,
@@ -575,63 +570,6 @@ export function UploadView({
             </p>
           </div>
         ) : null}
-
-        {serveMisses && serveMisses.cards.length > 0 && (
-          <div className="mt-3 rounded-2xl border border-edge bg-surface p-4">
-            <p className="text-sm text-zinc-300">
-              Every card carries its evidence: the ball, every bounce, and
-              where the detector put the serve. Open one to check the first
-              bounce and where it landed.
-            </p>
-            <p className="mt-2 text-sm text-zinc-400">
-              {refusedCards(serveMisses).length} of {serveMisses.cards.length}{" "}
-              have no serve.{" "}
-              {serveDetector(serveMisses) === "v3"
-                ? "That is the V3 detector's verdict, the same one the cards were anchored on, so this agrees with the pipeline rather than second-guessing it."
-                : "A serve is accepted as a PAIR of bounces, so a card with none is a card where no pair passed the six rules."}
-            </p>
-            {/* Two counts for one thing, a screen apart, reads as a bug —
-                and here it is real, in EITHER direction. The card list
-                reports what shipped; the diagnosis re-walks the same
-                footage against whatever the serve rules say now, and two
-                of their constants are read per job. Name both readings
-                rather than letting them quietly disagree, and do not
-                assume the diagnosis is the older one. */}
-            {assembly.cardsWithoutServe !== null &&
-              assembly.cardsWithoutServe !== refusedCards(serveMisses).length && (
-                <p className="mt-2 text-sm text-amber-300">
-                  Two readings disagree: the cards this match shipped with
-                  carry {assembly.cardsWithoutServe} with no serve, while this
-                  diagnosis, walked against today&rsquo;s rules, finds{" "}
-                  {refusedCards(serveMisses).length}. Two of the serve rule&rsquo;s
-                  constants are read per job, so a card can change side of the
-                  line without the footage changing at all. The evidence below
-                  is the current reading.
-                </p>
-              )}
-            {serveDetector(serveMisses) === "v3" && (
-              <p className="mt-2 text-sm text-zinc-500">
-                The chips below are the older bounce-pair rule walked over
-                the same cards. V3 does not need a pair, so these are not
-                its reasons, they are a second reading kept beside it.
-              </p>
-            )}
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {reasonTally(refusedCards(serveMisses)).map(({ reason, count }) => (
-                <span
-                  key={reason}
-                  className="rounded-full border px-2.5 py-0.5 text-xs"
-                  style={{
-                    borderColor: `${reasonTone(reason)}66`,
-                    color: reasonTone(reason),
-                  }}
-                >
-                  {count} {reasonShort(reason)}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
 
         {rows.length > 0 && (
           <div className="relative mt-3 h-2.5 overflow-hidden rounded-full bg-surface-2">
