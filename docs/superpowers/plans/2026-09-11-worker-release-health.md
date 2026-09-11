@@ -49,7 +49,10 @@
 
 - [x] Inspect rendered shipped processing screen and source. Add release identity, requested/delivered body outcome, plain-language fallback reason, incident/recovery display and missing reporting state in the existing layout.
 - [x] Render success, expected refusal, operational fallback and unknown states on desktop and 393x660 mobile. Full `npm run build` in this worktree. Prepare screenshots for approval.
-- [ ] Record concrete baseline, build ID, environment inventory, smoke/parity results and rollback command. Add CLAUDE.md guidance for all future chats, clearly distinguishing staged and active status.
-- [ ] Independent review of changed runtime and health paths, then packaged representative processing and rollback rehearsal.
-- [ ] Recheck concurrent root edits and queue/launcher state before drain and activation. Apply only additive operational migration after validation. Switch verified main/fast release at a job boundary. Keep hand and lesson lanes untouched unless their dependencies require an explicit coordinated release.
-- [ ] Verify live pulse identity and attempt reporting. UI publishing awaits screenshot approval; document any remaining rollout gate precisely.
+- [x] Record concrete baseline, build ID, environment inventory, smoke/parity results and rollback procedure. CLAUDE.md and docs/worker-release-health.md identify the active release and its published source branch.
+- [x] Independent runtime/health/integration/rollout reviews passed; candidate and rollback packaged imports/parity passed. Queue handoff rehearsed on isolated PostgreSQL; rollback lane check-only commands passed. Full production rollback flip was not performed.
+- [x] Rechecked concurrent root files and queues, applied only the additive migration, switched idle main/fast safely, verified paused release identities and activated at 2026-09-11 16:17:58 UTC. Hand/lesson/cloud untouched.
+- [x] Adil approved screenshots and production publishing. Main fd9e529c is READY on production; live desktop/393×660 mobile, pulse identity and repeated monitor heartbeat verified. See the operational runbook for exact IDs, timestamps and remaining limits.
+- [ ] Observe the first real upload's processing attempt and outcome. No normal upload arrived during rollout; do not manufacture a production job or call zero attempts a body-processing success.
+
+The notes below are chronological pre-rollout evidence, not current deployment status. The current production record is docs/worker-release-health.md.
