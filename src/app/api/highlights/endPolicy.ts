@@ -16,6 +16,7 @@ export type AutomaticHighlightRevisionPoint = AutomaticHighlightEndPoint & {
   deleted?: boolean | null;
   edited?: boolean | null;
   is_let?: boolean | null;
+  confirmed_winner?: string | null;
   highlight_evidence?: {
     v?: number | null;
     status?: string | null;
@@ -34,6 +35,7 @@ export const DETECTOR_END_TAIL_S = 0.25;
 export type AutomaticHighlightReadStatus =
   | "ready"
   | "rendering"
+  | "needs_scoring"
   | "needs_generation"
   | "needs_update"
   | "updating"
@@ -45,19 +47,23 @@ export function automaticHighlightReadDecision({
   reelStatus,
   manifestFresh,
   pointsUpdating,
+  scoreEligible = true,
 }: {
   hasReel: boolean;
   reelStatus: string | null;
   manifestFresh: boolean;
   pointsUpdating: boolean;
+  scoreEligible?: boolean;
 }): { status: AutomaticHighlightReadStatus } {
-  if (pointsUpdating) return { status: "updating" };
-  if (!hasReel) {
-    return { status: "needs_generation" };
-  }
   if (reelStatus === "queued" || reelStatus === "rendering") {
     return { status: "rendering" };
   }
+  if (pointsUpdating) return { status: "updating" };
+  if (hasReel && manifestFresh && reelStatus === "ready") {
+    return { status: "ready" };
+  }
+  if (!scoreEligible) return { status: "needs_scoring" };
+  if (!hasReel) return { status: "needs_generation" };
   if (!manifestFresh) {
     return {
       status: pointsUpdating ? "updating" : "needs_update",
@@ -73,12 +79,14 @@ export function automaticHighlightRequestDecision({
   reelStatus,
   manifestFresh,
   pointsUpdating,
+  scoreEligible = true,
 }: {
   hasReel: boolean;
   reelStatus: string | null;
   manifestFresh: boolean;
   pointsUpdating: boolean;
-}): "enqueue" | "rendering" | "clips_updating" | "current" {
+  scoreEligible?: boolean;
+}): "enqueue" | "rendering" | "clips_updating" | "current" | "score_required" {
   if (
     hasReel &&
     (reelStatus === "queued" || reelStatus === "rendering")
@@ -87,6 +95,7 @@ export function automaticHighlightRequestDecision({
   }
   if (pointsUpdating) return "clips_updating";
   if (hasReel && manifestFresh) return "current";
+  if (!scoreEligible) return "score_required";
   return "enqueue";
 }
 
@@ -98,6 +107,8 @@ export function automaticHighlightEvidenceRefreshNeeded(
       !point.deleted &&
       !point.edited &&
       !point.is_let &&
+      (point.confirmed_winner === "user" ||
+        point.confirmed_winner === "opponent") &&
       Boolean(point.clip_path) &&
       point.highlight_evidence?.v !== 2,
   );
@@ -116,12 +127,13 @@ function canonicalNumber(value: unknown): string | null {
 /** Cross-language hash of every input that can change the rendered artifact. */
 export function highlightPointsRevision(
   points: AutomaticHighlightRevisionPoint[],
+  scoredOnly = false,
 ): string {
   const rows = [...points]
     .sort((a, b) => a.t0! - b.t0! || a.idx - b.idx || a.id.localeCompare(b.id))
     .map((point) => {
       const evidence = point.highlight_evidence ?? {};
-      return [
+      const row = [
         point.id,
         canonicalNumber(point.idx),
         canonicalNumber(point.t0),
@@ -142,6 +154,13 @@ export function highlightPointsRevision(
         canonicalNumber(evidence.observed_end_s),
         evidence.end_source ?? null,
       ];
+      if (scoredOnly) {
+        row.push(
+          point.confirmed_winner === "user" ||
+            point.confirmed_winner === "opponent",
+        );
+      }
+      return row;
     });
   return createHash("sha256").update(JSON.stringify(rows)).digest("hex");
 }
@@ -150,6 +169,7 @@ export function highlightManifestIsFresh(
   points: AutomaticHighlightRevisionPoint[],
   manifest: {
     points_revision: string;
+    scored_only?: boolean;
     points: Array<{
       point_id: string;
       cut_start_s: number;
@@ -157,7 +177,10 @@ export function highlightManifestIsFresh(
     }>;
   },
 ): boolean {
-  if (highlightPointsRevision(points) !== manifest.points_revision) return false;
+  const scoredOnly = manifest.scored_only === true;
+  if (highlightPointsRevision(points, scoredOnly) !== manifest.points_revision) {
+    return false;
+  }
   const byId = new Map(points.map((point) => [point.id, point]));
   return manifest.points.every((manifestPoint) => {
     const point = byId.get(manifestPoint.point_id);
@@ -167,6 +190,9 @@ export function highlightManifestIsFresh(
         !point.deleted &&
         !point.edited &&
         !point.is_let &&
+        (!scoredOnly ||
+          point.confirmed_winner === "user" ||
+          point.confirmed_winner === "opponent") &&
         point.highlight_evidence?.v === 2 &&
         point.highlight_evidence.status === "ready" &&
         finite(point.cut_t0) &&

@@ -19,11 +19,16 @@ const reelRoute = readFileSync(
   "utf8",
 );
 
-test("highlight route is authenticated, owner-only, and switch guarded", () => {
+test("highlight route is authenticated, owner-only, availability guarded, and score gated", () => {
   assert.match(route, /supabase\.auth\.getUser\(\)/);
   assert.match(route, /match\.user_id !== user\.id/);
-  assert.match(route, /automatic_highlights/);
+  assert.match(route, /highlights_enabled/);
+  assert.doesNotMatch(route, /eq\("key", "automatic_highlights"\)/);
   assert.match(route, /createAdminClient\(\)/);
+  assert.match(route, /highlight_generation_eligibility/);
+  assert.match(route, /highlights_score_required/);
+  assert.match(route, /scoredPoints/);
+  assert.match(route, /scorablePoints/);
 });
 
 const matchId = "10000000-0000-4000-8000-000000000001";
@@ -31,7 +36,7 @@ const matchId = "10000000-0000-4000-8000-000000000001";
 function readyRoute(key: string) {
   const points = [{ id: "70000000-0000-4000-8000-000000000007", idx: 0, t0: 10, t1: 20,
     cut_t0: 1, rally_end_cut_s: 5, clip_path: "r2://media/clip.mp4", deleted: false, edited: false,
-    is_let: false, highlight_evidence: { v: 2, status: "ready", n_hits: 8, connected_crossings: 7,
+    is_let: false, confirmed_winner: "user", highlight_evidence: { v: 2, status: "ready", n_hits: 8, connected_crossings: 7,
       table_bounces: 4, alternating_table_landings: 5 } }];
   const manifest = { v: 2, rule: "quality-first-v2", points_revision: endPolicy.highlightPointsRevision(points),
     duration_s: 4.25, points: [{ point_id: points[0].id, cut_start_s: 1, cut_end_s: 5.25 }] };
@@ -52,7 +57,11 @@ function readyRoute(key: string) {
           : table === "match_reels" ? { status: "ready", r2_key: key, manifest } : points);
       },
     }) },
-    "@/lib/supabase/admin": { createAdminClient: () => ({ from: () => query({ value: "on" }) }) },
+    "@/lib/supabase/admin": { createAdminClient: () => ({
+      from: () => query({ value: "on" }),
+      rpc: async () => ({ data: [{ scored_points: 1, scorable_points: 1,
+        required_points: 1, required_percent: 75, eligible: true }], error: null }),
+    }) },
     "@/lib/r2": { MEDIA_BUCKET: "media", presignGet: async (bucket: string, key: string, options: unknown) => {
       signs.push({ bucket, key, options }); return "https://signed.example/highlights.mp4";
     } },
