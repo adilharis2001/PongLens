@@ -6,8 +6,9 @@ import sys
 import shutil
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from worker.match_release import build, verify, prepare_run, stage, ReleaseError
+from worker.match_release import build, verify, verify_unchanged, prepare_run, stage, ReleaseError
 
 
 class ReleaseTests(unittest.TestCase):
@@ -148,6 +149,31 @@ class ReleaseTests(unittest.TestCase):
         verify(release)
         self.put(runtime_dir / 'new.pth', 'import attacker')
         with self.assertRaises(ReleaseError): verify(release)
+
+    def test_payload_prefilter_catches_same_size_with_restored_mtime(self):
+        release = self.built()
+        verify_unchanged(release)
+        source = release / 'worker/worker.py'
+        before = source.stat()
+        source.write_text('print("broken")\n')
+        os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+        with self.assertRaises(ReleaseError): verify_unchanged(release)
+
+    def test_missing_runtime_rejected_at_build(self):
+        self.runtime.unlink()
+        with self.assertRaises(ReleaseError): self.built()
+
+    def test_external_source_mutation_during_copy_is_rejected(self):
+        copy = shutil.copy2
+
+        def mutate_after_copy(source, destination, *args, **kwargs):
+            result = copy(source, destination, *args, **kwargs)
+            if Path(source) == self.root / 'pose':
+                Path(source).write_text('mutated during copy')
+            return result
+
+        with patch('worker.match_release.shutil.copy2', side_effect=mutate_after_copy):
+            with self.assertRaises(ReleaseError): self.built()
 
 
 if __name__ == '__main__':
