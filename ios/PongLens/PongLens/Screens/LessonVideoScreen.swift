@@ -1361,6 +1361,9 @@ private struct LessonVideoNotesReader: View {
                 Text(edit.title)
                     .font(.plPageTitle).tracking(-0.6).foregroundStyle(PL.textBody)
                     .padding(.top, 24)
+                // The recap opens and closes on these, so the reader that
+                // stands in for watching it has to carry them too.
+                readerList("Lesson goals", edit.goals ?? [])
                 ForEach(Array(edit.chapters.enumerated()), id: \.offset) { index, chapter in
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Chapter \(index + 1)")
@@ -1374,11 +1377,30 @@ private struct LessonVideoNotesReader: View {
                     .padding(.vertical, 24)
                     if index < edit.chapters.count - 1 { Divider().overlay(PL.edge) }
                 }
+                readerList("Things to work on", edit.work_on ?? [])
             }
             .padding(20).padding(.bottom, 36)
         }
         .background { ArenaBackground() }
         .preferredColorScheme(.dark)
+    }
+
+    /// One of the two lists that bracket the recap. A lesson that stated
+    /// neither draws neither, rather than an empty heading.
+    @ViewBuilder
+    private func readerList(_ heading: String, _ lines: [String]) -> some View {
+        if !lines.isEmpty {
+            Divider().overlay(PL.edge)
+            VStack(alignment: .leading, spacing: 12) {
+                Text(heading)
+                    .font(.plCaption).textCase(.uppercase).foregroundStyle(PL.cyan)
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    Text(line).font(.plBody).foregroundStyle(PL.text300).lineSpacing(4)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 24)
+        }
     }
 }
 
