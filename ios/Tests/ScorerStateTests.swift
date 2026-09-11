@@ -221,6 +221,34 @@ func runScorerStateChecks() async {
               "a delayed waiting callback still retires the run after recovery")
     }
 
+    suite("only a successful opening seek can bridge settlement delay") {
+        let delayed = event.with(time: 50.3)
+
+        let ordinary = ScorePlaybackRun()
+        ordinary.observe(delayed)
+        check(ordinary.observation(delayed.with(time: 50.4)) == nil,
+              "an ordinary first observation after the start stays ineligible")
+
+        let settled = ScorePlaybackRun()
+        settled.observeAfterSuccessfulSeek(delayed, target: 50)
+        near(settled.observation(delayed.with(time: 50.4)), 50.4,
+             "a completed exact opening seek preserves its start proof")
+
+        for (label, invalidEvent, target) in [
+            ("a mid-rally seek target", delayed, 55.0),
+            ("a completion outside the supported sample", event.with(time: 50.6), 50.0),
+            ("paused playback", delayed.with(playing: false), 50.0),
+            ("buffering playback", delayed.with(ready: false), 50.0),
+            ("background playback", delayed.with(foreground: false), 50.0),
+            ("a different source", delayed.with(sourceKey: "point:1"), 50.0),
+        ] {
+            let rejected = ScorePlaybackRun()
+            rejected.observeAfterSuccessfulSeek(invalidEvent, target: target)
+            check(rejected.observation(delayed.with(time: 50.4)) == nil,
+                  "\(label) cannot manufacture start evidence")
+        }
+    }
+
     suite("playback observations stay on their original target and source") {
         let run = ScorePlaybackRun()
         run.observe(event)

@@ -166,6 +166,27 @@ final class ScorePlaybackRun {
         armAtStart(event, after: previousRun)
     }
 
+    /// A zero-tolerance seek completion is positive evidence that playback
+    /// crossed this point's opening even when the player advanced before the
+    /// main actor received the completion. The live event still has to prove
+    /// the current point, source and transport state, and the completion may
+    /// bridge no more than one supported observer step.
+    func observeAfterSuccessfulSeek(_ event: ScorePlaybackEvent, target: Double) {
+        invalidate()
+        guard eligible(event), abs(target - event.start) <= startEpsilon,
+              event.time + startEpsilon >= event.start,
+              event.time <= event.end,
+              event.time - event.start <= maxStartCrossingStep
+        else { return }
+        run = Run(
+            pointId: event.pointId,
+            start: event.start,
+            end: event.end,
+            sourceKey: event.sourceKey,
+            lastTime: event.time
+        )
+    }
+
     func observation(_ event: ScorePlaybackEvent) -> Double? {
         guard eligible(event), let run else { return nil }
         guard run.pointId == event.pointId, run.start == event.start,

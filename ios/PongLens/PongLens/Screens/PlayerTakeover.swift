@@ -2871,7 +2871,7 @@ struct PlayerTakeover: View {
         )
     }
 
-    func observeScorePlayback() {
+    func observeScorePlayback(afterSuccessfulSeekTo seekTarget: Double? = nil) {
         guard mode == .score, phase == .play, !scrubbing, !isHighlights,
               detourId == nil, let cutItem, player.currentItem === cutItem
         else {
@@ -2887,7 +2887,11 @@ struct PlayerTakeover: View {
             scorePlaybackRun.invalidate()
             return
         }
-        scorePlaybackRun.observe(event)
+        if let seekTarget {
+            scorePlaybackRun.observeAfterSuccessfulSeek(event, target: seekTarget)
+        } else {
+            scorePlaybackRun.observe(event)
+        }
     }
 
     func scoreObservation(_ point: MatchPoint) -> Double? {
@@ -3742,7 +3746,7 @@ struct PlayerTakeover: View {
                 if pendingSeekEpoch == epoch { pendingSeekEpoch = nil }
                 guard finished, scoreSeekGeneration == seekGeneration else { return }
                 scoreSeekSettledGeneration = seekGeneration
-                observeScorePlayback()
+                observeScorePlayback(afterSuccessfulSeekTo: sec)
             }
         }
         // A completion that never comes — the item replaced under the seek,
