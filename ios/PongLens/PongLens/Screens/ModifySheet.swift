@@ -51,6 +51,36 @@ struct ModifySheet: View {
     @State private var tab: Tab = .split
     @State private var player = AVPlayer()
     @State private var videoURL: URL?
+
+    /// WHICH FILE THE PICTURE IS COMING FROM.
+    ///
+    /// The cut video is the fast default: it is already streaming behind
+    /// this sheet, so opening costs nothing. But it no longer holds the
+    /// waiting between rallies — since the body assembler tightened the
+    /// cards, only about a fifth of seams run unbroken into their
+    /// neighbour, and on an end-on camera two in a hundred. Drag a handle
+    /// out there and the cut has no frame to show.
+    ///
+    /// So the original is warmed in the background and taken over ONCE,
+    /// the first time a handle leaves what the cut holds. Once, and then
+    /// it stays: the original contains everything the cut does, so there is
+    /// nothing to go back for, and swapping to and fro would stall twice.
+    private enum PreviewSource { case cut, raw }
+    @State private var previewSource: PreviewSource = .cut
+    /// The stored original, loaded far enough to be attached without a
+    /// round trip. Nil until the warm finishes, or for ever on a match
+    /// whose original was swept — where the old held-frame behaviour is
+    /// what is left, and is still honest.
+    @State private var rawAsset: AVURLAsset?
+    /// Seconds to ADD to a point timestamp to reach the original's clock.
+    /// A library upload processed with a head trim was cut down before the
+    /// pipeline saw it, so every t0/t1 is measured from trim_start_s INTO
+    /// the stored file. Yu Yu Lin is 243 s. Getting this wrong is silent:
+    /// real footage from the wrong minute.
+    @State private var rawOffset: Double = 0
+    /// The one moment the picture is not live, between attaching the
+    /// original and its first frame landing.
+    @State private var swapping = false
     @State private var playhead: Double = 0
     @State private var paused = true
     @State private var observer: Any?
@@ -230,6 +260,21 @@ struct ModifySheet: View {
     /// that footage instead of freezing at the clip's edge; where the
     /// cutter removed time, the picture holds at the span's edge and the
     /// caption says so. Port of ModifyClip.tsx playableBounds.
+    /// The player's own clock for a cut second. One line, because `srcOf`
+    /// is a straight line anchored on this point: extrapolated past the
+    /// clip it is a LIE against the cut (the cutter removed time out
+    /// there, which is the whole reason the preview used to clamp) and is
+    /// exactly true against the original, which has no cuts in it.
+    private func playerTime(_ cutSeconds: Double) -> Double {
+        previewSource == .raw ? srcOf(cutSeconds) + rawOffset : cutSeconds
+    }
+
+    /// ...and back, so everything on screen stays in cut seconds and no
+    /// other part of this sheet has to know which file is playing.
+    private func cutTime(_ playerSeconds: Double) -> Double {
+        previewSource == .raw ? cutOf(playerSeconds - rawOffset) : playerSeconds
+    }
+
     private var playableBounds: (lo: Double, hi: Double)? {
         contiguousCutBounds(for: point, in: model.visible, pad: pad)
     }
@@ -247,13 +292,20 @@ struct ModifySheet: View {
     /// exactly what the point will keep. Split and Join play the span.
     private var playSpan: (start: Double, end: Double)? {
         guard let span = videoSpan else { return nil }
-        guard tab == .adjust, let b = playableBounds else { return span }
+        guard tab == .adjust else { return span }
         let eff = effectivePad(
             pad,
             tightStart: point.tightStart && adjT0 == point.t0,
             tightEnd: point.tightEnd && adjT1 == point.t1)
-        let start = min(b.hi, max(b.lo, cutOf(adjT0) - eff.pre))
-        let end = min(b.hi, max(b.lo, cutOf(adjT1) + eff.post))
+        let want = (cutOf(adjT0) - eff.pre, cutOf(adjT1) + eff.post)
+        // On the original there is nothing to clamp against: play exactly
+        // what the clip will keep, which is the question this tab asks.
+        if previewSource == .raw {
+            return want.1 > want.0 ? (want.0, want.1) : span
+        }
+        guard let b = playableBounds else { return span }
+        let start = min(b.hi, max(b.lo, want.0))
+        let end = min(b.hi, max(b.lo, want.1))
         return end > start ? (start, end) : span
     }
 
@@ -587,6 +639,9 @@ struct ModifySheet: View {
     /// into the neighbour's footage shows that footage); on Split and Join
     /// it is the span itself.
     private func playable(_ t: Double) -> Double {
+        // The original holds every second of the match, so there is nothing
+        // to clamp to once it is the source.
+        if previewSource == .raw { return t }
         if tab == .adjust, let b = playableBounds {
             return min(b.hi, max(b.lo, t))
         }
@@ -620,10 +675,12 @@ struct ModifySheet: View {
             // is no frame to show — the cut video jumps to a different part
             // of the match there, and showing that as "the new start" would
             // be a lie the user would act on.
+            useOriginalIfNeeded()
             seek(to: playable(cutOf(adjT0)))
         case .edgeEnd:
             let ceil = srcOf(adjustDragBounds?.end ?? adjHiCut)
             adjT1 = round2(max(adjT0 + 0.5, min(ceil, srcOf(t))))
+            useOriginalIfNeeded()
             seek(to: playable(cutOf(adjT1)))
         }
     }
@@ -772,8 +829,14 @@ struct ModifySheet: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, 4)
 
+        // Three states, because the honest sentence changed. Out past the
+        // cut we used to hold a frame and say the stretch was gone; now the
+        // original is playing and there is nothing to apologise for. Only a
+        // match whose original was swept still gets the old line.
         Text(adjustBeyondClip
-             ? "That stretch was cut from the match video. The clip will still include it."
+             ? (previewSource == .raw
+                ? "Playing from the original recording, past what the match video holds."
+                : "That stretch was cut from the match video. The clip will still include it.")
              : "The lighter stretch is the footage the match video holds here. Drag or step an edge to take in more of the point.")
             .font(.system(size: 11))
             .foregroundStyle(PL.text500)
@@ -833,9 +896,11 @@ struct ModifySheet: View {
     private func nudge(start: Bool, by delta: Double) {
         if start {
             adjT0 = round2(min(adjT1 - 0.5, max(0, adjT0 + delta)))
+            useOriginalIfNeeded()
             seek(to: playable(cutOf(adjT0)))
         } else {
             adjT1 = round2(max(adjT0 + 0.5, adjT1 + delta))
+            useOriginalIfNeeded()
             seek(to: playable(cutOf(adjT1)))
         }
     }
@@ -1166,14 +1231,68 @@ struct ModifySheet: View {
             Task { @MainActor in
                 paused = player.rate == 0
                 guard dragging == nil, !scrubbing, !seeking, pendingSeek == nil else { return }
-                playhead = time.seconds
-                if let span = playSpan, player.rate > 0, time.seconds >= span.end {
+                let here = cutTime(time.seconds)
+                playhead = here
+                if let span = playSpan, player.rate > 0, here >= span.end {
                     player.pause()
                     playhead = span.end
                     paused = true
                 }
             }
         }
+        // Only now, with the cut already showing, is the original worth
+        // fetching. Nothing above this line waits for it.
+        await warmOriginal()
+    }
+
+    /// Fetch the original and parse enough of it to attach without a
+    /// round trip. Runs AFTER the cut is on screen, so it cannot slow the
+    /// sheet down, and never plays or shows anything.
+    ///
+    /// `available: false` is an ordinary answer, not a failure: a legacy
+    /// match whose original was swept has none, and the held-frame
+    /// behaviour it falls back to is what shipped before this.
+    private func warmOriginal() async {
+        struct Req: Encodable {
+            let matchId: String
+            let rawPreview: Bool
+        }
+        struct Res: Decodable {
+            let url: String?
+            let available: Bool?
+            let trimStartS: Double?
+        }
+        guard let res: Res = try? await API.post(
+            "api/media-url",
+            Req(matchId: match.id.uuidString.lowercased(), rawPreview: true)
+        ), res.available == true, let url = res.url.flatMap(URL.init) else { return }
+        let asset = AVURLAsset(url: url)
+        // Metadata only. This is a few range reads, not the file: the
+        // original is the largest object in the system and a phone must
+        // never be made to pull it to answer a question about two seconds.
+        _ = try? await asset.load(.duration, .tracks)
+        guard !Task.isCancelled else { return }
+        rawOffset = res.trimStartS ?? 0
+        rawAsset = asset
+    }
+
+    /// Take the original over, once, the first time a handle leaves what
+    /// the cut can show. Everything on screen stays in cut seconds; only
+    /// the file behind the picture changes.
+    private func useOriginalIfNeeded() {
+        guard tab == .adjust, previewSource == .cut, adjustBeyondClip,
+              let asset = rawAsset else { return }
+        previewSource = .raw
+        swapping = true
+        let wasPlaying = player.rate > 0
+        player.pause()
+        // A queued seek belongs to the old file's clock. Drop it rather
+        // than let it land on the new one.
+        seeking = false
+        pendingSeek = nil
+        player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
+        request(playhead, exact: true)
+        if wasPlaying { player.play() }
     }
 
     private func seekToSpanStart() {
@@ -1219,12 +1338,15 @@ struct ModifySheet: View {
         let tolerance: CMTime = exact
             ? .zero
             : CMTime(seconds: 0.15, preferredTimescale: 600)
+        // `t` is a CUT second, which is what the whole sheet speaks. Only
+        // here does it become a position in whichever file is attached.
         player.seek(
-            to: CMTime(seconds: max(0, t), preferredTimescale: 600),
+            to: CMTime(seconds: max(0, playerTime(t)), preferredTimescale: 600),
             toleranceBefore: tolerance, toleranceAfter: tolerance
         ) { _ in
             Task { @MainActor in
                 seeking = false
+                swapping = false
                 guard let next = pendingSeek else { return }
                 pendingSeek = nil
                 request(next, exact: dragging == nil)
