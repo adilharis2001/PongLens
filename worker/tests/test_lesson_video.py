@@ -7,7 +7,7 @@ from worker.tests.lesson_fixtures import audible_transcript
 
 
 class EditRuntime:
- def __init__(self,merge,chapters=None,outline=None,window=None): self.merge=merge;self.merge_content=None;self.merge_contents=[];self.merge_prompts=[];self.merge_calls=0;self.chapters=chapters;self.outline=outline;self.window=window;self.window_calls=0;self.window_sections=0;self.window_prompts=[];self.window_contents=[]
+ def __init__(self,merge,chapters=None,outline=None,window=None,focus=None): self.focus=focus;self.focus_calls=0;self.merge=merge;self.merge_content=None;self.merge_contents=[];self.merge_prompts=[];self.merge_calls=0;self.chapters=chapters;self.outline=outline;self.window=window;self.window_calls=0;self.window_sections=0;self.window_prompts=[];self.window_contents=[]
  def stage(self,*args): pass
  def model(self,prompt,content):
   if 'Extract the teaching' in prompt:
@@ -26,6 +26,11 @@ class EditRuntime:
    return shifted
   if 'Build the complete teaching outline' in prompt:
    return self.outline if self.outline is not None else {'title':'Lesson','themes':[{'name':'Footwork','points':['Recover after each shot.']}]}
+  # The two lists that bracket the recap. A lesson that stated neither is
+  # the default here, so every older test still describes the same recap.
+  if 'the two lists that bracket the recap' in prompt:
+   self.focus_calls+=1
+   return self.focus if self.focus is not None else {'goals':[],'work_on':[]}
   self.merge_content=content
   self.merge_contents.append(content)
   self.merge_prompts.append(prompt)
@@ -33,8 +38,8 @@ class EditRuntime:
   return self.merge[min(self.merge_calls-1,len(self.merge)-1)] if isinstance(self.merge,list) else self.merge
 
 
-def merge_edit(merge,chapters=None,sections=1,duration=600,outline=None,window=None):
- runtime=EditRuntime(merge,chapters,outline,window)
+def merge_edit(merge,chapters=None,sections=1,duration=600,outline=None,window=None,focus=None):
+ runtime=EditRuntime(merge,chapters,outline,window,focus)
  with tempfile.TemporaryDirectory() as directory,patch('worker.lesson_video.frame',return_value='data:image/jpeg;base64,AA'),patch('worker.lesson_video.contextualize_edit',side_effect=lambda rt,row,edit,*args:edit):
   source_duration=max(duration,sections*600)
   result=create_edit(runtime,{},'source',directory,audible_transcript(sections),source_duration)
