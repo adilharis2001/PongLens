@@ -69,7 +69,38 @@ export type RallyEndConfig = {
    *  whose rally we actually watched stop. Absent means "use bufferS for
    *  everything", which is the behaviour every caller had before. */
   tightBufferS?: number | null;
+  /** app_config.rally_end_respects_card: where the WORKER already closed
+   *  the card on the ball, playback stands on the card instead of trimming
+   *  it again. Absent means off, which is the behaviour that shipped first. */
+  respectsCard?: boolean;
 };
+
+/**
+ * Did the worker already close this card on the ball?
+ *
+ * The body assembler ends a card 1.5 s after it sees the ball go dead, and
+ * records the moment it saw as `end_evidence_s`, which surfaces here as
+ * `end_source: "observed"`. That 1.5 s is a cushion, not padding: the
+ * dead-ball moment is not exact, and the cushion is what absorbs it being
+ * called a beat early.
+ *
+ * Playback then trimmed to the same dead ball plus 0.4 s and took the
+ * cushion away. Measured 2026-09-11: the card sat 1.47 s past the observed
+ * end on 73 of Julian's points and 86 of Yu Yu Lin's, and playback removed
+ * about 1.47 s more. The two rules were written from opposite ends and
+ * compounded — and worse, the confidence signal that earns the TIGHT cut is
+ * set by the worker precisely BECAUSE it closed the card on the ball, so
+ * "already trimmed" was being read as "safe to trim more".
+ *
+ * The test is deliberately the bare end_source rather than rallyEndWatched:
+ * the question here is not how good the track was, it is whether the card's
+ * own end already came from the ball. Where it did, the card is the answer.
+ */
+export function cardClosedOnBall(p: Point): boolean {
+  const ev = p.highlight_evidence as Record<string, unknown> | null | undefined;
+  if (!ev || typeof ev !== "object") return false;
+  return ev.end_source === "observed";
+}
 
 /**
  * Did we WATCH this rally stop, or did we lose the ball and guess?
@@ -136,7 +167,32 @@ export type EndOptions = {
   /** app_config.tap_end_playback. */
   tapEnd: boolean;
   rallyEnd?: RallyEndConfig | null;
+  /**
+   * app_config.keep_score_full_card: in Keep score ONLY, a point that
+   * already carries a winner tap plays its whole card rather than stopping
+   * at the tap.
+   *
+   * It rides here rather than as its own prop because it is an ending rule
+   * and this is where the ending rules live — and because the surfaces that
+   * must NOT change (watch, share, coach review, reels) are the ones that
+   * pass `ends` straight to effectiveEnd. Only the scorekeeper reads this
+   * field, by building a variant of these options with tapEnd off.
+   */
+  keepScoreFullCard?: boolean;
+
 };
+
+/**
+ * The ending rules as the SCOREKEEPER should read them.
+ *
+ * One line, and it is the whole of fix 1: effectiveEnd already returns the
+ * padded end for a tapped point when tapEnd is off, and never falls through
+ * to the rally rung, so a tapped point plays its full card and an untapped
+ * one keeps the unscored trim. Every other surface passes `ends` unchanged.
+ */
+export function scorekeeperEnds(ends: EndOptions): EndOptions {
+  return ends.keepScoreFullCard ? { ...ends, tapEnd: false } : ends;
+}
 
 /**
  * Where a point's footage EFFECTIVELY ends, for playback and renders.
@@ -207,6 +263,12 @@ export function effectiveEnd(
     // not, the detector lost the ball rather than watched it stop.
     && own !== null && own - Number(rally) <= RALLY_END_MAX_TAIL_S
   ) {
+    // The card already ends on the ball: there is nothing left to trim, and
+    // cutting again eats the cushion the worker left for a dead-ball moment
+    // that is only approximately right. Note this makes tightBufferS dead
+    // for these points, which is the intent — it was cutting exactly the
+    // cards that were already correct.
+    if (opts.rallyEnd.respectsCard && cardClosedOnBall(p)) return padded;
     // A watched finish earns the hard cut; a guessed one keeps the tail.
     const tight = opts.rallyEnd.tightBufferS;
     const buffer =

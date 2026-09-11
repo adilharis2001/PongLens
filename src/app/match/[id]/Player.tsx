@@ -43,6 +43,7 @@ import {
   armedPointId,
   paddedEnd,
   effectiveEnd,
+  scorekeeperEnds,
   nextCutStart,
   pauseEnd,
   playingPointId,
@@ -1609,6 +1610,21 @@ export const Player = forwardRef<
   padRef.current = pad;
   const endsRef = useRef(ends);
   endsRef.current = ends;
+  /**
+   * The ending rules the SCOREKEEPER reads.
+   *
+   * Keep score is where a tap is still being decided: you answer a point,
+   * move on, realise later it should have been split, and come back to its
+   * circle — and a trim built from your own tap is hiding the part you came
+   * back for. So here a tapped point plays its whole card. Watch, share,
+   * coach review and the reels keep the tap trim, because there the tap is
+   * the answer rather than a thing in progress.
+   *
+   * A no-op while app_config.keep_score_full_card is off.
+   */
+  const scoreEnds = useMemo(() => scorekeeperEnds(ends), [ends]);
+  const scoreEndsRef = useRef(scoreEnds);
+  scoreEndsRef.current = scoreEnds;
 
   /** End of the deleted span the playhead is inside, or null. The small
    *  epsilon keeps a jump that landed exactly on an end from re-matching. */
@@ -1753,13 +1769,13 @@ export const Player = forwardRef<
       .sort((a, b) => a - b);
     for (const p of cut) {
       const start = Number(p.cut_t0);
-      let end = effectiveEnd(p, pad, ends) ?? start;
+      let end = effectiveEnd(p, pad, mode === "score" ? scoreEnds : ends) ?? start;
       const next = starts.find((s) => s > start + 0.01);
       if (next !== undefined && end > next) end = next;
       if (end > start) m.set(p.id, { start, end });
     }
     return m;
-  }, [points, pad, ends]);
+  }, [points, pad, ends, scoreEnds, mode]);
 
   // Cards the cut cannot show, so the detour must (see the detour block
   // above). Bracketing runs over the PHYSICAL timeline — deleted cards
@@ -2138,7 +2154,7 @@ export const Player = forwardRef<
         const stopAt = (p: Point) =>
           isUnscored(p)
             ? pauseEnd(p, cpad, nextCutStart(ps, p))
-            : effectiveEnd(p, cpad, endsRef.current);
+            : effectiveEnd(p, cpad, scoreEndsRef.current);
         // Playing out an answered clip's tail: when it runs out, move on
         // exactly as the answer would have — except while the split offer
         // is still open, where the video holds its last frame for two
@@ -2248,7 +2264,7 @@ export const Player = forwardRef<
       // footage extent — same span the reel would cut).
       if (phase === "review" && reviewPoint) {
         const end = effectiveEnd(
-          reviewPoint, padRef.current, endsRef.current);
+          reviewPoint, padRef.current, scoreEndsRef.current);
         if (end !== null && v.currentTime >= end) v.pause();
       }
     },
@@ -2282,7 +2298,7 @@ export const Player = forwardRef<
       // Review clips stop at the reviewed card's effective end, as on the
       // main surface.
       if (modeRef.current === "score" && phase === "review") {
-        const end = effectiveEnd(p, cpad, endsRef.current);
+        const end = effectiveEnd(p, cpad, scoreEndsRef.current);
         if (end !== null && t >= end) dv.pause();
         return;
       }
@@ -2291,7 +2307,7 @@ export const Player = forwardRef<
       // past it is ball retrieval the cut never shows for any other card.
       let stop = isUnscored(p)
         ? pauseEnd(p, cpad, null)
-        : effectiveEnd(p, cpad, endsRef.current);
+        : effectiveEnd(p, cpad, scoreEndsRef.current);
       // The clip is cut to the SAME pads the stop lands on, so boundary
       // and file end can coincide to the frame — and then the answer
       // pause races 'ended' and loses half the time. Pull the stop a beat
@@ -2477,7 +2493,7 @@ export const Player = forwardRef<
           points,
           playheadT,
           pad,
-          ends,
+          scoreEnds,
           mode === "score" && phase === "play",
           runStartTRef.current,
           endPauseFiredRef.current
@@ -2592,7 +2608,7 @@ export const Player = forwardRef<
       ps,
       t,
       padRef.current,
-      endsRef.current,
+      scoreEndsRef.current,
       modeRef.current === "score" && phase === "play",
       runStartTRef.current,
       endPauseFiredRef.current
@@ -3472,7 +3488,7 @@ export const Player = forwardRef<
       // pad, playTailRef lands you on the next point a second later, which
       // is what the jump would have done anyway.
       const now = nowT(playheadT);
-      const own = effectiveEnd(p, padRef.current, endsRef.current);
+      const own = effectiveEnd(p, padRef.current, scoreEndsRef.current);
       if (own !== null && own - now > TAIL_WATCH_S) {
         playTailRef.current = { id: p.id, end: own };
         endPauseFiredRef.current = p.id; // its own end must not stop us here

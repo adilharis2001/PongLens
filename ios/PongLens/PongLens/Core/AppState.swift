@@ -120,14 +120,26 @@ final class AppState {
     /// the build before the flag existed, not like a half-flipped one.
     var gameEndDetection = false
 
+    /// app_config keep_score_full_card: in Keep score only, a tapped point
+    /// plays its whole card instead of stopping at the tap. False on any
+    /// failure, which is the behaviour before the flag existed.
+    var keepScoreFullCard = false
+
+    /// app_config rally_end_respects_card: the unscored trim stands on a
+    /// card the worker already closed on the ball rather than cutting into
+    /// the cushion it left. False on any failure.
+    var rallyEndRespectsCard = false
+
     /// What the players and the picker pass to Playhead.effectiveEnd.
     var endOptions: EndOptions {
         EndOptions(
             tapEnd: tapEndPlayback,
             rallyEnd: unscoredRallyEnd
                 ? RallyEndConfig(on: true, bufferS: unscoredRallyEndBufferS,
-                                 tightBufferS: unscoredRallyEndTightBufferS)
-                : nil
+                                 tightBufferS: unscoredRallyEndTightBufferS,
+                                 respectsCard: rallyEndRespectsCard)
+                : nil,
+            keepScoreFullCard: keepScoreFullCard
         )
     }
 
@@ -141,6 +153,7 @@ final class AppState {
                 "unscored_rally_end", "unscored_rally_end_buffer_s",
                 "unscored_rally_end_tight_buffer_s",
                 "game_end_detection",
+                "keep_score_full_card", "rally_end_respects_card",
             ])
             .execute().value
         placementServesOnly = (rows?.first {
@@ -160,6 +173,12 @@ final class AppState {
         }?.value.flatMap(Double.init).flatMap { $0 >= 0 ? $0 : nil }
         gameEndDetection = rows?.first {
             $0.key == "game_end_detection"
+        }?.value == "on"
+        keepScoreFullCard = rows?.first {
+            $0.key == "keep_score_full_card"
+        }?.value == "on"
+        rallyEndRespectsCard = rows?.first {
+            $0.key == "rally_end_respects_card"
         }?.value == "on"
     }
 

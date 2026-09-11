@@ -39,9 +39,85 @@
         "bufferS": 1.75,
         "tightBufferS": 0.4
       }
+    },
+    "respectsCard": {
+      "tapEnd": true,
+      "rallyEnd": {
+        "on": true,
+        "bufferS": 1.75,
+        "tightBufferS": 0.4,
+        "respectsCard": true
+      }
+    },
+    "keepScore": {
+      "tapEnd": true,
+      "rallyEnd": {
+        "on": true,
+        "bufferS": 1.75,
+        "tightBufferS": 0.4,
+        "respectsCard": true
+      },
+      "keepScoreFullCard": true
     }
   },
   "cases": [
+    {
+      "name": "closed on the ball, thin track",
+      "point": {
+        "cut_t0": 50,
+        "t0": 100,
+        "t1": 104,
+        "edited": false,
+        "tight_start": false,
+        "tight_end": false,
+        "scored_at_cut_s": null,
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": {
+          "end_source": "observed",
+          "connected_crossings": 1
+        }
+      },
+      "padded_end": 56.5,
+      "ends": {
+        "off": 56.5,
+        "tapOnly": 56.5,
+        "rallyOnly": 54.4,
+        "both": 54.4,
+        "bothWide": 55.4,
+        "tight": 55.65,
+        "respectsCard": 56.5,
+        "keepScore": 56.5
+      }
+    },
+    {
+      "name": "closed on the ball and tapped",
+      "point": {
+        "cut_t0": 50,
+        "t0": 100,
+        "t1": 104,
+        "edited": false,
+        "tight_start": false,
+        "tight_end": false,
+        "scored_at_cut_s": 54.8,
+        "rally_end_cut_s": 53.9,
+        "highlight_evidence": {
+          "end_source": "observed",
+          "connected_crossings": 6,
+          "max_crossing_gap_s": 0.9
+        }
+      },
+      "padded_end": 56.5,
+      "ends": {
+        "off": 56.5,
+        "tapOnly": 55.3,
+        "rallyOnly": 56.5,
+        "both": 55.3,
+        "bothWide": 55.3,
+        "tight": 55.3,
+        "respectsCard": 55.3,
+        "keepScore": 56.5
+      }
+    },
     {
       "name": "plain",
       "point": {
@@ -62,7 +138,9 @@
         "rallyOnly": 56.5,
         "both": 56.5,
         "bothWide": 56.5,
-        "tight": 56.5
+        "tight": 56.5,
+        "respectsCard": 56.5,
+        "keepScore": 56.5
       }
     },
     {
@@ -85,7 +163,9 @@
         "rallyOnly": 56.5,
         "both": 55.3,
         "bothWide": 55.3,
-        "tight": 55.3
+        "tight": 55.3,
+        "respectsCard": 55.3,
+        "keepScore": 56.5
       }
     },
     {
@@ -108,7 +188,9 @@
         "rallyOnly": 56.5,
         "both": 56.5,
         "bothWide": 56.5,
-        "tight": 56.5
+        "tight": 56.5,
+        "respectsCard": 56.5,
+        "keepScore": 56.5
       }
     },
     {
@@ -131,7 +213,9 @@
         "rallyOnly": 56.5,
         "both": 56.5,
         "bothWide": 56.5,
-        "tight": 56.5
+        "tight": 56.5,
+        "respectsCard": 56.5,
+        "keepScore": 56.5
       }
     },
     {
@@ -154,7 +238,9 @@
         "rallyOnly": 54.4,
         "both": 54.4,
         "bothWide": 55.4,
-        "tight": 55.65
+        "tight": 55.65,
+        "respectsCard": 55.65,
+        "keepScore": 55.65
       }
     },
     {
@@ -177,7 +263,9 @@
         "rallyOnly": 56.5,
         "both": 56.5,
         "bothWide": 56.5,
-        "tight": 56.5
+        "tight": 56.5,
+        "respectsCard": 56.5,
+        "keepScore": 56.5
       }
     },
     {
@@ -200,7 +288,9 @@
         "rallyOnly": 56.5,
         "both": 56.5,
         "bothWide": 56.5,
-        "tight": 56.5
+        "tight": 56.5,
+        "respectsCard": 56.5,
+        "keepScore": 56.5
       }
     },
     {
@@ -223,7 +313,9 @@
         "rallyOnly": 56.5,
         "both": 56.5,
         "bothWide": 56.5,
-        "tight": 56.5
+        "tight": 56.5,
+        "respectsCard": 56.5,
+        "keepScore": 56.5
       }
     },
     {
@@ -246,7 +338,9 @@
         "rallyOnly": 53.1,
         "both": 53.1,
         "bothWide": 54.1,
-        "tight": 54.35
+        "tight": 54.35,
+        "respectsCard": 54.35,
+        "keepScore": 54.35
       }
     },
     {
@@ -269,7 +363,9 @@
         "rallyOnly": 56.5,
         "both": 55.3,
         "bothWide": 55.3,
-        "tight": 55.3
+        "tight": 55.3,
+        "respectsCard": 55.3,
+        "keepScore": 56.5
       }
     },
     {
@@ -292,7 +388,9 @@
         "rallyOnly": 56.5,
         "both": 52.5,
         "bothWide": 52.5,
-        "tight": 52.5
+        "tight": 52.5,
+        "respectsCard": 52.5,
+        "keepScore": 56.5
       }
     },
     {
@@ -315,7 +413,9 @@
         "rallyOnly": 56.5,
         "both": 56.5,
         "bothWide": 56.5,
-        "tight": 56.5
+        "tight": 56.5,
+        "respectsCard": 56.5,
+        "keepScore": 56.5
       }
     },
     {
@@ -338,7 +438,9 @@
         "rallyOnly": 56.5,
         "both": 56.5,
         "bothWide": 56.5,
-        "tight": 56.5
+        "tight": 56.5,
+        "respectsCard": 56.5,
+        "keepScore": 56.5
       }
     },
     {
@@ -361,7 +463,9 @@
         "rallyOnly": null,
         "both": null,
         "bothWide": null,
-        "tight": null
+        "tight": null,
+        "respectsCard": null,
+        "keepScore": null
       }
     },
     {
@@ -384,7 +488,9 @@
         "rallyOnly": 54.4,
         "both": 54.4,
         "bothWide": 54.599999999999994,
-        "tight": 54.599999999999994
+        "tight": 54.599999999999994,
+        "respectsCard": 54.599999999999994,
+        "keepScore": 54.599999999999994
       }
     },
     {
@@ -411,7 +517,9 @@
         "rallyOnly": 54.4,
         "both": 54.4,
         "bothWide": 55.4,
-        "tight": 54.3
+        "tight": 54.3,
+        "respectsCard": 56.5,
+        "keepScore": 56.5
       }
     },
     {
@@ -438,7 +546,9 @@
         "rallyOnly": 54.4,
         "both": 54.4,
         "bothWide": 55.4,
-        "tight": 55.65
+        "tight": 55.65,
+        "respectsCard": 56.5,
+        "keepScore": 56.5
       }
     },
     {
@@ -465,7 +575,9 @@
         "rallyOnly": 54.4,
         "both": 54.4,
         "bothWide": 55.4,
-        "tight": 55.65
+        "tight": 55.65,
+        "respectsCard": 55.65,
+        "keepScore": 55.65
       }
     },
     {
@@ -492,7 +604,9 @@
         "rallyOnly": 54.4,
         "both": 54.4,
         "bothWide": 55.4,
-        "tight": 55.65
+        "tight": 55.65,
+        "respectsCard": 56.5,
+        "keepScore": 56.5
       }
     },
     {
@@ -519,7 +633,9 @@
         "rallyOnly": 56.5,
         "both": 55.3,
         "bothWide": 55.3,
-        "tight": 55.3
+        "tight": 55.3,
+        "respectsCard": 55.3,
+        "keepScore": 56.5
       }
     }
   ]

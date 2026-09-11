@@ -32,9 +32,11 @@ private struct RallyEndFixture: Decodable {
             let on: Bool
             let bufferS: Double
             let tightBufferS: Double?
+            let respectsCard: Bool?
         }
         let tapEnd: Bool
         let rallyEnd: Rally?
+        let keepScoreFullCard: Bool?
     }
     struct Case: Decodable {
         let name: String
@@ -86,10 +88,15 @@ func runRallyEndParityChecks() {
                 tapEnd: o.tapEnd,
                 rallyEnd: o.rallyEnd.map {
                     RallyEndConfig(on: $0.on, bufferS: $0.bufferS,
-                                   tightBufferS: $0.tightBufferS)
-                }
+                                   tightBufferS: $0.tightBufferS,
+                                   respectsCard: $0.respectsCard ?? false)
+                },
+                keepScoreFullCard: o.keepScoreFullCard ?? false
             )
-            same("\(c.name) [\(name)]", effectiveEnd(p, pad, ends), expected)
+            // Through scorekeeperEnds, exactly as the generator does, so the
+            // port of BOTH functions is measured against the web's output.
+            same("\(c.name) [\(name)]",
+                 effectiveEnd(p, pad, scorekeeperEnds(ends)), expected)
         }
     }
 }

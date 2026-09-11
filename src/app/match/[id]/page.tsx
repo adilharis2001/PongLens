@@ -15,6 +15,8 @@ import {
   getCommerceEnabled,
   getGameEndDetection,
   getPlacementServesOnly,
+  getKeepScoreFullCard,
+  getRallyEndRespectsCard,
   getTapEndPlayback,
   getUnscoredRallyEnd,
   getUnscoredRallyEndBufferS,
@@ -310,7 +312,9 @@ export default async function MatchPage({
               on: await getUnscoredRallyEnd(),
               bufferS: await getUnscoredRallyEndBufferS(),
               tightBufferS: await getUnscoredRallyEndTightBufferS(),
+              respectsCard: await getRallyEndRespectsCard(),
             },
+            keepScoreFullCard: await getKeepScoreFullCard(),
           }}
           hasOriginal={hasOriginal}
           initialPointTags={(pointTagsRes.data ?? []).map(

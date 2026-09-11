@@ -16,7 +16,12 @@
  * when both exist, and what a scored point does when tap trimming is off.
  */
 import { writeFileSync } from "node:fs";
-import { effectiveEnd, paddedEnd, type EndOptions } from "../src/app/match/[id]/playhead.ts";
+import {
+  effectiveEnd,
+  paddedEnd,
+  scorekeeperEnds,
+  type EndOptions,
+} from "../src/app/match/[id]/playhead.ts";
 import type { Point } from "../src/lib/types.ts";
 
 const PAD = { pre: 1.2, post: 1.3 };
@@ -41,6 +46,18 @@ const OPTIONS: Record<string, EndOptions> = {
   // A rally we WATCHED stop is cut where it stopped (2026-09-09): the wide
   // tail is for the ones we lost.
   tight: { tapEnd: true, rallyEnd: { on: true, bufferS: 1.75, tightBufferS: 0.4 } },
+  // 2026-09-11. A card the worker already closed on the ball is not trimmed
+  // again: the two rules were compounding and eating the cushion.
+  respectsCard: {
+    tapEnd: true,
+    rallyEnd: { on: true, bufferS: 1.75, tightBufferS: 0.4, respectsCard: true },
+  },
+  // ...and the scorekeeper's own reading, where a tapped point plays whole.
+  keepScore: {
+    tapEnd: true,
+    rallyEnd: { on: true, bufferS: 1.75, tightBufferS: 0.4, respectsCard: true },
+    keepScoreFullCard: true,
+  },
 };
 
 /** The worker's own receipts for a rally it followed to the last shot. */
@@ -51,6 +68,27 @@ const WATCHED = {
 };
 
 const CASES: { name: string; point: Partial<Point> }[] = [
+  // A card whose end the worker took from the ball: end_source observed,
+  // but thin enough that rallyEndWatched would refuse it. respectsCard must
+  // still stand on the card — the question is where the card's end came
+  // from, not how good the track was.
+  {
+    name: "closed on the ball, thin track",
+    point: {
+      rally_end_cut_s: 53.9,
+      highlight_evidence: { end_source: "observed", connected_crossings: 1 },
+    } as Partial<Point>,
+  },
+  // The same, with a tap on it: the scorekeeper reading plays it whole while
+  // every other reading trims at the tap.
+  {
+    name: "closed on the ball and tapped",
+    point: {
+      scored_at_cut_s: 54.8,
+      rally_end_cut_s: 53.9,
+      highlight_evidence: WATCHED,
+    } as Partial<Point>,
+  },
   { name: "plain", point: {} },
   { name: "tapped", point: { scored_at_cut_s: 54.8 } },
   { name: "tap near the clip end", point: { scored_at_cut_s: 56.4 } },
@@ -134,7 +172,13 @@ const rows = CASES.map((c) => {
     },
     padded_end: paddedEnd(p, PAD),
     ends: Object.fromEntries(
-      Object.entries(OPTIONS).map(([k, o]) => [k, effectiveEnd(p, PAD, o)])
+      // Through scorekeeperEnds, so the recorded answer covers BOTH
+      // functions. It is the identity while keepScoreFullCard is off,
+      // so every setting that predates it records what it always did.
+      Object.entries(OPTIONS).map(([k, o]) => [
+        k,
+        effectiveEnd(p, PAD, scorekeeperEnds(o)),
+      ])
     ),
   };
 });

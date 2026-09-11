@@ -213,6 +213,38 @@ export const getTapEndPlayback = cache(async (): Promise<boolean> => {
 });
 
 /**
+ * Keep score plays the whole card (2026-09-11).
+ *
+ * On, a point that already carries a winner tap plays its full padded clip
+ * in Keep score instead of stopping half a second after the tap. You answer
+ * a point, move on, realise later it should have been split, and go back to
+ * its circle — and the trim built from your own tap is hiding the part you
+ * came back to look at. The tap is an answer everywhere else; in the pad it
+ * is a thing you are still deciding.
+ *
+ * Only the scorekeeper. Watch, share links, coach review and the reels keep
+ * the tap trim. Off, or on any fetch failure, Keep score behaves exactly as
+ * it did.
+ */
+export const getKeepScoreFullCard = cache(async (): Promise<boolean> => {
+  return (await getConfigValue("keep_score_full_card")) === "on";
+});
+
+/**
+ * The unscored rally trim stops eating the card's cushion (2026-09-11).
+ *
+ * The worker closes a body card 1.5 s after it sees the ball go dead;
+ * playback then trimmed to that same dead ball plus 0.4 s and took the
+ * cushion away, which is what made endings look cut short in the pad while
+ * the Modify sheet showed them whole. On, a card the worker already closed
+ * on the ball plays to its own end. Off, or on any fetch failure, both
+ * trims apply exactly as they did.
+ */
+export const getRallyEndRespectsCard = cache(async (): Promise<boolean> => {
+  return (await getConfigValue("rally_end_respects_card")) === "on";
+});
+
+/**
  * The game-end indicator (2026-08-26, 140).
  *
  * On, a marker is drawn between two rallies where the video shows the

@@ -103,6 +103,32 @@ struct RallyEndConfig {
     /// point whose rally we actually watched stop. nil means "use bufferS
     /// for everything", which is what every caller had before 2026-09-09.
     var tightBufferS: Double? = nil
+    /// app_config.rally_end_respects_card: where the WORKER already closed
+    /// the card on the ball, playback stands on the card instead of
+    /// trimming it again. False is the behaviour that shipped first.
+    var respectsCard: Bool = false
+}
+
+/// Did the worker already close this card on the ball?
+///
+/// The body assembler ends a card 1.5 s after it sees the ball go dead and
+/// records the moment it saw, which surfaces here as `end_source:
+/// "observed"`. That 1.5 s is a cushion, not padding: the dead-ball moment
+/// is not exact, and the cushion absorbs it being called a beat early.
+///
+/// Playback then trimmed to the same dead ball plus 0.4 s and took the
+/// cushion away. Measured 2026-09-11: the card sat 1.47 s past the observed
+/// end on 73 of Julian's points and 86 of Yu Yu Lin's, and playback removed
+/// about 1.47 s more. Worse, the confidence signal that earns the TIGHT cut
+/// is set by the worker precisely BECAUSE it closed the card on the ball, so
+/// "already trimmed" was read as "safe to trim more".
+///
+/// Deliberately the bare end_source and not rallyEndWatched: the question is
+/// not how good the track was, it is whether the card's own end already came
+/// from the ball. Where it did, the card is the answer.
+/// Mirrors playhead.ts cardClosedOnBall.
+func cardClosedOnBall(_ p: MatchPoint) -> Bool {
+    p.highlightEvidence?.endSource == "observed"
 }
 
 /// The three things the worker records about how it watched a rally end
@@ -151,8 +177,26 @@ func rallyEndWatched(_ p: MatchPoint) -> Bool {
 struct EndOptions {
     let tapEnd: Bool
     var rallyEnd: RallyEndConfig? = nil
+    /// app_config.keep_score_full_card: in Keep score ONLY, a point that
+    /// already carries a winner tap plays its whole card rather than
+    /// stopping at the tap. Read by the scorekeeper alone, which builds a
+    /// variant of these options with tapEnd off. Mirrors playhead.ts.
+    var keepScoreFullCard: Bool = false
 
     static let off = EndOptions(tapEnd: false)
+}
+
+/// The ending rules as the SCOREKEEPER should read them.
+///
+/// One line, and it is the whole of fix 1: effectiveEnd already returns the
+/// padded end for a tapped point when tapEnd is off, and never falls through
+/// to the rally rung, so a tapped point plays its full card and an untapped
+/// one keeps the unscored trim. Every other surface passes `ends` unchanged.
+/// Mirrors playhead.ts scorekeeperEnds.
+func scorekeeperEnds(_ ends: EndOptions) -> EndOptions {
+    guard ends.keepScoreFullCard else { return ends }
+    return EndOptions(tapEnd: false, rallyEnd: ends.rallyEnd,
+                      keepScoreFullCard: true)
 }
 
 /// Where a point's footage EFFECTIVELY ends, for playback and renders.
@@ -198,6 +242,12 @@ func effectiveEnd(_ p: MatchPoint, _ pad: ClipPad, _ ends: EndOptions) -> Double
        // The ending must explain where this point already ends. When it
        // does not, the detector lost the ball rather than watched it stop.
        let own = rallyEnd(p, pad), own - observed <= RALLY_END_MAX_TAIL_S {
+        // The card already ends on the ball: nothing left to trim, and
+        // cutting again eats the cushion the worker left for a dead-ball
+        // moment that is only approximately right. This makes tightBufferS
+        // dead for these points, which is the intent — it was cutting
+        // exactly the cards that were already correct.
+        if rally.respectsCard, cardClosedOnBall(p) { return padded }
         // A watched finish earns the hard cut; a guessed one keeps the tail.
         let buffer = rally.tightBufferS.map { rallyEndWatched(p) ? $0 : rally.bufferS }
             ?? rally.bufferS

@@ -368,7 +368,7 @@ struct PlayerTakeover: View {
             return pinned
         }
         return targetAt(
-            points, at: t, pad: pad, ends: app.endOptions,
+            points, at: t, pad: pad, ends: scoreEnds,
             hold: mode == .score && phase == .play,
             runStart: runStartT, firedId: endPauseBlockedId
         )
@@ -2518,7 +2518,7 @@ struct PlayerTakeover: View {
         // Playback progress through the current point's padded span.
         let progress: Double = {
             guard isCurrent, let cutT0 = p.cutT0,
-                  let end = effectiveEnd(p, pad, app.endOptions),
+                  let end = effectiveEnd(p, pad, scoreEnds),
                   end > cutT0 else { return 0 }
             return min(1, max(0, (currentT - cutT0) / (end - cutT0)))
         }()
@@ -2945,7 +2945,7 @@ struct PlayerTakeover: View {
         switch advanceMove(
             from: p, now: currentT,
             nextStart: nextCutStart(points, after: p), pad: pad,
-            ends: app.endOptions
+            ends: scoreEnds
         ) {
         case .playTail(let end):
             playTail = PlayTail(id: p.id, end: end)
@@ -3341,7 +3341,7 @@ struct PlayerTakeover: View {
             // Review clips stop at the reviewed rally's effective end.
             if reviewQueue.indices.contains(reviewIndex),
                let p = points.first(where: { $0.id == reviewQueue[reviewIndex] }),
-               let end = effectiveEnd(p, pad, app.endOptions), t >= end {
+               let end = effectiveEnd(p, pad, scoreEnds), t >= end {
                 player.pause()
                 showChrome(autoHide: false)
             }
@@ -3419,10 +3419,20 @@ struct PlayerTakeover: View {
     /// Where a rally stops the video in score mode: unanswered, the
     /// answer beat; answered, its effective end (the winner tap when the
     /// flag is on, the full clip otherwise).
+    /// The ending rules this surface reads.
+    ///
+    /// Keep score is where a tap is still being decided: you answer a point,
+    /// move on, realise later it should have been split, and come back to
+    /// its circle — and a trim built from your own tap is hiding the part
+    /// you came back for. So here a tapped point plays its whole card.
+    /// Watch, share, coach review and the reels keep the tap trim, because
+    /// there the tap is the answer rather than a thing in progress.
+    private var scoreEnds: EndOptions { scorekeeperEnds(app.endOptions) }
+
     func stopAt(_ p: MatchPoint) -> Double? {
         isUnscored(p)
             ? pauseEnd(p, pad, nextStart: nextCutStart(points, after: p))
-            : effectiveEnd(p, pad, app.endOptions)
+            : effectiveEnd(p, pad, scoreEnds)
     }
 
     /// A game just closed under a live answer. The result is an announcement,
@@ -3593,7 +3603,7 @@ struct PlayerTakeover: View {
         guard let id = detourId,
               let p = points.first(where: { $0.id == id }) else { return }
         if mode == .score, phase == .review {
-            if let end = effectiveEnd(p, pad, app.endOptions), t >= end {
+            if let end = effectiveEnd(p, pad, scoreEnds), t >= end {
                 player.pause()
                 showChrome(autoHide: false)
             }
@@ -3618,7 +3628,7 @@ struct PlayerTakeover: View {
         }
         var stop = isUnscored(p)
             ? pauseEnd(p, pad, nextStart: nil)
-            : effectiveEnd(p, pad, app.endOptions)
+            : effectiveEnd(p, pad, scoreEnds)
         // The clip is cut to the SAME pads the stop lands on, so boundary
         // and file end can coincide to the frame — and then the answer
         // pause races DidPlayToEnd and loses half the time. Pull the stop
