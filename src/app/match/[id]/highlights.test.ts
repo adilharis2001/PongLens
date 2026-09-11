@@ -65,6 +65,42 @@ test("passes through non-playable server states", () => {
   }
 });
 
+test("decodes score coverage only for the score-gated state", () => {
+  const gated = {
+    status: "needs_scoring",
+    scoredPoints: 7,
+    scorablePoints: 10,
+    requiredPoints: 8,
+    requiredPercent: 75,
+    eligible: false,
+  };
+  assert.deepEqual(parseHighlightResponse(gated), gated);
+  assert.equal(
+    parseHighlightResponse({ status: "needs_scoring", scoredPoints: 7 }).status,
+    "failed",
+  );
+});
+
+test("below 75 percent uses the existing sheet for one scoring action", () => {
+  assert.deepEqual(
+    highlightLifecycleView({
+      status: "needs_scoring",
+      scoredPoints: 7,
+      scorablePoints: 10,
+      requiredPoints: 8,
+      requiredPercent: 75,
+    }),
+    {
+      rowSummary: "7 of 10 scored",
+      sheetTitle: "Score more of this match",
+      body: "Score at least 75% of the points before generating highlights. You've scored 7 of 10.",
+      actionLabel: "Score the Match",
+      actionKind: "score",
+      shouldPoll: false,
+    },
+  );
+});
+
 test("stale highlights ask before spending compute", () => {
   assert.deepEqual(highlightLifecycleView({ status: "needs_generation" }), {
     rowSummary: "Generate",
@@ -116,6 +152,7 @@ test("web presentation has one row and no tape-seek implementation", () => {
   const row = readFileSync(new URL("./HighlightsRow.tsx", import.meta.url), "utf8");
   const state = readFileSync(new URL("./highlights.ts", import.meta.url), "utf8");
   const player = readFileSync(new URL("./Player.tsx", import.meta.url), "utf8");
+  const matchView = readFileSync(new URL("./MatchView.tsx", import.meta.url), "utf8");
   assert.doesNotMatch(row, /Short highlight|Long highlight|pickHighlights/);
   assert.match(state, /No highlight rallies/);
   assert.match(state, /Preparing highlights/);
@@ -124,4 +161,7 @@ test("web presentation has one row and no tape-seek implementation", () => {
   assert.match(player, /highlightAsset\.url/);
   assert.match(player, /target\.output_start_s/);
   assert.match(player, /if \(highlightAssetRef\.current\) return null;/);
+  assert.match(row, /onScore/);
+  assert.match(row, /min-h-11 w-full/);
+  assert.match(matchView, /onScore=\{\(\) => playerRef\.current\?\.openScore\(\)\}/);
 });
