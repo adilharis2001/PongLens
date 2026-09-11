@@ -8268,6 +8268,7 @@ export const Player = forwardRef<
         <ModifyClip
           point={modifyPoint}
           points={points}
+          matchId={matchId}
           videoUrl={videoUrl}
           pad={pad}
           rotated={fakeLandscape}

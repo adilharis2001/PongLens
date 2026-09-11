@@ -675,12 +675,12 @@ struct ModifySheet: View {
             // is no frame to show — the cut video jumps to a different part
             // of the match there, and showing that as "the new start" would
             // be a lie the user would act on.
-            useOriginalIfNeeded()
+            takeOverIfBeyond()
             seek(to: playable(cutOf(adjT0)))
         case .edgeEnd:
             let ceil = srcOf(adjustDragBounds?.end ?? adjHiCut)
             adjT1 = round2(max(adjT0 + 0.5, min(ceil, srcOf(t))))
-            useOriginalIfNeeded()
+            takeOverIfBeyond()
             seek(to: playable(cutOf(adjT1)))
         }
     }
@@ -896,11 +896,11 @@ struct ModifySheet: View {
     private func nudge(start: Bool, by delta: Double) {
         if start {
             adjT0 = round2(min(adjT1 - 0.5, max(0, adjT0 + delta)))
-            useOriginalIfNeeded()
+            takeOverIfBeyond()
             seek(to: playable(cutOf(adjT0)))
         } else {
             adjT1 = round2(max(adjT0 + 0.5, adjT1 + delta))
-            useOriginalIfNeeded()
+            takeOverIfBeyond()
             seek(to: playable(cutOf(adjT1)))
         }
     }
@@ -1279,7 +1279,7 @@ struct ModifySheet: View {
     /// Take the original over, once, the first time a handle leaves what
     /// the cut can show. Everything on screen stays in cut seconds; only
     /// the file behind the picture changes.
-    private func useOriginalIfNeeded() {
+    private func takeOverIfBeyond() {
         guard tab == .adjust, previewSource == .cut, adjustBeyondClip,
               let asset = rawAsset else { return }
         previewSource = .raw

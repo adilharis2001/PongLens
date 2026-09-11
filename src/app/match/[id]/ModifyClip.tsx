@@ -82,6 +82,7 @@ function geometryOf(p: Point, pad: ClipPad): Geometry | null {
 export function ModifyClip({
   point,
   points,
+  matchId,
   videoUrl,
   pad,
   youLabel,
@@ -96,6 +97,9 @@ export function ModifyClip({
 }: {
   point: Point;
   points: Point[];
+  /** Which match, so the sheet can ask for the stored original when a
+   *  handle goes past what the cut video kept. */
+  matchId: string;
   videoUrl: string | null;
   pad: ClipPad;
   youLabel: string;
@@ -116,6 +120,16 @@ export function ModifyClip({
   rotated?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("split");
+  // Declared up here because the spans and the clamp below read them, and a
+  // const referenced before its declaration is a runtime error, not a
+  // compile one.
+  const [rawUrl, setRawUrl] = useState<string | null>(null);
+  /** Seconds to ADD to a point timestamp to reach the original's clock. A
+   *  library upload processed with a head trim was cut down before the
+   *  pipeline saw it, so every t0/t1 is measured from trim_start_s INTO the
+   *  stored file. Getting this wrong is silent: real footage, wrong minute. */
+  const [rawOffset, setRawOffset] = useState(0);
+  const [usingRaw, setUsingRaw] = useState(false);
 
   // ---- adjacency for JOIN: up to two visible points either side ----
   const prevPoints = useMemo(
@@ -283,11 +297,13 @@ export function ModifyClip({
       point.tight_end && adjT1 === Number(point.t1)
     );
     const clamp = (t: number) =>
-      Math.min(playableBounds.hi, Math.max(playableBounds.lo, t));
+      usingRaw
+        ? t
+        : Math.min(playableBounds.hi, Math.max(playableBounds.lo, t));
     const start = clamp(cutOf(adjT0) - eff.pre);
     const end = clamp(cutOf(adjT1) + eff.post);
     return end > start ? { start, end } : videoSpan;
-  }, [videoSpan, geo, tab, pad, point, adjT0, adjT1, cutOf, playableBounds]);
+  }, [videoSpan, geo, tab, pad, point, adjT0, adjT1, cutOf, playableBounds, usingRaw]);
 
   // The coordinate space of the scrub track. Split and Join measure the
   // footage they are about; Adjust measures the room it can reach, and
@@ -302,15 +318,137 @@ export function ModifyClip({
   }, [tab, geo, videoSpan, dragLoCut, dragHiCut, cutOf, adjT0, adjT1]);
 
   // --------------------------------- video ----------------------------------
+  //
+  // TWO elements, not one with a swapped src. The cut is the fast default:
+  // it is already streaming behind this sheet, so opening costs nothing.
+  // But it no longer holds the waiting between rallies — since the body
+  // assembler tightened the cards, only about a fifth of seams run unbroken
+  // into their neighbour — so a handle dragged out there has no frame.
+  //
+  // The original is warmed alongside, hidden, and taken over ONCE the first
+  // time a handle leaves what the cut can show. Swapping `src` on a single
+  // element would reload it, which is the exact stall this exists to avoid;
+  // hiding with `invisible` rather than unmounting or `display:none` keeps
+  // the buffer that makes the takeover instant.
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const rawRef = useRef<HTMLVideoElement | null>(null);
   const [playheadT, setPlayheadT] = useState(0);
   const [paused, setPaused] = useState(true);
 
-  const seek = useCallback((t: number) => {
-    const v = videoRef.current;
-    setPlayheadT(t);
-    if (v && v.readyState >= 1) v.currentTime = t;
-  }, []);
+  const activeVideo = useCallback(
+    () => (usingRaw ? rawRef.current : videoRef.current),
+    [usingRaw]
+  );
+  /** A cut second in the clock of whichever file is showing. One line,
+   *  because `srcOf` is a straight line anchored on this point: past the
+   *  clip it is a lie against the cut and exactly true against the
+   *  original, which has no cuts in it. */
+  const playerTime = useCallback(
+    (cut: number) => (usingRaw ? srcOf(cut) + rawOffset : cut),
+    [usingRaw, srcOf, rawOffset]
+  );
+  /** ...and back, so everything on screen stays in cut seconds. */
+  const cutTime = useCallback(
+    (t: number) => (usingRaw ? cutOf(t - rawOffset) : t),
+    [usingRaw, cutOf, rawOffset]
+  );
+
+  const seek = useCallback(
+    (t: number) => {
+      const v = activeVideo();
+      setPlayheadT(t);
+      if (v && v.readyState >= 1) v.currentTime = playerTime(t);
+    },
+    [activeVideo, playerTime]
+  );
+
+  // Fetch the original once the sheet is up. Metadata only: it is the
+  // largest object in the system and nothing here may make a phone pull it
+  // to answer a question about two seconds. `available: false` is an
+  // ordinary answer — a legacy match whose original was swept has none, and
+  // the held frame it falls back to is what shipped before this.
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch("/api/media-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matchId, rawPreview: true }),
+        });
+        const data = (await res.json()) as {
+          url?: string;
+          available?: boolean;
+          trimStartS?: number;
+        };
+        if (!alive || !data.available || !data.url) return;
+        setRawOffset(Number(data.trimStartS ?? 0) || 0);
+        setRawUrl(data.url);
+      } catch {
+        // No original is a state, not a failure.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [matchId]);
+
+  /** Take the original over, once, the first time a handle leaves what the
+   *  cut can show. Once and then it stays: it holds everything the cut
+   *  does, so there is nothing to go back for and a second swap would
+   *  stall twice. */
+  const takeOverIfBeyond = useCallback(
+    (cutT0: number, cutT1: number) => {
+      if (usingRaw || !rawUrl || tab !== "adjust") return;
+      if (
+        cutT0 >= playableBounds.lo - 0.05 &&
+        cutT1 <= playableBounds.hi + 0.05
+      )
+        return;
+      videoRef.current?.pause();
+      setUsingRaw(true);
+    },
+    [usingRaw, rawUrl, tab, playableBounds]
+  );
+
+  useEffect(() => {
+    if (!usingRaw) return;
+    const v = rawRef.current;
+    if (!v) return;
+    let alive = true;
+    const land = () => {
+      if (!alive) return;
+      v.currentTime = playerTime(playheadT);
+      if (v.readyState >= 3) {
+        v.removeEventListener("loadedmetadata", land);
+        v.removeEventListener("loadeddata", land);
+        v.removeEventListener("canplay", land);
+      }
+    };
+    land();
+    v.addEventListener("loadedmetadata", land);
+    v.addEventListener("loadeddata", land);
+    v.addEventListener("canplay", land);
+    return () => {
+      alive = false;
+      v.removeEventListener("loadedmetadata", land);
+      v.removeEventListener("loadeddata", land);
+      v.removeEventListener("canplay", land);
+    };
+    // Only when the takeover happens: re-running this on every playhead tick
+    // would fight the user's own scrubbing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usingRaw]);
+
+  // A <video> removed from the document keeps playing, with sound. This
+  // sheet never had that guard and now has two elements to lose.
+  useEffect(
+    () => () => {
+      videoRef.current?.pause();
+      rawRef.current?.pause();
+    },
+    []
+  );
 
   // Seek to the span start whenever the covered span changes (open, tab flip,
   // join-count change).
@@ -320,28 +458,30 @@ export function ModifyClip({
   }, [spanStart, seek]);
 
   const togglePlay = useCallback(() => {
-    const v = videoRef.current;
+    const v = activeVideo();
     if (!v || !playSpan) return;
     if (v.paused) {
-      if (v.currentTime >= playSpan.end - 0.05 || v.currentTime < playSpan.start) {
-        v.currentTime = playSpan.start;
+      const here = cutTime(v.currentTime);
+      if (here >= playSpan.end - 0.05 || here < playSpan.start) {
+        v.currentTime = playerTime(playSpan.start);
       }
       void v.play().catch(() => undefined);
     } else {
       v.pause();
     }
-  }, [playSpan]);
+  }, [activeVideo, playSpan, cutTime, playerTime]);
 
   const onTime = useCallback(
     (v: HTMLVideoElement) => {
-      setPlayheadT(v.currentTime);
-      if (playSpan && !v.paused && v.currentTime >= playSpan.end) {
+      const here = cutTime(v.currentTime);
+      setPlayheadT(here);
+      if (playSpan && !v.paused && here >= playSpan.end) {
         v.pause();
-        v.currentTime = playSpan.end;
+        v.currentTime = playerTime(playSpan.end);
         setPlayheadT(playSpan.end);
       }
     },
-    [playSpan]
+    [playSpan, cutTime, playerTime]
   );
 
   // ----------------------------- scrub timeline -----------------------------
@@ -380,12 +520,14 @@ export function ModifyClip({
    *  and Join it is the span itself. */
   const playable = useCallback(
     (t: number) => {
+      // The original holds every second of the match: nothing to clamp to.
+      if (usingRaw) return t;
       if (tab === "adjust" && geo) {
         return Math.min(playableBounds.hi, Math.max(playableBounds.lo, t));
       }
       return videoSpan ? Math.min(videoSpan.end, Math.max(videoSpan.start, t)) : t;
     },
-    [tab, geo, playableBounds, videoSpan]
+    [usingRaw, tab, geo, playableBounds, videoSpan]
   );
 
   // Drag a split marker (SPLIT tab only), clamped inside the rally band and
@@ -456,10 +598,9 @@ export function ModifyClip({
             Math.min(adjT1 - 0.5, Math.max(Math.max(0, srcOf(dragLoCut)), src)) * 100
           ) / 100;
         setAdjT0(clamped);
-        // The picture stops at the clip's own edge. Out in the margin there
-        // is no frame to show — the cut video jumps to a different part of
-        // the match there, and showing that as "the new start" would be a
-        // lie the reviewer would act on.
+        // Past the clip's own edge the cut video jumps to a different part
+        // of the match, so it is the original that has the frame.
+        takeOverIfBeyond(cutOf(clamped), cutOf(adjT1));
         seek(playable(cutOf(clamped)));
       } else {
         const clamped =
@@ -467,6 +608,7 @@ export function ModifyClip({
             Math.max(adjT0 + 0.5, Math.min(srcOf(dragHiCut), src)) * 100
           ) / 100;
         setAdjT1(clamped);
+        takeOverIfBeyond(cutOf(adjT0), cutOf(clamped));
         seek(playable(cutOf(clamped)));
       }
     },
@@ -486,14 +628,16 @@ export function ModifyClip({
         const next =
           Math.round(Math.min(adjT1 - 0.5, Math.max(0, adjT0 + delta)) * 100) / 100;
         setAdjT0(next);
+        takeOverIfBeyond(cutOf(next), cutOf(adjT1));
         seek(playable(cutOf(next)));
       } else {
         const next = Math.round(Math.max(adjT0 + 0.5, adjT1 + delta) * 100) / 100;
         setAdjT1(next);
+        takeOverIfBeyond(cutOf(adjT0), cutOf(next));
         seek(playable(cutOf(next)));
       }
     },
-    [adjT0, adjT1, cutOf, seek, playable]
+    [adjT0, adjT1, cutOf, seek, playable, takeOverIfBeyond]
   );
 
   // Tap the track (not a marker) to scrub the video to that moment.
@@ -638,12 +782,42 @@ export function ModifyClip({
                 onTimeUpdate={(e) => onTime(e.currentTarget)}
                 onPlay={() => setPaused(false)}
                 onPause={() => setPaused(true)}
-                className="h-full w-full object-contain"
+                className={`h-full w-full object-contain ${
+                  usingRaw ? "invisible" : ""
+                }`}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-xs text-zinc-600">
                 Loading…
               </div>
+            )}
+            {/* The original, warmed and waiting. Always mounted once its
+                link arrives so it keeps its buffer: unmounting it, or
+                hiding it with `display:none`, throws that away and turns
+                the takeover back into the reload this exists to avoid.
+                Muted because this tab hunts for a frame and the sheet never
+                wanted the original's sound — and because the match page
+                pauses every other video the moment one starts, so two
+                playing at once is not a state worth reaching for. */}
+            {rawUrl && (
+              <video
+                ref={rawRef}
+                src={rawUrl}
+                playsInline
+                muted
+                preload="metadata"
+                onLoadedMetadata={(e) => {
+                  e.currentTarget.currentTime = playerTime(playheadT);
+                }}
+                onTimeUpdate={(e) => {
+                  if (usingRaw) onTime(e.currentTarget);
+                }}
+                onPlay={() => usingRaw && setPaused(false)}
+                onPause={() => usingRaw && setPaused(true)}
+                className={`pointer-events-none absolute inset-0 h-full w-full object-contain ${
+                  usingRaw ? "" : "invisible"
+                }`}
+              />
             )}
             {/* center play/pause */}
             <button
@@ -831,7 +1005,9 @@ export function ModifyClip({
               </p>
               <p className="py-1 text-center text-[11px] text-zinc-500">
                 {beyondClip
-                  ? "That stretch was cut from the match video. The clip will still include it."
+                  ? usingRaw
+                    ? "Playing from the original recording, past what the match video holds."
+                    : "That stretch was cut from the match video. The clip will still include it."
                   : "The lighter stretch is the footage the match video holds here. Drag or step an edge to take in more of the point."}
               </p>
             </>

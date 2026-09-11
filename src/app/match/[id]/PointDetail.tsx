@@ -994,6 +994,7 @@ export function PointDetail({
             <ModifyClip
               point={point}
               points={points}
+              matchId={matchId}
               videoUrl={cutUrl}
               pad={pad}
               youLabel={mapLabels.you}
