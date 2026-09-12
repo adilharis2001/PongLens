@@ -636,46 +636,52 @@ test("every label has a colour and a name, and the vocabulary is closed", () => 
   }
 });
 
-test("the server read maps a table END onto a player, and only when the side is known", () => {
-  // user at the near end: a bounce on the near half means the user served
+test("the server read maps a table END onto a player, and only when the end is known", () => {
+  // uploader at the near end THIS GAME: a bounce on the near half is theirs
   assert.equal(serveMiss.v3ServerOf("near", "near"), "user");
   assert.equal(serveMiss.v3ServerOf("far", "near"), "opponent");
-  // and it inverts with the uploader
+  // and it inverts with the end, which is what a changeover does
   assert.equal(serveMiss.v3ServerOf("near", "far"), "opponent");
   assert.equal(serveMiss.v3ServerOf("far", "far"), "user");
-  // no recorded side is not a coin toss
+  // an unknown end is not a coin toss
   assert.equal(serveMiss.v3ServerOf("near", null), null);
   assert.equal(serveMiss.v3ServerOf("near", "unknown"), null);
   assert.equal(serveMiss.v3ServerOf(null, "near"), null);
 });
 
+test("serve prediction accuracy follows the players through a changeover", () => {
+  // The same serve, read the same way by V3, belongs to a DIFFERENT player
+  // in game one and game two. Both of these agree with the rotation; a
+  // match-wide side would score one of them wrong.
+  const cards = [
+    { serveSource: "v3", serveHalf: "near" as const,
+      rotationServer: "user" as const, sideThisGame: "near" },
+    { serveSource: "v3", serveHalf: "near" as const,
+      rotationServer: "opponent" as const, sideThisGame: "far" },
+  ];
+  assert.deepEqual(serveMiss.v3ServerAgreement(cards), { agree: 2, compared: 2 });
+});
+
 test("serve prediction accuracy counts only the cards where both answers exist", () => {
   const cards = [
     // agrees
-    { serveSource: "v3", serveHalf: "near" as const, rotationServer: "user" as const },
+    { serveSource: "v3", serveHalf: "near" as const,
+      rotationServer: "user" as const, sideThisGame: "near" },
     // disagrees
-    { serveSource: "v3", serveHalf: "far" as const, rotationServer: "user" as const },
+    { serveSource: "v3", serveHalf: "far" as const,
+      rotationServer: "user" as const, sideThisGame: "near" },
     // V3 found no serve — not a wrong answer, no answer
-    { serveSource: null, serveHalf: null, rotationServer: "user" as const },
+    { serveSource: null, serveHalf: null,
+      rotationServer: "user" as const, sideThisGame: "near" },
     // the old bounce-pair rule answered; it carries no half at all
-    { serveSource: "motif", serveHalf: null, rotationServer: "user" as const },
+    { serveSource: "motif", serveHalf: null,
+      rotationServer: "user" as const, sideThisGame: "near" },
     // V3 answered but the rotation never anchored on a first server
-    { serveSource: "v3", serveHalf: "near" as const, rotationServer: null },
+    { serveSource: "v3", serveHalf: "near" as const,
+      rotationServer: null, sideThisGame: "near" },
+    // V3 answered but the ends cannot be followed on this match
+    { serveSource: "v3", serveHalf: "near" as const,
+      rotationServer: "user" as const, sideThisGame: null },
   ];
-  assert.deepEqual(serveMiss.v3ServerAgreement(cards, "near"), {
-    agree: 1,
-    compared: 2,
-  });
-});
-
-test("serve prediction accuracy asks nothing when the uploader's end was never recorded", () => {
-  const cards = [
-    { serveSource: "v3", serveHalf: "near" as const, rotationServer: "user" as const },
-    { serveSource: "v3", serveHalf: "far" as const, rotationServer: "opponent" as const },
-  ];
-  // both would otherwise agree, but without the side there is no mapping
-  assert.deepEqual(serveMiss.v3ServerAgreement(cards, null), {
-    agree: 0,
-    compared: 0,
-  });
+  assert.deepEqual(serveMiss.v3ServerAgreement(cards), { agree: 1, compared: 2 });
 });

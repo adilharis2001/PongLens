@@ -767,31 +767,34 @@ export function serveDetector(
  * against the scorekeeper's rotation on 126 cards: inverted 31%, this way
  * round 81%.)
  *
- * Turning that end into a player needs `matches.user_side`, which 47 of
- * 179 matches do not carry. Without it there is no answer to give, and a
- * guess would be worse than the honest null the callers already handle.
- *
- * One function because two callers need the same mapping: the chip on each
- * card in the list, and the match's own agreement figure. The mirrored
- * placement rule is what this project learned that from — one rule written
- * twice was wrong twice.
+ * THE SIDE PASSED IN IS THE ONE FOR THIS POINT'S GAME, not `matches.
+ * user_side`. Players change ends every game, and `user_side` is tagged
+ * from the first point's frame — it is the uploader's end in GAME ONE and
+ * the wrong end in game two. Callers pass
+ * `physicalSideForGame(userSide, gameIndex)`, exactly as the placement map
+ * and the point sheet already do. Handing the raw value straight in is the
+ * bug this parameter is named to stop.
  */
 export function v3ServerOf(
   half: "near" | "far" | null | undefined,
-  userSide: string | null | undefined
+  sideThisGame: string | null | undefined
 ): "user" | "opponent" | null {
   if (!half) return null;
-  if (userSide !== "near" && userSide !== "far") return null;
-  return half === userSide ? "user" : "opponent";
+  if (sideThisGame !== "near" && sideThisGame !== "far") return null;
+  return half === sideThisGame ? "user" : "opponent";
 }
 
 /**
  * How often V3's read of the server matches the one the scoring counts out.
  *
- * Only cards where BOTH have an answer are asked. A card with no V3 half,
- * or one whose rotation never anchored on a known first server, is not a
- * disagreement — it is a card with nothing to compare, and folding those
- * into the denominator would report a detector failure as an accuracy
+ * Each card carries its OWN end for the game it sits in, because the answer
+ * changes at every changeover and a single match-wide side would score half
+ * the games against the wrong player.
+ *
+ * Only cards where both sides have an answer are asked. A card with no V3
+ * half, or one whose rotation never anchored on a known first server, is
+ * not a disagreement — it is a card with nothing to compare, and folding
+ * those into the denominator would report a coverage gap as an accuracy
  * problem.
  */
 export function v3ServerAgreement(
@@ -799,14 +802,15 @@ export function v3ServerAgreement(
     serveSource: string | null | undefined;
     serveHalf: "near" | "far" | null | undefined;
     rotationServer: "user" | "opponent" | null | undefined;
-  }[],
-  userSide: string | null | undefined
+    /** physicalSideForGame(userSide, gameIndex) for THIS card. */
+    sideThisGame: string | null | undefined;
+  }[]
 ): { agree: number; compared: number } {
   let agree = 0;
   let compared = 0;
   for (const c of cards) {
     if (c.serveSource !== "v3") continue;
-    const mine = v3ServerOf(c.serveHalf, userSide);
+    const mine = v3ServerOf(c.serveHalf, c.sideThisGame);
     if (mine === null || !c.rotationServer) continue;
     compared += 1;
     if (mine === c.rotationServer) agree += 1;

@@ -45,23 +45,6 @@ import { ServeMissView } from "./ServeMissView";
  * button was off the side of the screen and could not be reached at all.
  */
 
-/**
- * Who V3 thinks served, in the names this match uses.
- *
- * The side mapping lives in `serveMiss` because the match's own agreement
- * figure asks the same question; this only puts a name on the answer.
- */
-function v3Server(
-  half: "near" | "far" | null | undefined,
-  userSide: string | null | undefined,
-  names: { user: string; opponent: string }
-): { text: string; who: "user" | "opponent" | null } {
-  if (!half) return { text: "", who: null };
-  const who = v3ServerOf(half, userSide);
-  if (who === null) return { text: `${half} end`, who: null };
-  return { text: who === "user" ? names.user : names.opponent, who };
-}
-
 export function PointCard({
   row,
   serve,
@@ -86,7 +69,7 @@ export function PointCard({
   onThemeToggle,
   onThemeCreated,
   onThemeDeleted,
-  userSide,
+  sideThisGame,
 }: {
   row: UploadPointRow;
   serve: ServeInfo | null;
@@ -129,10 +112,10 @@ export function PointCard({
   onThemeToggle?: (pointId: string, themeId: string, on: boolean) => void;
   onThemeCreated?: (theme: Theme) => void;
   onThemeDeleted?: (themeId: string) => void;
-  /** Which end of the table the uploader played from, so V3's answer can
-   *  be given as a name instead of an end. Null on a match that never
-   *  recorded it. */
-  userSide?: string | null;
+  /** The uploader's end for THIS point's game — physicalSideForGame, not
+   *  the raw `matches.user_side`. Only used to tell agreement from
+   *  disagreement; the chip itself names an end and needs none of it. */
+  sideThisGame?: string | null;
 }) {
   const [openMiss, setOpenMiss] = useState(false);
   const flags = pointFlags(row);
@@ -236,15 +219,21 @@ export function PointCard({
                 disagree is the only interesting part, so that is the only
                 part that gets a colour. */}
             {miss?.serve_source === "v3" && miss.serve_half && (() => {
-              const v3 = v3Server(miss.serve_half, userSide, names);
+              // The chip names an END, which is what V3 actually read. It
+              // used to name a PLAYER, and that was wrong: turning an end
+              // into a person needs the uploader's end for THIS game, and
+              // players change ends every game. An end cannot go stale at a
+              // changeover, and on an unscored match — where the games are
+              // not known at all — it is the only answer that can be right.
+              const who = v3ServerOf(miss.serve_half, sideThisGame);
               const disagrees =
-                v3.who !== null && serve?.server != null && v3.who !== serve.server;
+                who !== null && serve?.server != null && who !== serve.server;
               return (
                 <span
                   title={
                     disagrees
-                      ? "V3 read a different server from the one the scoring rotation counts out"
-                      : "Who V3 read as the server, from the half its qualifying bounce landed on"
+                      ? "V3 read the server at the other end from the one the scoring rotation counts out"
+                      : "The end V3 read as the server's, from the half its qualifying bounce landed on"
                   }
                   className={
                     disagrees
@@ -252,7 +241,7 @@ export function PointCard({
                       : "rounded border border-edge px-1.5 py-px text-zinc-400"
                   }
                 >
-                  V3: {v3.text}
+                  V3: {miss.serve_half} end
                 </span>
               );
             })()}

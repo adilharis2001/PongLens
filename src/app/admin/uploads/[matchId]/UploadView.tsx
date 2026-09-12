@@ -19,6 +19,8 @@ import {
 } from "../../../match/[id]/playhead";
 import { clipPad, effectivePad } from "../../../match/[id]/clipEdit";
 import { computeServing, type ServeInfo } from "../../../match/[id]/serving";
+import { computeMatchScore } from "../../../match/[id]/gameScore";
+import { physicalSideForGame, type Side } from "../../../match/[id]/sides";
 import {
   buildPointRows,
   cardCanOpen,
@@ -265,10 +267,41 @@ export function UploadView({
     );
   }, [rows, match.first_server]);
 
-  /* V3's read of the server against the one the scoring counts out, over
-     the whole match. Both answers have to exist for a card to be asked:
-     a card with no V3 half, or a match whose rotation never anchored on a
-     known first server, has nothing to compare rather than a
+  /* Which end the uploader was at, PER POINT.
+  
+     `matches.user_side` is tagged from the first point's frame, so it is
+     their end in game one and the wrong end in game two — players change
+     ends at every game. Every other surface that turns an end into a
+     person runs it through physicalSideForGame first (the placement map,
+     the point sheet, the aggregate); this page did not, and named the
+     wrong player for half of every match. Game index comes from the same
+     confirmed-score walk MatchView uses, so the three cannot drift.
+
+     `confirmedCount` is what says whether the walk means anything. With no
+     confirmed scores there are no game boundaries to find, every point
+     reads as game one, and the uploader's end is unknowable past the first
+     changeover — so the ends stay null rather than quietly wrong. */
+  const sideByPoint = useMemo(() => {
+    const map = new Map<string, Side | null>();
+    const visible = rows.filter((r) => !r.deleted);
+    const userSide =
+      match.user_side === "near" || match.user_side === "far"
+        ? (match.user_side as Side)
+        : null;
+    const score = computeMatchScore(visible as unknown as Point[]);
+    const known = userSide !== null && score.confirmedCount > 0;
+    let g = 0;
+    for (const r of visible) {
+      map.set(r.id, known ? physicalSideForGame(userSide, g) : null);
+      if (score.boundaryAfter.has(r.id)) g += 1;
+    }
+    return map;
+  }, [rows, match.user_side]);
+
+  /* V3's read of the server against the one the scoring counts out. Both
+     answers have to exist for a card to be asked: a card with no V3 half,
+     a rotation that never anchored on a known first server, or a match
+     whose ends cannot be followed, has nothing to compare rather than a
      disagreement. */
   const serverRead = useMemo(
     () =>
@@ -281,11 +314,11 @@ export function UploadView({
               serveSource: m?.serve_source,
               serveHalf: m?.serve_half,
               rotationServer: serving.get(r.id)?.server ?? null,
+              sideThisGame: sideByPoint.get(r.id) ?? null,
             };
-          }),
-        match.user_side
+          })
       ),
-    [rows, serveMisses, serving, match.user_side]
+    [rows, serveMisses, serving, sideByPoint]
   );
 
   const signCut = useCallback(async () => {
@@ -663,7 +696,7 @@ export function UploadView({
                   onThemeToggle={toggleTheme}
                   onThemeCreated={addTheme}
                   onThemeDeleted={dropTheme}
-                  userSide={match.user_side}
+                  sideThisGame={sideByPoint.get(row.id) ?? null}
                 />
               ))}
             </ul>
