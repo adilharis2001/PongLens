@@ -168,6 +168,18 @@ select public.record_match_video_check(
   '20000000-0000-4000-8000-000000000003', 0, 60,
   '{"status":"changed","changes":[{"before_s":9,"after_s":8},{"before_s":"private","after_s":10}]}');
 
+-- The service role may write bounded records, but player feedback remains an
+-- authenticated-owner endpoint rather than a service API.
+do $$
+begin
+  begin
+    perform public.my_match_processing_feedback(array[
+      '10000000-0000-4000-8000-000000000001'::uuid]);
+    raise exception 'FAIL: service role can call owner processing feedback RPC';
+  exception when insufficient_privilege then null; end;
+end;
+$$;
+
 do $$
 begin
   begin
