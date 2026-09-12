@@ -31,6 +31,15 @@ The camera warning and observed processing stages are implemented across web, mo
 | Naturally moving match corpus | Not available locally. Evidence supports an advisory warning, not rejection or a claim that movement happened during a particular point. |
 | Numeric ETA | Four usable current-release completions; historical holdout ranges were too broad and insufficiently supported. More complete comparable runs are needed. |
 | Physical-device test | Not performed; native verification used the simulator. |
-| TestFlight | Build 194 prepared in source; local archive/export status recorded separately. Latest App Store Connect build number could not be queried through the managed Xcode session. No upload yet. |
+| TestFlight | Xcode Release archive and App Store IPA export succeeded for version 1.0, build 194. Latest App Store Connect build number could not be queried through the managed Xcode session; no upload or Apple validation yet. |
 | Production | No migration, main-branch push or worker activation performed. Screenshot approval is required before publishing. |
 | Worker candidate | Exact source/release IDs, staged path, rollback and model evidence are in [worker-release-validation-2026-09-12.md](worker-release-validation-2026-09-12.md). |
+
+| Local TestFlight artifact | Evidence |
+| --- | --- |
+| Archive | `/private/tmp/ponglens-feedback-ui-baseline-20260912/PongLens-feedback-1.0-194.xcarchive` |
+| Exported IPA | `/private/tmp/ponglens-feedback-ui-baseline-20260912/PongLens-feedback-1.0-194-export/PongLens.ipa` |
+| IPA SHA-256 | `d2b5241555bb4d04a4f1e4ce034438552eb0a409d85bb6695e8d3d38029f10e0` |
+| Distribution | Cloud Managed Apple Distribution; `com.ponglens.PongLens`; team `ACUSR8S5R9`; arm64; store profile; `get-task-allow=false` |
+| Signature integrity | Sol independently verified the Mach-O CMS signature, matching CodeDirectory hash, certificate/profile pairing, and profile CMS signature. |
+| Local trust limit | Standalone `codesign --verify` could not establish Apple policy trust (`CSSMERR_TP_NOT_TRUSTED`) for either the development archive or distribution export. This command did not pass. No trust settings were changed; Apple upload validation remains outstanding. |
