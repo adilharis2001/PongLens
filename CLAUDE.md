@@ -217,6 +217,46 @@ because nobody's upload caused a subscription.
 
 ---
 
+## Which OpenAI key a call spends
+
+**PongLens has three OpenAI keys, and which one a call reaches decides
+whether its cost is legible.** All are macOS Keychain entries under account
+`openclaw`. Split on 2026-09-12, when one key served everything and two
+research days accounted for 77% of a three-week Sol bill without being
+distinguishable from ordinary uploads.
+
+| Keychain service | Read by |
+| --- | --- |
+| `openai-api-key` | PRODUCTION only: `worker.py`, the vision calibration it spawns in `points_pipeline.py`, and the sealed `lesson_video.py` |
+| `ponglens-openai-research` | anything that runs because WE were building or measuring: research scripts, `build_table_calibration_review.py`, `scripts/marketing/enrich.mjs`, tutorial `tts.mjs` |
+| `ponglens-openai-web-dev` | the value behind every `.env.local`, and Vercel Preview + Development |
+| `ponglens-openai-admin-key` | `cost_reconcile.py` only. Reads organisation cost totals; cannot call a model |
+
+The web app in production reads `OPENAI_API_KEY` from Vercel, whose key is
+deliberately not in the Keychain: nothing on the Mac needs to read it.
+
+- **The rule is what CAUSED the call, not what the code is.** A player's
+  upload spends the production key. A corpus run over the same code spends
+  the research key. Get this wrong and the cost page goes back to being
+  unable to tell a $9 research afternoon from a busy day of uploads.
+- **`openai-api-key` keeps its misleading name on purpose.** Renaming it
+  would force a re-seal of the lesson worker and move the release id the
+  Modal migration is pinned to. Read it as "production worker".
+- **Both Mac workers read their key once, at startup.** Changing the
+  Keychain value does nothing until `launchctl kickstart -k` on
+  `com.adil.ponglens-worker` and `com.adil.ponglens-lesson-video-worker`.
+- **The coach-outreach launchd job runs `enrich.mjs` from the MAIN
+  checkout**, which trails `origin/main` badly. A fix pushed to main does
+  not reach it; patch the working copy too, or the job breaks on a rotation.
+- **Storing a key: never use the interactive `security ... -w` prompt.** It
+  truncates silently at 128 characters and an OpenAI key is 164. Pass the
+  value as an argument, and never let it pass through an app with smart
+  punctuation — macOS turns `--` into an em dash, which corrupts the key AND
+  shortens it by one. A key that reads back as a long hex string rather than
+  `sk-proj-...` has a non-ASCII character in it.
+
+---
+
 ## Copy
 
 **Plain, natural English. Never try to sound clever.** Not witty, punchy,
