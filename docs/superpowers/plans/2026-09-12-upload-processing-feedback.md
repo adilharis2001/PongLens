@@ -4,7 +4,7 @@ Add a non-destructive camera-view warning only where local tests support it, pre
 
 | Deliverable | Implementation | Evidence / release gate |
 | --- | --- | --- |
-| Camera assessment | CPU comparison of already sampled stills; stable / changed / unknown; persist bounded timestamp evidence per checked window; never alter content/broadcast gates | Real fixed-camera footage, held-out synthetic movement, obstruction/setup cases; no paid requests; bounded execution |
+| Camera assessment | CPU comparison of already sampled stills; stable / changed / unknown; persist bounded timestamp evidence per checked window; never alter content/broadcast gates | Ten real fixed-camera recordings, one privacy-scoped real 7.83-second handheld upload, held-out synthetic movement, and obstruction/setup cases; no paid requests; bounded execution. The single real moving positive supports a warning, not rejection or broad recall claims. |
 | Timing measurements | Worker-only append-only events: claim, verified profile, stage/progress, ready, failure, worker release after post-ready work | Fail-open recording; no private URLs/exceptions; Sol Python and isolated database tests |
 | Owner feedback | Owner-scoped RPC for current processing job, observed stage, and camera result; no unvalidated numerical ETA | RLS/access tests; latest content check cannot hide requested processing; terminal/stale/missing states |
 | Web | Existing HomeOverview and RawMatchView processing cards; upload completed status and library rows use same feedback; warning stays beside existing trim controls | Render exact shipped references before edits; desktop and 393×660; meaningful state tests and real npm run build in isolated checkout |
@@ -20,7 +20,7 @@ Add a non-destructive camera-view warning only where local tests support it, pre
 
 | Sequence | Status |
 | --- | --- |
-| Sol feasibility studies | Complete: ETA insufficient; camera 112 local cases, no label errors |
+| Sol feasibility studies | Complete: ETA insufficient; camera 112 labeled controls with no errors, plus one later real 7.83-second handheld positive correctly warned by both CLI and worker wrapper |
 | Sol rendered visual references | Inspected existing desktop, 393×660 mobile and native cards |
 | Sol failing contract tests | RED observed before implementation; core contracts now GREEN |
 | Astra implementation | Implemented; Sol integration review completed |

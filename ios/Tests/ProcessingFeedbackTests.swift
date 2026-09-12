@@ -2,6 +2,8 @@ import Foundation
 
 private let processingCameraWarning =
     "The camera view changes during this recording. Try trimming to a section with a fixed view of the same table."
+private let shortProcessingCameraWarning =
+    "The camera view changes during this recording. Keep the camera in a fixed position with the same table in view."
 
 private func decodeProcessingFeedback(_ json: String) -> MatchProcessingFeedback? {
     do {
@@ -183,9 +185,18 @@ func runProcessingFeedbackChecks() {
           "camera_check":{"status":"changed","changes":[{"before_s":-1,"after_s":2},{"before_s":8,"after_s":7}]}
         }
         """)
+        let shortRecording = decodeProcessingFeedback("""
+        {
+          "match_id":"00000000-0000-0000-0000-000000000001",
+          "window_start_s":0,
+          "window_end_s":7,
+          "camera_check":{"status":"changed","changes":[{"before_s":2,"after_s":3}]}
+        }
+        """)
 
         eq(changed?.cameraWarning(trimStart: 10, trimEnd: 20), Optional(processingCameraWarning), "one wholly contained change warns")
         eq(boundary?.cameraWarning(trimStart: 10, trimEnd: 20), Optional(processingCameraWarning), "a change touching both trim boundaries warns")
+        eq(shortRecording?.cameraWarning(), Optional(shortProcessingCameraWarning), "a short checked recording avoids unavailable trim guidance")
         eq(changed?.cameraWarning(trimStart: 14, trimEnd: 18), nil, "partial and out-of-window changes are ignored")
         eq(stable?.cameraWarning(), nil, "stable status does not warn")
         eq(unknown?.cameraWarning(), nil, "unknown camera status does not warn")

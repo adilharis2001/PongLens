@@ -10,6 +10,8 @@ import {
 
 const CAMERA_WARNING =
   "The camera view changes during this recording. Try trimming to a section with a fixed view of the same table.";
+const SHORT_CAMERA_WARNING =
+  "The camera view changes during this recording. Keep the camera in a fixed position with the same table in view.";
 
 function feedback(
   over: Partial<ProcessingFeedback> = {},
@@ -95,6 +97,23 @@ test("a camera change wholly inside the selected video gets the canonical warnin
 
   assert.equal(got, CAMERA_WARNING);
   assert.doesNotMatch(got ?? "", /12|14|seconds?|minutes?/i);
+});
+
+
+test("a changed camera in a checked recording of ten seconds or less avoids trim guidance", () => {
+  const got = cameraViewWarning(
+    feedback({
+      window_start_s: 0,
+      window_end_s: 7,
+      camera_check: {
+        status: "changed",
+        changes: [{ before_s: 2, after_s: 3 }],
+      },
+    }),
+  );
+
+  assert.equal(got, SHORT_CAMERA_WARNING);
+  assert.doesNotMatch(got ?? "", /trim/i);
 });
 
 
@@ -189,4 +208,3 @@ test("an invalid selected window cannot create a warning", () => {
   assert.equal(cameraViewWarning(changed, 20, 10), null);
   assert.equal(cameraViewWarning(changed, Number.NaN, 20), null);
 });
-

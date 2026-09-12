@@ -47,7 +47,13 @@ export function cameraViewWarning(
       && Number.isFinite(before) && Number.isFinite(after)
       && before >= 0 && before < after && before >= trimStart && after <= trimEnd;
   });
-  return inside
-    ? "The camera view changes during this recording. Try trimming to a section with a fixed view of the same table."
-    : null;
+  if (!inside) return null;
+  const start = feedback.window_start_s;
+  const end = feedback.window_end_s;
+  if (typeof start === "number" && typeof end === "number"
+      && Number.isFinite(start) && Number.isFinite(end)
+      && start >= 0 && end > start && end - start <= 10) {
+    return "The camera view changes during this recording. Keep the camera in a fixed position with the same table in view.";
+  }
+  return "The camera view changes during this recording. Try trimming to a section with a fixed view of the same table.";
 }

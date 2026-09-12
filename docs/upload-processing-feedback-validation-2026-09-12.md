@@ -12,7 +12,7 @@ The camera warning and observed processing stages are implemented across web, mo
 
 | Sol verification | Result |
 | --- | --- |
-| Camera feasibility | 10 real fixed-camera recordings: no warnings; 32 synthetic sustained changes: all detected; 70 nuisance controls: no warnings. |
+| Camera feasibility | 10 real fixed-camera recordings: no warnings; 32 synthetic sustained changes: all detected; 70 nuisance controls: no warnings. One later, privacy-scoped 7.83-second real handheld upload also returned `changed / sustained_view_shift` in both the CLI and worker wrapper. |
 | Web | Full production build and lint passed; 19 behavior tests passed. Actual screens rendered at desktop and 393×660 mobile. |
 | iOS | Full clean simulator build 194 passed; 1,114 native checks passed. Actual Home and MatchDetail screens rendered on iPhone 17 Pro, iOS 26.5. |
 | Database | Real disposable PostgreSQL tests passed for owner isolation, write privileges, malformed inputs, primary-job priority and fresh/missing/stale worker observations. |
@@ -28,7 +28,7 @@ The camera warning and observed processing stages are implemented across web, mo
 
 | Limit / release boundary | Status |
 | --- | --- |
-| Naturally moving match corpus | Not available locally. Evidence supports an advisory warning, not rejection or a claim that movement happened during a particular point. |
+| Naturally moving footage | One real 7.83-second handheld upload was verified after the original 112-case study; it moved across 10 of 11 adjacent sampled intervals and returned `changed`. One short real positive still supports an advisory warning only, not rejection, broad recall claims or a claim that movement happened during a particular point. Private source media and identifiers remain outside the repository. |
 | Numeric ETA | Four usable current-release completions; historical holdout ranges were too broad and insufficiently supported. More complete comparable runs are needed. |
 | Physical-device test | Not performed; native verification used the simulator. |
 | TestFlight | Xcode Release archive and App Store IPA export succeeded for version 1.0, build 194. Latest App Store Connect build number could not be queried through the managed Xcode session; no upload or Apple validation yet. |

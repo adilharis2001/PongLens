@@ -62,6 +62,10 @@ struct MatchProcessingFeedback: Decodable, Hashable {
                   $0.beforeS.isFinite && $0.afterS.isFinite && $0.beforeS >= 0
                       && $0.beforeS < $0.afterS && $0.beforeS >= trimStart && $0.afterS <= trimEnd
               }) else { return nil }
+        if let start = windowStartS, let end = windowEndS,
+           start.isFinite, end.isFinite, start >= 0, end > start, end - start <= 10 {
+            return "The camera view changes during this recording. Keep the camera in a fixed position with the same table in view."
+        }
         return "The camera view changes during this recording. Try trimming to a section with a fixed view of the same table."
     }
 }
