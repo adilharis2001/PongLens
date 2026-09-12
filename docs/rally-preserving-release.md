@@ -28,10 +28,20 @@ This release ports the owner-reviewed rally rules without changing their thresho
 | --- | --- |
 | Frozen-rule port and 14-recording exact replay | Passed |
 | Synthetic output-clock / reclip checks | Passed |
-| Independent code review | In progress |
-| Complete Brian clips + full cut + measured packet audit | In progress |
-| Final committed package / all native smoke modes / both lane checks | Pending |
+| Independent code review | Passed after publication provenance and three-packet test fixes; no outstanding Critical or Important findings |
+| Complete Brian clips + full cut + measured packet audit | Passed: 106 clips, 65 segments, 195 matching frame payloads; maximum clock error 0.000005 s; source bounds unchanged |
+| Final committed package / all native smoke modes / both lane checks | Passed; all eight smoke modes, 14 sealed-corpus exact replays, both lane check-only runs and installed/rollback verification |
 | Production activation | Not performed |
+
+| Final package handoff | Value |
+| --- | --- |
+| Staged release ID | `9bbc0df984171e3579e5aa2663fe5b9317d7541df1e9d82ace27b3e4544bee7f` |
+| Sealed implementation commit | `6016e1df6c26b11fe503e7edcb8d604485716521`; later documentation-only commits are not a different worker payload |
+| Installation | `/Users/adil/Library/Application Support/PongLens/match-releases/9bbc0df984171e3579e5aa2663fe5b9317d7541df1e9d82ace27b3e4544bee7f` |
+| Tests | 137 targeted source cases; 16 packaged legacy body/serve parity cases; 14 frozen candidate recordings / 1,103 exact cards |
+| GPU test qualification | Pose and ball initially failed in the tool sandbox. Identical package passed with normal Mac GPU access (CoreML pose, MPS ball); no environment upgrades or code changes. Side changes passed twice with the same external state |
+| Durable root handoff | `docs/research/2026-09-11-rally-preserving-worker/RELEASE-PREPARATION-2026-09-12.md`; small evidence in sibling `release-preparation-2026-09-12/` |
+| Next | Obtain activation approval, drain safely, switch both exact launchers, verify release/health, then request the fresh upload. No waiting on a new upload in this preparation turn |
 
 | Primary technical reference | Use |
 | --- | --- |
