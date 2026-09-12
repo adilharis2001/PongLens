@@ -43,6 +43,7 @@ import {
   cutOffsetFor,
   labelKey,
   missForPoint,
+  v3ServerAgreement,
   type BounceLabel,
   type MissBounce,
   type ServeMissData,
@@ -263,6 +264,29 @@ export function UploadView({
       match.first_server ?? null
     );
   }, [rows, match.first_server]);
+
+  /* V3's read of the server against the one the scoring counts out, over
+     the whole match. Both answers have to exist for a card to be asked:
+     a card with no V3 half, or a match whose rotation never anchored on a
+     known first server, has nothing to compare rather than a
+     disagreement. */
+  const serverRead = useMemo(
+    () =>
+      v3ServerAgreement(
+        rows
+          .filter((r) => !r.deleted)
+          .map((r) => {
+            const m = missForPoint(serveMisses, r);
+            return {
+              serveSource: m?.serve_source,
+              serveHalf: m?.serve_half,
+              rotationServer: serving.get(r.id)?.server ?? null,
+            };
+          }),
+        match.user_side
+      ),
+    [rows, serveMisses, serving, match.user_side]
+  );
 
   const signCut = useCallback(async () => {
     const res = await fetch("/api/admin/media-url", {
@@ -517,7 +541,7 @@ export function UploadView({
           />
         </dl>
 
-        <DetectorCounts assembly={assembly} />
+        <DetectorCounts assembly={assembly} serverRead={serverRead} />
         <RuleScore summary={readingSummary} />
 
         <p className="mt-4 text-sm text-zinc-500">
@@ -1127,8 +1151,12 @@ function RuleScore({ summary }: { summary: ReadingSummary | null }) {
 
 function DetectorCounts({
   assembly,
+  serverRead,
 }: {
   assembly: ReturnType<typeof readAssembly>;
+  /** How often V3 named the same server as the scoring rotation, and on
+   *  how many cards the question could be asked at all. */
+  serverRead: { agree: number; compared: number };
 }) {
   const endOn = assembly.route === "end-on";
   const has =
@@ -1163,6 +1191,13 @@ function DetectorCounts({
             detail={assembly.cameraShape < 0.5 ? "flat, down the lens" : "across the lens"}
           />
         )}
+        {serverRead.compared > 0 && (
+          <Counted
+            label="Serve prediction accuracy"
+            value={`${Math.round((serverRead.agree / serverRead.compared) * 100)}%`}
+            detail={`${serverRead.agree} of ${serverRead.compared} cards`}
+          />
+        )}
       </dl>
 
       {endOn ? (
@@ -1183,6 +1218,15 @@ function DetectorCounts({
               : "."}
           </p>
         )
+      )}
+
+      {serverRead.compared > 0 && (
+        <p className="mt-2 text-sm text-zinc-500">
+          Serve prediction accuracy is who V3 read as the server — the half
+          its qualifying bounce landed on — against the server your scoring
+          counts out. Asked only on the cards where both have an answer, so
+          a card V3 refused is missing from it rather than counted wrong.
+        </p>
       )}
     </div>
   );

@@ -24,6 +24,7 @@ import {
   type ServeMissData,
 } from "../serveMiss";
 import type { CardReading } from "../pointReadings";
+import { v3ServerOf } from "../serveMiss";
 import { CardFacts } from "./CardFacts";
 import { CardReview, type Theme } from "./CardReview";
 import { ServeMissView } from "./ServeMissView";
@@ -47,16 +48,8 @@ import { ServeMissView } from "./ServeMissView";
 /**
  * Who V3 thinks served, in the names this match uses.
  *
- * V3 answers with an END of the table, not a person, because it reads the
- * server off geometry: the arrival test catches the ball coming onto the
- * table and the first place it lands is the server's OWN half, so the half
- * of that bounce IS the server. (The worker has this the other way round in
- * its history — measured against the scorekeeper's rotation on 126 cards,
- * inverted read 31% and this way round reads 81%.)
- *
- * Turning an end into a name needs `matches.user_side`, which 47 of 179
- * matches do not have. Without it the end is still a real answer and is
- * named as one rather than guessed into a person.
+ * The side mapping lives in `serveMiss` because the match's own agreement
+ * figure asks the same question; this only puts a name on the answer.
  */
 function v3Server(
   half: "near" | "far" | null | undefined,
@@ -64,10 +57,8 @@ function v3Server(
   names: { user: string; opponent: string }
 ): { text: string; who: "user" | "opponent" | null } {
   if (!half) return { text: "", who: null };
-  if (userSide !== "near" && userSide !== "far") {
-    return { text: `${half} end`, who: null };
-  }
-  const who = half === userSide ? "user" : "opponent";
+  const who = v3ServerOf(half, userSide);
+  if (who === null) return { text: `${half} end`, who: null };
   return { text: who === "user" ? names.user : names.opponent, who };
 }
 
