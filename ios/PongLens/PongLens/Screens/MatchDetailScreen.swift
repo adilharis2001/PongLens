@@ -82,6 +82,8 @@ final class MatchDetailModel {
     var loaded = false
     var error: String?
     var job: MatchJob?
+    var processingFeedback: MatchProcessingFeedback?
+    private var feedbackMatchId: UUID?
     var minutesBalance: Int?
     var needsMoreMinutes = false
 
@@ -280,16 +282,42 @@ final class MatchDetailModel {
 
     /// The newest job for this match plus the minutes balance — what the
     /// raw view needs to say "Processing", "failed", or "Process · N min".
-    func loadRawState(_ match: MatchRow) async {
-        let jobs: [MatchJob]? = try? await supa
-            .from("jobs")
-            .select(Self.jobSelect)
-            .eq("options->>match_id", value: match.id.uuidString.lowercased())
-            .order("created_at", ascending: false)
-            .limit(1)
-            .execute()
-            .value
-        job = jobs?.first
+    func loadRawState(_ match: MatchRow, isOwner: Bool) async {
+        guard isOwner else {
+            feedbackMatchId = nil
+            processingFeedback = nil
+            job = nil
+            minutesBalance = nil
+            return
+        }
+        feedbackMatchId = match.id
+        await refreshFeedback()
+        if let primaryId = processingFeedback?.jobId {
+            let jobs: [MatchJob]? = try? await supa.from("jobs").select(Self.jobSelect)
+                .eq("id", value: primaryId.uuidString.lowercased()).execute().value
+            job = jobs?.first
+        } else {
+            let active: [MatchJob]? = try? await supa.from("jobs").select(Self.jobSelect)
+                .eq("options->>match_id", value: match.id.uuidString.lowercased())
+                .in("kind", values: ["deadspace_cut", "youtube_import", "hand_cut"])
+                .in("status", values: ["queued", "processing"])
+                .order("created_at", ascending: false).limit(1).execute().value
+            job = active?.first
+            if job == nil {
+                let jobs: [MatchJob]? = try? await supa.from("jobs").select(Self.jobSelect)
+                    .eq("options->>match_id", value: match.id.uuidString.lowercased())
+                    .in("kind", values: ["deadspace_cut", "youtube_import", "hand_cut"])
+                    .order("created_at", ascending: false).limit(1).execute().value
+                job = jobs?.first
+            }
+            if job == nil {
+                let checks: [MatchJob]? = try? await supa.from("jobs").select(Self.jobSelect)
+                    .eq("options->>match_id", value: match.id.uuidString.lowercased())
+                    .eq("kind", value: "content_check")
+                    .order("created_at", ascending: false).limit(1).execute().value
+                job = checks?.first
+            }
+        }
 
         struct StateRow: Decodable {
             let minutesBalance: Double?
@@ -300,12 +328,27 @@ final class MatchDetailModel {
         minutesBalance = state?.first?.minutesBalance.map(Int.init)
     }
 
+    private func refreshFeedback() async {
+        guard let feedbackMatchId else { return }
+        struct Request: Encodable { let p_match_ids: [UUID] }
+        let rows: [MatchProcessingFeedback]? = try? await supa
+            .rpc("my_match_processing_feedback", params: Request(p_match_ids: [feedbackMatchId]))
+            .execute().value
+        processingFeedback = rows?.first
+    }
+
+    var feedbackActive: Bool {
+        jobRunning || job?.status == "queued" || job?.status == "processing"
+            || processingFeedback?.jobStatus == "queued" || processingFeedback?.jobStatus == "processing"
+    }
+
     func refreshJob() async {
-        guard let current = job else { return }
+        await refreshFeedback()
+        guard let currentId = processingFeedback?.jobId ?? job?.id else { return }
         let jobs: [MatchJob]? = try? await supa
             .from("jobs")
             .select(Self.jobSelect)
-            .eq("id", value: current.id.uuidString.lowercased())
+            .eq("id", value: currentId.uuidString.lowercased())
             .execute()
             .value
         if let fresh = jobs?.first {
@@ -934,7 +977,7 @@ struct MatchDetailScreen: View {
             await tagsStore.load(ownerId: match.userId, pointIds: model.visible.map(\.id))
             await reasonsStore.load(ownerId: match.userId)
             if match.status != .ready {
-                await model.loadRawState(match)
+                await model.loadRawState(match, isOwner: isOwner)
                 // A failed match opens itself: the reason and the retry
                 // are why anyone is on this screen.
                 if match.status == .failed { processOpen = true }
@@ -1433,9 +1476,12 @@ struct MatchDetailScreen: View {
     private func rawSection(proxy: ScrollViewProxy) -> some View {
         if model.jobRunning || current.status == .processing {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Processing")
+                Text(model.processingFeedback?.stageLabel ?? "Processing")
                     .font(.plCardTitle)
                     .foregroundStyle(PL.text100)
+                if let warning = model.processingFeedback?.cameraWarning(trimStart: trimStart, trimEnd: trimEnd ?? .infinity) {
+                    Text(warning).font(.plBody).foregroundStyle(PL.warningText)
+                }
                 ProgressView(value: Double(min(100, max(4, model.job?.progress ?? 0))) / 100)
                     .tint(PL.cyan)
                 Text("You can leave this page. We email you when the match is ready.")
@@ -1525,6 +1571,16 @@ struct MatchDetailScreen: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+
+            if let warning = model.processingFeedback?.cameraWarning(trimStart: trimStart, trimEnd: trimEnd ?? .infinity) {
+                Text(warning).font(.plBody).foregroundStyle(PL.warningText)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20).padding(.bottom, 20)
+            }
+            if model.processingFeedback?.jobKind == "content_check", let label = model.processingFeedback?.stageLabel {
+                Text(label).font(.plBody).foregroundStyle(PL.text400)
+                    .padding(.horizontal, 20).padding(.bottom, 20)
+            }
 
             // Outside the fold: a failure is the reason someone opened this
             // screen, and hiding it behind a chevron would be a lie of
@@ -1736,7 +1792,7 @@ struct MatchDetailScreen: View {
     /// Poll the running job the way the web does, and flip this page to
     /// the full match view the moment processing lands.
     private func watchProcessing() async {
-        while !Task.isCancelled, model.jobRunning {
+        while !Task.isCancelled, model.feedbackActive {
             try? await Task.sleep(for: .seconds(8))
             guard !Task.isCancelled else { return }
             await model.refreshJob()

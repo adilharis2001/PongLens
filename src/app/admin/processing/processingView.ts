@@ -203,6 +203,7 @@ const STAGE_LABELS: Record<string, string> = {
   download: "Downloading the video",
   import: "Downloading from YouTube",
   content_check: "Checking what the video is",
+  camera_check: "Checking camera stability",
   trim: "Trimming to the claimed window",
   ball: "Finding the ball",
   candidate_prepare: "Preparing candidate video",

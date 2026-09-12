@@ -17,7 +17,7 @@ struct ImportedVideoStatusView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(imported == nil ? "Queued. Your video is being downloaded." : needsMinutes ? "Your video is saved. It needs more minutes to process." : processingStarted ? "Your video is saved. Processing has started." : "Your video is saved in your library.")
+            Text(imported == nil ? "Queued. Your video is being downloaded." : needsMinutes ? "Your video is saved. It needs more minutes to process." : processingStarted ? "Your video is saved. Processing requested." : "Your video is saved in your library.")
                 .font(.plBody).foregroundStyle(PL.text300)
             if needsMinutes {
                 AllowanceRecoveryView(resource: "minutes", retryLabel: "Try processing again") {

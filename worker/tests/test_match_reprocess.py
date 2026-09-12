@@ -184,6 +184,8 @@ class MatchReprocessPipelineTests(unittest.TestCase):
                 patch.object(worker, "extract_thumb", return_value=False), \
                 patch.object(worker, "update_job"), \
                 patch.object(worker, "pulse_stage"), \
+                patch.object(worker, "_record_video_profile",
+                             side_effect=AssertionError("candidate profile")), \
                 patch.object(worker, "save_match_reprocess_candidate") as save, \
                 patch.object(worker, "ledger_append", side_effect=AssertionError("ledger")), \
                 patch.object(worker, "ledger_negate_keys", side_effect=AssertionError("ledger")):

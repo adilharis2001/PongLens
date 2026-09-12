@@ -25,6 +25,7 @@ struct MatchListRow: View {
     let match: MatchRow
     var score: ScoresStore.Entry? = nil
     var liveJob: JobRow? = nil
+    var processingLabel: String? = nil
 
     var body: some View {
         let parts = MatchTitle.parts(for: match)
@@ -47,7 +48,7 @@ struct MatchListRow: View {
                     StatusChip(status: match.chipStatus(live: liveJob))
                 }
                 HStack(spacing: 8) {
-                    Text(parts.secondary)
+                    Text(processingLabel ?? parts.secondary)
                         .font(.plCaption)
                         .foregroundStyle(PL.text500)
                         .lineLimit(1)
@@ -73,6 +74,7 @@ struct MatchCard: View {
     let match: MatchRow
     var score: ScoresStore.Entry? = nil
     var liveJob: JobRow? = nil
+    var processingLabel: String? = nil
     /// Owner-only card actions. Left nil, no buttons render — the grid
     /// only passes them when the signed-in user owns the match.
     var onShare: (() -> Void)? = nil
@@ -97,7 +99,7 @@ struct MatchCard: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(PL.text100)
                     .lineLimit(1)
-                Text(parts.secondary)
+                Text(processingLabel ?? parts.secondary)
                     .font(.system(size: 12))
                     .foregroundStyle(PL.text500)
                     .lineLimit(1)

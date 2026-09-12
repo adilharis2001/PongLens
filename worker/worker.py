@@ -46,6 +46,8 @@ import tempfile
 import threading
 import time
 import uuid
+from collections import deque
+from functools import wraps
 from collections.abc import Callable
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, replace
@@ -57,6 +59,98 @@ import psycopg2
 import psycopg2.extras
 import requests
 from botocore.exceptions import ClientError
+
+if __package__:
+    from .upload_feedback import ProcessingTelemetry
+else:
+    from upload_feedback import ProcessingTelemetry
+
+# Best-effort measurements are queued in memory and delivered off the job
+# thread. Missing/incomplete attempts cannot become ETA calibration samples.
+_feedback_pending = deque(maxlen=512)
+_feedback_lock = threading.Lock()
+_feedback_telemetry = None
+
+
+def _queue_feedback_event(record):
+    with _feedback_lock:
+        _feedback_pending.append(("event", record))
+
+
+def _queue_camera_check(match_id, job_id, start, end, result):
+    with _feedback_lock:
+        _feedback_pending.append(("camera", dict(match_id=str(match_id), job_id=str(job_id),
+                                                start=start, end=end, result=result)))
+
+
+def _flush_feedback():
+    with _feedback_lock:
+        batch = list(_feedback_pending)[:64]
+    if not batch:
+        return
+    connection = None
+    try:
+        connection = psycopg2.connect(DATABASE_URL, connect_timeout=2,
+            options="-c statement_timeout=2000 -c lock_timeout=1000")
+        # One bounded transaction for the batch; a retry is idempotent.
+        with connection.cursor() as cur:
+            events = [value for kind, value in batch if kind == "event"]
+            if events:
+                cur.execute("select public.record_match_processing_event(value) "
+                            "from jsonb_array_elements(%s::jsonb)",
+                            (json.dumps(events, allow_nan=False),))
+            cameras = [value for kind, value in batch if kind == "camera"]
+            if cameras:
+                cur.execute("select public.record_match_video_check("
+                            "(value->>'match_id')::uuid,(value->>'job_id')::uuid,"
+                            "(value->>'start')::double precision,"
+                            "(value->>'end')::double precision,value->'result') "
+                            "from jsonb_array_elements(%s::jsonb)",
+                            (json.dumps(cameras, allow_nan=False),))
+        connection.commit()
+        with _feedback_lock:
+            # A full queue may have dropped old entries while we delivered.
+            # Remove only the exact delivered objects, never newer readings.
+            for item in batch:
+                for index, pending in enumerate(_feedback_pending):
+                    if pending is item:
+                        del _feedback_pending[index]
+                        break
+    except Exception:
+        log.warning("Upload feedback delivery pending")
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+
+def _record_processing(function):
+    @wraps(function)
+    def wrapped(conn, msg):
+        global _feedback_telemetry
+        previous = _feedback_telemetry
+        try:
+            payload = msg["message"]
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+            _feedback_telemetry = ProcessingTelemetry(
+                payload["job_id"], msg["read_ct"], LANE,
+                (os.environ.get("PONGLENS_RELEASE_ID") or "unsealed:" + str(_PULSE_CODE_VERSION or "unknown")), _queue_feedback_event)
+        except Exception:
+            _feedback_telemetry = None
+        try:
+            return function(conn, msg)
+        except Exception:
+            if _feedback_telemetry:
+                _feedback_telemetry.emit("failed", reason_code="processing_failed")
+            raise
+        finally:
+            if _feedback_telemetry:
+                _feedback_telemetry.emit("released")
+            _feedback_telemetry = previous
+    return wrapped
 
 try:
     from worker.cost_alerts import (
@@ -588,6 +682,9 @@ def update_job(conn, job_id: str, **fields):
             f"update public.jobs set {cols} where id = %s",
             [*fields.values(), job_id],
         )
+
+    if _feedback_telemetry and _feedback_telemetry.job_id == str(job_id) and "progress" in fields:
+        _feedback_telemetry.emit("progress", progress=fields["progress"], stage=_pulse_state.get("stage"))
 
 
 # ---------------------------------------------------------------------------
@@ -8711,18 +8808,20 @@ def process_reel(conn, job_id: str, user_id: str, payload: dict) -> bool | None:
 # Upfront content check (SPEC.md §6) — runs right after the input video is
 # downloaded (uploads AND YouTube imports), before any expensive processing.
 # ---------------------------------------------------------------------------
-def _video_duration_s(video: str) -> float:
+def _video_duration_s(video: str, timeout_s: float = 60) -> float:
     out = subprocess.check_output(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "csv=p=0", video],
-        timeout=60,
+        timeout=timeout_s,
     )
     return float(out.decode().strip())
 
 
 def _sample_frames(video: str, workdir: str,
                    n: int = CONTENT_CHECK_FRAMES,
-                   subdir: str = "content_check") -> list[str]:
+                   subdir: str = "content_check", *,
+                   duration_s: float | None = None,
+                   total_timeout_s: float | None = None) -> list[str]:
     """Extract n frames evenly across the video (skipping the first/last 3%,
     which tend to be walking-to-camera / phone-pocket footage), downscaled
     to 512 px wide JPEGs. Frames that fail to extract are skipped.
@@ -8730,7 +8829,8 @@ def _sample_frames(video: str, workdir: str,
     subdir keeps one caller's frames from overwriting another's: the
     broadcast gate samples the same video moments later and would otherwise
     write over the content gate's JPEGs at identical filenames."""
-    duration = _video_duration_s(video)
+    duration = _video_duration_s(video) if duration_s is None else duration_s
+    deadline = None if total_timeout_s is None else time.monotonic() + max(0, total_timeout_s)
     lo, hi = duration * 0.03, duration * 0.97
     outdir = os.path.join(workdir, subdir)
     os.makedirs(outdir, exist_ok=True)
@@ -8738,15 +8838,83 @@ def _sample_frames(video: str, workdir: str,
     for i in range(n):
         ts = lo + (hi - lo) * i / max(n - 1, 1)
         out = os.path.join(outdir, f"frame{i:02d}.jpg")
-        proc = subprocess.run(
-            ["ffmpeg", "-y", "-v", "error", "-ss", f"{ts:.2f}", "-i", video,
-             "-frames:v", "1", "-vf", "scale=512:-2", "-q:v", "5", out],
-            capture_output=True, timeout=120,
-        )
+        remaining = 120 if deadline is None else min(120, deadline - time.monotonic())
+        if remaining <= 0:
+            break
+        try:
+            proc = subprocess.run(
+                ["ffmpeg", "-y", "-v", "error", "-ss", f"{ts:.2f}", "-i", video,
+                 "-frames:v", "1", "-vf", "scale=512:-2", "-q:v", "5", out],
+                capture_output=True, timeout=remaining,
+            )
+        except subprocess.TimeoutExpired:
+            if deadline is None:
+                raise
+            break
         if proc.returncode == 0 and os.path.exists(out) \
                 and os.path.getsize(out) > 0:
             frames.append(out)
     return frames
+
+
+def run_camera_view_check(conn, match_id, job_id, video, workdir, offset_s=0.0):
+    """An advisory comparison of existing stills, isolated from rejection gates."""
+    deadline = time.monotonic() + 20.0
+    try:
+        duration = _video_duration_s(video, timeout_s=max(0.001, deadline - time.monotonic()))
+        if not math.isfinite(duration) or duration <= 0 or not math.isfinite(offset_s):
+            return None
+        frames = sorted(Path(workdir, "content_check").glob("frame[0-9][0-9].jpg"))
+        if len(frames) < 8:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            frames = _sample_frames(video, workdir, duration_s=duration,
+                                    total_timeout_s=min(8.0, remaining))
+        samples = []
+        for frame in frames:
+            index = int(Path(frame).stem.removeprefix("frame"))
+            if 0 <= index < CONTENT_CHECK_FRAMES:
+                samples.append([offset_s + duration * (0.03 + 0.94 * index / 11), str(frame)])
+        payload = dict(samples=samples, window_start_s=offset_s,
+                       window_end_s=offset_s + duration)
+        source = Path(workdir, "camera_samples.json")
+        output = Path(workdir, "camera_result.json")
+        source.write_text(json.dumps(payload, allow_nan=False))
+        pulse_stage("camera_check")
+        command = [VENV_PY, str(Path(__file__).with_name("camera_view_check.py")),
+                   "--samples-json", str(source), "--out", str(output)]
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        completed = subprocess.run(command, capture_output=True, timeout=remaining)
+        if completed.returncode != 0:
+            return None
+        result = json.loads(output.read_text())
+        if not isinstance(result, dict) or result.get("status") not in ("stable", "changed", "unknown"):
+            return None
+    except Exception:
+        log.warning("Camera view check unavailable")
+        return None
+    try:
+        _queue_camera_check(match_id, job_id, offset_s, offset_s + duration, result)
+    except Exception:
+        log.warning("Camera view feedback unavailable")
+    return result
+
+
+def _record_video_profile(video, route, offset_s=0.0):
+    if not _feedback_telemetry:
+        return
+    try:
+        probe = _ffprobe_streams(video)
+        stream = next(item for item in probe["streams"] if item.get("codec_type") == "video")
+        numerator, denominator = stream["avg_frame_rate"].split("/")
+        _feedback_telemetry.profile(float(probe["format"]["duration"]),
+            float(numerator) / float(denominator), int(stream["width"]),
+            int(stream["height"]), route, offset_s)
+    except Exception:
+        log.warning("Video timing profile unavailable")
 
 
 def looks_like_table_tennis(video: str, workdir: str) -> bool:
@@ -9070,6 +9238,7 @@ def delete_rejected_raw(conn, input_path: str | None):
 def run_match_processing_workflow(
     conn, destination: MatchProcessingDestination, local_input: str,
     workdir: str, *, attempt_key: str, played_at: str | None = None,
+    profile_offset_s: float = 0.0,
 ) -> tuple[str, str | None]:
     """The one detection, assembly, cutting, and publication workflow.
 
@@ -9082,6 +9251,8 @@ def run_match_processing_workflow(
     job_id, user_id = destination.job_id, destination.user_id
     active = destination.activates_match
     wants_points = not active or bool(options.get("points"))
+    if active and not wants_points:
+        _record_video_profile(local_input, "legacy_spans", profile_offset_s)
     strictness = options.get("strictness", "normal")
     if strictness not in VALID_STRICTNESS:
         strictness = "normal"
@@ -9098,6 +9269,9 @@ def run_match_processing_workflow(
 
         ball_crop, crop_corners, points_kwargs = processing_pipeline_settings(
             conn, options, attempt_key)
+        if active:
+            route = str(points_kwargs.get("pipeline", "unknown")) + (":placement" if options.get("placement") else ":no-placement")
+            _record_video_profile(local_input, route, profile_offset_s)
         # Frozen at execution, not approval: configuration can change while
         # queued, and a source version's release says nothing about this run.
         # The pulse identity is captured when the running process starts;
@@ -9238,6 +9412,7 @@ def process_match_reprocess(
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+@_record_processing
 def process_job(conn, msg) -> None:
     payload = msg["message"]
     if isinstance(payload, str):
@@ -9307,6 +9482,8 @@ def process_job(conn, msg) -> None:
         return
 
     pulse_job(job_id, kind)
+    if _feedback_telemetry:
+        _feedback_telemetry.emit("claimed", route=kind)
 
     if kind == "match_reprocess":
         # The database constructs the candidate publishing destination. The
@@ -9481,6 +9658,8 @@ def process_job(conn, msg) -> None:
             if looks_like_broadcast(local_input, workdir):
                 reject_checked_match(conn, check_match_id, input_path)
                 raise UserFacingError(BROADCAST_REJECT_MSG)
+            run_camera_view_check(conn, check_match_id, job_id, local_input, workdir)
+            _record_video_profile(local_input, "content_check")
             with conn.cursor() as cur:
                 cur.execute(
                     "update public.matches set content_checked_at = now() "
@@ -9603,6 +9782,9 @@ def process_job(conn, msg) -> None:
                     yt_title, played_at,
                     fresh_meta if isinstance(fresh_meta, dict)
                     else options.get("meta"))
+                if import_match_id:
+                    run_camera_view_check(conn, import_match_id, job_id, local_input, workdir)
+                _record_video_profile(local_input, "library_import")
                 # "Process right away" asked for at import time (098).
                 if options.get("auto_process") and import_match_id:
                     claim_processing_for(
@@ -9650,6 +9832,7 @@ def process_job(conn, msg) -> None:
         # Library job (096): cut the working copy down to the claimed
         # window before anything expensive sees it. Skipped when the
         # window is effectively the whole file.
+        camera_offset_s = 0.0
         if options.get("match_id") is not None:
             t0 = float(options.get("trim_start_s") or 0.0)
             t1 = options.get("trim_end_s")
@@ -9659,6 +9842,7 @@ def process_job(conn, msg) -> None:
                     pulse_stage("trim")
                     local_input = apply_trim(local_input, workdir,
                                              t0, float(t1))
+                    camera_offset_s = t0
 
         # Upfront content gate: cheap vision check before the expensive
         # pipeline. Confident negative -> delete the raw, fail the job with
@@ -9688,12 +9872,16 @@ def process_job(conn, msg) -> None:
             raise UserFacingError(BROADCAST_REJECT_MSG)
         update_job(conn, job_id, progress=15)
 
+        if options.get("match_id"):
+            run_camera_view_check(conn, options["match_id"], job_id,
+                                  local_input, workdir, camera_offset_s)
         destination = MatchProcessingDestination.active(
             job_id, user_id, input_path, options)
         try:
             result_path, points_match_id = run_match_processing_workflow(
                 conn, destination, local_input, workdir,
-                attempt_key=attempt_key, played_at=played_at)
+                attempt_key=attempt_key, played_at=played_at,
+                profile_offset_s=camera_offset_s)
         except MatchVersionChanged:
             # A different delivery completed/published while compute ran.
             # Do not let the outer failure handler mark the active match or
@@ -9704,6 +9892,8 @@ def process_job(conn, msg) -> None:
 
         update_job(conn, job_id, status="done", result_path=result_path,
                    progress=100)
+        if _feedback_telemetry and (points_match_id or not options.get("points")):
+            _feedback_telemetry.emit("ready")
         archive_message(conn, msg["msg_id"])
         log.info("  done: %s", result_path)
         notify_job_done(conn, job_id, user_id)
@@ -10285,6 +10475,9 @@ def pulse_stage(stage: str | None, note: str | None = None,
     with _pulse_lock:
         _pulse_state.update(stage=stage, stage_note=note, stage_pct=pct)
 
+    if _feedback_telemetry:
+        _feedback_telemetry.emit("stage", stage=stage)
+
 
 def pulse_note(note: str | None, pct: int | None = None) -> None:
     """A counter under the current stage, without changing the stage."""
@@ -10326,6 +10519,7 @@ def _pulse_monitor() -> None:
                 conn = psycopg2.connect(DATABASE_URL)
                 conn.autocommit = True
             _pulse_once(conn)
+            _flush_feedback()
         except Exception as e:
             log.warning("pulse failed (non-fatal): %s", e)
             try:

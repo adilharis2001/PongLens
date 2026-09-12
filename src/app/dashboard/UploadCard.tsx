@@ -1,4 +1,6 @@
 "use client";
+import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
+import { cameraViewWarning, processingStageLabel } from "@/lib/processingFeedback";
 
 import { tracksServe } from "@/lib/matchTitle";
 
@@ -378,6 +380,8 @@ export function UploadCard({
   // Commerce mode: the library row created at completion, and the file's
   // duration read from its metadata (the charging basis for processing).
   const [libraryMatchId, setLibraryMatchId] = useState<string | null>(null);
+  const uploadFeedback = useProcessingFeedback(libraryMatchId ? [libraryMatchId] : []);
+  const currentFeedback = libraryMatchId ? uploadFeedback[libraryMatchId] ?? null : null;
   const libraryMatchIdRef = useRef<string | null>(null);
   const durationRef = useRef<number | null>(null);
   // What happens when the upload lands, and whether it has been asked
@@ -1730,7 +1734,7 @@ export function UploadCard({
             ? "Finishing up"
             : phase === "done"
               ? autoState === "started"
-                ? "Uploaded. Processing has started."
+                ? "Uploaded. Processing requested."
                 : "Uploaded. It is in your library."
               : phase === "error"
                 ? `Upload problem. ${error ?? ""}`
@@ -1750,11 +1754,17 @@ export function UploadCard({
             <>
               <p className="text-center text-sm font-medium text-emerald-400">
                 {autoState === "started"
-                  ? "Uploaded. Processing has started."
+                  ? "Uploaded. Processing requested."
                   : autoState === "short"
                     ? "Uploaded, but processing needs more minutes than you have."
                     : "Uploaded. It's in your library."}
               </p>
+              {processingStageLabel(currentFeedback) && (
+                <p className="mt-2 text-left text-sm text-zinc-400">{processingStageLabel(currentFeedback)}.</p>
+              )}
+              {cameraViewWarning(currentFeedback, trimStart, trimEnd ?? Infinity) && (
+                <p className="mt-2 text-left text-sm text-amber-300/90">{cameraViewWarning(currentFeedback, trimStart, trimEnd ?? Infinity)}</p>
+              )}
               {/* Nothing under the "it's in your library" case: the
                   Process button is right below and says the rest better
                   than a sentence would. */}
@@ -1772,7 +1782,7 @@ export function UploadCard({
           ) : (
             <>
               <p className="text-center text-sm font-medium text-emerald-400">
-                Done. Processing starts now.
+                Uploaded. Processing requested.
               </p>
               <p className="mt-1 text-center text-xs text-zinc-500">
                 You&apos;ll get an email when it&apos;s ready.

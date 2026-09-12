@@ -259,10 +259,10 @@ struct HomeScreen: View {
         } else if processingCount > 0 {
             VStack(alignment: .leading, spacing: 10) {
                 StatusChip(status: .processing)
-                Text(processingCount == 1 ? "Your match is processing" : "\(processingCount) matches are processing")
+                Text(processingCount == 1 ? (ownMatches.first(where: { library.liveJob(for: $0) != nil || $0.status == .processing }).flatMap { library.processingFeedback[$0.id]?.stageLabel } ?? "Your match is processing") : "\(processingCount) matches are processing")
                     .font(.plCardTitle)
                     .foregroundStyle(PL.text100)
-                Text("Most videos finish in about 90 minutes. We'll email you when it's ready.")
+                Text("We’ll email you when your match is ready.")
                     .font(.plBody)
                     .foregroundStyle(PL.text400)
                 if let ready = latestReady {
@@ -768,7 +768,8 @@ struct HomeScreen: View {
                         MatchListRow(
                             match: match,
                             score: scores.scores[match.id],
-                            liveJob: library.liveJob(for: match)
+                            liveJob: library.liveJob(for: match),
+                            processingLabel: library.processingFeedback[match.id]?.stageLabel
                         )
                     }
                     .buttonStyle(.plain)

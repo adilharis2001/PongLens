@@ -18,7 +18,7 @@ enum UploadProcessingStatus {
     var message: String {
         switch self {
         case .notRequested: "It's in your library, unprocessed."
-        case .started: "Processing has started. You'll get an email when it's ready."
+        case .started: "Processing requested. You'll get an email when it's ready."
         case .needsMinutes: "Your video is saved. Open it to request more processing minutes."
         case .notStarted: "Your video is saved, but processing hasn't started. Open it to try again."
         }

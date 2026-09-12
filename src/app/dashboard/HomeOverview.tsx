@@ -1,4 +1,6 @@
 "use client";
+import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
+import { processingStageLabel } from "@/lib/processingFeedback";
 
 import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
@@ -302,6 +304,7 @@ export function HomeOverview({
 
   const loading = matches === null || jobs === null;
   const ownMatches = (matches ?? []).filter((m) => m.user_id === userId);
+  const processingFeedback = useProcessingFeedback(ownMatches.map((m) => m.id));
   const sharedMatches = (matches ?? []).filter((m) => m.user_id !== userId);
   const playerName = new Map(
     sharedPlayers.map((p) => [p.player_id, p.player_name])
@@ -449,13 +452,12 @@ export function HomeOverview({
             />
             <p className="text-sm font-medium text-zinc-200">
               {activeWork === 1
-                ? "Your match is processing"
+                ? processingStageLabel(processingFeedback[processingMatches[0]?.id] ?? null) ?? "Your match is processing"
                 : `${activeWork} matches are processing`}
             </p>
           </div>
           <p className="mt-2 text-xs text-zinc-500">
-            Most videos finish in about 90 minutes. We&apos;ll email you when
-            it&apos;s ready.
+            We&apos;ll email you when your match is ready.
           </p>
           {latestReady && (
             <div className="mt-4 border-t border-edge/60 pt-4">
@@ -561,6 +563,8 @@ export function HomeOverview({
                 bits.push(fmtDuration(m.duration_s));
               if (live && job && job.progress > 0 && job.status !== "done")
                 bits.push(`${job.progress}%`);
+              const stage = processingStageLabel(processingFeedback[m.id] ?? null);
+              if (stage) bits.push(stage);
               const inner = (
                 <>
                   <Thumb

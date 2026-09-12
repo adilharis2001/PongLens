@@ -7,6 +7,7 @@ import Supabase
 final class LibraryStore {
     var matches: [MatchRow] = []
     var activeJobs: [JobRow] = []
+    var processingFeedback: [UUID: MatchProcessingFeedback] = [:]
     var loaded = false
     var lastError: String?
 
@@ -73,6 +74,12 @@ final class LibraryStore {
             matches = m
             activeJobs = j
             lastError = nil
+            struct FeedbackRequest: Encodable { let p_match_ids: [UUID] }
+            let ownMatches = supa.auth.currentUser.map { user in m.filter { $0.userId == user.id } } ?? []
+            let feedback: [MatchProcessingFeedback]? = try? await supa
+                .rpc("my_match_processing_feedback", params: FeedbackRequest(p_match_ids: Array(ownMatches.prefix(100).map(\.id))))
+                .execute().value
+            processingFeedback = Dictionary((feedback ?? []).map { ($0.matchId, $0) }, uniquingKeysWith: { _, last in last })
         } catch {
             #if DEBUG
             lastError = String(describing: error)
