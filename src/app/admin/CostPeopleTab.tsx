@@ -63,6 +63,9 @@ export function CostPeopleTab({
               Attribution started on 11 September 2026, so older periods are
               shared out entirely. Match processing on the Mac worker does
               not name an account yet, which is the largest remaining gap.
+              Shared usage is divided by work done — video seconds and
+              stored bytes — and infrastructure is a share of the recurring
+              bills rather than anything one person caused.
             </p>
           </div>
           <div className="flex gap-1 rounded-full border border-edge p-1">
@@ -109,7 +112,10 @@ export function CostPeopleTab({
                     <th className="px-3 py-3 text-right font-medium">
                       Measured
                     </th>
-                    <th className="px-3 py-3 text-right font-medium">Shared</th>
+                    <th className="px-3 py-3 text-right font-medium">Usage</th>
+                    <th className="px-3 py-3 text-right font-medium">
+                      Infra
+                    </th>
                     <th className="px-3 py-3 text-right font-medium">
                       Matches
                     </th>
@@ -145,7 +151,10 @@ export function CostPeopleTab({
                           : "—"}
                       </td>
                       <td className="px-3 py-3 text-right tabular-nums text-zinc-500">
-                        {formatCost(row.allocated_usd)}
+                        {formatCost(row.variable_usd)}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums text-zinc-600">
+                        {formatCost(row.fixed_usd)}
                       </td>
                       <td className="px-3 py-3 text-right tabular-nums text-zinc-500">
                         {row.matches || "—"}
@@ -190,7 +199,8 @@ export function CostPeopleTab({
                     {Number(row.attributed_usd) > 0
                       ? `${formatCost(row.attributed_usd)} measured · `
                       : ""}
-                    {formatCost(row.allocated_usd)} shared
+                    {formatCost(row.variable_usd)} usage ·{" "}
+                    {formatCost(row.fixed_usd)} infra
                     {row.matches > 0 ? ` · ${row.matches} matches` : ""}
                     {row.lesson_videos > 0
                       ? ` · ${row.lesson_videos} recaps`

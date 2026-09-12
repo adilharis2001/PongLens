@@ -425,6 +425,8 @@ function person(over: Partial<CostPersonRow> = {}): CostPersonRow {
     name: null,
     is_coach: false,
     attributed_usd: 0,
+    variable_usd: 0,
+    fixed_usd: 0,
     allocated_usd: 0,
     cost_usd: 0,
     matches: 0,

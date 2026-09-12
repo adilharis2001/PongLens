@@ -1,0 +1,25 @@
+-- Cost per person, weighted by the work each person actually caused, with
+-- the three components reported apart.
+--
+-- The previous version divided shared costs by COUNTS: a match was 1, a note
+-- was 1. So a failed eight-second upload drew the same share of Supabase and
+-- Fastmail as a completed forty-five-minute match, and a user whose two
+-- attempts spent $0.0002 of real money was shown at $0.79. The metering was
+-- right; the divisor was nonsense.
+--
+-- Work is now measured in seconds rather than events: video seconds where
+-- the upload recorded them, and where it did not, the period's own average
+-- rather than zero — an unmeasured job should count as a typical one, not
+-- as nothing.
+--
+-- Three components, because they are different kinds of claim and one
+-- figure let the weakest read like the strongest:
+--
+--   attributed  money an event named this person for. A fact.
+--   variable    share of pooled metered spend, by work done.
+--   fixed       share of recurring infrastructure. Amortisation, not
+--               causation: Supabase does not cost more because somebody
+--               uploaded, so this must never read as something they did.
+--
+-- The full function body is applied in the database; this file records the
+-- reasoning and the shape. See migration cost_per_person_weighted_by_real_work.

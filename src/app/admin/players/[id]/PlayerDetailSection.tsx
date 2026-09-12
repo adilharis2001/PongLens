@@ -97,9 +97,19 @@ export function PlayerDetailSection({ userId }: { userId: string }) {
               </p>
             </div>
             <div>
-              <p className="text-xs text-zinc-500">Est. cost</p>
+              <p className="text-xs text-zinc-500">Cost</p>
               <p className="mt-1 text-sm font-medium tabular-nums text-cyan-glow">
                 {formatCost(data.est_cost_usd)}
+              </p>
+              {/* One figure hid what it was made of: a failed eight-second
+                  upload read as $0.79 because a share of the database and
+                  mailbox bills was folded in beside two hundredths of a
+                  cent of real spend. Naming the parts is the difference
+                  between an estimate and a number that looks measured. */}
+              <p className="mt-1 text-[11px] leading-relaxed text-zinc-600">
+                {formatCost(data.cost_measured_usd ?? 0)} measured ·{" "}
+                {formatCost(data.cost_variable_usd ?? 0)} shared usage ·{" "}
+                {formatCost(data.cost_fixed_usd ?? 0)} infrastructure
               </p>
             </div>
           </div>

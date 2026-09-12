@@ -115,6 +115,13 @@ export interface CostPersonRow {
   name: string | null;
   is_coach: boolean;
   attributed_usd: number;
+  /** Share of pooled METERED spend, weighted by work done — video seconds
+   *  and stored bytes, not a count of events. Counting let a failed
+   *  eight-second upload draw the same share as a 45-minute match. */
+  variable_usd: number;
+  /** Share of recurring infrastructure. Amortisation rather than
+   *  causation: Supabase does not cost more because somebody uploaded. */
+  fixed_usd: number;
   allocated_usd: number;
   cost_usd: number;
   matches: number;

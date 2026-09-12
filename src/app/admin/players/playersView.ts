@@ -77,6 +77,18 @@ export interface PlayerDetailPayload {
     uploads_failed: number;
   };
   est_cost_usd: number;
+  /**
+   * What `est_cost_usd` is made of, because the three are different kinds
+   * of claim and one figure let the weakest read like the strongest.
+   *
+   * `measured` is money an event named this person for. `variable` is
+   * their share of pooled metered spend, weighted by work done. `fixed` is
+   * their share of recurring infrastructure — amortisation, not causation:
+   * Supabase does not cost more because somebody uploaded.
+   */
+  cost_measured_usd?: number;
+  cost_variable_usd?: number;
+  cost_fixed_usd?: number;
   matches: PlayerMatchRow[];
 }
 
