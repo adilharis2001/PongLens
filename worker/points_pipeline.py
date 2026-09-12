@@ -1034,7 +1034,8 @@ def cmd_cut(args):
     if getattr(args, "segments", None):
         # Cut mode 'plays': segments were computed by the points stage
         # (which must run FIRST) and read back from its match.json — the
-        # one source of truth, so cut and cut_t0 can never disagree.
+        # one source of truth for kept footage. After encoding, measured
+        # offsets reconcile cut_t0 with the actual MP4 concatenation clock.
         with open(args.segments) as fh:
             mj = json.load(fh)
         spans = [tuple(s) for s in (mj.get("cut_segments") or [])]
@@ -1101,6 +1102,17 @@ def cmd_cut(args):
                     "-movflags", "+faststart", args.out], check=True)
     if not os.path.exists(args.out) or os.path.getsize(args.out) == 0:
         raise SystemExit("cut produced no output")
+    import cut_timeline
+    # Use the same source-clock rounding the encoder consumed. Plays-mode
+    # maps are already serialized to hundredths; legacy spans were not.
+    physical_spans = [[float(f"{a:.2f}"),
+                       round(float(f"{a:.2f}")+float(f"{b-a:.2f}"), 2)]
+                      for a,b in spans]
+    timeline = cut_timeline.measure(parts, physical_spans, args.out)
+    timeline_path = args.out + '.timeline.json'
+    cut_timeline.write_json(timeline_path, timeline)
+    if getattr(args, 'segments', None):
+        cut_timeline.reconcile_file(args.segments, timeline_path)
     print(f"wrote {args.out}")
 
 
@@ -3038,6 +3050,7 @@ def cmd_points(args):
                 processing["body"] = {"status": "used", "samples": body_info["samples"],
                                       "both_share": body_info["both_share"], "cards": len(body_cards)}
                 processing["body_model"] = body_info["model"]
+                processing['rally_policy'] = body_info.get('rally_policy')
                 processing["edges"].update(
                     anchor_requested=bool(getattr(args, "serve_anchor", False)),
                     close_requested=bool(getattr(args, "rally_end", False)),

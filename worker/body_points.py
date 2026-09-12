@@ -299,7 +299,8 @@ def _pmin(T, p, a, b):
     return float(p[i0:i1].min()) if i1 > i0 else 1.0
 
 
-def refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0=None):
+def refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0=None,
+           *, split_contacts=None):
     """What the ball has to say about a stretch the bodies found: four
     statements, none of which may invent a card."""
     cr = np.asarray(sorted(float(x) for x in cross), float)
@@ -319,7 +320,9 @@ def refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0=None):
         if SPLIT_S > 0 and len(inside) >= 2:
             last = inside[0]
             for x in inside[1:]:
-                if x - last >= SPLIT_S:
+                if (x - last >= SPLIT_S and
+                        (split_contacts is None or
+                         min((abs(float(t)-x) for t in split_contacts), default=float('inf')) <= .5+1e-9)):
                     cuts.append(x)
                 last = x
         parts, a = [], t0
@@ -512,8 +515,9 @@ def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=
              v3_serves=None, v3_dead=None, anchor=False, close=False):
     """The body cards for one match, or raise BodyPointsUnavailable.
 
-    `v3_serves` and `v3_dead` come from the V3 serve detector and are used
-    only by the edge pass at the end: `anchor` opens a card at its serve,
+    `v3_serves` and `v3_dead` come from the V3 serve detector. Complete
+    evidence enables the reviewed v2 rally-preservation policy; missing
+    evidence retains the earlier rules. `anchor` opens a card at its serve,
     `close` shuts it when the ball stopped. Both default off, so a caller
     that passes nothing gets exactly the cards the trial has been cutting.
 
@@ -537,7 +541,18 @@ def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=
     c = model["cfg"]
     cards = [dict(t0=max(0.0, a - c["pad0"]), t1=min(float(duration), b + c["pad1"]),
                   serve_s=None, why="bodies", end_evidence_s=b) for a, b in segs]
-    refined = refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0)
+    from rally_preservation import POLICY, join_supported_continuations
+    policy_ready = (model['version'] == 'v2' and v3_serves is not None
+                    and v3_dead is not None and evidence is not None)
+    if policy_ready:
+        try:
+            policy_ready = (all(np.isfinite(float(x)) for x in v3_serves) and
+                            all(np.isfinite(float(a)) and np.isfinite(float(b)) and b >= a
+                                for a,b in v3_dead))
+        except (TypeError, ValueError):
+            policy_ready = False
+    refined = refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0,
+                     split_contacts=v3_serves if policy_ready else None)
     resolved = V2.resolve(refined)
     # The edges last, on settled cards: the anchor needs to know where the
     # card before it ends, and that is only true once the overlaps are gone.
@@ -550,9 +565,19 @@ def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=
             # pass a SimpleNamespace carrying only the fields it needs.
             bt_endline=getattr(evidence, "bt_endline", None))
         resolved = V2.resolve(resolved)
+    joins = []
+    if policy_ready:
+        resolved, joins = join_supported_continuations(
+            resolved, T, p, [x is not None for x in raw['near']],
+            [x is not None for x in raw['far']], list(cross)+list(bt_table), v3_dead,
+            table_bounces=bt_table, support=c['pad1'], max_event_gap=EXTEND_GAP_S,
+            min_play=c['ball_floor'], max_missing=c['gap_min'])
     info = dict(samples=int(len(T)), both_share=round(share, 3), segments=len(segs),
                 cards=len(resolved), stamped=sum(1 for d in resolved if d.get("serve_s") is not None),
-                model=model["version"], features=model["sha"], **edges)
+                model=model["version"], features=model["sha"], **edges,
+                rally_policy=dict(name=POLICY, status='used' if policy_ready else 'unavailable',
+                                  joined_seams=sum(d['accepted'] for d in joins)),
+                continuation_decisions=joins)
     return resolved, info
 
 

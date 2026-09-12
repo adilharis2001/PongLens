@@ -58,9 +58,10 @@ import requests
 from botocore.exceptions import ClientError
 
 if __package__:
-    from . import processing_outcome
+    from . import processing_outcome, cut_timeline
 else:
     import processing_outcome
+    import cut_timeline
 
 try:
     from worker.cost_alerts import (
@@ -5198,6 +5199,12 @@ def run_points_stage(
                 scope="points-vision",
             )
 
+        # The cut is already encoded. This also covers the legacy-span
+        # fallback whose points are only assembled after encoding.
+        cut_timeline.reconcile_file(
+            os.path.join(outdir, 'match.json'),
+            (cut_local_path or os.path.join(workdir, 'result.mp4')) + '.timeline.json')
+
         if processing_run is not None:
             try:
                 processing_run.match_id = match_id
@@ -5776,9 +5783,10 @@ class _CutMap:
     """Which source seconds the cut video kept, and where they landed.
 
     Plays-mode matches carry cut_segments: the exact list of kept source
-    spans, in order, so the cut position of any kept second is the
-    segment's offset plus the distance into it (points_pipeline
-    cut_position). Older spans-mode matches recorded only each original
+    spans, in order. New matches also carry cut_segment_offsets measured
+    after encoding; old matches retain their cumulative-duration mapping.
+    A kept second is the measured offset plus its distance into the span.
+    Older spans-mode matches recorded only each original
     point's own clip window and its cut_t0, which is enough to place a
     window that stays inside that clip. Anything else is not provably in
     the cut and goes to the original.
@@ -5787,11 +5795,14 @@ class _CutMap:
     def __init__(self, mj: dict | None):
         segs = (mj or {}).get("cut_segments") or []
         self.segments = [(float(a), float(b)) for a, b in segs]
-        self.offsets: list[float] = []
-        acc = 0.0
-        for s0, s1 in self.segments:
-            self.offsets.append(acc)
-            acc += s1 - s0
+        self.invalid_timeline = False
+        try:
+            self.offsets = cut_timeline.segment_offsets(mj or {})
+        except (TypeError, ValueError):
+            # A damaged measured map cannot safely become the old guessed
+            # clock. locate() will send this reclip to the original.
+            self.offsets = []
+            self.invalid_timeline = True
         # idx -> (clip_t0, clip_t1, cut_t0, t1) at birth
         self.born: dict[int, tuple[float, float, float, float]] = {}
         for p in (mj or {}).get("points") or []:
@@ -5806,6 +5817,8 @@ class _CutMap:
     def locate(self, idx: int, c0: float, c1: float) -> float | None:
         """Cut second where the source window [c0, c1] starts, or None
         when the cut does not hold all of it."""
+        if self.invalid_timeline:
+            return None
         for (s0, s1), off in zip(self.segments, self.offsets):
             if c0 >= s0 - 0.01 and c1 <= s1 + 0.01:
                 return off + (max(c0, s0) - s0)
