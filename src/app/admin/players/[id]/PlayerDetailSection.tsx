@@ -11,6 +11,7 @@ import {
   gbLabel,
   retentionLabel,
   scoringLabel,
+  whenExactLabel,
   whenLabel,
   type PlayerDetailPayload,
   type PlayerMatchRow,
@@ -82,9 +83,21 @@ export function PlayerDetailSection({ userId }: { userId: string }) {
           <div className="min-w-0">
             <p className="truncate text-sm text-zinc-300">{profile.email}</p>
             <p className="mt-1 text-xs text-zinc-500">
-              Joined {whenLabel(profile.created_at)}
-              {profile.last_sign_in_at &&
-                ` · Last signed in ${whenLabel(profile.last_sign_in_at)}`}
+              Joined {whenExactLabel(profile.created_at)}
+            </p>
+            {/* Last seen, not last signed in: the sign-in timestamp only
+                moves when a session is made from scratch, so it reads as
+                though somebody never came back when their session simply
+                stayed alive. The sign-in is still shown, because it is the
+                honest answer to a different question. */}
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Last seen {whenExactLabel(profile.last_seen_at) ?? "never"}
+              {profile.last_sign_in_at && (
+                <span className="text-zinc-600">
+                  {" · signed in "}
+                  {whenExactLabel(profile.last_sign_in_at)}
+                </span>
+              )}
             </p>
             {traits && <p className="mt-1 text-xs text-zinc-500">{traits}</p>}
           </div>

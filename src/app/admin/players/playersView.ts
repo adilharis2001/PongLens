@@ -13,6 +13,15 @@ export interface PlayerOverviewRow {
   name: string | null;
   created_at: string;
   last_sign_in_at: string | null;
+  /**
+   * The later of their last sign-in and their last session renewal.
+   *
+   * `last_sign_in_at` alone only moves when a session is created from
+   * scratch, so somebody whose session stays alive can use the app for days
+   * without it changing. Reading retention off it under-counts exactly the
+   * people who came back.
+   */
+  last_seen_at?: string | null;
   /** Newest upload; null for an account that has never uploaded. */
   last_upload_at: string | null;
   kind: PlayerKind;
@@ -59,6 +68,15 @@ export interface PlayerDetailPayload {
     name: string | null;
     created_at: string;
     last_sign_in_at: string | null;
+  /**
+   * The later of their last sign-in and their last session renewal.
+   *
+   * `last_sign_in_at` alone only moves when a session is created from
+   * scratch, so somebody whose session stays alive can use the app for days
+   * without it changing. Reading retention off it under-counts exactly the
+   * people who came back.
+   */
+  last_seen_at?: string | null;
     used_bytes: number;
     storage_limit_bytes: number;
     handedness: string | null;
@@ -264,4 +282,23 @@ export function agoLabel(value: string | null, now = Date.now()): string {
 export function isNew(row: PlayerOverviewRow, now = Date.now()): boolean {
   const d = daysSince(row.created_at, now);
   return d !== null && d <= 7;
+}
+
+/**
+ * A date and a time, for the admin pages. "Sep 12" is enough to sort by and
+ * useless for telling whether somebody came back an hour later or a day
+ * later, which is the question these columns exist to answer.
+ */
+export function whenExactLabel(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year:
+      date.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }

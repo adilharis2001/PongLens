@@ -7,16 +7,17 @@ import { createClient } from "@/lib/supabase/client";
 import { formatCost } from "@/lib/costs/calculations";
 import { signupSourceLabel } from "@/lib/auth/signupSource";
 import {
-  PLAYER_SORTS,
   agoLabel,
   countLabel,
   filterPlayers,
   gbLabel,
   isNew,
+  PLAYER_SORTS,
   sortPlayers,
   type PlayerKind,
   type PlayerOverviewRow,
   type PlayerSort,
+  whenExactLabel,
 } from "./playersView";
 
 /**
@@ -225,6 +226,7 @@ export function PlayersSection() {
                     <th className="px-5 py-3 font-medium">Player</th>
                     <th className="px-3 py-3 font-medium">From</th>
                     <th className="px-3 py-3 font-medium">Joined</th>
+                    <th className="px-3 py-3 font-medium">Last seen</th>
                     <th className="px-3 py-3 font-medium">Last upload</th>
                     <th className="px-3 py-3 font-medium">Matches</th>
                     <th className="px-3 py-3 font-medium">Points</th>
@@ -279,6 +281,12 @@ export function PlayersSection() {
                       </td>
                       <td className="px-3 py-3 tabular-nums text-zinc-300">
                         {agoLabel(row.created_at)}
+                      </td>
+                      <td
+                        className="px-3 py-3 tabular-nums text-zinc-300"
+                        title={whenExactLabel(row.last_seen_at) ?? undefined}
+                      >
+                        {agoLabel(row.last_seen_at ?? null) ?? "—"}
                       </td>
                       <td className="px-3 py-3 tabular-nums text-zinc-300">
                         {agoLabel(row.last_upload_at)}
@@ -347,6 +355,7 @@ export function PlayersSection() {
                     </p>
                   </div>
                   <p className="mt-1 text-xs text-zinc-500">
+                    Seen {agoLabel(row.last_seen_at ?? null) ?? "never"} ·
                     Joined {agoLabel(row.created_at)} · Uploaded{" "}
                     {agoLabel(row.last_upload_at)}
                   </p>

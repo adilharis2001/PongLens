@@ -1,0 +1,20 @@
+-- "Last signed in" is a bad measure of whether somebody came back.
+--
+-- It only moves when a session is created from scratch. A user whose
+-- session stays alive can open the app for days without it changing.
+-- Christine Cha read as last active at 02:06 on the morning she signed up;
+-- her session was in fact renewed at 03:09 and again at 20:06 the following
+-- evening. Judging retention on that column under-counts exactly the people
+-- who did come back.
+--
+-- auth.refresh_tokens.updated_at moves whenever a live session is renewed,
+-- so the later of the two is the closest thing to "last seen" this database
+-- holds. Both are kept: the sign-in is still the honest answer to "when did
+-- they last authenticate", and collapsing them would swap one wrong number
+-- for another.
+--
+-- Applied in the database as migration admin_pages_show_last_seen, which
+-- adds _admin_user_last_seen(uuid) and threads last_seen_at through
+-- admin_player_detail and admin_player_overview. The overview needed a drop
+-- and recreate because a table-returning function cannot gain a column in
+-- place; its grants were restored exactly.
