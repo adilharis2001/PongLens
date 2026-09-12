@@ -22,6 +22,8 @@ class ReleaseTests(unittest.TestCase):
         self.put(self.repo / 'worker/worker.py', 'print("sealed")\n')
         self.put(self.repo / 'worker/points_pipeline.py', '# points\n')
         self.put(self.repo / 'worker/rtm_accel.py', '# CoreML helper\n')
+        self.put(self.repo / 'worker/camera_view_check.py', '# camera advisory\n')
+        self.put(self.repo / 'worker/upload_feedback.py', '# upload telemetry\n')
         self.put(self.repo / 'worker/body_model/v2/model.npz', 'model')
         self.put(self.repo / 'worker/body_model/v2/edge.npz', 'edge')
         self.put(self.repo / 'worker/body_model/v2/features.sha', 'features')
@@ -61,6 +63,15 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(self.built(), first)
         self.assertEqual((first / 'worker/worker.py').read_text(), 'print("sealed")\n')
         self.assertEqual(verify(first)['source_commit'], self.git('rev-parse', 'HEAD'))
+
+    def test_camera_view_check_is_required_committed_source(self):
+        (self.repo / 'worker/camera_view_check.py').unlink()
+        self.git('add', '-u')
+        self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'remove camera advisory')
+
+        with self.assertRaisesRegex(ReleaseError, 'camera_view_check.py'):
+            self.built()
 
     def test_payload_changed_missing_extra_and_symlink_rejected(self):
         for mutation in ('changed', 'missing', 'extra', 'symlink'):

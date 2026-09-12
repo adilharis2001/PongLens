@@ -201,7 +201,7 @@ def build(repo, output, config, commit='HEAD'):
         payload = Path(temporary) / 'payload'
         payload.mkdir()
         _source(repo, commit, payload)
-        for required in ('worker.py', 'points_pipeline.py', 'rtm_accel.py'):
+        for required in ('worker.py', 'points_pipeline.py', 'rtm_accel.py', 'camera_view_check.py', 'upload_feedback.py'):
             if not (payload / 'worker' / required).is_file():
                 raise ReleaseError(f'Missing committed source: {required}')
         version = config['body_model']
