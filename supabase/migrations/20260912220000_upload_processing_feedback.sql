@@ -140,7 +140,7 @@ $$;
 
 revoke all on function public.record_match_processing_event(jsonb),
   public.record_match_video_check(uuid,uuid,double precision,double precision,jsonb),
-  public.my_match_processing_feedback(uuid[]) from public,anon,authenticated;
+  public.my_match_processing_feedback(uuid[]) from public,anon,authenticated,service_role;
 grant execute on function public.record_match_processing_event(jsonb),
   public.record_match_video_check(uuid,uuid,double precision,double precision,jsonb) to service_role;
 grant execute on function public.my_match_processing_feedback(uuid[]) to authenticated;
