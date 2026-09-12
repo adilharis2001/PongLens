@@ -3,12 +3,14 @@ import test from "node:test";
 import type {
   CostDashboardData,
   CostPersonRow,
+  CostProviderKeyRow,
 } from "../../lib/costs/types.ts";
 import {
   buildBurnSummary,
   buildFeatureCostRows,
   buildPeopleRows,
   buildProviderCheckRows,
+  buildProviderKeySplit,
   buildSimulationBaseline,
   buildVendorRows,
   COST_SCALE_PRESETS,
@@ -352,6 +354,7 @@ function data(
     usage: [],
     fixed_items: [],
     one_time_items: [],
+    provider_keys: [],
     people: [],
     provider_snapshots: [],
     unmapped: [],
@@ -668,4 +671,87 @@ test("the burn rate carries the run rate forward and adds the cost of building",
   );
   // $2/day over ten days, carried to thirty, plus the subscription.
   assert.equal(summary.monthlyAtThisRateUsd, 260);
+});
+
+function keyRow(over: Partial<CostProviderKeyRow> = {}): CostProviderKeyRow {
+  return {
+    key_id: "key_x",
+    label: "Key",
+    product: "PongLens",
+    category: "run",
+    mapped: true,
+    cost_usd: 0,
+    ...over,
+  };
+}
+
+test("provider key spend splits by what each key is for", () => {
+  const split = buildProviderKeySplit(
+    data({
+      provider_keys: [
+        keyRow({ key_id: "k1", category: "run", cost_usd: 10 }),
+        keyRow({ key_id: "k2", category: "build", cost_usd: 4 }),
+      ],
+    }),
+  );
+  assert.equal(split.runUsd, 10);
+  assert.equal(split.buildUsd, 4);
+  assert.equal(split.totalUsd, 14);
+});
+
+test("a mixed key counts toward neither bucket", () => {
+  // The retired shared key served production, research and two other
+  // products at once. Assigning it anywhere would be a guess presented as
+  // a reading, which is the failure this whole split exists to end.
+  const split = buildProviderKeySplit(
+    data({
+      provider_keys: [
+        keyRow({ key_id: "k1", category: "run", cost_usd: 2 }),
+        keyRow({ key_id: "old", category: "mixed", cost_usd: 47 }),
+      ],
+    }),
+  );
+  assert.equal(split.runUsd, 2);
+  assert.equal(split.buildUsd, 0);
+  assert.equal(split.mixedUsd, 47);
+});
+
+test("an undescribed key is surfaced, never dropped or guessed at", () => {
+  const split = buildProviderKeySplit(
+    data({
+      provider_keys: [
+        keyRow({ key_id: "k9", mapped: false, category: "unmapped",
+                 product: "Unmapped", cost_usd: 3 }),
+      ],
+    }),
+  );
+  assert.equal(split.unmappedUsd, 3);
+  assert.equal(split.runUsd + split.buildUsd, 0);
+  assert.deepEqual(split.unmappedRows.map((r) => r.key_id), ["k9"]);
+  assert.equal(split.totalUsd, 3);
+});
+
+test("another product's key is excluded from our totals", () => {
+  const split = buildProviderKeySplit(
+    data({
+      provider_keys: [
+        keyRow({ key_id: "w", product: "WDIMT", category: "run", cost_usd: 12 }),
+        keyRow({ key_id: "p", product: "PongLens", category: "run", cost_usd: 3 }),
+      ],
+    }),
+  );
+  assert.equal(split.runUsd, 3);
+  assert.equal(split.otherProductUsd, 12);
+});
+
+test("rows come back dearest first", () => {
+  const split = buildProviderKeySplit(
+    data({
+      provider_keys: [
+        keyRow({ key_id: "small", cost_usd: 1 }),
+        keyRow({ key_id: "big", cost_usd: 9 }),
+      ],
+    }),
+  );
+  assert.deepEqual(split.rows.map((r) => r.key_id), ["big", "small"]);
 });

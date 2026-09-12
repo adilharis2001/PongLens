@@ -122,6 +122,30 @@ export interface CostPersonRow {
   storage_bytes: number;
 }
 
+/**
+ * What the PROVIDER says one API key spent over the period.
+ *
+ * A second, independent reading of the same money. Our ledger records the
+ * code that made a call and never the credential it used, so it cannot tell
+ * a corpus run from a player's upload — both reach the same function. Since
+ * each purpose got its own key the provider can answer that, and it answers
+ * for spend the meter never saw at all.
+ *
+ * `mapped` false means this key has never been described. It is still shown,
+ * under its raw id: a cost that silently belongs to nobody is the problem
+ * this exists to surface, so the ugliness is the notification.
+ */
+export interface CostProviderKeyRow {
+  key_id: string;
+  label: string;
+  product: string;
+  /** 'mixed' is the honest answer for a key that served several purposes
+   *  and can never be untangled. It counts toward neither bucket. */
+  category: "run" | "build" | "mixed" | "unmapped";
+  mapped: boolean;
+  cost_usd: number;
+}
+
 export interface CostProviderSnapshot {
   provider: string;
   period_start: string;
@@ -167,6 +191,7 @@ export interface CostDashboardData {
   usage: CostUsageRow[];
   fixed_items: CostFixedItem[];
   one_time_items: CostOneTimeItem[];
+  provider_keys: CostProviderKeyRow[];
   people: CostPersonRow[];
   provider_snapshots: CostProviderSnapshot[];
   unmapped: CostUnmappedRow[];

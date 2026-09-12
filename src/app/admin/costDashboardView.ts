@@ -2,6 +2,7 @@ import type {
   CostConfidence,
   CostDashboardData,
   CostPersonRow,
+  CostProviderKeyRow,
   ProviderCostCoefficient,
   SimulationBaseline,
 } from "../../lib/costs/types.ts";
@@ -589,4 +590,69 @@ export function formatStoredBytes(bytes: number): string {
   if (value < 1_000_000) return `${Math.round(value / 1000)} KB`;
   if (value < 1_000_000_000) return `${(value / 1_000_000).toFixed(0)} MB`;
   return `${(value / 1_000_000_000).toFixed(1)} GB`;
+}
+
+/**
+ * OpenAI spend split by what each key is FOR, as the provider reports it.
+ *
+ * This is the only reading that can separate research from production,
+ * because the ledger records the code that spent money and not the
+ * credential it used. It is also the only one that sees spend the meter
+ * never recorded, which is how two afternoons of table-calibration research
+ * became 77% of a three-week bill without appearing anywhere.
+ *
+ * Four buckets, and the last two matter as much as the first two:
+ *   run      serving the people using PongLens
+ *   build    making it: research, tooling, development
+ *   mixed    a key that served both and cannot honestly be split
+ *   unmapped a key nobody has described yet
+ *
+ * `mixed` and `unmapped` are never folded into run or build. Guessing which
+ * they were is how the number stops being trustworthy.
+ */
+export interface ProviderKeySplit {
+  runUsd: number;
+  buildUsd: number;
+  mixedUsd: number;
+  unmappedUsd: number;
+  otherProductUsd: number;
+  totalUsd: number;
+  rows: CostProviderKeyRow[];
+  unmappedRows: CostProviderKeyRow[];
+}
+
+export function buildProviderKeySplit(
+  data: CostDashboardData,
+  product = "PongLens",
+): ProviderKeySplit {
+  const rows = (data.provider_keys ?? [])
+    .slice()
+    .sort((a, b) => numeric(b.cost_usd) - numeric(a.cost_usd));
+  const split: ProviderKeySplit = {
+    runUsd: 0,
+    buildUsd: 0,
+    mixedUsd: 0,
+    unmappedUsd: 0,
+    otherProductUsd: 0,
+    totalUsd: 0,
+    rows,
+    unmappedRows: rows.filter((row) => !row.mapped),
+  };
+  for (const row of rows) {
+    const cost = numeric(row.cost_usd);
+    split.totalUsd += cost;
+    if (!row.mapped) {
+      split.unmappedUsd += cost;
+    } else if (row.product !== product) {
+      // Another product's key. Excluded rather than quietly inflating ours.
+      split.otherProductUsd += cost;
+    } else if (row.category === "run") {
+      split.runUsd += cost;
+    } else if (row.category === "build") {
+      split.buildUsd += cost;
+    } else {
+      split.mixedUsd += cost;
+    }
+  }
+  return split;
 }

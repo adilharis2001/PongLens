@@ -6,6 +6,7 @@ import { formatCost, simulatePlatformCost } from "@/lib/costs/calculations";
 import type { CostDashboardData, SimulationInputs } from "@/lib/costs/types";
 import {
   buildBurnSummary,
+  buildProviderKeySplit,
   buildFeatureCostRows,
   buildProviderCheckRows,
   buildSimulationBaseline,
@@ -126,6 +127,10 @@ export function CostDashboardSection() {
   );
   const featureRows = useMemo(
     () => (data ? buildFeatureCostRows(data) : []),
+    [data],
+  );
+  const keySplit = useMemo(
+    () => (data ? buildProviderKeySplit(data) : null),
     [data],
   );
   const simulation = useMemo(() => {
@@ -361,6 +366,88 @@ export function CostDashboardSection() {
                 />
               </div>
 
+              {keySplit && keySplit.totalUsd > 0 && (
+                <div className="mt-6 overflow-hidden rounded-2xl border border-edge bg-surface">
+                  <div className="border-b border-edge px-5 py-4">
+                    <h3 className="text-sm font-semibold text-zinc-200">
+                      What each OpenAI key spent
+                    </h3>
+                    <p className="mt-1 max-w-2xl text-xs leading-relaxed text-zinc-500">
+                      Reported by OpenAI, not by our meter. This is the only
+                      reading that separates research from production, and the
+                      only one that sees spend the meter never recorded.
+                    </p>
+                  </div>
+                  <div className="grid gap-px bg-edge/60 sm:grid-cols-2 lg:grid-cols-4">
+                    <KeyFigure label="Running" value={keySplit.runUsd} />
+                    <KeyFigure label="Building" value={keySplit.buildUsd} />
+                    <KeyFigure
+                      label="Cannot be split"
+                      value={keySplit.mixedUsd}
+                      detail="Keys that served several purposes at once"
+                    />
+                    <KeyFigure
+                      label="Not described yet"
+                      value={keySplit.unmappedUsd}
+                      detail={
+                        keySplit.unmappedRows.length > 0
+                          ? `${keySplit.unmappedRows.length} key(s) need a label`
+                          : "None"
+                      }
+                      warning={keySplit.unmappedUsd > 0}
+                    />
+                  </div>
+                  <ul className="divide-y divide-edge/60 border-t border-edge">
+                    {keySplit.rows.map((row) => (
+                      <li
+                        key={row.key_id}
+                        className="flex flex-wrap items-center gap-3 px-5 py-3"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="flex flex-wrap items-center gap-2 text-sm text-zinc-200">
+                            {row.label}
+                            <span
+                              className={`rounded-full border px-2 py-0.5 text-[11px] ${
+                                row.category === "build"
+                                  ? "border-cyan-glow/30 text-cyan-glow"
+                                  : row.category === "run"
+                                    ? "border-edge text-zinc-400"
+                                    : "border-amber-500/40 text-amber-300"
+                              }`}
+                            >
+                              {row.category === "run"
+                                ? "Running"
+                                : row.category === "build"
+                                  ? "Building"
+                                  : row.category === "mixed"
+                                    ? "Mixed"
+                                    : "Not described"}
+                            </span>
+                            {row.product !== "PongLens" && row.mapped && (
+                              <span className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-zinc-500">
+                                {row.product}
+                              </span>
+                            )}
+                          </p>
+                          <p className="mt-0.5 font-mono text-[11px] text-zinc-600">
+                            {row.key_id}
+                          </p>
+                        </div>
+                        <p className="shrink-0 text-sm tabular-nums text-zinc-200">
+                          {formatCost(row.cost_usd)}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                  {keySplit.otherProductUsd > 0 && (
+                    <p className="border-t border-edge px-5 py-3 text-xs text-zinc-500">
+                      {formatCost(keySplit.otherProductUsd)} on keys belonging
+                      to other products, excluded from PongLens totals.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.6fr)]">
                 <div className="overflow-hidden rounded-2xl border border-edge bg-surface">
                   <div className="border-b border-edge px-5 py-4">
@@ -567,6 +654,32 @@ export function CostDashboardSection() {
         </>
       ) : null}
     </section>
+  );
+}
+
+function KeyFigure({
+  label,
+  value,
+  detail,
+  warning,
+}: {
+  label: string;
+  value: number;
+  detail?: string;
+  warning?: boolean;
+}) {
+  return (
+    <div className="bg-surface p-4">
+      <p className="text-xs text-zinc-500">{label}</p>
+      <p
+        className={`mt-1 text-lg font-semibold tabular-nums ${
+          warning ? "text-amber-300" : "text-zinc-100"
+        }`}
+      >
+        {formatCost(value)}
+      </p>
+      {detail && <p className="mt-1 text-[11px] text-zinc-600">{detail}</p>}
+    </div>
   );
 }
 
