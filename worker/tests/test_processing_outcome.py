@@ -37,6 +37,25 @@ def test_success_requires_body_record_not_only_nonempty_points(tmp_path):
     assert run.attach(path)['status'] == 'unknown'
 
 
+def test_publication_keeps_rally_policy_and_measured_card_clock(tmp_path):
+    policy = {'name': 'agreement_plus_table_supported_continuation_v2',
+              'status': 'used', 'joined_seams': 3}
+    points = [{'t0': 100, 't1': 120, 'cut_t0': 72.814,
+               'rally_end_cut_s': 91.314}]
+    original = {'pipeline': 'bodies', 'points': points,
+                'cut_segments': [[99, 122]], 'cut_segment_offsets': [71.814],
+                'processing': {'body': {'status': 'used'}, 'rally_policy': policy}}
+    path = tmp_path / 'match.json'
+    path.write_text(json.dumps(original))
+    run = outcome.ProcessingRun('job:1', 'job', 'bodies', {}, 'release-a', 'v2')
+    for _ in range(2):
+        assert run.attach(path)['status'] == 'used'
+        published = json.loads(path.read_text())
+        assert published['processing'].get('rally_policy') == policy
+        assert published['points'] == points
+        assert published['cut_segment_offsets'] == [71.814]
+
+
 def test_v3_error_does_not_hide_successful_body_assembly(tmp_path):
     run = outcome.ProcessingRun('job:1', 'job', 'bodies', {}, 'release-a', 'v2')
     path = tmp_path / 'match.json'

@@ -185,6 +185,10 @@ class ProcessingRun:
             self.status, self.reason_code = 'not_requested', None
         self.output_ready_at = now()
         match['processing'] = {**self.record(), 'body': self.body, 'edges': self.edges}
+        # Preserve the selected assembler's bounded rule provenance when
+        # attaching parent health/publication metadata, including retries.
+        if isinstance(child.get('rally_policy'), dict):
+            match['processing']['rally_policy'] = child['rally_policy']
         atomic_json(path, match)
         return self.record()
 
