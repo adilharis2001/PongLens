@@ -365,6 +365,7 @@ function data(
       unmapped_count: 0,
       attributed_usd: 0,
       unattributed_usd: 0,
+      provider_keys_fetched_at: null,
     },
     simulation_baseline: {
       registered_users: 0,
@@ -531,6 +532,7 @@ test("the attributed share says how much of the People tab is measured", () => {
         unmapped_count: 0,
         attributed_usd: 3,
         unattributed_usd: 1,
+        provider_keys_fetched_at: null,
       },
     }),
   );

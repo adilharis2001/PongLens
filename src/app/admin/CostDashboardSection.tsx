@@ -377,6 +377,31 @@ export function CostDashboardSection() {
                       reading that separates research from production, and the
                       only one that sees spend the meter never recorded.
                     </p>
+                    {(() => {
+                      const at = data.health.provider_keys_fetched_at;
+                      const days = at
+                        ? (Date.now() - Date.parse(at)) / 86_400_000
+                        : Infinity;
+                      // The job that writes this runs from a sealed worker
+                      // release. It can stop without anything failing, so the
+                      // page says when it last ran rather than presenting old
+                      // numbers as current.
+                      return (
+                        <p
+                          className={`mt-2 text-xs ${
+                            days > 2 ? "text-amber-300" : "text-zinc-600"
+                          }`}
+                        >
+                          {at
+                            ? `Last collected ${new Date(at).toLocaleString()}${
+                                days > 2
+                                  ? " — stale, so these figures are not current"
+                                  : ""
+                              }`
+                            : "Never collected"}
+                        </p>
+                      );
+                    })()}
                   </div>
                   <div className="grid gap-px bg-edge/60 sm:grid-cols-2 lg:grid-cols-4">
                     <KeyFigure label="Running" value={keySplit.runUsd} />

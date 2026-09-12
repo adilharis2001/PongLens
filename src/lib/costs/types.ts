@@ -205,6 +205,11 @@ export interface CostDashboardData {
      *  more call sites learn to name a subject. */
     attributed_usd: number;
     unattributed_usd: number;
+    /** When the per-key provider costs were last written. The job that
+     *  fills them runs from a sealed worker release, not from main, so it
+     *  can stop without anything failing — and a split that has quietly
+     *  stopped moving is worse than one that is missing. */
+    provider_keys_fetched_at: string | null;
   };
   simulation_baseline: {
     registered_users: number;
