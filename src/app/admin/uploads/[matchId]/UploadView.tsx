@@ -639,6 +639,7 @@ export function UploadView({
                   onThemeToggle={toggleTheme}
                   onThemeCreated={addTheme}
                   onThemeDeleted={dropTheme}
+                  userSide={match.user_side}
                 />
               ))}
             </ul>

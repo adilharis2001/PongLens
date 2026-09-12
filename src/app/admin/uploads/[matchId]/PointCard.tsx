@@ -44,6 +44,33 @@ import { ServeMissView } from "./ServeMissView";
  * button was off the side of the screen and could not be reached at all.
  */
 
+/**
+ * Who V3 thinks served, in the names this match uses.
+ *
+ * V3 answers with an END of the table, not a person, because it reads the
+ * server off geometry: the arrival test catches the ball coming onto the
+ * table and the first place it lands is the server's OWN half, so the half
+ * of that bounce IS the server. (The worker has this the other way round in
+ * its history — measured against the scorekeeper's rotation on 126 cards,
+ * inverted read 31% and this way round reads 81%.)
+ *
+ * Turning an end into a name needs `matches.user_side`, which 47 of 179
+ * matches do not have. Without it the end is still a real answer and is
+ * named as one rather than guessed into a person.
+ */
+function v3Server(
+  half: "near" | "far" | null | undefined,
+  userSide: string | null | undefined,
+  names: { user: string; opponent: string }
+): { text: string; who: "user" | "opponent" | null } {
+  if (!half) return { text: "", who: null };
+  if (userSide !== "near" && userSide !== "far") {
+    return { text: `${half} end`, who: null };
+  }
+  const who = half === userSide ? "user" : "opponent";
+  return { text: who === "user" ? names.user : names.opponent, who };
+}
+
 export function PointCard({
   row,
   serve,
@@ -68,6 +95,7 @@ export function PointCard({
   onThemeToggle,
   onThemeCreated,
   onThemeDeleted,
+  userSide,
 }: {
   row: UploadPointRow;
   serve: ServeInfo | null;
@@ -110,6 +138,10 @@ export function PointCard({
   onThemeToggle?: (pointId: string, themeId: string, on: boolean) => void;
   onThemeCreated?: (theme: Theme) => void;
   onThemeDeleted?: (themeId: string) => void;
+  /** Which end of the table the uploader played from, so V3's answer can
+   *  be given as a name instead of an end. Null on a match that never
+   *  recorded it. */
+  userSide?: string | null;
 }) {
   const [openMiss, setOpenMiss] = useState(false);
   const flags = pointFlags(row);
@@ -207,6 +239,32 @@ export function PointCard({
                 {trimmedS.toFixed(1)}s trimmed
               </span>
             )}
+            {/* V3's own read of who served, which is independent of the
+                rotation on the line above: that one is COUNTED OUT from
+                the scoring, this one is seen in the geometry. Where they
+                disagree is the only interesting part, so that is the only
+                part that gets a colour. */}
+            {miss?.serve_source === "v3" && miss.serve_half && (() => {
+              const v3 = v3Server(miss.serve_half, userSide, names);
+              const disagrees =
+                v3.who !== null && serve?.server != null && v3.who !== serve.server;
+              return (
+                <span
+                  title={
+                    disagrees
+                      ? "V3 read a different server from the one the scoring rotation counts out"
+                      : "Who V3 read as the server, from the half its qualifying bounce landed on"
+                  }
+                  className={
+                    disagrees
+                      ? "rounded border border-amber-400/40 px-1.5 py-px text-amber-300"
+                      : "rounded border border-edge px-1.5 py-px text-zinc-400"
+                  }
+                >
+                  V3: {v3.text}
+                </span>
+              );
+            })()}
             {miss &&
               (typeof miss.serve_s === "number" ? (
                 <span className="rounded border border-edge px-1.5 py-px text-zinc-400">
