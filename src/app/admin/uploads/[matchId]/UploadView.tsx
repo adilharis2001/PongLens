@@ -536,23 +536,6 @@ export function UploadView({
         </p>
       </section>
 
-      {/* The worker's own log */}
-      {matchJson?.notes && matchJson.notes.length > 0 && (
-        <section className="mt-8">
-          <h2 className="text-lg font-semibold">What the pipeline said</h2>
-          <ul className="mt-3 space-y-2">
-            {matchJson.notes.map((note, i) => (
-              <li
-                key={i}
-                className="rounded-xl border border-edge bg-surface px-4 py-3 text-sm text-zinc-400"
-              >
-                {note}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
       {/* The cards */}
       <section className="mt-8">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
