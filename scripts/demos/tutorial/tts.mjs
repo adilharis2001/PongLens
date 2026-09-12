@@ -72,7 +72,7 @@ function apiKey() {
   try {
     return execFileSync(
       "security",
-      ["find-generic-password", "-a", "openclaw", "-s", "openai-api-key", "-w"],
+      ["find-generic-password", "-a", "openclaw", "-s", "ponglens-openai-research", "-w"],
       { encoding: "utf8" }
     ).trim();
   } catch {
