@@ -84,3 +84,52 @@ measurement.
 Reproduce with `probe.py` (coverage), `ruler.py` (the 94%), `probe2.py`
 (the net-crossing test) and `diag.py` (the disagreements), against
 `serves.json` bundles pulled into `sj/`.
+
+---
+
+## Judged by eye (Adil, 2026-09-13)
+
+24 cases reviewed on the artifact, with a fourth verdict added partway
+through because he hit a failure the three original buttons could not
+express: the LANDING was wrong because the SERVER was wrong.
+
+| | right | landing wrong | server wrong | couldn't tell |
+| --- | ---: | ---: | ---: | ---: |
+| new (old rule silent) | 6 | 0 | 3 | 1 |
+| agrees with old rule | 4 | 1 | 1 | 0 |
+| disagrees with old rule | 0 | 1 | 4 | 0 |
+| no landing found | 0 | 0 | 0 | 3 |
+| **total** | **10** | **2** | **8** | **4** |
+
+**Four in five failures are upstream.** The landing search itself is wrong
+twice in twenty. Given a server read that is right, it lands 10 of 12.
+
+**Every case where it disagreed with the old bounce-pair rule was a
+failure — 5 for 5.** Where that rule gives a landing and this search gives
+a different one, this search is the one that is wrong. If a landing is
+ever shipped, prefer the old rule's where it has one and derive only where
+it is silent. That is exactly the "new" column, which he marked 6 right
+out of 9 judged.
+
+**His unprompted read: "some of the ones in the beginning were quite
+spectacularly correct."** Those were all "new" — landings that did not
+exist at all before.
+
+### The two signals, against his ruler
+
+**Flight time.** A real serve pair is ~0.4s. Median 0.43s on the ones he
+called right, 0.94s on the wrong-server ones. At a 0.8s threshold it
+catches 5 of 8 failures and costs 2 of 10 good ones. A flag, not a gate.
+
+**Net crossing order.** A bounce before the first crossing after contact is
+on the server's own side. Caught **6 of the 8** wrong server reads, and
+disputed **3 of the 10** that were right. Shipped as a "?" on the admin
+chip rather than as a correction: a second opinion wrong three times in
+ten must not overrule a detector on a page used to decide what to trust.
+
+### Not a measurement of V3
+
+The sample was deliberately weighted to failure cases, so 8 wrong server
+reads in 20 is NOT V3's server accuracy. The corpus figure stands at the
+worker's own measurement (81% on 126 cards). Do not quote this table as a
+rate.
