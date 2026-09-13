@@ -39,6 +39,12 @@ test("a requested match waiting for its worker says it is waiting", () => {
   );
 });
 
+test("an offline service delays queued work even before a worker is assigned", () => {
+  assert.equal(processingStageLabel(feedback({ job_status: "queued", worker_state: "missing", service_state: "unavailable" })), "Processing is delayed");
+  assert.equal(processingStageLabel(feedback({ job_status: "queued", worker_state: "missing", service_state: "maintenance" })), "Paused for maintenance");
+  assert.equal(processingStageLabel(feedback({ job_status: "done", service_state: "unavailable" })), null);
+});
+
 
 test("the live worker stage uses calm player language", () => {
   const cases: [string, string][] = [

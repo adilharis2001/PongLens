@@ -19,6 +19,7 @@ import type {
 import { TagGlyph, TagPicker } from "./Tags";
 import { deriveMatchTitleParts } from "@/lib/matchTitle";
 import { ShareSheet } from "@/components/ShareSheet";
+import { ClipAvailabilityNotice } from "@/components/ClipAvailabilityNotice";
 import { ShareWithCoachSheet } from "@/components/ShareWithCoach";
 import { CoachCta } from "@/components/reviews/CoachCta";
 import { OriginalVideoButton } from "@/components/OriginalVideo";
@@ -3135,6 +3136,7 @@ export function MatchView({
           <section className="mt-8 scroll-mt-32" ref={toolsRef}>
           <SectionHeading>Tools</SectionHeading>
           <div className="mt-3 w-full divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface lg:grid lg:grid-cols-3 lg:gap-3 lg:divide-y-0 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent">
+            <ClipAvailabilityNotice />
             {hasCutOffsets && scored && (
               <button
                 type="button"

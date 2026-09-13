@@ -24,6 +24,9 @@ import { SpokenGamesToggle, SpokenLine, cleanSpoken } from "./SpokenScore";
 import { useRouter } from "next/navigation";
 import { AllowanceRecovery } from "@/components/AllowanceRecovery";
 import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
+import { useProcessingService } from "@/lib/useProcessingService";
+import { availabilityNotice, serviceLane, processingContext, processingExitMessage } from "@/lib/processingAvailability";
+import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
 import { cameraViewWarning, processingStageLabel } from "@/lib/processingFeedback";
 import { NoteComposer, NoteItem } from "./Notes";
 
@@ -104,6 +107,7 @@ export function RawMatchView({
   );
   const feedbackByMatch = useProcessingFeedback(isOwner ? [match.id] : []);
   const feedback = feedbackByMatch[match.id] ?? null;
+  const services = useProcessingService();
   const processingLabel = processingStageLabel(feedback);
   const cameraWarning = cameraViewWarning(feedback, trimStart, trimEnd ?? Infinity);
   const [placement, setPlacement] = useState(false);
@@ -111,6 +115,9 @@ export function RawMatchView({
     "normal",
   );
   const [job, setJob] = useState<ActiveJob | null>(initialJob);
+  const serviceState = services[feedback?.lane ?? serviceLane(feedback?.job_kind ?? job?.kind)];
+  const availabilityContext = processingContext(feedback?.job_kind ?? job?.kind, !!match.raw_path);
+  const serviceNotice = availabilityNotice(serviceState, availabilityContext);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [availableMinutes, setAvailableMinutes] = useState(minutesBalance);
@@ -710,6 +717,7 @@ export function RawMatchView({
 
       {jobRunning && (
         <section className="mt-4 rounded-2xl border border-edge bg-surface p-5">
+          {serviceNotice ? <ProcessingAvailabilityNotice state={serviceState} context={availabilityContext} className="" /> : <>
           <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
             {processingLabel ?? "Processing"}
           </h2>
@@ -720,8 +728,9 @@ export function RawMatchView({
             />
           </div>
           <p className="mt-3 text-sm text-zinc-400">
-            You can leave this page. We email you when the match is ready.
+            {processingExitMessage(availabilityContext)}
           </p>
+          </>}
           {cameraWarning && <p className="mt-3 text-sm text-amber-300/90">{cameraWarning}</p>}
         </section>
       )}
@@ -754,6 +763,7 @@ export function RawMatchView({
 
       {isOwner && !jobRunning && commerceEnabled && !sourceGone && (
         <section className="mt-4 overflow-hidden rounded-2xl border border-edge bg-surface">
+          <ProcessingAvailabilityNotice state={services.main} context="saved_idle" className="px-5 pt-5" />
           {/* Closed by default. This screen's job is "watch this and
               decide", and it used to open on a trim bar, two settings and
               a price. Closed it states the offer and the cost in one line;

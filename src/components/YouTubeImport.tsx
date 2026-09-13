@@ -1,4 +1,7 @@
 "use client";
+import { useProcessingService } from "@/lib/useProcessingService";
+import { availabilityNotice } from "@/lib/processingAvailability";
+import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
 import { AllowanceRecovery } from "./AllowanceRecovery";
 import { uploadAllowanceResource, importNeedsMinutes } from "@/lib/commerce/allowanceRecovery";
 
@@ -173,10 +176,12 @@ export function YouTubeImport({
   // Locks when the worker passes its post-download options re-read
   // (status 'processing' with progress >= 10, or a terminal status).
   const [processingLocked, setProcessingLocked] = useState(false);
+  const services = useProcessingService();
   const jobIdRef = useRef<string | null>(null);
   const jobOptionsRef = useRef<Record<string, unknown> | null>(null);
   const importedIdRef = useRef<string | null>(null);
   const [importedMatch, setImportedMatch] = useState<{ id: string; status: string; duration_s: number | null } | null>(null);
+  const importNotice = importedMatch?.status === "ready" || importedMatch?.status === "failed" ? null : availabilityNotice(services.main, "import");
   const [importMinutes, setImportMinutes] = useState<number | null>(null);
   const [importShort, setImportShort] = useState(false);
   const [importProblem, setImportProblem] = useState<string | null>(null);
@@ -506,12 +511,14 @@ export function YouTubeImport({
       <section className="rounded-2xl border border-edge bg-surface p-5 sm:p-8">
         <h2 className="text-lg font-semibold">Import from YouTube</h2>
         <div className="mt-6">
+          {importNotice ? <ProcessingAvailabilityNotice state={services.main} context={importedMatch ? importedMatch.status === "uploaded" ? "saved_idle" : "saved_match" : "import"} className="" /> : <>
           <p className={needsMinutes ? "text-sm text-zinc-300" : "text-center text-sm font-medium text-emerald-400"}>
             {importedMatch ? needsMinutes ? "Imported. Your video needs more minutes to process." : importedMatch.status === "uploaded" ? "Imported. Your video is saved in your library." : "Imported. Your video is in your library." : "We're fetching it. You can leave this page."}
           </p>
           {!needsMinutes && <p className="mt-1 text-center text-xs text-zinc-500">
             {importedMatch?.status === "uploaded" ? "You can continue processing when you're ready." : "You'll get an email when your match is ready."}
           </p>}
+          </>}
           {needsMinutes && <AllowanceRecovery resource="minutes" retryLabel="Try processing again" onRetry={processImported} />}
           {importProblem && <p role="alert" className="mt-3 text-sm text-amber-300">{importProblem}</p>}
           {importProblem && !needsMinutes && importedMatch?.status === "uploaded" && <button type="button" disabled={importBusy} onClick={() => void processImported()} className="mt-3 min-h-11 w-full rounded-full border border-edge px-4 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50 sm:w-auto">{importBusy ? "Starting…" : "Try processing again"}</button>}
@@ -786,6 +793,7 @@ export function YouTubeImport({
         Public or unlisted videos, up to 45 minutes. It must be your footage
         or footage you have the rights to.
       </p>
+      <ProcessingAvailabilityNotice state={services.main} context="before_import" />
 
       <div className="mt-5 flex flex-col gap-3 sm:flex-row">
         <div className="relative w-full flex-1">

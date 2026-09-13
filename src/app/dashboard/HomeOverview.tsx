@@ -1,5 +1,8 @@
 "use client";
 import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
+import { useProcessingService } from "@/lib/useProcessingService";
+import { availabilityNotice, serviceLane } from "@/lib/processingAvailability";
+import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
 import { processingStageLabel } from "@/lib/processingFeedback";
 
 import Link from "next/link";
@@ -115,6 +118,7 @@ export function HomeOverview({
   const [reelError, setReelError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  const services = useProcessingService();
 
   const fetchAll = useCallback(async () => {
     const supabase = createClient();
@@ -333,6 +337,11 @@ export function HomeOverview({
     (m) => m.status === "processing" || liveJobFor(m.id, m.job_id, jobs) !== null
   );
   const activeWork = pendingPointJobs.length + processingMatches.length;
+  const waitingService = [
+    ...pendingPointJobs.map((j) => services[serviceLane(j.kind, services.clip_lane)]),
+    ...processingMatches.map((m) => services[processingFeedback[m.id]?.lane
+      ?? serviceLane(liveJobFor(m.id, m.job_id, jobs)?.kind, services.clip_lane)]),
+  ].find((state) => state === "unavailable" || state === "maintenance");
 
   // Legacy cut-only jobs, plus finished point jobs that never got a match
   // row (their cut video is still worth surfacing). Internal job kinds
@@ -441,6 +450,8 @@ export function HomeOverview({
         </section>
       ) : activeWork > 0 ? (
         <section className="rounded-2xl border border-edge bg-surface p-5">
+          {waitingService ?
+            <ProcessingAvailabilityNotice state={waitingService} context="queued_work" className="" /> : <>
           <div className="flex items-center gap-3">
             <Chip
               s={
@@ -459,6 +470,7 @@ export function HomeOverview({
           <p className="mt-2 text-xs text-zinc-500">
             We&apos;ll email you when your match is ready.
           </p>
+          </>}
           {latestReady && (
             <div className="mt-4 border-t border-edge/60 pt-4">
               <ArrowLink
@@ -781,7 +793,7 @@ export function HomeOverview({
                       {m ? formatDate(m.played_at) : formatDate(r.updated_at)}
                       {" · "}
                       {rendering ? (
-                        <span className="text-amber-300">Rendering…</span>
+                        <span className="text-amber-300">{availabilityNotice(services[serviceLane("reel", services.clip_lane, r.scope)], "export") ? "Waiting for processing" : "Rendering…"}</span>
                       ) : r.status === "failed" ? (
                         <span className="text-red-400">Failed</span>
                       ) : r.duration_s !== null ? (
