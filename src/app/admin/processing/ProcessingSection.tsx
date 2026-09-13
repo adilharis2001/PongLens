@@ -8,6 +8,7 @@ import { ProcessingHealthSection } from "./ProcessingHealthSection";
 import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
 import { useProcessingEstimates } from "@/lib/useProcessingEstimates";
 import { useProcessingService } from "@/lib/useProcessingService";
+import { waitingProcessingServiceState } from "@/lib/waitingProcessingEstimate";
 import {
   agoLabel,
   buildWorkerRows,
@@ -315,7 +316,7 @@ export function ProcessingSection() {
                   </p>
                 )}
                 <ProcessingEstimateNote compact className="mt-1" estimate={estimates[job.id]} jobStatus="queued"
-                  serviceState={services[job.kind === "hand_cut" ? "hand" : "main"]} />
+                  serviceState={waitingProcessingServiceState(job.kind, services)} />
               </div>
               <div className="shrink-0 text-right">
                 <p
