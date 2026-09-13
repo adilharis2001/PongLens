@@ -18,10 +18,23 @@ def message(row, number, vt=NOW, read_ct=0):
 
 
 def snapshot(messages, active=None, **fields):
+    # Private RPC receipt shape, including the metadata needed to distinguish
+    # an older closed attempt from a delivery just read by pgmq.
+    for row in [m['job'] for m in messages]+([active] if active else []):
+        if 'receipts' not in row:
+            attempt=row.get('receipt_attempt',1)
+            lane=row.get('receipt_lane','main')
+            row['receipt_attempt']=attempt
+            row['receipts']={event:dict(attempt=attempt,lane=lane,recorded_at=at,details={})
+                             for event,at in row.get('events',{}).items()}
+        if row.get('profile') and 'profile' not in row['receipts']:
+            row['receipts']['profile']=dict(attempt=row['receipt_attempt'],lane=row.get('receipt_lane','main'),
+                recorded_at=row.get('events',{}).get('claimed',NOW),details=row['profile'])
     return dict(observed_at=NOW, points_pipeline='bodies', lanes=[dict(
         lane='main', availability='available', pulse={'beat_at': NOW, 'job_id': active['id'] if active else None,
         'stage': 'points' if active else 'idle'}, active=active,
-        messages=messages, overflow=False, **fields)])
+        messages=messages, active_message=next((m for m in messages if active and m['job']['id']==active['id']),None),
+        overflow=False, **fields)])
 
 
 class QueueEstimateTests(unittest.TestCase):
@@ -146,6 +159,55 @@ class QueueEstimateTests(unittest.TestCase):
         row=job('active',events={'claimed':'2026-09-13T11:59:00+00:00','released':'2026-09-13T12:01:00+00:00'})
         row['status']='done'
         self.assertEqual(self.estimate(snapshot([message(job('next'),2)],row))['next']['reason'],'active_evidence_missing')
+
+    def test_read_before_pulse_cannot_be_mistaken_for_delayed_enqueue(self):
+        data=snapshot([message(job('read'),1,'2026-09-13T12:30:00+00:00',1),message(job('next'),2)])
+        result=self.estimate(data)
+        self.assertEqual(result['next']['reason'],'active_evidence_missing')
+        self.assertIsNone(result['next']['start_latest_at'])
+
+    def test_second_read_requires_second_attempt_closure_even_with_old_pulse(self):
+        for pulse_present in (False,True):
+            row=job('read',events={'claimed':'2026-09-13T11:29:00+00:00',
+                'failed':'2026-09-13T11:30:00+00:00','released':'2026-09-13T11:30:01+00:00'})
+            row['status']='failed'
+            data=snapshot([message(row,1,'2026-09-13T12:30:00+00:00',2),message(job('next'),2)],row if pulse_present else None)
+            self.assertEqual(self.estimate(data)['next']['reason'],'active_evidence_missing')
+
+    def test_invalid_profile_receipt_never_supports_active_or_queued_clock(self):
+        for active in (True,False):
+            for field,value in [('recorded_at','2026-09-13T12:01:00+00:00'),('lane','fast'),('attempt',2)]:
+                row=job('work',events={'claimed':'2026-09-13T11:59:00+00:00'},
+                    profile={'duration_s':100,'fps':30,'route':'bodies:no-placement'})
+                row['status']='processing' if active else 'queued'
+                data=snapshot([message(job('next'),2)] if active else [message(row,1)],row if active else None)
+                row['receipts']['profile'][field]=value
+                target='next' if active else 'work'
+                self.assertEqual(self.estimate(data)[target]['reason'],'active_evidence_missing')
+
+    def test_impossible_receipt_order_or_ready_status_removes_all_clocks(self):
+        for status,events in [
+            ('done',{'claimed':'2026-09-13T11:50:00+00:00','released':'2026-09-13T11:58:00+00:00','ready':'2026-09-13T11:59:00+00:00'}),
+            ('processing',{'claimed':'2026-09-13T11:50:00+00:00','ready':'2026-09-13T11:59:00+00:00'}),
+            ('done',{'claimed':'2026-09-13T11:50:00+00:00','failed':'2026-09-13T11:58:00+00:00','ready':'2026-09-13T11:59:00+00:00'}),
+            ('failed',{'claimed':'2026-09-13T11:50:00+00:00','released':'2026-09-13T11:58:00+00:00','failed':'2026-09-13T11:59:00+00:00'})]:
+            row=job('work',1000,events=events); row['status']=status
+            result=self.estimate(snapshot([message(job('next'),2)],row))
+            self.assertEqual(result['next']['reason'],'active_evidence_missing')
+            if 'work' in result: self.assertIsNone(result['work']['ready_latest_at'])
+
+    def test_valid_ready_tail_failure_can_close_before_status_update(self):
+        row=job('work',events={'claimed':'2026-09-13T11:50:00+00:00','ready':'2026-09-13T11:58:00+00:00',
+            'failed':'2026-09-13T11:59:00+00:00','released':'2026-09-13T11:59:01+00:00'})
+        row['status']='done'
+        self.assertEqual(self.estimate(snapshot([message(job('next'),2)],row))['next']['start_latest_at'],NOW)
+
+    def test_failed_release_can_flush_before_outer_status_update(self):
+        row=job('work',events={'claimed':'2026-09-13T11:50:00+00:00',
+            'failed':'2026-09-13T11:59:00+00:00','released':'2026-09-13T11:59:01+00:00'})
+        row['status']='processing'
+        result=self.estimate(snapshot([message(row,1,'2026-09-13T12:20:00+00:00',1),message(job('next'),2)]))
+        self.assertEqual(result['next']['start_latest_at'],NOW)
 
 
 if __name__=='__main__':

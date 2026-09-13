@@ -31,6 +31,41 @@ def number(value):
     return isinstance(value, (float, int)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
 
 
+def valid_receipts(job, lane, now):
+    """Check provenance before either using a profile or freeing capacity.
+
+    FAILED and RELEASED are emitted while unwinding process_job, before the
+    outer loop updates status to failed. A post-READY tail can also fail;
+    READY→FAILED→RELEASED with status still done is therefore legitimate.
+    """
+    receipts=job.get('receipts') or {}
+    if not receipts:
+        return not (job.get('events') or job.get('profile'))
+    attempt=job.get('receipt_attempt')
+    if not isinstance(attempt,int) or isinstance(attempt,bool) or attempt<1:
+        return False
+    previous=None
+    for event in ('claimed','profile','ready','failed','released'):
+        receipt=receipts.get(event)
+        if receipt is None:
+            continue
+        if receipt.get('attempt')!=attempt or receipt.get('lane')!=lane or not receipt.get('recorded_at'):
+            return False
+        at=stamp(receipt['recorded_at'])
+        if at>now or (previous is not None and at<previous):
+            return False
+        previous=at
+    if job.get('profile') and 'profile' not in receipts:
+        return False
+    if 'ready' in receipts and not (job['status']=='done' or (job['status']=='failed' and 'failed' in receipts)):
+        return False
+    return True
+
+
+def attempt_closed(job):
+    return bool((job.get('receipts') or {}).keys() & {'failed','released'})
+
+
 def workload(job, lane, pipeline):
     """Return READY, occupancy, tail bounds and provenance, or unknown.
 
@@ -103,25 +138,43 @@ def estimate(snapshot):
     for lane in snapshot['lanes']:
         active = lane.get('active')
         events = (active or {}).get('events') or {}
-        bad_receipts = any(stamp(value)>now or (events.get('claimed') and stamp(value)<stamp(events['claimed']))
-                           for value in events.values())
-        closed = bool(events.get('released') or events.get('failed'))
+        messages=list(lane.get('messages',[]))
+        active_message=lane.get('active_message')
+        if active_message and active and not any(m['msg_id']==active_message['msg_id'] for m in messages):
+            messages.append(dict(active_message,job=active))
+        candidates=[m for m in messages if m.get('job') and m['job']['status'] not in ('done','cancelled')
+                    and not m['job'].get('terminal')]
+        bad_receipts=bool(active and not valid_receipts(active,lane['lane'],now))
+        bad_receipts=bad_receipts or any(not valid_receipts(m['job'],lane['lane'],now) for m in candidates)
+        # pgmq.read advances read_ct and vt before status/pulse/telemetry.
+        # Even read_ct==2 can be a currently running delivery, not an exhausted
+        # failed message. Check ambiguity before filtering retry budgets.
+        for m in candidates:
+            row=m['job']; read_ct=m.get('read_ct',0)
+            if read_ct>0 and stamp(m['vt'])>now:
+                same_attempt=row.get('receipt_attempt')==read_ct
+                current=bool(active and row['id']==active['id'] and row['status']=='processing'
+                             and (row.get('receipts') or {}).get('claimed'))
+                if not same_attempt or not (current or attempt_closed(row)):
+                    bad_receipts=True
+        if active and active_message and active_message.get('read_ct',0)>0:
+            bad_receipts=bad_receipts or active.get('receipt_attempt')!=active_message['read_ct']
+        closed=bool(active and attempt_closed(active))
         if closed and not bad_receipts:
             active = None
-        pending = [m for m in lane.get('messages', []) if m.get('job') and
-                   m['job']['status'] not in ('done','cancelled') and
-                   m.get('read_ct', 0) < 2 and not m['job'].get('terminal') and
+        pending = [m for m in candidates if m.get('read_ct', 0) < 2 and
                    (not active or m['job']['id'] != active['id'])]
         targets = [m['job'] for m in pending] + ([active] if active and active['status'] not in ('done','cancelled') else [])
         failure = None
         pulse = lane.get('pulse') or {}
         if lane['availability'] != 'available':
             failure = 'service_' + lane['availability']
-        elif lane.get('overflow'):
+        elif lane.get('overflow') or len(pending)>256:
             failure = 'queue_overflow'
         elif (not pulse.get('beat_at') or stamp(pulse['beat_at']) < now-timedelta(seconds=90)
               or stamp(pulse['beat_at']) > now+timedelta(seconds=5)
-              or lane.get('contradictory') or bad_receipts or any(m['job']['status']=='processing' for m in pending)
+              or lane.get('contradictory') or bad_receipts
+              or any(m['job']['status']=='processing' and not attempt_closed(m['job']) for m in pending)
               or (pulse.get('job_id') and not lane.get('active'))):
             failure = 'active_evidence_missing'
         elif pulse.get('stage') in ('drained','release_invalid','paused'):

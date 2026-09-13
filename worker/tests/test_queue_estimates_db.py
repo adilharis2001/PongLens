@@ -57,10 +57,10 @@ class QueueEstimateDatabaseTests(unittest.TestCase):
               create table public.processing_ledger(job_id uuid,kind text);
               create table public.worker_pulse(worker_id text primary key,host text,lane text,beat_at timestamptz,
                 job_id uuid,stage text);
-              create schema pgmq;
-              create table pgmq.q_jobs(msg_id bigint primary key,read_ct integer,vt timestamptz,enqueued_at timestamptz,message jsonb);
-              create table pgmq.q_jobs_fast(like pgmq.q_jobs including all);
-              create table pgmq.q_jobs_hand(like pgmq.q_jobs including all);
+              create extension pgmq;
+              select pgmq.create('jobs');
+              select pgmq.create('jobs_fast');
+              select pgmq.create('jobs_hand');
             ''')
             for name in ('20260912220000_upload_processing_feedback.sql','20260913060000_processing_availability.sql','20260913062000_processing_estimates.sql'):
                 path=ROOT/'supabase/migrations'/name
@@ -80,7 +80,7 @@ class QueueEstimateDatabaseTests(unittest.TestCase):
             cur.execute("insert into public.jobs(id,user_id,kind,options,source_duration_s,source_fps,source_metadata_verified_at) values(%s,%s,'deadspace_cut','{\"points\":true}',100,30,now())",(JOB,OWNER))
             cur.execute("insert into public.matches(id,user_id,job_id) values(%s,%s,%s)",(MATCH,OWNER,JOB))
             cur.execute("insert into public.worker_pulse values('mac:main','mac','main',now(),null,'idle')")
-            cur.execute("insert into pgmq.q_jobs values(1,0,now(),now(),%s::jsonb)",(json.dumps({'job_id':JOB}),))
+            cur.execute("insert into pgmq.q_jobs overriding system value values(1,0,now(),now(),%s::jsonb)",(json.dumps({'job_id':JOB}),))
         self.conn.commit()
 
     def tearDown(self):
@@ -150,7 +150,7 @@ class QueueEstimateDatabaseTests(unittest.TestCase):
 
     def test_inputs_limited_100_snapshot_overflow_and_source_profile(self):
         self.query("insert into public.jobs(id,user_id,kind,options) select md5(i::text)::uuid,%s,'deadspace_cut','{\"points\":true}' from generate_series(1,257)i",(OWNER,))
-        self.query("insert into pgmq.q_jobs select i+1,0,now(),now(),jsonb_build_object('job_id',md5(i::text)::uuid) from generate_series(1,257)i")
+        self.query("insert into pgmq.q_jobs overriding system value select i+1,0,now(),now(),jsonb_build_object('job_id',md5(i::text)::uuid) from generate_series(1,257)i")
         snap=self.query('select public.processing_estimate_snapshot()')
         self.assertTrue(snap['lanes'][0]['overflow'])
         self.assertEqual(len(snap['lanes'][0]['messages']),256)
@@ -201,6 +201,83 @@ class QueueEstimateDatabaseTests(unittest.TestCase):
         result=self.query('select estimate from public.processing_estimate_cache')
         self.assertTrue(result['observed_at'].endswith('+00:00'))
         self.query("set time zone 'UTC'")
+
+    def event(self,event,ago='1 minute',attempt=1,lane='main',details=None):
+        self.query("insert into public.match_processing_events(attempt_key,job_id,attempt,lane,event,recorded_at,details) values(%s,%s,%s,%s,%s,now()-%s::interval,%s::jsonb)",
+            (JOB+':'+str(attempt),JOB,attempt,lane,event,ago,json.dumps(details or {})))
+
+    def next_job(self):
+        key='dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+        self.query("insert into public.jobs(id,user_id,kind,options,source_duration_s,source_fps,source_metadata_verified_at) values(%s,%s,'deadspace_cut','{\"points\":true}',100,30,now())",(key,OWNER))
+        self.query("insert into pgmq.q_jobs overriding system value values(2,0,now(),now(),%s::jsonb)",(json.dumps({'job_id':key}),))
+        return key
+
+    def test_read_to_pulse_transition_and_new_delivery_old_receipts_are_unknown(self):
+        from queue_estimates import estimate
+        key=self.next_job()
+        # Exercise the real queue read before any worker status/pulse/receipts.
+        self.assertEqual(self.query("select msg_id from pgmq.read('jobs',1800,1)"),1)
+        result=estimate(self.query('select public.processing_estimate_snapshot()'))
+        self.assertEqual(result[key]['reason'],'active_evidence_missing')
+        self.event('claimed','31 minutes'); self.event('failed','30 minutes'); self.event('released','29 minutes')
+        self.query("update public.jobs set status='failed' where id=%s",(JOB,))
+        safe=estimate(self.query('select public.processing_estimate_snapshot()'))
+        self.assertEqual(safe[key]['state'],'range')
+        self.query("update pgmq.q_jobs set vt=now()-interval '1 second' where msg_id=1")
+        self.assertEqual(self.query("select msg_id from pgmq.read('jobs',1800,1)"),1)
+        result=estimate(self.query('select public.processing_estimate_snapshot()'))
+        self.assertEqual(result[key]['reason'],'active_evidence_missing')
+        self.query("update public.worker_pulse set job_id=%s,stage='points'",(JOB,))
+        result=estimate(self.query('select public.processing_estimate_snapshot()'))
+        self.assertEqual(result[key]['reason'],'active_evidence_missing')
+
+    def test_snapshot_keeps_profile_attempt_lane_time_and_rejects_invalid_profiles(self):
+        from queue_estimates import estimate
+        key=self.next_job()
+        self.query("update public.jobs set status='processing' where id=%s",(JOB,))
+        self.query("update public.worker_pulse set job_id=%s,stage='points'",(JOB,))
+        self.query("update pgmq.q_jobs set read_ct=1,vt=now()+interval '30 minutes' where msg_id=1")
+        self.event('claimed','2 minutes')
+        self.event('profile','-1 minute',details={'duration_s':100,'fps':30,'route':'bodies:no-placement'})
+        snap=self.query('select public.processing_estimate_snapshot()')
+        profile=snap['lanes'][0]['active']['receipts']['profile']
+        self.assertEqual(profile['attempt'],1)
+        self.assertEqual(profile['lane'],'main')
+        self.assertIn('recorded_at',profile)
+        self.assertEqual(estimate(snap)[key]['reason'],'active_evidence_missing')
+        self.query("update public.match_processing_events set recorded_at=now()-interval '1 minute',lane='fast' where event='profile'")
+        self.assertEqual(estimate(self.query('select public.processing_estimate_snapshot()'))[key]['reason'],'active_evidence_missing')
+
+    def test_reversed_ready_release_and_ready_processing_status_are_unknown(self):
+        from queue_estimates import estimate
+        key=self.next_job()
+        self.query("update public.worker_pulse set job_id=%s,stage='side_change'",(JOB,))
+        self.query("update public.jobs set status='done' where id=%s",(JOB,))
+        self.event('claimed','10 minutes'); self.event('released','2 minutes'); self.event('ready','1 minute')
+        self.assertEqual(estimate(self.query('select public.processing_estimate_snapshot()'))[key]['reason'],'active_evidence_missing')
+        self.query("delete from public.match_processing_events where event='released'")
+        self.query("update public.jobs set status='processing' where id=%s",(JOB,))
+        self.assertEqual(estimate(self.query('select public.processing_estimate_snapshot()'))[key]['reason'],'active_evidence_missing')
+
+    def test_one_active_plus_256_pending_does_not_overflow(self):
+        self.query("update public.worker_pulse set job_id=%s,stage='points'",(JOB,))
+        self.query("update public.jobs set status='processing' where id=%s",(JOB,))
+        self.query("update pgmq.q_jobs set read_ct=1,vt=now()+interval '30 minutes' where msg_id=1")
+        self.event('claimed')
+        self.query("insert into public.jobs(id,user_id,kind,options) select md5(i::text)::uuid,%s,'deadspace_cut','{\"points\":true}' from generate_series(1,256)i",(OWNER,))
+        self.query("insert into pgmq.q_jobs overriding system value select i+1,0,now(),now(),jsonb_build_object('job_id',md5(i::text)::uuid) from generate_series(1,256)i")
+        lane=self.query('select public.processing_estimate_snapshot()')['lanes'][0]
+        self.assertFalse(lane['overflow'])
+        self.assertEqual(len(lane['messages']),256)
+        self.assertEqual(lane['active_message']['read_ct'],1)
+        self.assertNotIn(JOB,[m['job']['id'] for m in lane['messages']])
+
+    def test_elapsed_queue_only_disappears_instead_of_claiming_ready_overrun(self):
+        self.refresh()
+        self.query("update public.processing_estimate_cache set estimate=estimate||jsonb_build_object('state','queue_only','ready_earliest_at',null,'ready_latest_at',null,'start_latest_at',now()-interval '1 second')")
+        self.role('authenticated')
+        self.assertIsNone(self.query('select public.my_processing_estimates(array[%s]::uuid[])',(JOB,))[0]['estimate'])
+        self.assertIsNone(self.query('select public.my_match_processing_feedback(array[%s]::uuid[])',(MATCH,))[0]['estimate'])
 
 
 if __name__=='__main__': unittest.main()
