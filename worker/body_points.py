@@ -370,7 +370,7 @@ def refine(cards, T, p, duration, cross, bt_table, serves, first_ball_t0=None,
 
 
 def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
-                     anchor=True, close=True, bt_endline=None):
+                      anchor=True, close=True, bt_endline=None, forward_s=ANCHOR_FWD_S):
     """Move each card's edges to what the ball saw, and nothing else.
 
     `serves` are the V3 detector's contacts, `dead` its ball-going-dead runs.
@@ -417,7 +417,7 @@ def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
             # took the next detection at 29.71 and started the point three
             # seconds into the rally. Five of that match's 83 cards lost
             # their serve that way.
-            lo, hi = t0 - ANCHOR_BACK_S, min(t1, t0 + ANCHOR_FWD_S)
+            lo, hi = t0 - ANCHOR_BACK_S, min(t1, t0 + forward_s)
             floor = max(prev_t1 + V2.MIN_GAP_S, 0.0)
             near = [x for x in sv if lo <= x <= hi and x > floor]
             if near:
@@ -455,6 +455,67 @@ def anchor_and_close(cards, serves, cross, bt_table, dead, duration,
         if c["t1"] - c["t0"] >= V2.MIN_CARD_S:
             out.append(c)
     return out, dict(anchored=anchored, closed=closed, closed_on_dead=on_dead)
+
+
+
+# Approved opening-only experiment, 2026-09-12. These are source-clock
+# seconds; plays export caps tight-start pre-padding at 0.3 seconds.
+OPENING_SEARCH_S = 6.0
+OPENING_ACTIVITY_LEAD_S = 1.2
+OPENING_PREPAD_S = 0.3
+
+
+def _guarded_anchor_and_close(cards, serves, cross, bt_table, dead, duration,
+                              anchor=True, close=True, bt_endline=None):
+    """Keep legacy ends/metadata; accept only reviewed, later openings."""
+    baseline, info = anchor_and_close(
+        cards, serves, cross, bt_table, dead, duration,
+        anchor=anchor, close=close, bt_endline=bt_endline)
+    if not anchor or not serves or not baseline:
+        return baseline, info
+    baseline = V2.resolve(baseline)
+    proposed, _ = anchor_and_close(
+        cards, serves, cross, bt_table, dead, duration,
+        anchor=anchor, close=close, bt_endline=bt_endline,
+        forward_s=OPENING_SEARCH_S)
+    proposed = V2.resolve(proposed)
+    if len(baseline) != len(proposed):
+        return baseline, info
+    events = sorted(float(t) for t in list(cross) + list(bt_table))
+    out = [dict(c) for c in baseline]
+    for b, p, c in zip(baseline, proposed, out):
+        start = p['t0']
+        if start <= b['t0'] + .02:
+            continue
+        serve = b.get('serve_s')
+        if serve is not None and start > serve - V2.HEAD_MIN_S:
+            continue
+        padded_start = max(0., b['t0'] - OPENING_PREPAD_S)
+        if any(padded_start <= t < start - OPENING_PREPAD_S for t in events):
+            continue
+        seen = [t for t in events if padded_start <= t <= b['t1']]
+        if seen:
+            start = min(start, seen[0] - OPENING_ACTIVITY_LEAD_S + OPENING_PREPAD_S)
+        start = max(b['t0'], start)
+        # The wider search may close its own copy differently; its ending
+        # is never copied, and may not justify shortening a baseline card.
+        if np.isfinite(start) and b['t1'] - start >= V2.MIN_CARD_S:
+            c['t0'] = start
+    return out, info
+
+
+def _preserve_joined_cards(baseline, proposed, baseline_joins, proposed_joins):
+    """A trim cannot change which rallies join, endings, or other fields."""
+    def decisions(rows):
+        return [(r.get('left_index'), r.get('right_index'), r['accepted']) for r in rows]
+    if len(baseline) != len(proposed) or decisions(baseline_joins) != decisions(proposed_joins):
+        return baseline
+    if any(b['t1'] != p['t1'] or p['t0'] < b['t0'] or
+           not np.isfinite(p['t0']) or b['t1'] - p['t0'] < V2.MIN_CARD_S or
+           (b.get('end_evidence_s') is not None and p['t0'] > b['end_evidence_s'])
+           for b, p in zip(baseline, proposed)):
+        return baseline
+    return [dict(b, t0=p['t0']) for b, p in zip(baseline, proposed)]
 
 
 def _add_why(why, phrase):
@@ -557,21 +618,29 @@ def assemble(players, corners_px, evidence, duration, first_ball_t0=None, model=
     # The edges last, on settled cards: the anchor needs to know where the
     # card before it ends, and that is only true once the overlaps are gone.
     edges = dict(anchored=0, closed=0, closed_on_dead=0)
+    opening_proposal = None
     if anchor or close:
-        resolved, edges = anchor_and_close(
-            resolved, v3_serves, cross, bt_table, v3_dead, duration,
-            anchor=anchor, close=close,
-            # getattr, not attribute access: highlight_backfill hands this
-            # pass a SimpleNamespace carrying only the fields it needs.
-            bt_endline=getattr(evidence, "bt_endline", None))
+        edge_args = (resolved, v3_serves, cross, bt_table, v3_dead, duration)
+        edge_kw = dict(anchor=anchor, close=close,
+                       bt_endline=getattr(evidence, "bt_endline", None))
+        resolved, edges = anchor_and_close(*edge_args, **edge_kw)
         resolved = V2.resolve(resolved)
+        if anchor:
+            opening_proposal, _ = _guarded_anchor_and_close(*edge_args, **edge_kw)
+            opening_proposal = V2.resolve(opening_proposal)
     joins = []
     if policy_ready:
-        resolved, joins = join_supported_continuations(
-            resolved, T, p, [x is not None for x in raw['near']],
-            [x is not None for x in raw['far']], list(cross)+list(bt_table), v3_dead,
-            table_bounces=bt_table, support=c['pad1'], max_event_gap=EXTEND_GAP_S,
-            min_play=c['ball_floor'], max_missing=c['gap_min'])
+        join_args = (T, p, [x is not None for x in raw['near']],
+                     [x is not None for x in raw['far']], list(cross)+list(bt_table), v3_dead)
+        join_kw = dict(table_bounces=bt_table, support=c['pad1'], max_event_gap=EXTEND_GAP_S,
+                       min_play=c['ball_floor'], max_missing=c['gap_min'])
+        resolved, joins = join_supported_continuations(resolved, *join_args, **join_kw)
+        if opening_proposal is not None:
+            opening_proposal, proposal_joins = join_supported_continuations(
+                opening_proposal, *join_args, **join_kw)
+            resolved = _preserve_joined_cards(resolved, opening_proposal, joins, proposal_joins)
+    elif opening_proposal is not None:
+        resolved = _preserve_joined_cards(resolved, opening_proposal, [], [])
     info = dict(samples=int(len(T)), both_share=round(share, 3), segments=len(segs),
                 cards=len(resolved), stamped=sum(1 for d in resolved if d.get("serve_s") is not None),
                 model=model["version"], features=model["sha"], **edges,
