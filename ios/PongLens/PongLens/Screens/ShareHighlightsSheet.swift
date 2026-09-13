@@ -30,7 +30,11 @@ struct ShareHighlightsSheet: View {
     @AppStorage("shareShowLogo") private var showLogo = true
 
     var body: some View {
+        ScrollView {
         PLChooserSheet(title: "Share your highlights") {
+            if let notice = ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) {
+                ProcessingAvailabilityNoticeView(notice: notice)
+            }
             if sharingOn, InstagramShare.isAvailable(.reel) {
                 PLChooserRow(
                     icon: "camera.aperture",
@@ -80,6 +84,8 @@ struct ShareHighlightsSheet: View {
                     .padding(.top, 2)
             }
         }
+        }
+        .scrollBounceBehavior(.basedOnSize)
         .sheet(item: $shareItem) { url in
             ActivityView(items: [url])
                 .presentationDetents([.medium])

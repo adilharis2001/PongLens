@@ -1098,10 +1098,15 @@ struct ExportSheet: View {
     @State private var busy: String?
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 16) {
             Text("Export")
                 .font(.plCardTitle)
                 .foregroundStyle(PL.text100)
+
+            if let notice = ProcessingServiceStore.shared.notice(context: .export) {
+                ProcessingAvailabilityNoticeView(notice: notice)
+            }
 
             Toggle("Include score", isOn: $showScore)
                 .font(.plBody)
@@ -1122,6 +1127,8 @@ struct ExportSheet: View {
             rawRow
             Spacer()
         }
+        }
+        .scrollBounceBehavior(.basedOnSize)
         .padding(24)
         .frame(maxWidth: .infinity, alignment: .leading)
         .task {
@@ -1147,7 +1154,7 @@ struct ExportSheet: View {
                 }
                 .buttonStyle(PLCyanGhostButtonStyle())
             } else if status == "queued" || status == "rendering" {
-                Text("Rendering…")
+                Text(ProcessingServiceStore.shared.notice(context: .export) == nil ? "Rendering…" : "Queued")
                     .font(.plCaption)
                     .foregroundStyle(PL.warningText)
             } else {
@@ -1194,7 +1201,7 @@ struct ExportSheet: View {
 
     private func statusLine(_ status: String?) -> String? {
         switch status {
-        case "queued", "rendering": "Rendering. We'll email you."
+        case "queued", "rendering": ProcessingServiceStore.shared.notice(context: .export) == nil ? "Rendering. We'll email you." : "Waiting for video exports to resume."
         case "ready": "Ready"
         case "failed": "Couldn't prepare the video. Try again."
         default: nil

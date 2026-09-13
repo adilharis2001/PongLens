@@ -1,4 +1,9 @@
 "use client";
+import { useProcessingService } from "@/lib/useProcessingService";
+import { availabilityNotice, importedProcessingContext, processingExitMessage, serviceLane, selectImportedProcessingJob } from "@/lib/processingAvailability";
+import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
+import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
+import { useProcessingEstimates } from "@/lib/useProcessingEstimates";
 import { AllowanceRecovery } from "./AllowanceRecovery";
 import { uploadAllowanceResource, importNeedsMinutes } from "@/lib/commerce/allowanceRecovery";
 
@@ -173,10 +178,17 @@ export function YouTubeImport({
   // Locks when the worker passes its post-download options re-read
   // (status 'processing' with progress >= 10, or a terminal status).
   const [processingLocked, setProcessingLocked] = useState(false);
+  const services = useProcessingService();
   const jobIdRef = useRef<string | null>(null);
   const jobOptionsRef = useRef<Record<string, unknown> | null>(null);
   const importedIdRef = useRef<string | null>(null);
   const [importedMatch, setImportedMatch] = useState<{ id: string; status: string; duration_s: number | null } | null>(null);
+  const [importedJob, setImportedJob] = useState<{ id: string; kind: string | null; status: string } | null>(null);
+  const estimateJobId = importedJob?.id ?? jobIdRef.current;
+  const estimates = useProcessingEstimates(phase === "queued" && estimateJobId ? [estimateJobId] : []);
+  const importContext = importedProcessingContext(importedMatch?.status, importedJob);
+  const importServiceState = services[serviceLane(importedJob?.kind, services.clip_lane)];
+  const importNotice = importedMatch?.status === "ready" || importedMatch?.status === "failed" ? null : availabilityNotice(importServiceState, importContext);
   const [importMinutes, setImportMinutes] = useState<number | null>(null);
   const [importShort, setImportShort] = useState(false);
   const [importProblem, setImportProblem] = useState<string | null>(null);
@@ -196,18 +208,26 @@ export function YouTubeImport({
       match = await supabase.from("matches").select("id, status, duration_s").eq("raw_path", rawPath).maybeSingle();
     }
     if (jobIdRef.current !== jobId) return false;
+    let hasActiveJob = false;
     if (match.data) {
       importedIdRef.current = match.data.id;
-      const active = await supabase.from("jobs").select("id")
-        .eq("options->>match_id", match.data.id).in("status", ["queued", "processing"]).limit(1);
+      const active = await supabase.from("jobs").select("id,kind,status")
+        .eq("options->>match_id", match.data.id).in("status", ["queued", "processing"])
+        .in("kind", ["deadspace_cut", "hand_cut", "content_check"]);
       if (active.error) return false;
-      setImportedMatch(active.data?.length ? { ...match.data, status: "queued" } : match.data);
+      if (jobIdRef.current !== jobId) return false;
+      setImportedMatch(match.data);
+      const processingJob = selectImportedProcessingJob(active.data ?? []);
+      setImportedJob(processingJob);
+      hasActiveJob = processingJob != null;
     }
     const state = balance.data as { minutes_balance?: number } | null;
     if (typeof state?.minutes_balance === "number") setImportMinutes(state.minutes_balance);
-    return Boolean(match.data) && typeof state?.minutes_balance === "number";
+    return Boolean(match.data) && typeof state?.minutes_balance === "number"
+      && (!hasActiveJob || match.data?.status === "ready" || match.data?.status === "failed");
   }, []);
-  const needsMinutes = importShort || importNeedsMinutes(importedMatch, importMinutes, form.autoProcess);
+  const processingRequested = importedJob != null && importedJob.kind !== "content_check" && (importedJob.status === "queued" || importedJob.status === "processing");
+  const needsMinutes = importShort || (!processingRequested && importNeedsMinutes(importedMatch, importMinutes, form.autoProcess));
   const processImported = async () => {
     if (!importedMatch || importBusy) return;
     setImportBusy(true);
@@ -223,7 +243,8 @@ export function YouTubeImport({
       return;
     }
     setImportShort(false);
-    setImportedMatch({ ...importedMatch, status: "queued" });
+    setImportedJob({ id: data.job_id, kind: "deadspace_cut", status: "queued" });
+    await refreshImported();
     window.dispatchEvent(new CustomEvent("ponglens:job-created"));
     } catch { setImportProblem("Processing could not start. Your video is saved. Try again."); }
     finally { setImportBusy(false); }
@@ -478,11 +499,12 @@ export function YouTubeImport({
       stopped = true;
       window.clearInterval(iv);
     };
-  }, [phase, commerceEnabled, refreshImported]);
+  }, [phase, commerceEnabled, refreshImported, importedJob?.id]);
 
   const reset = useCallback(() => {
     importedIdRef.current = null;
     setImportedMatch(null);
+    setImportedJob(null);
     setImportMinutes(null);
     setImportShort(false);
     setImportProblem(null);
@@ -506,12 +528,17 @@ export function YouTubeImport({
       <section className="rounded-2xl border border-edge bg-surface p-5 sm:p-8">
         <h2 className="text-lg font-semibold">Import from YouTube</h2>
         <div className="mt-6">
+          {importNotice ? <ProcessingAvailabilityNotice state={importServiceState} context={importContext} className="" /> : <>
           <p className={needsMinutes ? "text-sm text-zinc-300" : "text-center text-sm font-medium text-emerald-400"}>
             {importedMatch ? needsMinutes ? "Imported. Your video needs more minutes to process." : importedMatch.status === "uploaded" ? "Imported. Your video is saved in your library." : "Imported. Your video is in your library." : "We're fetching it. You can leave this page."}
           </p>
           {!needsMinutes && <p className="mt-1 text-center text-xs text-zinc-500">
-            {importedMatch?.status === "uploaded" ? "You can continue processing when you're ready." : "You'll get an email when your match is ready."}
+            {importedMatch?.status === "ready" ? "Your match is ready." : importedMatch?.status === "failed" ? "Open the video to review what happened." : importContext === "saved_idle" ? "You can continue processing when you're ready." : processingExitMessage(importContext)}
           </p>}
+          </>}
+          <ProcessingEstimateNote estimate={estimateJobId ? estimates[estimateJobId] : null}
+            jobStatus={importedMatch?.status === "ready" || importedMatch?.status === "failed" ? "done" : importedJob?.status ?? "queued"}
+            serviceState={importServiceState} />
           {needsMinutes && <AllowanceRecovery resource="minutes" retryLabel="Try processing again" onRetry={processImported} />}
           {importProblem && <p role="alert" className="mt-3 text-sm text-amber-300">{importProblem}</p>}
           {importProblem && !needsMinutes && importedMatch?.status === "uploaded" && <button type="button" disabled={importBusy} onClick={() => void processImported()} className="mt-3 min-h-11 w-full rounded-full border border-edge px-4 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50 sm:w-auto">{importBusy ? "Starting…" : "Try processing again"}</button>}
@@ -786,6 +813,7 @@ export function YouTubeImport({
         Public or unlisted videos, up to 45 minutes. It must be your footage
         or footage you have the rights to.
       </p>
+      <ProcessingAvailabilityNotice state={services.main} context="before_import" />
 
       <div className="mt-5 flex flex-col gap-3 sm:flex-row">
         <div className="relative w-full flex-1">

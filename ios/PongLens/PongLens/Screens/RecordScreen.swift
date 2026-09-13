@@ -1443,6 +1443,10 @@ struct RecordingUploadRow: View {
             }
             }
         }
+        if !compact, item.state != .done, item.state != .failed,
+           let notice = ProcessingServiceStore.shared.notice(context: .uploading) {
+            ProcessingAvailabilityNoticeView(notice: notice)
+        }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -1672,6 +1676,10 @@ struct MatchDetailsSheet: View {
             Form {
                 Section {
                     progressRow
+                    if queue.items.contains(where: { $0.sessionId == sessionId && $0.state != .done && $0.state != .failed }),
+                       let notice = ProcessingServiceStore.shared.notice(context: .uploading) {
+                        ProcessingAvailabilityNoticeView(notice: notice)
+                    }
                 }
 
                 Section {

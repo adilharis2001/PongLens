@@ -1,4 +1,6 @@
-/** Owner feedback describes observations, never an unvalidated completion time. */
+import type { ProcessingEstimate } from "./processingEstimate";
+
+/** Owner feedback carries observations and an optional server-owned rough estimate. */
 export interface ProcessingFeedback {
   match_id: string;
   job_id: string | null;
@@ -6,6 +8,9 @@ export interface ProcessingFeedback {
   job_kind: string | null;
   stage: string | null;
   worker_state: "fresh" | "missing" | "silent" | null;
+  service_state?: "available" | "unavailable" | "maintenance" | "unknown";
+  lane?: "main" | "fast" | "hand";
+  estimate?: ProcessingEstimate | null;
   checked_at: string | null;
   window_start_s: number | null;
   window_end_s: number | null;
@@ -15,6 +20,8 @@ export interface ProcessingFeedback {
 export function processingStageLabel(feedback: ProcessingFeedback | null): string | null {
   if (!feedback || !["queued", "processing"].includes(feedback.job_status ?? "")) return null;
   const checking = feedback.job_kind === "content_check";
+  if (feedback.service_state === "maintenance") return "Paused for maintenance";
+  if (feedback.service_state === "unavailable") return checking ? "Video check is delayed" : "Processing is delayed";
   if (feedback.worker_state === "silent") return checking ? "Video check is delayed" : "Processing is delayed";
   if (feedback.job_status === "queued") return checking ? "Waiting to check video" : "Waiting to process";
   if (feedback.worker_state !== "fresh") return null;

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Observed worker state and advisory camera evidence. No unvalidated ETA.
+/// Observations, advisory camera evidence and an optional server-owned rough estimate.
 struct MatchProcessingFeedback: Decodable, Hashable {
     let matchId: UUID
     let jobId: UUID?
@@ -8,16 +8,19 @@ struct MatchProcessingFeedback: Decodable, Hashable {
     let jobKind: String?
     let stage: String?
     let workerState: String?
+    let serviceState: String?
+    let lane: String?
     let checkedAtString: String?
     let windowStartS: Double?
     let windowEndS: Double?
     let cameraCheck: CameraCheck?
+    var estimate: ProcessingEstimate? = nil
 
     enum CodingKeys: String, CodingKey {
         case matchId = "match_id", jobId = "job_id", jobStatus = "job_status"
-        case jobKind = "job_kind", stage, workerState = "worker_state"
+        case jobKind = "job_kind", stage, workerState = "worker_state", serviceState = "service_state", lane
         case checkedAtString = "checked_at", windowStartS = "window_start_s"
-        case windowEndS = "window_end_s", cameraCheck = "camera_check"
+        case windowEndS = "window_end_s", cameraCheck = "camera_check", estimate
     }
 
     struct CameraCheck: Decodable, Hashable {
@@ -67,5 +70,25 @@ struct MatchProcessingFeedback: Decodable, Hashable {
             return "The camera view changes during this recording. Keep the camera in a fixed position with the same table in view."
         }
         return "The camera view changes during this recording. Try trimming to a section with a fixed view of the same table."
+    }
+}
+
+extension MatchProcessingFeedback {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        matchId = try values.decode(UUID.self, forKey: .matchId)
+        jobId = try values.decodeIfPresent(UUID.self, forKey: .jobId)
+        jobStatus = try values.decodeIfPresent(String.self, forKey: .jobStatus)
+        jobKind = try values.decodeIfPresent(String.self, forKey: .jobKind)
+        stage = try values.decodeIfPresent(String.self, forKey: .stage)
+        workerState = try values.decodeIfPresent(String.self, forKey: .workerState)
+        serviceState = try values.decodeIfPresent(String.self, forKey: .serviceState)
+        lane = try values.decodeIfPresent(String.self, forKey: .lane)
+        checkedAtString = try values.decodeIfPresent(String.self, forKey: .checkedAtString)
+        windowStartS = try values.decodeIfPresent(Double.self, forKey: .windowStartS)
+        windowEndS = try values.decodeIfPresent(Double.self, forKey: .windowEndS)
+        cameraCheck = try values.decodeIfPresent(CameraCheck.self, forKey: .cameraCheck)
+        // Advisory timing must not discard established processing or camera feedback.
+        estimate = try? values.decodeIfPresent(ProcessingEstimate.self, forKey: .estimate)
     }
 }

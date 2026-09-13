@@ -112,7 +112,9 @@ enum API {
         while true {
             let session = try await supa.auth.session
             #if DEBUG && targetEnvironment(simulator)
-            let transport = ScorekeeperQAFixture.isEnabled
+            let transport = ProcessingAvailabilityFixture.isEnabled
+                ? AvailabilityQAData.urlSession
+                : ScorekeeperQAFixture.isEnabled
                 ? ScorekeeperQAFixture.urlSession
                 : URLSession.shared
             let (data, response) = try await transport.data(for: build(session.accessToken))

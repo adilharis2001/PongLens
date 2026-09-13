@@ -1,6 +1,7 @@
 "use client";
 import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
 import { processingStageLabel } from "@/lib/processingFeedback";
+import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
 
 import Link from "next/link";
 import { SectionHeading } from "@/components/SectionHeading";
@@ -686,6 +687,8 @@ export function MatchLibrary({
           <p className="mt-0.5 truncate text-xs text-zinc-500">
             {bits.filter(Boolean).join(" · ")}
           </p>
+          {!shared && <ProcessingEstimateNote compact className="mt-1" estimate={processingFeedback[m.id]?.estimate}
+            jobStatus={processingFeedback[m.id]?.job_status ?? null} serviceState={processingFeedback[m.id]?.service_state} />}
           {/* fixed-height footer keeps every card the same size */}
           <div className="mt-2 flex h-6 items-center gap-2">
             {/* Both branches are score furniture, so both sit behind

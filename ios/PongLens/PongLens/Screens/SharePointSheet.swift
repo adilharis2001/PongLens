@@ -39,6 +39,7 @@ struct SharePointSheet: View {
     /// unreadable row answers "on" — a config outage must not take the
     /// button away.
     @State private var sharingOn = true
+    @State private var serverRendering = false
     @AppStorage("shareShowNames") private var showNames = true
     @AppStorage("shareShowScore") private var showScore = true
     @AppStorage("shareShowLogo") private var showLogo = true
@@ -80,7 +81,12 @@ struct SharePointSheet: View {
     private var hasClip: Bool { point.clipPath != nil }
 
     var body: some View {
+        ScrollView {
         PLChooserSheet(title: "Share this point") {
+            if serverRendering || model.usesServerRender,
+               let notice = ProcessingServiceStore.shared.notice(lane: ProcessingServiceStore.shared.clipLane, context: .fast) {
+                ProcessingAvailabilityNoticeView(notice: notice)
+            }
             if sharingOn, InstagramShare.isAvailable(destination ?? .story) {
                 PLChooserRow(
                     icon: "camera.aperture",
@@ -143,11 +149,16 @@ struct SharePointSheet: View {
                     .padding(.top, 2)
             }
         }
+        }
+        .scrollBounceBehavior(.basedOnSize)
         .sheet(item: $shareItem) { url in
             ActivityView(items: [url])
                 .presentationDetents([.medium])
         }
-        .task { sharingOn = await StoryShareModel.sharingEnabled() }
+        .task {
+            sharingOn = await StoryShareModel.sharingEnabled()
+            serverRendering = await StoryShareModel.serverRenderingEnabled()
+        }
     }
 
     private var instagramTitle: String {
@@ -199,6 +210,7 @@ struct SharePointSheet: View {
 @MainActor
 @Observable
 final class StoryShareModel {
+    private(set) var usesServerRender = false
     private(set) var busy = false
     private(set) var mintingLink = false
     private(set) var progressLine = "This takes a few seconds."
@@ -236,7 +248,7 @@ final class StoryShareModel {
     /// Which renderer runs, from app_config.instagram_render (136).
     /// Unreadable or unset answers "server", the path that has been through
     /// a real device.
-    private func renderPath() async -> String {
+    static func serverRenderingEnabled() async -> Bool {
         struct Row: Decodable { let key: String; let value: String }
         let rows: [Row]? = try? await supa
             .from("app_config")
@@ -244,7 +256,7 @@ final class StoryShareModel {
             .eq("key", value: "instagram_render")
             .execute()
             .value
-        return rows?.first?.value == "device" ? "device" : "server"
+        return rows?.first?.value != "device"
     }
 
     func prepare(match: MatchRow, point: MatchPoint,
@@ -255,6 +267,7 @@ final class StoryShareModel {
         busy = true
         errorMessage = nil
         progressLine = "This takes a few seconds."
+        usesServerRender = false
         defer { busy = false }
 
         // On-device first when it is selected, but never as a one-way door.
@@ -263,7 +276,7 @@ final class StoryShareModel {
         // refusing the composition, a cut video that will not range-read,
         // anything unforeseen — the share still goes out, just slower.
         // Worst case is the old speed, never a broken button.
-        if await renderPath() == "device" {
+        if !(await Self.serverRenderingEnabled()) {
             if let local = await prepareOnDevice(
                 match: match, point: point, points: points, pad: pad,
                 ends: ends,
@@ -278,6 +291,7 @@ final class StoryShareModel {
         let matchId = match.id.uuidString.lowercased()
         let pointId = point.id.uuidString.lowercased()
         let scope = "v:point:\(pointId)"
+        usesServerRender = true
 
         struct ReelReq: Encodable {
             let matchId: String
@@ -588,6 +602,12 @@ final class StoryShareModel {
                 progressLine = "Almost there."
             default:
                 break
+            }
+            let lane = processingServiceLane(kind: "reel", clipLane: ProcessingServiceStore.shared.clipLane, scope: scope)
+            if let notice = ProcessingServiceStore.shared.notice(lane: lane, context: .fast) {
+                progressLine = notice.body
+                errorMessage = nil
+                return false
             }
             try? await Task.sleep(for: pollInterval)
         }

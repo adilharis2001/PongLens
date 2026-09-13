@@ -3,7 +3,9 @@ import SwiftUI
 struct ContentView: View {
     var body: some View {
         #if DEBUG && targetEnvironment(simulator)
-        if ScorekeeperQAFixture.isEnabled {
+        if ProcessingAvailabilityFixture.isEnabled {
+            ProcessingAvailabilityFixtureView()
+        } else if ScorekeeperQAFixture.isEnabled {
             ScorekeeperQAFixtureView()
         } else {
             RootView()
