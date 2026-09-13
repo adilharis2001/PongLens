@@ -1,6 +1,6 @@
 # Upload choice and readiness correction
 
-This change hides internal video-check estimates and preserves explicit processing choices when the player changes the upload type. iOS persists and retries processing requests using a server receipt that prevents duplicate claims after lost replies. Implementation is verified locally; publication is awaiting the required screenshot approval or explicit waiver.
+This change hides internal video-check estimates and preserves explicit processing choices when the player changes the upload type. iOS persists and retries processing requests using a server receipt that prevents duplicate claims after lost replies. Adil explicitly waived screenshot approval for this fix and authorized rollout on September 13; publication is in progress.
 
 | Contract | Implementation |
 | --- | --- |
@@ -16,7 +16,7 @@ This change hides internal video-check estimates and preserves explicit processi
 | --- | --- |
 | Full web production build | `npm run build` passed in the isolated worktree. |
 | Web regressions | 23 estimate/feedback checks, 27 upload tests, 42 Scorekeeper tests passed. |
-| Native core | Existing suite: 1,139 checks passed; added processing-choice and persisted-request executable passed. |
+| Native core | Combined release with Scorekeeper `02b72c93`: 1,142 checks passed; added processing-choice and persisted-request executable passed. |
 | Native build | Full Debug simulator build passed after final owner guards. |
 | Database | Seven disposable-local-Postgres tests passed: concurrent claims, committed replay, changed payload, ownership, private access, refusal rollback, estimate scope. Canonical billing is stubbed in this harness; no live billing claim was made. |
 | Actual native queue | Fake transport exercised lost completion plus failed lookup with automatic recovery, persisted processing replay across termination with the same identity and trims, and confirmed-missing registration returning an actionable failure. |
@@ -31,3 +31,9 @@ This change hides internal video-check estimates and preserves explicit processi
 | 3. Database | Apply only `20260913120000_upload_processing_requests.sql`; verify permissions and read boundary without creating a production job. |
 | 4. Web | Publish reviewed source and verify exact deployment plus production alias. |
 | 5. iOS | Reserve next unused build number, archive and upload; do not claim installed until device confirmation. |
+
+| Combined release coordination | Status |
+| --- | --- |
+| Production baseline | `02b72c93`, including latest Scorekeeper continuous playback and serve-landing research UI, merged without conflicts. Full web build and focused regressions passed on combined source. |
+| iOS | Build 196 reserved by this task in coordination with ScoreKeeper UI Improvements. Single combined upload; no external tester notifications or group changes. |
+| Screenshot gate | Explicitly waived by Adil for this bugfix. |
