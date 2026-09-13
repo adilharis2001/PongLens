@@ -1,0 +1,16 @@
+{
+  "mac:main": [
+    111,
+    null,
+    "drained",
+    "release aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    true
+  ],
+  "mac:fast": [
+    211,
+    null,
+    "drained",
+    "release aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    true
+  ]
+}

@@ -1,0 +1,1 @@
+Removed only the two startup pause files. Both corrected workers may now claim queued work.

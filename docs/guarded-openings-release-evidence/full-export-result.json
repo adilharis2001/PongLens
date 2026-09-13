@@ -1,0 +1,14 @@
+{
+  "release_id": "caeb69ce8163d27952c6b9ba744ba85712d4991d9e31204e3994a7de89387d92",
+  "match": "9e15ed10",
+  "points": 66,
+  "segments": 53,
+  "points_and_clips_seconds": 41.510157166048884,
+  "cut_and_mapping_seconds": 103.09702266706154,
+  "approved_boundaries": true,
+  "matched_frame_payloads": 159,
+  "max_clock_error_s": 3.000000049269147e-06,
+  "max_clip_duration_error_s": 0.04119999999995372,
+  "all_point_and_end_seeks_verified": true,
+  "limits": "Cached full-duration ball and poses; actual packaged assembly, individual clips and full original-resolution cut. No production job or publication."
+}

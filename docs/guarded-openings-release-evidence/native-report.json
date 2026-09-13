@@ -1,0 +1,22 @@
+{
+  "release_id": "caeb69ce8163d27952c6b9ba744ba85712d4991d9e31204e3994a7de89387d92",
+  "mode": "native",
+  "interpreters": {
+    "worker": {
+      "loaded_images": 382,
+      "checked_external_images": 42
+    },
+    "pipeline": {
+      "loaded_images": 671,
+      "checked_external_images": 181
+    },
+    "rtmpose": {
+      "loaded_images": 620,
+      "checked_external_images": 126
+    },
+    "table": {
+      "loaded_images": 640,
+      "checked_external_images": 150
+    }
+  }
+}

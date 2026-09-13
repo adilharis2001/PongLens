@@ -1,0 +1,12 @@
+{
+  "old": "7bc22c834fd237f866cc957fc17967524c43aa469d31e3e812854b0c59697576",
+  "new": "caeb69ce8163d27952c6b9ba744ba85712d4991d9e31204e3994a7de89387d92",
+  "runtime_identical": true,
+  "models_identical": true,
+  "behavior_identical": true,
+  "payload_changes": [
+    "worker/tests/fixtures/guarded_openings.json",
+    "worker/tests/test_guarded_openings.py",
+    "worker/body_points.py"
+  ]
+}

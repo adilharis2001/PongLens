@@ -1,0 +1,6 @@
+{
+  "release_id": "caeb69ce8163d27952c6b9ba744ba85712d4991d9e31204e3994a7de89387d92",
+  "mode": "pose",
+  "samples": 20,
+  "provider": "coreml"
+}

@@ -1,0 +1,58 @@
+FFF......F.                                                              [100%]
+=================================== FAILURES ===================================
+________ test_later_serve_removes_waiting_without_changing_end_or_stamp ________
+
+    def test_later_serve_removes_waiting_without_changing_end_or_stamp():
+        actual = edges()
+>       assert actual == [dict(t0=13.4, t1=19.5, serve_s=None,
+                               why='bodies, ended where the ball stopped', end_evidence_s=18.)]
+E       AssertionError: assert [{'t0': 10.0,...topped', ...}] == [{'t0': 13.4,...topped', ...}]
+E         
+E         At index 0 diff: {'t0': 10.0, 't1': 19.5, 'serve_s': None, 'why': 'bodies, ended where the ball stopped', 'end_evidence_s': 18.0} != {'t0': 13.4, 't1': 19.5, 'serve_s': None, 'why': 'bodies, ended where the ball stopped', 'end_evidence_s': 18.0}
+E         Use -v to get more diff
+
+worker/tests/test_guarded_openings.py:20: AssertionError
+__ test_first_activity_keeps_one_point_two_seconds_of_preparation[cross0-bt0] __
+
+cross = (13.5, 18.0), bt = ()
+
+    @pytest.mark.parametrize('cross,bt', [((13.5,18.),()), ((18.,),(13.5,))])
+    def test_first_activity_keeps_one_point_two_seconds_of_preparation(cross, bt):
+        actual = edges(cross=cross, bt=bt)
+>       assert actual[0]['t0'] == pytest.approx(12.6)
+E       assert 10.0 == 12.6 ± 1.3e-05
+E         
+E         comparison failed
+E         Obtained: 10.0
+E         Expected: 12.6 ± 1.3e-05
+
+worker/tests/test_guarded_openings.py:27: AssertionError
+__ test_first_activity_keeps_one_point_two_seconds_of_preparation[cross1-bt1] __
+
+cross = (18.0,), bt = (13.5,)
+
+    @pytest.mark.parametrize('cross,bt', [((13.5,18.),()), ((18.,),(13.5,))])
+    def test_first_activity_keeps_one_point_two_seconds_of_preparation(cross, bt):
+        actual = edges(cross=cross, bt=bt)
+>       assert actual[0]['t0'] == pytest.approx(12.6)
+E       assert 10.0 == 12.6 ± 1.3e-05
+E         
+E         comparison failed
+E         Obtained: 10.0
+E         Expected: 12.6 ± 1.3e-05
+
+worker/tests/test_guarded_openings.py:27: AssertionError
+_________________ test_no_activity_still_preserves_serve_runup _________________
+
+    def test_no_activity_still_preserves_serve_runup():
+        actual=edges(cross=(),close=False)
+>       assert actual[0]['t0'] == 13.4
+E       assert 10.0 == 13.4
+
+worker/tests/test_guarded_openings.py:51: AssertionError
+=========================== short test summary info ============================
+FAILED worker/tests/test_guarded_openings.py::test_later_serve_removes_waiting_without_changing_end_or_stamp
+FAILED worker/tests/test_guarded_openings.py::test_first_activity_keeps_one_point_two_seconds_of_preparation[cross0-bt0]
+FAILED worker/tests/test_guarded_openings.py::test_first_activity_keeps_one_point_two_seconds_of_preparation[cross1-bt1]
+FAILED worker/tests/test_guarded_openings.py::test_no_activity_still_preserves_serve_runup
+4 failed, 7 passed in 0.18s

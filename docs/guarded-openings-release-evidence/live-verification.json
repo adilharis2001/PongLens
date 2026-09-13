@@ -1,0 +1,29 @@
+{
+  "verified_at": "2026-09-13T03:58:52.828889+00:00",
+  "release_id": "caeb69ce8163d27952c6b9ba744ba85712d4991d9e31204e3994a7de89387d92",
+  "source_commit": "6aebfd66",
+  "lanes": {
+    "main": {
+      "pid": 21074,
+      "job_id": "4e685076-d833-4449-a8e6-1d2153a1f65c",
+      "stage": "camera_check",
+      "beat_at": "2026-09-13 03:58:51.639696+00:00"
+    },
+    "fast": {
+      "pid": 21076,
+      "job_id": null,
+      "stage": null,
+      "beat_at": "2026-09-13 03:58:51.567210+00:00"
+    }
+  },
+  "monitor_at": "2026-09-13 03:58:04.607576+00:00",
+  "monitor_fresh": true,
+  "hand_pid_unchanged": 55060,
+  "queue_counts": [
+    2,
+    0
+  ],
+  "startup_pauses_removed": true,
+  "old_workers_absent": true,
+  "limits": "Fresh live process identity/health and queue eligibility; no newly uploaded match quality or full new-release match completion claimed."
+}

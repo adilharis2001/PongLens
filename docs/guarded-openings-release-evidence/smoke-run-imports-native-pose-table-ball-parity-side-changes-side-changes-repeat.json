@@ -1,0 +1,42 @@
+[
+  {
+    "mode": "imports",
+    "exit_code": 0,
+    "seconds": 33.92261329200119
+  },
+  {
+    "mode": "native",
+    "exit_code": 0,
+    "seconds": 84.14870979171246
+  },
+  {
+    "mode": "pose",
+    "exit_code": 0,
+    "seconds": 37.69950108323246
+  },
+  {
+    "mode": "table",
+    "exit_code": 0,
+    "seconds": 51.494405625388026
+  },
+  {
+    "mode": "ball",
+    "exit_code": 0,
+    "seconds": 54.36196716595441
+  },
+  {
+    "mode": "parity",
+    "exit_code": 0,
+    "seconds": 160.4609067500569
+  },
+  {
+    "mode": "side-changes",
+    "exit_code": 0,
+    "seconds": 31.023774791974574
+  },
+  {
+    "mode": "side-changes-repeat",
+    "exit_code": 0,
+    "seconds": 36.50529954209924
+  }
+]

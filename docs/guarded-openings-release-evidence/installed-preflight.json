@@ -1,0 +1,29 @@
+{
+  "installed": "caeb69ce8163d27952c6b9ba744ba85712d4991d9e31204e3994a7de89387d92",
+  "rollback": "7bc22c834fd237f866cc957fc17967524c43aa469d31e3e812854b0c59697576",
+  "lanes": [
+    {
+      "lane": "main",
+      "command": [
+        "/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python",
+        "/Users/adil/Library/Application Support/PongLens/match-releases/caeb69ce8163d27952c6b9ba744ba85712d4991d9e31204e3994a7de89387d92/worker/worker.py",
+        "--lane",
+        "main"
+      ],
+      "cwd": "/private/tmp/ponglens-guarded-release/installed-check/work",
+      "drain": "/private/tmp/ponglens-guarded-release/installed-check/drain-main"
+    },
+    {
+      "lane": "fast",
+      "command": [
+        "/Users/adil/Desktop/Projects/PongLens/worker/venv/bin/python",
+        "/Users/adil/Library/Application Support/PongLens/match-releases/caeb69ce8163d27952c6b9ba744ba85712d4991d9e31204e3994a7de89387d92/worker/worker.py",
+        "--lane",
+        "fast"
+      ],
+      "cwd": "/private/tmp/ponglens-guarded-release/installed-check/work",
+      "drain": "/private/tmp/ponglens-guarded-release/installed-check/drain-fast"
+    }
+  ],
+  "all_verified": true
+}

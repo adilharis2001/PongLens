@@ -1,0 +1,14 @@
+{
+  "source_commit": "6aebfd66",
+  "release_id": "caeb69ce8163d27952c6b9ba744ba85712d4991d9e31204e3994a7de89387d92",
+  "body_points_sha256": "65759a8d71d0ce643a08a1a9481b4d7f0450138b41a1633d012cb20e2fc3d1b7",
+  "tests": {
+    "source": 231,
+    "source_subtests": 14,
+    "packaged_parity": 16,
+    "rollout_simulations": 20
+  },
+  "full_web_build": "passed; existing warnings",
+  "production": "active; verified",
+  "public_source_push": "blocked pending explicit permission"
+}

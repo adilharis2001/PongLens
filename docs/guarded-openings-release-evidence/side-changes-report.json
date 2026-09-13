@@ -1,0 +1,31 @@
+{
+  "release_id": "caeb69ce8163d27952c6b9ba744ba85712d4991d9e31204e3994a7de89387d92",
+  "mode": "side-changes",
+  "result": {
+    "status": "withheld",
+    "model": {
+      "family": "RTMPose",
+      "name": "RTMPose-M COCO-17 + RTMDet-m person",
+      "checkpoint_sha256": "5c0a4bf67953e6d2ac43ce15e77dc9d5d354ae18430a47d2c5963a7bc5683e3c",
+      "det_checkpoint_sha256": "4f4d7e07350b1753299111d1ae500fd64447a5b0e38e4bacbefab6573c742d30",
+      "profile": "det-first sparse-7",
+      "engine": "rtmlib",
+      "engine_version": "0.0.15",
+      "backend": "onnxruntime",
+      "device": "mps"
+    },
+    "coverage": {
+      "total": 2,
+      "qualified": 2,
+      "serve_anchored": 0
+    },
+    "compute": {
+      "elapsed_s": 5.293422,
+      "model_load_s": 2.168251,
+      "decode_s": 0.061788,
+      "inference_s": 3.017955,
+      "frames_requested": 14,
+      "frames_decoded": 14
+    }
+  }
+}
