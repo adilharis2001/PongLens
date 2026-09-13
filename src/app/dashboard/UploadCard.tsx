@@ -2,6 +2,7 @@
 import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
 import { useProcessingService } from "@/lib/useProcessingService";
 import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
+import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
 import { cameraViewWarning, processingStageLabel } from "@/lib/processingFeedback";
 
 import { tracksServe } from "@/lib/matchTitle";
@@ -1776,6 +1777,7 @@ export function UploadCard({
               {cameraViewWarning(currentFeedback, trimStart, trimEnd ?? Infinity) && (
                 <p className="mt-2 text-left text-sm text-amber-300/90">{cameraViewWarning(currentFeedback, trimStart, trimEnd ?? Infinity)}</p>
               )}
+              <ProcessingEstimateNote estimate={currentFeedback?.estimate} jobStatus={currentFeedback?.job_status ?? null} serviceState={services.main} />
               {/* Nothing under the "it's in your library" case: the
                   Process button is right below and says the rest better
                   than a sentence would. */}

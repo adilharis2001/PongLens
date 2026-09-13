@@ -1480,7 +1480,10 @@ struct MatchDetailScreen: View {
                 stageLabel: model.processingFeedback?.stageLabel,
                 warning: model.processingFeedback?.cameraWarning(trimStart: trimStart, trimEnd: trimEnd ?? .infinity),
                 progress: model.job?.progress,
-                sendsReadyEmail: (model.processingFeedback?.jobKind ?? model.job?.kind) == "deadspace_cut"
+                sendsReadyEmail: (model.processingFeedback?.jobKind ?? model.job?.kind) == "deadspace_cut",
+                estimate: model.processingFeedback?.estimate,
+                jobStatus: model.processingFeedback?.jobStatus ?? model.job?.status,
+                serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: model.processingFeedback?.jobKind ?? model.job?.kind, clipLane: ProcessingServiceStore.shared.clipLane)).rawValue
             )
         } else if sourceGone {
             VStack(alignment: .leading, spacing: 10) {

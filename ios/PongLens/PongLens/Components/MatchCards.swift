@@ -27,6 +27,7 @@ struct MatchListRow: View {
     var liveJob: JobRow? = nil
     var processingLabel: String? = nil
     var processingUnavailable = false
+    var processingFeedback: MatchProcessingFeedback? = nil
 
     var body: some View {
         let parts = MatchTitle.parts(for: match)
@@ -60,6 +61,10 @@ struct MatchListRow: View {
                         ScorePill(you: score.gamesYou, them: score.gamesThem)
                     }
                 }
+                ProcessingEstimateNote(estimate: processingFeedback?.estimate,
+                    jobStatus: processingFeedback?.jobStatus,
+                    serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: processingFeedback?.jobKind, clipLane: ProcessingServiceStore.shared.clipLane)).rawValue,
+                    compact: true)
             }
             Spacer()
             Image(systemName: "chevron.right")
@@ -77,6 +82,7 @@ struct MatchCard: View {
     var liveJob: JobRow? = nil
     var processingLabel: String? = nil
     var processingUnavailable = false
+    var processingFeedback: MatchProcessingFeedback? = nil
     /// Owner-only card actions. Left nil, no buttons render — the grid
     /// only passes them when the signed-in user owns the match.
     var onShare: (() -> Void)? = nil
@@ -105,6 +111,11 @@ struct MatchCard: View {
                     .font(.system(size: 12))
                     .foregroundStyle(PL.text500)
                     .lineLimit(1)
+                ProcessingEstimateNote(estimate: processingFeedback?.estimate,
+                    jobStatus: processingFeedback?.jobStatus,
+                    serviceState: ProcessingServiceStore.shared.state(for: processingServiceLane(kind: processingFeedback?.jobKind, clipLane: ProcessingServiceStore.shared.clipLane)).rawValue,
+                    compact: true)
+
                 // Bottom meta row: score on the left, share and delete on
                 // the right, off the picture and clearly apart from the
                 // tap-to-open area. Plain button style keeps their taps

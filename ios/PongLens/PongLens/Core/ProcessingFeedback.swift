@@ -1,6 +1,6 @@
 import Foundation
 
-/// Observed worker state and advisory camera evidence. No unvalidated ETA.
+/// Observations, advisory camera evidence and an optional server-owned rough estimate.
 struct MatchProcessingFeedback: Decodable, Hashable {
     let matchId: UUID
     let jobId: UUID?
@@ -14,12 +14,13 @@ struct MatchProcessingFeedback: Decodable, Hashable {
     let windowStartS: Double?
     let windowEndS: Double?
     let cameraCheck: CameraCheck?
+    var estimate: ProcessingEstimate? = nil
 
     enum CodingKeys: String, CodingKey {
         case matchId = "match_id", jobId = "job_id", jobStatus = "job_status"
         case jobKind = "job_kind", stage, workerState = "worker_state", serviceState = "service_state", lane
         case checkedAtString = "checked_at", windowStartS = "window_start_s"
-        case windowEndS = "window_end_s", cameraCheck = "camera_check"
+        case windowEndS = "window_end_s", cameraCheck = "camera_check", estimate
     }
 
     struct CameraCheck: Decodable, Hashable {

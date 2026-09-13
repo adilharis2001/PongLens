@@ -2,6 +2,8 @@
 import { useProcessingService } from "@/lib/useProcessingService";
 import { availabilityNotice, importedProcessingContext, processingExitMessage, serviceLane, selectImportedProcessingJob } from "@/lib/processingAvailability";
 import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
+import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
+import { useProcessingEstimates } from "@/lib/useProcessingEstimates";
 import { AllowanceRecovery } from "./AllowanceRecovery";
 import { uploadAllowanceResource, importNeedsMinutes } from "@/lib/commerce/allowanceRecovery";
 
@@ -182,6 +184,8 @@ export function YouTubeImport({
   const importedIdRef = useRef<string | null>(null);
   const [importedMatch, setImportedMatch] = useState<{ id: string; status: string; duration_s: number | null } | null>(null);
   const [importedJob, setImportedJob] = useState<{ id: string; kind: string | null; status: string } | null>(null);
+  const estimateJobId = importedJob?.id ?? jobIdRef.current;
+  const estimates = useProcessingEstimates(phase === "queued" && estimateJobId ? [estimateJobId] : []);
   const importContext = importedProcessingContext(importedMatch?.status, importedJob);
   const importServiceState = services[serviceLane(importedJob?.kind, services.clip_lane)];
   const importNotice = importedMatch?.status === "ready" || importedMatch?.status === "failed" ? null : availabilityNotice(importServiceState, importContext);
@@ -532,6 +536,9 @@ export function YouTubeImport({
             {importedMatch?.status === "ready" ? "Your match is ready." : importedMatch?.status === "failed" ? "Open the video to review what happened." : importContext === "saved_idle" ? "You can continue processing when you're ready." : processingExitMessage(importContext)}
           </p>}
           </>}
+          <ProcessingEstimateNote estimate={estimateJobId ? estimates[estimateJobId] : null}
+            jobStatus={importedMatch?.status === "ready" || importedMatch?.status === "failed" ? "done" : importedJob?.status ?? "queued"}
+            serviceState={importServiceState} />
           {needsMinutes && <AllowanceRecovery resource="minutes" retryLabel="Try processing again" onRetry={processImported} />}
           {importProblem && <p role="alert" className="mt-3 text-sm text-amber-300">{importProblem}</p>}
           {importProblem && !needsMinutes && importedMatch?.status === "uploaded" && <button type="button" disabled={importBusy} onClick={() => void processImported()} className="mt-3 min-h-11 w-full rounded-full border border-edge px-4 py-2.5 text-sm text-zinc-300 transition-colors hover:border-cyan-glow/50 hover:text-white disabled:opacity-50 sm:w-auto">{importBusy ? "Starting…" : "Try processing again"}</button>}

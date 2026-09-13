@@ -1,4 +1,6 @@
-/** Owner feedback describes observations, never an unvalidated completion time. */
+import type { ProcessingEstimate } from "./processingEstimate";
+
+/** Owner feedback carries observations and an optional server-owned rough estimate. */
 export interface ProcessingFeedback {
   match_id: string;
   job_id: string | null;
@@ -8,6 +10,7 @@ export interface ProcessingFeedback {
   worker_state: "fresh" | "missing" | "silent" | null;
   service_state?: "available" | "unavailable" | "maintenance" | "unknown";
   lane?: "main" | "fast" | "hand";
+  estimate?: ProcessingEstimate | null;
   checked_at: string | null;
   window_start_s: number | null;
   window_end_s: number | null;

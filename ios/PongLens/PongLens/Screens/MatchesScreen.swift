@@ -297,6 +297,7 @@ struct MatchesScreen: View {
                             liveJob: library.liveJob(for: match),
                             processingLabel: library.processingLabel(for: match),
                             processingUnavailable: library.availabilityNotice(for: match) != nil,
+                            processingFeedback: owned ? library.processingFeedback[match.id] : nil,
                             onShare: owned ? { shareMatch = match } : nil,
                             onDelete: owned ? { deleteTarget = match } : nil
                         )

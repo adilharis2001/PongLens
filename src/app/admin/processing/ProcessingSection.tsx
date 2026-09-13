@@ -5,6 +5,9 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { SectionHeading } from "@/components/SectionHeading";
 import { ProcessingHealthSection } from "./ProcessingHealthSection";
+import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
+import { useProcessingEstimates } from "@/lib/useProcessingEstimates";
+import { useProcessingService } from "@/lib/useProcessingService";
 import {
   agoLabel,
   buildWorkerRows,
@@ -89,7 +92,7 @@ function Kind({ kind }: { kind: string }) {
   );
 }
 
-export function WorkerCard({ row }: { row: WorkerRow }) {
+export function WorkerCard({ row, estimate, serviceState }: { row: WorkerRow; estimate?: unknown; serviceState?: string }) {
   return (
     <li className="px-4 py-4 sm:px-5">
       <div className="flex items-baseline justify-between gap-3">
@@ -114,6 +117,8 @@ export function WorkerCard({ row }: { row: WorkerRow }) {
       {row.caveat && (
         <p className="mt-1 pl-4 text-sm text-zinc-500">{row.caveat}</p>
       )}
+      <ProcessingEstimateNote compact className="mt-1.5 pl-4" estimate={estimate}
+        jobStatus={row.state === "working" ? "processing" : null} serviceState={serviceState} />
 
       {row.pct !== null && (
         <div className="mt-2 ml-4 h-1 overflow-hidden rounded-full bg-surface-2">
@@ -167,6 +172,8 @@ export function ProcessingSection() {
   const [doc, setDoc] = useState<ProcessingOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null);
+  const estimates = useProcessingEstimates([...(doc?.waiting ?? []), ...(doc?.running ?? [])].map((job) => job.id), true);
+  const services = useProcessingService();
   // Re-render on a timer as well as on a fetch, so the "2h 37m" counters
   // stay honest between refreshes rather than freezing at whatever they
   // said when the last response landed.
@@ -223,9 +230,11 @@ export function ProcessingSection() {
       {/* ---------------------------------------------------------- workers */}
       <SectionHeading className="mt-8">Workers</SectionHeading>
       <ul className="mt-3 divide-y divide-edge/60 overflow-hidden rounded-2xl border border-edge bg-surface">
-        {workers.map((row) => (
-          <WorkerCard key={row.key} row={row} />
-        ))}
+        {workers.map((row) => {
+          const pulse = doc.workers.find((worker) => worker.worker_id === row.key);
+          return <WorkerCard key={row.key} row={row} estimate={pulse?.job_id ? estimates[pulse.job_id] : null}
+            serviceState={pulse?.lane === "hand" ? services.hand : pulse?.lane === "fast" ? services.fast : services.main} />;
+        })}
       </ul>
 
       {stalled.length > 0 && (
@@ -305,6 +314,8 @@ export function ProcessingSection() {
                     {sourceName(job.original_name, job.kind)}
                   </p>
                 )}
+                <ProcessingEstimateNote compact className="mt-1" estimate={estimates[job.id]} jobStatus="queued"
+                  serviceState={services[job.kind === "hand_cut" ? "hand" : "main"]} />
               </div>
               <div className="shrink-0 text-right">
                 <p
@@ -314,11 +325,6 @@ export function ProcessingSection() {
                 >
                   {durationLabel(job.waited)}
                 </p>
-                {job.estimated_work_seconds ? (
-                  <p className="mt-0.5 text-xs text-zinc-600">
-                    about {durationLabel(job.estimated_work_seconds)} of work
-                  </p>
-                ) : null}
               </div>
             </li>
           ))}

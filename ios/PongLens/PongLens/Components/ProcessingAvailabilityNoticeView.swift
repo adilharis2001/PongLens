@@ -21,6 +21,9 @@ struct MatchProcessingCard: View {
     let warning: String?
     let progress: Int?
     let sendsReadyEmail: Bool
+    var estimate: ProcessingEstimate? = nil
+    var jobStatus: String? = nil
+    var serviceState: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -34,6 +37,7 @@ struct MatchProcessingCard: View {
                 ProgressView(value: Double(min(100, max(4, progress ?? 0))) / 100).tint(PL.cyan)
                 Text(sendsReadyEmail ? "You can leave this page. We email you when the match is ready." : "You can leave this page and return to your match later.")
                     .font(.plBody).foregroundStyle(PL.text400)
+                ProcessingEstimateNote(estimate: estimate, jobStatus: jobStatus, serviceState: serviceState)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -778,7 +778,8 @@ struct HomeScreen: View {
                             score: scores.scores[match.id],
                             liveJob: library.liveJob(for: match),
                             processingLabel: library.processingLabel(for: match),
-                            processingUnavailable: library.availabilityNotice(for: match) != nil
+                            processingUnavailable: library.availabilityNotice(for: match) != nil,
+                            processingFeedback: library.processingFeedback[match.id]
                         )
                     }
                     .buttonStyle(.plain)

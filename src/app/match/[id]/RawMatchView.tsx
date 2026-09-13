@@ -26,6 +26,7 @@ import { AllowanceRecovery } from "@/components/AllowanceRecovery";
 import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
 import { useProcessingService } from "@/lib/useProcessingService";
 import { availabilityNotice, serviceLane, processingContext, processingExitMessage } from "@/lib/processingAvailability";
+import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
 import { ProcessingAvailabilityNotice } from "@/components/ProcessingAvailabilityNotice";
 import { cameraViewWarning, processingStageLabel } from "@/lib/processingFeedback";
 import { NoteComposer, NoteItem } from "./Notes";
@@ -730,6 +731,7 @@ export function RawMatchView({
           <p className="mt-3 text-sm text-zinc-400">
             {processingExitMessage(availabilityContext)}
           </p>
+          <ProcessingEstimateNote estimate={feedback?.estimate} jobStatus={feedback?.job_status ?? job?.status ?? null} serviceState={serviceState} />
           </>}
           {cameraWarning && <p className="mt-3 text-sm text-amber-300/90">{cameraWarning}</p>}
         </section>

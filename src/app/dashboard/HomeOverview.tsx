@@ -3,6 +3,7 @@ import { useProcessingFeedback } from "@/lib/useProcessingFeedback";
 import { useProcessingService } from "@/lib/useProcessingService";
 import { availabilityNotice, serviceLane, summarizeProcessingWork } from "@/lib/processingAvailability";
 import { ProcessingAvailabilityNoticeContent } from "@/components/ProcessingAvailabilityNotice";
+import { ProcessingEstimateNote } from "@/components/ProcessingEstimateNote";
 import { processingStageLabel } from "@/lib/processingFeedback";
 
 import Link from "next/link";
@@ -595,6 +596,9 @@ export function HomeOverview({
                           <ScorePill chip={scoreChips.get(m.id)!} />
                         )}
                     </p>
+                    {m.user_id === userId && <ProcessingEstimateNote compact className="mt-1"
+                      estimate={processingFeedback[m.id]?.estimate} jobStatus={processingFeedback[m.id]?.job_status ?? null}
+                      serviceState={services[processingFeedback[m.id]?.lane ?? "main"]} />}
                   </div>
                 </>
               );
