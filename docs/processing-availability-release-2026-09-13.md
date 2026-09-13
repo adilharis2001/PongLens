@@ -1,6 +1,6 @@
 # Processing availability release preparation
 
-This release is being prepared, not deployed. It keeps the existing serve-opening worker and adds clear waiting messages, quiet retries of the initial match-ready email, and a rough queue-aware completion estimate. Web and iOS screenshots require Adil's approval before publication.
+This release is being prepared, not deployed. It keeps the existing serve-opening worker and adds clear waiting messages, quiet retries of the initial match-ready email, and a rough queue-aware completion estimate. Adil approved the reviewed web and iOS wording and layout on September 13, 2026; remaining verification gates still apply.
 
 | Ownership | Record |
 | --- | --- |
@@ -40,7 +40,7 @@ This release is being prepared, not deployed. It keeps the existing serve-openin
 | Nativebuild+simulatorscreens | Build and main-screen renders passed. In-flight recording transfer/background-resume not exercised end to end; remains a device-check gate |
 | Independentreviews | Whole-branch review found one legacy YouTube mail regression; fixedf9aad58d and scoped rereview clean. No other Critical/Important findings |
 | Sealedpackageall8offlinechecks+integrity | Rebuilt final candidate checks running; prior85137860 passed8/8 but is not the activation target |
-| Screenshotapproval | Required before publication; gallery http://127.0.0.1:8774/review |
+| Screenshotapproval | Approved by Adil September13,2026: “Yeah I think that's fine. It looks good”, in response to the web/iOS gallery http://127.0.0.1:8774/review. Approval covers the shown wording/layout, not a claim that remaining checks or deployment are complete |
 
 | Operational contract | Required at release |
 | --- | --- |
