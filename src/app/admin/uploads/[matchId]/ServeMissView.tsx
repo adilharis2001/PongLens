@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MutableRefObject,
   type ReactNode,
 } from "react";
 import { netSegmentFromQuad } from "../../../research/serve-accuracy/netDeath";
@@ -30,6 +31,7 @@ import {
   type TableTrackPoint,
   type TableTrackSegment,
 } from "../serveMiss";
+import type { PlayheadHandle } from "../pointLabels";
 
 /**
  * One card the assembler built without a serve, and why.
@@ -120,6 +122,8 @@ export function ServeMissView({
   labels,
   onLabel,
   side,
+  beside,
+  playhead,
   autoPlay = false,
 }: {
   data: ServeMissData;
@@ -136,6 +140,17 @@ export function ServeMissView({
    *  pane fills this with the note box, the themes and the card's
    *  readings; the phone and the themes page leave it empty. */
   side?: ReactNode;
+  /** Rendered BESIDE the map rather than under it, so a panel that is
+   *  shorter than the map costs the column no height at all. The upload
+   *  page puts the card's own labels here — the map is 208px wide inside
+   *  a 408px column, and the 188px left over is exactly where they fit.
+   *  It wraps under the map when the column is too narrow to hold both. */
+  beside?: ReactNode;
+  /** Handed the picture, so a caller outside this component can file a
+   *  moment at the frame on screen. A ref rather than a callback on
+   *  purpose: the time changes every frame, and a prop that changed with
+   *  it would re-render the whole panel sixty times a second. */
+  playhead?: MutableRefObject<PlayheadHandle | null>;
   /** Start playing as soon as the card changes, instead of parking on the
    *  first frame. Opt-in: on the upload page's pane every card arrives
    *  from a click and is meant to be watched, but the themes page renders
@@ -171,6 +186,37 @@ export function ServeMissView({
     },
     [cutOffset]
   );
+
+  /* The frame on screen, readable on demand by a caller outside this
+     component. A ref rather than a prop because `t` changes on every
+     frame: a callback would re-render whatever is beside the map sixty
+     times a second, and the only moment anyone needs the number is the
+     moment they tap. */
+  const tRef = useRef(t);
+  tRef.current = t;
+  useEffect(() => {
+    if (!playhead) return;
+    const host = playhead;
+    host.current = {
+      // The VIDEO's own clock, not the drawn-frame state. They agree while
+      // a frame is on screen, and only the video is right during a seek —
+      // which is exactly when someone scrubs to the moment a point ended
+      // and reaches for Split. `t` stands in where no picture is mounted.
+      time: () => {
+        const v = videoRef.current;
+        return v && Number.isFinite(v.currentTime)
+          ? v.currentTime - cutOffset
+          : tRef.current;
+      },
+      seek: (sourceSeconds: number) => {
+        const v = videoRef.current;
+        if (v) v.currentTime = sourceSeconds + cutOffset;
+      },
+    };
+    return () => {
+      host.current = null;
+    };
+  }, [playhead, cutOffset]);
 
   // A new card must not inherit the last card's selection: the times would
   // point at a bounce this card does not have.
@@ -512,14 +558,24 @@ export function ServeMissView({
           the video column leaves once the themes and the note box have
           had their share — the picker below it stands open now. */}
       <div className="flex min-w-0 flex-col gap-3 lg:flex-[2]">
-        <div className="w-40 shrink-0 self-start sm:w-48 lg:w-full lg:max-w-[13rem]">
-          <Court
-            card={card}
-            t={t}
-            labels={labels}
-            selectedT={selectedT}
-            onSelect={onLabel ? selectBounce : undefined}
-          />
+        {/* Anything the caller puts BESIDE the map rides in the space the
+            map's cap leaves over — 208px of table inside a 408px column,
+            so a panel of buttons costs this column no height at all. It
+            wraps underneath on a narrower window, where there is no space
+            to share. */}
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="w-40 shrink-0 sm:w-48 lg:w-[13rem] lg:max-w-full">
+            <Court
+              card={card}
+              t={t}
+              labels={labels}
+              selectedT={selectedT}
+              onSelect={onLabel ? selectBounce : undefined}
+            />
+          </div>
+          {beside && (
+            <div className="min-w-[11rem] flex-1">{beside}</div>
+          )}
         </div>
         {side}
       </div>

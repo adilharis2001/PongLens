@@ -41,6 +41,7 @@ import {
   type PlacementHypothesisJson,
   type PlacementShotJson,
 } from "./uploadView.ts";
+import { personAtEnd } from "./pointLabels.ts";
 
 export interface MissBounce {
   t: number;
@@ -779,9 +780,11 @@ export function v3ServerOf(
   half: "near" | "far" | null | undefined,
   sideThisGame: string | null | undefined
 ): "user" | "opponent" | null {
-  if (!half) return null;
-  if (sideThisGame !== "near" && sideThisGame !== "far") return null;
-  return half === sideThisGame ? "user" : "opponent";
+  // The turn from an end into a person is `personAtEnd`, which the admin's
+  // own server and winner marks go through as well. One rule, one place:
+  // written twice it would be corrected once, which is how the placement
+  // mirror survived for eight months.
+  return personAtEnd(half, sideThisGame);
 }
 
 /**
