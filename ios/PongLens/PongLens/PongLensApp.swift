@@ -47,6 +47,11 @@ struct PongLensApp: App {
 
     init() {
         #if DEBUG && targetEnvironment(simulator)
+        if ProcessingAvailabilityFixture.isEnabled {
+            AvailabilityQAData.verifyIsolation()
+            URLProtocol.registerClass(AvailabilityQAURLProtocol.self)
+            return
+        }
         if ScorekeeperQAFixture.isEnabled || ProcessingAvailabilityFixture.isEnabled { return }
         #endif
         // Wake the queue at launch: it reattaches to in-flight background

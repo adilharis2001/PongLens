@@ -1,5 +1,6 @@
 #if DEBUG && targetEnvironment(simulator)
 import SwiftUI
+import Supabase
 
 /// A network-free harness for the actual processing card and inline notice.
 /// Launch: --qa-processing-availability main-down --qa-availability-context saved_match
@@ -21,7 +22,7 @@ enum ProcessingAvailabilityFixture {
         case "hand-down": result.hand = .unavailable
         case "maintenance": result.main = .maintenance; result.fast = .maintenance; result.hand = .maintenance
         case "unknown", "failed-refresh": result = .unknown
-        case "recovered": break
+        case "healthy", "recovered": break
         default: result.main = .unavailable
         }
         return result
@@ -44,11 +45,70 @@ enum ProcessingAvailabilityFixture {
 }
 
 struct ProcessingAvailabilityFixtureView: View {
+    @State private var app = ProcessingAvailabilityFixture.makeAppState()
+    @State private var library = LibraryStore()
+    @State private var router = Router()
+    @State private var scores = ScoresStore()
+    @State private var journal = JournalStore()
+    @State private var notifications = NotificationsStore()
+    @State private var coaching = CoachingStore()
+    @State private var ready = false
+    @State private var exportOpen = false
     private var context: AvailabilityContext { ProcessingAvailabilityFixture.context }
     private var lane: ProcessingServiceLane {
         switch context { case .hand: .hand; case .fast: ProcessingAvailabilityFixture.status.clipLane; default: .main }
     }
     var body: some View {
+        Group {
+            if let screen = ProcessingAvailabilityFixture.argument("--qa-availability-screen") {
+                if ready {
+                    Group {
+                        switch screen {
+                        case "home", "matches": MainTabView()
+                        case "match": NavigationStack { MatchDetailScreen(match: AvailabilityQAData.match()) }
+                        case "upload": UploadScreen()
+                        case "export":
+                            MainTabView()
+                                .sheet(isPresented: $exportOpen) {
+                                    ExportSheet(match: AvailabilityQAData.match(ready: true), starredCount: 3)
+                                        .presentationDetents([.medium, .large])
+                                        .presentationBackground(PL.surface)
+                                        .presentationDragIndicator(.visible)
+                                }
+                        case "import-status":
+                            ZStack {
+                                ArenaBackground()
+                                ImportedVideoStatusView(jobID: AvailabilityQAData.importID)
+                                    .padding(20).plCard().padding(20)
+                            }
+                        default: componentPreview
+                        }
+                    }
+                } else {
+                    ZStack { ArenaBackground(); ProgressView() }
+                }
+            } else {
+                componentPreview
+            }
+        }
+        .environment(app).environment(library).environment(router)
+        .environment(scores).environment(journal)
+        .environment(notifications).environment(coaching)
+        .task {
+            // The SDK owns its normal session checks, seeded only in memory.
+            precondition(supa.auth.currentUser?.id == AvailabilityQAData.ownerID)
+            await ProcessingServiceStore.shared.refresh()
+            await library.load()
+            router.tab = ProcessingAvailabilityFixture.argument("--qa-availability-screen") == "home" ? .home : .matches
+            journal.loaded = true
+            ready = true
+            exportOpen = ProcessingAvailabilityFixture.argument("--qa-availability-screen") == "export"
+            ProcessingServiceStore.shared.start()
+        }
+        .onDisappear { ProcessingServiceStore.shared.stop() }
+    }
+
+    private var componentPreview: some View {
         ZStack {
             ArenaBackground()
             ScrollView {
@@ -72,8 +132,14 @@ struct ProcessingAvailabilityFixtureView: View {
                 .padding(20)
             }
         }
-        .task { ProcessingServiceStore.shared.start() }
-        .onDisappear { ProcessingServiceStore.shared.stop() }
+    }
+}
+
+extension ProcessingAvailabilityFixture {
+    static func makeAppState() -> AppState {
+        let app = AppState()
+        app.phase = .signedIn(AvailabilityQAData.session)
+        return app
     }
 }
 #endif

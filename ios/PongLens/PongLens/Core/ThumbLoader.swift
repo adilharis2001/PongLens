@@ -37,6 +37,9 @@ final class ThumbLoader {
     /// Bytes, on disk, across launches. Its own store rather than
     /// URLCache.shared so a media flood cannot evict API responses.
     private let session: URLSession = {
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessingAvailabilityFixture.isEnabled { return AvailabilityQAData.urlSession }
+        #endif
         let config = URLSessionConfiguration.default
         config.urlCache = URLCache(
             memoryCapacity: 16 * 1024 * 1024,
