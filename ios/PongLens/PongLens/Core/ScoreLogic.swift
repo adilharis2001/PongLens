@@ -208,15 +208,15 @@ enum ScoreOutcomeAction: Equatable {
 }
 
 enum ScoreOutcomeDecision: Equatable {
-    case pauseForSplit(atCut: Double, certain: Bool)
+    case offerSplitWhilePlaying(atCut: Double, certain: Bool, tailEnd: Double)
     case continueExistingFlow
     case stay
 }
 
-/// First answers made with a rally's worth of footage still unseen stop on
-/// the current point and ask whether its card should be split. Corrections
-/// stay where they are, while late first answers keep each action's existing
-/// advance behavior.
+/// First answers made with a rally's worth of footage still unseen play the
+/// current card to its full padded end while asking whether it should be
+/// split. Corrections stay where they are, while late first answers keep each
+/// action's existing advance behavior.
 func scoreOutcomeDecision(
     _ action: ScoreOutcomeAction, for p: MatchPoint, hadOutcome: Bool,
     now: Double, pad: ClipPad
@@ -232,9 +232,10 @@ func scoreOutcomeDecision(
     switch action {
     case .winner, .skip:
         let gap = fusedSplitCut(p, pad)
-        return .pauseForSplit(
+        return .offerSplitWhilePlaying(
             atCut: gap ?? max(cutT0 + 0.4, now - SPLIT_LEAD_S),
-            certain: gap != nil
+            certain: gap != nil,
+            tailEnd: end
         )
     }
 }
@@ -247,6 +248,16 @@ func scoreFailureClearsSplitNudge(
     failedPointId: UUID, nudgePointId: UUID?
 ) -> Bool {
     failedActionId == latestActionId && failedPointId == nudgePointId
+}
+
+/// Retiring a split offer also retires the automatic advance only when both
+/// belong to the same point. An ordinary tail, or another point's tail, is
+/// independent state and must keep running.
+func splitNudgeOwnsPlayTail(
+    nudgePointId: UUID?, tailPointId: UUID?
+) -> Bool {
+    guard let nudgePointId, let tailPointId else { return false }
+    return nudgePointId == tailPointId
 }
 
 /// The web's advanceFrom, as a decision. `now` is the playhead at the

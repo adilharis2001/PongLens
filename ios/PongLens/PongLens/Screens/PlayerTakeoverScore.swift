@@ -717,8 +717,8 @@ extension PlayerTakeover {
     }
 
     /// Offered on the point you just answered when a rally's worth of footage
-    /// remains. It sits in the pad while that point is paused, so Split and No
-    /// are the two explicit ways forward.
+    /// remains. It stays in the pad while the full padded card plays, so the
+    /// scorer can keep watching before choosing Split or No.
     @ViewBuilder
     var splitNudgeOffer: some View {
         if let nudge = splitNudge,
@@ -733,7 +733,7 @@ extension PlayerTakeover {
                 Spacer(minLength: 4)
                 offerPill("Split", tint: PL.warning) {
                     let p = points.first { $0.id == nudge.pointId }
-                    splitNudge = nil
+                    clearSplitNudge()
                     // Splitting outright lands the cut sight-unseen. Open
                     // Modify with the suggested cut seeded instead: the user
                     // SEES where the split goes and confirms it.
@@ -749,8 +749,7 @@ extension PlayerTakeover {
                 // you did not need to spend.
                 offerPill("No", tint: PL.text300) {
                     let p = points.first { $0.id == nudge.pointId }
-                    splitNudge = nil
-                    playTail = nil
+                    clearSplitNudge()
                     if let p { jumpAfter(p) }
                 }
             }

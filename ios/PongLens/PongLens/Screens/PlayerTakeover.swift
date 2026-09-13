@@ -295,8 +295,8 @@ struct PlayerTakeover: View {
     /// nothing else.
     @State var advanceAfterSheet: UUID?
 
-    // Offers. Start-here never blocks an answer; the split decision pauses
-    // the answered point until Split, No, Undo or navigation resolves it.
+    // Offers. Neither blocks an answer: the split decision stays with the
+    // answered point while its remaining full padded card keeps playing.
     @State var splitNudge: SplitNudge?
     @State var startHereDismissed = false
 
@@ -2924,7 +2924,7 @@ struct PlayerTakeover: View {
     ) {
         // A new score action supersedes any decision raised by the previous
         // one, even when the new write later fails.
-        splitNudge = nil
+        clearSplitNudge()
         nextScoreActionId += 1
         let entry = PendingScoreUndo(
             actionId: nextScoreActionId,
@@ -2943,7 +2943,7 @@ struct PlayerTakeover: View {
                 failedPointId: entry.pointId,
                 nudgePointId: splitNudge?.pointId
             ) {
-                splitNudge = nil
+                clearSplitNudge()
             }
             undoStack.removeAll { step in
                 if case .score(let candidate) = step {
@@ -3032,8 +3032,10 @@ struct PlayerTakeover: View {
             .winner(side), for: target, hadOutcome: hadOutcome,
             now: currentT, pad: pad
         ) {
-        case .pauseForSplit(let atCut, let certain):
-            pauseForSplitDecision(target, atCut: atCut, certain: certain)
+        case .offerSplitWhilePlaying(let atCut, let certain, let tailEnd):
+            offerSplitWhilePlaying(
+                target, atCut: atCut, certain: certain, tailEnd: tailEnd
+            )
         case .continueExistingFlow:
             advance(from: target)
         case .stay:
@@ -3045,7 +3047,7 @@ struct PlayerTakeover: View {
         guard let target = tapTarget else { return }
         // Pressing the action again resolves any decision it raised. The
         // last point has no navigation call below to clear it for us.
-        splitNudge = nil
+        clearSplitNudge()
         if target.isLet {
             // Already skipped — the press means "move on". Never a silent
             // no-op, and never an undo entry either: nothing changed.
@@ -3074,8 +3076,10 @@ struct PlayerTakeover: View {
             .skip, for: target, hadOutcome: hadOutcome,
             now: currentT, pad: pad
         ) {
-        case .pauseForSplit(let atCut, let certain):
-            pauseForSplitDecision(target, atCut: atCut, certain: certain)
+        case .offerSplitWhilePlaying(let atCut, let certain, let tailEnd):
+            offerSplitWhilePlaying(
+                target, atCut: atCut, certain: certain, tailEnd: tailEnd
+            )
         case .continueExistingFlow:
             jumpAfter(target)
         case .stay:
@@ -3174,16 +3178,33 @@ struct PlayerTakeover: View {
         }
     }
 
-    /// Hold an early first answer on its current point until the scorer says
-    /// whether the unseen footage is a second rally. The existing nudge owns
-    /// both exits: Split opens Modify at this seed, and No moves on.
-    func pauseForSplitDecision(_ p: MatchPoint, atCut: Double, certain: Bool) {
-        playTail = nil
-        endPauseBlockedId = nil
+    /// Keep an early first answer's full padded card playing while the scorer
+    /// decides whether its unseen footage is a second rally. Split pauses and
+    /// opens Modify at the seed; No moves on immediately; reaching the tail
+    /// advances through the existing path.
+    func offerSplitWhilePlaying(
+        _ p: MatchPoint, atCut: Double, certain: Bool, tailEnd: Double
+    ) {
+        playTail = PlayTail(id: p.id, end: tailEnd)
+        endPauseBlockedId = p.id
         endPausedId = nil
         splitNudge = SplitNudge(pointId: p.id, atCut: atCut, certain: certain)
-        player.pause()
-        showChrome(autoHide: false)
+        play()
+    }
+
+    /// Retire the visible offer and only the automatic tail advance it owns.
+    /// This containment matters when a correction or failed save makes the
+    /// point unanswered again while the old tail is still playing.
+    func clearSplitNudge() {
+        let nudgePointId = splitNudge?.pointId
+        if splitNudgeOwnsPlayTail(
+            nudgePointId: nudgePointId,
+            tailPointId: playTail?.id
+        ) {
+            playTail = nil
+            if endPauseBlockedId == nudgePointId { endPauseBlockedId = nil }
+        }
+        splitNudge = nil
     }
 
     func showEndedNudge(_ pointId: UUID) {
@@ -3238,7 +3259,7 @@ struct PlayerTakeover: View {
 
     func undo() {
         guard !scoreUndoInFlight, let step = undoStack.popLast() else { return }
-        splitNudge = nil
+        clearSplitNudge()
         switch step {
         case .score(let pending):
             let originalIndex = undoStack.count
@@ -3579,6 +3600,13 @@ struct PlayerTakeover: View {
             if let p = points.first(where: { $0.id == tail.id }) { jumpAfter(p) }
             return
         }
+        // An offered tail owns playback until the full padded card ends.
+        // Do not let a saved winner timestamp or an overlapping neighbour's
+        // boundary introduce a pause while that decision is still visible.
+        if splitNudgeOwnsPlayTail(
+            nudgePointId: splitNudge?.pointId,
+            tailPointId: playTail?.id
+        ) { return }
 
         // Re-arm: playing well before a consumed boundary again means the
         // user scrubbed back to REPLAY the point, so its end may stop the
@@ -3739,7 +3767,15 @@ struct PlayerTakeover: View {
     }
 
     func play() {
-        splitNudge = nil
+        // Manual resume and a natural cut-to-own-clip handoff are still the
+        // same playback run. Preserve only an offer that owns this tail;
+        // every stale or detached offer is retired.
+        if !splitNudgeOwnsPlayTail(
+            nudgePointId: splitNudge?.pointId,
+            tailPointId: playTail?.id
+        ) {
+            clearSplitNudge()
+        }
         scorePlaybackRun.invalidate()
         lastPlayAt = Date()
         runStartT = currentT
@@ -3751,7 +3787,7 @@ struct PlayerTakeover: View {
     }
 
     func seek(to seconds: Double) {
-        splitNudge = nil
+        clearSplitNudge()
         scorerSessionEffects.navigate()
         scorePlaybackRun.invalidate()
         scoreSeekGeneration += 1
@@ -3873,6 +3909,10 @@ struct PlayerTakeover: View {
             if let tp = points.first(where: { $0.id == tail.id }) { jumpAfter(tp) }
             return
         }
+        if splitNudgeOwnsPlayTail(
+            nudgePointId: splitNudge?.pointId,
+            tailPointId: playTail?.id
+        ) { return }
         var stop = isUnscored(p)
             ? pauseEnd(p, pad, nextStart: nil)
             : effectiveEnd(p, pad, scoreEnds)

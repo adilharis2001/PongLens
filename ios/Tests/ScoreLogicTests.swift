@@ -351,25 +351,25 @@ func runAllChecks() {
            "the last rally has nowhere to go")
     }
 
-    suite("first outcome pauses for an early split decision") {
+    suite("first outcome offers a split while its full tail plays") {
         // paddedEnd = 16.6, so answering at 12.0 leaves 4.6 seconds.
         let p = mkPoint(1, cutT0: 10, t0: 100, t1: 104)
-        let expected = ScoreOutcomeDecision.pauseForSplit(
-            atCut: 11.4, certain: false
+        let expected = ScoreOutcomeDecision.offerSplitWhilePlaying(
+            atCut: 11.4, certain: false, tailEnd: 16.6
         )
 
         eq(scoreOutcomeDecision(
             .winner(.user), for: p, hadOutcome: false,
             now: 12.0, pad: NORMAL
-        ), expected, "an early Me answer pauses on the current point")
+        ), expected, "an early Me answer keeps the full current card playing")
         eq(scoreOutcomeDecision(
             .winner(.opponent), for: p, hadOutcome: false,
             now: 12.0, pad: NORMAL
-        ), expected, "an early opponent answer pauses on the current point")
+        ), expected, "an early opponent answer keeps the full current card playing")
         eq(scoreOutcomeDecision(
             .skip, for: p, hadOutcome: false,
             now: 12.0, pad: NORMAL
-        ), expected, "an early Skip or let pauses on the current point")
+        ), expected, "an early Skip or let keeps the full current card playing")
 
         eq(scoreOutcomeDecision(
             .winner(.user), for: p, hadOutcome: false,
@@ -396,7 +396,7 @@ func runAllChecks() {
         eq(scoreOutcomeDecision(
             .winner(.user), for: fused, hadOutcome: false,
             now: 12.0, pad: NORMAL
-        ), .pauseForSplit(atCut: 14.5, certain: true),
+        ), .offerSplitWhilePlaying(atCut: 14.5, certain: true, tailEnd: 22.6),
            "gap evidence seeds the existing Modify split and firms the nudge")
     }
 
@@ -420,6 +420,16 @@ func runAllChecks() {
             failedActionId: 4, latestActionId: 4,
             failedPointId: point, nudgePointId: nil
         ), "a failure with no visible decision is contained")
+
+        check(splitNudgeOwnsPlayTail(
+            nudgePointId: point, tailPointId: point
+        ), "a matching decision owns the tail it must preserve or cancel together")
+        check(!splitNudgeOwnsPlayTail(
+            nudgePointId: point, tailPointId: other
+        ), "a decision cannot preserve or cancel another point's tail")
+        check(!splitNudgeOwnsPlayTail(
+            nudgePointId: nil, tailPointId: point
+        ), "no decision never owns an ordinary tail")
     }
 
     // MARK: - Effective end (the winner tap, 2026-08-25)
