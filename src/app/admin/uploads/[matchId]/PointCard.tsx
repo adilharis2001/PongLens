@@ -24,7 +24,7 @@ import {
   type ServeMissData,
 } from "../serveMiss";
 import type { CardReading } from "../pointReadings";
-import { v3ServerOf } from "../serveMiss";
+import { crossingDisputesServer, v3ServerOf } from "../serveMiss";
 import { CardFacts } from "./CardFacts";
 import { CardReview, type Theme } from "./CardReview";
 import { ServeMissView } from "./ServeMissView";
@@ -228,20 +228,28 @@ export function PointCard({
               const who = v3ServerOf(miss.serve_half, sideThisGame);
               const disagrees =
                 who !== null && serve?.server != null && who !== serve.server;
+              // The crossings' own read of the same question. It flags and
+              // never corrects: on Adil's marks it caught 6 of 8 wrong
+              // server reads but disputed 3 of 10 right ones, and a second
+              // opinion wrong three times in ten is not one to overrule a
+              // detector with.
+              const doubted = crossingDisputesServer(miss);
               return (
                 <span
                   title={
-                    disagrees
-                      ? "V3 read the server at the other end from the one the scoring rotation counts out"
-                      : "The end V3 read as the server's, from the half its qualifying bounce landed on"
+                    doubted
+                      ? "The net crossings put the serve's first bounce on the other half, so this end is doubtful. The crossings are right about six times in eight when they dispute it, and wrong about three times in ten when they agree with nothing."
+                      : disagrees
+                        ? "V3 read the server at the other end from the one the scoring rotation counts out"
+                        : "The end V3 read as the server's, from the half its qualifying bounce landed on"
                   }
                   className={
-                    disagrees
+                    doubted || disagrees
                       ? "rounded border border-amber-400/40 px-1.5 py-px text-amber-300"
                       : "rounded border border-edge px-1.5 py-px text-zinc-400"
                   }
                 >
-                  V3: {miss.serve_half} end
+                  V3: {miss.serve_half} end{doubted ? " ?" : ""}
                 </span>
               );
             })()}

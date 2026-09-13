@@ -818,6 +818,56 @@ export function v3ServerAgreement(
   return { agree, compared };
 }
 
+/**
+ * Does the net crossing order dispute which end V3 read as the server?
+ *
+ * V3 reads the server off one thing: the half its qualifying bounce landed
+ * on. The crossings are a second, independent opinion, and they cannot be
+ * argued with on order alone — a ball that bounces BEFORE the first net
+ * crossing after contact has not crossed yet, so that bounce is on the
+ * server's own side. Take the first on-surface bounce AFTER that crossing,
+ * which is the receiver's half, and the server is the other end.
+ *
+ * WHY THIS FLAGS RATHER THAN CORRECTS. Against Adil's own marks on 20
+ * judged cards it caught 6 of the 8 wrong server reads, but it also
+ * disputed 3 of the 10 that were right. Flipping the answer on a second
+ * opinion that is wrong three times in ten would trade visible errors for
+ * confident invisible ones. A card the two disagree about is a card worth
+ * looking at, and that is all this claims.
+ *
+ * Distinct from requiring a crossing BETWEEN a serve's two bounces, which
+ * was measured dead on 2026-09-12: it cost twelve points of landing
+ * coverage and bought no accuracy, because a low serve often trips no
+ * crossing at all. This reads the ORDER of the ones that did fire.
+ */
+export function crossingDisputesServer(card: {
+  serve_s?: number | null;
+  serve_arrival_s?: number | null;
+  serve_half?: "near" | "far" | null;
+  crossings?: number[];
+  bounces?: { t: number; v: number | null; onSurface: boolean }[];
+}): boolean {
+  const contact = card.serve_s;
+  const arrival = card.serve_arrival_s;
+  const half = card.serve_half;
+  if (contact == null || arrival == null || !half) return false;
+  const after = (card.crossings ?? [])
+    .filter((t) => t > contact)
+    .sort((a, b) => a - b);
+  if (!after.length) return false;
+  const first = after[0];
+  // only speaks when the bounce precedes the crossing; otherwise it has
+  // nothing to say rather than something weak to say
+  if (arrival >= first) return false;
+  const next = (card.bounces ?? []).find(
+    (b) => b.t > first && b.v !== null && b.onSurface
+  );
+  if (!next || next.v === null) return false;
+  const receiver = next.v < TABLE_L_M / 2 ? "near" : "far";
+  const server = receiver === "near" ? "far" : "near";
+  return server !== half;
+}
+
 export function refusedCards(data: ServeMissData | null): MissCard[] {
   if (!data) return [];
   return data.cards.filter((c) => c.serve_s === null || c.serve_s === undefined);

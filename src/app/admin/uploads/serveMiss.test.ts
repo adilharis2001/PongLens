@@ -685,3 +685,35 @@ test("serve prediction accuracy counts only the cards where both answers exist",
   ];
   assert.deepEqual(serveMiss.v3ServerAgreement(cards), { agree: 1, compared: 2 });
 });
+
+test("the crossings dispute a server read only when the order actually says so", () => {
+  // the serve bounces, THEN the ball crosses: that bounce is the server's
+  // own half. Receiver's first bounce is far, so the server was near — and
+  // V3 saying "far" is disputed.
+  assert.equal(serveMiss.crossingDisputesServer({
+    serve_s: 36.4, serve_arrival_s: 37.25, serve_half: "far",
+    crossings: [37.32, 38.32],
+    bounces: [{ t: 37.63, v: 2.47, onSurface: true }],
+  }), true);
+  // same evidence, V3 says "near": the crossings agree, no dispute
+  assert.equal(serveMiss.crossingDisputesServer({
+    serve_s: 36.4, serve_arrival_s: 37.25, serve_half: "near",
+    crossings: [37.32, 38.32],
+    bounces: [{ t: 37.63, v: 2.47, onSurface: true }],
+  }), false);
+  // the bounce comes AFTER the crossing: the order says nothing, so nor does this
+  assert.equal(serveMiss.crossingDisputesServer({
+    serve_s: 36.4, serve_arrival_s: 37.90, serve_half: "far",
+    crossings: [37.32], bounces: [{ t: 38.2, v: 2.47, onSurface: true }],
+  }), false);
+  // no crossing fired at all — a low serve. Silent, not suspicious.
+  assert.equal(serveMiss.crossingDisputesServer({
+    serve_s: 36.4, serve_arrival_s: 37.25, serve_half: "far",
+    crossings: [], bounces: [{ t: 37.63, v: 2.47, onSurface: true }],
+  }), false);
+  // nothing to read it against
+  assert.equal(serveMiss.crossingDisputesServer({
+    serve_s: 36.4, serve_arrival_s: 37.25, serve_half: null,
+    crossings: [37.32], bounces: [{ t: 37.63, v: 2.47, onSurface: true }],
+  }), false);
+});
