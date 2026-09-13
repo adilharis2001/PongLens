@@ -25,6 +25,8 @@ const css = readdirSync(cssRoot).filter((f) => f.endsWith(".css")).map((f) => re
 createServer((req, res) => {
   const path = new URL(req.url, "http://127.0.0.1").pathname;
   if (path === "/bundle.js") { res.setHeader("Content-Type", "text/javascript"); res.end(bundle.outputFiles[0].contents); }
+  else if (path === "/review") { res.setHeader("Content-Type", "text/html"); res.end(readFileSync(resolve(here, "review.html"))); }
+  else if (/^\/review-images\/[a-z0-9-]+\.png$/.test(path)) { res.setHeader("Content-Type", "image/png"); try { res.end(readFileSync(resolve("/private/tmp/ponglens-availability-review", path.split("/").pop()))); } catch { res.writeHead(404); res.end(); } }
   else if (path === "/style.css") { res.setHeader("Content-Type", "text/css"); res.end(css); }
   else if (/^\/media\/[a-zA-Z0-9_.-]+\.woff2$/.test(path)) { res.setHeader("Content-Type", "font/woff2"); try { res.end(readFileSync(resolve(repo, ".next/static", path.slice(1)))); } catch { res.writeHead(404); res.end(); } }
   else { res.setHeader("Content-Type", "text/html"); res.setHeader("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; media-src 'self' blob:"); res.end('<!doctype html><html class="dark"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Processing availability preview</title><link rel="stylesheet" href="/style.css"></head><body style="background:#09090d;color:#fafafa"><div id="root"></div><script src="/bundle.js"></script></body></html>'); }
