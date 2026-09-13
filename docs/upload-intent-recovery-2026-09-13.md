@@ -1,6 +1,6 @@
 # Upload choice and readiness correction
 
-This change hides internal video-check estimates and preserves explicit processing choices when the player changes the upload type. iOS persists and retries processing requests using a server receipt that prevents duplicate claims after lost replies. Adil explicitly waived screenshot approval for this fix and authorized rollout on September 13; publication is in progress.
+This change hides internal video-check estimates and preserves explicit processing choices when the player changes the upload type. iOS persists and retries processing requests using a server receipt that prevents duplicate claims after lost replies. Web and backend are live; Apple accepted combined iOS build 196 for processing on September 13, after Adil explicitly waived screenshot approval for this fix.
 
 | Contract | Implementation |
 | --- | --- |
@@ -37,3 +37,13 @@ This change hides internal video-check estimates and preserves explicit processi
 | Production baseline | `02b72c93`, including latest Scorekeeper continuous playback and serve-landing research UI, merged without conflicts. Full web build and focused regressions passed on combined source. |
 | iOS | Build 196 reserved by this task in coordination with ScoreKeeper UI Improvements. Single combined upload; no external tester notifications or group changes. |
 | Screenshot gate | Explicitly waived by Adil for this bugfix. |
+
+| Production verification | Result |
+| --- | --- |
+| App source | `05b6256a0db06cadc5021a893783cc51437619ef`, includes Scorekeeper `02b72c93`. |
+| Web | Vercel `dpl_HKmrAH7v3CGfvFx2VKHJocipdTAe` READY, commit check succeeded, `www.ponglens.com` alias verified and HTTP 200 after readiness. |
+| Database | Exactly migration `20260913120000` applied and ledger verified. Private receipt permissions/RLS checked; no standalone-check or queue-only ready estimate exposed. No production jobs created for verification. |
+| iOS | Archive version 196 verified; App Store Connect upload succeeded at 2026-09-13 15:56:35 UTC. Apple processing is not proof of TestFlight availability or device installation. |
+| Notifications | No external tester notification or external group changes; no test customer emails. |
+| Worker | No package change, restart or processing replay. |
+| Rollback | Revert this app change if necessary, but retain the receipt table/function for installed build 196 retries. Do not delete receipts or restore internal-check estimates as part of an app rollback. |
