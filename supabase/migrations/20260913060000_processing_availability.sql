@@ -2,9 +2,9 @@
 -- Raw pulse identity, job ownership, release paths and worker errors stay private.
 begin;
 
-create index jobs_processing_availability_recent_idx
-  on public.jobs(updated_at desc)
-  where status in ('processing','done','failed') and progress>0;
+create index match_processing_events_availability_recent_idx
+  on public.match_processing_events(lane,recorded_at desc)
+  where event in ('progress','ready','released');
 
 create function public.processing_lane_status(p_lane text) returns text
 language sql
@@ -26,29 +26,30 @@ as $$
     when l.beat_at >= now()-interval '90 seconds'
       and l.stage='drained' then 'maintenance'
     when l.beat_at >= now()-interval '90 seconds' then 'available'
-    -- A lane that has never reported remains unknown. Recent job movement
-    -- can prove that a previously observed lane is still working, but it
-    -- cannot prove which process owns work on a machine that has never spoken.
+    -- A lane that has never reported remains unknown. A recent service-only
+    -- receipt can prove a previously observed main/fast lane is still moving,
+    -- but cannot identify a process on a machine that has never spoken. Hand
+    -- has no receipt fallback because match_processing_events cannot store it.
     when l.beat_at is null then 'unknown'
-    when exists (
+    when p_lane in ('main','fast') and exists (
       select 1
-      from public.jobs j
-      where j.status in ('processing','done','failed')
-        and j.progress > 0
-        and j.updated_at >= now()-interval '180 seconds'
-        -- These are the exact kinds accepted by process_job. A lesson recap
-        -- or a future row in jobs must not make the match worker look alive.
+      from public.match_processing_events e
+      join public.jobs j on j.id=e.job_id
+      where e.lane=p_lane
+        and e.recorded_at >= now()-interval '180 seconds'
+        and e.event in ('progress','ready','released')
+        -- Progress zero is an observation, not evidence that work advanced.
+        -- Ready and released are themselves worker-owned terminal movement.
+        and case when e.event='progress' then
+          jsonb_typeof(e.details->'progress')='number'
+          and (e.details->>'progress')::numeric>0
+        else true end
+        -- These are the process_job kinds whose telemetry can name main or
+        -- fast authoritatively. hand_cut is intentionally absent because the
+        -- event schema cannot represent hand; a mislabelled main receipt must
+        -- not make either lane look alive.
         and j.kind in ('match_reprocess','placement_generate','placement_retry',
-          'hand_cut','reclip','reel','content_check','deadspace_cut','youtube_import')
-        and case
-          when j.kind='hand_cut' then 'hand'
-          when j.kind='reclip'
-            or (j.kind='reel' and coalesce(j.options->>'scope','') like 'v:%')
-          then case when (
-            select c.value from public.app_config c where c.key='reclip_lane'
-          )='fast' then 'fast' else 'main' end
-          else 'main'
-        end=p_lane
+          'reclip','reel','content_check','deadspace_cut','youtube_import')
     ) then 'available'
     else 'unavailable'
   end

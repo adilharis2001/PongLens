@@ -178,45 +178,63 @@ test(
         );
       });
 
-      await t.test("recent genuine progress rescues only the lane that routes that job", () => {
+      await t.test("a recent job-row edit cannot rescue a stale worker", () => {
         resetFixture();
-        const result = status(`update app_config set value='fast' where key='reclip_lane';
-          insert into worker_pulse(worker_id,lane,host,beat_at)
-          values
-            ('mac:main','main','mac',now()-interval '1 hour'),
-            ('mac:fast','fast','mac',now()-interval '1 hour'),
-            ('mac:hand','hand','mac',now()-interval '1 hour');
+        const result = status(`insert into worker_pulse(worker_id,lane,host,beat_at)
+          values('mac:main','main','mac',now()-interval '1 hour');
           insert into jobs(id,user_id,status,kind,progress,updated_at,options)
-          values
-            ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1','${OWNER}','processing','deadspace_cut',20,now()-interval '180 seconds','{}'),
-            ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2','${OWNER}','processing','reclip',5,now(),'{}'),
-            ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa3','${OWNER}','done','hand_cut',100,now(),'{}');`);
-        assert.deepEqual(
-          { main: result.main, fast: result.fast, hand: result.hand },
-          { main: "available", fast: "available", hand: "available" },
-        );
+          values('${JOB}','${OWNER}','processing','deadspace_cut',20,now(),'{"edited":true}');`);
+        assert.equal(result.main, "unavailable");
+      });
+
+      await t.test("trusted progress, ready and released receipts prove a stale lane is active", () => {
+        for (const [index, event] of ["progress", "ready", "released"].entries()) {
+          resetFixture();
+          const job = `aaaaaaaa-aaaa-4aaa-8aaa-${String(index + 1).padStart(12, "0")}`;
+          const result = status(`insert into worker_pulse(worker_id,lane,host,beat_at)
+            values('mac:main','main','mac',now()-interval '1 hour');
+            insert into jobs(id,user_id,status,kind,progress,updated_at)
+            values('${job}','${OWNER}','processing','deadspace_cut',20,now()-interval '1 day');
+            insert into match_processing_events(attempt_key,job_id,attempt,lane,event,recorded_at,details)
+            values('${job}:1','${job}',1,'main','${event}',now()-interval '180 seconds',
+              '${event === "progress" ? '{"progress":20}' : "{}"}');`);
+          assert.equal(result.main, "available", event);
+        }
 
         resetFixture();
         const beyondEdge = status(`insert into worker_pulse(worker_id,lane,host,beat_at)
           values('mac:main','main','mac',now()-interval '1 hour');
           insert into jobs(id,user_id,status,kind,progress,updated_at)
-          values('${JOB}','${OWNER}','processing','deadspace_cut',20,now()-interval '180.001 seconds');`);
+          values('${JOB}','${OWNER}','processing','deadspace_cut',20,now()-interval '1 day');
+          insert into match_processing_events(attempt_key,job_id,attempt,lane,event,recorded_at,details)
+          values('${JOB}:1','${JOB}',1,'main','progress',now()-interval '180.001 seconds','{"progress":20}');`);
         assert.equal(beyondEdge.main, "unavailable");
       });
 
-      await t.test("lesson and unknown jobs cannot mask a stale main worker", () => {
-        for (const [index, kind] of ["lesson_video", "future_job"].entries()) {
+      await t.test("wrong-lane, non-progress and unsupported receipts cannot mask main", () => {
+        const cases = [
+          { kind: "deadspace_cut", lane: "fast", event: "progress", details: { progress: 20 } },
+          { kind: "lesson_video", lane: "main", event: "progress", details: { progress: 20 } },
+          { kind: "future_job", lane: "main", event: "released", details: {} },
+          { kind: "hand_cut", lane: "main", event: "progress", details: { progress: 20 } },
+          { kind: "deadspace_cut", lane: "main", event: "claimed", details: {} },
+          { kind: "deadspace_cut", lane: "main", event: "stage", details: {} },
+          { kind: "deadspace_cut", lane: "main", event: "progress", details: { progress: 0 } },
+        ];
+        for (const [index, c] of cases.entries()) {
           resetFixture();
+          const job = `cccccccc-cccc-4ccc-8ccc-${String(index + 1).padStart(12, "0")}`;
           const result = status(`insert into worker_pulse(worker_id,lane,host,beat_at)
             values('mac:main','main','mac',now()-interval '1 hour');
             insert into jobs(id,user_id,status,kind,progress,updated_at)
-            values('cccccccc-cccc-4ccc-8ccc-${String(index + 1).padStart(12, "0")}',
-              '${OWNER}','processing','${kind}',20,now());`);
-          assert.equal(result.main, "unavailable", `${kind} is not handled by the main match worker`);
+            values('${job}','${OWNER}','processing','${c.kind}',20,now()-interval '1 day');
+            insert into match_processing_events(attempt_key,job_id,attempt,lane,event,recorded_at,details)
+            values('${job}:1','${job}',1,'${c.lane}','${c.event}',now(),'${JSON.stringify(c.details)}');`);
+          assert.equal(result.main, "unavailable", `${c.kind}:${c.lane}:${c.event}`);
         }
       });
 
-      await t.test("default, fast-switch, vertical-reel and hand routes match enqueue_job", () => {
+      await t.test("receipts follow supported routes without inventing hand-lane proof", () => {
         const cases = [
           { kind: "match_reprocess", options: {}, switch: "main", lane: "main" },
           { kind: "placement_generate", options: {}, switch: "main", lane: "main" },
@@ -237,8 +255,15 @@ test(
             values('mac:${c.lane}','${c.lane}','mac',now()-interval '1 hour');
             insert into jobs(id,user_id,status,kind,progress,updated_at,options)
             values('bbbbbbbb-bbbb-4bbb-8bbb-${String(index + 1).padStart(12, "0")}','${OWNER}',
-              'processing','${c.kind}',20,now(),'${JSON.stringify(c.options)}');`);
-          assert.equal(result[c.lane], "available", `${c.kind} must route to ${c.lane}`);
+              'processing','${c.kind}',20,now()-interval '1 day','${JSON.stringify(c.options)}');
+            ${c.lane === "hand" ? "" : `insert into match_processing_events(attempt_key,job_id,attempt,lane,event,recorded_at,details)
+              values('route-${index}:1','bbbbbbbb-bbbb-4bbb-8bbb-${String(index + 1).padStart(12, "0")}',1,
+                '${c.lane}','progress',now(),'{"progress":20}');`}`);
+          assert.equal(
+            result[c.lane],
+            c.lane === "hand" ? "unavailable" : "available",
+            `${c.kind} must route to ${c.lane}`,
+          );
           assert.equal(result.clip_lane, c.switch);
           for (const lane of ["main", "fast", "hand"].filter((x) => x !== c.lane)) {
             assert.equal(result[lane], "unknown", `${c.kind} must not prove ${lane}`);
@@ -368,17 +393,18 @@ test(
         );
       });
 
-      await t.test("the recurring recent-work lookup can use its partial updated-at index", () => {
+      await t.test("the recurring receipt lookup can use its partial lane-time index", () => {
         const plan = sql(`set enable_seqscan=off;
           explain (format json,costs off)
-          select 1 from public.jobs j
-          where j.status in ('processing','done','failed')
-            and j.progress>0
-            and j.updated_at>=now()-interval '180 seconds'
+          select 1 from public.match_processing_events e
+          join public.jobs j on j.id=e.job_id
+          where e.lane='main'
+            and e.event in ('progress','ready','released')
+            and e.recorded_at>=now()-interval '180 seconds'
             and j.kind in ('match_reprocess','placement_generate','placement_retry',
-              'hand_cut','reclip','reel','content_check','deadspace_cut','youtube_import')
+              'reclip','reel','content_check','deadspace_cut','youtube_import')
           limit 1;`);
-        assert.match(plan, /jobs_processing_availability_recent_idx/);
+        assert.match(plan, /match_processing_events_availability_recent_idx/);
       });
     } finally {
       sql(`drop database if exists ${database} with (force)`, "postgres");
