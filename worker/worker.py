@@ -1054,11 +1054,18 @@ def retry_match_ready(conn, job_id=None):
     # The monitor imports this module without worker.connect(). Keep its
     # accounting bound to its own connection, leaving any active job alone.
     meter = CostMeter(conn, logger=log)
+
+    def send(payload, key):
+        # The outbox claim and ownership check have already committed. End
+        # this separate accounting transaction before recording delivery:
+        # CostMeter swallows SQL failures, but PostgreSQL still aborts that
+        # transaction. Its context exit rolls back an aborted transaction.
+        with conn:
+            return send_email_payload(
+                payload, idempotency_key=key, cost_meter=meter, require_provider_id=True)
+
     return match_ready_delivery.deliver_one(
-        conn, match_ready_payload,
-        lambda payload, key: send_email_payload(
-            payload, idempotency_key=key, cost_meter=meter, require_provider_id=True),
-        address_suppressed, job_id=job_id)
+        conn, match_ready_payload, send, address_suppressed, job_id=job_id)
 
 
 def notify_job_done(conn, job_id: str, user_id: str):
